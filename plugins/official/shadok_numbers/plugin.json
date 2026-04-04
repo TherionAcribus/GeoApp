@@ -1,0 +1,58 @@
+{
+  "name": "shadok_numbers",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Numération Shadok (GA BU ZO MEU) : conversion décimal ↔ code Shadok.",
+  "author": "MysterAI",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": ["NumeralSystems"],
+  "kinds": ["code"],
+  "brute_force": false,
+  "enable_scoring": true,
+  "accept_accents": false,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "text": {
+      "type": "string",
+      "label": "Nombre(s) ou code Shadok",
+      "placeholder": "Entrez un nombre décimal ou une chaîne Shadok...",
+      "required": true
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": ["encode", "decode", "detect"],
+      "default": "decode",
+      "required": true
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Résultat"
+    }
+  },
+  "metasolver": {
+    "eligible": true,
+    "input_charset": "words",
+    "tags": ["numeral", "no_key"],
+    "priority": 50,
+    "family": "numeral",
+    "preferred_when": ["shadok_like", "words_only", "grouped_input"],
+    "supports_grouped_input": true
+  }
+}

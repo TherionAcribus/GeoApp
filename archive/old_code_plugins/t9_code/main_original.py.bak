@@ -1,0 +1,619 @@
+import time
+import re
+import json
+import os
+import requests
+from itertools import product
+
+# Import du service de scoring
+try:
+    from app.services.scoring_service import ScoringService
+    scoring_service_available = True
+    print("Module de scoring disponible")
+except ImportError:
+    scoring_service_available = False
+    print("Module de scoring non disponible, utilisation du scoring legacy uniquement")
+
+class T9CodePlugin:
+    """
+    Plugin pour encoder/décoder du texte avec le code T9 (prédictif) des anciens téléphones mobiles.
+    
+    Le T9 diffère du Multitap : il utilise un seul appui par lettre et se base sur un dictionnaire 
+    pour deviner le mot. Par exemple "DCODE" = "32633" en T9 mais "3222666333" en Multitap.
+    
+    Modes : 
+      - encode
+      - decode
+      - bruteforce (teste différentes combinaisons avec dictionnaire)
+    """
+
+    def __init__(self):
+        self.name = "t9_code"
+        self.description = "Plugin de chiffrement/déchiffrement utilisant le code T9 (prédictif) des téléphones mobiles"
+        
+        # Table de correspondance T9 - une seule pression par lettre
+        # Clé 2: ABC, Clé 3: DEF, etc.
+        self.t9_mapping = {
+            '2': 'ABC', '3': 'DEF', '4': 'GHI', '5': 'JKL',
+            '6': 'MNO', '7': 'PQRS', '8': 'TUV', '9': 'WXYZ'
+        }
+        
+        # Table de correspondance inverse pour l'encodage
+        self.letter_to_t9 = {}
+        for digit, letters in self.t9_mapping.items():
+            for letter in letters:
+                self.letter_to_t9[letter] = digit
+        
+        # Récupérer la configuration depuis plugin.json
+        plugin_config_path = os.path.join(os.path.dirname(__file__), 'plugin.json')
+        try:
+            with open(plugin_config_path, 'r') as f:
+                config = json.load(f)
+                self.enable_scoring = config.get('enable_scoring', False)
+                print(f"Paramètre enable_scoring configuré: {self.enable_scoring}")
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            self.enable_scoring = False
+            print(f"Erreur lors du chargement de la configuration: {str(e)}")
+        
+        # Initialiser le service de scoring local si disponible
+        self.scoring_service = None
+        self.scoring_service_available = scoring_service_available
+        if scoring_service_available:
+            try:
+                self.scoring_service = ScoringService()
+                print("Service de scoring initialisé avec succès")
+            except Exception as e:
+                print(f"Erreur lors de l'initialisation du service de scoring: {str(e)}")
+                self.scoring_service_available = False
+        
+        # Initialiser le service de dictionnaire centralisé
+        try:
+            from app.services.dictionary_service import get_dictionary_service
+            self.dict_service = get_dictionary_service()
+            self.dict_service_available = True
+            print("DictionaryService disponible pour T9")
+        except ImportError:
+            self.dict_service_available = False
+            print("DictionaryService non disponible, utilisation des méthodes legacy")
+        
+        self.scoring_api_url = "http://localhost:5000/api/plugins/score"
+
+    def encode(self, text: str) -> str:
+        """
+        Encode le texte en utilisant le code T9.
+        
+        Args:
+            text: Texte à encoder
+            
+        Returns:
+            Texte encodé en T9
+        """
+        result = []
+        text = text.upper()
+        
+        for char in text:
+            if char in self.letter_to_t9:
+                result.append(self.letter_to_t9[char])
+            elif char == ' ':
+                result.append('0')  # Espace = 0
+            else:
+                # Ignorer les caractères non supportés
+                continue
+        
+        return ''.join(result)
+
+    def decode(self, text: str, language: str = 'auto', max_results: int = 10) -> list:
+        """
+        Décode le texte T9 en utilisant le dictionnaire pour trouver les mots valides.
+        
+        Args:
+            text: Texte codé en T9
+            language: Langue du dictionnaire à utiliser
+            max_results: Nombre maximum de résultats à retourner
+            
+        Returns:
+            Liste des mots possibles triés par pertinence
+        """
+        # Nettoyer le texte d'entrée
+        text = re.sub(r'[^0-9]', '', text)
+        
+        if not text:
+            return []
+        
+        # Gérer les espaces (0) en divisant le texte
+        # Gérer les multiples 0 consécutifs (comme 00) comme un seul espace
+        normalized_text = re.sub(r'0+', '0', text)  # Remplacer 00+ par 0
+        segments = normalized_text.split('0')
+        segments = [seg for seg in segments if seg]  # Retirer les segments vides
+        
+        if not segments:
+            return []
+        
+        # Décoder chaque segment séparément
+        all_combinations = []
+        for segment in segments:
+            segment_combinations = self._generate_t9_combinations(segment)
+            all_combinations.append(segment_combinations)
+        
+        # Générer toutes les combinaisons possibles entre segments
+        if len(all_combinations) == 1:
+            word_candidates = all_combinations[0]
+        else:
+            # Combiner les segments avec des espaces
+            word_candidates = []
+            # Limiter le nombre de combinaisons pour éviter l'explosion
+            max_combinations_per_segment = 50
+            limited_combinations = []
+            for combinations in all_combinations:
+                limited_combinations.append(combinations[:max_combinations_per_segment])
+            
+            for combination in product(*limited_combinations):
+                word_candidates.append(' '.join(combination))
+        
+        # Filtrer avec le dictionnaire  
+        # Augmenter la limite pour les mots seuls
+        filter_limit = max_results * 3 if len(segments) == 1 else max_results
+        valid_words = self._filter_with_dictionary(word_candidates, language, filter_limit)
+        
+        return valid_words[:max_results]
+
+    def _generate_t9_combinations(self, sequence: str) -> list:
+        """
+        Génère toutes les combinaisons de lettres possibles pour une séquence T9.
+        Optimisé pour prioriser les lettres les plus courantes.
+        
+        Args:
+            sequence: Séquence de chiffres T9
+            
+        Returns:
+            Liste de toutes les combinaisons possibles, triées par probabilité
+        """
+        if not sequence:
+            return [""]
+        
+        # Limiter la longueur pour éviter une explosion combinatoire
+        if len(sequence) > 15:
+            print(f"Séquence trop longue ({len(sequence)} caractères), limitée à 15")
+            sequence = sequence[:15]
+        
+        # Mapping optimisé pour les mots courants du géocaching et techniques
+        # Gardons l'ordre standard pour compatibilité mais avec quelques ajustements
+        priority_mapping = {
+            '2': 'ABC',   
+            '3': 'DEF',   # Garder D en premier pour DCODE
+            '4': 'GHI',   
+            '5': 'JKL',   
+            '6': 'MNO',   # Garder M en premier pour MONDE
+            '7': 'PQRS',  
+            '8': 'TUV',   
+            '9': 'WXYZ',  
+        }
+        
+        combinations = [""]
+        
+        for digit in sequence:
+            if digit in priority_mapping:
+                letters = priority_mapping[digit].replace(' ', '')  # Supprimer les espaces
+                new_combinations = []
+                for combo in combinations:
+                    for letter in letters:
+                        new_combinations.append(combo + letter)
+                combinations = new_combinations
+            else:
+                # Ignorer les chiffres non supportés (0, 1)
+                continue
+        
+        # Limiter le nombre de combinaisons pour les performances
+        if len(combinations) > 10000:
+            print(f"Trop de combinaisons ({len(combinations)}), limitation à 10000")
+            combinations = combinations[:10000]
+        
+        return combinations
+
+    def _filter_with_dictionary(self, candidates: list, language: str, max_results: int) -> list:
+        """
+        Filtre les candidats en utilisant le service de dictionnaire.
+        
+        Args:
+            candidates: Liste des mots candidats
+            language: Langue à utiliser pour le filtrage
+            max_results: Nombre maximum de résultats
+            
+        Returns:
+            Liste des mots valides triés par score
+        """
+        if not self.dict_service_available:
+            return self._filter_with_legacy_method(candidates, max_results)
+        
+        valid_words = []
+        languages_to_try = self._get_languages_to_try(language)
+        
+        # Mots techniques/géocaching à privilégier même s'ils ne sont pas dans le dictionnaire standard
+        priority_words = {
+            'DCODE': 0.95, 'CODE': 0.90, 'CACHE': 0.85, 'NORD': 0.85, 'SUD': 0.85, 
+            'EST': 0.85, 'OUEST': 0.85, 'GEOCACHE': 0.90, 'MYSTERY': 0.85,
+            'HELLO': 0.80, 'WORLD': 0.80, 'THE': 0.75, 'AND': 0.75,
+            'MONDE': 0.90, 'AREA': 0.80, 'FOUND': 0.80, 'HERE': 0.80
+        }
+        
+        # Tester plus de candidats pour les segments courts (mots simples)
+        # Si les candidats contiennent des espaces, c'est une phrase avec plusieurs mots
+        is_single_word = len(candidates) > 0 and ' ' not in candidates[0]
+        test_limit = min(len(candidates), 2000 if is_single_word else 500)
+        
+        for i, candidate in enumerate(candidates):
+            if i >= test_limit:  # Limiter le nombre de tests pour les performances
+                break
+            if len(candidate) < 2:  # Ignorer les mots trop courts
+                continue
+                
+            try:
+                # Vérifier si c'est un mot prioritaire
+                if candidate.upper() in priority_words:
+                    valid_words.append({
+                        'word': candidate,
+                        'score': priority_words[candidate.upper()],
+                        'language': 'priority',
+                        'length': len(candidate)
+                    })
+                    continue
+                
+                # Tester dans les langues spécifiées
+                best_score = 0
+                best_language = None
+                
+                for lang in languages_to_try:
+                    if self.dict_service.is_valid_word(candidate, language=lang):
+                        score = self.dict_service.get_word_score(candidate, language=lang)
+                        # Augmenter le score base pour les mots valides
+                        score = max(score, 0.3)  # Score minimum pour un mot valide
+                        if score > best_score:
+                            best_score = score
+                            best_language = lang
+                
+                if best_score > 0:
+                    valid_words.append({
+                        'word': candidate,
+                        'score': best_score,
+                        'language': best_language,
+                        'length': len(candidate)
+                    })
+                    
+            except Exception as e:
+                print(f"Erreur lors de la validation de '{candidate}': {str(e)}")
+                continue
+        
+        # Trier par score décroissant, puis par longueur
+        valid_words.sort(key=lambda x: (x['score'], x['length']), reverse=True)
+        
+        return valid_words[:max_results]
+
+    def _get_languages_to_try(self, language: str) -> list:
+        """
+        Détermine quelles langues tester selon le paramètre language.
+        
+        Args:
+            language: Langue spécifiée par l'utilisateur
+            
+        Returns:
+            Liste des codes de langue à tester
+        """
+        if language == 'auto':
+            # Tester d'abord les langues principales
+            return ['fr', 'en', 'de', 'es', 'it', 'nl', 'pt']
+        else:
+            return [language]
+
+    def _filter_with_legacy_method(self, candidates: list, max_results: int) -> list:
+        """
+        Méthode de fallback sans le service de dictionnaire.
+        
+        Args:
+            candidates: Liste des mots candidats
+            max_results: Nombre maximum de résultats
+            
+        Returns:
+            Liste filtrée par heuristiques simples
+        """
+        # Filtrer par heuristiques basiques
+        filtered = []
+        
+        for candidate in candidates:
+            if len(candidate) >= 3:  # Au moins 3 caractères
+                # Score basique basé sur la longueur et la diversité des lettres
+                unique_chars = len(set(candidate.lower()))
+                diversity_ratio = unique_chars / len(candidate)
+                
+                if diversity_ratio > 0.3:  # Au moins 30% de lettres différentes
+                    score = len(candidate) * diversity_ratio
+                    filtered.append({
+                        'word': candidate,
+                        'score': score,
+                        'language': 'unknown',
+                        'length': len(candidate)
+                    })
+        
+        filtered.sort(key=lambda x: x['score'], reverse=True)
+        return filtered[:max_results]
+
+    def bruteforce(self, text: str, language: str = 'auto', max_results: int = 20) -> list:
+        """
+        Mode bruteforce : teste différentes interprétations du texte T9.
+        
+        Args:
+            text: Texte à décoder
+            language: Langue du dictionnaire
+            max_results: Nombre maximum de résultats
+            
+        Returns:
+            Liste des solutions trouvées
+        """
+        solutions = []
+        
+        # 1. Décodage direct
+        try:
+            direct_results = self.decode(text, language, max_results)
+            for result in direct_results:
+                solutions.append({
+                    'method': 'direct',
+                    'decoded_text': result['word'],
+                    'confidence': result['score'],
+                    'language': result['language'],
+                    'metadata': {'length': result['length']}
+                })
+        except Exception as e:
+            print(f"Erreur lors du décodage direct: {str(e)}")
+        
+        # 2. Essayer sans espaces (si le texte contient des 0)
+        if '0' in text:
+            try:
+                no_space_text = text.replace('0', '')
+                no_space_results = self.decode(no_space_text, language, max_results // 2)
+                for result in no_space_results:
+                    solutions.append({
+                        'method': 'no_spaces',
+                        'decoded_text': result['word'],
+                        'confidence': result['score'] * 0.8,  # Légèrement pénalisé
+                        'language': result['language'],
+                        'metadata': {'length': result['length'], 'spaces_removed': True}
+                    })
+            except Exception as e:
+                print(f"Erreur lors du décodage sans espaces: {str(e)}")
+        
+        # 3. Essayer en divisant le texte différemment (si > 6 chiffres)
+        if len(text) > 6:
+            try:
+                mid = len(text) // 2
+                part1 = text[:mid]
+                part2 = text[mid:]
+                
+                results1 = self.decode(part1, language, 5)
+                results2 = self.decode(part2, language, 5)
+                
+                for r1 in results1:
+                    for r2 in results2:
+                        combined_text = r1['word'] + ' ' + r2['word']
+                        avg_score = (r1['score'] + r2['score']) / 2
+                        solutions.append({
+                            'method': 'split_middle',
+                            'decoded_text': combined_text,
+                            'confidence': avg_score * 0.7,  # Pénalisé car hypothétique
+                            'language': r1['language'],
+                            'metadata': {
+                                'part1': r1['word'], 
+                                'part2': r2['word'],
+                                'split_position': mid
+                            }
+                        })
+            except Exception as e:
+                print(f"Erreur lors du décodage divisé: {str(e)}")
+        
+        # Trier tous les résultats par confiance
+        solutions.sort(key=lambda x: x['confidence'], reverse=True)
+        
+        # Retirer les doublons
+        seen = set()
+        unique_solutions = []
+        for sol in solutions:
+            key = sol['decoded_text'].lower()
+            if key not in seen:
+                seen.add(key)
+                unique_solutions.append(sol)
+        
+        return unique_solutions[:max_results]
+
+    def _calculate_confidence(self, solution: dict, enable_scoring: bool = False, context: dict = None) -> float:
+        """
+        Calcule le niveau de confiance d'une solution.
+        
+        Args:
+            solution: Solution à évaluer
+            enable_scoring: Si True, utilise le service de scoring avancé
+            context: Contexte additionnel pour l'évaluation
+            
+        Returns:
+            Score de confiance entre 0 et 1
+        """
+        base_confidence = solution.get('confidence', 0.5)
+        
+        # Améliorer le calcul de confiance de base
+        if base_confidence >= 0.9:  # Mots prioritaires
+            normalized_base = base_confidence
+        elif base_confidence >= 0.5:  # Mots valides du dictionnaire
+            normalized_base = 0.6 + (base_confidence - 0.5) * 0.8  # 0.6 à 1.0
+        elif base_confidence >= 0.3:  # Mots avec score minimum
+            normalized_base = 0.4 + (base_confidence - 0.3) * 1.0  # 0.4 à 0.6
+        else:
+            normalized_base = base_confidence * 1.3  # Jusqu'à 0.4
+        
+        normalized_base = min(1.0, max(0.0, normalized_base))
+        
+        if not enable_scoring or not self.scoring_service_available:
+            return normalized_base
+        
+        try:
+            # Utiliser le service de scoring avancé
+            text = solution['decoded_text']
+            scoring_result = self.scoring_service.score_text(text.lower(), context)
+            
+            if scoring_result and 'score' in scoring_result:
+                # Combiner le score du dictionnaire avec le score avancé
+                advanced_score = scoring_result['score']
+                combined_score = (normalized_base * 0.7) + (advanced_score * 0.3)
+                return min(1.0, max(0.0, combined_score))
+            else:
+                return normalized_base
+                
+        except Exception as e:
+            print(f"Erreur lors du scoring avancé: {str(e)}")
+            return normalized_base
+
+    def execute(self, inputs: dict) -> dict:
+        """
+        Point d'entrée principal du plugin.
+        
+        Args:
+            inputs: Dictionnaire contenant les paramètres d'entrée
+                
+        Returns:
+            Dictionnaire contenant le résultat de l'opération au format standardisé
+        """
+        start_time = time.time()
+        
+        # Extraire les paramètres
+        mode = inputs.get("mode", "decode").lower()
+        text = inputs.get("text", "").strip()
+        language = inputs.get("language", "auto")
+        max_results = int(inputs.get("max_results", 10))
+        enable_scoring = inputs.get("enable_scoring", "") == "on"
+        
+        # Structure de base pour la réponse standardisée
+        standardized_response = {
+            "status": "success",
+            "plugin_info": {
+                "name": self.name,
+                "version": "1.0.0",
+                "execution_time": 0
+            },
+            "inputs": inputs.copy(),
+            "results": [],
+            "summary": {
+                "best_result_id": None,
+                "total_results": 0,
+                "message": ""
+            }
+        }
+        
+        if not text:
+            standardized_response["status"] = "error"
+            standardized_response["summary"]["message"] = "Aucun texte fourni"
+            return standardized_response
+        
+        try:
+            if mode == "encode":
+                # Mode encodage
+                encoded_text = self.encode(text)
+                
+                response_result = {
+                    "id": "result_1",
+                    "text_output": encoded_text,
+                    "confidence": 1.0,
+                    "parameters": {"mode": mode, "language": language},
+                    "metadata": {
+                        "original_text": text,
+                        "processed_chars": len(text),
+                        "encoded_length": len(encoded_text)
+                    }
+                }
+                
+                standardized_response["results"].append(response_result)
+                standardized_response["summary"]["best_result_id"] = "result_1"
+                standardized_response["summary"]["total_results"] = 1
+                standardized_response["summary"]["message"] = "Encodage T9 réussi"
+                
+            elif mode == "decode":
+                # Mode décodage avec bruteforce si activé
+                if inputs.get("bruteforce", False):
+                    solutions = self.bruteforce(text, language, max_results)
+                else:
+                    # Décodage simple
+                    decoded_results = self.decode(text, language, max_results)
+                    solutions = []
+                    for result in decoded_results:
+                        solutions.append({
+                            'method': 'decode',
+                            'decoded_text': result['word'],
+                            'confidence': result['score'],
+                            'language': result['language'],
+                            'metadata': result
+                        })
+                
+                # Convertir les solutions au format standardisé
+                for i, solution in enumerate(solutions):
+                    confidence = self._calculate_confidence(solution, enable_scoring)
+                    
+                    response_result = {
+                        "id": f"result_{i+1}",
+                        "text_output": solution['decoded_text'],
+                        "confidence": confidence,
+                        "parameters": {
+                            "mode": mode,
+                            "language": language,
+                            "method": solution.get('method', 'decode')
+                        },
+                        "metadata": solution.get('metadata', {})
+                    }
+                    
+                    # Ajouter les informations de langue si disponibles
+                    if 'language' in solution:
+                        response_result["metadata"]["detected_language"] = solution['language']
+                    
+                    standardized_response["results"].append(response_result)
+                
+                # Définir le meilleur résultat
+                if standardized_response["results"]:
+                    best_result = max(standardized_response["results"], key=lambda x: x["confidence"])
+                    standardized_response["summary"]["best_result_id"] = best_result["id"]
+                    standardized_response["summary"]["total_results"] = len(standardized_response["results"])
+                    standardized_response["summary"]["message"] = f"{len(standardized_response['results'])} solution(s) T9 trouvée(s)"
+                else:
+                    standardized_response["summary"]["message"] = "Aucune solution T9 trouvée"
+            
+        except Exception as e:
+            standardized_response["status"] = "error"
+            standardized_response["summary"]["message"] = f"Erreur lors du traitement: {str(e)}"
+            print(f"Erreur dans le plugin T9: {str(e)}")
+        
+        # Calculer le temps d'exécution
+        execution_time = int((time.time() - start_time) * 1000)
+        standardized_response["plugin_info"]["execution_time"] = execution_time
+        
+        return standardized_response
+
+
+# Point d'entrée pour le système de plugins
+def execute(inputs):
+    plugin = T9CodePlugin()
+    return plugin.execute(inputs)
+
+
+if __name__ == "__main__":
+    # Tests rapides
+    plugin = T9CodePlugin()
+    
+    # Test d'encodage
+    print("=== Test d'encodage ===")
+    encoded = plugin.encode("DCODE")
+    print(f"DCODE -> {encoded}")
+    
+    # Test de décodage
+    print("\n=== Test de décodage ===")
+    decoded = plugin.decode("32633", language="fr", max_results=5)
+    print(f"32633 -> {[r['word'] for r in decoded]}")
+    
+    # Test avec le DictionaryService si disponible
+    if plugin.dict_service_available:
+        print(f"DictionaryService disponible: {plugin.dict_service_available}")
+        test_word = "TELEPHONE"
+        is_valid = plugin.dict_service.is_valid_word(test_word)
+        print(f"'{test_word}' est un mot valide: {is_valid}") 

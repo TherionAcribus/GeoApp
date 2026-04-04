@@ -1,0 +1,108 @@
+<div id="logs-content" class="space-y-4 p-4" data-controller="logs">
+    {% if geocache_id %}
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-semibold text-gray-200">Logs pour {{ geocache_name }}</h3>
+            <button 
+                id="refresh-logs-btn" 
+                class="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center"
+                hx-post="/api/logs/refresh?geocacheId={{ geocache_id }}"
+                hx-target="#logs-panel"
+                hx-swap="innerHTML"
+                hx-indicator="#loading-indicator">
+                <i class="fas fa-sync-alt mr-1"></i> Rafraîchir
+            </button>
+        </div>
+        
+        <!-- Indicateur de chargement -->
+        <div id="loading-indicator" class="htmx-indicator flex items-center justify-center p-4 my-4 bg-gray-700 rounded">
+            <i class="fas fa-spinner fa-spin mr-2"></i>
+            <span>Récupération des logs depuis Geocaching.com...</span>
+        </div>
+        
+        {% if error %}
+            <div class="bg-red-700 text-white p-3 rounded mb-4">
+                <div class="flex items-center">
+                    <i class="fas fa-exclamation-circle mr-2"></i>
+                    <span>{{ error }}</span>
+                </div>
+            </div>
+        {% endif %}
+        
+        {% if success %}
+            <div class="bg-green-700 text-white p-3 rounded mb-4">
+                <div class="flex items-center">
+                    <i class="fas fa-check-circle mr-2"></i>
+                    <span>{{ success }}</span>
+                </div>
+            </div>
+        {% endif %}
+        
+        {% if logs %}
+            {% for log in logs %}
+                <div class="log-item bg-gray-800 rounded-lg p-4 mb-3 border-l-4 
+                    {% if log.log_type == 'Found' or log.log_type == 'Found it' or log.log_type == 'found' %}border-green-500
+                    {% elif log.log_type == 'Did Not Find' or log.log_type == 'DNF' or log.log_type == 'not_found' %}border-red-500
+                    {% elif log.log_type == 'Note' or log.log_type == 'Write Note' or log.log_type == 'note' %}border-blue-500
+                    {% else %}border-gray-500{% endif %}">
+                    <div class="flex justify-between items-start mb-2">
+                        <div class="flex items-center">
+                            <span class="inline-flex items-center justify-center h-8 w-8 rounded-full mr-2
+                                {% if log.log_type == 'Found' or log.log_type == 'Found it' or log.log_type == 'found' %}bg-green-600
+                                {% elif log.log_type == 'Did Not Find' or log.log_type == 'DNF' or log.log_type == 'not_found' %}bg-red-600
+                                {% elif log.log_type == 'Note' or log.log_type == 'Write Note' or log.log_type == 'note' %}bg-blue-600
+                                {% else %}bg-gray-600{% endif %}">
+                                {% if log.log_type == 'Found' or log.log_type == 'Found it' or log.log_type == 'found' %}
+                                    <i class="fas fa-check"></i>
+                                {% elif log.log_type == 'Did Not Find' or log.log_type == 'DNF' or log.log_type == 'not_found' %}
+                                    <i class="fas fa-times"></i>
+                                {% elif log.log_type == 'Note' or log.log_type == 'Write Note' or log.log_type == 'note' %}
+                                    <i class="fas fa-sticky-note"></i>
+                                {% else %}
+                                    <i class="fas fa-question"></i>
+                                {% endif %}
+                            </span>
+                            <div>
+                                <span class="font-medium text-white">
+                                    {{ log.log_type|capitalize }}
+                                </span>
+                                {% if log.author %}
+                                <span class="text-gray-400 ml-2">par 
+                                    {% if log.author.name is defined %}
+                                        {{ log.author.name }}
+                                    {% else %}
+                                        {{ log.author }}
+                                    {% endif %}
+                                </span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <span class="text-gray-400 text-sm">{{ log.date }}</span>
+                    </div>
+                    
+                    {% if log.text %}
+                        <div class="log-content text-gray-300 mt-2 border-t border-gray-700 pt-2">
+                            {{ log.text|trim }}
+                        </div>
+                    {% endif %}
+                </div>
+            {% endfor %}
+        {% else %}
+            <p class="text-gray-400">Aucun log disponible pour cette géocache.</p>
+        {% endif %}
+    {% else %}
+        <p class="text-gray-400">Sélectionnez une géocache pour voir ses logs.</p>
+    {% endif %}
+</div>
+
+<style>
+    /* Style pour l'indicateur de chargement HTMX */
+    .htmx-indicator {
+        display: none;
+    }
+    .htmx-request .htmx-indicator {
+        display: flex;
+    }
+    .htmx-request.htmx-indicator {
+        display: flex;
+    }
+</style> 

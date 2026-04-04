@@ -1,0 +1,47 @@
+{
+  "name": "@mysterai/theia-alphabets",
+  "version": "1.0.0",
+  "description": "MysterAI Alphabets Extension for Theia IDE",
+  "keywords": [
+    "theia-extension",
+    "alphabets",
+    "geocaching",
+    "mysterai",
+    "cipher"
+  ],
+  "license": "MIT",
+  "main": "lib/browser/alphabets-frontend-module.js",
+  "typings": "lib/browser/alphabets-frontend-module.d.ts",
+  "dependencies": {
+    "axios": "^1.6.0"
+  },
+  "scripts": {
+    "prepare": "yarn run clean && yarn run build",
+    "clean": "rimraf lib",
+    "build": "tsc && yarn run copy:assets",
+    "copy:assets": "node -e \"require('fs-extra').copySync('src/browser/style', 'lib/browser/style')\"",
+    "watch": "tsc -w"
+  },
+  "devDependencies": {
+    "rimraf": "^5.0.0",
+    "typescript": "^5.0.0",
+    "fs-extra": "^11.0.0",
+    "@types/react": "^18.2.0",
+    "@theia/core": "1.67.0",
+    "@theia/filesystem": "1.67.0",
+    "@theia/workspace": "1.67.0"
+  },
+  "peerDependencies": {
+    "@theia/core": "1.67.0",
+    "@theia/filesystem": "1.67.0",
+    "@theia/workspace": "1.67.0"
+  },
+  "theiaExtensions": [
+    {
+      "frontend": "lib/browser/alphabets-frontend-module"
+    }
+  ]
+}
+
+
+

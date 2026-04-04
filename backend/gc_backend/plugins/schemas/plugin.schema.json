@@ -1,0 +1,396 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mysterai.app/schemas/plugin.json",
+  "title": "MysterAI Plugin Configuration",
+  "description": "Schema de validation pour les fichiers plugin.json des plugins MysterAI",
+  "type": "object",
+  "required": [
+    "name",
+    "version",
+    "plugin_api_version",
+    "plugin_type",
+    "entry_point"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+$",
+      "minLength": 2,
+      "maxLength": 64,
+      "description": "Nom unique du plugin (snake_case, lettres minuscules, chiffres et underscores uniquement)"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(-[a-zA-Z0-9.]+)?$",
+      "description": "Version sémantique du plugin (ex: 1.0.0, 1.2.3-beta)"
+    },
+    "plugin_api_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+$",
+      "description": "Version de l'API du plugin (ex: 2.0)"
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 500,
+      "description": "Description courte du plugin"
+    },
+    "author": {
+      "type": "string",
+      "maxLength": 128,
+      "description": "Auteur du plugin"
+    },
+    "plugin_type": {
+      "type": "string",
+      "enum": ["python", "rust", "binary", "wasm", "node"],
+      "description": "Type de plugin déterminant le wrapper d'exécution"
+    },
+    "entry_point": {
+      "type": "string",
+      "description": "Point d'entrée du plugin (ex: main.py, plugin.wasm, plugin.exe)"
+    },
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Liste des dépendances requises"
+    },
+    "categories": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "description": "Catégories du plugin (ex: Substitution, Transposition, Coordinates)"
+    },
+    "kinds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["code", "calculator", "image", "geo", "text", "solver", "analyze", "meta"]
+      },
+      "description": "Types de fonctionnalités offertes"
+    },
+    "brute_force": {
+      "type": "boolean",
+      "default": false,
+      "description": "Indique si le plugin supporte le mode bruteforce"
+    },
+    "enable_scoring": {
+      "type": "boolean",
+      "default": true,
+      "description": "Indique si le scoring automatique est activé pour ce plugin"
+    },
+    "accept_accents": {
+      "type": "boolean",
+      "default": false,
+      "description": "Indique si le plugin accepte les caractères accentués"
+    },
+    "heavy_cpu": {
+      "type": "boolean",
+      "default": false,
+      "description": "Indique si le plugin est CPU intensif (nécessite ProcessPool)"
+    },
+    "needs_network": {
+      "type": "boolean",
+      "default": false,
+      "description": "Indique si le plugin nécessite un accès réseau"
+    },
+    "needs_filesystem": {
+      "type": "boolean",
+      "default": false,
+      "description": "Indique si le plugin nécessite un accès au système de fichiers"
+    },
+    "timeout_seconds": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 300,
+      "default": 30,
+      "description": "Timeout d'exécution en secondes"
+    },
+    "capabilities": {
+      "type": "object",
+      "properties": {
+        "analyze": {
+          "type": "boolean",
+          "description": "Capacité d'analyser/détecter du code"
+        },
+        "decode": {
+          "type": "boolean",
+          "description": "Capacité de décoder du texte"
+        },
+        "encode": {
+          "type": "boolean",
+          "description": "Capacité d'encoder du texte"
+        }
+      },
+      "description": "Capacités du plugin"
+    },
+    "defaults": {
+      "type": "object",
+      "properties": {
+        "include_in_analysis": {
+          "type": "boolean",
+          "default": true
+        },
+        "include_in_decode": {
+          "type": "boolean",
+          "default": true
+        }
+      },
+      "description": "Comportements par défaut"
+    },
+    "scoring_method": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["lexical", "gps", "custom"]
+        },
+        "custom_weights": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      },
+      "description": "Méthode de scoring personnalisée (obsolète, géré centralement)"
+    },
+    "input_types": {
+      "type": "object",
+      "patternProperties": {
+        "^[a-z_]+$": {
+          "type": "object",
+          "required": ["type", "label"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["string", "number", "float", "select", "checkbox", "boolean", "textarea"]
+            },
+            "label": {
+              "type": "string",
+              "description": "Libellé affiché dans l'interface"
+            },
+            "required": {
+              "type": "boolean",
+              "default": false,
+              "description": "Indique si le champ est obligatoire côté interface"
+            },
+            "hidden": {
+              "type": "boolean",
+              "default": false,
+              "description": "Indique si le champ doit être masqué côté interface"
+            },
+            "default_value_source": {
+              "type": "string",
+              "pattern": "^[a-z_]+$",
+              "description": "Source de pré-remplissage automatique en contexte géocache (ex: geocache_id, geocache_description, geocache_coordinates)"
+            },
+            "placeholder": {
+              "type": "string",
+              "description": "Texte d'aide dans le champ"
+            },
+            "default": {
+              "description": "Valeur par défaut"
+            },
+            "description": {
+              "type": "string",
+              "description": "Description du champ"
+            },
+            "options": {
+              "type": "array",
+              "description": "Options pour les champs select",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "object",
+                    "required": ["value", "label"],
+                    "properties": {
+                      "value": {
+                        "oneOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "number"
+                          },
+                          {
+                            "type": "boolean"
+                          }
+                        ]
+                      },
+                      "label": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "min": {
+              "type": "number",
+              "description": "Valeur minimale pour les champs numériques"
+            },
+            "max": {
+              "type": "number",
+              "description": "Valeur maximale pour les champs numériques"
+            },
+            "step": {
+              "type": "number",
+              "description": "Pas pour les champs numériques"
+            }
+          }
+        }
+      },
+      "description": "Définition des champs de saisie du formulaire"
+    },
+    "output_types": {
+      "type": "object",
+      "description": "Définition des types de sortie (legacy, optionnel)"
+    },
+    "pipeline": {
+      "type": "array",
+      "description": "Configuration du pipeline d'analyse pour les méta-plugins",
+      "items": {
+        "type": "object",
+        "required": ["plugin_name"],
+        "properties": {
+          "plugin_name": {
+            "type": "string",
+            "description": "Nom du sous-plugin à exécuter"
+          },
+          "description": {
+            "type": "string",
+            "description": "Description de l'étape"
+          }
+        }
+      }
+    },
+    "metasolver": {
+      "type": "object",
+      "description": "Configuration d'éligibilité et de classement pour le méta-plugin metasolver",
+      "properties": {
+        "eligible": {
+          "type": "boolean",
+          "default": false,
+          "description": "Indique si ce plugin peut être utilisé par le metasolver"
+        },
+        "input_charset": {
+          "type": "string",
+          "enum": ["letters", "digits", "symbols", "words", "mixed"],
+          "description": "Type principal de caractères en entrée du chiffrement"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z_]+$"
+          },
+          "description": "Tags de classement pour filtrage par presets (ex: frequent, classic, substitution, transposition, numeral)"
+        },
+        "priority": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 50,
+          "description": "Priorité d'exécution dans le metasolver (0-100, plus élevé = exécuté en premier)"
+        },
+        "family": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+$",
+          "description": "Famille logique du plugin pour le classement metasolver"
+        },
+        "preferred_when": {
+          "type": "array",
+          "description": "Liste de conditions de signature d'entrée qui favorisent ce plugin",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]+$"
+          }
+        },
+        "requires_key": {
+          "type": "boolean",
+          "default": false,
+          "description": "Indique si le plugin nécessite généralement une clé ou un indice supplémentaire"
+        },
+        "supports_grouped_input": {
+          "type": "boolean",
+          "default": false,
+          "description": "Indique si le plugin traite particulièrement bien les entrées segmentées en groupes"
+        }
+      },
+      "required": ["eligible"],
+      "additionalProperties": false
+    },
+    "text_handling": {
+      "type": "object",
+      "description": "Configuration optionnelle pour la normalisation des champs texte côté Plugin Executor (accents, casse, caractères supportés)",
+      "properties": {
+        "fields": {
+          "type": "array",
+          "description": "Liste des champs d'inputs à normaliser (par défaut: ['text'])",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z_]+$"
+          }
+        },
+        "allowed_ranges": {
+          "type": "array",
+          "description": "Liste de plages Unicode autorisées, au format HEX-HEX (ex: '0041-005A' pour A-Z)",
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9A-Fa-f]{4,6}-[0-9A-Fa-f]{4,6}$"
+          }
+        },
+        "allowed_characters": {
+          "type": "string",
+          "description": "Ensemble de caractères autorisés en plus des plages (ex: ' \t\r\n')"
+        },
+        "unknown_char_policy": {
+          "type": "string",
+          "enum": ["keep", "warn_keep", "strip", "error"],
+          "default": "warn_keep",
+          "description": "Comportement si un caractère n'est pas supporté après normalisation"
+        },
+        "normalize": {
+          "type": "object",
+          "description": "Règles de normalisation (accents, substitutions, casse)",
+          "properties": {
+            "remove_diacritics": {
+              "type": "boolean",
+              "default": false,
+              "description": "Si true, supprime les accents via décomposition Unicode (ex: é -> e)"
+            },
+            "case": {
+              "type": "string",
+              "enum": ["preserve", "upper", "lower"],
+              "default": "preserve",
+              "description": "Transformation de casse avant validation des caractères"
+            },
+            "map_characters": {
+              "type": "object",
+              "description": "Substitutions directes caractère -> caractère (ex: {'μ': 'µ'})",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

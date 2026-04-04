@@ -1,0 +1,324 @@
+/**
+ * Styles pour le widget de recherche globale GeoApp.
+ * Utilise les variables CSS Theia pour rester cohérent avec le thème.
+ */
+
+/* Conteneur principal */
+.geoapp-global-search-widget {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+}
+
+.geoapp-gs-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+}
+
+/* En-tête avec input et options */
+.geoapp-gs-header {
+    padding: 8px;
+    border-bottom: 1px solid var(--theia-sideBarSectionHeader-border, #3c3c3c);
+    flex-shrink: 0;
+}
+
+.geoapp-gs-input-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-bottom: 6px;
+}
+
+.geoapp-gs-input {
+    flex: 1;
+    padding: 4px 8px;
+    border: 1px solid var(--theia-input-border, #3c3c3c);
+    border-radius: 2px;
+    background: var(--theia-input-background, #3c3c3c);
+    color: var(--theia-input-foreground, #cccccc);
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+}
+
+.geoapp-gs-input:focus {
+    border-color: var(--theia-focusBorder, #007fd4);
+}
+
+.geoapp-gs-input::placeholder {
+    color: var(--theia-input-placeholderForeground, #a0a0a0);
+}
+
+.geoapp-gs-clear-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: none;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--theia-foreground, #cccccc);
+    cursor: pointer;
+    opacity: 0.6;
+    font-size: 12px;
+}
+
+.geoapp-gs-clear-btn:hover {
+    opacity: 1;
+    background: var(--theia-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
+}
+
+/* Options row */
+.geoapp-gs-options-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.geoapp-gs-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 22px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--theia-foreground, #cccccc);
+    font-size: 11px;
+    font-weight: bold;
+    font-family: monospace;
+    cursor: pointer;
+    opacity: 0.6;
+    transition: opacity 0.15s, background 0.15s;
+}
+
+.geoapp-gs-toggle:hover {
+    opacity: 1;
+    background: var(--theia-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
+}
+
+.geoapp-gs-toggle.active {
+    opacity: 1;
+    background: var(--theia-button-background, #0e639c);
+    color: var(--theia-button-foreground, #ffffff);
+    border-color: var(--theia-button-background, #0e639c);
+}
+
+.geoapp-gs-separator {
+    width: 1px;
+    height: 16px;
+    background: var(--theia-sideBarSectionHeader-border, #454545);
+    margin: 0 4px;
+}
+
+.geoapp-gs-scope {
+    flex: 1;
+    padding: 2px 4px;
+    border: 1px solid var(--theia-input-border, #3c3c3c);
+    border-radius: 2px;
+    background: var(--theia-input-background, #3c3c3c);
+    color: var(--theia-input-foreground, #cccccc);
+    font-size: 12px;
+    outline: none;
+    cursor: pointer;
+}
+
+.geoapp-gs-scope:focus {
+    border-color: var(--theia-focusBorder, #007fd4);
+}
+
+/* Status et messages */
+.geoapp-gs-status {
+    padding: 8px 12px;
+    font-size: 12px;
+    color: var(--theia-foreground, #cccccc);
+    opacity: 0.8;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.geoapp-gs-spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--theia-foreground, #cccccc);
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: geoapp-gs-spin 0.8s linear infinite;
+}
+
+@keyframes geoapp-gs-spin {
+    to { transform: rotate(360deg); }
+}
+
+.geoapp-gs-error {
+    padding: 8px 12px;
+    font-size: 12px;
+    color: var(--theia-errorForeground, #f48771);
+}
+
+.geoapp-gs-placeholder {
+    padding: 16px 12px;
+    font-size: 12px;
+    color: var(--theia-foreground, #cccccc);
+    opacity: 0.6;
+    text-align: center;
+    line-height: 1.5;
+}
+
+.geoapp-gs-no-results {
+    padding: 16px 12px;
+    font-size: 12px;
+    color: var(--theia-foreground, #cccccc);
+    opacity: 0.7;
+    text-align: center;
+}
+
+/* Zone de résultats scrollable */
+.geoapp-gs-results {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+/* Sections de résultats */
+.geoapp-gs-section {
+    border-bottom: 1px solid var(--theia-sideBarSectionHeader-border, #3c3c3c);
+}
+
+.geoapp-gs-section-header {
+    display: flex;
+    align-items: center;
+    padding: 6px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--theia-sideBarSectionHeader-foreground, #bbbbbb);
+    background: var(--theia-sideBarSectionHeader-background, #2b2b2b);
+    cursor: pointer;
+    user-select: none;
+}
+
+.geoapp-gs-section-header:hover {
+    background: var(--theia-list-hoverBackground, #2a2d2e);
+}
+
+.geoapp-gs-section-title {
+    flex: 1;
+}
+
+.geoapp-gs-section-body {
+    padding: 0;
+}
+
+/* Items de résultat */
+.geoapp-gs-result-item {
+    padding: 6px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--theia-sideBarSectionHeader-border, rgba(60, 60, 60, 0.5));
+    transition: background 0.1s;
+}
+
+.geoapp-gs-result-item:hover {
+    background: var(--theia-list-hoverBackground, #2a2d2e);
+}
+
+.geoapp-gs-result-item:last-child {
+    border-bottom: none;
+}
+
+.geoapp-gs-result-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 2px;
+}
+
+.geoapp-gs-result-icon {
+    font-size: 14px;
+    opacity: 0.7;
+    flex-shrink: 0;
+}
+
+.geoapp-gs-result-title {
+    flex: 1;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--theia-foreground, #cccccc);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.geoapp-gs-result-badge {
+    flex-shrink: 0;
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: var(--theia-badge-background, #4d4d4d);
+    color: var(--theia-badge-foreground, #ffffff);
+    font-size: 10px;
+    font-weight: 600;
+    min-width: 18px;
+    text-align: center;
+}
+
+/* Snippets */
+.geoapp-gs-result-snippet {
+    padding: 2px 0 2px 20px;
+    font-size: 12px;
+    line-height: 1.4;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.geoapp-gs-snippet {
+    font-family: inherit;
+}
+
+.geoapp-gs-snippet-text {
+    color: var(--theia-foreground, #cccccc);
+    opacity: 0.7;
+}
+
+.geoapp-gs-snippet-match {
+    background-color: rgba(234, 178, 46, 0.4);
+    color: var(--theia-foreground, #cccccc);
+    border-radius: 2px;
+    padding: 0 1px;
+    font-weight: 600;
+}
+
+/* Champs de résultat géocache */
+.geoapp-gs-result-fields {
+    padding-left: 20px;
+}
+
+.geoapp-gs-result-field {
+    margin-top: 2px;
+}
+
+.geoapp-gs-field-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--theia-foreground, #cccccc);
+    opacity: 0.6;
+    margin-right: 4px;
+}
+
+.geoapp-gs-field-label::after {
+    content: ':';
+}
+
+/* Note link */
+.geoapp-gs-note-link {
+    font-weight: normal;
+    opacity: 0.7;
+}

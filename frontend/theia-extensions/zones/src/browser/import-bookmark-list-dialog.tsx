@@ -1,0 +1,293 @@
+import * as React from 'react';
+
+interface BookmarkList {
+    code: string;
+    name: string;
+    count: number;
+    url: string;
+}
+
+export interface ImportBookmarkListDialogProps {
+    zoneId: number;
+    onImport: (bookmarkCode: string, onProgress?: (percentage: number, message: string) => void) => Promise<void>;
+    onCancel: () => void;
+    isImporting: boolean;
+    backendUrl?: string;
+}
+
+export const ImportBookmarkListDialog: React.FC<ImportBookmarkListDialogProps> = ({
+    zoneId,
+    onImport,
+    onCancel,
+    isImporting,
+    backendUrl = 'http://localhost:8000'
+}) => {
+    const [lists, setLists] = React.useState<BookmarkList[]>([]);
+    const [selectedCode, setSelectedCode] = React.useState('');
+    const [loading, setLoading] = React.useState(true);
+    const [error, setError] = React.useState('');
+    const [progressVisible, setProgressVisible] = React.useState(false);
+    const [progressPercentage, setProgressPercentage] = React.useState(0);
+    const [progressMessage, setProgressMessage] = React.useState('');
+
+    React.useEffect(() => {
+        const fetchLists = async () => {
+            try {
+                setLoading(true);
+                setError('');
+                const response = await fetch(`${backendUrl}/api/geocaches/user-bookmark-lists`);
+                if (!response.ok) {
+                    throw new Error('Impossible de récupérer les listes');
+                }
+                const data = await response.json();
+                setLists(data.lists || []);
+                if (data.lists && data.lists.length > 0) {
+                    setSelectedCode(data.lists[0].code);
+                }
+            } catch (err) {
+                setError('Erreur lors du chargement des listes. Assurez-vous d\'être connecté à geocaching.com.');
+                console.error('Failed to fetch bookmark lists:', err);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchLists();
+    }, [backendUrl]);
+
+    const handleProgressUpdate = React.useCallback((percentage: number, message: string) => {
+        setProgressPercentage(percentage);
+        setProgressMessage(message);
+        setProgressVisible(true);
+    }, []);
+
+    const resetProgress = React.useCallback(() => {
+        setProgressVisible(false);
+        setProgressPercentage(0);
+        setProgressMessage('');
+    }, []);
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (selectedCode) {
+            resetProgress();
+            await onImport(selectedCode, handleProgressUpdate);
+        }
+    };
+
+    const selectedList = React.useMemo(() => {
+        return lists.find(l => l.code === selectedCode);
+    }, [lists, selectedCode]);
+
+    return (
+        <div 
+            style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 10000
+            }}
+            onClick={onCancel}
+        >
+            <div 
+                style={{
+                    backgroundColor: 'var(--theia-editor-background)',
+                    padding: '24px',
+                    borderRadius: '8px',
+                    width: '500px',
+                    maxWidth: '90vw',
+                    border: '1px solid var(--theia-panel-border)',
+                    boxShadow: '0 4px 6px rgba(0, 0, 0, 0.3)'
+                }}
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                    <h3 style={{ margin: 0, fontSize: '18px', color: 'var(--theia-foreground)' }}>
+                        Importer depuis une liste de favoris
+                    </h3>
+                    <button
+                        onClick={onCancel}
+                        disabled={isImporting}
+                        style={{
+                            background: 'none',
+                            border: 'none',
+                            color: 'var(--theia-foreground)',
+                            cursor: isImporting ? 'not-allowed' : 'pointer',
+                            padding: '4px',
+                            opacity: isImporting ? 0.5 : 1,
+                            fontSize: '20px'
+                        }}
+                    >
+                        ✕
+                    </button>
+                </div>
+
+                <form onSubmit={handleSubmit}>
+                    {loading ? (
+                        <div style={{ padding: '20px', textAlign: 'center', color: 'var(--theia-descriptionForeground)' }}>
+                            Chargement de vos listes...
+                        </div>
+                    ) : error ? (
+                        <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: 'var(--theia-inputValidation-errorBackground)', borderRadius: '4px' }}>
+                            <p style={{ fontSize: '13px', color: 'var(--theia-errorForeground)', margin: 0 }}>
+                                {error}
+                            </p>
+                        </div>
+                    ) : lists.length === 0 ? (
+                        <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: 'var(--theia-input-background)', borderRadius: '4px' }}>
+                            <p style={{ fontSize: '13px', color: 'var(--theia-descriptionForeground)', margin: 0 }}>
+                                Aucune liste de favoris trouvée. Créez-en une sur geocaching.com.
+                            </p>
+                        </div>
+                    ) : (
+                        <div style={{ marginBottom: '16px' }}>
+                            <label 
+                                htmlFor="listSelect"
+                                style={{ 
+                                    display: 'block', 
+                                    fontSize: '13px', 
+                                    marginBottom: '8px',
+                                    color: 'var(--theia-foreground)'
+                                }}
+                            >
+                                Sélectionnez une liste de favoris
+                            </label>
+                            <select
+                                id="listSelect"
+                                value={selectedCode}
+                                onChange={(e) => setSelectedCode(e.target.value)}
+                                disabled={isImporting}
+                                style={{
+                                    display: 'block',
+                                    width: '100%',
+                                    padding: '8px',
+                                    backgroundColor: 'var(--theia-input-background)',
+                                    color: 'var(--theia-input-foreground)',
+                                    border: '1px solid var(--theia-input-border)',
+                                    borderRadius: '4px',
+                                    cursor: isImporting ? 'not-allowed' : 'pointer',
+                                    fontSize: '14px'
+                                }}
+                            >
+                                {lists.map(list => (
+                                    <option key={list.code} value={list.code}>
+                                        {list.name} ({list.count} caches)
+                                    </option>
+                                ))}
+                            </select>
+                            {selectedList && (
+                                <p style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)', marginTop: '4px' }}>
+                                    Code: {selectedList.code}
+                                </p>
+                            )}
+                        </div>
+                    )}
+
+                    <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: 'var(--theia-input-background)', borderRadius: '4px' }}>
+                        <p style={{ fontSize: '12px', color: 'var(--theia-descriptionForeground)', margin: 0 }}>
+                            <strong>Zone cible:</strong> {zoneId}
+                        </p>
+                        <p style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)', margin: '8px 0 0 0' }}>
+                            💡 Les géocaches de la liste seront importées dans cette zone. Assurez-vous d'être connecté à geocaching.com dans votre navigateur.
+                        </p>
+                    </div>
+
+                    {progressVisible && (
+                        <div style={{ marginBottom: '16px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                <span style={{ fontSize: '13px', color: 'var(--theia-foreground)' }}>
+                                    Progression
+                                </span>
+                                <span style={{ fontSize: '13px', color: 'var(--theia-descriptionForeground)' }}>
+                                    {progressPercentage}%
+                                </span>
+                            </div>
+                            <div
+                                style={{
+                                    width: '100%',
+                                    height: '8px',
+                                    backgroundColor: 'var(--theia-progressBar-background)',
+                                    borderRadius: '4px',
+                                    overflow: 'hidden'
+                                }}
+                            >
+                                <div
+                                    style={{
+                                        width: `${progressPercentage}%`,
+                                        height: '100%',
+                                        backgroundColor: 'var(--theia-progressBar-foreground)',
+                                        transition: 'width 0.3s ease'
+                                    }}
+                                />
+                            </div>
+                            {progressMessage && (
+                                <p style={{ fontSize: '12px', color: 'var(--theia-descriptionForeground)', marginTop: '4px' }}>
+                                    {progressMessage}
+                                </p>
+                            )}
+                        </div>
+                    )}
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                        <button
+                            type="button"
+                            onClick={onCancel}
+                            disabled={isImporting}
+                            style={{
+                                padding: '8px 16px',
+                                backgroundColor: 'var(--theia-button-secondaryBackground)',
+                                color: 'var(--theia-button-secondaryForeground)',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: isImporting ? 'not-allowed' : 'pointer',
+                                opacity: isImporting ? 0.5 : 1
+                            }}
+                        >
+                            Annuler
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={!selectedCode || isImporting || loading || lists.length === 0}
+                            style={{
+                                padding: '8px 16px',
+                                backgroundColor: (!selectedCode || isImporting || loading || lists.length === 0) ? 'var(--theia-button-disabledBackground)' : 'var(--theia-button-background)',
+                                color: (!selectedCode || isImporting || loading || lists.length === 0) ? 'var(--theia-button-disabledForeground)' : 'var(--theia-button-foreground)',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: (!selectedCode || isImporting || loading || lists.length === 0) ? 'not-allowed' : 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px'
+                            }}
+                        >
+                            <span>Importer</span>
+                            {isImporting && (
+                                <div 
+                                    style={{
+                                        width: '16px',
+                                        height: '16px',
+                                        border: '2px solid currentColor',
+                                        borderTopColor: 'transparent',
+                                        borderRadius: '50%',
+                                        animation: 'spin 1s linear infinite'
+                                    }}
+                                />
+                            )}
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <style>{`
+                @keyframes spin {
+                    to { transform: rotate(360deg); }
+                }
+            `}</style>
+        </div>
+    );
+};

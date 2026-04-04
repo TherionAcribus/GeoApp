@@ -1,0 +1,32 @@
+{
+  "name": "shadok_numbers",
+  "version": "1.0.0",
+  "description": "Plugin de chiffrement et déchiffrement utilisant la numération Shadok (GA BU ZO MEU)",
+  "author": "MysterAI",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": ["NumeralSystems"],
+  "brute_force": false,
+  "enable_scoring": false,
+  "accept_accents": false,
+  "input_types": {
+    "text": {
+      "type": "string",
+      "label": "Nombre(s) ou code Shadok",
+      "placeholder": "Entrez un nombre décimal ou une chaîne Shadok..."
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": ["encode", "decode"],
+      "default": "decode"
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Résultat"
+    }
+  }
+} 

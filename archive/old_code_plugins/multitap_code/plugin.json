@@ -1,0 +1,54 @@
+{
+    "name": "multitap_code",
+    "version": "1.0.0",
+    "description": "Plugin de chiffrement et déchiffrement utilisant le code Multitap (ABC) des anciens téléphones mobiles",
+    "author": "MysterAI",
+    "plugin_type": "python",
+    "entry_point": "main.py",
+    "dependencies": [],
+    "categories": ["AlphabetsDecryption"],
+    "brute_force": true,
+    "enable_scoring": true,
+    "accept_accents": false,
+    "scoring_method": {
+      "type": "lexical",
+      "custom_weights": {
+        "lexical": 0.8,
+        "gps": 0.2
+      }
+    },
+    "input_types": {
+      "text": {
+        "type": "string",
+        "label": "Texte à traiter",
+        "placeholder": "Entrez le texte codé ou à coder (ex: 3222666333 pour DCODE)..."
+      },
+      "separator": {
+        "type": "select",
+        "label": "Séparateur",
+        "options": [
+          { "value": "auto", "label": "auto - détection automatique" },
+          { "value": "space", "label": "espace - 222 666 3 33" },
+          { "value": "dash", "label": "tiret - 222-666-3-33" },
+          { "value": "none", "label": "aucun - 222666333" }
+        ],
+        "default": "auto"
+      },
+      "mode": {
+        "type": "select",
+        "label": "Mode",
+        "options": ["encode", "decode"],
+        "default": "decode"
+      }
+    },
+    "output_types": {
+      "text_output": {
+        "type": "string",
+        "label": "Texte transformé"
+      },
+      "bruteforce_solutions": {
+        "type": "array",
+        "label": "Solutions (bruteforce)"
+      }
+    }
+  } 

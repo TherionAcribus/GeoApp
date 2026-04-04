@@ -1,0 +1,62 @@
+{
+    "name": "letter_value",
+    "version": "1.2.0",
+    "description": "Convertit les lettres en valeurs numériques selon leur position dans l'alphabet (A=1, B=2, etc.)",
+    "author": "MysteryAI",
+    "plugin_type": "python",
+    "entry_point": "main.py",
+    "dependencies": [],
+    "categories": ["AlphabetsDecryption"],
+    "brute_force": true,
+    "accept_accents": false,
+    "input_types": {
+      "text": {
+        "type": "string",
+        "label": "Texte à traiter",
+        "placeholder": "Entrez le texte contenant des lettres à convertir..."
+      },
+      "mode": {
+        "type": "select",
+        "label": "Mode",
+        "options": ["decode", "encode", "detect"],
+        "default": "decode"
+      },
+      "strict": {
+        "type": "select",
+        "label": "Mode de décodage",
+        "options": ["strict", "smooth"],
+        "default": "smooth"
+      },
+      "embedded": {
+        "type": "select",
+        "label": "Texte intégré",
+        "options": [true, false],
+        "default": true
+      },
+      "allowed_chars": {
+        "type": "string",
+        "label": "Caractères autorisés",
+        "placeholder": "Espace, ponctuation, etc.",
+        "default": " ,.°"
+      },
+      "format": {
+        "type": "select",
+        "label": "Format de sortie",
+        "options": ["standard", "decimal", "combined"],
+        "default": "combined"
+      },
+      "checksum": {
+        "type": "select",
+        "label": "Utiliser le checksum",
+        "options": ["true", "false"],
+        "default": "false",
+        "description": "Convertir les valeurs en un seul chiffre (ex: V=22 → V=4)"
+      }
+    },
+    "output_types": {
+      "result": {
+        "type": "string",
+        "label": "Résultat"
+      }
+    }
+  }

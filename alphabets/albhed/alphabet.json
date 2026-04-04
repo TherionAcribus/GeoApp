@@ -1,0 +1,20 @@
+{
+  "name": "Al Bhed",
+  "description": "Langue du peuple Al Bhed dans le jeu vidéo Final Fantasy",
+  "type": "alphabet",
+  "category": "alphabets",
+  "version": "1.0.0",
+  "tags": ["jeu video", "Final Fantasy"],
+  "alphabetConfig": {
+    "type": "font",
+    "fontFile": "fonts/albhed.ttf",
+    "hasUpperCase": true,
+    "upperCaseOnly": false,
+    "characters": {
+      "letters": "all",
+      "numbers": "",
+      "special": {
+      }
+    }
+  }
+}

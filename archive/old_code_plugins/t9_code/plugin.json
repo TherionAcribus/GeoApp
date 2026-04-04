@@ -1,0 +1,65 @@
+{
+    "name": "t9_code",
+    "version": "1.0.1",
+    "description": "Plugin de chiffrement et déchiffrement utilisant le code T9 (prédictif) des anciens téléphones mobiles. Version corrigée avec traitement mot par mot et scoring amélioré.",
+    "author": "MysterAI",
+    "plugin_type": "python",
+    "entry_point": "main.py",
+    "dependencies": [],
+    "categories": ["AlphabetsDecryption"],
+    "brute_force": true,
+    "enable_scoring": true,
+    "accept_accents": false,
+    "scoring_method": {
+      "type": "lexical",
+      "custom_weights": {
+        "lexical": 0.8,
+        "gps": 0.2
+      }
+    },
+    "input_types": {
+      "text": {
+        "type": "string",
+        "label": "Texte à traiter",
+        "placeholder": "Entrez le texte codé ou à coder (ex: 264 pour AMI, 24370264 pour CHER AMI)..."
+      },
+      "language": {
+        "type": "select",
+        "label": "Langue du dictionnaire",
+        "options": [
+          { "value": "auto", "label": "auto - détection automatique" },
+          { "value": "fr", "label": "français" },
+          { "value": "en", "label": "anglais" },
+          { "value": "de", "label": "allemand" },
+          { "value": "es", "label": "espagnol" },
+          { "value": "it", "label": "italien" },
+          { "value": "nl", "label": "néerlandais" },
+          { "value": "pt", "label": "portugais" }
+        ],
+        "default": "auto"
+      },
+      "mode": {
+        "type": "select",
+        "label": "Mode",
+        "options": ["encode", "decode"],
+        "default": "decode"
+      },
+      "max_results": {
+        "type": "number",
+        "label": "Nombre max de résultats",
+        "min": 1,
+        "max": 50,
+        "default": 10
+      }
+    },
+    "output_types": {
+      "text_output": {
+        "type": "string",
+        "label": "Texte transformé"
+      },
+      "bruteforce_solutions": {
+        "type": "array",
+        "label": "Solutions (bruteforce)"
+      }
+    }
+  } 

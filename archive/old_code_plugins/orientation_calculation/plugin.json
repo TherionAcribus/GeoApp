@@ -1,0 +1,78 @@
+{
+    "name": "orientation_calculation",
+    "version": "1.9.2",
+    "description": "Plugin pour déplacer un point de coordonnée en fonction d'une distance et d'un azimut depuis le Nord.",
+    "author": "MysterAI",
+    "plugin_type": "python",
+    "entry_point": "main.py",
+    "categories": ["CoordinatesCalculations"],
+    "dependencies": ["pyproj"],
+    "input_types": {
+      "text": {
+          "type": "string",
+          "label": "Texte avec projection",
+          "placeholder": "Texte contenant des coordonnées et/ou des informations de projection (ex: N 49° 12.374 E 5° 52.727 ou 500m 45°)"
+      },
+      "origin_coords": {
+          "type": "string",
+          "label": "Coordonnées d'origine (optionnel si présentes dans le texte)",
+          "placeholder": "Entrez les coordonnées d'origine au format 'N dd° mm.mmm E dd° mm.mmm'"
+      },
+      "distance": {
+        "type": "float",
+        "label": "Distance (mode strict)",
+        "placeholder": "Entrez une distance en m, km ou miles"
+      },
+      "bearing_deg": {
+        "type": "float",
+        "label": "Angle (mode strict)",
+        "placeholder": "Entrez un angle en degrés"
+      },
+      "distance_unit": {
+          "type": "select",
+          "label": "Unité de distance (mode strict)",
+          "options": [
+              "m",
+              "km",
+              "miles"
+          ],
+          "default": "m"
+      },
+      "enable_gps_detection": {
+        "type": "boolean",
+        "label": "Activer la détection GPS",
+        "default": true
+      },
+      "mode": {
+        "type": "select",
+        "label": "Mode",
+        "options": ["decode"],
+        "default": "decode"
+      },
+      "strict": {
+        "type": "select",
+        "label": "Mode strict",
+        "options": ["strict", "smooth"],
+        "default": "smooth"
+      }
+    },
+    "output_types": {
+      "text_output": {
+        "type": "string",
+        "label": "Coordonnée calculée"
+      },
+      "gc_lat": {
+        "type": "string",
+        "label": "Latitude"
+      },
+      "gc_lon": {
+        "type": "string",
+        "label": "Longitude"
+      },
+      "log": {
+        "type": "string",
+        "label": "Détails de la projection"
+      }
+    }
+  }
+  

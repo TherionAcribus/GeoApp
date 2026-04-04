@@ -1,0 +1,73 @@
+{
+    "name": "nihilist_cipher",
+    "version": "1.2.1",
+    "description": "Plugin de chiffrement/déchiffrement basé sur le chiffre des Nihilistes, un surchiffrement du carré de Polybe",
+    "author": "MysterAI Team",
+    "plugin_type": "python",
+    "entry_point": "main.py",
+    "dependencies": ["polybius_square"],
+    "categories": ["AlphabetsDecryption"],
+    "brute_force": false,
+    "enable_scoring": true,
+    "accept_accents": false,
+    "scoring_method": {
+        "type": "lexical",
+        "custom_weights": {
+            "lexical": 0.8,
+            "gps": 0.2
+        }
+    },
+    "input_types": {
+        "text": {
+            "type": "string",
+            "label": "Texte à traiter",
+            "placeholder": "Entrez le texte ici..."
+        },
+        "mode": {
+            "type": "select",
+            "label": "Mode",
+            "options": ["decode", "encode"],
+            "default": "decode"
+        },
+        "key": {
+            "type": "string",
+            "label": "Clé de surchiffrement",
+            "placeholder": "Entrez la clé ici..."
+        },
+        "grid_key": {
+            "type": "string",
+            "label": "Mot-clé pour la grille",
+            "placeholder": "Mot-clé pour mélanger l'alphabet (optionnel)",
+            "required": false
+        },
+        "alphabet_mode": {
+            "type": "select",
+            "label": "Mode alphabet",
+            "options": ["I=J", "C=K", "W=VV"],
+            "default": "I=J"
+        },
+        "output_format": {
+            "type": "select",
+            "label": "Format de sortie",
+            "options": ["separated", "concatenated"],
+            "default": "separated",
+            "condition": "mode == 'encode'"
+        },
+        "strict": {
+            "type": "select",
+            "label": "Mode strict",
+            "options": ["strict", "smooth"],
+            "default": "smooth"
+        }
+    },
+    "output_types": {
+        "encoded_text": {
+            "type": "string",
+            "label": "Texte chiffré"
+        },
+        "decoded_text": {
+            "type": "string",
+            "label": "Texte déchiffré"
+        }
+    }
+}

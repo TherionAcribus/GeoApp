@@ -1,0 +1,37 @@
+{
+  "name": "@mysterai/theia-preferences",
+  "version": "1.0.0",
+  "description": "Extension Theia pour la gestion des préférences GeoApp",
+  "keywords": [
+    "theia-extension",
+    "preferences",
+    "geoapp"
+  ],
+  "license": "MIT",
+  "main": "lib/browser/geo-preferences-frontend-module.js",
+  "typings": "lib/browser/geo-preferences-frontend-module.d.ts",
+  "dependencies": {
+    "axios": "^1.6.0",
+    "@theia/core": "1.67.0",
+    "@theia/filesystem": "1.67.0",
+    "@theia/preferences": "1.67.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.0",
+    "rimraf": "^5.0.0",
+    "typescript": "^5.0.0",
+    "fs-extra": "^11.0.0"
+  },
+  "scripts": {
+    "clean": "rimraf lib",
+    "build": "tsc && yarn run copy:assets",
+    "copy:assets": "node -e \"require('fs-extra').copySync('src/browser/style', 'lib/browser/style')\"",
+    "watch": "tsc -w"
+  },
+  "theiaExtensions": [
+    {
+      "frontend": "lib/browser/geo-preferences-frontend-module"
+    }
+  ]
+}
+

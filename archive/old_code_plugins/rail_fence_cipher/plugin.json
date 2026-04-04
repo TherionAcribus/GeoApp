@@ -1,0 +1,57 @@
+{
+  "name": "rail_fence_cipher",
+  "version": "1.0.0",
+  "description": "Plugin de chiffrement et déchiffrement utilisant le chiffre Rail Fence (zigzag)",
+  "author": "MysterAI",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": ["Transposition"],
+  "brute_force": true,
+  "enable_scoring": true,
+  "accept_accents": false,
+  "scoring_method": {
+    "type": "lexical",
+    "custom_weights": {
+      "lexical": 0.8,
+      "gps": 0.2
+    }
+  },
+  "input_types": {
+    "text": {
+      "type": "string",
+      "label": "Texte à traiter",
+      "placeholder": "Entrez le texte à chiffrer ou déchiffrer..."
+    },
+    "key": {
+      "type": "number",
+      "label": "Clé (nombre de rails)",
+      "min": 2,
+      "max": 20,
+      "step": 1,
+      "default": 3
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": ["encode", "decode", "bruteforce"],
+      "default": "decode"
+    },
+    "start_direction": {
+      "type": "select",
+      "label": "Sens de départ",
+      "options": ["top", "bottom"],
+      "default": "top"
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Texte transformé"
+    },
+    "bruteforce_solutions": {
+      "type": "array",
+      "label": "Solutions (bruteforce)"
+    }
+  }
+} 

@@ -1,0 +1,101 @@
+.geo-preferences-root {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    overflow: auto;
+}
+
+.geo-preferences-status {
+    padding: 8px 12px;
+    border-radius: 6px;
+    background: rgba(44, 82, 130, 0.2);
+    border: 1px solid rgba(44, 82, 130, 0.4);
+    font-size: 12px;
+}
+
+.geo-preferences-section {
+    border: 1px solid var(--theia-layout-color3);
+    border-radius: 6px;
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.geo-preferences-section h2 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 0 0 8px;
+    color: var(--theia-ui-font-color2);
+}
+
+.geo-preferences-items {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.geo-preference-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--theia-layout-color3);
+}
+
+.geo-preference-item:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.geo-preference-main {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.geo-preference-main label {
+    font-weight: 600;
+}
+
+.geo-preference-main input[type='checkbox'] {
+    width: 16px;
+    height: 16px;
+}
+
+.geo-preference-main input,
+.geo-preference-main select {
+    min-width: 140px;
+}
+
+.geo-preference-meta p {
+    margin: 0;
+    color: var(--theia-ui-font-color2);
+    font-size: 12px;
+}
+
+.geo-preference-tags {
+    display: flex;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.geo-preference-tag {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: var(--theia-layout-color3);
+    text-transform: uppercase;
+}
+
+.geo-preference-tag.backend {
+    background: #2f855a;
+    color: #fff;
+}
+
+.geo-preference-tag.frontend {
+    background: #2c5282;
+    color: #fff;
+}
+

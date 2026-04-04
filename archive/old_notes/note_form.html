@@ -1,0 +1,37 @@
+<form id="note-form" class="bg-gray-800 rounded-lg p-4 space-y-4 mb-4"
+      {% if note %}
+      hx-put="/api/logs/note/{{ note.id }}"
+      {% else %}
+      hx-post="/api/logs/geocache/{{ geocache_id }}/notes"
+      {% endif %}
+      hx-target="#notes-content"
+      hx-swap="innerHTML">
+    <div class="space-y-2">
+        <label for="note-type" class="block text-sm font-medium text-gray-300">Type de note</label>
+        <select id="note-type" name="note_type" class="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-gray-300 focus:outline-none focus:border-blue-500">
+            <option value="user" {% if note and note.note_type == 'user' %}selected{% endif %}>Note personnelle</option>
+            <option value="system" {% if note and note.note_type == 'system' %}selected{% endif %}>Note système</option>
+            <option value="hint" {% if note and note.note_type == 'hint' %}selected{% endif %}>Indice</option>
+            <option value="spoiler" {% if note and note.note_type == 'spoiler' %}selected{% endif %}>Spoiler</option>
+        </select>
+    </div>
+    <div class="space-y-2">
+        <label for="note-content" class="block text-sm font-medium text-gray-300">Contenu</label>
+        <textarea id="note-content" name="content" rows="4"
+                  class="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-gray-300 focus:outline-none focus:border-blue-500"
+                  placeholder="Votre note..."
+                  autocomplete="off"
+                  spellcheck="true">{% if note %}{{ note.content }}{% endif %}</textarea>
+    </div>
+    <div class="flex justify-end space-x-3">
+        <button type="button" class="px-4 py-2 text-sm text-gray-400 hover:text-gray-300"
+                hx-get="/api/logs/notes_panel?geocacheId={{ geocache_id }}"
+                hx-target="#notes-content"
+                hx-swap="innerHTML">
+            Annuler
+        </button>
+        <button type="submit" class="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-md">
+            {{ 'Modifier' if note else 'Ajouter' }}
+        </button>
+    </div>
+</form>

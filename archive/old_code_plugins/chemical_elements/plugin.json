@@ -1,0 +1,47 @@
+{
+    "name": "chemical_elements",
+    "version": "1.1.0",
+    "description": "Convertit les symboles chimiques en numéros atomiques et vice-versa",
+    "author": "MysteryAI",
+    "plugin_type": "python",
+    "entry_point": "main.py",
+    "dependencies": [],
+    "categories": ["Chemistry", "AlphabetsDecryption"],
+    "accept_accents": true,
+    "input_types": {
+      "text": {
+        "type": "string",
+        "label": "Texte à traiter",
+        "placeholder": "Entrez du texte avec des symboles chimiques ou des numéros atomiques..."
+      },
+      "mode": {
+        "type": "select",
+        "label": "Mode",
+        "options": ["decode", "encode", "detect"],
+        "default": "decode"
+      },
+      "strict": {
+        "type": "select",
+        "label": "Mode de décodage",
+        "options": ["strict", "smooth"],
+        "default": "smooth"
+      },
+      "embedded": {
+        "type": "checkbox",
+        "label": "Symboles intégrés dans le texte",
+        "default": true
+      },
+      "allowed_chars": {
+        "type": "string",
+        "label": "Caractères autorisés",
+        "placeholder": "Exemple: ° . , ; : -",
+        "default": " \t\r\n.:;,_-°"
+      }
+    },
+    "output_types": {
+      "result": {
+        "type": "string",
+        "label": "Résultat"
+      }
+    }
+  }

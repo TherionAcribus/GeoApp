@@ -1,0 +1,13 @@
+{
+  "extends": "../../configs/base.tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib",
+    "baseUrl": ".",
+    "noEmitOnError": false
+  },
+  "include": ["src"],
+  "exclude": ["lib", "node_modules", "src/browser/tests"]
+}
+
+

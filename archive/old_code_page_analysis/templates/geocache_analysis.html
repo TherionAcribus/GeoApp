@@ -1,0 +1,68 @@
+<div class="w-full h-full bg-gray-900 overflow-auto p-4"
+     hx-ext="include-vals"
+     hx-headers='{"X-Layout-Component": "true"}'
+     data-controller="geocache-analysis"
+     data-geocache-analysis-geocache-id-value="{{ geocache_id }}"
+     data-geocache-analysis-gc-code-value="{{ gc_code }}">
+    
+    <div class="max-w-4xl mx-auto">
+        <!-- En-tête -->
+        <div class="mb-6">
+            <h1 class="text-2xl font-bold text-gray-100 mb-2">Analyse de la géocache {{ gc_code }}</h1>
+            <div class="text-gray-400">
+                Analyse du contenu de la géocache pour détecter des informations intéressantes
+            </div>
+        </div>
+
+        <!-- Résultats d'analyse -->
+        <div id="analysis-results" class="space-y-4">
+            <!-- Section de chargement -->
+            <div class="animate-pulse" data-geocache-analysis-target="loading">
+                <div class="h-4 bg-gray-700 rounded w-3/4 mb-4"></div>
+                <div class="h-4 bg-gray-700 rounded w-1/2 mb-4"></div>
+                <div class="h-4 bg-gray-700 rounded w-2/3"></div>
+            </div>
+
+            <!-- Résultats -->
+            <div data-geocache-analysis-target="results" class="hidden">
+                <!-- Les résultats seront injectés ici par le contrôleur -->
+            </div>
+
+            <!-- Message d'erreur -->
+            <div data-geocache-analysis-target="error" class="hidden">
+                <div class="bg-red-900/50 border border-red-500 text-red-200 px-4 py-3 rounded">
+                    <div class="font-bold">Une erreur est survenue lors de l'analyse.</div>
+                    <div class="mt-2" id="error-details"></div>
+                    <div class="mt-2">
+                        <button class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded"
+                                onclick="document.querySelector('[data-geocache-analysis-target=error]').classList.add('hidden');document.querySelector('[data-geocache-analysis-target=loading]').classList.remove('hidden');document.dispatchEvent(new CustomEvent('retryAnalysis'));">
+                            Réessayer
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="/js/controllers/geocache_analysis_controller.js"></script>
+
+<style>
+    .animate-fade-in-out {
+        animation: fadeIn 0.3s ease-in;
+    }
+    
+    .animate-fade-out {
+        animation: fadeOut 0.3s ease-out;
+    }
+    
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(-20px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    
+    @keyframes fadeOut {
+        from { opacity: 1; transform: translateY(0); }
+        to { opacity: 0; transform: translateY(-20px); }
+    }
+</style>

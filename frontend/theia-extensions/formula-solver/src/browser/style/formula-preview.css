@@ -1,0 +1,143 @@
+/**
+ * Styles pour le composant FormulaPreview
+ */
+
+.formula-preview-container {
+    background-color: var(--theia-editor-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    padding: 16px;
+    margin-bottom: 20px;
+}
+
+.formula-preview-container h3 {
+    margin: 0 0 12px 0;
+    color: var(--theia-foreground);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.formula-part {
+    transition: all 0.2s ease-in-out;
+}
+
+.formula-part strong {
+    color: var(--theia-foreground);
+}
+
+/* Classes Theia natives pour les statuts */
+.theia-success {
+    color: var(--theia-successText, #4caf50);
+    font-weight: 500;
+}
+
+.theia-warn {
+    color: var(--theia-warningText, #ff9800);
+    font-weight: 500;
+}
+
+.theia-error {
+    color: var(--theia-errorText, #f44336);
+    font-weight: 500;
+}
+
+/* Animation pour les updates */
+@keyframes pulse {
+    0% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.7;
+    }
+    100% {
+        opacity: 1;
+    }
+}
+
+.formula-part:hover {
+    transform: translateX(2px);
+}
+
+/* Styles pour les icônes de statut */
+.codicon {
+    font-size: 14px;
+}
+
+.codicon-check {
+    color: var(--theia-successText, #4caf50);
+}
+
+.codicon-circle-outline {
+    color: var(--theia-warningText, #ff9800);
+}
+
+.codicon-error {
+    color: var(--theia-errorText, #f44336);
+}
+
+/* Fragments */
+.coordinate-fragments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.coordinate-fragment-chip {
+    min-width: 80px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--theia-panel-border);
+    background-color: var(--theia-editorWidget-background, rgba(255,255,255,0.02));
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 11px;
+}
+
+.coordinate-fragment-label {
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--theia-descriptionForeground);
+}
+
+.coordinate-fragment-value {
+    font-family: var(--theia-code-font-family, monospace);
+    font-size: 12px;
+    color: var(--theia-foreground);
+}
+
+.coordinate-fragment-warning {
+    font-size: 10px;
+    margin-top: 2px;
+}
+
+.fragment-chip-fixed {
+    background-color: rgba(76, 175, 80, 0.1);
+    border-color: rgba(76, 175, 80, 0.4);
+}
+
+.fragment-chip-ok {
+    background-color: rgba(76, 175, 80, 0.05);
+    border-color: rgba(76, 175, 80, 0.2);
+}
+
+.fragment-chip-pending {
+    background-color: rgba(255, 255, 255, 0.02);
+    border-color: var(--theia-panel-border);
+}
+
+.fragment-chip-warning {
+    background-color: rgba(255, 152, 0, 0.1);
+    border-color: rgba(255, 152, 0, 0.4);
+}
+
+.fragment-chip-empty {
+    opacity: 0.6;
+    border-style: dashed;
+}
+
+.fragment-chip-error {
+    background-color: rgba(244, 67, 54, 0.08);
+    border-color: rgba(244, 67, 54, 0.4);
+}

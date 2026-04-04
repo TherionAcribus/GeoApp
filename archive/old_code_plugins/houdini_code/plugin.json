@@ -1,0 +1,48 @@
+{
+  "name": "houdini_code",
+  "version": "1.0.0",
+  "description": "Plugin pour encoder/décoder le code Houdini (Pray=1, Answer=2, ...).",
+  "author": "MysterAI",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": ["WordsSubstitution"],
+  "brute_force": true,
+  "enable_scoring": false,
+  "accept_accents": false,
+  "input_types": {
+    "text": {
+      "type": "string",
+      "label": "Texte à traiter",
+      "placeholder": "Entrez le texte ici..."
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": ["decode", "encode"],
+      "default": "decode"
+    },
+    "output_format": {
+      "type": "select",
+      "label": "Format de sortie (decode)",
+      "options": ["numbers", "letters"],
+      "default": "numbers"
+    },
+    "strict": {
+      "type": "select",
+      "label": "Mode strict",
+      "options": ["strict", "smooth"],
+      "default": "smooth"
+    }
+  },
+  "output_types": {
+    "encoded_text": {
+      "type": "string",
+      "label": "Texte encodé"
+    },
+    "decoded_text": {
+      "type": "string",
+      "label": "Texte décodé"
+    }
+  }
+} 

@@ -1,0 +1,197 @@
+/**
+ * Styles pour l'extension Alphabets.
+ */
+
+/* ============================================
+   Liste des alphabets (panel gauche)
+   ============================================ */
+
+.alphabets-list-container {
+    font-family: var(--theia-ui-font-family);
+}
+
+.alphabets-list-container input[type="text"]:focus {
+    outline: 1px solid var(--theia-focusBorder);
+}
+
+.alphabets-list-container button:hover {
+    opacity: 0.8;
+}
+
+.alphabets-list-container button:active {
+    transform: scale(0.95);
+}
+
+/* ============================================
+   Widget de visualisation (à compléter)
+   ============================================ */
+
+.alphabet-viewer-container {
+    height: 100%;
+    overflow: auto;
+    padding: 20px;
+    background-color: var(--theia-editor-background);
+    color: var(--theia-editor-foreground);
+}
+
+/* Symboles disponibles */
+.alphabet-symbols-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    gap: 12px;
+    margin: 16px 0;
+}
+
+.alphabet-symbol {
+    width: 96px;
+    height: 96px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--theia-list-activeSelectionBackground);
+    border: 1px solid var(--theia-list-inactiveSelectionBackground);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+}
+
+.alphabet-symbol:hover {
+    background-color: var(--theia-list-hoverBackground);
+    transform: scale(1.05);
+}
+
+.alphabet-symbol:active {
+    transform: scale(0.95);
+}
+
+/* Symboles draggables */
+.alphabet-symbol-item {
+    transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
+    user-select: none;
+}
+
+.alphabet-symbol-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+.alphabet-symbol-item:active {
+    cursor: move;
+    opacity: 0.7;
+}
+
+.alphabet-symbol-item[draggable="true"] {
+    cursor: move;
+}
+
+.alphabet-symbol img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    padding: 12px;
+}
+
+/* Zone épinglée */
+.pinned-area {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background-color: var(--theia-sideBar-background);
+    border-bottom: 1px solid var(--theia-sideBar-border);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    padding: 12px;
+    margin-bottom: 16px;
+}
+
+/* Boutons de zoom */
+.zoom-controls {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+
+.zoom-controls button {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--theia-button-background);
+    color: var(--theia-button-foreground);
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.zoom-controls button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Coordonnées détectées */
+.coordinates-container {
+    background-color: var(--theia-list-activeSelectionBackground);
+    border: 1px solid var(--theia-list-inactiveSelectionBackground);
+    border-radius: 4px;
+    padding: 12px;
+    margin: 16px 0;
+}
+
+.coordinates-status {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: bold;
+}
+
+.coordinates-status.analyzing {
+    background-color: var(--theia-statusBar-debuggingBackground);
+}
+
+.coordinates-status.found {
+    background-color: var(--theia-statusBar-background);
+}
+
+.coordinates-status.not-found {
+    background-color: var(--theia-statusBar-noFolderBackground);
+}
+
+/* Distance */
+.distance-info {
+    margin-top: 8px;
+    padding: 8px;
+    border-radius: 3px;
+    font-size: 12px;
+}
+
+.distance-info.ok {
+    background-color: rgba(0, 255, 0, 0.1);
+    color: #00ff00;
+}
+
+.distance-info.warning {
+    background-color: rgba(255, 255, 0, 0.1);
+    color: #ffff00;
+}
+
+.distance-info.far {
+    background-color: rgba(255, 0, 0, 0.1);
+    color: #ff0000;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .alphabet-symbols-grid {
+        grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+    }
+    
+    .alphabet-symbol {
+        width: 64px;
+        height: 64px;
+    }
+}
+

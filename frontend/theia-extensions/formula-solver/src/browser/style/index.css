@@ -1,0 +1,85 @@
+/**
+ * Styles pour Formula Solver Widget
+ */
+
+@import './formula-preview.css';
+
+.formula-solver-container {
+    font-family: var(--theia-ui-font-family);
+    font-size: var(--theia-ui-font-size1);
+    color: var(--theia-foreground);
+}
+
+.formula-solver-container h2 {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    color: var(--theia-foreground);
+    border-bottom: 1px solid var(--theia-panel-border);
+    padding-bottom: 8px;
+}
+
+.formula-solver-container h3 {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    color: var(--theia-descriptionForeground);
+}
+
+.formula-solver-container button {
+    transition: opacity 0.2s;
+}
+
+.formula-solver-container button:hover:not(:disabled) {
+    opacity: 0.8;
+}
+
+.formula-solver-container button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.formula-solver-container input,
+.formula-solver-container textarea,
+.formula-solver-container select {
+    font-family: var(--theia-code-font-family);
+}
+
+.formula-solver-container input:focus,
+.formula-solver-container textarea:focus,
+.formula-solver-container select:focus {
+    outline: 1px solid var(--theia-focusBorder);
+}
+
+/* Animation de chargement */
+.theia-animation-spin {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Styles pour les étapes */
+.detection-step,
+.questions-step,
+.values-step,
+.result-step {
+    animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}

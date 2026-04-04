@@ -1,0 +1,56 @@
+{
+  "name": "atbash",
+  "version": "1.0.0",
+  "description": "Plugin pour encoder/décoder le chiffrement Atbash (A↔Z, B↔Y, etc.)",
+  "author": "MysteryAI",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "categories": ["AlphabetsDecryption", "ClassicCiphers"],
+  "dependencies": [],
+  "brute_force": false,
+  "enable_scoring": true,
+  "accept_accents": false,
+  "scoring_method": {
+    "type": "lexical",
+    "custom_weights": {
+      "lexical": 0.9,
+      "gps": 0.1
+    }
+  },
+  "input_types": {
+    "text": {
+      "type": "string",
+      "label": "Texte à traiter",
+      "placeholder": "Entrez le texte en clair ou chiffré Atbash..."
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": ["decode", "encode", "detect"],
+      "default": "decode"
+    },
+    "strict": {
+      "type": "select",
+      "label": "Mode de traitement",
+      "options": ["strict", "smooth"],
+      "default": "smooth"
+    },
+    "embedded": {
+      "type": "checkbox",
+      "label": "Texte chiffré intégré",
+      "default": false
+    },
+    "allowed_chars": {
+      "type": "string",
+      "label": "Caractères de séparation autorisés",
+      "placeholder": "Exemple: espace, ponctuation...",
+      "default": " \t\r\n.:;,_-'\"!?"
+    }
+  },
+  "output_types": {
+    "result": {
+      "type": "string",
+      "label": "Résultat"
+    }
+  }
+} 

@@ -1,0 +1,76 @@
+{
+    "name": "polybius_square",
+    "version": "1.0.1",
+    "description": "Plugin de chiffrement et déchiffrement utilisant le carré de Polybe",
+    "author": "MysterAI",
+    "plugin_type": "python",
+    "entry_point": "main.py",
+    "dependencies": [],
+    "categories": ["AlphabetsDecryption"],
+    "brute_force": true,
+    "enable_scoring": true,
+    "accept_accents": false,
+    "scoring_method": {
+        "type": "lexical",
+        "custom_weights": {
+            "lexical": 0.8,
+            "gps": 0.2
+        }
+    },
+    "input_types": {
+        "text": {
+            "type": "string",
+            "label": "Texte à traiter",
+            "placeholder": "Entrez le texte ici..."
+        },
+        "mode": {
+            "type": "select",
+            "label": "Mode",
+            "options": ["decode", "encode"],
+            "default": "decode"
+        },
+
+        "strict": {
+            "type": "select",
+            "label": "Mode strict",
+            "options": ["strict", "smooth"],
+            "default": "smooth"
+        },
+        "key": {
+            "type": "string",
+            "label": "Mot-clé (optionnel)",
+            "placeholder": "Mot-clé pour mélanger l'alphabet",
+            "default": ""
+        },
+        "grid_size": {
+            "type": "select",
+            "label": "Taille de la grille",
+            "options": ["5x5", "6x6"],
+            "default": "5x5"
+        },
+        "alphabet_mode": {
+            "type": "select",
+            "label": "Mode alphabet",
+            "options": ["I=J", "C=K", "W=VV"],
+            "default": "I=J",
+            "condition": "grid_size == '5x5'"
+        },
+        "output_format": {
+            "type": "select",
+            "label": "Format de sortie",
+            "options": ["numbers", "coordinates", "dots"],
+            "default": "numbers",
+            "condition": "mode == 'encode'"
+        }
+    },
+    "output_types": {
+        "encoded_text": {
+            "type": "string",
+            "label": "Texte chiffré"
+        },
+        "decoded_text": {
+            "type": "string",
+            "label": "Texte déchiffré"
+        }
+    }
+}

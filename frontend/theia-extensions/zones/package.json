@@ -1,0 +1,54 @@
+{
+  "private": true,
+  "name": "theia-ide-zones-ext",
+  "version": "1.65.100",
+  "description": "GeoApp Zones - Theia extension (widget barre latérale)",
+  "keywords": [
+    "theia-extension"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/eclipse-theia/theia-ide.git"
+  },
+  "files": [
+    "lib",
+    "src"
+  ],
+  "dependencies": {
+    "@theia/core": "1.67.0",
+    "@theia/workspace": "1.67.0",
+    "@theia/ai-chat": "1.67.0",
+    "@theia/ai-core": "1.67.0",
+    "inversify": "^6.0.1",
+    "@tanstack/react-table": "^8.10.7",
+    "fabric": "^5.3.0",
+    "ol": "^9.0.0",
+    "@mysterai/theia-plugins": "1.0.0",
+    "@mysterai/theia-formula-solver": "1.0.0"
+  },
+  "peerDependencies": {
+    "react": "^16.8.0"
+  },
+  "devDependencies": {
+    "rimraf": "^2.7.1",
+    "typescript": "^4.5.5"
+  },
+  "scripts": {
+    "clean": "rimraf lib *.tsbuildinfo",
+    "build": "tsc -b",
+    "test:geoapp": "node ../../node_modules/ts-node/dist/bin.js src/browser/tests/geocache-chat-prompt-shared.test.ts && node ../../node_modules/ts-node/dist/bin.js src/browser/tests/geoapp-chat-shared.test.ts && node ../../node_modules/ts-node/dist/bin.js src/browser/tests/geoapp-chat-bridge.test.ts",
+    "watch": "rimraf lib *.tsbuildinfo && tsc -w",
+    "lint": "eslint --ext js,jsx,ts,tsx src",
+    "lint:fix": "eslint --ext js,jsx,ts,tsx src --fix",
+    "update:theia": "ts-node ../../scripts/update-theia-version.ts",
+    "update:next": "ts-node ../../scripts/update-theia-version.ts next"
+  },
+  "theiaExtensions": [
+    {
+      "frontend": "lib/browser/zones-frontend-module"
+    }
+  ]
+}
+
+

@@ -1,0 +1,2700 @@
+<?xml version="1.0" encoding="utf-8"?>
+<gpx xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" version="1.0" xsi:schemaLocation="http://www.topografix.com/GPX/1/0 http://www.topografix.com/GPX/1/0/gpx.xsd http://www.groundspeak.com/cache/1/0/1 http://www.groundspeak.com/cache/1/0/1/cache.xsd" creator="Groundspeak, Inc. All Rights Reserved. http://www.groundspeak.com" xmlns="http://www.topografix.com/GPX/1/0">
+  <name>Waypoints for Cache Listings Generated from Geocaching.com</name>
+  <desc>This is a list of supporting waypoints for caches generated from Geocaching.com</desc>
+  <author>Various users from Geocaching.com</author>
+  <email>contact@geocaching.com</email>
+  <url>https://www.geocaching.com</url>
+  <urlname>Geocaching - High Tech Treasure Hunting</urlname>
+  <time>2025-12-01T07:47:41.7513932Z</time>
+  <keywords>cache, geocache, waypoints</keywords>
+  <bounds minlat="48.8252" minlon="5.803417" maxlat="49.027683" maxlon="6.1053" />
+  <wpt lat="48.934867" lon="5.9724">
+    <time>2024-04-21T14:16:20</time>
+    <name>P0APM57</name>
+    <desc>Parking Balade Forestière </desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=a57f7ac9-2434-4998-a079-54fb68d1e0c2</url>
+    <urlname>Parking Balade Forestière </urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.934867" lon="5.9724">
+    <time>2024-04-21T14:14:12</time>
+    <name>P0APM52</name>
+    <desc>Parking Balade Forestière </desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=f0314ea2-b093-43da-9cb6-086f59a8d0b3</url>
+    <urlname>Parking Balade Forestière </urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.942867" lon="5.926533">
+    <time>2022-03-07T14:40:44</time>
+    <name>P09PJ4T</name>
+    <desc>Parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=708cfb53-fe1b-4c7d-8a9c-5be556bb5da4</url>
+    <urlname>Parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.94045" lon="5.921083">
+    <time>2022-03-07T14:40:44</time>
+    <name>019PJ4T</name>
+    <desc>1. Souvenir</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=6136d4cd-a67f-43cc-9123-3e062d2409f9</url>
+    <urlname>1. Souvenir</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>C = nombre de nom inscrit</cmt>
+  </wpt>
+  <wpt lat="48.940333" lon="5.921667">
+    <time>2022-03-07T14:40:44</time>
+    <name>029PJ4T</name>
+    <desc>2. A la mémoire</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=f4f3a9a3-97ac-4432-a5b6-41457a172ed7</url>
+    <urlname>2. A la mémoire</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>A = chiffre des milliers de la date inscrite</cmt>
+  </wpt>
+  <wpt lat="48.941067" lon="5.922933">
+    <time>2022-03-07T14:40:44</time>
+    <name>039PJ4T</name>
+    <desc>3. La croix</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=795f5c72-4b99-4af4-aaa0-d1d5526c0582</url>
+    <urlname>3. La croix</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>D = nombre de personnes divisé par 2</cmt>
+  </wpt>
+  <wpt lat="48.942667" lon="5.926233">
+    <time>2022-03-07T14:40:44</time>
+    <name>049PJ4T</name>
+    <desc>4 mairie</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=9d11646c-1b8d-43fc-b35e-ca8963c0ebbf</url>
+    <urlname>4 mairie</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>B = chiffre des centaines de la date sur la devanture de la mairie</cmt>
+  </wpt>
+  <wpt lat="48.943133" lon="5.928967">
+    <time>2022-03-07T14:40:44</time>
+    <name>059PJ4T</name>
+    <desc>5. Monument de la 5e Div US</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=97f3af69-d7c7-4768-8651-8a9c932c65eb</url>
+    <urlname>5. Monument de la 5e Div US</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>E = Checksum de la date de restauration</cmt>
+  </wpt>
+  <wpt lat="48.9299" lon="5.937483">
+    <time>2022-03-07T14:40:44</time>
+    <name>069PJ4T</name>
+    <desc>6. Abri caverne</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=3b5df348-891f-4ac0-a8d4-3beb8786058d</url>
+    <urlname>6. Abri caverne</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>F = nombre d'abri caverne multiplié par 2</cmt>
+  </wpt>
+  <wpt lat="48.914933" lon="6.00205">
+    <time>2019-03-26T14:44:12</time>
+    <name>P085B0Z</name>
+    <desc>PARKING 1</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=1c6766b5-4428-42d8-bf16-c531546dc00a</url>
+    <urlname>PARKING 1</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez si votre véhicule tolère mal les chemins mal carrossés
+</cmt>
+  </wpt>
+  <wpt lat="48.91615" lon="5.995983">
+    <time>2019-03-26T14:44:12</time>
+    <name>P185B0Z</name>
+    <desc>PARKING 2</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=68ee7cbb-d49f-41b4-9eec-459356945af1</url>
+    <urlname>PARKING 2</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez au plus proche de la série
+</cmt>
+  </wpt>
+  <wpt lat="48.914933" lon="6.00205">
+    <time>2019-03-26T13:10:49</time>
+    <name>P085AWQ</name>
+    <desc>PARKING 1</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=34a4f183-eb6b-4633-b444-c50fded86250</url>
+    <urlname>PARKING 1</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez si votre véhicule tolère mal les chemins mal carrossés
+</cmt>
+  </wpt>
+  <wpt lat="48.91615" lon="5.995983">
+    <time>2019-03-26T13:10:49</time>
+    <name>P185AWQ</name>
+    <desc>PARKING 2</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=92fd855d-e4c0-4e49-990c-2441e8f83766</url>
+    <urlname>PARKING 2</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez au plus proche de la série
+</cmt>
+  </wpt>
+  <wpt lat="48.914933" lon="6.00205">
+    <time>2019-03-24T14:27:45</time>
+    <name>P0857YV</name>
+    <desc>PARKING 1</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=ddd18b83-900b-40ae-ba06-d4d3edde7d13</url>
+    <urlname>PARKING 1</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez si votre véhicule tolère mal les chemins mal carrossés</cmt>
+  </wpt>
+  <wpt lat="48.91615" lon="5.995983">
+    <time>2019-03-24T14:27:45</time>
+    <name>P1857YV</name>
+    <desc>PARKING 2</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=f9171d12-8c4e-46fd-b322-bfdb01b0687e</url>
+    <urlname>PARKING 2</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez au plus proche de la série</cmt>
+  </wpt>
+  <wpt lat="48.914933" lon="6.00205">
+    <time>2019-03-26T13:20:31</time>
+    <name>P085AXA</name>
+    <desc>PARKING 1</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=bce92277-738c-48c5-a9e2-339043a7f887</url>
+    <urlname>PARKING 1</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez si votre véhicule tolère mal les chemins mal carrossés
+</cmt>
+  </wpt>
+  <wpt lat="48.91615" lon="5.995983">
+    <time>2019-03-26T13:20:31</time>
+    <name>P185AXA</name>
+    <desc>PARKING 2</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=a66e3ced-fb67-4f6e-9531-c74b05daa270</url>
+    <urlname>PARKING 2</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez au plus proche de la série
+</cmt>
+  </wpt>
+  <wpt lat="48.914933" lon="6.00205">
+    <time>2019-03-26T14:31:38</time>
+    <name>P085B0F</name>
+    <desc>PARKING 1</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=241963cd-38f2-42fb-8590-f6abdf12bf8d</url>
+    <urlname>PARKING 1</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez si votre véhicule tolère mal les chemins mal carrossés
+</cmt>
+  </wpt>
+  <wpt lat="48.91615" lon="5.995983">
+    <time>2019-03-26T14:31:38</time>
+    <name>P185B0F</name>
+    <desc>PARKING 2</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=d9cf6440-c501-4add-8fb4-97b67db1b9d3</url>
+    <urlname>PARKING 2</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez au plus proche de la série
+</cmt>
+  </wpt>
+  <wpt lat="48.914933" lon="6.00205">
+    <time>2019-03-26T14:01:22</time>
+    <name>P085AZB</name>
+    <desc>PARKING 1</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=cb4ebd9d-da12-4044-8d73-f50df78bc9c8</url>
+    <urlname>PARKING 1</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez si votre véhicule tolère mal les chemins mal carrossés
+</cmt>
+  </wpt>
+  <wpt lat="48.91615" lon="5.995983">
+    <time>2019-03-26T14:01:22</time>
+    <name>P185AZB</name>
+    <desc>PARKING 2</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=0612c841-3cc2-43cb-aff3-1fb17422fbc3</url>
+    <urlname>PARKING 2</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez au plus proche de la série
+</cmt>
+  </wpt>
+  <wpt lat="48.914933" lon="6.00205">
+    <time>2019-03-26T14:12:49</time>
+    <name>P085AZW</name>
+    <desc>PARKING 1</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=2e01dc3f-ae3b-49f7-aae6-b2222e7676ec</url>
+    <urlname>PARKING 1</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez si votre véhicule tolère mal les chemins mal carrossés
+</cmt>
+  </wpt>
+  <wpt lat="48.91615" lon="5.995983">
+    <time>2019-03-26T14:12:49</time>
+    <name>P185AZW</name>
+    <desc>PARKING 2 </desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=1df3f213-7084-456a-affe-a054dc6e4de2</url>
+    <urlname>PARKING 2 </urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez au plus proche de la série
+</cmt>
+  </wpt>
+  <wpt lat="48.914933" lon="6.00205">
+    <time>2019-03-26T14:38:16</time>
+    <name>P085B0R</name>
+    <desc>PARKING 1</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=64aaca60-7739-431c-860a-05e5c4b6ef54</url>
+    <urlname>PARKING 1</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez si votre véhicule tolère mal les chemins mal carrossés
+</cmt>
+  </wpt>
+  <wpt lat="48.91615" lon="5.995983">
+    <time>2019-03-26T14:38:16</time>
+    <name>P185B0R</name>
+    <desc>PARKING 2</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=f6bf82f2-8434-40cf-96de-eff9c2c7ceb1</url>
+    <urlname>PARKING 2</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez au plus proche de la série
+</cmt>
+  </wpt>
+  <wpt lat="48.910101" lon="5.928349">
+    <time>2016-01-07T14:36:55</time>
+    <name>P069BZA</name>
+    <desc>Parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=084adc0a-494c-4cd8-97ac-3387035f60f4</url>
+    <urlname>Parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.914933" lon="6.00205">
+    <time>2019-03-26T14:20:20</time>
+    <name>P085B01</name>
+    <desc>PARKING 1</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=7fd20813-79e5-445e-ae45-90d51582c9af</url>
+    <urlname>PARKING 1</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez si votre véhicule tolère mal les chemins mal carrossés
+</cmt>
+  </wpt>
+  <wpt lat="48.91615" lon="5.995983">
+    <time>2019-03-26T14:20:20</time>
+    <name>P185B01</name>
+    <desc>PARKING 2</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=945382d0-cc29-4048-8c1e-5a0663e86c99</url>
+    <urlname>PARKING 2</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez au plus proche de la série
+</cmt>
+  </wpt>
+  <wpt lat="48.91065" lon="5.92785">
+    <time>2020-04-22T14:05:03</time>
+    <name>P08PMAG</name>
+    <desc>Parking de Regnieville</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=5443097f-f731-4fb9-b117-bc42fb1195cd</url>
+    <urlname>Parking de Regnieville</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.90955" lon="5.92975">
+    <time>2020-04-22T14:05:03</time>
+    <name>018PMAG</name>
+    <desc>Stage 2</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=7c19d4a5-cff9-4580-8fe1-348c93da3926</url>
+    <urlname>Stage 2</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>Soit ABC le RI qui a repoussé les Ulhans</cmt>
+  </wpt>
+  <wpt lat="48.910433" lon="5.927933">
+    <time>2020-04-22T14:05:03</time>
+    <name>028PMAG</name>
+    <desc>Stage 3</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=afb5b121-6146-4cc6-9409-dfcc9aa84101</url>
+    <urlname>Stage 3</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>Soit D le numero de l'infanterie de l'US Army</cmt>
+  </wpt>
+  <wpt lat="48.91055" lon="5.928083">
+    <time>2020-04-22T14:05:03</time>
+    <name>038PMAG</name>
+    <desc>Stage 4</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=73d779f5-977b-4739-b8b5-bfa7b694416b</url>
+    <urlname>Stage 4</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>Soit EF le nombre des kilometre ou les bornes Vauthier sont présentes (les 2 premiers chiffres)</cmt>
+  </wpt>
+  <wpt lat="48.914933" lon="6.00205">
+    <time>2019-03-26T13:53:07</time>
+    <name>P085AZ2</name>
+    <desc>PARKING 1</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=1aa3d0d0-3448-4406-b055-fa01f5a5b25e</url>
+    <urlname>PARKING 1</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez si votre véhicule tolère mal les chemins mal carrossés
+</cmt>
+  </wpt>
+  <wpt lat="48.91615" lon="5.995983">
+    <time>2019-03-26T13:53:07</time>
+    <name>P185AZ2</name>
+    <desc>PARKING 2</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=d8b376df-c066-4298-a1fe-2e1c3ae33dc1</url>
+    <urlname>PARKING 2</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez au plus proche de la série
+</cmt>
+  </wpt>
+  <wpt lat="48.914933" lon="6.00205">
+    <time>2019-03-26T14:26:43</time>
+    <name>P085B06</name>
+    <desc>PARKING 1</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=91fa424e-eca8-4a94-a685-fd2dbfd903d7</url>
+    <urlname>PARKING 1</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez si votre véhicule tolère mal les chemins mal carrossés
+</cmt>
+  </wpt>
+  <wpt lat="48.91615" lon="5.995983">
+    <time>2019-03-26T14:26:43</time>
+    <name>P185B06</name>
+    <desc>PARKING 2</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=04c80cbe-74b9-44dd-a160-6bcbcf62d42b</url>
+    <urlname>PARKING 2</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez au plus proche de la série
+</cmt>
+  </wpt>
+  <wpt lat="48.914933" lon="6.00205">
+    <time>2019-03-26T13:27:34</time>
+    <name>P085AXN</name>
+    <desc>PARKING 1</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=28e5aaab-8676-42d6-9453-0b33324bb2a5</url>
+    <urlname>PARKING 1</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez si votre véhicule tolère mal les chemins mal carrossés
+</cmt>
+  </wpt>
+  <wpt lat="48.91615" lon="5.995983">
+    <time>2019-03-26T13:27:34</time>
+    <name>P185AXN</name>
+    <desc>PARKING 2</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=f7dfd60a-ec63-4952-a51b-9b057c80b682</url>
+    <urlname>PARKING 2</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez au plus proche de la série
+</cmt>
+  </wpt>
+  <wpt lat="48.914933" lon="6.00205">
+    <time>2019-03-26T13:49:37</time>
+    <name>P085AYX</name>
+    <desc>PARKING 1</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=bba34942-a5ef-43e2-9550-3507a06c90ba</url>
+    <urlname>PARKING 1</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez si votre véhicule tolère mal les chemins mal carrossés
+</cmt>
+  </wpt>
+  <wpt lat="48.91615" lon="5.995983">
+    <time>2019-03-26T13:49:37</time>
+    <name>P185AYX</name>
+    <desc>PARKING 2</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=1f5661a9-6d9c-47f5-8d2c-f2559bac3553</url>
+    <urlname>PARKING 2</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez au plus proche de la série
+</cmt>
+  </wpt>
+  <wpt lat="48.914933" lon="6.00205">
+    <time>2019-03-26T13:34:20</time>
+    <name>P085AY5</name>
+    <desc>PARKING 1 </desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=722796f8-6ec7-45fa-83e8-e80241ca8da3</url>
+    <urlname>PARKING 1 </urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez si votre véhicule tolère mal les chemins mal carrossés
+</cmt>
+  </wpt>
+  <wpt lat="48.91615" lon="5.995983">
+    <time>2019-03-26T13:34:20</time>
+    <name>P185AY5</name>
+    <desc>PARKING 2</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=a474851f-ae1b-43d2-9208-778cc1f650dd</url>
+    <urlname>PARKING 2</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez au plus proche de la série
+</cmt>
+  </wpt>
+  <wpt lat="48.914933" lon="6.00205">
+    <time>2019-03-26T13:41:00</time>
+    <name>P085AYJ</name>
+    <desc>PARKING 1</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=cde38b2c-d005-4b3a-b493-fb4da5b5b15e</url>
+    <urlname>PARKING 1</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez si votre véhicule tolère mal les chemins mal carrossés
+</cmt>
+  </wpt>
+  <wpt lat="48.91615" lon="5.995983">
+    <time>2019-03-26T13:41:00</time>
+    <name>P185AYJ</name>
+    <desc>PARKING 2</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=c6becff1-c64d-4a57-987c-da6af8ae8851</url>
+    <urlname>PARKING 2</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez au plus proche de la série
+</cmt>
+  </wpt>
+  <wpt lat="48.914933" lon="6.00205">
+    <time>2019-03-26T13:45:32</time>
+    <name>P085AYT</name>
+    <desc>PARKING 1</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=b8e31d2e-07ec-4aba-91d7-713e64893c55</url>
+    <urlname>PARKING 1</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez si votre véhicule tolère mal les chemins mal carrossés
+</cmt>
+  </wpt>
+  <wpt lat="48.91615" lon="5.995983">
+    <time>2019-03-26T13:45:32</time>
+    <name>P185AYT</name>
+    <desc>PARKING 2 </desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=03d784f9-5617-4fbe-89f4-ecff2d61620a</url>
+    <urlname>PARKING 2 </urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez au plus proche de la série
+</cmt>
+  </wpt>
+  <wpt lat="48.914933" lon="6.00205">
+    <time>2019-03-22T14:11:41</time>
+    <name>P08544P</name>
+    <desc>Parking 1</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=de4b4377-613d-4247-b7d5-d33bc37946c7</url>
+    <urlname>Parking 1</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez si votre véhicule tolère mal les chemins mal carrossés</cmt>
+  </wpt>
+  <wpt lat="48.91615" lon="5.995983">
+    <time>2019-03-24T14:36:35</time>
+    <name>018544P</name>
+    <desc>Parking 2</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=4f67fbf4-66aa-413a-9da7-6203be520c5c</url>
+    <urlname>Parking 2</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Où vous arrêtez au plus proche de la série</cmt>
+  </wpt>
+  <wpt lat="48.90385" lon="5.916167">
+    <time>2020-04-22T01:12:40</time>
+    <name>018PKDQ</name>
+    <desc>Stage 2</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=eead0848-82aa-4849-b8c7-f7c5a8df7b20</url>
+    <urlname>Stage 2</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>Soit ABCD l'année ou les allemands tentent d'encercler Verdun</cmt>
+  </wpt>
+  <wpt lat="48.930733" lon="6.0156">
+    <time>2017-11-24T06:41:28</time>
+    <name>P07F8MP</name>
+    <desc>Parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=dcd13726-899b-47ad-ad49-feae52365683</url>
+    <urlname>Parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Ici c'est top !</cmt>
+  </wpt>
+  <wpt lat="48.889875" lon="5.929741">
+    <time>2019-11-16T13:47:01</time>
+    <name>P08G39Z</name>
+    <desc>Parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=10b98588-58d9-4d83-abdd-4ee3b68c4ac9</url>
+    <urlname>Parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.979383" lon="5.907267">
+    <time>2018-11-23T23:58:17</time>
+    <name>P080NAW</name>
+    <desc>Parking Les Celtes3</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=196c9d07-5b9e-4be1-862a-2f404af44889</url>
+    <urlname>Parking Les Celtes3</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.97755" lon="5.91205">
+    <time>2018-12-10T10:54:43</time>
+    <name>0180NAW</name>
+    <desc>Stage 1</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=88ccc6d7-d69f-4b88-97d3-30f288b01499</url>
+    <urlname>Stage 1</urlname>
+    <sym>Physical Stage</sym>
+    <type>Waypoint|Physical Stage</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.9774" lon="5.99415">
+    <time>2014-11-09T04:28:38</time>
+    <name>015G78J</name>
+    <desc>OBSERVATOIRE</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=950ce408-8245-458b-88f4-24eef96976cf</url>
+    <urlname>OBSERVATOIRE</urlname>
+    <sym>Physical Stage</sym>
+    <type>Waypoint|Physical Stage</type>
+    <cmt>Un peu de patience est nécessaire pour obtenir les indices ainsi que les coordonnées de l'étape suivante
+Il n'y a pas de logbook à cet endroit
+Voir spoiler</cmt>
+  </wpt>
+  <wpt lat="48.9807" lon="5.992917">
+    <time>2022-02-20T10:33:27</time>
+    <name>P09NQRW</name>
+    <desc>PK</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=739b9301-41a8-4b2b-9ae7-c6d467a66d7a</url>
+    <urlname>PK</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.9791" lon="5.994933">
+    <time>2022-03-03T12:25:56</time>
+    <name>069NQRW</name>
+    <desc>6Forteresse des ducs de Lorraine</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=bf5b4c6e-ea74-4c6f-a9ca-09c4dc0ba8e6</url>
+    <urlname>6Forteresse des ducs de Lorraine</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>A = Chiffre des milliers + chiffre des centaines</cmt>
+  </wpt>
+  <wpt lat="48.980667" lon="5.993217">
+    <time>2022-02-20T10:33:27</time>
+    <name>019NQRW</name>
+    <desc>1 Prény une sentinelle</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=a04579f1-252d-428c-b40e-7b521c700681</url>
+    <urlname>1 Prény une sentinelle</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>B = chiffres de centaines du dénivelé</cmt>
+  </wpt>
+  <wpt lat="48.9793" lon="5.995633">
+    <time>2022-02-20T10:33:27</time>
+    <name>029NQRW</name>
+    <desc>2 Calvaire Georges des Aulnois</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=be345948-c7b9-44ba-90a7-7f73fbdc933a</url>
+    <urlname>2 Calvaire Georges des Aulnois</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>E = Chiffres des dizaines de la date inscrite</cmt>
+  </wpt>
+  <wpt lat="48.976483" lon="5.998283">
+    <time>2022-02-20T10:33:27</time>
+    <name>039NQRW</name>
+    <desc>3 Fontaine Ferret</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=6cc5ec96-9df0-4fea-8aae-deaa9da13772</url>
+    <urlname>3 Fontaine Ferret</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>C = Checksum de la date de construction</cmt>
+  </wpt>
+  <wpt lat="48.97505" lon="5.997767">
+    <time>2022-02-20T10:33:27</time>
+    <name>049NQRW</name>
+    <desc>4 Eglise et chapelle</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=983c1f27-2200-4035-a90c-6227cf9f819d</url>
+    <urlname>4 Eglise et chapelle</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>D = Checksum de la date de naissance du créateur des vitraux</cmt>
+  </wpt>
+  <wpt lat="48.974933" lon="5.99485">
+    <time>2022-02-20T10:33:27</time>
+    <name>059NQRW</name>
+    <desc>5 Le grand lavoir</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=71ab9e69-40f5-4961-919f-0a5cb7816120</url>
+    <urlname>5 Le grand lavoir</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>F = Checksum de la date de restauration</cmt>
+  </wpt>
+  <wpt lat="48.901833" lon="6.012167">
+    <time>2020-06-27T09:40:38</time>
+    <name>P08VQAC</name>
+    <desc>parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=21438124-9510-420d-acef-7066a8b57dac</url>
+    <urlname>parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.901867" lon="6.012483">
+    <time>2020-06-27T09:40:38</time>
+    <name>018VQAC</name>
+    <desc>Stage 2</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=d6bf6d3e-b4e2-4941-b399-8b37fa24560e</url>
+    <urlname>Stage 2</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>13 ABC le nombre de soldats mort pour la France enterré ici</cmt>
+  </wpt>
+  <wpt lat="48.900283" lon="6.015983">
+    <time>2021-05-23T13:40:13</time>
+    <name>019BBWK</name>
+    <desc>Parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=2899463d-6774-4d6c-8982-782b888c1691</url>
+    <urlname>Parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.952267" lon="5.866467">
+    <time>2022-02-28T13:54:53</time>
+    <name>P09P3P5</name>
+    <desc>PK </desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=f0b79370-48a1-478e-bbe1-82439823b050</url>
+    <urlname>PK </urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.953533" lon="5.86105">
+    <time>2022-02-28T13:54:53</time>
+    <name>029P3P5</name>
+    <desc>2 Lavoir</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=a7b91d56-2a4e-42f5-aec7-ab570bb16160</url>
+    <urlname>2 Lavoir</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>F = Nombre de fenêtre du coté route - 1</cmt>
+  </wpt>
+  <wpt lat="48.95405" lon="5.865467">
+    <time>2022-02-28T13:54:53</time>
+    <name>039P3P5</name>
+    <desc>3 monument aux morts</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=7f4cd5d8-9e63-4500-a663-da752ac7c432</url>
+    <urlname>3 monument aux morts</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>C = Combien d'enfants voyez-vous avec le soldat sur la fresque</cmt>
+  </wpt>
+  <wpt lat="48.954233" lon="5.865383">
+    <time>2022-02-28T13:54:53</time>
+    <name>049P3P5</name>
+    <desc>4 Eglise</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=a0dc34a1-c2f2-4acc-a5e6-3fc6abfd803f</url>
+    <urlname>4 Eglise</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>E = De quelle division parle-t-on</cmt>
+  </wpt>
+  <wpt lat="48.955117" lon="5.86365">
+    <time>2022-02-28T13:54:53</time>
+    <name>059P3P5</name>
+    <desc>5 Général Clinchant</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=95b36de1-c7b3-4aa5-bbab-d433ef3e3c8f</url>
+    <urlname>5 Général Clinchant</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>B = Checksum de la date écrit en dessous de Noisseville</cmt>
+  </wpt>
+  <wpt lat="48.95695" lon="5.85235">
+    <time>2022-02-28T13:54:53</time>
+    <name>069P3P5</name>
+    <desc>6 cimetière militaire</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=e435d97f-db94-49cb-b0dd-68d3285f7dcf</url>
+    <urlname>6 cimetière militaire</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>A = Combien d'aigles sont dans les couronnes accrochés aux portes</cmt>
+  </wpt>
+  <wpt lat="48.9517" lon="5.8663">
+    <time>2022-02-28T13:54:53</time>
+    <name>019P3P5</name>
+    <desc>1 Le pont</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=3fbfbeee-6566-4891-a606-4b4f5818c150</url>
+    <urlname>1 Le pont</urlname>
+    <sym>Physical Stage</sym>
+    <type>Waypoint|Physical Stage</type>
+    <cmt>D = Checksum du jour indiqué</cmt>
+  </wpt>
+  <wpt lat="48.8777" lon="5.958767">
+    <time>2022-03-02T06:14:25</time>
+    <name>P09P9X9</name>
+    <desc>Parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=d6cd039b-6fe4-4be5-b0a7-e5d93b5f9b5e</url>
+    <urlname>Parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.878267" lon="5.9566">
+    <time>2022-03-02T06:14:25</time>
+    <name>019P9X9</name>
+    <desc>1 La croix de mission</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=8c12e272-fa4b-4df3-a3aa-69e43a208b85</url>
+    <urlname>1 La croix de mission</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>B = Checksum de la date réduite à un chiffre puis multiplié par 2</cmt>
+  </wpt>
+  <wpt lat="48.875617" lon="5.9518">
+    <time>2022-03-02T06:14:25</time>
+    <name>029P9X9</name>
+    <desc>2 L'abrevoir/lavoir du Puisel</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=8807e4ee-684a-497c-980d-686048718d77</url>
+    <urlname>2 L'abrevoir/lavoir du Puisel</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>F = Checksum de la date de restauration</cmt>
+  </wpt>
+  <wpt lat="48.8749" lon="5.9578">
+    <time>2022-03-02T06:14:25</time>
+    <name>039P9X9</name>
+    <desc>3 Panneau</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=8cb23575-f04e-419e-83c2-495e663d4ecb</url>
+    <urlname>3 Panneau</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>E = l'unité de la distance indiquée jusqu'au lavoir</cmt>
+  </wpt>
+  <wpt lat="48.8752" lon="5.9579">
+    <time>2022-03-02T06:14:25</time>
+    <name>049P9X9</name>
+    <desc>4 L'église</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=7ac47744-ccd8-4525-a7f2-5d58220e4d52</url>
+    <urlname>4 L'église</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>C = nombre d'animaux visible sur la facade de l'église</cmt>
+  </wpt>
+  <wpt lat="48.878933" lon="5.960617">
+    <time>2022-03-02T06:14:25</time>
+    <name>059P9X9</name>
+    <desc>5 Borne incendie</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=4d70a7bd-e635-4d16-a480-246a4b3a6bfa</url>
+    <urlname>5 Borne incendie</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>D = Premier nombre visible en haut de la borne</cmt>
+  </wpt>
+  <wpt lat="48.8791" lon="5.960467">
+    <time>2022-03-02T06:14:25</time>
+    <name>069P9X9</name>
+    <desc>6 Monument aux morts</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=c888cd35-beb2-4cc0-977d-7c58f6966423</url>
+    <urlname>6 Monument aux morts</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>A = Checksum de la première date</cmt>
+  </wpt>
+  <wpt lat="48.986767" lon="5.905517">
+    <time>2022-03-07T14:21:08</time>
+    <name>P09PJ4B</name>
+    <desc>Parking </desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=b37ab6c4-dddc-46f4-89b2-4f0ff5a16512</url>
+    <urlname>Parking </urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.987533" lon="5.903933">
+    <time>2022-03-07T14:21:08</time>
+    <name>019PJ4B</name>
+    <desc>1. L'église</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=df951349-c240-48dd-825b-df1efdd6f832</url>
+    <urlname>1. L'église</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>A = Combien de croix au dessus de la porte</cmt>
+  </wpt>
+  <wpt lat="48.98715" lon="5.904667">
+    <time>2022-03-07T14:21:08</time>
+    <name>029PJ4B</name>
+    <desc>2. Les sentiers du Rupt-De-Mad</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=a542079e-7209-4a89-80db-00f0f09afbd7</url>
+    <urlname>2. Les sentiers du Rupt-De-Mad</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>D = “Pensez à vous désaltérer"</cmt>
+  </wpt>
+  <wpt lat="48.987183" lon="5.904183">
+    <time>2022-03-07T14:21:08</time>
+    <name>039PJ4B</name>
+    <desc>3. Ancien panneau?</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=f3410daf-cf92-4a03-9205-3e41b38f88d7</url>
+    <urlname>3. Ancien panneau?</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>E = Distance jusqu’à Charey</cmt>
+  </wpt>
+  <wpt lat="48.985333" lon="5.900933">
+    <time>2022-03-07T14:21:08</time>
+    <name>049PJ4B</name>
+    <desc>4. Un jardin sur berge</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=01b24ea8-5c45-4f82-9cba-6edb04448f0b</url>
+    <urlname>4. Un jardin sur berge</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>F = nombre de lettre de la ville réduit à un chiffre</cmt>
+  </wpt>
+  <wpt lat="48.9854" lon="5.899667">
+    <time>2022-03-07T14:21:08</time>
+    <name>059PJ4B</name>
+    <desc>5. Le cimetière</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=88d53057-50c0-434d-8502-9a4eb39150b3</url>
+    <urlname>5. Le cimetière</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>C = chiffre des unités de la naissance de LAUMONT (l'année)</cmt>
+  </wpt>
+  <wpt lat="48.985117" lon="5.89965">
+    <time>2022-03-07T14:21:08</time>
+    <name>069PJ4B</name>
+    <desc>6. C'est provisoire</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=d431dd30-93ef-43f0-9e17-bff2f617519d</url>
+    <urlname>6. C'est provisoire</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>B = Quel chiffre apparaît 4 fois</cmt>
+  </wpt>
+  <wpt lat="48.95455" lon="6.035767">
+    <time>2020-09-03T09:41:43</time>
+    <name>018ZCMX</name>
+    <desc>Virtual stage</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=c5dc6e2d-c22c-401e-9cc9-49873ed1d8ed</url>
+    <urlname>Virtual stage</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>Soit ABCD l'année de mort de l'abbé LANOIX</cmt>
+  </wpt>
+  <wpt lat="48.881667" lon="5.938333">
+    <time>2020-01-12T11:42:19</time>
+    <name>018HWBV</name>
+    <desc>Parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=ac914412-56a1-4b11-a453-11b162af2c7b</url>
+    <urlname>Parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.917652" lon="6.040796">
+    <time>2019-11-25T12:58:39</time>
+    <name>P08GDAY</name>
+    <desc>parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=56a8df7f-b692-4973-a6a9-116619dd9bbe</url>
+    <urlname>parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.912783" lon="6.036767">
+    <time>2020-05-17T04:40:44</time>
+    <name>018R25F</name>
+    <desc>Stage 2</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=10250ab2-c601-43da-b7c1-4e24dd6f4ca2</url>
+    <urlname>Stage 2</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>Checksum du dernier mot ce trouvant sur le panneau = A</cmt>
+  </wpt>
+  <wpt lat="48.913933" lon="6.0323">
+    <time>2020-05-17T04:40:44</time>
+    <name>028R25F</name>
+    <desc>Stage 3</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=130d7562-b9dc-4098-a096-e27d1997672c</url>
+    <urlname>Stage 3</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>Checksum de la planete se trouvant sur la fontaine = B</cmt>
+  </wpt>
+  <wpt lat="48.91485" lon="6.027117">
+    <time>2020-05-17T04:40:44</time>
+    <name>038R25F</name>
+    <desc>Stage 4</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=2460d310-de44-45c8-851f-aabb503942ad</url>
+    <urlname>Stage 4</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>"Chemin du" checksum du reste du panneau = C</cmt>
+  </wpt>
+  <wpt lat="48.987" lon="6.013567">
+    <time>2021-04-22T04:52:08</time>
+    <name>P099XJ2</name>
+    <desc>Parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=551b3f96-ac96-4190-a17f-dff759a8ec1d</url>
+    <urlname>Parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.906417" lon="6.03845">
+    <time>2021-05-24T13:33:02</time>
+    <name>019AYQT</name>
+    <desc>Étape virtuelle</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=bbb8bbe3-bdc7-4fc5-a05d-0fc9af4a3bda</url>
+    <urlname>Étape virtuelle</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>allez sur le chemin vers le sud ouest jusqu'au transformateur</cmt>
+  </wpt>
+  <wpt lat="48.983245" lon="6.019408">
+    <time>2019-03-04T07:24:22</time>
+    <name>P084AA7</name>
+    <desc>Parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=8f05f897-6099-4da4-9cae-f2aaa1b3d220</url>
+    <urlname>Parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.983117" lon="6.019217">
+    <time>2019-03-04T07:24:22</time>
+    <name>0184AA7</name>
+    <desc>Stage 2</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=7bb83f44-2642-4bbd-8c34-cf49c117f65a</url>
+    <urlname>Stage 2</urlname>
+    <sym>Physical Stage</sym>
+    <type>Waypoint|Physical Stage</type>
+    <cmt>A = chiffre du frêne commun.</cmt>
+  </wpt>
+  <wpt lat="48.98235" lon="6.019017">
+    <time>2019-03-04T07:24:22</time>
+    <name>0284AA7</name>
+    <desc>Stage 3</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=e6fd1932-5317-4ed3-ae41-f7b0185c2d56</url>
+    <urlname>Stage 3</urlname>
+    <sym>Physical Stage</sym>
+    <type>Waypoint|Physical Stage</type>
+    <cmt>B = Année de plantation des arbres fruitiers. (prendre le chiffre des centaines).</cmt>
+  </wpt>
+  <wpt lat="48.982" lon="6.018933">
+    <time>2019-03-04T07:24:22</time>
+    <name>0384AA7</name>
+    <desc>Stage 4</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=f99c6677-709f-48d7-9e9c-9005431143e9</url>
+    <urlname>Stage 4</urlname>
+    <sym>Physical Stage</sym>
+    <type>Waypoint|Physical Stage</type>
+    <cmt>C = Année de reconstruction de la façade ouest du clocher. (prendre le chiffre des unités).</cmt>
+  </wpt>
+  <wpt lat="48.98215" lon="6.01825">
+    <time>2019-03-04T07:24:22</time>
+    <name>0484AA7</name>
+    <desc>Stage 5</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=c2d716e2-a746-4a91-b304-1ee5c6955760</url>
+    <urlname>Stage 5</urlname>
+    <sym>Physical Stage</sym>
+    <type>Waypoint|Physical Stage</type>
+    <cmt>D = Longueur du corps de la salamandre tachetée. (prendre le chiffre des dizaines).</cmt>
+  </wpt>
+  <wpt lat="48.982133" lon="6.017883">
+    <time>2019-03-04T07:24:22</time>
+    <name>0584AA7</name>
+    <desc>Stage 6</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=203751f1-622c-4904-acd6-efd95fd2538a</url>
+    <urlname>Stage 6</urlname>
+    <sym>Physical Stage</sym>
+    <type>Waypoint|Physical Stage</type>
+    <cmt>E = Chiffre inscrit sur le poteau.</cmt>
+  </wpt>
+  <wpt lat="48.982333" lon="6.021083">
+    <time>2022-08-15T04:53:49</time>
+    <name>P09YHZK</name>
+    <desc>Parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=92e659cf-b0f3-4e36-8973-080804551585</url>
+    <urlname>Parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.955717" lon="5.851867">
+    <time>2018-08-09T01:18:03</time>
+    <name>017VW98</name>
+    <desc>L'Aigle</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=ea24e888-0b28-487a-88eb-f233907ca13a</url>
+    <urlname>L'Aigle</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>Que pouvez-vous observer sous le rond bleu ? Que pensez-vous que cela soit ? / 
+What can you observe under the blue circle ? What do you think it is ?</cmt>
+  </wpt>
+  <wpt lat="48.954631" lon="5.851285">
+    <time>2018-08-09T01:18:03</time>
+    <name>027VW98</name>
+    <desc>Le Musée</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=ec3a06b3-09d6-4eeb-862c-e8cd28134c26</url>
+    <urlname>Le Musée</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>Quelle est la nature du fossile que vous pouvez observer sous le rond jaune ? / 
+What kind of fossil can you observe under the yellow circle ?</cmt>
+  </wpt>
+  <wpt lat="48.955867" lon="5.850517">
+    <time>2018-08-09T01:20:10</time>
+    <name>037VW98</name>
+    <desc>Les Marches</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=4f04dbd8-fbfe-490d-a481-b2616eebb69b</url>
+    <urlname>Les Marches</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>Quelle est la nature des nombreux fossiles que vous pouvez observer sur les marches ? Pensez vous qu'il s'agit de parties dures conservées dans leur état originel ou un moulage des cavités de l'organisme initial ? / 
+On the steps you can observe many fossils. What kind ? Do you think it is hard parts conserved in their original state or a molding of the cavities of the initial organism  ?</cmt>
+  </wpt>
+  <wpt lat="48.987367" lon="5.995033">
+    <time>2022-05-15T13:10:35</time>
+    <name>P09TTCV</name>
+    <desc>PK pour les caches alentours</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=2e02b2a3-87ca-43f7-87ec-ffcadf5f6916</url>
+    <urlname>PK pour les caches alentours</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.987" lon="6.013567">
+    <time>2014-08-29T13:32:55</time>
+    <name>P15BY4G</name>
+    <desc>Parking voiture</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=164eb693-39c8-4a6a-91fa-8b17b03dc3a8</url>
+    <urlname>Parking voiture</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.990667" lon="6.013">
+    <time>2016-07-31T14:15:06</time>
+    <name>P06PE7P</name>
+    <desc>Parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=157828b7-786d-47ca-b184-9a76fe2bc17f</url>
+    <urlname>Parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Parking recommandé</cmt>
+  </wpt>
+  <wpt lat="48.9912" lon="6.01245">
+    <time>2016-07-31T14:15:06</time>
+    <name>T06PE7P</name>
+    <desc>Sentier</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=02c3eafc-5e53-4c4f-8281-e25b65057fe8</url>
+    <urlname>Sentier</urlname>
+    <sym>Trailhead</sym>
+    <type>Waypoint|Trailhead</type>
+    <cmt>Sentier recommandé</cmt>
+  </wpt>
+  <wpt lat="48.991767" lon="6.006633">
+    <time>2020-02-22T11:09:47</time>
+    <name>018KTZ4</name>
+    <desc>Stage 2</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=e73b2e42-89fa-405a-89c3-386f6ce64784</url>
+    <urlname>Stage 2</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>Soit ABC l'altitude indiquée sur le panneau Soit D Le numero du GR</cmt>
+  </wpt>
+  <wpt lat="49.003267" lon="5.944867">
+    <time>2006-01-22T05:12:13</time>
+    <name>02NX3N</name>
+    <desc>Parking 2</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=f6401089-c3a0-4c22-953f-2a98db744251</url>
+    <urlname>Parking 2</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Venez ici si le chemin est praticable.
+Come here if the path isn't too muddy.</cmt>
+  </wpt>
+  <wpt lat="49.00535" lon="5.947117">
+    <time>2006-01-22T05:17:21</time>
+    <name>01NX3N</name>
+    <desc>Parking 1</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=ad8fb960-8e6e-4835-9743-87c695228c1a</url>
+    <urlname>Parking 1</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Point où quitter la route départementale puis parking.
+Point where to leave the road then park your car.
+Punt waar je de baan moet verlaten</cmt>
+  </wpt>
+  <wpt lat="48.884917" lon="6.018483">
+    <time>2014-05-02T06:42:06</time>
+    <name>PK53YY8</name>
+    <desc>Parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=9b2d83c5-641a-4ee6-8d35-6c92bd89b1a7</url>
+    <urlname>Parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.885133" lon="6.018417">
+    <time>2014-05-02T06:42:06</time>
+    <name>Q153YY8</name>
+    <desc>Question to Answer 1</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=dd7258f7-390d-40d1-8b7c-69c01e603c1d</url>
+    <urlname>Question to Answer 1</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>Panneau d'information</cmt>
+  </wpt>
+  <wpt lat="48.864017" lon="5.942417">
+    <time>2019-02-27T04:43:56</time>
+    <name>R0842X3</name>
+    <desc>point d'entree du gouffre</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=35f3f61d-8cf8-492e-8172-09c1522e7505</url>
+    <urlname>point d'entree du gouffre</urlname>
+    <sym>Reference Point</sym>
+    <type>Waypoint|Reference Point</type>
+    <cmt>Point d'acces</cmt>
+  </wpt>
+  <wpt lat="48.942783" lon="6.0581">
+    <time>2018-10-06T12:03:00</time>
+    <name>P07YNGK</name>
+    <desc>Parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=3e9e8084-0feb-4ede-a987-3b4781281fb0</url>
+    <urlname>Parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.943367" lon="6.057483">
+    <time>2018-10-06T12:03:00</time>
+    <name>017YNGK</name>
+    <desc>Etape 1</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=2d7495b9-5995-4a18-bb7e-045ecee962ad</url>
+    <urlname>Etape 1</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>Vous êtes face à un terrain de :
+- hockey, B=3
+- beach-volley, B=5
+- waterpolo, B=7.</cmt>
+  </wpt>
+  <wpt lat="48.944133" lon="6.055817">
+    <time>2018-10-06T12:03:00</time>
+    <name>027YNGK</name>
+    <desc>Etape 2</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=6210d416-0e3d-4adc-85f6-6334ec287b68</url>
+    <urlname>Etape 2</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>Vous vous trouvez face à:
+- une plage, C=1
+- une voiture, C=4
+- un poisson, C=8.</cmt>
+  </wpt>
+  <wpt lat="48.942817" lon="6.058033">
+    <time>2018-10-06T12:03:00</time>
+    <name>037YNGK</name>
+    <desc>Etape 3</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=e3768d56-1570-4366-80f9-b7175c5d47bf</url>
+    <urlname>Etape 3</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>Vous êtes :
+- dans un tunnel, A=4
+- sur un bateau, A=6
+- sur un un petit pont, A=8.</cmt>
+  </wpt>
+  <wpt lat="48.868717" lon="5.907167">
+    <time>2022-03-03T13:06:22</time>
+    <name>019PBZ1</name>
+    <desc>1 Boite à livre</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=479fc390-fe6a-4f09-a641-fb6e986c1dfc</url>
+    <urlname>1 Boite à livre</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>B = Nombre de porte multiplié par 2</cmt>
+  </wpt>
+  <wpt lat="48.868783" lon="5.90725">
+    <time>2022-03-03T13:06:22</time>
+    <name>029PBZ1</name>
+    <desc>2 Le monument aux morts</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=f3fc0925-46bd-4fe2-b90a-13a0e0fa8f6f</url>
+    <urlname>2 Le monument aux morts</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>D = Combien y a t-il de MARCHAL écrit</cmt>
+  </wpt>
+  <wpt lat="48.868783" lon="5.907367">
+    <time>2022-03-03T13:06:22</time>
+    <name>039PBZ1</name>
+    <desc>3 La fontaine</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=a599a037-eccf-480c-8f31-1966b2aa21ec</url>
+    <urlname>3 La fontaine</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>Que tient la petite fille? une trompette A=2 // un parapluie A=0 // un ballon A=5 </cmt>
+  </wpt>
+  <wpt lat="48.868767" lon="5.90805">
+    <time>2022-03-03T13:06:22</time>
+    <name>049PBZ1</name>
+    <desc>4 L'eglise</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=dcdb7969-c2f3-40c1-aac0-acaa6038e708</url>
+    <urlname>4 L'eglise</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>
+C = Nombre de tombe du coté gauche de l'église multiplié par 2
+
+</cmt>
+  </wpt>
+  <wpt lat="48.864017" lon="5.942417">
+    <time>2019-03-02T04:59:01</time>
+    <name>R0846K1</name>
+    <desc>point d'entrée du gouffre</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=36682a18-6ba3-4e27-bdb3-efd2fb0f23fc</url>
+    <urlname>point d'entrée du gouffre</urlname>
+    <sym>Reference Point</sym>
+    <type>Waypoint|Reference Point</type>
+    <cmt>point d'entrée du gouffre</cmt>
+  </wpt>
+  <wpt lat="48.942883" lon="5.837983">
+    <time>2022-02-22T07:54:41</time>
+    <name>P09NVKG</name>
+    <desc>Parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=4e41925d-4ae3-4388-bcb9-04b9eded2258</url>
+    <urlname>Parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.942633" lon="5.837917">
+    <time>2022-02-22T07:54:41</time>
+    <name>019NVKG</name>
+    <desc>1 cimetière allemand</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=676941b6-19f0-40a3-bb53-6e778d05ba5e</url>
+    <urlname>1 cimetière allemand</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>A = Chiffre des dizaines du nombres de soldats qui reposent ici</cmt>
+  </wpt>
+  <wpt lat="48.944033" lon="5.836433">
+    <time>2022-02-22T07:54:41</time>
+    <name>029NVKG</name>
+    <desc>2 vestige</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=4c847b69-20ed-40e2-b427-147a58d947be</url>
+    <urlname>2 vestige</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>B = combien voyez-vous de reste de pilier (tout en haut) multiplié par 2</cmt>
+  </wpt>
+  <wpt lat="48.945333" lon="5.841483">
+    <time>2022-02-22T07:54:41</time>
+    <name>039NVKG</name>
+    <desc>3 Grotte</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=7c37f9f8-80f4-4a71-9898-e4142f7a4cbd</url>
+    <urlname>3 Grotte</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>C = Poids maximum de la petite rhinolophe</cmt>
+  </wpt>
+  <wpt lat="48.945217" lon="5.841483">
+    <time>2022-02-22T07:54:41</time>
+    <name>049NVKG</name>
+    <desc>4 Le cholera</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=921e7136-9629-4bee-a964-b55fd9b3e56e</url>
+    <urlname>4 Le cholera</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>D = chiffres des dizaines de l'année de décès</cmt>
+  </wpt>
+  <wpt lat="48.945" lon="5.84125">
+    <time>2022-02-22T07:54:41</time>
+    <name>059NVKG</name>
+    <desc>5 un panneau</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=9dae411d-3d22-41ff-a948-18d121467085</url>
+    <urlname>5 un panneau</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>E = "X à gauche"</cmt>
+  </wpt>
+  <wpt lat="48.94415" lon="5.841517">
+    <time>2022-02-22T07:54:41</time>
+    <name>069NVKG</name>
+    <desc>6 bienvenue</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=634c9d0f-31ee-492a-98d5-87d203e91f2e</url>
+    <urlname>6 bienvenue</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>F = Chiffre des centaines du nombre d'habitant en 1843</cmt>
+  </wpt>
+  <wpt lat="48.92365" lon="5.8381">
+    <time>2022-02-21T09:33:54</time>
+    <name>P09NT76</name>
+    <desc>Parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=6b907f38-1cf5-4836-8eb4-807a9c244229</url>
+    <urlname>Parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.92365" lon="5.838367">
+    <time>2022-02-21T09:33:54</time>
+    <name>019NT76</name>
+    <desc>Le château</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=760b8083-d01d-4ad1-a8dc-b210f287b50c</url>
+    <urlname>Le château</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>D = combien de poisson voyez vous sur la sculpture dans la cours</cmt>
+  </wpt>
+  <wpt lat="48.923767" lon="5.838217">
+    <time>2022-02-21T09:33:54</time>
+    <name>029NT76</name>
+    <desc>Le monument au mort</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=9d4838b2-25d0-4dc5-966b-fe44bdd28188</url>
+    <urlname>Le monument au mort</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>A = Checksum réduit à 1 chiffre de la dernière date inscrite</cmt>
+  </wpt>
+  <wpt lat="48.924067" lon="5.838567">
+    <time>2022-02-21T09:33:54</time>
+    <name>039NT76</name>
+    <desc>Bienfaitrice</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=1e8776c5-1f05-4842-947e-d451d4bf15f3</url>
+    <urlname>Bienfaitrice</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>F = Checksum réduit à un chiffre de la date de décès de la bienfaitrice</cmt>
+  </wpt>
+  <wpt lat="48.92405" lon="5.83885">
+    <time>2022-02-21T09:33:54</time>
+    <name>049NT76</name>
+    <desc>Un hommage</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=59b55042-31b9-4534-8240-e5dcf48a7144</url>
+    <urlname>Un hommage</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>B = Millier de la date de décès</cmt>
+  </wpt>
+  <wpt lat="48.92485" lon="5.839517">
+    <time>2022-02-21T09:33:54</time>
+    <name>059NT76</name>
+    <desc>Un maison</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=26c4d6ac-8413-4774-ae29-b13442d286a9</url>
+    <urlname>Un maison</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>C = le chiffre des unités de la date inscrite sur la facade</cmt>
+  </wpt>
+  <wpt lat="48.92675" lon="5.838333">
+    <time>2022-02-21T09:33:54</time>
+    <name>069NT76</name>
+    <desc>Le pont</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=cc5e9318-eeba-47b2-952f-e92ad32d6399</url>
+    <urlname>Le pont</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>E = Combien de grandes arches voyez-vous?</cmt>
+  </wpt>
+  <wpt lat="48.900006" lon="6.050515">
+    <time>2020-05-11T16:06:47</time>
+    <name>018QPJC</name>
+    <desc>Virtual stage</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=9bab3070-cbf9-44a8-8206-1cee00ba6a8c</url>
+    <urlname>Virtual stage</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.86345" lon="5.920217">
+    <time>2021-05-02T03:38:52</time>
+    <name>009AHXH</name>
+    <desc>parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=264aad91-fd1c-4813-ad26-14e7bb31383d</url>
+    <urlname>parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>garer votre véhicule ici .</cmt>
+  </wpt>
+  <wpt lat="48.861717" lon="5.9237">
+    <time>2021-05-02T03:10:16</time>
+    <name>019AHXH</name>
+    <desc>Stage 1</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=f0fe8aac-de21-4958-96a1-b4f20c151fd4</url>
+    <urlname>Stage 1</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>coordonnées stage 2
+N 48°.51 .A9B'   E 5°.55 C3D'
+le 21 septembre la ligne de front passe par 
+Bernécourt  C = 4
+Manoncourt C = 0
+Tremblecourt C= 7
+les mitrailleuses Allemandes sont dans
+une ferme B = 1
+une bunker B = 8
+un clocher B = 2
+les Français sont aidés par deux canons
+175 A = 3
+150 A= 6
+200 A = 2
+en ces lieux  il y avait
+un dépôt de munition D = 5
+une infirmerie D = 9
+une cantine D = 0
+</cmt>
+  </wpt>
+  <wpt lat="48.902033" lon="6.04925">
+    <time>2020-05-11T14:35:33</time>
+    <name>P08QPHK</name>
+    <desc>Un parking possible ...</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=9ffb40e6-f8ff-41cf-af0c-090ce3acc884</url>
+    <urlname>Un parking possible ...</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.903398" lon="6.045388">
+    <time>2020-05-11T14:35:33</time>
+    <name>T08QPHK</name>
+    <desc>Un chemin possible ...</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=338f98c9-4163-4f0c-98a8-5c23e2bc7f97</url>
+    <urlname>Un chemin possible ...</urlname>
+    <sym>Trailhead</sym>
+    <type>Waypoint|Trailhead</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.887611" lon="6.041333">
+    <time>2013-11-02T06:52:04</time>
+    <name>PK4RC99</name>
+    <desc>Parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=8a6be88c-7019-42b8-8b2f-fe994732489f</url>
+    <urlname>Parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Parking</cmt>
+  </wpt>
+  <wpt lat="48.977317" lon="6.048567">
+    <time>2017-01-27T15:19:22</time>
+    <name>PK6ZRKC</name>
+    <desc>Parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=acce7468-7b04-40f9-8e88-72aa09fbe2b8</url>
+    <urlname>Parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>parking des deux cotés de la chaussée</cmt>
+  </wpt>
+  <wpt lat="48.976433" lon="6.048883">
+    <time>2017-01-27T15:19:22</time>
+    <name>AC6ZRKC</name>
+    <desc>Acces</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=ad131a75-3187-4d5b-9234-9b292ac9030e</url>
+    <urlname>Acces</urlname>
+    <sym>Trailhead</sym>
+    <type>Waypoint|Trailhead</type>
+    <cmt>acces en longeant la prairie</cmt>
+  </wpt>
+  <wpt lat="48.901633" lon="6.057583">
+    <time>2024-02-28T04:44:46</time>
+    <name>P0AM6QP</name>
+    <desc>Parking médiathèque</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=24578417-4017-456d-a1e7-d6fee9d127b2</url>
+    <urlname>Parking médiathèque</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Attention souvent plein !</cmt>
+  </wpt>
+  <wpt lat="48.882031" lon="6.0385">
+    <time>2013-11-03T07:13:09</time>
+    <name>AK4REGJ</name>
+    <desc>Parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=bae42669-71c5-49cf-b23e-9bcde18a6f7e</url>
+    <urlname>Parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.89935" lon="6.05865">
+    <time>2024-11-17T06:39:07</time>
+    <name>02AZYBM</name>
+    <desc>Stage 2</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=7a4a216a-17e1-45a3-b167-5661f5af57e3</url>
+    <urlname>Stage 2</urlname>
+    <sym>Physical Stage</sym>
+    <type>Waypoint|Physical Stage</type>
+    <cmt>chercher DEF a l'aide du spoiler</cmt>
+  </wpt>
+  <wpt lat="49.014083" lon="5.97345">
+    <time>2022-03-08T10:15:03</time>
+    <name>P09PK0C</name>
+    <desc>PK 1 </desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=ce8e848a-d009-42a4-b758-769774012626</url>
+    <urlname>PK 1 </urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="49.015567" lon="5.974567">
+    <time>2022-03-08T10:15:03</time>
+    <name>P19PK0C</name>
+    <desc>PK 2</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=ac5ebf31-b1b7-4887-8785-678a0d360475</url>
+    <urlname>PK 2</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="49.015817" lon="5.969467">
+    <time>2022-03-08T10:15:03</time>
+    <name>019PK0C</name>
+    <desc>1. Monument aux morts de Onville</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=3535cafc-a5e2-4fac-aab7-44f7890eeba8</url>
+    <urlname>1. Monument aux morts de Onville</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>Que tient le soldat dans sa main droite? une couronne A=0// un drapeau A=3 // Une fleur A=6</cmt>
+  </wpt>
+  <wpt lat="49.016517" lon="5.969317">
+    <time>2022-03-08T10:15:03</time>
+    <name>029PK0C</name>
+    <desc>Une artiste née ici</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=2a9c04ef-b49b-48a9-bd4a-d699071e82aa</url>
+    <urlname>Une artiste née ici</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>B = quel chiffre est mentionné 2 fois dans sa date de naissance</cmt>
+  </wpt>
+  <wpt lat="49.017667" lon="5.970733">
+    <time>2022-03-08T10:15:03</time>
+    <name>039PK0C</name>
+    <desc>3. Si quelqu'un sait...</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=a4d523e6-557e-4504-81ce-c4f53b7ac113</url>
+    <urlname>3. Si quelqu'un sait...</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt> I = numéro écrit à droite de la porte</cmt>
+  </wpt>
+  <wpt lat="49.017517" lon="5.97145">
+    <time>2022-03-08T10:15:03</time>
+    <name>049PK0C</name>
+    <desc>4. Eglise de Onville</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=3ffef25c-1a89-45fd-bf4e-963d35af72f0</url>
+    <urlname>4. Eglise de Onville</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>G = chiffre des unités de l'année d'adoption du blason</cmt>
+  </wpt>
+  <wpt lat="49.0167" lon="5.97545">
+    <time>2022-03-08T10:15:03</time>
+    <name>059PK0C</name>
+    <desc>5. La viticulture et l'aître</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=bf151178-4834-4353-bec2-e177ac1b8d97</url>
+    <urlname>5. La viticulture et l'aître</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>F = Chiffre des centaine de la date de la déclaration de l'instituteur</cmt>
+  </wpt>
+  <wpt lat="49.016717" lon="5.975433">
+    <time>2022-03-08T10:15:03</time>
+    <name>069PK0C</name>
+    <desc>6. Histoire d'Aître</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=506d863c-7cbc-474e-b9a5-7160e75536c1</url>
+    <urlname>6. Histoire d'Aître</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>H = chiffre des unités de la date de construction de l'ancienne église</cmt>
+  </wpt>
+  <wpt lat="49.017233" lon="5.97685">
+    <time>2022-03-08T10:15:03</time>
+    <name>079PK0C</name>
+    <desc>7. Mairie de Vandelainville</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=5ccd2a96-2af8-44d9-a1dc-dd9014d2d5d9</url>
+    <urlname>7. Mairie de Vandelainville</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>D = nombre de drapeaux devant la mairie</cmt>
+  </wpt>
+  <wpt lat="49.015817" lon="5.977083">
+    <time>2022-03-08T10:15:03</time>
+    <name>089PK0C</name>
+    <desc>8. Monument aux morts de Vandelainville</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=7d45ab6c-0909-4263-9e9a-85ccd19743c6</url>
+    <urlname>8. Monument aux morts de Vandelainville</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>E = checksum réduit à un chiffre du pays africain écrit</cmt>
+  </wpt>
+  <wpt lat="49.0136" lon="5.97895">
+    <time>2022-03-08T10:15:03</time>
+    <name>099PK0C</name>
+    <desc>9. Gare de Onville</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=1d2e1af0-c91b-456b-9970-8ac01a17118b</url>
+    <urlname>9. Gare de Onville</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>C = X32,798</cmt>
+  </wpt>
+  <wpt lat="49.017367" lon="5.972283">
+    <time>2022-03-08T10:15:03</time>
+    <name>T09PK0C</name>
+    <desc>Pour aller à Vandelainville</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=415b336d-1470-4414-88ec-6879fcacc0d0</url>
+    <urlname>Pour aller à Vandelainville</urlname>
+    <sym>Trailhead</sym>
+    <type>Waypoint|Trailhead</type>
+    <cmt />
+  </wpt>
+  <wpt lat="49.015683" lon="5.977217">
+    <time>2022-03-08T10:15:03</time>
+    <name>T19PK0C</name>
+    <desc>Pour aller à la gare</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=cc52309a-986f-4288-9f81-fb826462e8cb</url>
+    <urlname>Pour aller à la gare</urlname>
+    <sym>Trailhead</sym>
+    <type>Waypoint|Trailhead</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.90655" lon="6.0637">
+    <time>2021-06-29T13:08:13</time>
+    <name>019D62N</name>
+    <desc>stationnement obligatoire le plus proche</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=311aae79-fa4b-4595-9b90-535ef8cd8b67</url>
+    <urlname>stationnement obligatoire le plus proche</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.90655" lon="6.0637">
+    <time>2021-06-25T12:42:41</time>
+    <name>P09D62N</name>
+    <desc>la fontaine rouge</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=ed59f349-3db8-4bdb-9797-f9c06d046a44</url>
+    <urlname>la fontaine rouge</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>Face à la fontaine soit 
+A la largeur de la colonne en cm (arrondi au multiple de 5 inferieur), 
+B la hauteur au dessus du socle neuf en dm, 
+C la longueur totale de la fontaine en mètre, 
+D la longueur intérieure du bassin en dm
+E le nombre de jet d'eau sur la fontaine</cmt>
+  </wpt>
+  <wpt lat="48.886867" lon="5.8455">
+    <time>2009-03-18T11:55:16</time>
+    <name>011NVNR</name>
+    <desc>Garage à char</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=99f204e0-23da-4cb4-95fd-9ecb00883c7a</url>
+    <urlname>Garage à char</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.886167" lon="5.846283">
+    <time>2009-03-18T11:57:12</time>
+    <name>021NVNR</name>
+    <desc>La croix de Rochas</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=0a00a73e-60c6-4088-8e7d-ef5ce29d856c</url>
+    <urlname>La croix de Rochas</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>A= numéro du régiment d'infanterie dans lequel servait le sergent Rochas</cmt>
+  </wpt>
+  <wpt lat="48.885617" lon="5.84525">
+    <time>2009-03-18T12:10:04</time>
+    <name>031NVNR</name>
+    <desc>Les forêts de la zone rouge</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=6923347e-5120-4977-8d7e-5acfb8b0c7e3</url>
+    <urlname>Les forêts de la zone rouge</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>B= somme des chiffres composant l'année à laquelle débute le programme de boisement</cmt>
+  </wpt>
+  <wpt lat="48.885467" lon="5.845133">
+    <time>2009-03-18T12:12:20</time>
+    <name>041NVNR</name>
+    <desc>Le monument</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=a6e8a573-54ab-4965-8140-82b0ecd412f0</url>
+    <urlname>Le monument</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>C= Nombre de lettres composant le nom de l'architecte</cmt>
+  </wpt>
+  <wpt lat="48.88615" lon="5.845533">
+    <time>2009-03-18T12:21:45</time>
+    <name>051NVNR</name>
+    <desc>L'évolution des sols</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=92500d7d-e70d-4315-90de-f5f15c87f99b</url>
+    <urlname>L'évolution des sols</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>D= En quelle année prend fin le friche militaire</cmt>
+  </wpt>
+  <wpt lat="48.898483" lon="6.058633">
+    <time>2020-07-26T09:21:14</time>
+    <name>P08XA3V</name>
+    <desc>parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=307fcd34-af63-4adb-9ede-7a159d4bc809</url>
+    <urlname>parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.898602" lon="6.058853">
+    <time>2020-07-26T09:21:14</time>
+    <name>T08XA3V</name>
+    <desc>debut de la vélo route</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=480af185-7d14-4e2a-8796-3d108de77caf</url>
+    <urlname>debut de la vélo route</urlname>
+    <sym>Trailhead</sym>
+    <type>Waypoint|Trailhead</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.972983" lon="6.066693">
+    <time>2021-05-03T08:02:21</time>
+    <name>0197ZG4</name>
+    <desc>Étape 1</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=2e13cb4d-788d-4e99-83b4-620810597a64</url>
+    <urlname>Étape 1</urlname>
+    <sym>Physical Stage</sym>
+    <type>Waypoint|Physical Stage</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.973013" lon="6.068378">
+    <time>2021-03-22T09:03:46</time>
+    <name>T097ZG4</name>
+    <desc>Sentier</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=2538abb0-26e5-49d8-a13b-8fa7f0b7be17</url>
+    <urlname>Sentier</urlname>
+    <sym>Trailhead</sym>
+    <type>Waypoint|Trailhead</type>
+    <cmt>Prenez à gauche sur le sentier.</cmt>
+  </wpt>
+  <wpt lat="48.917833" lon="6.07295">
+    <time>2020-12-15T04:01:12</time>
+    <name>0192P36</name>
+    <desc>Parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=02e51dbf-c4e5-4f28-9728-ffedbc1e14d7</url>
+    <urlname>Parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>un peu éloigné mais sur</cmt>
+  </wpt>
+  <wpt lat="49.007267" lon="6.037883">
+    <time>2014-04-09T12:16:07</time>
+    <name>PK52533</name>
+    <desc>Parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=187b0507-2f23-4fc5-9c0c-bcae933a4be1</url>
+    <urlname>Parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="49.005033" lon="6.03225">
+    <time>2014-04-09T12:16:07</time>
+    <name>S152533</name>
+    <desc>GC52533 Stage 1</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=dc47a6a9-1bfe-42fb-aaa5-8773b920923d</url>
+    <urlname>GC52533 Stage 1</urlname>
+    <sym>Physical Stage</sym>
+    <type>Waypoint|Physical Stage</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.906217" lon="6.077183">
+    <time>2010-04-26T11:28:04</time>
+    <name>0027H50</name>
+    <desc>PARKING</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=652f7171-2cdb-44af-a6ba-275b51a4d28d</url>
+    <urlname>PARKING</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.976117" lon="6.070487">
+    <time>2021-05-03T07:18:27</time>
+    <name>0097ZFT</name>
+    <desc>Sentier</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=aaf2493c-c674-419c-be49-b18cca6c78ed</url>
+    <urlname>Sentier</urlname>
+    <sym>Trailhead</sym>
+    <type>Waypoint|Trailhead</type>
+    <cmt>Prenez à gauche sur le sentier.</cmt>
+  </wpt>
+  <wpt lat="48.91895" lon="5.8102">
+    <time>2022-02-24T14:33:15</time>
+    <name>P09NY7Z</name>
+    <desc>Parking au centre (recommandé)</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=a90ab5ee-81de-430d-9813-34e2ee1be6df</url>
+    <urlname>Parking au centre (recommandé)</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Parking le plus au centre du village</cmt>
+  </wpt>
+  <wpt lat="48.920083" lon="5.8148">
+    <time>2022-02-24T14:33:15</time>
+    <name>P19NY7Z</name>
+    <desc>Parking le plus proche du WP1</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=ed03a883-82b9-40ed-8023-eea0ffef753d</url>
+    <urlname>Parking le plus proche du WP1</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Parking le plus proche du WP1</cmt>
+  </wpt>
+  <wpt lat="48.92035" lon="5.815217">
+    <time>2022-02-24T14:33:15</time>
+    <name>019NY7Z</name>
+    <desc>1 Cimetière</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=0b25c118-b232-4ad1-8940-bda0306b511a</url>
+    <urlname>1 Cimetière</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>F = chiffre devant Lelièvre</cmt>
+  </wpt>
+  <wpt lat="48.918567" lon="5.8113">
+    <time>2022-02-24T14:33:15</time>
+    <name>029NY7Z</name>
+    <desc>Stage 3</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=027d52a9-8062-4d56-aea4-305a5f5b8ec9</url>
+    <urlname>Stage 3</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>B = chiffre sur la borne dans le parterre de fleur</cmt>
+  </wpt>
+  <wpt lat="48.918533" lon="5.811217">
+    <time>2022-02-24T14:33:15</time>
+    <name>039NY7Z</name>
+    <desc>3 Maison</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=6ce7713c-0a6d-4995-872c-7eca9af3f3a2</url>
+    <urlname>3 Maison</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>A = chiffre des milliers inscrit sur la façade de la maison</cmt>
+  </wpt>
+  <wpt lat="48.918667" lon="5.811383">
+    <time>2022-02-24T14:33:15</time>
+    <name>049NY7Z</name>
+    <desc>4 Monument aux morts</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=29c70afe-4cc7-46db-bd89-95ab357f6a53</url>
+    <urlname>4 Monument aux morts</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>D = nombre de mot autour du soldat</cmt>
+  </wpt>
+  <wpt lat="48.91775" lon="5.808717">
+    <time>2022-02-24T14:33:15</time>
+    <name>059NY7Z</name>
+    <desc>5 Jardin partagé</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=06465dd2-c22c-444c-84e9-16426b790ba2</url>
+    <urlname>5 Jardin partagé</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>C = Checksum réduit à un chiffre de l'année de création</cmt>
+  </wpt>
+  <wpt lat="48.9177" lon="5.808">
+    <time>2022-02-24T14:33:15</time>
+    <name>069NY7Z</name>
+    <desc>6 Hommage</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=515446cf-86ce-4a81-b53b-ca4e7bb7b616</url>
+    <urlname>6 Hommage</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>E = Checksum du JOUR de la date inscrite sur la sculpture</cmt>
+  </wpt>
+  <wpt lat="48.90405" lon="6.07875">
+    <time>2016-11-14T09:08:04</time>
+    <name>T06X07J</name>
+    <desc>Sentier</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=d748687f-6b4d-4d52-a1a1-5f621dfc13a5</url>
+    <urlname>Sentier</urlname>
+    <sym>Trailhead</sym>
+    <type>Waypoint|Trailhead</type>
+    <cmt>Sentier</cmt>
+  </wpt>
+  <wpt lat="49.027683" lon="5.921583">
+    <time>2016-11-24T21:58:15</time>
+    <name>PK6A1ZZ</name>
+    <desc>GC6A1ZZ Parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=6e26eab0-8fe9-4e5f-8738-cea4a2322224</url>
+    <urlname>GC6A1ZZ Parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="49.024083" lon="5.921333">
+    <time>2016-11-24T22:01:17</time>
+    <name>S16A1ZZ</name>
+    <desc>GC6A1ZZ Stage 1</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=30b1f88e-0cfb-444c-9dbf-f1c5d3dceb7e</url>
+    <urlname>GC6A1ZZ Stage 1</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>Faites le cheksum réduit de la date inscrite sur la borne pour trouver X.
+49° 01.(406+X)
+5°55.(609-X)
+</cmt>
+  </wpt>
+  <wpt lat="48.90465" lon="6.0793">
+    <time>2017-08-24T05:59:39</time>
+    <name>017B5HX</name>
+    <desc>ETAPE 1</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=26e94542-009c-4cde-86d0-283c7ad249b9</url>
+    <urlname>ETAPE 1</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>Face à vous 2 pierres taillées
+
+Soit A, le checksum de la date inscrite après " Anno Domini .... "</cmt>
+  </wpt>
+  <wpt lat="48.904" lon="6.078783">
+    <time>2017-08-24T06:02:08</time>
+    <name>027B5HX</name>
+    <desc>ETAPE 2</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=50c42f37-db0e-41cf-9c8d-ba328f6e6be7</url>
+    <urlname>ETAPE 2</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>Face à vous une barrière. Au bout de cette barrière, que pouvez-vous observer ?
+
+Un Boeuf, alors B = 3
+Un Bélier, alors B = 1
+Un Âne, alors B = 8</cmt>
+  </wpt>
+  <wpt lat="48.904233" lon="6.078367">
+    <time>2017-08-24T06:05:23</time>
+    <name>037B5HX</name>
+    <desc>ETAPE 3</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=81689239-49e4-4503-af95-7cb2206d6d31</url>
+    <urlname>ETAPE 3</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>Face à vous, le début d'un sentier. Vous êtes sur :
+
+Le GR12R, alors C = 5
+Le GR28F, alors C = 4
+Le GR5F, alors C = 3
+
+
+
+
+(Continuer ce sentier, pour la suite de l'aventure !)</cmt>
+  </wpt>
+  <wpt lat="48.905133" lon="6.077083">
+    <time>2017-08-24T06:07:29</time>
+    <name>047B5HX</name>
+    <desc>ETAPE 4</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=57a2215f-9629-439a-aa8f-d2f6c617e476</url>
+    <urlname>ETAPE 4</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>Vous êtes à la Chapelle des Lumières. Face à vous, un pierre taillée
+
+Soit D, le nombre de " O " gravé sur cette pierre</cmt>
+  </wpt>
+  <wpt lat="48.874783" lon="6.050917">
+    <time>2021-04-08T11:20:26</time>
+    <name>P099089</name>
+    <desc>Parking Centre Michel Bertelle</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=64c2575f-7546-4063-a981-34bc27bb7227</url>
+    <urlname>Parking Centre Michel Bertelle</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Parking gratuit</cmt>
+  </wpt>
+  <wpt lat="48.8747" lon="6.051067">
+    <time>2021-04-08T11:20:26</time>
+    <name>T099089</name>
+    <desc>Sentier de randonnée</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=92d62dc8-adfc-4aff-ab3e-fdecb4903d47</url>
+    <urlname>Sentier de randonnée</urlname>
+    <sym>Trailhead</sym>
+    <type>Waypoint|Trailhead</type>
+    <cmt>On peut partir se promener vers Jezainville ou simplement faire le tour du stade.</cmt>
+  </wpt>
+  <wpt lat="49.013" lon="6.02495">
+    <time>2010-01-01T04:32:20</time>
+    <name>P122GJB</name>
+    <desc>Parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=b2704857-4aeb-4840-8354-f6a1d4f05189</url>
+    <urlname>Parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Parking</cmt>
+  </wpt>
+  <wpt lat="49.0131" lon="6.022717">
+    <time>2010-01-01T04:28:58</time>
+    <name>P222GJB</name>
+    <desc>Enigme</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=676c30a7-25e1-4adf-ac39-3479ba6c0c50</url>
+    <urlname>Enigme</urlname>
+    <sym>Physical Stage</sym>
+    <type>Waypoint|Physical Stage</type>
+    <cmt>Vous cherchez une plaquette</cmt>
+  </wpt>
+  <wpt lat="48.9325" lon="6.0903">
+    <time>2019-05-03T01:44:47</time>
+    <name>01878D5</name>
+    <desc>Etape 1</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=2d8d6cbb-b6d3-42f5-9cbd-234bbccc2787</url>
+    <urlname>Etape 1</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>A = au chiffre présent sur le panneau de randonnée.</cmt>
+  </wpt>
+  <wpt lat="48.931267" lon="6.0867">
+    <time>2019-05-03T01:44:47</time>
+    <name>02878D5</name>
+    <desc>Etape 2</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=6cd37aca-257c-4521-8395-9c2d789a219e</url>
+    <urlname>Etape 2</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>Quel village se trouve au nord ? Atton alors B = 3, Cheminot alors B = 1, Bouxières-Sous-Froidmont alors B = 6 ou Mousson alors B = 9.</cmt>
+  </wpt>
+  <wpt lat="48.9303" lon="6.087267">
+    <time>2019-05-03T01:44:47</time>
+    <name>03878D5</name>
+    <desc>Etape 3</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=df7e68d0-eb2d-4eba-b778-9a0bf8353772</url>
+    <urlname>Etape 3</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>C = Le temps indiqué sur le panonceau pour se rendre au Signal du Xon.</cmt>
+  </wpt>
+  <wpt lat="48.990792" lon="6.065012">
+    <time>2021-03-22T08:14:47</time>
+    <name>00910NR</name>
+    <desc>Parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=faf10ca9-9079-4a68-bad1-589c9f2cc114</url>
+    <urlname>Parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.990067" lon="6.064633">
+    <time>2021-05-01T13:28:47</time>
+    <name>01910NR</name>
+    <desc>Étape virtuelle 1</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=a303a86b-406e-467b-9c2f-9cf5899308bb</url>
+    <urlname>Étape virtuelle 1</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>A = le nombre de moyens de locomotion interdits.</cmt>
+  </wpt>
+  <wpt lat="48.981982" lon="6.064312">
+    <time>2021-05-01T13:28:47</time>
+    <name>02910NR</name>
+    <desc>Étape virtuelle 2</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=04182a81-62ba-4384-ad85-590b4369fb81</url>
+    <urlname>Étape virtuelle 2</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>B = le nombre de kilomètres jusqu'à la Côte St Pierre.</cmt>
+  </wpt>
+  <wpt lat="48.980723" lon="6.06494">
+    <time>2021-05-01T13:28:47</time>
+    <name>03910NR</name>
+    <desc>Étape virtuelle 3</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=0e9ed2eb-4286-4407-8d01-8915874f8dcf</url>
+    <urlname>Étape virtuelle 3</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>C = le nombre de destinations.</cmt>
+  </wpt>
+  <wpt lat="48.844522" lon="5.916106">
+    <time>2021-01-02T13:12:47</time>
+    <name>T094NYW</name>
+    <desc>montez par ici</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=71be630c-f23d-4003-bb59-a96b22f40fbb</url>
+    <urlname>montez par ici</urlname>
+    <sym>Trailhead</sym>
+    <type>Waypoint|Trailhead</type>
+    <cmt />
+  </wpt>
+  <wpt lat="49.0218" lon="5.912383">
+    <time>2017-01-30T04:32:30</time>
+    <name>P06ZX75</name>
+    <desc>Parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=5b2af154-9fa7-46bc-bc4a-1bfded421009</url>
+    <urlname>Parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Parking</cmt>
+  </wpt>
+  <wpt lat="49.022193" lon="5.912344">
+    <time>2017-01-30T04:32:30</time>
+    <name>T06ZX75</name>
+    <desc>Sentier</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=3f4d6683-2219-46d7-8429-247b3bfa9cca</url>
+    <urlname>Sentier</urlname>
+    <sym>Trailhead</sym>
+    <type>Waypoint|Trailhead</type>
+    <cmt>Sentier</cmt>
+  </wpt>
+  <wpt lat="49.021133" lon="6.02205">
+    <time>2012-02-22T06:05:02</time>
+    <name>PK3D2TM</name>
+    <desc>GC3D2TM Parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=156c3374-3f19-4e17-805d-e481f7f736eb</url>
+    <urlname>GC3D2TM Parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="49.019733" lon="6.013867">
+    <time>2012-02-22T14:10:29</time>
+    <name>S13D2TM</name>
+    <desc>GC3D2TM Stage 1</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=9f719947-2935-42e1-85c5-b7c5d9339b96</url>
+    <urlname>GC3D2TM Stage 1</urlname>
+    <sym>Physical Stage</sym>
+    <type>Waypoint|Physical Stage</type>
+    <cmt>Pour vous éviter de rester trop longtemps sur cette base d'envol de fées...Du rosier qu'elles y ont planté tirez un az 335° sur 8m... l'indice se trouve à l'entrée de l'antre d'un (petit) dragon !!</cmt>
+  </wpt>
+  <wpt lat="48.934283" lon="5.8047">
+    <time>2022-02-23T07:41:26</time>
+    <name>P09NWQE</name>
+    <desc>Parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=7dfd83b7-521c-442b-a869-57e5dfc5f8c4</url>
+    <urlname>Parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.9345" lon="5.80485">
+    <time>2022-02-23T07:41:26</time>
+    <name>019NWQE</name>
+    <desc>1 L'ancien abrevoir</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=deffe200-6927-4f18-8689-9574a0abde5c</url>
+    <urlname>1 L'ancien abrevoir</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>E = Nombre de kilomètres jusqu'à Lamarche</cmt>
+  </wpt>
+  <wpt lat="48.93365" lon="5.80475">
+    <time>2022-02-23T07:41:26</time>
+    <name>029NWQE</name>
+    <desc>2 Parc de la Savonnières</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=cd793863-a656-42bc-a27b-5959d079457c</url>
+    <urlname>2 Parc de la Savonnières</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>F = Checksum du poids de l'oiseau réduit à un chiffre</cmt>
+  </wpt>
+  <wpt lat="48.933283" lon="5.8043">
+    <time>2022-02-23T07:41:26</time>
+    <name>039NWQE</name>
+    <desc>3 Eglise</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=502c6c0a-eb24-4cf1-af3e-b4e914dd5b16</url>
+    <urlname>3 Eglise</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>D = Nombre de lettre du dernier mot qui se trouve sur la plaque au mur</cmt>
+  </wpt>
+  <wpt lat="48.933033" lon="5.803417">
+    <time>2022-02-23T07:41:26</time>
+    <name>049NWQE</name>
+    <desc>4 Pressois</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=0b12651f-472f-4195-a128-ec0eb4b9a150</url>
+    <urlname>4 Pressois</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>B = Nombre de roue</cmt>
+  </wpt>
+  <wpt lat="48.932983" lon="5.80355">
+    <time>2022-02-23T07:41:26</time>
+    <name>059NWQE</name>
+    <desc>5 Monument aux morts</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=10195b3f-9c39-4926-b957-7b46ac8ba240</url>
+    <urlname>5 Monument aux morts</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>A = Nombre de victime civiles - Nombre de mort en 39-45</cmt>
+  </wpt>
+  <wpt lat="48.932283" lon="5.804517">
+    <time>2022-02-23T07:41:26</time>
+    <name>069NWQE</name>
+    <desc>6 Lavoir</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=c453e5b9-c223-4f9e-8657-a087f0c181ee</url>
+    <urlname>6 Lavoir</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>C = Checksum du nombre de grande fenêtres au lavoir (toute les fenêtres même aux portes)</cmt>
+  </wpt>
+  <wpt lat="49.011167" lon="5.862033">
+    <time>2022-02-25T14:04:53</time>
+    <name>P09NZ55</name>
+    <desc>Parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=8863699f-0765-4e8f-86a6-951efad30678</url>
+    <urlname>Parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="49.011217" lon="5.862083">
+    <time>2022-02-25T14:04:53</time>
+    <name>019NZ55</name>
+    <desc>1 Parking pour soucoupe</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=166de996-26c5-4d23-95dc-5266a941557d</url>
+    <urlname>1 Parking pour soucoupe</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>C = Checksum du poids maximal autorisé</cmt>
+  </wpt>
+  <wpt lat="49.0115" lon="5.861383">
+    <time>2022-02-25T14:04:53</time>
+    <name>029NZ55</name>
+    <desc>2 L'ancien cimetière</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=7c99ab45-a7db-4784-8fe4-9fb8bba51b4a</url>
+    <urlname>2 L'ancien cimetière</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>A = Nombre de Jésus à gauche et à droite du portail</cmt>
+  </wpt>
+  <wpt lat="49.011233" lon="5.858983">
+    <time>2022-02-25T14:04:53</time>
+    <name>039NZ55</name>
+    <desc>3 Un peu d'histoire</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=4b1120e3-e51d-4701-b9e1-fa66b6d3e987</url>
+    <urlname>3 Un peu d'histoire</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>D = Le jour où les Français attaquent à l'est</cmt>
+  </wpt>
+  <wpt lat="49.010867" lon="5.859433">
+    <time>2022-02-25T14:04:53</time>
+    <name>049NZ55</name>
+    <desc>4 Un fut</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=73fcc905-d280-421b-b6e8-87433370973a</url>
+    <urlname>4 Un fut</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>B = Nombre de lettres du dernier mot</cmt>
+  </wpt>
+  <wpt lat="49.010667" lon="5.863083">
+    <time>2022-02-25T14:04:53</time>
+    <name>059NZ55</name>
+    <desc>5 Des panneaux</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=e7c106aa-a706-4140-be30-0aadaeb15e48</url>
+    <urlname>5 Des panneaux</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>F = Checksum de la vitesse maximale autorisé</cmt>
+  </wpt>
+  <wpt lat="49.01085" lon="5.862233">
+    <time>2022-02-25T14:04:53</time>
+    <name>069NZ55</name>
+    <desc>6 Des plaques</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=dd3065e3-e2a0-4481-bb4f-871c959b1a6c</url>
+    <urlname>6 Des plaques</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>E = Premier chiffre de la première plaque</cmt>
+  </wpt>
+  <wpt lat="48.848733" lon="5.891386">
+    <time>2014-11-14T08:41:40</time>
+    <name>P15GFXT</name>
+    <desc>Bord de route</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=0ca12cff-abfc-4961-bd2c-7f754eadfd12</url>
+    <urlname>Bord de route</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Attention stationnement en bord de route</cmt>
+  </wpt>
+  <wpt lat="49.010117" lon="6.031783">
+    <time>2010-01-01T03:02:19</time>
+    <name>PK22GGJ</name>
+    <desc>Parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=5cbeac9c-6311-44d9-8c81-905c83ce8928</url>
+    <urlname>Parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Parking au milieu du village</cmt>
+  </wpt>
+  <wpt lat="49.0113" lon="5.859">
+    <time>2018-05-01T12:30:13</time>
+    <name>017NPX1</name>
+    <desc>Parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=72ee044f-ab4d-41e7-9908-8102aa3e8117</url>
+    <urlname>Parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Parking du cimetière</cmt>
+  </wpt>
+  <wpt lat="48.9981" lon="6.058283">
+    <time>2016-04-17T23:50:59</time>
+    <name>S160VRN</name>
+    <desc>Parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=6c476b7a-db8b-4c17-8e53-b29146dca947</url>
+    <urlname>Parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>départ parking</cmt>
+  </wpt>
+  <wpt lat="48.998417" lon="6.059367">
+    <time>2016-04-17T23:52:21</time>
+    <name>S260VRN</name>
+    <desc>WP2</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=83c3e376-255a-4342-a00f-1e4cedba239f</url>
+    <urlname>WP2</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>trouver le chiffre A puis calculer WP suivant
+48 59 (A-6376)
+06 03 (A-6542)</cmt>
+  </wpt>
+  <wpt lat="48.99335" lon="6.071183">
+    <time>2016-04-18T03:03:00</time>
+    <name>S860VRN</name>
+    <desc>WP 8</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=9d32b8cb-4c1e-4639-801f-8dd89a43eaa1</url>
+    <urlname>WP 8</urlname>
+    <sym>Trailhead</sym>
+    <type>Waypoint|Trailhead</type>
+    <cmt>Pas un WP mais une  direction
+Partir sur le GR à droite du panneau  puis arriver au point suivre le chemin à droite</cmt>
+  </wpt>
+  <wpt lat="48.842082" lon="5.910827">
+    <time>2021-01-02T11:40:14</time>
+    <name>T094NR9</name>
+    <desc>montez par ici</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=a45a67cc-3089-49f7-b4ec-c238a9bfe7b4</url>
+    <urlname>montez par ici</urlname>
+    <sym>Trailhead</sym>
+    <type>Waypoint|Trailhead</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.9162" lon="6.093583">
+    <time>2025-01-19T08:28:56</time>
+    <name>P0B2F96</name>
+    <desc>parking conseillé</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=9fb82f0f-17e0-4d3d-9ee9-a71c829017ac</url>
+    <urlname>parking conseillé</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="49.02085" lon="6.047767">
+    <time>2011-12-24T09:48:54</time>
+    <name>PK39K5N</name>
+    <desc>GC39K5N Parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=51318eed-807d-4e2f-92ee-b45439d511c7</url>
+    <urlname>GC39K5N Parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="49.01495" lon="6.039233">
+    <time>2011-12-24T09:57:19</time>
+    <name>S139K5N</name>
+    <desc>GC39K5N Stage 1</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=024f02d0-8dbe-4926-9ca1-c950ba0ce44e</url>
+    <urlname>GC39K5N Stage 1</urlname>
+    <sym>Physical Stage</sym>
+    <type>Waypoint|Physical Stage</type>
+    <cmt />
+  </wpt>
+  <wpt lat="49.021033" lon="6.022033">
+    <time>2010-10-15T14:09:13</time>
+    <name>PK2GRCW</name>
+    <desc>GC2GRCW Parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=777d97d4-2253-4194-8e18-d87e70e6bd7f</url>
+    <urlname>GC2GRCW Parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="49.02125" lon="6.0211">
+    <time>2010-10-15T14:11:00</time>
+    <name>S12GRCW</name>
+    <desc>Le panneau</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=a8290e6e-aaa7-4c5c-94e6-4b593219b4cc</url>
+    <urlname>Le panneau</urlname>
+    <sym>Physical Stage</sym>
+    <type>Waypoint|Physical Stage</type>
+    <cmt>Chercher les coordonnées WP suivant + indice</cmt>
+  </wpt>
+  <wpt lat="49.021033" lon="6.022033">
+    <time>2024-06-12T10:16:48</time>
+    <name>P0ARWT0</name>
+    <desc>Parking Frontière 2</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=f9384ae2-5319-4e50-9bc8-43091480bd28</url>
+    <urlname>Parking Frontière 2</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.993383" lon="6.07145">
+    <time>2021-12-05T11:19:56</time>
+    <name>019K2WJ</name>
+    <desc>Départ sentier juste pour cette cache</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=ea1f28ad-88b0-4f66-a57e-14593d7cad43</url>
+    <urlname>Départ sentier juste pour cette cache</urlname>
+    <sym>Trailhead</sym>
+    <type>Waypoint|Trailhead</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.839032" lon="5.910312">
+    <time>2020-03-04T11:35:51</time>
+    <name>P08MC3C</name>
+    <desc>parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=f94001c6-34e7-4ae9-b51d-245aa8550efa</url>
+    <urlname>parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.933" lon="6.1005">
+    <time>2019-08-10T08:04:42</time>
+    <name>018BXE4</name>
+    <desc>Étape virtuelle</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=d9dd9df9-9d19-4815-81a0-377d04f4f657</url>
+    <urlname>Étape virtuelle</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>Vous fêtes face à un Panneau d'Information. Soit A, le Checksum de l'année où l'Armée Française à repris le Hameau. Soit B, le Checksum de l'année où le Conseil Municipal a décidé de ne pas reconstruire le Hameau de Norroy. Soit C, le Checksum du Numéro du Régiment d'Infanterie présent à Norroy. Soit D, le Checksum du nombre moyen d'obus bombardés par jour et ce jusqu'à l'Armistice. Etape suivante en : N 48° 56. (A-C) (A+D) (B)' - E 006° 05. (A+B) (A) (D)'</cmt>
+  </wpt>
+  <wpt lat="48.883367" lon="5.81855">
+    <time>2021-05-10T04:24:44</time>
+    <name>T09B1HV</name>
+    <desc>Début d'une tranchée de première ligne</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=acd25e53-ae8c-4470-8cec-df29b864fb8f</url>
+    <urlname>Début d'une tranchée de première ligne</urlname>
+    <sym>Trailhead</sym>
+    <type>Waypoint|Trailhead</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.992417" lon="6.075083">
+    <time>2016-04-18T12:39:58</time>
+    <name>P06FZZ3</name>
+    <desc>Parking recommandé</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=c1c155d6-1b0e-439e-b013-4e12553bd876</url>
+    <urlname>Parking recommandé</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.994833" lon="6.07725">
+    <time>2016-04-18T12:39:58</time>
+    <name>026FZZ3</name>
+    <desc>Stage 2</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=9bcb780e-30c3-4641-8bf6-6b663d4d9542</url>
+    <urlname>Stage 2</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>Citer 1 variété de fossile recontré dans cette carrière
+    Donner l'origine de la stratifcation des dépots des sédements référencés
+    Préciser la date de formation des roches calcaires de Lorry</cmt>
+  </wpt>
+  <wpt lat="48.9948" lon="6.077117">
+    <time>2016-04-18T12:39:58</time>
+    <name>036FZZ3</name>
+    <desc>Stage 3</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=7f0df366-5350-4c2f-b8bb-9571aee88b8a</url>
+    <urlname>Stage 3</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>Face à vous, un petit cairn. Mesurer sa hauteur.</cmt>
+  </wpt>
+  <wpt lat="48.9924" lon="6.0755">
+    <time>2016-04-20T13:17:20</time>
+    <name>SE6FZZ3</name>
+    <desc>Sentier recommandé</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=b1a94901-226e-495d-9c5a-19faad33afa8</url>
+    <urlname>Sentier recommandé</urlname>
+    <sym>Trailhead</sym>
+    <type>Waypoint|Trailhead</type>
+    <cmt>Sentier recommandé</cmt>
+  </wpt>
+  <wpt lat="48.931867" lon="6.103017">
+    <time>2020-10-16T06:07:01</time>
+    <name>0191DCX</name>
+    <desc>Étape virtuelle</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=51053f45-d08a-44a8-a137-33b164a7a9ee</url>
+    <urlname>Étape virtuelle</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>Vous êtes face à une fresque, soit B le nombre de montgolfières peintes.</cmt>
+  </wpt>
+  <wpt lat="48.933009" lon="6.1043">
+    <time>2019-03-23T07:53:57</time>
+    <name>P08551B</name>
+    <desc>Parking le plus proche</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=5f46e397-0767-4c24-807c-9892187c16f6</url>
+    <urlname>Parking le plus proche</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="49.024306" lon="5.891278">
+    <time>2025-03-30T12:47:51</time>
+    <name>P0B523H</name>
+    <desc>Parking Circuit de Chambley</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=1c852ff4-ad3c-4944-b701-ae7ce1250723</url>
+    <urlname>Parking Circuit de Chambley</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="49.023833" lon="5.895333">
+    <time>2025-03-30T12:47:51</time>
+    <name>T0B523H</name>
+    <desc>Sentier autour du Circuit de Chambley</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=c1c79300-e6ae-4663-9613-d710d58e0e14</url>
+    <urlname>Sentier autour du Circuit de Chambley</urlname>
+    <sym>Trailhead</sym>
+    <type>Waypoint|Trailhead</type>
+    <cmt />
+  </wpt>
+  <wpt lat="49.0168" lon="6.054733">
+    <time>2016-03-05T08:16:50</time>
+    <name>P06CMJP</name>
+    <desc>parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=85225383-ab7a-4dcb-98c6-d562cfb73526</url>
+    <urlname>parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.841883" lon="5.883317">
+    <time>2014-11-14T09:06:20</time>
+    <name>P15GFYR</name>
+    <desc>Champ de foire</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=88c17752-4190-493e-9e70-93ebb1f552f1</url>
+    <urlname>Champ de foire</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.840817" lon="5.88345">
+    <time>2014-11-14T09:06:20</time>
+    <name>015GFYR</name>
+    <desc>L'ancien Hotel</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=a2857175-260e-4aa8-85a4-58ea22437f8a</url>
+    <urlname>L'ancien Hotel</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>A = Relevé l'année sur la façade de l'hotel</cmt>
+  </wpt>
+  <wpt lat="48.84095" lon="5.881133">
+    <time>2014-11-14T09:06:20</time>
+    <name>025GFYR</name>
+    <desc>Plaque de lave</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=c07022b5-43c9-45c1-89dc-664f6fe31347</url>
+    <urlname>Plaque de lave</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>B = Relevé la distance de Limey</cmt>
+  </wpt>
+  <wpt lat="48.842183" lon="5.87985">
+    <time>2014-11-14T09:06:20</time>
+    <name>035GFYR</name>
+    <desc>Sortie du village</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=353a918b-51da-4dab-9aef-7f9c647c04c8</url>
+    <urlname>Sortie du village</urlname>
+    <sym>Virtual Stage</sym>
+    <type>Waypoint|Virtual Stage</type>
+    <cmt>C = Relevé le numéro de la route</cmt>
+  </wpt>
+  <wpt lat="48.884083" lon="5.824517">
+    <time>2018-08-10T01:39:41</time>
+    <name>P07VXHK</name>
+    <desc>Parking Saint-Léon</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=30da3a1e-de55-46c1-871a-196c1b325869</url>
+    <urlname>Parking Saint-Léon</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>Petit parking permettant l'accès aux tranchées allemandes de Saint-Baussant</cmt>
+  </wpt>
+  <wpt lat="48.833717" lon="5.99055">
+    <time>2020-09-16T13:47:32</time>
+    <name>P0903TJ</name>
+    <desc>PK GEZONCOURT</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=db1f4580-44b7-43ba-ac70-fe0300e83f20</url>
+    <urlname>PK GEZONCOURT</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>parking logique de la série, mais situé  a quelques centaines de mètres du départ</cmt>
+  </wpt>
+  <wpt lat="48.8252" lon="5.976067">
+    <time>2020-11-29T12:51:42</time>
+    <name>01903TJ</name>
+    <desc>PK ROGEVILLE</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=f98d7bcf-d7d3-4dc9-98b6-784de4a06f42</url>
+    <urlname>PK ROGEVILLE</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt>parking alternatif plus central mais moins carrossable et moins logique</cmt>
+  </wpt>
+  <wpt lat="48.965733" lon="6.1053">
+    <time>2018-11-23T02:59:10</time>
+    <name>FN80MFE</name>
+    <desc>Final Location</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=2cb44f4a-6314-490a-bb50-b58a4ea4fa44</url>
+    <urlname>Final Location</urlname>
+    <sym>Final Location</sym>
+    <type>Waypoint|Final Location</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.97455" lon="6.104583">
+    <time>2018-11-23T03:01:58</time>
+    <name>0180MFE</name>
+    <desc>Étape virtuelle</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=8b458e9f-7ee9-45b2-bb21-bca33d1aa6f0</url>
+    <urlname>Étape virtuelle</urlname>
+    <sym>Trailhead</sym>
+    <type>Waypoint|Trailhead</type>
+    <cmt>permet le passage sous l'autoroute</cmt>
+  </wpt>
+  <wpt lat="48.83205" lon="5.908467">
+    <time>2021-01-02T11:08:26</time>
+    <name>P094NP5</name>
+    <desc>parking </desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=c60bf6ff-329f-493a-8168-9b63731872dd</url>
+    <urlname>parking </urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+  <wpt lat="48.831807" lon="5.907995">
+    <time>2021-01-02T11:08:26</time>
+    <name>T094NP5</name>
+    <desc>depart</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=03599d88-01b8-4e66-b54f-51dbd9e5a0d7</url>
+    <urlname>depart</urlname>
+    <sym>Trailhead</sym>
+    <type>Waypoint|Trailhead</type>
+    <cmt />
+  </wpt>
+  <wpt lat="49.020833" lon="6.048383">
+    <time>2018-09-01T12:25:43</time>
+    <name>P07X3WX</name>
+    <desc>Parking</desc>
+    <url>http://www.geocaching.com/seek/wpt.aspx?WID=d5216dd5-a825-493d-b5a1-599a82467638</url>
+    <urlname>Parking</urlname>
+    <sym>Parking Area</sym>
+    <type>Waypoint|Parking Area</type>
+    <cmt />
+  </wpt>
+</gpx>

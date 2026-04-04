@@ -1,0 +1,125 @@
+<div class="note-item bg-gray-800 rounded-lg p-3 space-y-2" data-note-id="{{ note.id }}">
+    <div class="flex justify-between items-start">
+        <div class="flex items-center space-x-2">
+            <span class="px-2 py-1 text-xs rounded-full 
+                {% if note.note_type == 'user' %}bg-blue-600
+                {% elif note.note_type == 'system' %}bg-gray-600
+                {% elif note.note_type == 'hint' %}bg-green-600
+                {% else %}bg-yellow-600{% endif %}">
+                {{ note.note_type }}
+            </span>
+            <span class="text-gray-400 text-xs">{{ note.created_at }}</span>
+        </div>
+        <div class="flex space-x-2">
+            {% if note.note_type == 'user' and geocache.gc_code %}
+            <button class="text-gray-400 hover:text-green-400 send-note-btn"
+                    data-note-id="{{ note.id }}"
+                    data-geocache-id="{{ geocache.id }}"
+                    data-gc-code="{{ geocache.gc_code }}"
+                    title="Envoyer sur Geocaching.com"
+                    onclick="sendNoteToGeocaching(this, '{{ note.id }}', '{{ geocache.id }}')">
+                <i class="fas fa-cloud-upload-alt"></i>
+            </button>
+            {% endif %}
+            <button class="text-gray-400 hover:text-blue-400"
+                    hx-get="/api/logs/note_form?note_id={{ note.id }}&geocacheId={{ geocache_id }}"
+                    hx-target="#notes-content"
+                    hx-swap="innerHTML">
+                <i class="fas fa-edit"></i>
+            </button>
+            <button class="text-gray-400 hover:text-red-400"
+                    hx-delete="/api/logs/note/{{ note.id }}"
+                    hx-confirm="Êtes-vous sûr de vouloir supprimer cette note ?"
+                    hx-target="#notes-content"
+                    hx-swap="innerHTML">
+                <i class="fas fa-trash"></i>
+            </button>
+        </div>
+    </div>
+    <div class="note-content text-gray-300 whitespace-pre-wrap">{{ note.content }}</div>
+</div>
+
+<script>
+// Fonction globale pour envoyer une note à Geocaching.com
+function sendNoteToGeocaching(button, noteId, geocacheId) {
+    if (!confirm('Voulez-vous envoyer cette note vers Geocaching.com ?')) {
+        return;
+    }
+    
+    // Désactiver le bouton et changer son apparence
+    button.disabled = true;
+    const originalHTML = button.innerHTML;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    
+    // Faire la requête AJAX
+    fetch(`/api/logs/note/${noteId}/send_to_geocaching?geocacheId=${geocacheId}`, {
+        method: 'POST',
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(async response => {
+        let notifiedFromHeader = false;
+        // Consommer l'entête HX-Trigger pour AppNotify si présent
+        try {
+            const hx = response.headers.get('HX-Trigger');
+            if (hx) {
+                const evt = JSON.parse(hx);
+                const payload = evt && (evt['app:notify'] || evt.appNotify || evt.app_notify);
+                if (payload) {
+                    if (window.AppNotify) {
+                        window.AppNotify.push(payload);
+                        notifiedFromHeader = true;
+                    } else {
+                        // Fallback: déclencher l'événement local si un listener existe
+                        document.dispatchEvent(new CustomEvent('app:notify', { detail: payload }));
+                        notifiedFromHeader = true;
+                    }
+                }
+            }
+        } catch (e) {
+            // Ignorer les erreurs de parsing d'entête
+        }
+        // Continuer avec le corps JSON et renvoyer l'indicateur
+        let data = {};
+        try { data = await response.json(); } catch {}
+        return { data, notifiedFromHeader };
+    })
+    .then(({ data, notifiedFromHeader }) => {
+        // Réactiver le bouton
+        button.disabled = false;
+        button.innerHTML = originalHTML;
+        
+        if (data.success) {
+            if (window.AppNotify && !notifiedFromHeader) {
+                window.AppNotify.push({ level: 'success', message: data.message || 'Note envoyée avec succès', ttl: 5000 });
+            } else {
+                // Fallback minimal si AppNotify indisponible
+                if (!notifiedFromHeader) console.log(data.message || 'Note envoyée avec succès');
+            }
+            // Ajouter une classe pour indiquer que la note a été envoyée
+            button.classList.add('text-green-500');
+            button.title = 'Note envoyée à Geocaching.com';
+        } else {
+            const msg = `Erreur: ${data.error || 'Erreur inconnue'}`;
+            if (window.AppNotify && !notifiedFromHeader) {
+                window.AppNotify.push({ level: 'error', message: msg, ttl: 7000 });
+            } else {
+                if (!notifiedFromHeader) console.error(msg);
+            }
+        }
+    })
+    .catch(error => {
+        // Réactiver le bouton
+        button.disabled = false;
+        button.innerHTML = originalHTML;
+        const msg = `Erreur: ${error.message}`;
+        if (window.AppNotify) {
+            window.AppNotify.push({ level: 'error', message: msg, ttl: 7000 });
+        } else {
+            console.error(msg);
+        }
+    });
+}
+</script>

@@ -1,0 +1,206 @@
+/**
+ * Styles pour l'overlay de recherche GeoApp.
+ * Utilise les variables CSS Theia pour rester cohérent avec le thème.
+ */
+
+/* Conteneur de l'overlay - positionné en haut à droite du widget */
+.geoapp-search-overlay {
+    position: absolute;
+    top: 0;
+    right: 20px;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    background: var(--theia-editorWidget-background, #252526);
+    border: 1px solid var(--theia-editorWidget-border, #454545);
+    border-top: none;
+    border-radius: 0 0 4px 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+    font-size: 13px;
+    min-width: 300px;
+    max-width: 500px;
+}
+
+/* Champ de saisie */
+.geoapp-search-overlay input.geoapp-search-input {
+    flex: 1;
+    min-width: 120px;
+    padding: 3px 6px;
+    border: 1px solid var(--theia-input-border, #3c3c3c);
+    border-radius: 2px;
+    background: var(--theia-input-background, #3c3c3c);
+    color: var(--theia-input-foreground, #cccccc);
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+}
+
+.geoapp-search-overlay input.geoapp-search-input:focus {
+    border-color: var(--theia-focusBorder, #007fd4);
+}
+
+.geoapp-search-overlay input.geoapp-search-input::placeholder {
+    color: var(--theia-input-placeholderForeground, #a0a0a0);
+}
+
+/* Input en erreur (regex invalide) */
+.geoapp-search-overlay input.geoapp-search-input.invalid {
+    border-color: var(--theia-inputValidation-errorBorder, #be1100);
+}
+
+/* Input quand aucun résultat trouvé */
+.geoapp-search-overlay input.geoapp-search-input.no-results {
+    border-color: var(--theia-inputValidation-errorBorder, #be1100);
+    animation: geoapp-search-shake 0.3s ease-in-out;
+}
+
+/* Boutons toggle (regex, case, wildcard) */
+.geoapp-search-overlay .geoapp-search-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--theia-foreground, #cccccc);
+    font-size: 12px;
+    font-weight: bold;
+    font-family: monospace;
+    cursor: pointer;
+    opacity: 0.7;
+    transition: opacity 0.15s, background 0.15s;
+}
+
+.geoapp-search-overlay .geoapp-search-toggle:hover {
+    opacity: 1;
+    background: var(--theia-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
+}
+
+.geoapp-search-overlay .geoapp-search-toggle.active {
+    opacity: 1;
+    background: var(--theia-button-background, #0e639c);
+    color: var(--theia-button-foreground, #ffffff);
+    border-color: var(--theia-button-background, #0e639c);
+}
+
+/* Compteur d'occurrences */
+.geoapp-search-overlay .geoapp-search-count {
+    white-space: nowrap;
+    font-size: 12px;
+    color: var(--theia-foreground, #cccccc);
+    opacity: 0.85;
+    padding: 0 4px;
+    min-width: 48px;
+    text-align: center;
+}
+
+.geoapp-search-overlay .geoapp-search-count.no-results {
+    color: var(--theia-errorForeground, #f48771);
+}
+
+/* Boutons de navigation (prev/next) */
+.geoapp-search-overlay .geoapp-search-nav {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--theia-foreground, #cccccc);
+    cursor: pointer;
+    opacity: 0.7;
+    transition: opacity 0.15s, background 0.15s;
+    font-size: 14px;
+}
+
+.geoapp-search-overlay .geoapp-search-nav:hover {
+    opacity: 1;
+    background: var(--theia-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
+}
+
+.geoapp-search-overlay .geoapp-search-nav:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+
+/* Bouton fermer */
+.geoapp-search-overlay .geoapp-search-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--theia-foreground, #cccccc);
+    cursor: pointer;
+    opacity: 0.7;
+    transition: opacity 0.15s, background 0.15s;
+    font-size: 14px;
+}
+
+.geoapp-search-overlay .geoapp-search-close:hover {
+    opacity: 1;
+    background: var(--theia-toolbar-hoverBackground, rgba(90, 93, 94, 0.31));
+}
+
+/* Séparateur vertical entre groupes */
+.geoapp-search-overlay .geoapp-search-separator {
+    width: 1px;
+    height: 18px;
+    background: var(--theia-editorWidget-border, #454545);
+    margin: 0 2px;
+}
+
+/* Surlignage des matches dans le contenu */
+mark.geoapp-search-highlight {
+    background-color: rgba(234, 178, 46, 0.4);
+    color: inherit;
+    border-radius: 2px;
+    padding: 1px 0;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+}
+
+/* Surlignage du match actif */
+mark.geoapp-search-highlight.geoapp-search-highlight-active {
+    background-color: rgba(246, 185, 77, 0.8);
+    outline: 2px solid var(--theia-editor-findMatchHighlightBorder, #f0a732);
+    color: inherit;
+    border-radius: 2px;
+}
+
+/* Animation d'entrée de l'overlay */
+@keyframes geoapp-search-slide-down {
+    from {
+        transform: translateY(-100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.geoapp-search-overlay {
+    animation: geoapp-search-slide-down 0.15s ease-out;
+}
+
+/* Animation shake pour "pas de résultats" */
+@keyframes geoapp-search-shake {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-4px); }
+    40% { transform: translateX(4px); }
+    60% { transform: translateX(-3px); }
+    80% { transform: translateX(2px); }
+}

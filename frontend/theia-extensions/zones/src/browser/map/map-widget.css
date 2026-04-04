@@ -1,0 +1,198 @@
+/**
+ * Styles pour le widget de carte GeoApp
+ */
+
+/* Conteneur principal du widget */
+.geoapp-map-widget {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+/* Styles pour les contrôles OpenLayers */
+.geoapp-map-widget .ol-control {
+    background-color: var(--theia-editor-background);
+    border-radius: 4px;
+}
+
+.geoapp-map-widget .ol-control button {
+    background-color: var(--theia-button-background);
+    color: var(--theia-button-foreground);
+    border: 1px solid var(--theia-button-border);
+    width: 30px;
+    height: 30px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.geoapp-map-widget .ol-control button:hover {
+    background-color: var(--theia-button-hoverBackground);
+}
+
+.geoapp-map-widget .ol-control button:focus {
+    outline: 1px solid var(--theia-focusBorder);
+}
+
+/* Zoom controls */
+.geoapp-map-widget .ol-zoom {
+    top: 0.5em;
+    left: auto;
+    right: 0.5em;
+}
+
+/* Attribution */
+.geoapp-map-widget .ol-attribution {
+    background-color: rgba(var(--theia-editor-background-rgb), 0.8);
+    color: var(--theia-foreground);
+    font-size: 11px;
+}
+
+.geoapp-map-widget .ol-attribution a {
+    color: var(--theia-textLink-foreground);
+}
+
+/* Scale line */
+.geoapp-map-widget .ol-scale-line {
+    background-color: rgba(var(--theia-editor-background-rgb), 0.8);
+    border-radius: 4px;
+    padding: 4px;
+    bottom: 8px;
+    left: 8px;
+}
+
+.geoapp-map-widget .ol-scale-line-inner {
+    border: 2px solid var(--theia-foreground);
+    border-top: none;
+    color: var(--theia-foreground);
+    font-size: 11px;
+}
+
+/* Full screen control */
+.geoapp-map-widget .ol-full-screen {
+    top: 0.5em;
+    right: 0.5em;
+}
+
+/* Popup (pour usage futur) */
+.geoapp-map-popup {
+    position: absolute;
+    background-color: var(--theia-editor-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    padding: 12px;
+    min-width: 200px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    z-index: 1000;
+}
+
+.geoapp-map-popup::before {
+    content: '';
+    position: absolute;
+    bottom: -10px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    height: 0;
+    border-left: 10px solid transparent;
+    border-right: 10px solid transparent;
+    border-top: 10px solid var(--theia-editor-background);
+}
+
+.geoapp-map-popup-closer {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    cursor: pointer;
+    color: var(--theia-foreground);
+    font-size: 16px;
+}
+
+.geoapp-map-popup-closer:hover {
+    color: var(--theia-errorForeground);
+}
+
+.geoapp-map-popup-content {
+    color: var(--theia-foreground);
+}
+
+.geoapp-map-popup-content h3 {
+    margin: 0 0 8px 0;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.geoapp-map-popup-content p {
+    margin: 4px 0;
+    font-size: 12px;
+}
+
+/* Overlay pour le chargement */
+.geoapp-map-loading {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(var(--theia-editor-background-rgb), 0.8);
+    z-index: 999;
+}
+
+.geoapp-map-loading-spinner {
+    border: 3px solid var(--theia-panel-border);
+    border-top: 3px solid var(--theia-progressBar-background);
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Styles pour les markers sélectionnés */
+.geoapp-map-widget .ol-viewport canvas {
+    cursor: default;
+}
+
+/* Message d'absence de données */
+.geoapp-map-no-data {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    color: var(--theia-descriptionForeground);
+    padding: 20px;
+}
+
+.geoapp-map-no-data-icon {
+    font-size: 48px;
+    margin-bottom: 12px;
+    opacity: 0.5;
+}
+
+.geoapp-map-no-data-text {
+    font-size: 14px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .geoapp-map-widget .ol-zoom {
+        top: auto;
+        bottom: 3em;
+    }
+    
+    .geoapp-map-widget .ol-attribution {
+        font-size: 9px;
+    }
+}
+
+

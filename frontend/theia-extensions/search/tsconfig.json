@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "lib": ["ES2017", "DOM"],
+    "module": "commonjs",
+    "target": "ES2017",
+    "jsx": "react",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "lib",
+    "rootDir": "src",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true
+  },
+  "include": [
+    "src"
+  ]
+}

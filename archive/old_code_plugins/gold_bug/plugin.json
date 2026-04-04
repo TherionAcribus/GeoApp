@@ -1,0 +1,25 @@
+{
+  "name": "gold_bug",
+  "version": "1.0.0",
+  "description": "Plugin pour encoder/décoder avec le chiffre du Scarabée d'or (Gold-Bug cipher)",
+  "author": "MysteryAI",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "categories": ["SymbolsDecryption"],
+  "brute_force": false,
+  "enable_scoring": true,
+  "accept_accents": false,
+  "input_types": {
+    "text": {
+      "type": "string",
+      "label": "Texte à traiter",
+      "placeholder": "Entrez le texte ou la séquence de symboles du Scarabée d'or..."
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": ["decode", "encode", "detect"],
+      "default": "decode"
+    }
+  }
+} 

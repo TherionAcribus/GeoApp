@@ -1,0 +1,79 @@
+{
+  "name": "postnet_barcode",
+  "version": "1.2.1",
+  "description": "Plugin pour encoder/décoder les codes barres POSTNET (Postal Numeric Encoding Technique). Supporte les modes flexibles pour géocaching et auto-détection des formats.",
+  "author": "MysteryAI Team",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": ["Barcode", "SymbolsDecryption"],
+  "brute_force": true,
+  "enable_scoring": true,
+  "accept_accents": false,
+  "input_types": {
+    "text": {
+      "type": "string",
+      "label": "Texte/Code à traiter",
+      "placeholder": "Ex: 12345 ou ||:|:|:.||"
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": [
+        {"value": "encode", "label": "encode - Convertir chiffres vers barres"},
+        {"value": "decode", "label": "decode - Convertir barres vers chiffres"}
+      ],
+      "default": "decode"
+    },
+    "format": {
+      "type": "select", 
+      "label": "Format de sortie (encodage uniquement)",
+      "options": [
+        {"value": "auto", "label": "auto - Détection automatique"},
+        {"value": "zip5", "label": "zip5 - Code postal 5 chiffres (32 barres)"},
+        {"value": "zip9", "label": "zip9 - Code postal ZIP+4 (52 barres)"},
+        {"value": "zip11", "label": "zip11 - Code postal ZIP+4+2 (62 barres)"},
+        {"value": "free", "label": "free - Longueur libre"}
+      ],
+      "default": "auto"
+    },
+    "visual_format": {
+      "type": "select",
+      "label": "Format visuel des barres",
+      "options": [
+        {"value": "auto", "label": "auto - Détection automatique"},
+        {"value": "pipe_dot", "label": "| . - Barres hautes/basses classiques"},
+        {"value": "pipe_down", "label": "| ╷ - Barres hautes/courtes modernes"},
+        {"value": "binary", "label": "1 0 - Format binaire"}
+      ],
+      "default": "auto"
+    },
+    "checksum_mode": {
+      "type": "select",
+      "label": "Mode checksum",
+      "options": [
+        {"value": "auto", "label": "auto - Détection automatique"},
+        {"value": "required", "label": "required - Checksum obligatoire"},
+        {"value": "optional", "label": "optional - Checksum si longueur correcte"},
+        {"value": "none", "label": "none - Sans checksum"}
+      ],
+      "default": "auto"
+    },
+    "frame_bars": {
+      "type": "select",
+      "label": "Barres de début/fin",
+      "options": [
+        {"value": "auto", "label": "auto - Détection automatique"},
+        {"value": "always", "label": "always - Toujours inclure"},
+        {"value": "never", "label": "never - Jamais inclure"}
+      ],
+      "default": "auto"
+    }
+  },
+  "output_types": {
+    "result": {
+      "type": "string",
+      "label": "Résultat"
+    }
+  }
+} 

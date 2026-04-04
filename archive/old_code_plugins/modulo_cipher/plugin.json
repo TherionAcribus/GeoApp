@@ -1,0 +1,55 @@
+{
+    "name": "modulo_cipher",
+    "version": "1.0.0",
+    "description": "Plugin de chiffrement et déchiffrement utilisant le chiffrement par modulo",
+    "author": "MysteryAI Team",
+    "plugin_type": "python",
+    "entry_point": "main.py",
+    "dependencies": [],
+    "categories": ["AlphabetsDecryption"],
+    "brute_force": true,
+    "enable_scoring": true,
+    "accept_accents": false,
+    "scoring_method": {
+      "type": "lexical",
+      "custom_weights": {
+        "lexical": 0.8,
+        "gps": 0.2
+      }
+    },
+    "input_types": {
+      "text": {
+        "type": "string",
+        "label": "Texte à traiter",
+        "placeholder": "Entrez le texte ou les nombres à traiter..."
+      },
+      "modulo": {
+        "type": "select",
+        "label": "Modulo N",
+        "options": [26, 27, 36, 37, 128, 256],
+        "default": 26
+      },
+      "alphabet_mapping": {
+        "type": "select",
+        "label": "Mapping alphabet",
+        "options": ["A1Z26", "A0Z25"],
+        "default": "A1Z26"
+      },
+      "mode": {
+        "type": "select",
+        "label": "Mode",
+        "options": ["encode", "decode"],
+        "default": "decode"
+      }
+    },
+    "output_types": {
+      "text_output": {
+        "type": "string",
+        "label": "Texte transformé"
+      },
+      "bruteforce_solutions": {
+        "type": "array",
+        "label": "Solutions (bruteforce)"
+      }
+    }
+  } 

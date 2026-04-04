@@ -1,0 +1,60 @@
+{
+  "name": "wolseley_cipher",
+  "version": "1.0.0",
+  "description": "Plugin de chiffrement et déchiffrement utilisant le chiffre de Wolseley",
+  "author": "MysteryAI",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": ["AlphabetsDecryption"],
+  "brute_force": true,
+  "enable_scoring": true,
+  "accept_accents": false,
+  "scoring_method": {
+    "type": "lexical",
+    "custom_weights": {
+      "lexical": 0.8,
+      "gps": 0.2
+    }
+  },
+  "input_types": {
+    "text": {
+      "type": "string",
+      "label": "Texte à traiter",
+      "placeholder": "Entrez le texte à chiffrer ou déchiffrer..."
+    },
+    "key": {
+      "type": "string",
+      "label": "Clé (mot)",
+      "placeholder": "SECRET",
+      "default": ""
+    },
+    "removed_letter": {
+      "type": "select",
+      "label": "Lettre supprimée",
+      "options": [
+        { "value": "J", "label": "J (remplacée par I)" },
+        { "value": "V", "label": "V (remplacée par U)" },
+        { "value": "W", "label": "W (remplacée par V)" },
+        { "value": "none", "label": "Aucune (alphabet complet)" }
+      ],
+      "default": "J"
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": ["encode", "decode"],
+      "default": "decode"
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Texte transformé"
+    },
+    "bruteforce_solutions": {
+      "type": "array",
+      "label": "Solutions (bruteforce)"
+    }
+  }
+} 

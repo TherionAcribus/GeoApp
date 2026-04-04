@@ -1,0 +1,47 @@
+.theia-zones-tree-widget {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.theia-zones-tree-widget input {
+    font-size: 0.9em;
+}
+
+.theia-zones-tree-widget button.theia-button {
+    font-size: 0.9em;
+}
+
+/* Amélioration du survol */
+.theia-zones-tree-widget .zone-node:hover,
+.theia-zones-tree-widget .geocache-node:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+/* Animation pour l'expansion/collapse */
+.theia-zones-tree-widget .expand-icon {
+    transition: transform 0.2s ease;
+}
+
+.theia-zones-tree-widget .expand-icon.expanded {
+    transform: rotate(90deg);
+}
+
+/* Scrollbar personnalisée */
+.theia-zones-tree-widget ::-webkit-scrollbar {
+    width: 8px;
+}
+
+.theia-zones-tree-widget ::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.theia-zones-tree-widget ::-webkit-scrollbar-thumb {
+    background: var(--theia-scrollbarSlider-background);
+    border-radius: 4px;
+}
+
+.theia-zones-tree-widget ::-webkit-scrollbar-thumb:hover {
+    background: var(--theia-scrollbarSlider-hoverBackground);
+}
+

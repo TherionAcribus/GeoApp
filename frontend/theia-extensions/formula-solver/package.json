@@ -1,0 +1,43 @@
+{
+  "name": "@mysterai/theia-formula-solver",
+  "version": "1.0.0",
+  "description": "Formula Solver Extension for Mystery Geocaches in Theia IDE",
+  "keywords": [
+    "theia-extension",
+    "formula-solver",
+    "geocaching",
+    "mysterai",
+    "gps-coordinates"
+  ],
+  "license": "MIT",
+  "main": "lib/browser/formula-solver-frontend-module.js",
+  "typings": "lib/browser/formula-solver-frontend-module.d.ts",
+  "dependencies": {
+    "axios": "^1.6.0",
+    "theia-ide-zones-ext": "1.65.100"
+  },
+  "scripts": {
+    "prepare": "yarn run clean && yarn run build",
+    "clean": "rimraf lib",
+    "build": "tsc && yarn run copy:assets",
+    "copy:assets": "node -e \"require('fs-extra').copySync('src/browser/style', 'lib/browser/style')\"",
+    "watch": "tsc -w"
+  },
+  "devDependencies": {
+    "rimraf": "^5.0.0",
+    "typescript": "^5.0.0",
+    "@theia/core": "1.67.0",
+    "@theia/filesystem": "1.67.0",
+    "@theia/workspace": "1.67.0",
+    "theia-ide-zones-ext": "1.65.100"
+  },
+  "peerDependencies": {
+    "@theia/core": "1.67.0",
+    "theia-ide-zones-ext": "1.65.100"
+  },
+  "theiaExtensions": [
+    {
+      "frontend": "lib/browser/formula-solver-frontend-module"
+    }
+  ]
+}
