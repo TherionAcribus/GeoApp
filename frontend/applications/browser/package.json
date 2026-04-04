@@ -134,7 +134,7 @@
     "build": "theia build --app-target=\"browser\" --mode development",
     "build:prod": "theia build --app-target=\"browser\"",
     "rebuild": "theia rebuild:browser --cacheRoot ../..",
-    "start": "theia start --plugins=local-dir:../../plugins",
+    "start": "node ../../scripts/start-browser.js",
     "watch": "concurrently --kill-others -n tsc,build -c red,yellow \"tsc -b -w --preserveWatchOutput\" \"yarn -s watch:bundle\"",
     "watch:bundle": "webpack --watch --mode development",
     "dev": "concurrently --kill-others -n watch,server -c blue,green \"yarn watch\" \"yarn start\"",

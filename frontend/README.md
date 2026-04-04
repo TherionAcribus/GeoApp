@@ -47,6 +47,8 @@ The Theia IDE has been rebranded from its original name “Theia Blueprint”. Y
 
 Please check Theia's [prerequisites](https://github.com/eclipse-theia/theia/blob/master/doc/Developing.md#prerequisites), and keep node versions aligned between Theia IDE and that of the referenced Theia version.
 
+For this workspace, prefer Node 20 (`frontend/.nvmrc`). With Node 22 on Windows, the transitive `canvas` dependency may fall back to a native build and require local GTK/Cairo toolchains.
+
 ### Documentation
 
 Documentation on how to package Theia as a Desktop Product may be found [here](https://theia-ide.org/docs/blueprint_documentation/)
@@ -120,6 +122,9 @@ yarn browser start
 ```
 
 and connect to <http://localhost:3000/>
+
+On a fresh install, the first start now triggers a browser build automatically if generated files are missing.
+If port `3000` is already used by an existing GeoApp/Theia process, the start command exits cleanly instead of throwing a raw `EADDRINUSE` stack trace. To force another port, use `yarn browser start --port 3001`.
 
 ### Troubleshooting
 
