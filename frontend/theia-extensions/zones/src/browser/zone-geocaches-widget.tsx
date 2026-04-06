@@ -11,9 +11,12 @@ import { ImportGpxDialog } from './import-gpx-dialog';
 import { ImportBookmarkListDialog } from './import-bookmark-list-dialog';
 import { ImportPocketQueryDialog } from './import-pocket-query-dialog';
 import { MoveGeocacheDialog } from './move-geocache-dialog';
-import { MapService } from './map/map-service';
 import { MapWidgetFactory } from './map/map-widget-factory';
 import { GeocacheTabsManager } from './geocache-tabs-manager';
+import { GeocachesService } from './geocaches-service';
+import { ZonesService } from './zones-service';
+import { GeoAppWidgetEventsService } from './geoapp-widget-events-service';
+import { getErrorMessage } from './backend-api-client';
 
 interface SerializedZoneGeocachesState {
     zoneId: number;
@@ -26,13 +29,19 @@ type ImportAroundCenter =
     | { type: 'gc_code'; gc_code: string }
     | { type: 'geocache_id'; geocache_id: number; gc_code?: string; name?: string };
 
+type GeocacheDetailsResponse = Geocache & {
+    description_raw?: string;
+    hints?: string;
+    placed_at?: string;
+    type?: string;
+};
+
 type WizardPick<T> = QuickPickValue<T>;
 
 @injectable()
 export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     static readonly ID = 'zone.geocaches.widget';
 
-    protected backendBaseUrl = 'http://localhost:8000';
     protected zoneId?: number;
     protected zoneName?: string;
     protected rows: Geocache[] = [];
@@ -91,12 +100,14 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         @inject(MessageService) protected readonly messages: MessageService,
         @inject(ApplicationShell) protected readonly shell: ApplicationShell,
         @inject(WidgetManager) protected readonly widgetManager: WidgetManager,
-        @inject(MapService) protected readonly mapService: MapService,
         @inject(MapWidgetFactory) protected readonly mapWidgetFactory: MapWidgetFactory,
         @inject(GeocacheTabsManager) protected readonly geocacheTabsManager: GeocacheTabsManager,
         @inject(PreferenceService) protected readonly preferenceService: PreferenceService,
         @inject(QuickInputService) protected readonly quickInputService: QuickInputService,
         @inject(ProgressService) protected readonly progressService: ProgressService,
+        @inject(GeocachesService) protected readonly geocachesService: GeocachesService,
+        @inject(ZonesService) protected readonly zonesService: ZonesService,
+        @inject(GeoAppWidgetEventsService) protected readonly widgetEventsService: GeoAppWidgetEventsService,
     ) {
         super();
         this.id = ZoneGeocachesWidget.ID;
@@ -204,6 +215,82 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         return match ? match[1].toUpperCase() : undefined;
     }
 
+    private async refreshZoneData(): Promise<void> {
+        this.widgetEventsService.requestZonesRefresh();
+        await this.load();
+    }
+
+    private isAlreadyExistsError(error: unknown): boolean {
+        return /already exists|existe d[ée]jà/i.test(getErrorMessage(error, ''));
+    }
+
+    private async consumeImportStream(
+        response: Response,
+        onProgress?: (percentage: number, message: string) => void
+    ): Promise<string | undefined> {
+        const reader = response.body?.getReader();
+        if (!reader) {
+            return undefined;
+        }
+
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let lastMessage: string | undefined;
+
+        const processLine = (rawLine: string): void => {
+            const line = rawLine.trim();
+            if (!line) {
+                return;
+            }
+
+            try {
+                const data = JSON.parse(line) as {
+                    error?: boolean;
+                    progress?: number;
+                    message?: string;
+                    final_summary?: boolean;
+                };
+
+                if (data.error) {
+                    const message = data.message || 'Erreur lors de l\'import';
+                    this.messages.error(message);
+                    onProgress?.(0, message);
+                    return;
+                }
+
+                if (typeof data.progress === 'number') {
+                    onProgress?.(data.progress, data.message || '');
+                }
+
+                if (data.final_summary && data.message) {
+                    lastMessage = data.message;
+                }
+            } catch (error) {
+                console.error('Error parsing import progress data:', error);
+            }
+        };
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (value) {
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+                for (const line of lines) {
+                    processLine(line);
+                }
+            }
+
+            if (done) {
+                break;
+            }
+        }
+
+        buffer += decoder.decode();
+        processLine(buffer);
+        return lastMessage;
+    }
+
     protected async handleExportGpxSelected(geocacheIds: number[]): Promise<void> {
         try {
             if (!geocacheIds || geocacheIds.length === 0) {
@@ -218,27 +305,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             const zoneSuffix = safeZoneName ? `_${safeZoneName}` : '';
             const filename = `geoapp${zoneSuffix}_geocaches_${timestamp}.gpx`;
 
-            const res = await fetch(`${this.backendBaseUrl}/api/geocaches/export-gpx`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({
-                    geocache_ids: geocacheIds,
-                    filename,
-                })
-            });
-
-            if (!res.ok) {
-                let errorMsg = `HTTP ${res.status}`;
-                try {
-                    const data = await res.json();
-                    errorMsg = data.error || errorMsg;
-                } catch {
-                    const txt = await res.text();
-                    errorMsg += `: ${txt}`;
-                }
-                throw new Error(errorMsg);
-            }
+            const res = await this.geocachesService.exportGpx(geocacheIds, filename);
 
             const contentDisposition = res.headers.get('Content-Disposition') || '';
             const filenameMatch = /filename\s*=\s*"?([^";]+)"?/i.exec(contentDisposition);
@@ -542,30 +609,12 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
 
         try {
             progress.report({ message: 'Démarrage…', work: { done: 0, total: 100 } });
-            const response = await fetch(`${this.backendBaseUrl}/api/geocaches/import-around`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({
-                    zone_id: this.zoneId,
-                    center: request.center,
-                    limit: request.limit,
-                    ...(request.radius_km !== undefined ? { radius_km: request.radius_km } : {}),
-                }),
-                signal: controller.signal,
-            });
-
-            if (!response.ok) {
-                let errorMsg = `HTTP ${response.status}`;
-                try {
-                    const data = await response.json();
-                    errorMsg = data.error || errorMsg;
-                } catch {
-                    const txt = await response.text();
-                    errorMsg += `: ${txt}`;
-                }
-                throw new Error(errorMsg);
-            }
+            const response = await this.geocachesService.importAround({
+                zone_id: this.zoneId,
+                center: request.center,
+                limit: request.limit,
+                ...(request.radius_km !== undefined ? { radius_km: request.radius_km } : {}),
+            }, controller.signal);
 
             if (!response.body) {
                 throw new Error('Réponse streaming non supportée');
@@ -625,7 +674,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 this.messages.info('Import terminé');
             }
 
-            await this.load();
+            await this.refreshZoneData();
         } catch (e) {
             if ((e as any)?.name === 'AbortError') {
                 this.messages.warn('Import annulé');
@@ -648,23 +697,16 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
 
     private async handleOpenZoneGeocaches(zoneId: number, zoneName?: string): Promise<void> {
         try {
-            // Créer ou récupérer le widget
-            const shell = (this as any).shell;
-            if (!shell) {
-                console.error('ZoneGeocachesWidget: No shell available');
-                return;
-            }
-
             // Configurer le widget avec la zone
             this.setZone({ zoneId, zoneName });
 
             // Ajouter le widget à la zone principale s'il n'y est pas déjà
             if (!this.isAttached) {
-                shell.addWidget(this, { area: 'main' });
+                this.shell.addWidget(this, { area: 'main' });
             }
 
             // Activer le widget
-            shell.activateWidget(this.id);
+            this.shell.activateWidget(this.id);
 
             console.log('ZoneGeocachesWidget: Successfully opened for zone', zoneId, zoneName);
         } catch (error) {
@@ -754,15 +796,10 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         this.update();
         try {
             // Charger les géocaches
-            const res = await fetch(`${this.backendBaseUrl}/api/zones/${this.zoneId}/geocaches`, { credentials: 'include' });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            this.rows = await res.json();
+            this.rows = await this.zonesService.listGeocaches<Geocache>(this.zoneId);
             
             // Charger la liste des zones pour le menu contextuel
-            const zonesRes = await fetch(`${this.backendBaseUrl}/api/zones`, { credentials: 'include' });
-            if (zonesRes.ok) {
-                this.zones = await zonesRes.json();
-            }
+            this.zones = await this.zonesService.list<{ id: number; name: string }>();
             
             // Charger les géocaches sur la carte (avec waypoints)
             const geocachesWithCoords = this.rows.filter(gc => 
@@ -828,17 +865,13 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         
         try {
             for (const id of ids) {
-                const res = await fetch(`${this.backendBaseUrl}/api/geocaches/${id}`, {
-                    method: 'DELETE',
-                    credentials: 'include'
-                });
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                await this.geocachesService.delete(id);
             }
             this.messages.info(`${ids.length} géocache(s) supprimée(s)`);
-            await this.load();
+            await this.refreshZoneData();
         } catch (e) {
             console.error('Delete error', e);
-            this.messages.error('Erreur lors de la suppression');
+            this.messages.error(getErrorMessage(e, 'Erreur lors de la suppression'));
         }
     }
 
@@ -846,11 +879,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         try {
             this.messages.info(`Rafraîchissement de ${ids.length} géocache(s)...`);
             for (const id of ids) {
-                const res = await fetch(`${this.backendBaseUrl}/api/geocaches/${id}/refresh`, {
-                    method: 'POST',
-                    credentials: 'include'
-                });
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                await this.geocachesService.refresh(id);
             }
             this.messages.info(`${ids.length} géocache(s) rafraîchie(s)`);
             await this.load();
@@ -874,27 +903,19 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         }
         
         try {
-            const res = await fetch(`${this.backendBaseUrl}/api/geocaches/${id}`, {
-                method: 'DELETE',
-                credentials: 'include'
-            });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            await this.geocachesService.delete(id);
             this.messages.info('Géocache supprimée');
-            await this.load();
+            await this.refreshZoneData();
         } catch (e) {
             console.error('Delete error', e);
-            this.messages.error('Erreur lors de la suppression');
+            this.messages.error(getErrorMessage(e, 'Erreur lors de la suppression'));
         }
     }
 
     protected async handleRefresh(id: number): Promise<void> {
         try {
             this.messages.info('Rafraîchissement en cours...');
-            const res = await fetch(`${this.backendBaseUrl}/api/geocaches/${id}/refresh`, {
-                method: 'POST',
-                credentials: 'include'
-            });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            await this.geocachesService.refresh(id);
             this.messages.info('Géocache rafraîchie');
             await this.load();
         } catch (e) {
@@ -905,58 +926,23 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
 
     protected async handleMove(geocache: Geocache, targetZoneId: number): Promise<void> {
         try {
-            const res = await fetch(`${this.backendBaseUrl}/api/geocaches/${geocache.id}/move`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ target_zone_id: targetZoneId })
-            });
-            
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            
+            await this.geocachesService.move(geocache.id, targetZoneId);
             this.messages.info(`Géocache ${geocache.gc_code} déplacée`);
-            await this.load();
+            await this.refreshZoneData();
         } catch (e) {
             console.error('Move error', e);
-            this.messages.error('Erreur lors du déplacement');
+            this.messages.error(getErrorMessage(e, 'Erreur lors du déplacement'));
         }
     }
 
     protected async handleCopy(geocache: Geocache, targetZoneId: number): Promise<void> {
         try {
-            const res = await fetch(`${this.backendBaseUrl}/api/geocaches/${geocache.id}/copy`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ target_zone_id: targetZoneId })
-            });
-
-            if (!res.ok) {
-                const errorText = await res.text();
-                let errorMsg = 'Erreur lors de la copie';
-                try {
-                    const errorJson = JSON.parse(errorText);
-                    if (errorJson.error) {
-                        errorMsg = errorJson.error;
-                    }
-                } catch {
-                    errorMsg = errorText || errorMsg;
-                }
-                throw new Error(errorMsg);
-            }
-
+            await this.geocachesService.copy(geocache.id, targetZoneId);
             this.messages.info(`Géocache ${geocache.gc_code} copiée vers la zone cible`);
-
-            // Rafraîchir le panneau des zones pour mettre à jour les compteurs
-            const zonesWidget = this.widgetManager.getWidgets('zones.tree.widget')[0] as any;
-            if (zonesWidget && typeof zonesWidget.refresh === 'function') {
-                await zonesWidget.refresh();
-            }
-
-            await this.load();
+            await this.refreshZoneData();
         } catch (e) {
             console.error('Copy error', e);
-            this.messages.error(`Erreur lors de la copie: ${e}`);
+            this.messages.error(getErrorMessage(e, 'Erreur lors de la copie'));
         }
     }
 
@@ -982,35 +968,13 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 const geocache = this.rows.find(g => g.id === geocacheId);
                 if (!geocache) continue;
 
-                const res = await fetch(`${this.backendBaseUrl}/api/geocaches/${geocacheId}/copy`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include',
-                    body: JSON.stringify({ target_zone_id: targetZoneId })
-                });
-
-                if (!res.ok) {
-                    const errorText = await res.text();
-                    let errorMsg = 'Erreur lors de la copie';
-                    try {
-                        const errorJson = JSON.parse(errorText);
-                        if (errorJson.error) {
-                            // Vérifier si c'est une erreur de géocache déjà existante
-                            if (errorJson.error.includes('existe déjà')) {
-                                alreadyExistsCount++;
-                                continue; // C'est normal, on continue
-                            }
-                            errorMsg = errorJson.error;
-                        }
-                    } catch {
-                        errorMsg = errorText || errorMsg;
-                    }
-                    console.error(`Copy error for ${geocache.gc_code}:`, errorMsg);
-                    errorCount++;
-                } else {
-                    copiedCount++;
-                }
+                await this.geocachesService.copy(geocacheId, targetZoneId);
+                copiedCount++;
             } catch (e) {
+                if (this.isAlreadyExistsError(e)) {
+                    alreadyExistsCount++;
+                    continue;
+                }
                 console.error(`Copy error for geocache ${geocacheId}:`, e);
                 errorCount++;
             }
@@ -1019,14 +983,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         // Fermer la boîte de dialogue
         this.closeCopySelectedDialog();
 
-        // Rafraîchir le panneau des zones pour mettre à jour les compteurs
-        const zonesWidget = this.widgetManager.getWidgets('zones.tree.widget')[0] as any;
-        if (zonesWidget && typeof zonesWidget.refresh === 'function') {
-            await zonesWidget.refresh();
-        }
-
-        // Recharger les données
-        await this.load();
+        await this.refreshZoneData();
 
         // Afficher le résultat
         let message = '';
@@ -1074,41 +1031,37 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 await this.handleRowClick(geocache);
             } else {
                 // Si la géocache n'est pas dans la liste actuelle, récupérer ses données et ouvrir quand même
-                const backendBaseUrl = 'http://localhost:8000';
-                const response = await fetch(`${backendBaseUrl}/api/geocaches/${geocacheId}`, { credentials: 'include' });
+                const geocacheData = await this.geocachesService.get<GeocacheDetailsResponse>(geocacheId);
+                const tempGeocache: Geocache = {
+                    id: geocacheData.id,
+                    gc_code: geocacheData.gc_code,
+                    name: geocacheData.name,
+                    owner: geocacheData.owner ?? null,
+                    description: geocacheData.description || geocacheData.description_raw,
+                    hint: geocacheData.hint || geocacheData.hints,
+                    cache_type: geocacheData.cache_type || geocacheData.type || '',
+                    difficulty: geocacheData.difficulty,
+                    terrain: geocacheData.terrain,
+                    size: geocacheData.size,
+                    solved: geocacheData.solved,
+                    found: geocacheData.found,
+                    favorites_count: geocacheData.favorites_count,
+                    hidden_date: geocacheData.hidden_date || geocacheData.placed_at || null,
+                    latitude: geocacheData.latitude,
+                    longitude: geocacheData.longitude,
+                    coordinates_raw: geocacheData.coordinates_raw,
+                    is_corrected: geocacheData.is_corrected,
+                    original_latitude: geocacheData.original_latitude,
+                    original_longitude: geocacheData.original_longitude,
+                    waypoints: geocacheData.waypoints || []
+                };
 
-                if (response.ok) {
-                    const geocacheData = await response.json();
-
-                    // Créer un objet géocache temporaire
-                    const tempGeocache = {
-                        id: geocacheData.id,
-                        gc_code: geocacheData.gc_code,
-                        name: geocacheData.name,
-                        description: geocacheData.description_raw,
-                        hint: geocacheData.hints,
-                        cache_type: geocacheData.cache_type,
-                        difficulty: geocacheData.difficulty,
-                        terrain: geocacheData.terrain,
-                        size: geocacheData.size,
-                        solved: geocacheData.solved,
-                        found: geocacheData.found,
-                        favorites_count: geocacheData.favorites_count,
-                        hidden_date: geocacheData.placed_at,
-                        latitude: geocacheData.latitude,
-                        longitude: geocacheData.longitude,
-                        coordinates_raw: geocacheData.coordinates_raw,
-                        is_corrected: geocacheData.is_corrected,
-                        original_latitude: geocacheData.original_latitude,
-                        original_longitude: geocacheData.original_longitude,
-                        waypoints: geocacheData.waypoints || []
-                    };
-
-                    // Ouvrir la carte pour cette géocache
-                    if (tempGeocache.latitude !== null && tempGeocache.latitude !== undefined &&
-                        tempGeocache.longitude !== null && tempGeocache.longitude !== undefined) {
-
-                        const mapGeocacheData = {
+                if (tempGeocache.latitude !== null && tempGeocache.latitude !== undefined &&
+                    tempGeocache.longitude !== null && tempGeocache.longitude !== undefined) {
+                    await this.mapWidgetFactory.openMapForGeocache(
+                        geocacheId,
+                        tempGeocache.gc_code,
+                        {
                             id: tempGeocache.id,
                             gc_code: tempGeocache.gc_code,
                             name: tempGeocache.name,
@@ -1122,14 +1075,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                             original_latitude: tempGeocache.original_latitude,
                             original_longitude: tempGeocache.original_longitude,
                             waypoints: tempGeocache.waypoints || []
-                        };
-
-                        await this.mapWidgetFactory.openMapForGeocache(
-                            geocacheId,
-                            tempGeocache.gc_code,
-                            mapGeocacheData
-                        );
-                    }
+                        }
+                    );
                 }
             }
         } catch (error) {
@@ -1222,33 +1169,11 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 const geocache = this.rows.find(g => g.id === geocacheId);
                 if (!geocache) continue;
 
-                const res = await fetch(`${this.backendBaseUrl}/api/geocaches/${geocacheId}/move`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include',
-                    body: JSON.stringify({ target_zone_id: targetZoneId })
-                });
-
-                if (!res.ok) {
-                    const errorText = await res.text();
-                    let errorMsg = 'Erreur lors du déplacement';
-                    try {
-                        const errorJson = JSON.parse(errorText);
-                        if (errorJson.error) {
-                            errorMsg = errorJson.error;
-                        }
-                    } catch {
-                        errorMsg = errorText || errorMsg;
-                    }
-                    console.error(`Move error for ${geocache.gc_code}:`, errorMsg);
-                    errorCount++;
+                const result = await this.geocachesService.move(geocacheId, targetZoneId);
+                if (result?.already_exists) {
+                    alreadyExistsCount++;
                 } else {
-                    const result = await res.json();
-                    if (result.already_exists) {
-                        alreadyExistsCount++;
-                    } else {
-                        movedCount++;
-                    }
+                    movedCount++;
                 }
             } catch (e) {
                 console.error(`Move error for geocache ${geocacheId}:`, e);
@@ -1259,14 +1184,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         // Fermer la boîte de dialogue
         this.closeMoveSelectedDialog();
 
-        // Rafraîchir le panneau des zones pour mettre à jour les compteurs
-        const zonesWidget = this.widgetManager.getWidgets('zones.tree.widget')[0] as any;
-        if (zonesWidget && typeof zonesWidget.refresh === 'function') {
-            await zonesWidget.refresh();
-        }
-
-        // Recharger les données
-        await this.load();
+        await this.refreshZoneData();
 
         // Afficher le résultat
         let message = '';
@@ -1301,80 +1219,16 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 onProgress(0, 'Préparation de l\'import...');
             }
 
-            const formData = new FormData();
-            formData.append('gpxFile', file);
-            formData.append('zone_id', this.zoneId.toString());
-            if (updateExisting) {
-                formData.append('updateExisting', 'on');
-            }
-
-            const res = await fetch(`${this.backendBaseUrl}/api/geocaches/import-gpx`, {
-                method: 'POST',
-                credentials: 'include',
-                body: formData
-            });
-
-            if (!res.ok) {
-                throw new Error(`HTTP ${res.status}`);
-            }
-
-            // Lire le flux de progression
-            const reader = res.body?.getReader();
-            const decoder = new TextDecoder();
-
-            if (reader) {
-                let done = false;
-                let lastMessage = '';
-
-                while (!done) {
-                    const { value, done: readerDone } = await reader.read();
-                    done = readerDone;
-
-                    if (value) {
-                        const chunk = decoder.decode(value, { stream: true });
-                        const lines = chunk.split('\n').filter(line => line.trim());
-
-                        for (const line of lines) {
-                            try {
-                                const data = JSON.parse(line);
-
-                                if (data.error) {
-                                    this.messages.error(data.message || 'Erreur lors de l\'import');
-                                    if (onProgress) {
-                                        onProgress(0, 'Erreur lors de l\'import');
-                                    }
-                                    continue;
-                                }
-
-                                if (data.progress !== undefined) {
-                                    if (onProgress) {
-                                        onProgress(data.progress, data.message || '');
-                                    }
-                                }
-
-                                if (data.final_summary) {
-                                    lastMessage = data.message;
-                                }
-                            } catch (e) {
-                                console.error('Error parsing progress data:', e);
-                            }
-                        }
-                    }
-                }
-
-                if (lastMessage) {
-                    this.messages.info(lastMessage);
-                } else {
-                    this.messages.info('Import terminé');
-                }
-            }
+            const response = await this.geocachesService.importGpx(file, this.zoneId, updateExisting);
+            const lastMessage = await this.consumeImportStream(response, onProgress);
+            this.messages.info(lastMessage || 'Import terminé');
 
             // Fermer la dialog et recharger les données
             this.showImportDialog = false;
-            await this.load();
+            await this.refreshZoneData();
         } catch (e) {
             console.error('Import GPX error', e);
-            this.messages.error('Erreur lors de l\'import du fichier GPX');
+            this.messages.error(getErrorMessage(e, 'Erreur lors de l\'import du fichier GPX'));
             if (onProgress) {
                 onProgress(0, 'Erreur lors de l\'import');
             }
@@ -1393,81 +1247,15 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         this.update();
 
         try {
-            const res = await fetch(`${this.backendBaseUrl}/api/geocaches/import-bookmark-list`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    bookmark_code: bookmarkCode,
-                    zone_id: this.zoneId
-                })
-            });
-
-            if (!res.ok) {
-                throw new Error(`HTTP ${res.status}`);
-            }
-
-            const reader = res.body?.getReader();
-            const decoder = new TextDecoder();
-
-            if (reader) {
-                let done = false;
-                let lastMessage = '';
-
-                while (!done) {
-                    const { value, done: readerDone } = await reader.read();
-                    done = readerDone;
-
-                    if (value) {
-                        const chunk = decoder.decode(value, { stream: true });
-                        const lines = chunk.split('\n').filter(line => line.trim());
-
-                        for (const line of lines) {
-                            try {
-                                const data = JSON.parse(line);
-
-                                if (data.error) {
-                                    this.messages.error(data.message || 'Erreur lors de l\'import');
-                                    if (onProgress) {
-                                        onProgress(0, 'Erreur lors de l\'import');
-                                    }
-                                    continue;
-                                }
-
-                                if (data.progress !== undefined) {
-                                    if (onProgress) {
-                                        onProgress(data.progress, data.message || '');
-                                    }
-                                }
-
-                                if (data.final_summary) {
-                                    lastMessage = data.message;
-                                }
-                            } catch (e) {
-                                console.error('Error parsing progress data:', e);
-                            }
-                        }
-                    }
-                }
-
-                if (lastMessage) {
-                    this.messages.info(lastMessage);
-                } else {
-                    this.messages.info('Import terminé');
-                }
-            }
+            const response = await this.geocachesService.importBookmarkList(bookmarkCode, this.zoneId);
+            const lastMessage = await this.consumeImportStream(response, onProgress);
+            this.messages.info(lastMessage || 'Import terminé');
 
             this.showBookmarkListDialog = false;
-
-            // Rafraîchir le panneau des zones pour mettre à jour les compteurs
-            const zonesWidget = this.widgetManager.getWidgets('zones.tree.widget')[0] as any;
-            if (zonesWidget && typeof zonesWidget.refresh === 'function') {
-                await zonesWidget.refresh();
-            }
-
-            await this.load();
+            await this.refreshZoneData();
         } catch (e) {
             console.error('Import bookmark list error', e);
-            this.messages.error('Erreur lors de l\'import de la liste de favoris');
+            this.messages.error(getErrorMessage(e, 'Erreur lors de l\'import de la liste de favoris'));
             if (onProgress) {
                 onProgress(0, 'Erreur lors de l\'import');
             }
@@ -1486,81 +1274,15 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         this.update();
 
         try {
-            const res = await fetch(`${this.backendBaseUrl}/api/geocaches/import-pocket-query`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    pq_code: pqCode,
-                    zone_id: this.zoneId
-                })
-            });
-
-            if (!res.ok) {
-                throw new Error(`HTTP ${res.status}`);
-            }
-
-            const reader = res.body?.getReader();
-            const decoder = new TextDecoder();
-
-            if (reader) {
-                let done = false;
-                let lastMessage = '';
-
-                while (!done) {
-                    const { value, done: readerDone } = await reader.read();
-                    done = readerDone;
-
-                    if (value) {
-                        const chunk = decoder.decode(value, { stream: true });
-                        const lines = chunk.split('\n').filter(line => line.trim());
-
-                        for (const line of lines) {
-                            try {
-                                const data = JSON.parse(line);
-
-                                if (data.error) {
-                                    this.messages.error(data.message || 'Erreur lors de l\'import');
-                                    if (onProgress) {
-                                        onProgress(0, 'Erreur lors de l\'import');
-                                    }
-                                    continue;
-                                }
-
-                                if (data.progress !== undefined) {
-                                    if (onProgress) {
-                                        onProgress(data.progress, data.message || '');
-                                    }
-                                }
-
-                                if (data.final_summary) {
-                                    lastMessage = data.message;
-                                }
-                            } catch (e) {
-                                console.error('Error parsing progress data:', e);
-                            }
-                        }
-                    }
-                }
-
-                if (lastMessage) {
-                    this.messages.info(lastMessage);
-                } else {
-                    this.messages.info('Import terminé');
-                }
-            }
+            const response = await this.geocachesService.importPocketQuery(pqCode, this.zoneId);
+            const lastMessage = await this.consumeImportStream(response, onProgress);
+            this.messages.info(lastMessage || 'Import terminé');
 
             this.showPocketQueryDialog = false;
-
-            // Rafraîchir le panneau des zones pour mettre à jour les compteurs
-            const zonesWidget = this.widgetManager.getWidgets('zones.tree.widget')[0] as any;
-            if (zonesWidget && typeof zonesWidget.refresh === 'function') {
-                await zonesWidget.refresh();
-            }
-
-            await this.load();
+            await this.refreshZoneData();
         } catch (e) {
             console.error('Import pocket query error', e);
-            this.messages.error('Erreur lors de l\'import de la pocket query');
+            this.messages.error(getErrorMessage(e, 'Erreur lors de l\'import de la pocket query'));
             if (onProgress) {
                 onProgress(0, 'Erreur lors de l\'import');
             }
@@ -1666,30 +1388,13 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                                     const gc = this.extractGcCode(fd.get('gc_code') as string);
                                     if (!gc) { this.messages.warn('Code GC invalide'); return; }
                                     if (!this.zoneId) { this.messages.warn('Zone active manquante'); return; }
-                                    const res = await fetch(`${this.backendBaseUrl}/api/geocaches/add`, {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json' },
-                                        credentials: 'include',
-                                        body: JSON.stringify({ zone_id: this.zoneId, code: gc })
-                                    });
-
-                                    if (!res.ok) {
-                                        let errorMsg = `HTTP ${res.status}`;
-                                        try {
-                                            const errorData = await res.json();
-                                            errorMsg = errorData.error || errorMsg;
-                                        } catch {
-                                            const txt = await res.text();
-                                            errorMsg += `: ${txt}`;
-                                        }
-                                        throw new Error(errorMsg);
-                                    }
+                                    await this.geocachesService.addToZone(this.zoneId, gc);
                                     form.reset();
-                                    await this.load();
+                                    await this.refreshZoneData();
                                     this.messages.info(`Géocache ${gc} importée`);
                                 } catch (err) {
                                     console.error('Import geocache error', err);
-                                    this.messages.error('Erreur lors de l\'import de la géocache');
+                                    this.messages.error(getErrorMessage(err, 'Erreur lors de l\'import de la géocache'));
                                 }
                             }}
                             style={{ display: 'flex', gap: 6, alignItems: 'center' }}

@@ -1,23 +1,19 @@
 import * as React from 'react';
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
-import { ApplicationShell, WidgetManager, ConfirmDialog, Dialog } from '@theia/core/lib/browser';
+import { ConfirmDialog, Dialog } from '@theia/core/lib/browser';
 import { MessageService } from '@theia/core';
 import { ContextMenu, ContextMenuItem } from './context-menu';
 import { MoveGeocacheDialog } from './move-geocache-dialog';
 import { GeocacheIcon } from './geocache-icon';
 import { GeocacheTabsManager } from './geocache-tabs-manager';
 import { ZoneTabsManager } from './zone-tabs-manager';
+import { ZonesService, ZoneDto } from './zones-service';
+import { GeocachesService } from './geocaches-service';
+import { GeoAppWidgetEventsService } from './geoapp-widget-events-service';
+import { getErrorMessage } from './backend-api-client';
 
 import '../../src/browser/style/zones-tree.css';
-
-type ZoneDto = { 
-    id: number; 
-    name: string; 
-    description?: string; 
-    created_at?: string; 
-    geocaches_count: number 
-};
 
 type GeocacheDto = {
     id: number;
@@ -35,7 +31,6 @@ export class ZonesTreeWidget extends ReactWidget {
 
     protected zones: ZoneDto[] = [];
     protected activeZoneId: number | undefined;
-    protected backendBaseUrl = 'http://localhost:8000';
     protected expandedZones: Set<number> = new Set();
     protected zoneGeocaches: Map<number, GeocacheDto[]> = new Map();
     protected loadingZones: Set<number> = new Set();
@@ -75,11 +70,12 @@ export class ZonesTreeWidget extends ReactWidget {
     };
 
     constructor(
-        @inject(ApplicationShell) protected readonly shell: ApplicationShell,
-        @inject(WidgetManager) protected readonly widgetManager: WidgetManager,
         @inject(GeocacheTabsManager) protected readonly geocacheTabsManager: GeocacheTabsManager,
         @inject(ZoneTabsManager) protected readonly zoneTabsManager: ZoneTabsManager,
         @inject(MessageService) protected readonly messages: MessageService,
+        @inject(ZonesService) protected readonly zonesService: ZonesService,
+        @inject(GeocachesService) protected readonly geocachesService: GeocachesService,
+        @inject(GeoAppWidgetEventsService) protected readonly widgetEventsService: GeoAppWidgetEventsService,
     ) {
         super();
         this.id = ZonesTreeWidget.ID;
@@ -88,6 +84,9 @@ export class ZonesTreeWidget extends ReactWidget {
         this.title.caption = 'Zones';
         this.title.iconClass = 'fa fa-map-marker';
         this.addClass('theia-zones-tree-widget');
+        this.widgetEventsService.onDidRequestZonesRefresh(() => {
+            void this.refreshExpandedZones();
+        });
         console.log('[ZonesTreeWidget] constructed');
     }
 
@@ -109,17 +108,18 @@ export class ZonesTreeWidget extends ReactWidget {
 
     public async refresh(): Promise<void> {
         try {
-            const res = await fetch(`${this.backendBaseUrl}/api/zones`, { credentials: 'include' });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            this.zones = await res.json();
-            
-            const act = await fetch(`${this.backendBaseUrl}/api/active-zone`, { credentials: 'include' });
-            this.activeZoneId = act.ok ? (await act.json())?.id : undefined;
-            
+            const [zones, activeZone] = await Promise.all([
+                this.zonesService.list<ZoneDto>(),
+                this.zonesService.getActiveZone()
+            ]);
+            this.zones = zones;
+            this.activeZoneId = typeof activeZone?.id === 'number' ? activeZone.id : undefined;
+
             console.log('[ZonesTreeWidget] refresh -> zones:', this.zones.length, 'active:', this.activeZoneId);
             this.update();
         } catch (e) {
             console.error('Zones: fetch error', e);
+            this.messages.error(getErrorMessage(e, 'Erreur lors du chargement des zones'));
         }
     }
 
@@ -132,14 +132,10 @@ export class ZonesTreeWidget extends ReactWidget {
         this.update();
         
         try {
-            const res = await fetch(`${this.backendBaseUrl}/api/zones/${zoneId}/geocaches`, { 
-                credentials: 'include' 
-            });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const geocaches = await res.json();
+            const geocaches = await this.zonesService.listGeocaches<GeocacheDto>(zoneId);
             this.zoneGeocaches.set(zoneId, geocaches);
         } catch (e) {
-            console.error('Failed to load geocaches for zone', zoneId, e);
+            console.error('[ZonesTreeWidget] Failed to load geocaches for zone', zoneId, e);
             this.messages.error('Erreur lors du chargement des géocaches');
         } finally {
             this.loadingZones.delete(zoneId);
@@ -159,18 +155,13 @@ export class ZonesTreeWidget extends ReactWidget {
 
     protected async openZoneTable(zone: ZoneDto): Promise<void> {
         try {
-            await fetch(`${this.backendBaseUrl}/api/active-zone`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ zone_id: zone.id })
-            });
+            await this.zonesService.setActiveZone(zone.id);
             this.activeZoneId = zone.id;
             this.update();
             await this.zoneTabsManager.openZone({ zoneId: zone.id, zoneName: zone.name });
         } catch (error) {
             console.error('Failed to open ZoneGeocachesWidget:', error);
-            this.messages.error('Impossible d\'ouvrir le tableau de la zone');
+            this.messages.error(getErrorMessage(error, 'Impossible d\'ouvrir le tableau de la zone'));
         }
     }
 
@@ -200,116 +191,63 @@ export class ZonesTreeWidget extends ReactWidget {
         }
 
         try {
-            const res = await fetch(`${this.backendBaseUrl}/api/zones/${zone.id}`, {
-                method: 'DELETE',
-                credentials: 'include'
-            });
-
-            if (!res.ok) {
-                throw new Error(`HTTP ${res.status}: ${await res.text()}`);
-            }
+            await this.zonesService.delete(zone.id);
 
             if (this.activeZoneId === zone.id) {
-                await fetch(`${this.backendBaseUrl}/api/active-zone`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include',
-                    body: JSON.stringify({ zone_id: null })
-                });
+                await this.zonesService.setActiveZone(null);
                 this.activeZoneId = undefined;
             }
 
             // Nettoyer les données de la zone supprimée
             this.expandedZones.delete(zone.id);
             this.zoneGeocaches.delete(zone.id);
-            
             await this.refresh();
             this.messages.info(`Zone "${zone.name}" supprimée`);
         } catch (e) {
             console.error('Zones: delete error', e);
-            this.messages.error(`Erreur lors de la suppression: ${e}`);
+            this.messages.error(getErrorMessage(e, 'Erreur lors de la suppression de la zone'));
         }
     }
 
     protected async moveGeocache(geocache: GeocacheDto, targetZoneId: number): Promise<void> {
         try {
-            const res = await fetch(`${this.backendBaseUrl}/api/geocaches/${geocache.id}/move`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ target_zone_id: targetZoneId })
-            });
+            await this.geocachesService.move(geocache.id, targetZoneId);
+            await this.refreshExpandedZones();
 
-            if (!res.ok) {
-                throw new Error(`HTTP ${res.status}: ${await res.text()}`);
-            }
 
             // Sauvegarder les zones actuellement dépliées
-            const expandedZoneIds = Array.from(this.expandedZones);
             
             // Invalider le cache des géocaches
-            this.zoneGeocaches.clear();
             
             // Recharger les zones pour mettre à jour les compteurs
-            await this.refresh();
             
             // Recharger les géocaches des zones qui étaient dépliées
-            for (const zoneId of expandedZoneIds) {
-                if (this.expandedZones.has(zoneId)) {
-                    await this.loadGeocachesForZone(zoneId);
-                }
-            }
             
             this.messages.info(`Géocache ${geocache.gc_code} déplacée`);
         } catch (e) {
             console.error('Move geocache error', e);
-            this.messages.error(`Erreur lors du déplacement: ${e}`);
+            this.messages.error(getErrorMessage(e, 'Erreur lors du déplacement'));
         }
     }
 
     protected async copyGeocache(geocache: GeocacheDto, targetZoneId: number): Promise<void> {
         try {
-            const res = await fetch(`${this.backendBaseUrl}/api/geocaches/${geocache.id}/copy`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ target_zone_id: targetZoneId })
-            });
+            await this.geocachesService.copy(geocache.id, targetZoneId);
+            await this.refreshExpandedZones();
 
-            if (!res.ok) {
-                const errorText = await res.text();
-                let errorMsg = 'Erreur lors de la copie';
-                try {
-                    const errorJson = JSON.parse(errorText);
-                    if (errorJson.error) {
-                        errorMsg = errorJson.error;
-                    }
-                } catch {
-                    errorMsg = errorText || errorMsg;
-                }
-                throw new Error(errorMsg);
-            }
 
             // Sauvegarder les zones actuellement dépliées
-            const expandedZoneIds = Array.from(this.expandedZones);
             
             // Invalider le cache des géocaches
-            this.zoneGeocaches.clear();
             
             // Recharger les zones pour mettre à jour les compteurs
-            await this.refresh();
             
             // Recharger les géocaches des zones qui étaient dépliées
-            for (const zoneId of expandedZoneIds) {
-                if (this.expandedZones.has(zoneId)) {
-                    await this.loadGeocachesForZone(zoneId);
-                }
-            }
             
             this.messages.info(`Géocache ${geocache.gc_code} copiée vers la zone cible`);
         } catch (e) {
             console.error('Copy geocache error', e);
-            this.messages.error(`Erreur lors de la copie: ${e}`);
+            this.messages.error(getErrorMessage(e, 'Erreur lors de la copie'));
         }
     }
 
@@ -391,14 +329,8 @@ export class ZonesTreeWidget extends ReactWidget {
                     }
 
                     try {
-                        const res = await fetch(`${this.backendBaseUrl}/api/geocaches/${geocache.id}`, {
-                            method: 'DELETE',
-                            credentials: 'include'
-                        });
+                        await this.geocachesService.delete(geocache.id);
 
-                        if (!res.ok) {
-                            throw new Error(`HTTP ${res.status}`);
-                        }
 
                         // Invalider le cache
                         this.zoneGeocaches.delete(zoneId);
@@ -408,7 +340,7 @@ export class ZonesTreeWidget extends ReactWidget {
                         this.messages.info(`Géocache ${geocache.gc_code} supprimée`);
                     } catch (e) {
                         console.error('Delete geocache error', e);
-                        this.messages.error('Erreur lors de la suppression');
+                        this.messages.error(getErrorMessage(e, 'Erreur lors de la suppression'));
                     }
                 }
             }
@@ -446,13 +378,7 @@ export class ZonesTreeWidget extends ReactWidget {
         if (!name) { return; }
         
         try {
-            const res = await fetch(`${this.backendBaseUrl}/api/zones`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ name, description })
-            });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            await this.zonesService.create({ name, description });
             form.reset();
             await this.refresh();
             this.messages.info(`Zone "${name}" créée`);
@@ -463,6 +389,18 @@ export class ZonesTreeWidget extends ReactWidget {
     }
 
     // Méthode supprimée - on utilise maintenant le composant GeocacheIcon directement
+
+    protected async refreshExpandedZones(): Promise<void> {
+        const expandedZoneIds = Array.from(this.expandedZones);
+        this.zoneGeocaches.clear();
+        await this.refresh();
+
+        for (const zoneId of expandedZoneIds) {
+            if (this.expandedZones.has(zoneId)) {
+                await this.loadGeocachesForZone(zoneId);
+            }
+        }
+    }
 
     protected render(): React.ReactNode {
         return (

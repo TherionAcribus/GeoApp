@@ -1,7 +1,7 @@
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core/lib/common/message-service';
-import { ApplicationShell } from '@theia/core/lib/browser';
+import { ConfirmDialog, Dialog } from '@theia/core/lib/browser';
 import * as React from 'react';
 import { MapView, MapViewPreferences } from './map-view';
 import { MapService } from './map-service';
@@ -9,6 +9,8 @@ import { MapGeocache } from './map-layer-manager';
 import { PreferenceService, PreferenceChange } from '@theia/core/lib/common/preferences/preference-service';
 import { GeocacheTabsManager } from '../geocache-tabs-manager';
 import { PreferenceScope } from '@theia/core/lib/common/preferences/preference-scope';
+import { GeocachesService } from '../geocaches-service';
+import { GeoAppWidgetEventsService } from '../geoapp-widget-events-service';
 
 export interface MapContext {
     type: 'zone' | 'geocache' | 'general';
@@ -16,10 +18,23 @@ export interface MapContext {
     label: string;
 }
 
-/**
- * Widget Theia qui affiche la carte OpenLayers dans le Bottom Layer
- * Chaque contexte (zone, géocache) a sa propre instance de carte
- */
+interface MapGeocacheDto {
+    id: number;
+    gc_code: string;
+    name: string;
+    cache_type?: string;
+    type?: string;
+    latitude?: number | null;
+    longitude?: number | null;
+    difficulty?: number;
+    terrain?: number;
+    found?: boolean;
+    is_corrected?: boolean;
+    original_latitude?: number | null;
+    original_longitude?: number | null;
+    waypoints?: MapGeocache['waypoints'];
+}
+
 @injectable()
 export class MapWidget extends ReactWidget {
     static readonly ID = 'geoapp-map';
@@ -27,8 +42,9 @@ export class MapWidget extends ReactWidget {
 
     private mapInstance: any = null;
     private context: MapContext;
-    private geocaches: MapGeocache[] = [];  // ✅ Données propres à ce widget
+    private geocaches: MapGeocache[] = [];
     private mapPreferences: MapViewPreferences;
+    private readonly geocacheChangeDisposable: { dispose: () => void };
     private readonly mapPreferenceKeys = [
         'geoApp.map.defaultProvider',
         'geoApp.map.defaultZoom',
@@ -39,26 +55,27 @@ export class MapWidget extends ReactWidget {
     constructor(
         @inject(MapService) protected readonly mapService: MapService,
         @inject(MessageService) protected readonly messageService: MessageService,
-        @inject(ApplicationShell) protected readonly shell: ApplicationShell,
         @inject(GeocacheTabsManager) protected readonly geocacheTabsManager: GeocacheTabsManager,
         @inject(PreferenceService) private readonly preferenceService: PreferenceService,
+        @inject(GeocachesService) protected readonly geocachesService: GeocachesService,
+        @inject(GeoAppWidgetEventsService) protected readonly widgetEventsService: GeoAppWidgetEventsService,
     ) {
         super();
 
         this.node.tabIndex = 0;
-
-        // Contexte par défaut
         this.context = {
             type: 'general',
-            label: 'Carte Générale'
+            label: 'Carte Generale'
         };
         this.mapPreferences = this.readMapPreferences();
         this.preferenceService.onPreferenceChanged((event: PreferenceChange) => this.handleMapPreferenceChanged(event));
+        this.geocacheChangeDisposable = this.widgetEventsService.onDidChangeGeocache(event => {
+            if (this.shouldReloadGeocache(event.geocacheId)) {
+                void this.reloadGeocache(event.geocacheId);
+            }
+        });
     }
 
-    /**
-     * Définit le contexte de la carte (zone, géocache, etc.)
-     */
     setContext(context: MapContext): void {
         this.context = context;
         this.id = this.generateId();
@@ -67,9 +84,6 @@ export class MapWidget extends ReactWidget {
         this.update();
     }
 
-    /**
-     * Génère un ID unique basé sur le contexte
-     */
     private generateId(): string {
         switch (this.context.type) {
             case 'zone':
@@ -81,29 +95,18 @@ export class MapWidget extends ReactWidget {
         }
     }
 
-    /**
-     * Récupère le contexte actuel
-     */
     getContext(): MapContext {
         return this.context;
     }
 
-    /**
-     * Charge les géocaches dans cette carte spécifique
-     */
     loadGeocaches(geocaches: MapGeocache[]): void {
-        console.log(`[MapWidget ${this.id}] loadGeocaches:`, geocaches.length, 'géocaches');
+        console.log(`[MapWidget ${this.id}] loadGeocaches:`, geocaches.length, 'geocaches');
         this.geocaches = geocaches;
 
-        // Si c'est une carte pour une géocache spécifique, la sélectionner automatiquement
         if (this.context.type === 'geocache' && this.context.id && geocaches.length > 0) {
-            // Trouver la géocache correspondante
             const geocacheToSelect = geocaches.find(gc => gc.id === this.context.id);
             if (geocacheToSelect) {
-                console.log(`[MapWidget ${this.id}] Sélection automatique de la géocache ${this.context.id} dans le MapService`);
-                // Déléguer la sélection au MapService après un délai plus long pour laisser le temps au MapView de charger les géocaches
                 setTimeout(() => {
-                    console.log(`[MapWidget ${this.id}] Appel de selectGeocache pour ${this.context.id}`);
                     this.mapService.selectGeocache({
                         id: geocacheToSelect.id,
                         gc_code: geocacheToSelect.gc_code,
@@ -116,14 +119,67 @@ export class MapWidget extends ReactWidget {
             }
         }
 
-        this.update();  // Force le re-render
+        this.update();
     }
 
-    /**
-     * Récupère les géocaches de cette carte
-     */
     getGeocaches(): MapGeocache[] {
         return this.geocaches;
+    }
+
+    private shouldReloadGeocache(geocacheId: number): boolean {
+        if (this.context.type === 'geocache' && this.context.id === geocacheId) {
+            return true;
+        }
+        return this.geocaches.some(geocache => geocache.id === geocacheId);
+    }
+
+    private async reloadGeocache(geocacheId: number): Promise<void> {
+        try {
+            const updated = await this.geocachesService.get<MapGeocacheDto>(geocacheId);
+            const mapped = this.toMapGeocache(updated);
+            if (!mapped) {
+                return;
+            }
+
+            const existingIndex = this.geocaches.findIndex(geocache => geocache.id === geocacheId);
+            if (existingIndex >= 0) {
+                this.geocaches = [
+                    ...this.geocaches.slice(0, existingIndex),
+                    mapped,
+                    ...this.geocaches.slice(existingIndex + 1)
+                ];
+            } else if (this.context.type === 'geocache' && this.context.id === geocacheId) {
+                this.geocaches = [mapped];
+            } else {
+                return;
+            }
+
+            this.update();
+        } catch (error) {
+            console.error('[MapWidget] Unable to reload geocache', geocacheId, error);
+        }
+    }
+
+    private toMapGeocache(data: MapGeocacheDto): MapGeocache | undefined {
+        if (typeof data.latitude !== 'number' || typeof data.longitude !== 'number') {
+            return undefined;
+        }
+
+        return {
+            id: data.id,
+            gc_code: data.gc_code,
+            name: data.name,
+            cache_type: data.cache_type || data.type || '',
+            latitude: data.latitude,
+            longitude: data.longitude,
+            difficulty: data.difficulty,
+            terrain: data.terrain,
+            found: data.found,
+            is_corrected: data.is_corrected,
+            original_latitude: data.original_latitude ?? undefined,
+            original_longitude: data.original_longitude ?? undefined,
+            waypoints: data.waypoints || []
+        };
     }
 
     @postConstruct()
@@ -139,13 +195,11 @@ export class MapWidget extends ReactWidget {
     }
 
     protected render(): React.ReactNode {
-        // Déterminer si on doit afficher les options de waypoint (carte de géocache uniquement)
         const isGeocacheMap = this.context.type === 'geocache' && this.context.id;
         const onAddWaypoint = isGeocacheMap ? this.handleAddWaypoint : undefined;
         const onDeleteWaypoint = isGeocacheMap ? this.handleDeleteWaypoint : undefined;
         const onSetWaypointAsCorrectedCoords = isGeocacheMap ? this.handleSetWaypointAsCorrectedCoords : undefined;
-        
-        // Options pour les coordonnées détectées (carte batch/générale uniquement, pas zone ni géocache)
+
         const isBatchOrGeneralMap = this.context.type === 'general';
         const onSetDetectedAsCorrectedCoords = isBatchOrGeneralMap ? this.handleSetDetectedAsCorrectedCoords : undefined;
         const onAddWaypointFromDetected = isBatchOrGeneralMap ? this.handleAddWaypointFromDetected : undefined;
@@ -167,143 +221,173 @@ export class MapWidget extends ReactWidget {
         );
     }
 
-    /**
-     * Gère l'ajout d'un waypoint depuis le menu contextuel de la carte
-     */
+    private sanitizeCoordinates(gcCoords: string): string {
+        return gcCoords.replace(/'/g, '');
+    }
+
+    private async confirmAction(title: string, msg: string, ok: string): Promise<boolean> {
+        const dialog = new ConfirmDialog({
+            title,
+            msg,
+            ok,
+            cancel: Dialog.CANCEL
+        });
+        return dialog.open();
+    }
+
+    private async saveWaypoint(
+        geocacheId: number,
+        options: { gcCoords: string; title?: string; note?: string }
+    ): Promise<void> {
+        await this.geocachesService.createWaypoint(geocacheId, {
+            name: options.title || 'Waypoint detecte',
+            gc_coords: this.sanitizeCoordinates(options.gcCoords),
+            note: options.note || '',
+            type: 'User Waypoint'
+        });
+        this.widgetEventsService.notifyGeocacheChanged({
+            geocacheId,
+            reason: 'waypoint-created',
+            source: 'map'
+        });
+    }
+
+    private async openWaypointEditorForGeocache(
+        geocacheId: number,
+        options: { gcCoords: string; title?: string; note?: string },
+        gcCode?: string,
+        geocacheName?: string
+    ): Promise<void> {
+        if (!gcCode || typeof window === 'undefined') {
+            this.messageService.warn('Impossible d ouvrir le formulaire du waypoint pour cette geocache');
+            return;
+        }
+
+        await this.geocacheTabsManager.openGeocacheDetails({
+            geocacheId,
+            name: geocacheName
+        });
+
+        window.setTimeout(() => {
+            window.dispatchEvent(new CustomEvent('geoapp-plugin-add-waypoint', {
+                detail: {
+                    gcCoords: this.sanitizeCoordinates(options.gcCoords),
+                    waypointTitle: options.title,
+                    waypointNote: options.note,
+                    autoSave: false,
+                    geocache: { gcCode }
+                }
+            }));
+        }, 150);
+    }
+
     private handleAddWaypoint = (options: { gcCoords: string; title?: string; note?: string; autoSave?: boolean }): void => {
         if (this.context.type !== 'geocache' || !this.context.id) {
             return;
         }
 
-        // Trouver le widget de détails correspondant à cette géocache
-        const detailsWidget = this.geocacheTabsManager.getWidgetForGeocache(this.context.id);
-
-        if (detailsWidget && 'addWaypointWithCoordinates' in detailsWidget) {
-            // Appeler la méthode publique du widget de détails
-            (detailsWidget as any).addWaypointWithCoordinates(options.gcCoords, {
-                title: options.title,
-                note: options.note,
-                autoSave: options.autoSave
+        if (options.autoSave) {
+            void this.saveWaypoint(this.context.id, options).then(() => {
+                this.messageService.info('Waypoint cree avec succes');
+            }).catch(error => {
+                console.error('[MapWidget] Failed to add waypoint:', error);
+                this.messageService.error('Erreur lors de l ajout du waypoint');
             });
-        } else {
-            this.messageService.warn('Veuillez ouvrir les détails de la géocache pour ajouter un waypoint');
+            return;
         }
+
+        const geocache = this.geocaches.find(item => item.id === this.context.id);
+        void this.openWaypointEditorForGeocache(this.context.id, options, geocache?.gc_code, geocache?.name).catch(error => {
+            console.error('[MapWidget] Failed to open waypoint editor:', error);
+            this.messageService.error('Impossible d ouvrir les details de la geocache');
+        });
     };
 
-    /**
-     * Gère la suppression d'un waypoint depuis le menu contextuel de la carte
-     */
     private handleDeleteWaypoint = async (waypointId: number): Promise<void> => {
         if (this.context.type !== 'geocache' || !this.context.id) {
             return;
         }
 
-        // Trouver le widget de détails de la géocache correspondant
-        const detailsWidget = this.geocacheTabsManager.getWidgetForGeocache(this.context.id);
+        const confirmed = await this.confirmAction(
+            'Supprimer le waypoint',
+            'Voulez-vous vraiment supprimer ce waypoint ?',
+            'Supprimer'
+        );
+        if (!confirmed) {
+            return;
+        }
 
-        if (detailsWidget && 'deleteWaypointById' in detailsWidget) {
-            // Appeler la méthode publique du widget de détails
-            await (detailsWidget as any).deleteWaypointById(waypointId);
-        } else {
-            this.messageService.warn('Veuillez ouvrir les détails de la géocache pour supprimer le waypoint');
+        try {
+            await this.geocachesService.deleteWaypoint(this.context.id, waypointId);
+            this.widgetEventsService.notifyGeocacheChanged({
+                geocacheId: this.context.id,
+                reason: 'waypoint-deleted',
+                source: 'map'
+            });
+            this.messageService.info('Waypoint supprime');
+        } catch (error) {
+            console.error('[MapWidget] Failed to delete waypoint:', error);
+            this.messageService.error('Erreur lors de la suppression du waypoint');
         }
     };
 
-    /**
-     * Gère la définition d'un waypoint comme coordonnées corrigées depuis le menu contextuel de la carte
-     */
     private handleSetWaypointAsCorrectedCoords = async (waypointId: number): Promise<void> => {
         if (this.context.type !== 'geocache' || !this.context.id) {
             return;
         }
 
-        // Trouver le widget de détails de la géocache correspondant
-        const detailsWidget = this.geocacheTabsManager.getWidgetForGeocache(this.context.id);
+        const confirmed = await this.confirmAction(
+            'Definir comme coordonnees corrigees',
+            'Voulez-vous utiliser ce waypoint comme coordonnees corrigees de la geocache ?',
+            'Confirmer'
+        );
+        if (!confirmed) {
+            return;
+        }
 
-        if (detailsWidget && 'setWaypointAsCorrectedCoords' in detailsWidget) {
-            // Appeler la méthode publique du widget de détails
-            await (detailsWidget as any).setWaypointAsCorrectedCoords(waypointId);
-        } else {
-            this.messageService.warn('Veuillez ouvrir les détails de la géocache pour définir les coordonnées corrigées');
+        try {
+            await this.geocachesService.setWaypointAsCorrectedCoords(this.context.id, waypointId);
+            this.widgetEventsService.notifyGeocacheChanged({
+                geocacheId: this.context.id,
+                reason: 'corrected-coordinates-updated',
+                source: 'map'
+            });
+            this.messageService.info('Coordonnees corrigees mises a jour');
+        } catch (error) {
+            console.error('[MapWidget] Failed to set corrected coordinates:', error);
+            this.messageService.error('Erreur lors de la mise a jour des coordonnees corrigees');
         }
     };
 
-    /**
-     * Gère l'ajout d'un waypoint à une géocache depuis une coordonnée détectée sur la carte batch
-     */
     private handleAddWaypointFromDetected = async (
         geocacheId: number,
         options: { gcCoords: string; title?: string; note?: string; autoSave?: boolean }
     ): Promise<void> => {
         try {
-            // Sanitize les coordonnées (retirer les apostrophes)
-            const sanitizedCoords = options.gcCoords.replace(/'/g, '');
-
-            // Le backend attend 'gc_coords' pour parser les coordonnées
-            const waypointData = {
-                name: options.title || 'Waypoint détecté',
-                gc_coords: sanitizedCoords,
-                note: options.note || '',
-                type: 'User Waypoint'
-            };
-
-            const response = await fetch(`http://localhost:8000/api/geocaches/${geocacheId}/waypoints`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify(waypointData)
-            });
-
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-
+            await this.saveWaypoint(geocacheId, options);
             if (options.autoSave) {
-                this.messageService.info('Waypoint créé avec succès');
+                this.messageService.info('Waypoint cree avec succes');
             } else {
-                this.messageService.info('Waypoint ajouté - ouvrez la géocache pour le modifier');
-            }
-
-            // Rafraîchir le widget de détails si ouvert pour cette géocache
-            const detailsWidget = this.geocacheTabsManager.getWidgetForGeocache(geocacheId);
-            if (detailsWidget && 'load' in detailsWidget) {
-                await (detailsWidget as any).load();
+                this.messageService.info('Waypoint ajoute - ouvrez la geocache pour le modifier');
             }
         } catch (error) {
-            console.error('[MapWidget] Erreur lors de l\'ajout du waypoint:', error);
-            this.messageService.error('Erreur lors de l\'ajout du waypoint');
+            console.error('[MapWidget] Failed to add detected waypoint:', error);
+            this.messageService.error('Erreur lors de l ajout du waypoint');
         }
     };
 
-    /**
-     * Gère la correction des coordonnées d'une géocache depuis une coordonnée détectée sur la carte
-     */
     private handleSetDetectedAsCorrectedCoords = async (geocacheId: number, gcCoords: string): Promise<void> => {
         try {
-            // Sanitize les coordonnées (retirer les apostrophes)
-            const sanitizedCoords = gcCoords.replace(/'/g, '');
-
-            const response = await fetch(`http://localhost:8000/api/geocaches/${geocacheId}/coordinates`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ coordinates_raw: sanitizedCoords })
+            await this.geocachesService.updateCoordinates(geocacheId, this.sanitizeCoordinates(gcCoords));
+            this.widgetEventsService.notifyGeocacheChanged({
+                geocacheId,
+                reason: 'corrected-coordinates-updated',
+                source: 'map'
             });
-
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-
-            this.messageService.info('Coordonnées corrigées mises à jour');
-
-            // Rafraîchir le widget de détails si ouvert
-            const detailsWidget = this.geocacheTabsManager.getWidgetForGeocache(geocacheId);
-            if (detailsWidget && 'load' in detailsWidget) {
-                await (detailsWidget as any).load();
-            }
+            this.messageService.info('Coordonnees corrigees mises a jour');
         } catch (error) {
-            console.error('[MapWidget] Erreur lors de la correction des coordonnées:', error);
-            this.messageService.error('Erreur lors de la mise à jour des coordonnées');
+            console.error('[MapWidget] Failed to update corrected coordinates:', error);
+            this.messageService.error('Erreur lors de la mise a jour des coordonnees');
         }
     };
 
@@ -328,72 +412,50 @@ export class MapWidget extends ReactWidget {
         void this.preferenceService.set(key, value, PreferenceScope.User);
     };
 
-    /**
-     * Gère l'ouverture des détails d'une géocache depuis le menu contextuel
-     */
     private handleOpenGeocacheDetails = async (geocacheId: number, geocacheName: string): Promise<void> => {
         try {
-            console.log(`[MapWidget] Ouverture des détails de la géocache ${geocacheId}: ${geocacheName}`);
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('geoapp-open-geocache-details', {
+                    detail: { geocacheId, geocacheName }
+                }));
+            }
 
-            // Dispatcher un événement personnalisé pour que les widgets parents gèrent l'ouverture de la carte
-            window.dispatchEvent(new CustomEvent('geoapp-open-geocache-details', {
-                detail: { geocacheId, geocacheName }
-            }));
-
-            // Ouvrir le widget de détails de la géocache via le gestionnaire d'onglets
             await this.geocacheTabsManager.openGeocacheDetails({
                 geocacheId,
                 name: geocacheName
             });
         } catch (error) {
-            console.error('[MapWidget] Erreur lors de l\'ouverture des détails de la géocache:', error);
-            this.messageService.error('Impossible d\'ouvrir les détails de la géocache');
+            console.error('[MapWidget] Failed to open geocache details:', error);
+            this.messageService.error('Impossible d ouvrir les details de la geocache');
         }
     };
 
-    /**
-     * Callback appelé quand la carte est initialisée
-     */
     private handleMapReady = (map: any): void => {
         this.mapInstance = map;
-        
-        // Écouter les événements de la carte pour mettre à jour le service
+
         map.on('moveend', () => {
             const view = map.getView();
             const center = view.getCenter();
             const zoom = view.getZoom();
-            
+
             if (center && zoom !== undefined) {
                 this.mapService.updateView(center, zoom);
             }
         });
-
-        console.log('Map initialized successfully');
     };
 
-    /**
-     * Appelé quand le widget est redimensionné
-     */
     protected onResize(msg: any): void {
         super.onResize(msg);
-        
         if (this.mapInstance) {
-            // Forcer OpenLayers à recalculer la taille de la carte
             this.updateMapSize();
         }
     }
 
-    /**
-     * Appelé quand le widget devient visible
-     */
     protected onActivateRequest(msg: any): void {
         super.onActivateRequest(msg);
-
         this.node.focus();
-        
+
         if (this.mapInstance) {
-            // Forcer un update de la taille après un court délai
-            // pour s'assurer que les transitions CSS sont terminées
             setTimeout(() => {
                 if (this.mapInstance) {
                     this.updateMapSize();
@@ -402,9 +464,6 @@ export class MapWidget extends ReactWidget {
         }
     }
 
-    /**
-     * Met à jour la taille de la carte
-     */
     private updateMapSize(): void {
         const updateFn = (this.mapInstance as any)?.updateSize;
         if (typeof updateFn === 'function') {
@@ -412,10 +471,8 @@ export class MapWidget extends ReactWidget {
         }
     }
 
-    /**
-     * Appelé avant que le widget soit détruit
-     */
     dispose(): void {
+        this.geocacheChangeDisposable.dispose();
         if (this.mapInstance) {
             this.mapInstance.setTarget(undefined);
             this.mapInstance = null;
@@ -423,5 +480,3 @@ export class MapWidget extends ReactWidget {
         super.dispose();
     }
 }
-
-

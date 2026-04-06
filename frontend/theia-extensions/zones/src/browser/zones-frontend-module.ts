@@ -40,8 +40,17 @@ import { ArchiveManagerWidget } from './archive-manager-widget';
 import { ZonesMenuContribution } from './zones-menu-contribution';
 import { GeoAppSidebarContribution } from './geoapp-sidebar-contribution';
 import { LayoutAutoSaveContribution } from './layout-auto-save-contribution';
+import { BackendApiClient } from './backend-api-client';
+import { ZonesService } from './zones-service';
+import { GeocachesService } from './geocaches-service';
+import { GeoAppWidgetEventsService } from './geoapp-widget-events-service';
 
 export default new ContainerModule(bind => {
+    bind(BackendApiClient).toSelf().inSingletonScope();
+    bind(ZonesService).toSelf().inSingletonScope();
+    bind(GeocachesService).toSelf().inSingletonScope();
+    bind(GeoAppWidgetEventsService).toSelf().inSingletonScope();
+
     bind(ZonesTreeWidget).toSelf().inSingletonScope();
     bind(WidgetFactory).toDynamicValue(ctx => ({
         id: ZonesTreeWidget.ID,
