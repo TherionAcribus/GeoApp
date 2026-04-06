@@ -23,10 +23,6 @@ export interface UpdateTranslatedContentInput {
     waypoints?: Array<{ id: number; note_override: string }>;
 }
 
-export interface NotesListResponse {
-    notes?: unknown[];
-}
-
 export interface ArchiveStatusResponse {
     exists?: boolean;
     needs_sync?: boolean;
@@ -103,22 +99,6 @@ export class GeocacheDetailsService {
             `/api/geocaches/${geocacheId}/solved-status`,
             this.apiClient.createJsonInit('PUT', { solved_status: solvedStatus }),
             'Erreur lors de la mise à jour du statut'
-        );
-    }
-
-    async syncNotesFromGeocaching<T = unknown>(geocacheId: number): Promise<T | undefined> {
-        return this.apiClient.requestOptionalJson<T>(
-            `/api/geocaches/${geocacheId}/notes/sync-from-geocaching`,
-            { method: 'POST' },
-            'Erreur lors de la synchronisation des notes Geocaching.com'
-        );
-    }
-
-    async getNotes<T extends NotesListResponse = NotesListResponse>(geocacheId: number): Promise<T> {
-        return this.apiClient.requestJson<T>(
-            `/api/geocaches/${geocacheId}/notes`,
-            {},
-            'Erreur lors du chargement des notes'
         );
     }
 

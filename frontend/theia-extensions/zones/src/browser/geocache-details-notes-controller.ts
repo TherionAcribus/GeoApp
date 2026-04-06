@@ -1,12 +1,12 @@
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { GeocacheDetailsPreferencesController } from './geocache-details-preferences-controller';
-import { GeocacheDetailsService } from './geocache-details-service';
+import { GeocacheNotesService } from './geocache-notes-service';
 
 @injectable()
 export class GeocacheDetailsNotesController {
     constructor(
         @inject(GeocacheDetailsPreferencesController) protected readonly preferencesController: GeocacheDetailsPreferencesController,
-        @inject(GeocacheDetailsService) protected readonly geocacheDetailsService: GeocacheDetailsService
+        @inject(GeocacheNotesService) protected readonly geocacheNotesService: GeocacheNotesService
     ) {}
 
     async loadNotesCount(geocacheId?: number): Promise<number | undefined> {
@@ -14,7 +14,7 @@ export class GeocacheDetailsNotesController {
             return undefined;
         }
 
-        const data = await this.geocacheDetailsService.getNotes(geocacheId);
+        const data = await this.geocacheNotesService.getNotes(geocacheId);
         return Array.isArray(data.notes) ? data.notes.length : 0;
     }
 
@@ -25,6 +25,6 @@ export class GeocacheDetailsNotesController {
         if (this.preferencesController.getGcPersonalNoteAutoSyncMode() !== 'onDetailsOpen') {
             return;
         }
-        await this.geocacheDetailsService.syncNotesFromGeocaching(geocacheId);
+        await this.geocacheNotesService.syncFromGeocaching(geocacheId);
     }
 }

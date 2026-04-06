@@ -52,12 +52,15 @@ import { GeocacheDetailsNotesController } from './geocache-details-notes-control
 import { GeocacheDetailsPreferencesController } from './geocache-details-preferences-controller';
 import { GeocacheDetailsContentController } from './geocache-details-content-controller';
 import { GeocacheDetailsTranslationController } from './geocache-details-translation-controller';
+import { GeocacheNotesService } from './geocache-notes-service';
+import { GeocacheNotesController } from './geocache-notes-controller';
 
 export default new ContainerModule(bind => {
     bind(BackendApiClient).toSelf().inSingletonScope();
     bind(ZonesService).toSelf().inSingletonScope();
     bind(GeocachesService).toSelf().inSingletonScope();
     bind(GeocacheDetailsService).toSelf().inSingletonScope();
+    bind(GeocacheNotesService).toSelf().inSingletonScope();
     bind(GeocacheDetailsArchiveController).toSelf().inSingletonScope();
     bind(GeocacheDetailsChatController).toSelf().inSingletonScope();
     bind(GeocacheDetailsContentController).toSelf().inSingletonScope();
@@ -65,6 +68,7 @@ export default new ContainerModule(bind => {
     bind(GeocacheDetailsNotesController).toSelf().inSingletonScope();
     bind(GeocacheDetailsPreferencesController).toSelf().inSingletonScope();
     bind(GeocacheDetailsTranslationController).toSelf().inSingletonScope();
+    bind(GeocacheNotesController).toSelf().inSingletonScope();
     bind(GeoAppWidgetEventsService).toSelf().inSingletonScope();
 
     bind(ZonesTreeWidget).toSelf().inSingletonScope();
