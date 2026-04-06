@@ -9,13 +9,14 @@ import { PluginExecutorContribution } from '@mysterai/theia-plugins/lib/browser/
 import { GeocacheContext } from '@mysterai/theia-plugins/lib/browser/plugin-executor-widget';
 import { FormulaSolverSolveFromGeocacheCommand } from '@mysterai/theia-formula-solver/lib/browser/formula-solver-contribution';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
-import { PreferenceScope } from '@theia/core/lib/common/preferences/preference-scope';
 import { BackendApiClient, getErrorMessage } from './backend-api-client';
 import {
     GeocacheArchiveStatus,
     GeocacheDetailsArchiveController
 } from './geocache-details-archive-controller';
 import { GeocacheDetailsChatController } from './geocache-details-chat-controller';
+import { GeocacheDetailsNavigationController } from './geocache-details-navigation-controller';
+import { GeocacheDetailsPreferencesController } from './geocache-details-preferences-controller';
 import { GeocacheDetailsView } from './geocache-details-view';
 import { GeocachesService } from './geocaches-service';
 import {
@@ -99,17 +100,6 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
     protected isChatProfileMenuOpen = false;
     private readonly geocacheChangeDisposable: { dispose: () => void };
 
-    private readonly displayDecodedHintsPreferenceKey = 'geoApp.geocache.hints.displayDecoded';
-    private readonly descriptionDefaultVariantPreferenceKey = 'geoApp.geocache.description.defaultVariant';
-    private readonly externalLinksOpenModePreferenceKey = 'geoApp.geocache.externalLinks.openMode';
-    private readonly imagesStorageDefaultModePreferenceKey = 'geoApp.images.storage.defaultMode';
-    private readonly imagesGalleryThumbnailSizePreferenceKey = 'geoApp.images.gallery.thumbnailSize';
-    private readonly imagesGalleryHiddenDomainsPreferenceKey = 'geoApp.images.gallery.hiddenDomains';
-    private readonly ocrDefaultEnginePreferenceKey = 'geoApp.ocr.defaultEngine';
-    private readonly ocrDefaultLanguagePreferenceKey = 'geoApp.ocr.defaultLanguage';
-    private readonly ocrLmstudioBaseUrlPreferenceKey = 'geoApp.ocr.lmstudio.baseUrl';
-    private readonly ocrLmstudioModelPreferenceKey = 'geoApp.ocr.lmstudio.model';
-
     private readonly handleContentClick = (): void => {
         this.emitInteraction('click');
     };
@@ -132,6 +122,8 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         @inject(GeocacheDetailsService) protected readonly geocacheDetailsService: GeocacheDetailsService,
         @inject(GeocacheDetailsArchiveController) protected readonly archiveController: GeocacheDetailsArchiveController,
         @inject(GeocacheDetailsChatController) protected readonly chatController: GeocacheDetailsChatController,
+        @inject(GeocacheDetailsNavigationController) protected readonly navigationController: GeocacheDetailsNavigationController,
+        @inject(GeocacheDetailsPreferencesController) protected readonly preferencesController: GeocacheDetailsPreferencesController,
         @inject(GeocacheDetailsTranslationController) protected readonly translationController: GeocacheDetailsTranslationController,
         @inject(GeoAppWidgetEventsService) protected readonly widgetEventsService: GeoAppWidgetEventsService
     ) {
@@ -652,7 +644,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
     protected onActivateRequest(msg: any): void {
         super.onActivateRequest(msg);
         this.node.focus();
-        this.reactivateMap();
+        this.navigationController.reactivateAssociatedMap(this.geocacheId);
     }
 
     /**
@@ -667,25 +659,21 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
 
         const contents: { id: string; text: string; element?: HTMLElement }[] = [];
 
-        // En-tête : nom, code, type, owner
         const headerParts = [d.name, d.gc_code, d.type, d.owner].filter(Boolean);
         if (headerParts.length > 0) {
             contents.push({ id: 'header', text: headerParts.join(' ') });
         }
 
-        // Coordonnées
         const coordParts = [d.coordinates_raw, d.original_coordinates_raw].filter(Boolean);
         if (coordParts.length > 0) {
             contents.push({ id: 'coordinates', text: coordParts.join(' ') });
         }
 
-        // Description (variante affichée)
         const descHtml = this.getEffectiveDescriptionHtml(d, this.descriptionVariant);
         if (descHtml) {
             contents.push({ id: 'description', text: htmlToRawText(descHtml) });
         }
 
-        // Indices (hints)
         const decodedHints = this.getDecodedHints(d);
         if (decodedHints) {
             contents.push({ id: 'hints', text: decodedHints });
@@ -693,7 +681,6 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             contents.push({ id: 'hints', text: d.hints });
         }
 
-        // Waypoints
         if (d.waypoints && d.waypoints.length > 0) {
             const wpTexts = d.waypoints.map(wp => {
                 const parts = [wp.prefix, wp.name, wp.type, wp.gc_coords, wp.note, wp.note_override].filter(Boolean);
@@ -702,7 +689,6 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             contents.push({ id: 'waypoints', text: wpTexts.join('\n') });
         }
 
-        // Checkers
         if (d.checkers && d.checkers.length > 0) {
             const checkerTexts = d.checkers.map(c => [c.name, c.url].filter(Boolean).join(' '));
             contents.push({ id: 'checkers', text: checkerTexts.join('\n') });
@@ -716,48 +702,10 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
      * Ferme automatiquement la carte correspondante
      */
     protected onCloseRequest(msg: any): void {
-        // Fermer la carte de géocache associée avant de fermer l'onglet
-        this.closeAssociatedMap();
-
-        // Appeler la méthode parente pour la fermeture normale
+        this.navigationController.closeAssociatedMap(this.geocacheId);
         super.onCloseRequest(msg);
         this.removeEventListeners();
         this.removeInteractionListeners();
-    }
-
-    /**
-     * Ferme la carte associée à cette géocache
-     */
-    private closeAssociatedMap(): void {
-        if (this.geocacheId && this.data?.gc_code) {
-            const mapId = `geoapp-map-geocache-${this.geocacheId}`;
-            const existingMap = this.shell.getWidgets('bottom').find(w => w.id === mapId);
-
-            if (existingMap) {
-                console.log('[GeocacheDetailsWidget] Fermeture de la carte géocache associée:', this.geocacheId);
-                existingMap.close();
-            }
-        }
-    }
-
-    protected getGcPersonalNoteAutoSyncMode(): 'manual' | 'onNotesOpen' | 'onDetailsOpen' {
-        const raw = this.preferenceService.get('geoApp.notes.gcPersonalNote.autoSyncMode', 'manual') as string;
-        if (raw === 'onNotesOpen' || raw === 'onDetailsOpen' || raw === 'manual') {
-            return raw;
-        }
-        return 'manual';
-    }
-
-    protected getDefaultDescriptionVariant(data: GeocacheDto): DescriptionVariant {
-        const raw = this.preferenceService.get(this.descriptionDefaultVariantPreferenceKey, 'auto') as string;
-        const hasModified = Boolean(data.description_override_raw) || Boolean(data.description_override_html);
-        if (raw === 'original') {
-            return 'original';
-        }
-        if (raw === 'modified') {
-            return hasModified ? 'modified' : 'original';
-        }
-        return hasModified ? 'modified' : 'original';
     }
 
     protected getEffectiveDescriptionHtml(data: GeocacheDto, variant: DescriptionVariant): string {
@@ -829,7 +777,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         if (!this.geocacheId) {
             return;
         }
-        const mode = this.getGcPersonalNoteAutoSyncMode();
+        const mode = this.preferencesController.getGcPersonalNoteAutoSyncMode();
         if (mode !== 'onDetailsOpen') {
             return;
         }
@@ -851,22 +799,6 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         } catch (e) {
             console.error('[GeocacheDetailsWidget] Failed to load notes count', e);
             this.notesCount = undefined;
-        }
-    }
-
-    /**
-     * Réactive la carte correspondante à cette géocache
-     */
-    private reactivateMap(): void {
-        // Si on a une géocache chargée, réactiver sa carte
-        if (this.geocacheId && this.data?.gc_code) {
-            const mapId = `geoapp-map-geocache-${this.geocacheId}`;
-            const existingMap = this.shell.getWidgets('bottom').find(w => w.id === mapId);
-            
-            if (existingMap) {
-                console.log('[GeocacheDetailsWidget] Réactivation de la carte géocache:', this.geocacheId);
-                this.shell.activateWidget(mapId);
-            }
         }
     }
 
@@ -900,7 +832,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         try {
             this.data = await this.geocachesService.get<GeocacheDto>(this.geocacheId);
             if (this.data && this.descriptionVariantGeocacheId !== this.geocacheId) {
-                this.descriptionVariant = this.getDefaultDescriptionVariant(this.data);
+                this.descriptionVariant = this.preferencesController.getDefaultDescriptionVariant(this.data);
                 this.descriptionVariantGeocacheId = this.geocacheId;
             }
             this.title.label = `Géocache - ${this.data?.name ?? this.data?.gc_code ?? this.geocacheId}`;
@@ -1061,16 +993,11 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             this.messages.warn('Aucune géocache sélectionnée pour voir les logs.');
             return;
         }
-
-        // Émettre un événement pour ouvrir le widget des logs
-        const event = new CustomEvent('open-geocache-logs', {
-            detail: {
-                geocacheId: this.geocacheId,
-                gcCode: this.data.gc_code,
-                name: this.data.name
-            }
+        this.navigationController.openLogs({
+            geocacheId: this.geocacheId,
+            gcCode: this.data.gc_code,
+            name: this.data.name
         });
-        window.dispatchEvent(event);
     };
 
     private openLogEditor = (): void => {
@@ -1078,14 +1005,10 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             this.messages.warn('Aucune géocache sélectionnée pour loguer.');
             return;
         }
-
-        const event = new CustomEvent('open-geocache-log-editor', {
-            detail: {
-                geocacheIds: [this.geocacheId],
-                title: this.data.gc_code ? `Log - ${this.data.gc_code}` : 'Log - 1 géocache',
-            }
+        this.navigationController.openLogEditor({
+            geocacheId: this.geocacheId,
+            gcCode: this.data.gc_code
         });
-        window.dispatchEvent(event);
     };
 
     /**
@@ -1096,15 +1019,11 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             this.messages.warn('Aucune géocache sélectionnée pour voir les notes.');
             return;
         }
-
-        const event = new CustomEvent('open-geocache-notes', {
-            detail: {
-                geocacheId: this.geocacheId,
-                gcCode: this.data.gc_code,
-                name: this.data.name
-            }
+        this.navigationController.openNotes({
+            geocacheId: this.geocacheId,
+            gcCode: this.data.gc_code,
+            name: this.data.name
         });
-        window.dispatchEvent(event);
     };
 
     private getDecodedHints(data: GeocacheDto): string | undefined {
@@ -1182,8 +1101,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
     }
 
     private toggleHintsDisplayMode = async (): Promise<void> => {
-        const current = this.preferenceService.get(this.displayDecodedHintsPreferenceKey, false) as boolean;
-        await this.preferenceService.set(this.displayDecodedHintsPreferenceKey, !current, PreferenceScope.User);
+        await this.preferencesController.toggleHintsDisplayMode();
         this.update();
     };
 
@@ -1194,93 +1112,6 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         });
         const confirmed = await dialog.open();
         return Boolean(confirmed);
-    }
-
-    private getImagesStorageDefaultMode(): 'never' | 'prompt' | 'always' {
-        const raw = this.preferenceService.get(this.imagesStorageDefaultModePreferenceKey, 'prompt') as string;
-        if (raw === 'never' || raw === 'prompt' || raw === 'always') {
-            return raw;
-        }
-        return 'prompt';
-    }
-
-    private getImagesGalleryThumbnailSize(): 'small' | 'medium' | 'large' {
-        const raw = this.preferenceService.get(this.imagesGalleryThumbnailSizePreferenceKey, 'small') as string;
-        if (raw === 'small' || raw === 'medium' || raw === 'large') {
-            return raw;
-        }
-        return 'small';
-    }
-
-    private async setImagesGalleryThumbnailSize(size: 'small' | 'medium' | 'large'): Promise<void> {
-        await this.preferenceService.set(this.imagesGalleryThumbnailSizePreferenceKey, size, PreferenceScope.User);
-        this.update();
-    }
-
-    private getImagesGalleryHiddenDomainsText(): string {
-        const raw = this.preferenceService.get(this.imagesGalleryHiddenDomainsPreferenceKey, '') as unknown;
-        if (typeof raw === 'string') {
-            return raw;
-        }
-        if (Array.isArray(raw)) {
-            return raw.filter((v): v is string => typeof v === 'string').join('\n');
-        }
-        return '';
-    }
-
-    private async setImagesGalleryHiddenDomainsText(value: string): Promise<void> {
-        await this.preferenceService.set(this.imagesGalleryHiddenDomainsPreferenceKey, value ?? '', PreferenceScope.User);
-        this.update();
-    }
-
-    private getOcrDefaultEngine(): 'easyocr_ocr' | 'vision_ocr' {
-        const raw = this.preferenceService.get(this.ocrDefaultEnginePreferenceKey, 'easyocr_ocr') as string;
-        if (raw === 'vision_ocr' || raw === 'easyocr_ocr') {
-            return raw;
-        }
-        return 'easyocr_ocr';
-    }
-
-    private getOcrDefaultLanguage(): string {
-        const raw = this.preferenceService.get(this.ocrDefaultLanguagePreferenceKey, 'auto') as string;
-        return (raw || 'auto').toString();
-    }
-
-    private getOcrLmstudioBaseUrl(): string {
-        const raw = this.preferenceService.get(this.ocrLmstudioBaseUrlPreferenceKey, 'http://localhost:1234') as string;
-        return (raw || 'http://localhost:1234').toString();
-    }
-
-    private getOcrLmstudioModel(): string {
-        const raw = this.preferenceService.get(this.ocrLmstudioModelPreferenceKey, '') as string;
-        return (raw || '').toString();
-    }
-
-    private getImagesGalleryHiddenDomains(): string[] {
-        const raw = this.preferenceService.get(this.imagesGalleryHiddenDomainsPreferenceKey, '') as unknown;
-        if (Array.isArray(raw)) {
-            return raw
-                .filter((v): v is string => typeof v === 'string')
-                .map(v => v.trim().toLowerCase())
-                .filter(v => Boolean(v));
-        }
-
-        if (typeof raw !== 'string') {
-            return [];
-        }
-
-        return raw
-            .split(/[\n\r,;]+/g)
-            .map(v => v.trim().toLowerCase())
-            .filter(v => Boolean(v));
-    }
-
-    private getExternalLinksOpenMode(): 'new-tab' | 'new-window' {
-        const raw = this.preferenceService.get(this.externalLinksOpenModePreferenceKey, 'new-tab') as string;
-        if (raw === 'new-window') {
-            return 'new-window';
-        }
-        return 'new-tab';
     }
 
     private getEffectiveChatProfile(): GeoAppChatProfile {
@@ -1326,7 +1157,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
 
     protected render(): React.ReactNode {
         const d = this.data;
-        const displayDecodedHints = this.preferenceService.get(this.displayDecodedHintsPreferenceKey, false) as boolean;
+        const displayDecodedHints = this.preferencesController.getDisplayDecodedHints();
         const decodedHints = d ? this.getDecodedHints(d) : undefined;
         const rawHints = d?.hints;
         const hasHints = Boolean(rawHints) || Boolean(d?.hints_decoded) || Boolean(d?.hints_decoded_override);
@@ -1386,7 +1217,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                     isTranslating: this.isTranslatingDescription,
                     onTranslateAllToFrench: () => this.translateAllToFrench(),
                     isTranslatingAll: this.isTranslatingAllContent,
-                    externalLinksOpenMode: this.getExternalLinksOpenMode(),
+                    externalLinksOpenMode: this.preferencesController.getExternalLinksOpenMode(),
                 }}
                 displayedHints={displayedHints}
                 displayDecodedHints={displayDecodedHints}
@@ -1394,17 +1225,23 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                 imagesPanelProps={this.geocacheId ? {
                     backendBaseUrl: this.apiClient.getBaseUrl(),
                     geocacheId: this.geocacheId,
-                    storageDefaultMode: this.getImagesStorageDefaultMode(),
+                    storageDefaultMode: this.preferencesController.getImagesStorageDefaultMode(),
                     onConfirmStoreAll: async (opts) => this.confirmStoreAllImages(opts),
-                    thumbnailSize: this.getImagesGalleryThumbnailSize(),
-                    onThumbnailSizeChange: async (size) => this.setImagesGalleryThumbnailSize(size),
-                    hiddenDomains: this.getImagesGalleryHiddenDomains(),
-                    hiddenDomainsText: this.getImagesGalleryHiddenDomainsText(),
-                    onHiddenDomainsTextChange: async (value: string) => this.setImagesGalleryHiddenDomainsText(value),
-                    ocrDefaultEngine: this.getOcrDefaultEngine(),
-                    ocrDefaultLanguage: this.getOcrDefaultLanguage(),
-                    ocrLmstudioBaseUrl: this.getOcrLmstudioBaseUrl(),
-                    ocrLmstudioModel: this.getOcrLmstudioModel(),
+                    thumbnailSize: this.preferencesController.getImagesGalleryThumbnailSize(),
+                    onThumbnailSizeChange: async (size) => {
+                        await this.preferencesController.setImagesGalleryThumbnailSize(size);
+                        this.update();
+                    },
+                    hiddenDomains: this.preferencesController.getImagesGalleryHiddenDomains(),
+                    hiddenDomainsText: this.preferencesController.getImagesGalleryHiddenDomainsText(),
+                    onHiddenDomainsTextChange: async (value: string) => {
+                        await this.preferencesController.setImagesGalleryHiddenDomainsText(value);
+                        this.update();
+                    },
+                    ocrDefaultEngine: this.preferencesController.getOcrDefaultEngine(),
+                    ocrDefaultLanguage: this.preferencesController.getOcrDefaultLanguage(),
+                    ocrLmstudioBaseUrl: this.preferencesController.getOcrLmstudioBaseUrl(),
+                    ocrLmstudioModel: this.preferencesController.getOcrLmstudioModel(),
                     messages: this.messages,
                     languageModelRegistry: this.languageModelRegistry,
                     languageModelService: this.languageModelService,

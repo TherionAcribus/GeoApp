@@ -47,6 +47,8 @@ import { GeoAppWidgetEventsService } from './geoapp-widget-events-service';
 import { GeocacheDetailsService } from './geocache-details-service';
 import { GeocacheDetailsArchiveController } from './geocache-details-archive-controller';
 import { GeocacheDetailsChatController } from './geocache-details-chat-controller';
+import { GeocacheDetailsNavigationController } from './geocache-details-navigation-controller';
+import { GeocacheDetailsPreferencesController } from './geocache-details-preferences-controller';
 import { GeocacheDetailsTranslationController } from './geocache-details-translation-controller';
 
 export default new ContainerModule(bind => {
@@ -56,6 +58,8 @@ export default new ContainerModule(bind => {
     bind(GeocacheDetailsService).toSelf().inSingletonScope();
     bind(GeocacheDetailsArchiveController).toSelf().inSingletonScope();
     bind(GeocacheDetailsChatController).toSelf().inSingletonScope();
+    bind(GeocacheDetailsNavigationController).toSelf().inSingletonScope();
+    bind(GeocacheDetailsPreferencesController).toSelf().inSingletonScope();
     bind(GeocacheDetailsTranslationController).toSelf().inSingletonScope();
     bind(GeoAppWidgetEventsService).toSelf().inSingletonScope();
 
