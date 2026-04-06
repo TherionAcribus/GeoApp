@@ -13,6 +13,15 @@ import { PreferenceService } from '@theia/core/lib/common/preferences/preference
 import { PreferenceScope } from '@theia/core/lib/common/preferences/preference-scope';
 import { GeocacheImagesPanel } from './geocache-images-panel';
 import { GeoAppTranslateDescriptionAgentId } from './geoapp-translate-description-agent';
+import { BackendApiClient, getErrorMessage } from './backend-api-client';
+import { GeocachesService } from './geocaches-service';
+import {
+    GeocacheDetailsService,
+    SaveWaypointInput,
+    UpdateDescriptionInput,
+    UpdateTranslatedContentInput
+} from './geocache-details-service';
+import { GeoAppWidgetEventsService } from './geoapp-widget-events-service';
 import {
     GeoAppChatProfile,
     GeoAppChatWorkflowProfile,
@@ -84,10 +93,8 @@ interface SerializedGeocacheDetailsState {
  */
 interface WaypointsEditorProps {
     waypoints?: GeocacheWaypoint[];
-    geocacheId?: number;
     geocacheData?: GeocacheDto;
-    backendBaseUrl: string;
-    onUpdate: () => Promise<void>;
+    onSaveWaypoint: (waypointId: number | 'new' | undefined, payload: SaveWaypointInput) => Promise<void>;
     messages: MessageService;
     onDeleteWaypoint: (id: number, name: string) => Promise<void>;
     onSetAsCorrectedCoords: (waypointId: number, waypointName: string) => Promise<void>;
@@ -243,7 +250,7 @@ interface WaypointsEditorWithRefProps extends WaypointsEditorProps {
 }
 
 const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStartEditRef, onPushWaypointToGeocaching, ...props }) => {
-    const { waypoints, geocacheId, geocacheData, backendBaseUrl, onUpdate, messages, onDeleteWaypoint, onSetAsCorrectedCoords } = props;
+    const { waypoints, geocacheData, onSaveWaypoint, messages, onDeleteWaypoint, onSetAsCorrectedCoords } = props;
     const [editingId, setEditingId] = React.useState<number | 'new' | null>(null);
     const [editForm, setEditForm] = React.useState<Partial<GeocacheWaypoint>>({});
     const [projectionParams, setProjectionParams] = React.useState({ distance: 100, unit: 'm', bearing: 0 });
@@ -298,7 +305,6 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
     };
 
     const saveWaypoint = async () => {
-        if (!geocacheId) { return; }
         try {
             const noteToSave = (editForm.note_override ?? editForm.note) || '';
             const dataToSave = {
@@ -314,33 +320,14 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
             console.log('[WaypointsEditor] 💾 SAVE WAYPOINT');
             console.log('[WaypointsEditor] Données à envoyer:', dataToSave);
             console.log('[WaypointsEditor] gc_coords:', dataToSave.gc_coords);
-            
-            const url = editingId === 'new'
-                ? `${backendBaseUrl}/api/geocaches/${geocacheId}/waypoints`
-                : `${backendBaseUrl}/api/geocaches/${geocacheId}/waypoints/${editingId}`;
-            const method = editingId === 'new' ? 'POST' : 'PUT';
-            
-            console.log('[WaypointsEditor] URL:', url);
-            console.log('[WaypointsEditor] Method:', method);
-            
-            const res = await fetch(url, {
-                method,
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify(dataToSave)
-            });
-            if (!res.ok) { throw new Error(`HTTP ${res.status}`); }
-            
-            const result = await res.json();
-            console.log('[WaypointsEditor] ✅ Réponse du serveur:', result);
-            console.log('[WaypointsEditor] ✅ Coordonnées calculées par le backend:', result.latitude, result.longitude);
-            
-            await onUpdate();
+
+            await onSaveWaypoint(
+                editingId === null ? undefined : editingId,
+                dataToSave
+            );
             cancelEdit();
-            messages.info('Waypoint sauvegardé');
         } catch (e) {
             console.error('[WaypointsEditor] ❌ Save waypoint error', e);
-            messages.error('Erreur lors de la sauvegarde du waypoint');
         }
     };
 
@@ -702,11 +689,11 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
  */
 interface CoordinatesEditorProps {
     geocacheData: GeocacheDto;
-    geocacheId: number;
-    backendBaseUrl: string;
-    onUpdate: () => Promise<void>;
-    messages: MessageService;
     gcCode?: string;
+    onSaveCoordinates: (coordinatesRaw: string) => Promise<void>;
+    onResetCoordinates: () => Promise<void>;
+    onPushCorrectedCoordinates: () => Promise<void>;
+    onUpdateSolvedStatus: (newStatus: 'not_solved' | 'in_progress' | 'solved') => Promise<void>;
 }
 
 type DescriptionVariant = 'original' | 'modified';
@@ -714,12 +701,11 @@ type DescriptionVariant = 'original' | 'modified';
 interface DescriptionEditorProps {
     geocacheData: GeocacheDto;
     geocacheId: number;
-    backendBaseUrl: string;
-    onUpdate: () => Promise<void>;
-    messages: MessageService;
     defaultVariant: DescriptionVariant;
     onVariantChange: (variant: DescriptionVariant) => void;
     getEffectiveDescriptionHtml: (data: GeocacheDto, variant: DescriptionVariant) => string;
+    onSaveDescription: (payload: UpdateDescriptionInput) => Promise<void>;
+    onResetDescription: () => Promise<void>;
     onTranslateToFrench: () => Promise<void>;
     isTranslating: boolean;
     onTranslateAllToFrench: () => Promise<void>;
@@ -730,12 +716,11 @@ interface DescriptionEditorProps {
 const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
     geocacheData,
     geocacheId,
-    backendBaseUrl,
-    onUpdate,
-    messages,
     defaultVariant,
     onVariantChange,
     getEffectiveDescriptionHtml,
+    onSaveDescription,
+    onResetDescription,
     onTranslateToFrench,
     isTranslating,
     onTranslateAllToFrench,
@@ -774,44 +759,24 @@ const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
 
     const saveDescription = async () => {
         try {
-            const res = await fetch(`${backendBaseUrl}/api/geocaches/${geocacheId}/description`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({
-                    description_override_raw: editedRaw,
-                    description_override_html: rawTextToHtml(editedRaw)
-                })
+            await onSaveDescription({
+                description_override_raw: editedRaw,
+                description_override_html: rawTextToHtml(editedRaw)
             });
-            if (!res.ok) {
-                throw new Error(`HTTP ${res.status}`);
-            }
-            await onUpdate();
             setIsEditing(false);
-            messages.info('Description mise à jour');
         } catch (e) {
             console.error('Save description error', e);
-            messages.error('Erreur lors de la mise à jour de la description');
         }
     };
 
     const resetDescription = async () => {
         try {
-            const res = await fetch(`${backendBaseUrl}/api/geocaches/${geocacheId}/reset-description`, {
-                method: 'POST',
-                credentials: 'include'
-            });
-            if (!res.ok) {
-                throw new Error(`HTTP ${res.status}`);
-            }
-            await onUpdate();
+            await onResetDescription();
             setIsEditing(false);
             setEditedRaw('');
             switchVariant('original');
-            messages.info('Description réinitialisée');
         } catch (e) {
             console.error('Reset description error', e);
-            messages.error('Erreur lors de la réinitialisation de la description');
         }
     };
 
@@ -937,7 +902,14 @@ const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
 /**
  * Composant pour afficher et éditer les coordonnées d'une géocache
  */
-const CoordinatesEditor: React.FC<CoordinatesEditorProps> = ({ geocacheData, geocacheId, backendBaseUrl, onUpdate, messages, gcCode }) => {
+const CoordinatesEditor: React.FC<CoordinatesEditorProps> = ({
+    geocacheData,
+    gcCode,
+    onSaveCoordinates,
+    onResetCoordinates,
+    onPushCorrectedCoordinates,
+    onUpdateSolvedStatus
+}) => {
     const [isEditing, setIsEditing] = React.useState(false);
     const [editedCoords, setEditedCoords] = React.useState('');
     const [isSendingToGC, setIsSendingToGC] = React.useState(false);
@@ -968,64 +940,28 @@ const CoordinatesEditor: React.FC<CoordinatesEditorProps> = ({ geocacheData, geo
 
     const saveCoordinates = async () => {
         try {
-            const res = await fetch(`${backendBaseUrl}/api/geocaches/${geocacheId}/coordinates`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ coordinates_raw: editedCoords })
-            });
-            if (!res.ok) { throw new Error(`HTTP ${res.status}`); }
-            
-            await onUpdate();
+            await onSaveCoordinates(editedCoords);
             setIsEditing(false);
-            messages.info('Coordonnées mises à jour');
         } catch (e) {
             console.error('Save coordinates error', e);
-            messages.error('Erreur lors de la mise à jour des coordonnées');
         }
     };
 
     const resetToOriginal = async () => {
         try {
-            const res = await fetch(`${backendBaseUrl}/api/geocaches/${geocacheId}/reset-coordinates`, {
-                method: 'POST',
-                credentials: 'include'
-            });
-            if (!res.ok) { throw new Error(`HTTP ${res.status}`); }
-            
-            await onUpdate();
+            await onResetCoordinates();
             setIsEditing(false);
-            messages.info('Coordonnées réinitialisées');
         } catch (e) {
             console.error('Reset coordinates error', e);
-            messages.error('Erreur lors de la réinitialisation des coordonnées');
         }
     };
 
     const sendToGeocaching = async () => {
-        if (!isCorrected) {
-            messages.warn('Aucune coordonnée corrigée à envoyer. Corrigez d\'abord les coordonnées.');
-            return;
-        }
         setIsSendingToGC(true);
         try {
-            const res = await fetch(`${backendBaseUrl}/api/geocaches/${geocacheId}/push-corrected-coordinates`, {
-                method: 'POST',
-                credentials: 'include'
-            });
-            const json = await res.json();
-            if (!res.ok) {
-                if (res.status === 401) {
-                    messages.error('Non connecté à Geocaching.com "” configurez l\'authentification dans GeoApp');
-                } else {
-                    messages.error(`Échec de l'envoi : ${json.error || res.statusText}`);
-                }
-                return;
-            }
-            messages.info(`✅ Coordonnées envoyées vers Geocaching.com (${gcCode || geocacheId})`);
+            await onPushCorrectedCoordinates();
         } catch (e) {
             console.error('sendToGeocaching error', e);
-            messages.error('Erreur réseau lors de l\'envoi vers Geocaching.com');
         } finally {
             setIsSendingToGC(false);
         }
@@ -1033,19 +969,10 @@ const CoordinatesEditor: React.FC<CoordinatesEditorProps> = ({ geocacheData, geo
 
     const updateSolvedStatus = async (newStatus: 'not_solved' | 'in_progress' | 'solved') => {
         try {
-            const res = await fetch(`${backendBaseUrl}/api/geocaches/${geocacheId}/solved-status`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ solved_status: newStatus })
-            });
-            if (!res.ok) { throw new Error(`HTTP ${res.status}`); }
-            
+            await onUpdateSolvedStatus(newStatus);
             setSolvedStatus(newStatus);
-            messages.info('Statut mis à jour');
         } catch (e) {
             console.error('Update solved status error', e);
-            messages.error('Erreur lors de la mise à jour du statut');
         }
     };
 
@@ -1073,7 +1000,7 @@ const CoordinatesEditor: React.FC<CoordinatesEditorProps> = ({ geocacheData, geo
                                         opacity: isSendingToGC ? 0.6 : 1
                                     }}
                                 >
-                                    {isSendingToGC ? '⏳ Envoi…' : '📡 Envoyer vers GC.com'}
+                                    {isSendingToGC ? '⏳ Envoi…' : `📡 Envoyer vers GC.com${gcCode ? ` (${gcCode})` : ''}`}
                                 </button>
                             )}
                             <button
@@ -1214,7 +1141,7 @@ const CoordinatesEditor: React.FC<CoordinatesEditorProps> = ({ geocacheData, geo
                 </div>
                 <select
                     value={solvedStatus}
-                    onChange={(e) => updateSolvedStatus(e.target.value as any)}
+                    onChange={(e) => updateSolvedStatus(e.target.value as 'not_solved' | 'in_progress' | 'solved')}
                     style={{
                         width: '100%',
                         padding: 8,
@@ -1277,7 +1204,6 @@ type GeocacheDto = {
 export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget {
     static readonly ID = 'geocache.details.widget';
 
-    protected backendBaseUrl = 'http://localhost:8000';
     protected geocacheId?: number;
     protected data?: GeocacheDto;
     protected isLoading = false;
@@ -1298,6 +1224,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
     protected chatProfileOverride: GeoAppChatWorkflowProfile = 'default';
     protected isChatRoutingPreviewLoading = false;
     protected isChatProfileMenuOpen = false;
+    private readonly geocacheChangeDisposable: { dispose: () => void };
 
     private readonly displayDecodedHintsPreferenceKey = 'geoApp.geocache.hints.displayDecoded';
     private readonly descriptionDefaultVariantPreferenceKey = 'geoApp.geocache.description.defaultVariant';
@@ -1326,7 +1253,11 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         @inject(CommandService) protected readonly commandService: CommandService,
         @inject(PreferenceService) protected readonly preferenceService: PreferenceService,
         @inject(LanguageModelRegistry) protected readonly languageModelRegistry: LanguageModelRegistry,
-        @inject(LanguageModelService) protected readonly languageModelService: LanguageModelService
+        @inject(LanguageModelService) protected readonly languageModelService: LanguageModelService,
+        @inject(BackendApiClient) protected readonly apiClient: BackendApiClient,
+        @inject(GeocachesService) protected readonly geocachesService: GeocachesService,
+        @inject(GeocacheDetailsService) protected readonly geocacheDetailsService: GeocacheDetailsService,
+        @inject(GeoAppWidgetEventsService) protected readonly widgetEventsService: GeoAppWidgetEventsService
     ) {
         super();
         this.id = GeocacheDetailsWidget.ID;
@@ -1337,6 +1268,11 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         this.addClass('theia-geocache-details-widget');
 
         this.node.tabIndex = 0;
+        this.geocacheChangeDisposable = this.widgetEventsService.onDidChangeGeocache(event => {
+            if (event.geocacheId === this.geocacheId) {
+                void this.load();
+            }
+        });
     }
 
     protected onAfterAttach(msg: any): void {
@@ -1349,6 +1285,11 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         this.removeInteractionListeners();
         this.removeEventListeners();
         super.onBeforeDetach(msg);
+    }
+
+    dispose(): void {
+        this.geocacheChangeDisposable.dispose();
+        super.dispose();
     }
 
     private handlePluginAddWaypointEvent = (event: CustomEvent<PluginAddWaypointDetail>): void => {
@@ -1500,6 +1441,143 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         }
     }
 
+    private notifyGeocacheChanged(reason: 'waypoint-created' | 'waypoint-deleted' | 'corrected-coordinates-updated'): void {
+        if (!this.geocacheId) {
+            return;
+        }
+        this.widgetEventsService.notifyGeocacheChanged({
+            geocacheId: this.geocacheId,
+            reason,
+            source: 'details'
+        });
+    }
+
+    private async saveWaypointFromEditor(
+        waypointId: number | 'new' | undefined,
+        payload: SaveWaypointInput
+    ): Promise<void> {
+        if (!this.geocacheId) {
+            throw new Error('Aucune géocache chargée');
+        }
+
+        try {
+            await this.geocacheDetailsService.saveWaypoint(this.geocacheId, waypointId, payload);
+            await this.load();
+            this.notifyGeocacheChanged(waypointId === 'new' || waypointId === undefined ? 'waypoint-created' : 'corrected-coordinates-updated');
+            this.messages.info('Waypoint sauvegardé');
+        } catch (error) {
+            console.error('[GeocacheDetailsWidget] saveWaypointFromEditor error', error);
+            this.messages.error(getErrorMessage(error, 'Erreur lors de la sauvegarde du waypoint'));
+            throw error;
+        }
+    }
+
+    private async saveDescriptionOverrides(payload: UpdateDescriptionInput): Promise<void> {
+        if (!this.geocacheId) {
+            throw new Error('Aucune géocache chargée');
+        }
+
+        try {
+            await this.geocacheDetailsService.updateDescription(this.geocacheId, payload);
+            this.descriptionVariant = 'modified';
+            await this.load();
+            this.messages.info('Description mise à jour');
+        } catch (error) {
+            console.error('[GeocacheDetailsWidget] saveDescriptionOverrides error', error);
+            this.messages.error(getErrorMessage(error, 'Erreur lors de la mise à jour de la description'));
+            throw error;
+        }
+    }
+
+    private async resetDescriptionOverrides(): Promise<void> {
+        if (!this.geocacheId) {
+            throw new Error('Aucune géocache chargée');
+        }
+
+        try {
+            await this.geocacheDetailsService.resetDescription(this.geocacheId);
+            this.descriptionVariant = 'original';
+            await this.load();
+            this.messages.info('Description réinitialisée');
+        } catch (error) {
+            console.error('[GeocacheDetailsWidget] resetDescriptionOverrides error', error);
+            this.messages.error(getErrorMessage(error, 'Erreur lors de la réinitialisation de la description'));
+            throw error;
+        }
+    }
+
+    private async saveCoordinates(coordinatesRaw: string): Promise<void> {
+        if (!this.geocacheId) {
+            throw new Error('Aucune géocache chargée');
+        }
+
+        try {
+            await this.geocachesService.updateCoordinates(this.geocacheId, coordinatesRaw);
+            await this.load();
+            this.notifyGeocacheChanged('corrected-coordinates-updated');
+            this.messages.info('Coordonnées mises à jour');
+        } catch (error) {
+            console.error('[GeocacheDetailsWidget] saveCoordinates error', error);
+            this.messages.error(getErrorMessage(error, 'Erreur lors de la mise à jour des coordonnées'));
+            throw error;
+        }
+    }
+
+    private async resetCoordinates(): Promise<void> {
+        if (!this.geocacheId) {
+            throw new Error('Aucune géocache chargée');
+        }
+
+        try {
+            await this.geocacheDetailsService.resetCoordinates(this.geocacheId);
+            await this.load();
+            this.notifyGeocacheChanged('corrected-coordinates-updated');
+            this.messages.info('Coordonnées réinitialisées');
+        } catch (error) {
+            console.error('[GeocacheDetailsWidget] resetCoordinates error', error);
+            this.messages.error(getErrorMessage(error, 'Erreur lors de la réinitialisation des coordonnées'));
+            throw error;
+        }
+    }
+
+    private async pushCorrectedCoordinatesToGeocaching(): Promise<void> {
+        if (!this.geocacheId || !this.data) {
+            throw new Error('Aucune géocache chargée');
+        }
+
+        if (!this.data.is_corrected) {
+            this.messages.warn('Aucune coordonnée corrigée à envoyer. Corrigez d\'abord les coordonnées.');
+            return;
+        }
+
+        try {
+            await this.geocacheDetailsService.pushCorrectedCoordinates<{ error?: string }>(this.geocacheId);
+            this.messages.info(`✅ Coordonnées envoyées vers Geocaching.com (${this.data.gc_code || this.geocacheId})`);
+        } catch (error) {
+            console.error('[GeocacheDetailsWidget] pushCorrectedCoordinatesToGeocaching error', error);
+            this.messages.error(getErrorMessage(error, 'Erreur réseau lors de l\'envoi vers Geocaching.com'));
+            throw error;
+        }
+    }
+
+    private async updateSolvedStatus(newStatus: 'not_solved' | 'in_progress' | 'solved'): Promise<void> {
+        if (!this.geocacheId) {
+            throw new Error('Aucune géocache chargée');
+        }
+
+        try {
+            await this.geocacheDetailsService.updateSolvedStatus(this.geocacheId, newStatus);
+            if (this.data) {
+                this.data.solved = newStatus;
+            }
+            this.messages.info('Statut mis à jour');
+        } catch (error) {
+            console.error('[GeocacheDetailsWidget] updateSolvedStatus error', error);
+            this.messages.error(getErrorMessage(error, 'Erreur lors de la mise à jour du statut'));
+            throw error;
+        }
+    }
+
     private async autoSaveWaypoint(gcCoords: string, title?: string, note?: string): Promise<void> {
         if (!this.geocacheId) {
             this.messages.error('Aucune géocache chargée pour créer le waypoint');
@@ -1512,30 +1590,17 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
 
         this.isSavingWaypoint = true;
         try {
-            const payload = {
+            await this.geocachesService.createWaypoint(this.geocacheId, {
                 name: title || 'Waypoint détecté',
                 gc_coords: gcCoords,
                 note: note || ''
-            };
-
-            const response = await fetch(`${this.backendBaseUrl}/api/geocaches/${this.geocacheId}/waypoints`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                credentials: 'include',
-                body: JSON.stringify(payload)
             });
-
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-
             await this.load();
+            this.notifyGeocacheChanged('waypoint-created');
             this.messages.info('Waypoint créé automatiquement depuis le plugin');
         } catch (error) {
             console.error('[GeocacheDetailsWidget] autoSaveWaypoint failed', error);
-            this.messages.error('Impossible de créer automatiquement le waypoint');
+            this.messages.error(getErrorMessage(error, 'Impossible de créer automatiquement le waypoint'));
         } finally {
             this.isSavingWaypoint = false;
         }
@@ -1924,19 +1989,10 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             }
 
             const translatedRaw = htmlToRawText(translatedHtml);
-            const res = await fetch(`${this.backendBaseUrl}/api/geocaches/${this.geocacheId}/description`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({
-                    description_override_html: translatedHtml,
-                    description_override_raw: translatedRaw,
-                })
+            await this.geocacheDetailsService.updateDescription(this.geocacheId, {
+                description_override_html: translatedHtml,
+                description_override_raw: translatedRaw,
             });
-
-            if (!res.ok) {
-                throw new Error(`HTTP ${res.status}`);
-            }
 
             this.descriptionVariant = 'modified';
             await this.load();
@@ -1959,14 +2015,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             return;
         }
         try {
-            const res = await fetch(`${this.backendBaseUrl}/api/geocaches/${this.geocacheId}/notes/sync-from-geocaching`, {
-                method: 'POST',
-                credentials: 'include'
-            });
-            if (!res.ok) {
-                // Ne pas notifier l'utilisateur en auto, seulement loguer
-                console.error('[GeocacheDetailsWidget] Auto-sync note Geocaching.com échouée');
-            }
+            await this.geocacheDetailsService.syncNotesFromGeocaching(this.geocacheId);
         } catch (err) {
             console.error('[GeocacheDetailsWidget] Auto-sync note Geocaching.com échouée:', err);
         }
@@ -1978,11 +2027,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             return;
         }
         try {
-            const res = await fetch(`${this.backendBaseUrl}/api/geocaches/${this.geocacheId}/notes`, { credentials: 'include' });
-            if (!res.ok) {
-                throw new Error(`HTTP ${res.status}`);
-            }
-            const data = await res.json();
+            const data = await this.geocacheDetailsService.getNotes(this.geocacheId);
             this.notesCount = Array.isArray(data.notes) ? data.notes.length : 0;
         } catch (e) {
             console.error('[GeocacheDetailsWidget] Failed to load notes count', e);
@@ -2029,70 +2074,17 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         this.setGeocache({ geocacheId: state.geocacheId });
     }
 
-    /**
-     * Rafraîchit la carte associée à cette géocache après modification des waypoints
-     */
-    private async refreshAssociatedMap(): Promise<void> {
-        if (!this.geocacheId || !this.data?.gc_code) {
-            return;
-        }
-
-        const mapId = `geoapp-map-geocache-${this.geocacheId}`;
-        const existingMap = this.shell.getWidgets('bottom').find(w => w.id === mapId);
-        
-        if (existingMap && 'loadGeocaches' in existingMap) {
-            console.log('[GeocacheDetailsWidget] Rafraîchissement de la carte géocache:', this.geocacheId);
-            
-            // Recharger les données de la géocache pour avoir les waypoints à jour
-            try {
-                const res = await fetch(`${this.backendBaseUrl}/api/geocaches/${this.geocacheId}`, { credentials: 'include' });
-                if (!res.ok) { throw new Error(`HTTP ${res.status}`); }
-                const updatedData = await res.json();
-                
-                // Mettre à jour la carte avec les nouvelles données
-                const mapGeocache = {
-                    id: updatedData.id,
-                    gc_code: updatedData.gc_code,
-                    name: updatedData.name,
-                    latitude: updatedData.latitude,
-                    longitude: updatedData.longitude,
-                    cache_type: updatedData.type,
-                    difficulty: updatedData.difficulty,
-                    terrain: updatedData.terrain,
-                    size: updatedData.size,
-                    solved: 'not_solved',
-                    found: updatedData.found || false,
-                    favorites_count: updatedData.favorites_count || 0,
-                    is_corrected: updatedData.is_corrected || false,
-                    original_latitude: updatedData.original_latitude,
-                    original_longitude: updatedData.original_longitude,
-                    waypoints: updatedData.waypoints || []
-                };
-                
-                // Appeler loadGeocaches avec la géocache mise à jour
-                (existingMap as any).loadGeocaches([mapGeocache]);
-            } catch (e) {
-                console.error('[GeocacheDetailsWidget] Erreur lors du rafraîchissement de la carte:', e);
-            }
-        }
-    }
-
     protected async load(): Promise<void> {
         if (!this.geocacheId) { return; }
         this.isLoading = true;
         this.update();
         try {
-            const res = await fetch(`${this.backendBaseUrl}/api/geocaches/${this.geocacheId}`, { credentials: 'include' });
-            if (!res.ok) { throw new Error(`HTTP ${res.status}`); }
-            this.data = await res.json();
+            this.data = await this.geocachesService.get<GeocacheDto>(this.geocacheId);
             if (this.data && this.descriptionVariantGeocacheId !== this.geocacheId) {
                 this.descriptionVariant = this.getDefaultDescriptionVariant(this.data);
                 this.descriptionVariantGeocacheId = this.geocacheId;
             }
             this.title.label = `Géocache - ${this.data?.name ?? this.data?.gc_code ?? this.geocacheId}`;
-            
-            // Rafraîchir la carte associée avec les données à jour
-            await this.refreshAssociatedMap();
             await this.loadNotesCount();
             void this.autoSyncGcPersonalNoteFromDetailsIfEnabled();
             void this.loadArchiveStatus();
@@ -2100,7 +2092,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         } catch (e) {
             // eslint-disable-next-line no-console
             console.error('GeocacheDetailsWidget: load error', e);
-            this.messages.error('Impossible de charger la géocache');
+            this.messages.error(getErrorMessage(e, 'Impossible de charger la géocache'));
         } finally {
             this.isLoading = false;
             this.update();
@@ -2113,9 +2105,13 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         this.archiveStatus = 'loading';
         this.update();
         try {
-            const res = await fetch(`${this.backendBaseUrl}/api/archive/${gcCode}/status`, { credentials: 'include' });
-            if (!res.ok) { this.archiveStatus = 'none'; this.update(); return; }
-            const json = await res.json();
+            const json = await this.geocacheDetailsService.getArchiveStatus(gcCode);
+            if (!json) {
+                this.archiveStatus = 'none';
+                this.archiveUpdatedAt = undefined;
+                this.update();
+                return;
+            }
             if (json.exists) {
                 this.archiveStatus = 'synced';
                 this.archiveUpdatedAt = json.updated_at;
@@ -2139,13 +2135,8 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         this.archiveStatus = 'loading';
         this.update();
         try {
-            const res = await fetch(`${this.backendBaseUrl}/api/archive/${gcCode}/sync`, {
-                method: 'POST',
-                credentials: 'include'
-            });
-            if (!res.ok) { throw new Error(`HTTP ${res.status}`); }
-            const json = await res.json();
-            if (json.synced && json.archive) {
+            const json = await this.geocacheDetailsService.syncArchive(gcCode);
+            if (json?.synced && json.archive) {
                 this.archiveStatus = 'synced';
                 this.archiveUpdatedAt = json.archive.updated_at;
                 this.messages.info(`Archive ${gcCode} synchronisée`);
@@ -2154,7 +2145,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             }
         } catch (e) {
             this.archiveStatus = 'needs_sync';
-            this.messages.error(`Erreur synchronisation archive: ${String(e)}`);
+            this.messages.error(getErrorMessage(e, 'Erreur synchronisation archive'));
         } finally {
             this.isSyncingArchive = false;
             this.update();
@@ -2178,27 +2169,18 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         if (!confirmed) { return; }
         
         try {
-            const res = await fetch(`${this.backendBaseUrl}/api/geocaches/${this.geocacheId}/waypoints/${waypointId}`, {
-                method: 'DELETE',
-                credentials: 'include'
-            });
-            if (!res.ok) { throw new Error(`HTTP ${res.status}`); }
+            await this.geocachesService.deleteWaypoint(this.geocacheId, waypointId);
             
-            // ✅ Mettre à jour uniquement la liste des waypoints sans recharger toute la page
             if (this.data.waypoints) {
                 this.data.waypoints = this.data.waypoints.filter(w => w.id !== waypointId);
             }
-            
-            // ✅ Rafraîchir la carte avec les waypoints mis à jour
-            await this.refreshAssociatedMap();
-            
-            // ✅ Re-render le composant sans perdre la position de scroll
+            this.notifyGeocacheChanged('waypoint-deleted');
             this.update();
             
             this.messages.info(`Waypoint "${waypointName}" supprimé`);
         } catch (e) {
             console.error('Delete waypoint error', e);
-            this.messages.error('Erreur lors de la suppression du waypoint');
+            this.messages.error(getErrorMessage(e, 'Erreur lors de la suppression du waypoint'));
         }
     };
 
@@ -2219,23 +2201,11 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         if (!confirmed) { return; }
 
         try {
-            const res = await fetch(
-                `${this.backendBaseUrl}/api/geocaches/${this.geocacheId}/waypoints/${waypointId}/push-coordinates`,
-                { method: 'POST', credentials: 'include' }
-            );
-            const json = await res.json();
-            if (!res.ok) {
-                if (res.status === 401) {
-                    this.messages.error('Non connecté à Geocaching.com "” configurez l\'authentification dans GeoApp');
-                } else {
-                    this.messages.error(`Échec de l'envoi : ${json.error || res.statusText}`);
-                }
-                return;
-            }
+            await this.geocacheDetailsService.pushWaypointCoordinates(this.geocacheId, waypointId);
             this.messages.info(`✅ Coordonnées de "${waypointName}" envoyées vers Geocaching.com`);
         } catch (e) {
             console.error('pushWaypointToGeocaching error', e);
-            this.messages.error('Erreur réseau lors de l\'envoi vers Geocaching.com');
+            this.messages.error(getErrorMessage(e, 'Erreur réseau lors de l\'envoi vers Geocaching.com'));
         }
     };
 
@@ -2256,19 +2226,13 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         if (!confirmed) { return; }
         
         try {
-            const res = await fetch(`${this.backendBaseUrl}/api/geocaches/${this.geocacheId}/set-corrected-coords/${waypointId}`, {
-                method: 'POST',
-                credentials: 'include'
-            });
-            if (!res.ok) { throw new Error(`HTTP ${res.status}`); }
-            
-            // Recharger les données pour afficher les nouvelles coordonnées corrigées
+            await this.geocachesService.setWaypointAsCorrectedCoords(this.geocacheId, waypointId);
             await this.load();
-            
+            this.notifyGeocacheChanged('corrected-coordinates-updated');
             this.messages.info(`Coordonnées corrigées mises à jour depuis "${waypointName}"`);
         } catch (e) {
             console.error('Set corrected coords error', e);
-            this.messages.error('Erreur lors de la mise à jour des coordonnées corrigées');
+            this.messages.error(getErrorMessage(e, 'Erreur lors de la mise à jour des coordonnées corrigées'));
         }
     };
 
@@ -2537,15 +2501,10 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                     .map((w: any) => ({ id: w.id, note_override: String(w.note) })),
             };
 
-            const res = await fetch(`${this.backendBaseUrl}/api/geocaches/${this.geocacheId}/translated-content`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify(payload)
-            });
-            if (!res.ok) {
-                throw new Error(`HTTP ${res.status}`);
-            }
+            await this.geocacheDetailsService.updateTranslatedContent(
+                this.geocacheId,
+                payload as UpdateTranslatedContentInput
+            );
 
             this.descriptionVariant = 'modified';
             await this.load();
@@ -2712,18 +2671,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         this.isChatRoutingPreviewLoading = true;
         this.update();
         try {
-            const response = await fetch(`${this.backendBaseUrl}/api/plugins/workflow/resolve`, {
-                method: 'POST',
-                credentials: 'include',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ geocache_id: this.geocacheId })
-            });
-
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-
-            const preview = await response.json() as GeoAppWorkflowResolutionPreview;
+            const preview = await this.geocacheDetailsService.resolveWorkflow<GeoAppWorkflowResolutionPreview>(this.geocacheId);
             this.chatWorkflowPreview = this.resolveWorkflowKindFromOrchestrator(preview);
             this.chatProfilePreview = this.resolveChatProfileForWorkflow(this.chatWorkflowPreview);
         } catch (error) {
@@ -2977,11 +2925,11 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                                 <h4 style={{ margin: '0 0 16px 0', fontSize: 16 }}>Coordonnées</h4>
                                 <CoordinatesEditor
                                     geocacheData={d}
-                                    geocacheId={this.geocacheId!}
-                                    backendBaseUrl={this.backendBaseUrl}
-                                    onUpdate={() => this.load()}
-                                    messages={this.messages}
                                     gcCode={d.gc_code}
+                                    onSaveCoordinates={(coordinatesRaw) => this.saveCoordinates(coordinatesRaw)}
+                                    onResetCoordinates={() => this.resetCoordinates()}
+                                    onPushCorrectedCoordinates={() => this.pushCorrectedCoordinatesToGeocaching()}
+                                    onUpdateSolvedStatus={(newStatus) => this.updateSolvedStatus(newStatus)}
                                 />
                             </div>
                         </div>
@@ -3014,15 +2962,14 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                         <DescriptionEditor
                             geocacheData={d}
                             geocacheId={this.geocacheId!}
-                            backendBaseUrl={this.backendBaseUrl}
-                            onUpdate={() => this.load()}
-                            messages={this.messages}
                             defaultVariant={this.descriptionVariant}
                             onVariantChange={(variant) => {
                                 this.descriptionVariant = variant;
                                 this.update();
                             }}
                             getEffectiveDescriptionHtml={(data, variant) => this.getEffectiveDescriptionHtml(data, variant)}
+                            onSaveDescription={(payload) => this.saveDescriptionOverrides(payload)}
+                            onResetDescription={() => this.resetDescriptionOverrides()}
                             onTranslateToFrench={() => this.translateDescriptionToFrench()}
                             isTranslating={this.isTranslatingDescription}
                             onTranslateAllToFrench={() => this.translateAllToFrench()}
@@ -3048,7 +2995,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
 
                         {this.geocacheId ? (
                             <GeocacheImagesPanel
-                                backendBaseUrl={this.backendBaseUrl}
+                                backendBaseUrl={this.apiClient.getBaseUrl()}
                                 geocacheId={this.geocacheId}
                                 storageDefaultMode={this.getImagesStorageDefaultMode()}
                                 onConfirmStoreAll={async (opts) => this.confirmStoreAllImages(opts)}
@@ -3070,10 +3017,8 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                         <div>
                             <WaypointsEditorWrapper
                                 waypoints={d.waypoints}
-                                geocacheId={this.geocacheId}
                                 geocacheData={d}
-                                backendBaseUrl={this.backendBaseUrl}
-                                onUpdate={() => this.load()}
+                                onSaveWaypoint={(waypointId, payload) => this.saveWaypointFromEditor(waypointId, payload)}
                                 messages={this.messages}
                                 onDeleteWaypoint={this.deleteWaypoint}
                                 onSetAsCorrectedCoords={this.setAsCorrectedCoords}

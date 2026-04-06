@@ -37,6 +37,10 @@ export class BackendApiClient {
         });
     }
 
+    getBaseUrl(): string {
+        return this.baseUrl;
+    }
+
     async requestJson<T>(path: string, init: RequestInit = {}, fallbackMessage?: string): Promise<T> {
         const response = await this.request(path, init);
         await this.ensureOk(response, fallbackMessage);

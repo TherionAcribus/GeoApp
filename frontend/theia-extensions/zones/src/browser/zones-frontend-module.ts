@@ -44,11 +44,13 @@ import { BackendApiClient } from './backend-api-client';
 import { ZonesService } from './zones-service';
 import { GeocachesService } from './geocaches-service';
 import { GeoAppWidgetEventsService } from './geoapp-widget-events-service';
+import { GeocacheDetailsService } from './geocache-details-service';
 
 export default new ContainerModule(bind => {
     bind(BackendApiClient).toSelf().inSingletonScope();
     bind(ZonesService).toSelf().inSingletonScope();
     bind(GeocachesService).toSelf().inSingletonScope();
+    bind(GeocacheDetailsService).toSelf().inSingletonScope();
     bind(GeoAppWidgetEventsService).toSelf().inSingletonScope();
 
     bind(ZonesTreeWidget).toSelf().inSingletonScope();
