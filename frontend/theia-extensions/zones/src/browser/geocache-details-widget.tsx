@@ -10,11 +10,9 @@ import { GeocacheContext } from '@mysterai/theia-plugins/lib/browser/plugin-exec
 import { FormulaSolverSolveFromGeocacheCommand } from '@mysterai/theia-formula-solver/lib/browser/formula-solver-contribution';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import { PreferenceScope } from '@theia/core/lib/common/preferences/preference-scope';
-import { GeocacheImagesPanel } from './geocache-images-panel';
 import { GeoAppTranslateDescriptionAgentId } from './geoapp-translate-description-agent';
 import { BackendApiClient, getErrorMessage } from './backend-api-client';
-import { CoordinatesEditor } from './geocache-coordinates-editor';
-import { DescriptionEditor } from './geocache-description-editor';
+import { GeocacheDetailsView } from './geocache-details-view';
 import { GeocachesService } from './geocaches-service';
 import {
     GeocacheDetailsService,
@@ -36,15 +34,7 @@ import {
     rot13,
     toGCFormat
 } from './geocache-details-utils';
-import { WaypointsEditorWrapper } from './geocache-waypoints-editor';
 import { GeoAppWidgetEventsService } from './geoapp-widget-events-service';
-import {
-    GeocacheCheckersSection,
-    GeocacheDetailedInfoSection,
-    GeocacheDetailsHeader,
-    GeocacheHintsSection,
-    GeocacheOverviewSection
-} from './geocache-details-sections';
 import {
     GeoAppChatProfile,
     GeoAppChatWorkflowProfile,
@@ -1500,116 +1490,92 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             ? (displayDecodedHints ? (decodedHints || rawHints) : (rawHints || decodedHints))
             : undefined;
         return (
-            <div className='p-2'>
-                {this.isLoading && <div>Chargement...</div>}
-                {!this.isLoading && !d && <div style={{ opacity: 0.7 }}>Aucune donnée</div>}
-                {!this.isLoading && d && (
-                    <div style={{ display: 'grid', gap: 12 }}>
-                        <GeocacheDetailsHeader
-                            geocacheData={d}
-                            notesCount={this.notesCount}
-                            chatWorkflowPreview={this.chatWorkflowPreview}
-                            chatProfilePreview={this.chatProfilePreview}
-                            chatProfileOverride={this.chatProfileOverride}
-                            effectiveChatProfile={this.getEffectiveChatProfile()}
-                            chatProfileOverrideLabel={this.getChatProfileOverrideLabel()}
-                            isChatRoutingPreviewLoading={this.isChatRoutingPreviewLoading}
-                            isChatProfileMenuOpen={this.isChatProfileMenuOpen}
-                            chatProfileOptions={GEOAPP_CHAT_PROFILE_MENU_OPTIONS}
-                            archiveStatus={this.archiveStatus}
-                            archiveUpdatedAt={this.archiveUpdatedAt}
-                            isSyncingArchive={this.isSyncingArchive}
-                            onSolveFormula={this.solveFormula}
-                            onAnalyzePage={this.analyzePage}
-                            onAnalyzeCode={this.analyzeCode}
-                            onAnalyzeWithPlugins={this.analyzeWithPlugins}
-                            onOpenAiChat={this.openGeocacheAIChat}
-                            onToggleChatProfileMenu={this.toggleChatProfileMenu}
-                            onSelectChatProfileOverride={this.selectChatProfileOverride}
-                            onOpenLogs={this.openLogs}
-                            onOpenLogEditor={this.openLogEditor}
-                            onOpenNotes={this.openNotes}
-                            onForceSyncArchive={this.forceSyncArchive}
-                        />
-
-                        <GeocacheOverviewSection
-                            geocacheData={d}
-                            coordinatesEditor={(
-                                <CoordinatesEditor
-                                    geocacheData={d}
-                                    gcCode={d.gc_code}
-                                    onSaveCoordinates={(coordinatesRaw) => this.saveCoordinates(coordinatesRaw)}
-                                    onResetCoordinates={() => this.resetCoordinates()}
-                                    onPushCorrectedCoordinates={() => this.pushCorrectedCoordinatesToGeocaching()}
-                                    onUpdateSolvedStatus={(newStatus) => this.updateSolvedStatus(newStatus)}
-                                />
-                            )}
-                        />
-
-                        <GeocacheDetailedInfoSection geocacheData={d} />
-
-                        <DescriptionEditor
-                            geocacheData={d}
-                            geocacheId={this.geocacheId!}
-                            defaultVariant={this.descriptionVariant}
-                            onVariantChange={(variant) => {
-                                this.descriptionVariant = variant;
-                                this.update();
-                            }}
-                            getEffectiveDescriptionHtml={(data, variant) => this.getEffectiveDescriptionHtml(data, variant)}
-                            onSaveDescription={(payload) => this.saveDescriptionOverrides(payload)}
-                            onResetDescription={() => this.resetDescriptionOverrides()}
-                            onTranslateToFrench={() => this.translateDescriptionToFrench()}
-                            isTranslating={this.isTranslatingDescription}
-                            onTranslateAllToFrench={() => this.translateAllToFrench()}
-                            isTranslatingAll={this.isTranslatingAllContent}
-                            externalLinksOpenMode={this.getExternalLinksOpenMode()}
-                        />
-
-                        <GeocacheHintsSection
-                            displayedHints={displayedHints}
-                            displayDecodedHints={displayDecodedHints}
-                            onToggleDisplayMode={this.toggleHintsDisplayMode}
-                        />
-
-                        {this.geocacheId ? (
-                            <GeocacheImagesPanel
-                                backendBaseUrl={this.apiClient.getBaseUrl()}
-                                geocacheId={this.geocacheId}
-                                storageDefaultMode={this.getImagesStorageDefaultMode()}
-                                onConfirmStoreAll={async (opts) => this.confirmStoreAllImages(opts)}
-                                thumbnailSize={this.getImagesGalleryThumbnailSize()}
-                                onThumbnailSizeChange={async (size) => this.setImagesGalleryThumbnailSize(size)}
-                                hiddenDomains={this.getImagesGalleryHiddenDomains()}
-                                hiddenDomainsText={this.getImagesGalleryHiddenDomainsText()}
-                                onHiddenDomainsTextChange={async (value: string) => this.setImagesGalleryHiddenDomainsText(value)}
-                                ocrDefaultEngine={this.getOcrDefaultEngine()}
-                                ocrDefaultLanguage={this.getOcrDefaultLanguage()}
-                                ocrLmstudioBaseUrl={this.getOcrLmstudioBaseUrl()}
-                                ocrLmstudioModel={this.getOcrLmstudioModel()}
-                                messages={this.messages}
-                                languageModelRegistry={this.languageModelRegistry}
-                                languageModelService={this.languageModelService}
-                            />
-                        ) : undefined}
-
-                        <div>
-                            <WaypointsEditorWrapper
-                                waypoints={d.waypoints}
-                                geocacheData={d}
-                                onSaveWaypoint={(waypointId, payload) => this.saveWaypointFromEditor(waypointId, payload)}
-                                messages={this.messages}
-                                onDeleteWaypoint={this.deleteWaypoint}
-                                onSetAsCorrectedCoords={this.setAsCorrectedCoords}
-                                onPushWaypointToGeocaching={this.pushWaypointToGeocaching}
-                                onRegisterCallback={(callback) => { this.waypointEditorCallback = callback; }}
-                            />
-                        </div>
-
-                        <GeocacheCheckersSection checkers={d.checkers} />
-                    </div>
-                )}
-            </div>
+            <GeocacheDetailsView
+                isLoading={this.isLoading}
+                geocacheData={d}
+                headerProps={{
+                    geocacheData: d!,
+                    notesCount: this.notesCount,
+                    chatWorkflowPreview: this.chatWorkflowPreview,
+                    chatProfilePreview: this.chatProfilePreview,
+                    chatProfileOverride: this.chatProfileOverride,
+                    effectiveChatProfile: this.getEffectiveChatProfile(),
+                    chatProfileOverrideLabel: this.getChatProfileOverrideLabel(),
+                    isChatRoutingPreviewLoading: this.isChatRoutingPreviewLoading,
+                    isChatProfileMenuOpen: this.isChatProfileMenuOpen,
+                    chatProfileOptions: GEOAPP_CHAT_PROFILE_MENU_OPTIONS,
+                    archiveStatus: this.archiveStatus,
+                    archiveUpdatedAt: this.archiveUpdatedAt,
+                    isSyncingArchive: this.isSyncingArchive,
+                    onSolveFormula: this.solveFormula,
+                    onAnalyzePage: this.analyzePage,
+                    onAnalyzeCode: this.analyzeCode,
+                    onAnalyzeWithPlugins: this.analyzeWithPlugins,
+                    onOpenAiChat: this.openGeocacheAIChat,
+                    onToggleChatProfileMenu: this.toggleChatProfileMenu,
+                    onSelectChatProfileOverride: this.selectChatProfileOverride,
+                    onOpenLogs: this.openLogs,
+                    onOpenLogEditor: this.openLogEditor,
+                    onOpenNotes: this.openNotes,
+                    onForceSyncArchive: this.forceSyncArchive,
+                }}
+                coordinatesEditorProps={{
+                    geocacheData: d!,
+                    gcCode: d?.gc_code,
+                    onSaveCoordinates: (coordinatesRaw) => this.saveCoordinates(coordinatesRaw),
+                    onResetCoordinates: () => this.resetCoordinates(),
+                    onPushCorrectedCoordinates: () => this.pushCorrectedCoordinatesToGeocaching(),
+                    onUpdateSolvedStatus: (newStatus) => this.updateSolvedStatus(newStatus),
+                }}
+                descriptionEditorProps={{
+                    geocacheData: d!,
+                    geocacheId: this.geocacheId!,
+                    defaultVariant: this.descriptionVariant,
+                    onVariantChange: (variant) => {
+                        this.descriptionVariant = variant;
+                        this.update();
+                    },
+                    getEffectiveDescriptionHtml: (data, variant) => this.getEffectiveDescriptionHtml(data, variant),
+                    onSaveDescription: (payload) => this.saveDescriptionOverrides(payload),
+                    onResetDescription: () => this.resetDescriptionOverrides(),
+                    onTranslateToFrench: () => this.translateDescriptionToFrench(),
+                    isTranslating: this.isTranslatingDescription,
+                    onTranslateAllToFrench: () => this.translateAllToFrench(),
+                    isTranslatingAll: this.isTranslatingAllContent,
+                    externalLinksOpenMode: this.getExternalLinksOpenMode(),
+                }}
+                displayedHints={displayedHints}
+                displayDecodedHints={displayDecodedHints}
+                onToggleHintsDisplayMode={this.toggleHintsDisplayMode}
+                imagesPanelProps={this.geocacheId ? {
+                    backendBaseUrl: this.apiClient.getBaseUrl(),
+                    geocacheId: this.geocacheId,
+                    storageDefaultMode: this.getImagesStorageDefaultMode(),
+                    onConfirmStoreAll: async (opts) => this.confirmStoreAllImages(opts),
+                    thumbnailSize: this.getImagesGalleryThumbnailSize(),
+                    onThumbnailSizeChange: async (size) => this.setImagesGalleryThumbnailSize(size),
+                    hiddenDomains: this.getImagesGalleryHiddenDomains(),
+                    hiddenDomainsText: this.getImagesGalleryHiddenDomainsText(),
+                    onHiddenDomainsTextChange: async (value: string) => this.setImagesGalleryHiddenDomainsText(value),
+                    ocrDefaultEngine: this.getOcrDefaultEngine(),
+                    ocrDefaultLanguage: this.getOcrDefaultLanguage(),
+                    ocrLmstudioBaseUrl: this.getOcrLmstudioBaseUrl(),
+                    ocrLmstudioModel: this.getOcrLmstudioModel(),
+                    messages: this.messages,
+                    languageModelRegistry: this.languageModelRegistry,
+                    languageModelService: this.languageModelService,
+                } : undefined}
+                waypointsEditorProps={{
+                    waypoints: d?.waypoints,
+                    geocacheData: d!,
+                    onSaveWaypoint: (waypointId, payload) => this.saveWaypointFromEditor(waypointId, payload),
+                    messages: this.messages,
+                    onDeleteWaypoint: this.deleteWaypoint,
+                    onSetAsCorrectedCoords: this.setAsCorrectedCoords,
+                    onPushWaypointToGeocaching: this.pushWaypointToGeocaching,
+                    onRegisterCallback: (callback) => { this.waypointEditorCallback = callback; },
+                }}
+            />
         );
     }
 }
