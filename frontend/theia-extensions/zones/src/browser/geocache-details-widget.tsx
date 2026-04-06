@@ -4,22 +4,26 @@ import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core';
 import { ApplicationShell, ConfirmDialog, StatefulWidget } from '@theia/core/lib/browser';
 import { CommandService } from '@theia/core';
-import { LanguageModelRegistry, LanguageModelService, UserRequest, getJsonOfResponse, getTextOfResponse, isLanguageModelParsedResponse } from '@theia/ai-core';
+import { LanguageModelRegistry, LanguageModelService } from '@theia/ai-core';
 import { PluginExecutorContribution } from '@mysterai/theia-plugins/lib/browser/plugins-contribution';
 import { GeocacheContext } from '@mysterai/theia-plugins/lib/browser/plugin-executor-widget';
 import { FormulaSolverSolveFromGeocacheCommand } from '@mysterai/theia-formula-solver/lib/browser/formula-solver-contribution';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import { PreferenceScope } from '@theia/core/lib/common/preferences/preference-scope';
-import { GeoAppTranslateDescriptionAgentId } from './geoapp-translate-description-agent';
 import { BackendApiClient, getErrorMessage } from './backend-api-client';
+import {
+    GeocacheArchiveStatus,
+    GeocacheDetailsArchiveController
+} from './geocache-details-archive-controller';
+import { GeocacheDetailsChatController } from './geocache-details-chat-controller';
 import { GeocacheDetailsView } from './geocache-details-view';
 import { GeocachesService } from './geocaches-service';
 import {
     GeocacheDetailsService,
     SaveWaypointInput,
     UpdateDescriptionInput,
-    UpdateTranslatedContentInput
 } from './geocache-details-service';
+import { GeocacheDetailsTranslationController } from './geocache-details-translation-controller';
 import {
     DescriptionVariant,
     GeocacheDto,
@@ -40,15 +44,6 @@ import {
     GeoAppChatWorkflowProfile,
     GeoAppChatWorkflowKind
 } from './geoapp-chat-agent';
-import {
-    buildGeocacheGeoAppOpenChatDetail,
-} from './geocache-chat-prompt-shared';
-import {
-    dispatchGeoAppOpenChatRequest,
-    GeoAppWorkflowResolutionPreview,
-    resolveGeoAppChatProfileForWorkflow,
-    resolveGeoAppChatWorkflowKindFromOrchestrator,
-} from './geoapp-chat-shared';
 
 interface PluginAddWaypointDetail {
     gcCoords: string;
@@ -94,7 +89,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
     protected isTranslatingDescription = false;
     protected isTranslatingAllContent = false;
     protected lastAccessTimestamp: number = Date.now();
-    protected archiveStatus: 'synced' | 'needs_sync' | 'none' | 'loading' = 'none';
+    protected archiveStatus: GeocacheArchiveStatus = 'none';
     protected archiveUpdatedAt: string | undefined = undefined;
     protected isSyncingArchive = false;
     protected chatWorkflowPreview: GeoAppChatWorkflowKind = 'general';
@@ -135,6 +130,9 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         @inject(BackendApiClient) protected readonly apiClient: BackendApiClient,
         @inject(GeocachesService) protected readonly geocachesService: GeocachesService,
         @inject(GeocacheDetailsService) protected readonly geocacheDetailsService: GeocacheDetailsService,
+        @inject(GeocacheDetailsArchiveController) protected readonly archiveController: GeocacheDetailsArchiveController,
+        @inject(GeocacheDetailsChatController) protected readonly chatController: GeocacheDetailsChatController,
+        @inject(GeocacheDetailsTranslationController) protected readonly translationController: GeocacheDetailsTranslationController,
         @inject(GeoAppWidgetEventsService) protected readonly widgetEventsService: GeoAppWidgetEventsService
     ) {
         super();
@@ -814,70 +812,13 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         this.update();
 
         try {
-            const languageModel = await this.languageModelRegistry.selectLanguageModel({
-                agent: GeoAppTranslateDescriptionAgentId,
-                purpose: 'chat',
-                identifier: 'default/universal'
-            });
-
-            if (!languageModel) {
-                this.messages.error('Aucun modèle IA n\'est configuré pour la traduction (vérifie la configuration IA de Theia)');
-                return;
-            }
-
-            const prompt =
-                'Tu es un traducteur. Traduis en français le contenu TEXTUEL du HTML fourni, en conservant le HTML.\n'
-                + '- Ne change pas les balises, attributs, liens, images, classes, ids.\n'
-                + '- Ne traduis pas les coordonnées, codes GC, URLs, ni les identifiants techniques.\n'
-                + '- Ne renvoie que le HTML final, sans markdown, sans explications.';
-
-            const request: UserRequest = {
-                messages: [
-                    { actor: 'user', type: 'text', text: `${prompt}\n\nHTML:\n${sourceHtml}` },
-                ],
-                agentId: GeoAppTranslateDescriptionAgentId,
-                requestId: `geoapp-translate-description-${Date.now()}`,
-                sessionId: `geoapp-translate-description-session-${Date.now()}`,
-            };
-
-            const response = await this.languageModelService.sendRequest(languageModel, request);
-            let translatedHtml = '';
-            if (isLanguageModelParsedResponse(response)) {
-                translatedHtml = JSON.stringify(response.parsed);
-            } else {
-                try {
-                    translatedHtml = await getTextOfResponse(response);
-                } catch {
-                    const jsonResponse = await getJsonOfResponse(response) as any;
-                    translatedHtml = typeof jsonResponse === 'string' ? jsonResponse : String(jsonResponse);
-                }
-            }
-
-            translatedHtml = (translatedHtml || '').toString();
-            translatedHtml = translatedHtml
-                .replace(/\[THINK\][\s\S]*?\[\/THINK\]/gi, '')
-                .replace(/<think>[\s\S]*?<\/think>/gi, '')
-                .replace(/\[ANALYSIS\][\s\S]*?\[\/ANALYSIS\]/gi, '')
-                .replace(/<analysis>[\s\S]*?<\/analysis>/gi, '')
-                .trim();
-
-            if (!translatedHtml) {
-                this.messages.warn('Traduction IA: réponse vide');
-                return;
-            }
-
-            const translatedRaw = htmlToRawText(translatedHtml);
-            await this.geocacheDetailsService.updateDescription(this.geocacheId, {
-                description_override_html: translatedHtml,
-                description_override_raw: translatedRaw,
-            });
-
+            await this.translationController.translateDescription(this.geocacheId, sourceHtml);
             this.descriptionVariant = 'modified';
             await this.load();
             this.messages.info('Traduction enregistrée dans la description modifiée');
         } catch (e) {
             console.error('[GeocacheDetailsWidget] translateDescriptionToFrench error', e);
-            this.messages.error(`Traduction IA: erreur (${String(e)})`);
+            this.messages.error(getErrorMessage(e, 'Traduction IA: erreur'));
         } finally {
             this.isTranslatingDescription = false;
             this.update();
@@ -978,30 +919,16 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
     }
 
     protected async loadArchiveStatus(): Promise<void> {
-        const gcCode = this.data?.gc_code;
-        if (!gcCode) { return; }
+        if (!this.data?.gc_code) {
+            this.applyArchiveState({ status: 'none' });
+            return;
+        }
         this.archiveStatus = 'loading';
         this.update();
         try {
-            const json = await this.geocacheDetailsService.getArchiveStatus(gcCode);
-            if (!json) {
-                this.archiveStatus = 'none';
-                this.archiveUpdatedAt = undefined;
-                this.update();
-                return;
-            }
-            if (json.exists) {
-                this.archiveStatus = 'synced';
-                this.archiveUpdatedAt = json.updated_at;
-            } else if (json.needs_sync) {
-                this.archiveStatus = 'needs_sync';
-                this.archiveUpdatedAt = undefined;
-            } else {
-                this.archiveStatus = 'none';
-                this.archiveUpdatedAt = undefined;
-            }
+            this.applyArchiveState(await this.archiveController.loadArchiveState(this.data.gc_code));
         } catch {
-            this.archiveStatus = 'none';
+            this.applyArchiveState({ status: 'none' });
         }
         this.update();
     }
@@ -1013,16 +940,13 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         this.archiveStatus = 'loading';
         this.update();
         try {
-            const json = await this.geocacheDetailsService.syncArchive(gcCode);
-            if (json?.synced && json.archive) {
-                this.archiveStatus = 'synced';
-                this.archiveUpdatedAt = json.archive.updated_at;
-                this.messages.info(`Archive ${gcCode} synchronisée`);
-            } else {
-                this.archiveStatus = 'needs_sync';
+            const archiveState = await this.archiveController.syncArchive(gcCode);
+            this.applyArchiveState(archiveState);
+            if (archiveState.status === 'synced') {
+                this.messages.info(`Archive ${gcCode} synchronisee`);
             }
         } catch (e) {
-            this.archiveStatus = 'needs_sync';
+            this.applyArchiveState({ status: 'needs_sync' });
             this.messages.error(getErrorMessage(e, 'Erreur synchronisation archive'));
         } finally {
             this.isSyncingArchive = false;
@@ -1121,15 +1045,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         }
         try {
             this.isChatProfileMenuOpen = false;
-            dispatchGeoAppOpenChatRequest(
-                window,
-                CustomEvent,
-                buildGeocacheGeoAppOpenChatDetail(
-                    this.data,
-                    this.chatWorkflowPreview,
-                    this.chatProfileOverride === 'default' ? undefined : this.chatProfileOverride,
-                )
-            );
+            this.chatController.openGeocacheChat(this.data, this.chatWorkflowPreview, this.chatProfileOverride);
             this.messages.info('Chat IA lance pour cette geocache.');
         } catch (error) {
             console.error('[GeocacheDetailsWidget] openGeocacheAIChat error', error);
@@ -1204,6 +1120,11 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         return rot13(data.hints);
     }
 
+    private applyArchiveState(state: { status: GeocacheArchiveStatus; updatedAt?: string }): void {
+        this.archiveStatus = state.status;
+        this.archiveUpdatedAt = state.updatedAt;
+    }
+
     protected async translateAllToFrench(): Promise<void> {
         if (!this.data || !this.geocacheId) {
             this.messages.warn('Aucune géocache chargée');
@@ -1242,72 +1163,18 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         this.update();
 
         try {
-            const languageModel = await this.languageModelRegistry.selectLanguageModel({
-                agent: GeoAppTranslateDescriptionAgentId,
-                purpose: 'chat',
-                identifier: 'default/universal'
-            });
-            if (!languageModel) {
-                this.messages.error('Aucun modèle IA n\'est configuré pour la traduction (vérifie la configuration IA de Theia)');
-                return;
-            }
-
-            const input = {
-                description_html: sourceHtml,
-                hints_decoded: sourceHints,
+            await this.translationController.translateAllContent({
+                geocacheId: this.geocacheId,
+                descriptionHtml: sourceHtml,
+                hintsDecoded: sourceHints,
                 waypoints: sourceWaypoints,
-            };
-
-            const prompt =
-                'Traduis en français le contenu suivant et renvoie UNIQUEMENT un JSON valide.\n'
-                + 'Contraintes :\n'
-                + '- description_html : conserve strictement le HTML (balises/attributs/liens/images), ne traduis que le texte.\n'
-                + '- Ne traduis pas les coordonnées, codes GC, URLs, ni les identifiants techniques.\n'
-                + '- waypoints : conserve les ids, traduis uniquement la note.\n'
-                + 'Schéma JSON de sortie : {"description_html": string, "hints_decoded": string, "waypoints": [{"id": number, "note": string}] }\n';
-
-            const request: UserRequest = {
-                messages: [
-                    { actor: 'user', type: 'text', text: `${prompt}\nINPUT_JSON:\n${JSON.stringify(input)}` },
-                ],
-                agentId: GeoAppTranslateDescriptionAgentId,
-                requestId: `geoapp-translate-all-${Date.now()}`,
-                sessionId: `geoapp-translate-all-session-${Date.now()}`,
-            };
-
-            const response = await this.languageModelService.sendRequest(languageModel, request);
-            let parsed: any;
-            try {
-                parsed = await getJsonOfResponse(response) as any;
-            } catch {
-                const text = await getTextOfResponse(response);
-                parsed = JSON.parse(text);
-            }
-
-            const translatedHtml = (parsed?.description_html || '').toString();
-            const translatedHints = (parsed?.hints_decoded || '').toString();
-            const translatedWaypoints = Array.isArray(parsed?.waypoints) ? parsed.waypoints : [];
-
-            const payload = {
-                description_override_html: translatedHtml,
-                description_override_raw: htmlToRawText(translatedHtml),
-                hints_decoded_override: translatedHints,
-                waypoints: translatedWaypoints
-                    .filter((w: any) => w && typeof w.id === 'number' && w.note !== undefined && w.note !== null)
-                    .map((w: any) => ({ id: w.id, note_override: String(w.note) })),
-            };
-
-            await this.geocacheDetailsService.updateTranslatedContent(
-                this.geocacheId,
-                payload as UpdateTranslatedContentInput
-            );
-
+            });
             this.descriptionVariant = 'modified';
             await this.load();
             this.messages.info('Traduction enregistrée (description + indices + waypoints)');
         } catch (e) {
             console.error('[GeocacheDetailsWidget] translateAllToFrench error', e);
-            this.messages.error(`Traduction IA: erreur (${String(e)})`);
+            this.messages.error(getErrorMessage(e, 'Traduction IA: erreur'));
         } finally {
             this.isTranslatingAllContent = false;
             this.update();
@@ -1416,30 +1283,12 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         return 'new-tab';
     }
 
-    private resolveChatProfileForWorkflow(workflowKind: GeoAppChatWorkflowKind): GeoAppChatProfile {
-        return resolveGeoAppChatProfileForWorkflow(workflowKind, undefined, {
-            'geoApp.chat.defaultProfile': this.preferenceService.get('geoApp.chat.defaultProfile', 'fast'),
-            'geoApp.chat.workflowProfile.secretCode': this.preferenceService.get('geoApp.chat.workflowProfile.secretCode', 'default'),
-            'geoApp.chat.workflowProfile.formula': this.preferenceService.get('geoApp.chat.workflowProfile.formula', 'default'),
-            'geoApp.chat.workflowProfile.checker': this.preferenceService.get('geoApp.chat.workflowProfile.checker', 'default'),
-            'geoApp.chat.workflowProfile.hiddenContent': this.preferenceService.get('geoApp.chat.workflowProfile.hiddenContent', 'default'),
-            'geoApp.chat.workflowProfile.imagePuzzle': this.preferenceService.get('geoApp.chat.workflowProfile.imagePuzzle', 'default'),
-        });
-    }
-
-    private resolveWorkflowKindFromOrchestrator(preview?: GeoAppWorkflowResolutionPreview): GeoAppChatWorkflowKind {
-        return resolveGeoAppChatWorkflowKindFromOrchestrator(preview);
-    }
-
     private getEffectiveChatProfile(): GeoAppChatProfile {
-        return this.chatProfileOverride === 'default' ? this.chatProfilePreview : this.chatProfileOverride;
+        return this.chatController.getEffectiveChatProfile(this.chatProfilePreview, this.chatProfileOverride);
     }
 
     private getChatProfileOverrideLabel(): string {
-        if (this.chatProfileOverride === 'default') {
-            return `Auto (${this.chatProfilePreview})`;
-        }
-        return this.chatProfileOverride;
+        return this.chatController.getChatProfileOverrideLabel(this.chatProfilePreview, this.chatProfileOverride);
     }
 
     private toggleChatProfileMenu = (event: React.MouseEvent<HTMLButtonElement>): void => {
@@ -1456,24 +1305,19 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
     };
 
     private async refreshChatRoutingPreview(): Promise<void> {
-        if (!this.geocacheId || !this.data) {
-            this.chatWorkflowPreview = 'general';
-            this.chatProfilePreview = this.resolveChatProfileForWorkflow('general');
-            this.isChatRoutingPreviewLoading = false;
-            this.update();
-            return;
-        }
-
         this.isChatRoutingPreviewLoading = true;
         this.update();
         try {
-            const preview = await this.geocacheDetailsService.resolveWorkflow<GeoAppWorkflowResolutionPreview>(this.geocacheId);
-            this.chatWorkflowPreview = this.resolveWorkflowKindFromOrchestrator(preview);
-            this.chatProfilePreview = this.resolveChatProfileForWorkflow(this.chatWorkflowPreview);
+            const routingState = await this.chatController.resolveRoutingPreview(
+                this.geocacheId && this.data ? this.geocacheId : undefined
+            );
+            this.chatWorkflowPreview = routingState.workflowPreview;
+            this.chatProfilePreview = routingState.profilePreview;
         } catch (error) {
             console.warn('[GeocacheDetailsWidget] refreshChatRoutingPreview error', error);
-            this.chatWorkflowPreview = 'general';
-            this.chatProfilePreview = this.resolveChatProfileForWorkflow('general');
+            const routingState = await this.chatController.resolveRoutingPreview(undefined);
+            this.chatWorkflowPreview = routingState.workflowPreview;
+            this.chatProfilePreview = routingState.profilePreview;
         } finally {
             this.isChatRoutingPreviewLoading = false;
             this.update();
