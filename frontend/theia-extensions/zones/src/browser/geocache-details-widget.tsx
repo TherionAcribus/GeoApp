@@ -5,7 +5,6 @@ import { MessageService } from '@theia/core';
 import { ApplicationShell, ConfirmDialog, StatefulWidget } from '@theia/core/lib/browser';
 import { CommandService } from '@theia/core';
 import { LanguageModelRegistry, LanguageModelService, UserRequest, getJsonOfResponse, getTextOfResponse, isLanguageModelParsedResponse } from '@theia/ai-core';
-import { getAttributeIconUrl } from './geocache-attributes-icons-data';
 import { PluginExecutorContribution } from '@mysterai/theia-plugins/lib/browser/plugins-contribution';
 import { GeocacheContext } from '@mysterai/theia-plugins/lib/browser/plugin-executor-widget';
 import { FormulaSolverSolveFromGeocacheCommand } from '@mysterai/theia-formula-solver/lib/browser/formula-solver-contribution';
@@ -25,11 +24,7 @@ import {
 } from './geocache-details-service';
 import {
     DescriptionVariant,
-    GeocacheAttribute,
-    GeocacheChecker,
     GeocacheDto,
-    GeocacheImage,
-    GeocacheWaypoint,
     WaypointPrefillPayload
 } from './geocache-details-types';
 import {
@@ -43,6 +38,13 @@ import {
 } from './geocache-details-utils';
 import { WaypointsEditorWrapper } from './geocache-waypoints-editor';
 import { GeoAppWidgetEventsService } from './geoapp-widget-events-service';
+import {
+    GeocacheCheckersSection,
+    GeocacheDetailedInfoSection,
+    GeocacheDetailsHeader,
+    GeocacheHintsSection,
+    GeocacheOverviewSection
+} from './geocache-details-sections';
 import {
     GeoAppChatProfile,
     GeoAppChatWorkflowProfile,
@@ -1122,88 +1124,6 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         }
     };
 
-    protected renderRow(label: string, value?: React.ReactNode): React.ReactNode {
-        if (value === undefined || value === null || value === '') { return undefined; }
-        return (
-            <tr>
-                <td style={{ opacity: 0.7, paddingRight: 8 }}>{label}</td>
-                <td>{value}</td>
-            </tr>
-        );
-    }
-
-    protected getAttributeIconUrlFromAttribute(attribute: GeocacheAttribute): string | undefined {
-        // base_filename contient déjà le suffixe -yes ou -no
-        const iconFilename = attribute.base_filename || `${attribute.name.toLowerCase().replace(/\s+/g, '')}-${attribute.is_negative ? 'no' : 'yes'}`;
-        const iconUrl = getAttributeIconUrl(iconFilename);
-        
-        if (!iconUrl) {
-            console.warn(`Attribute icon not found: ${iconFilename}.png`);
-        }
-        
-        return iconUrl;
-    }
-
-    /**
-     * Affiche les étoiles de notation (difficulté ou terrain)
-     */
-    protected renderStars(rating?: number, color: string = 'gold'): React.ReactNode {
-        if (!rating) { return undefined; }
-        const fullStars = Math.floor(rating);
-        const hasHalfStar = rating % 1 >= 0.5;
-        const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0);
-        
-        return (
-            <span style={{ color, fontSize: 16 }}>
-                {'★'.repeat(fullStars)}
-                {hasHalfStar && '◐'}
-                {emptyStars > 0 && <span style={{ opacity: 0.3 }}>{'☆'.repeat(emptyStars)}</span>}
-            </span>
-        );
-    }
-
-    protected renderAttributes(attrs?: GeocacheAttribute[]): React.ReactNode {
-        if (!attrs || attrs.length === 0) { return undefined; }
-        return (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {attrs.map((a, idx) => {
-                    const iconUrl = this.getAttributeIconUrlFromAttribute(a);
-                    const tooltipText = `${a.is_negative ? 'No ' : ''}${a.name}`;
-                    
-                    if (!iconUrl) {
-                        // Fallback si l'image n'est pas trouvée
-                        return (
-                            <span key={idx} style={{
-                                border: '1px solid var(--theia-foreground)',
-                                borderRadius: 4,
-                                padding: '2px 6px',
-                                fontSize: 12,
-                                opacity: a.is_negative ? 0.7 : 1
-                            }} title={tooltipText}>
-                                {a.is_negative ? 'No ' : ''}{a.name}
-                            </span>
-                        );
-                    }
-                    
-                    return (
-                        <img 
-                            key={idx}
-                            src={iconUrl}
-                            alt={tooltipText}
-                            title={tooltipText}
-                            style={{
-                                width: 24,
-                                height: 24,
-                                opacity: a.is_negative ? 0.7 : 1,
-                                cursor: 'help'
-                            }}
-                        />
-                    );
-                })}
-            </div>
-        );
-    }
-
     private openGeocacheAIChat = async (): Promise<void> => {
         if (!this.geocacheId || !this.data) {
             this.messages.warn('Aucune geocache selectionnee pour ouvrir le chat IA.');
@@ -1570,19 +1490,6 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         }
     }
 
-    protected renderCheckers(checkers?: GeocacheChecker[]): React.ReactNode {
-        if (!checkers || checkers.length === 0) { return undefined; }
-        return (
-            <ul style={{ margin: 0, paddingLeft: 18 }}>
-                {checkers.map((c, i) => (
-                    <li key={c.id ?? i}>
-                        {c.url ? <a href={c.url} target='_blank' rel='noreferrer'>{c.name || c.url}</a> : (c.name || '')}
-                    </li>
-                ))}
-            </ul>
-        );
-    }
-
     protected render(): React.ReactNode {
         const d = this.data;
         const displayDecodedHints = this.preferenceService.get(this.displayDecodedHintsPreferenceKey, false) as boolean;
@@ -1594,221 +1501,40 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             : undefined;
         return (
             <div className='p-2'>
-                {this.isLoading && <div>Chargement"¦</div>}
+                {this.isLoading && <div>Chargement...</div>}
                 {!this.isLoading && !d && <div style={{ opacity: 0.7 }}>Aucune donnée</div>}
                 {!this.isLoading && d && (
                     <div style={{ display: 'grid', gap: 12 }}>
-                        {/* En-tête */}
-                        <div style={{ marginBottom: 8 }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                                <h3 style={{ margin: 0 }}>{d.name}</h3>
-                                <div style={{ display: 'flex', gap: 8 }}>
-                                    <button
-                                        className='theia-button secondary'
-                                        onClick={this.solveFormula}
-                                        style={{ fontSize: 12, padding: '4px 12px' }}
-                                        title='Ouvrir le Formula Solver'
-                                    >
-                                        🧮 Résoudre formule
-                                    </button>
-                                    <button
-                                        className='theia-button secondary'
-                                        onClick={this.analyzePage}
-                                        style={{ fontSize: 12, padding: '4px 12px' }}
-                                        title='Lancer l&#39;analyse complète de la page'
-                                    >
-                                        &#x1F50D; Analyse Page
-                                    </button>
-                                    <button
-                                        className='theia-button secondary'
-                                        onClick={this.analyzeCode}
-                                        style={{ fontSize: 12, padding: '4px 12px' }}
-                                        title='Analyser le texte avec Metasolver'
-                                    >
-                                        &#x1F9D0; Analyse de Code
-                                    </button>
-                                    <button
-                                        className='theia-button secondary'
-                                        onClick={this.analyzeWithPlugins}
-                                        style={{ fontSize: 12, padding: '4px 12px' }}
-                                        title='Analyser cette géocache avec les plugins'
-                                    >
-                                        &#x1F4BE; Analyser avec plugins
-                                    </button>
-                                    <div style={{ position: 'relative', display: 'flex', alignItems: 'stretch' }}>
-                                        <button
-                                            className='theia-button'
-                                            onClick={this.openGeocacheAIChat}
-                                            style={{ fontSize: 12, padding: '4px 12px', borderTopRightRadius: 0, borderBottomRightRadius: 0 }}
-                                            title={`Ouvrir un chat IA dedie a cette geocache${this.isChatRoutingPreviewLoading ? ' (analyse du profil en cours)' : ` - profil effectif ${this.getEffectiveChatProfile()}, workflow ${this.chatWorkflowPreview}, selection ${this.getChatProfileOverrideLabel()}`}`}
-                                        >
-                                            {`Chat IA [${this.isChatRoutingPreviewLoading ? '...' : this.getEffectiveChatProfile()}]`}
-                                        </button>
-                                        <button
-                                            className='theia-button secondary'
-                                            onClick={this.toggleChatProfileMenu}
-                                            style={{ fontSize: 12, padding: '4px 8px', borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }}
-                                            title={`Choisir le profil de chat IA (actuel: ${this.getChatProfileOverrideLabel()})`}
-                                        >
-                                            ▼
-                                        </button>
-                                        {this.isChatProfileMenuOpen && (
-                                            <div
-                                                style={{
-                                                    position: 'absolute',
-                                                    top: '100%',
-                                                    right: 0,
-                                                    marginTop: 4,
-                                                    minWidth: 150,
-                                                    display: 'flex',
-                                                    flexDirection: 'column',
-                                                    background: 'var(--theia-editorWidget-background)',
-                                                    border: '1px solid var(--theia-panel-border)',
-                                                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.25)',
-                                                    zIndex: 20,
-                                                }}
-                                            >
-                                                {GEOAPP_CHAT_PROFILE_MENU_OPTIONS.map(option => {
-                                                    const isSelected = this.chatProfileOverride === option.value;
-                                                    const autoSuffix = option.value === 'default' ? ` -> ${this.chatProfilePreview}` : '';
-                                                    return (
-                                                        <button
-                                                            key={option.value}
-                                                            className='theia-button secondary'
-                                                            onClick={() => this.selectChatProfileOverride(option.value)}
-                                                            style={{
-                                                                fontSize: 12,
-                                                                padding: '6px 10px',
-                                                                textAlign: 'left',
-                                                                border: 0,
-                                                                borderRadius: 0,
-                                                                background: isSelected ? 'var(--theia-list-activeSelectionBackground)' : 'transparent',
-                                                                color: isSelected ? 'var(--theia-list-activeSelectionForeground)' : 'inherit',
-                                                            }}
-                                                            title={option.value === 'default'
-                                                                ? `Utiliser le profil determine automatiquement par le workflow (${this.chatProfilePreview})`
-                                                                : `Forcer le profil ${option.label}`}
-                                                        >
-                                                            {`${isSelected ? '• ' : ''}${option.label}${autoSuffix}`}
-                                                        </button>
-                                                    );
-                                                })}
-                                            </div>
-                                        )}
-                                    </div>
-                                    <div style={{ display: 'flex', gap: 8 }}>
-                                        <button
-                                            className='theia-button secondary'
-                                            onClick={this.openLogs}
-                                            style={{ fontSize: 12, padding: '4px 12px' }}
-                                            title='Voir les logs de cette géocache'
-                                        >
-                                            💬 Logs
-                                        </button>
-                                        <button
-                                            className='theia-button secondary'
-                                            onClick={this.openLogEditor}
-                                            style={{ fontSize: 12, padding: '4px 12px' }}
-                                            title='Loguer cette géocache (éditeur)'
-                                        >
-                                            âœ️ Loguer
-                                        </button>
-                                        <button
-                                            className='theia-button secondary'
-                                            onClick={this.openNotes}
-                                            style={{ fontSize: 12, padding: '4px 12px' }}
-                                            title='Voir les notes de cette géocache'
-                                        >
-                                            📝 Notes{this.notesCount && this.notesCount > 0 ? ` (${this.notesCount})` : ''}
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                            <div style={{ display: 'flex', gap: 16, alignItems: 'center', fontSize: 14 }}>
-                                <span style={{ opacity: 0.7 }}>{d.gc_code}</span>
-                                <span style={{ opacity: 0.7 }}>"¢</span>
-                                <span style={{ opacity: 0.7 }}>{d.type}</span>
-                                <span style={{ opacity: 0.7 }}>"¢</span>
-                                <span style={{ opacity: 0.7 }}>Par {d.owner || 'Inconnu'}</span>
-                                {this.archiveStatus !== 'none' && (
-                                    <button
-                                        onClick={this.forceSyncArchive}
-                                        disabled={this.archiveStatus === 'loading' || this.isSyncingArchive}
-                                        title={
-                                            this.archiveStatus === 'synced'
-                                                ? `Archive à jour${this.archiveUpdatedAt ? ` (${new Date(this.archiveUpdatedAt).toLocaleString()})` : ''} "” Cliquer pour re-synchroniser`
-                                                : this.archiveStatus === 'loading'
-                                                ? 'Synchronisation en cours"¦'
-                                                : 'Archive non synchronisée "” Cliquer pour synchroniser'
-                                        }
-                                        style={{
-                                            background: 'none',
-                                            border: '1px solid',
-                                            borderRadius: 12,
-                                            cursor: this.archiveStatus === 'loading' ? 'wait' : 'pointer',
-                                            padding: '2px 8px',
-                                            fontSize: 11,
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: 4,
-                                            borderColor: this.archiveStatus === 'synced' ? '#10b981' : this.archiveStatus === 'loading' ? '#60a5fa' : '#f59e0b',
-                                            color: this.archiveStatus === 'synced' ? '#10b981' : this.archiveStatus === 'loading' ? '#60a5fa' : '#f59e0b',
-                                            opacity: this.isSyncingArchive ? 0.6 : 1,
-                                        }}
-                                    >
-                                        <span>{this.archiveStatus === 'synced' ? '💾' : this.archiveStatus === 'loading' ? '⏳' : '⚠️'}</span>
-                                        <span>{this.archiveStatus === 'synced' ? 'Archive' : this.archiveStatus === 'loading' ? 'Sync"¦' : 'Non archivée'}</span>
-                                    </button>
-                                )}
-                            </div>
-                        </div>
+                        <GeocacheDetailsHeader
+                            geocacheData={d}
+                            notesCount={this.notesCount}
+                            chatWorkflowPreview={this.chatWorkflowPreview}
+                            chatProfilePreview={this.chatProfilePreview}
+                            chatProfileOverride={this.chatProfileOverride}
+                            effectiveChatProfile={this.getEffectiveChatProfile()}
+                            chatProfileOverrideLabel={this.getChatProfileOverrideLabel()}
+                            isChatRoutingPreviewLoading={this.isChatRoutingPreviewLoading}
+                            isChatProfileMenuOpen={this.isChatProfileMenuOpen}
+                            chatProfileOptions={GEOAPP_CHAT_PROFILE_MENU_OPTIONS}
+                            archiveStatus={this.archiveStatus}
+                            archiveUpdatedAt={this.archiveUpdatedAt}
+                            isSyncingArchive={this.isSyncingArchive}
+                            onSolveFormula={this.solveFormula}
+                            onAnalyzePage={this.analyzePage}
+                            onAnalyzeCode={this.analyzeCode}
+                            onAnalyzeWithPlugins={this.analyzeWithPlugins}
+                            onOpenAiChat={this.openGeocacheAIChat}
+                            onToggleChatProfileMenu={this.toggleChatProfileMenu}
+                            onSelectChatProfileOverride={this.selectChatProfileOverride}
+                            onOpenLogs={this.openLogs}
+                            onOpenLogEditor={this.openLogEditor}
+                            onOpenNotes={this.openNotes}
+                            onForceSyncArchive={this.forceSyncArchive}
+                        />
 
-                        {/* Informations principales : 2 colonnes */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                            {/* Colonne gauche : Statistiques */}
-                            <div style={{ 
-                                background: 'var(--theia-editor-background)', 
-                                border: '1px solid var(--theia-panel-border)',
-                                borderRadius: 6, 
-                                padding: 16 
-                            }}>
-                                <h4 style={{ margin: '0 0 16px 0', fontSize: 16 }}>Statistiques</h4>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                                    <div>
-                                        <div style={{ opacity: 0.7, fontSize: 12, marginBottom: 4 }}>Difficulté</div>
-                                        <div>{this.renderStars(d.difficulty, '#fbbf24')}</div>
-                                    </div>
-                                    <div>
-                                        <div style={{ opacity: 0.7, fontSize: 12, marginBottom: 4 }}>Terrain</div>
-                                        <div>{this.renderStars(d.terrain, '#10b981')}</div>
-                                    </div>
-                                    <div>
-                                        <div style={{ opacity: 0.7, fontSize: 12, marginBottom: 4 }}>Taille</div>
-                                        <div style={{ color: '#60a5fa' }}>{d.size || 'N/A'}</div>
-                                    </div>
-                                    <div>
-                                        <div style={{ opacity: 0.7, fontSize: 12, marginBottom: 4 }}>Favoris</div>
-                                        <div style={{ color: '#a78bfa' }}>{d.favorites_count || 0}</div>
-                                    </div>
-                                </div>
-                                
-                                {/* Attributs */}
-                                {d.attributes && d.attributes.length > 0 && (
-                                    <div style={{ marginTop: 16 }}>
-                                        <div style={{ opacity: 0.7, fontSize: 12, marginBottom: 8 }}>Attributs</div>
-                                        {this.renderAttributes(d.attributes)}
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Colonne droite : Coordonnées */}
-                            <div style={{ 
-                                background: 'var(--theia-editor-background)', 
-                                border: '1px solid var(--theia-panel-border)',
-                                borderRadius: 6, 
-                                padding: 16 
-                            }}>
-                                <h4 style={{ margin: '0 0 16px 0', fontSize: 16 }}>Coordonnées</h4>
+                        <GeocacheOverviewSection
+                            geocacheData={d}
+                            coordinatesEditor={(
                                 <CoordinatesEditor
                                     geocacheData={d}
                                     gcCode={d.gc_code}
@@ -1817,33 +1543,10 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                                     onPushCorrectedCoordinates={() => this.pushCorrectedCoordinatesToGeocaching()}
                                     onUpdateSolvedStatus={(newStatus) => this.updateSolvedStatus(newStatus)}
                                 />
-                            </div>
-                        </div>
+                            )}
+                        />
 
-                        {/* Informations supplémentaires (table) */}
-                        <details style={{ 
-                            background: 'var(--theia-editor-background)', 
-                            border: '1px solid var(--theia-panel-border)',
-                            borderRadius: 6, 
-                            padding: 16 
-                        }}>
-                            <summary style={{ cursor: 'pointer', fontWeight: 'bold', marginBottom: 8 }}>Informations détaillées</summary>
-                            <table className='theia-table' style={{ width: '100%', marginTop: 8 }}>
-                                <tbody>
-                                    {this.renderRow('Code', d.gc_code)}
-                                    {this.renderRow('Propriétaire', d.owner)}
-                                    {this.renderRow('Type', d.type)}
-                                    {this.renderRow('Taille', d.size)}
-                                    {this.renderRow('Difficulté', d.difficulty?.toString())}
-                                    {this.renderRow('Terrain', d.terrain?.toString())}
-                                    {this.renderRow('Favoris', d.favorites_count?.toString())}
-                                    {this.renderRow('Logs', d.logs_count?.toString())}
-                                    {this.renderRow('Placée le', d.placed_at)}
-                                    {this.renderRow('Statut', d.status)}
-                                    {this.renderRow('Lien', d.url ? <a href={d.url} target='_blank' rel='noreferrer'>{d.url}</a> : undefined)}
-                                </tbody>
-                            </table>
-                        </details>
+                        <GeocacheDetailedInfoSection geocacheData={d} />
 
                         <DescriptionEditor
                             geocacheData={d}
@@ -1863,21 +1566,11 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                             externalLinksOpenMode={this.getExternalLinksOpenMode()}
                         />
 
-                        {displayedHints ? (
-                            <div>
-                                <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', gap: 12 }}>
-                                    <h4 style={{ margin: '8px 0' }}>Indices</h4>
-                                    <button
-                                        className='theia-button'
-                                        onClick={() => { void this.toggleHintsDisplayMode(); }}
-                                        title={displayDecodedHints ? 'Coder (ROT13)' : 'Décoder (ROT13)'}
-                                    >
-                                        {displayDecodedHints ? 'Coder' : 'Décoder'}
-                                    </button>
-                                </div>
-                                <div style={{ whiteSpace: 'pre-wrap', opacity: 0.9 }}>{displayedHints}</div>
-                            </div>
-                        ) : undefined}
+                        <GeocacheHintsSection
+                            displayedHints={displayedHints}
+                            displayDecodedHints={displayDecodedHints}
+                            onToggleDisplayMode={this.toggleHintsDisplayMode}
+                        />
 
                         {this.geocacheId ? (
                             <GeocacheImagesPanel
@@ -1913,12 +1606,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                             />
                         </div>
 
-                        {d.checkers && d.checkers.length > 0 ? (
-                            <div>
-                                <h4 style={{ margin: '8px 0' }}>Checkers</h4>
-                                {this.renderCheckers(d.checkers)}
-                            </div>
-                        ) : undefined}
+                        <GeocacheCheckersSection checkers={d.checkers} />
                     </div>
                 )}
             </div>
