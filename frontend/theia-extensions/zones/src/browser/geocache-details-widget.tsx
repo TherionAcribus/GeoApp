@@ -15,7 +15,11 @@ import {
     GeocacheDetailsArchiveController
 } from './geocache-details-archive-controller';
 import { GeocacheDetailsChatController } from './geocache-details-chat-controller';
+import {
+    GeocacheDetailsContentController
+} from './geocache-details-content-controller';
 import { GeocacheDetailsNavigationController } from './geocache-details-navigation-controller';
+import { GeocacheDetailsNotesController } from './geocache-details-notes-controller';
 import { GeocacheDetailsPreferencesController } from './geocache-details-preferences-controller';
 import { GeocacheDetailsView } from './geocache-details-view';
 import { GeocachesService } from './geocaches-service';
@@ -33,10 +37,7 @@ import {
 import {
     calculateAntipode,
     calculateProjection,
-    htmlToRawText,
     parseGCCoords,
-    rawTextToHtml,
-    rot13,
     toGCFormat
 } from './geocache-details-utils';
 import { GeoAppWidgetEventsService } from './geoapp-widget-events-service';
@@ -122,7 +123,9 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         @inject(GeocacheDetailsService) protected readonly geocacheDetailsService: GeocacheDetailsService,
         @inject(GeocacheDetailsArchiveController) protected readonly archiveController: GeocacheDetailsArchiveController,
         @inject(GeocacheDetailsChatController) protected readonly chatController: GeocacheDetailsChatController,
+        @inject(GeocacheDetailsContentController) protected readonly contentController: GeocacheDetailsContentController,
         @inject(GeocacheDetailsNavigationController) protected readonly navigationController: GeocacheDetailsNavigationController,
+        @inject(GeocacheDetailsNotesController) protected readonly notesController: GeocacheDetailsNotesController,
         @inject(GeocacheDetailsPreferencesController) protected readonly preferencesController: GeocacheDetailsPreferencesController,
         @inject(GeocacheDetailsTranslationController) protected readonly translationController: GeocacheDetailsTranslationController,
         @inject(GeoAppWidgetEventsService) protected readonly widgetEventsService: GeoAppWidgetEventsService
@@ -575,7 +578,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             return undefined;
         }
 
-        const descriptionHtml = this.getEffectiveDescriptionHtml(this.data, this.descriptionVariant);
+        const descriptionHtml = this.contentController.getEffectiveDescriptionHtml(this.data, this.descriptionVariant);
 
         const coordinatesRaw = this.data.coordinates_raw || this.data.original_coordinates_raw;
         let contextCoordinates: GeocacheContext['coordinates'] = undefined;
@@ -610,7 +613,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             name: this.data.name,
             coordinates: contextCoordinates,
             description: descriptionHtml,
-            hint: this.getDecodedHints(this.data),
+            hint: this.contentController.getDecodedHints(this.data),
             difficulty: this.data.difficulty,
             terrain: this.data.terrain,
             waypoints: this.data.waypoints,
@@ -652,49 +655,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
      * Retourne les blocs de texte cherchables extraits des données de la géocache.
      */
     getSearchableContent(): { id: string; text: string; element?: HTMLElement }[] {
-        const d = this.data;
-        if (!d) {
-            return [];
-        }
-
-        const contents: { id: string; text: string; element?: HTMLElement }[] = [];
-
-        const headerParts = [d.name, d.gc_code, d.type, d.owner].filter(Boolean);
-        if (headerParts.length > 0) {
-            contents.push({ id: 'header', text: headerParts.join(' ') });
-        }
-
-        const coordParts = [d.coordinates_raw, d.original_coordinates_raw].filter(Boolean);
-        if (coordParts.length > 0) {
-            contents.push({ id: 'coordinates', text: coordParts.join(' ') });
-        }
-
-        const descHtml = this.getEffectiveDescriptionHtml(d, this.descriptionVariant);
-        if (descHtml) {
-            contents.push({ id: 'description', text: htmlToRawText(descHtml) });
-        }
-
-        const decodedHints = this.getDecodedHints(d);
-        if (decodedHints) {
-            contents.push({ id: 'hints', text: decodedHints });
-        } else if (d.hints) {
-            contents.push({ id: 'hints', text: d.hints });
-        }
-
-        if (d.waypoints && d.waypoints.length > 0) {
-            const wpTexts = d.waypoints.map(wp => {
-                const parts = [wp.prefix, wp.name, wp.type, wp.gc_coords, wp.note, wp.note_override].filter(Boolean);
-                return parts.join(' ');
-            });
-            contents.push({ id: 'waypoints', text: wpTexts.join('\n') });
-        }
-
-        if (d.checkers && d.checkers.length > 0) {
-            const checkerTexts = d.checkers.map(c => [c.name, c.url].filter(Boolean).join(' '));
-            contents.push({ id: 'checkers', text: checkerTexts.join('\n') });
-        }
-
-        return contents;
+        return this.contentController.buildSearchableContent(this.data, this.descriptionVariant);
     }
 
     /**
@@ -706,26 +667,6 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         super.onCloseRequest(msg);
         this.removeEventListeners();
         this.removeInteractionListeners();
-    }
-
-    protected getEffectiveDescriptionHtml(data: GeocacheDto, variant: DescriptionVariant): string {
-        if (variant === 'modified') {
-            if (data.description_override_html) {
-                return data.description_override_html;
-            }
-            if (data.description_override_raw) {
-                return rawTextToHtml(data.description_override_raw);
-            }
-            return '';
-        }
-
-        if (data.description_html) {
-            return data.description_html;
-        }
-        if (data.description_raw) {
-            return rawTextToHtml(data.description_raw);
-        }
-        return '';
     }
 
     protected async translateDescriptionToFrench(): Promise<void> {
@@ -750,7 +691,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             }
         }
 
-        const sourceHtml = this.getEffectiveDescriptionHtml(this.data, 'original');
+        const sourceHtml = this.contentController.getEffectiveDescriptionHtml(this.data, 'original');
         if (!sourceHtml.trim()) {
             this.messages.warn('Description originale vide');
             return;
@@ -770,35 +711,6 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         } finally {
             this.isTranslatingDescription = false;
             this.update();
-        }
-    }
-
-    protected async autoSyncGcPersonalNoteFromDetailsIfEnabled(): Promise<void> {
-        if (!this.geocacheId) {
-            return;
-        }
-        const mode = this.preferencesController.getGcPersonalNoteAutoSyncMode();
-        if (mode !== 'onDetailsOpen') {
-            return;
-        }
-        try {
-            await this.geocacheDetailsService.syncNotesFromGeocaching(this.geocacheId);
-        } catch (err) {
-            console.error('[GeocacheDetailsWidget] Auto-sync note Geocaching.com échouée:', err);
-        }
-    }
-
-    protected async loadNotesCount(): Promise<void> {
-        if (!this.geocacheId) {
-            this.notesCount = undefined;
-            return;
-        }
-        try {
-            const data = await this.geocacheDetailsService.getNotes(this.geocacheId);
-            this.notesCount = Array.isArray(data.notes) ? data.notes.length : 0;
-        } catch (e) {
-            console.error('[GeocacheDetailsWidget] Failed to load notes count', e);
-            this.notesCount = undefined;
         }
     }
 
@@ -836,8 +748,10 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                 this.descriptionVariantGeocacheId = this.geocacheId;
             }
             this.title.label = `Géocache - ${this.data?.name ?? this.data?.gc_code ?? this.geocacheId}`;
-            await this.loadNotesCount();
-            void this.autoSyncGcPersonalNoteFromDetailsIfEnabled();
+            this.notesCount = await this.notesController.loadNotesCount(this.geocacheId);
+            void this.notesController.autoSyncFromDetailsIfEnabled(this.geocacheId).catch(err => {
+                console.error('[GeocacheDetailsWidget] Auto-sync note Geocaching.com échouée:', err);
+            });
             void this.loadArchiveStatus();
             void this.refreshChatRoutingPreview();
         } catch (e) {
@@ -1026,19 +940,6 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         });
     };
 
-    private getDecodedHints(data: GeocacheDto): string | undefined {
-        if (data.hints_decoded_override) {
-            return data.hints_decoded_override;
-        }
-        if (data.hints_decoded) {
-            return data.hints_decoded;
-        }
-        if (!data.hints) {
-            return undefined;
-        }
-        return rot13(data.hints);
-    }
-
     private applyArchiveState(state: { status: GeocacheArchiveStatus; updatedAt?: string }): void {
         this.archiveStatus = state.status;
         this.archiveUpdatedAt = state.updatedAt;
@@ -1071,8 +972,8 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             }
         }
 
-        const sourceHtml = this.getEffectiveDescriptionHtml(this.data, 'original');
-        const sourceHints = this.data.hints_decoded || (this.data.hints ? rot13(this.data.hints) : '');
+        const sourceHtml = this.contentController.getEffectiveDescriptionHtml(this.data, 'original');
+        const sourceHints = this.contentController.getSourceHintsForTranslation(this.data);
         const sourceWaypoints = (this.data.waypoints || []).map(w => ({
             id: w.id,
             note: (w.note || '').toString(),
@@ -1158,12 +1059,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
     protected render(): React.ReactNode {
         const d = this.data;
         const displayDecodedHints = this.preferencesController.getDisplayDecodedHints();
-        const decodedHints = d ? this.getDecodedHints(d) : undefined;
-        const rawHints = d?.hints;
-        const hasHints = Boolean(rawHints) || Boolean(d?.hints_decoded) || Boolean(d?.hints_decoded_override);
-        const displayedHints = hasHints
-            ? (displayDecodedHints ? (decodedHints || rawHints) : (rawHints || decodedHints))
-            : undefined;
+        const displayedHints = this.contentController.getDisplayedHints(d, displayDecodedHints);
         return (
             <GeocacheDetailsView
                 isLoading={this.isLoading}
@@ -1210,7 +1106,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                         this.descriptionVariant = variant;
                         this.update();
                     },
-                    getEffectiveDescriptionHtml: (data, variant) => this.getEffectiveDescriptionHtml(data, variant),
+                    getEffectiveDescriptionHtml: (data, variant) => this.contentController.getEffectiveDescriptionHtml(data, variant),
                     onSaveDescription: (payload) => this.saveDescriptionOverrides(payload),
                     onResetDescription: () => this.resetDescriptionOverrides(),
                     onTranslateToFrench: () => this.translateDescriptionToFrench(),
