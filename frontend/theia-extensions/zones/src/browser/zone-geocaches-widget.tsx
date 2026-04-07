@@ -17,6 +17,7 @@ import { GeocachesService } from './geocaches-service';
 import { ZonesService } from './zones-service';
 import { GeoAppWidgetEventsService } from './geoapp-widget-events-service';
 import { getErrorMessage } from './backend-api-client';
+import { ZoneGeocachesView } from './zone-geocaches-view';
 
 interface SerializedZoneGeocachesState {
     zoneId: number;
@@ -213,6 +214,62 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         }
         const match = value.match(/(GC[0-9A-Z]+)/i);
         return match ? match[1].toUpperCase() : undefined;
+    }
+
+    protected async handleAddGeocacheSubmit(event: React.FormEvent<HTMLFormElement>): Promise<void> {
+        event.preventDefault();
+
+        try {
+            const form = event.currentTarget;
+            const formData = new FormData(form);
+            const gcCode = this.extractGcCode(formData.get('gc_code') as string);
+            if (!gcCode) {
+                this.messages.warn('Code GC invalide');
+                return;
+            }
+            if (!this.zoneId) {
+                this.messages.warn('Zone active manquante');
+                return;
+            }
+
+            await this.geocachesService.addToZone(this.zoneId, gcCode);
+            form.reset();
+            await this.refreshZoneData();
+            this.messages.info(`Geocache ${gcCode} importee`);
+        } catch (error) {
+            console.error('Import geocache error', error);
+            this.messages.error(getErrorMessage(error, 'Erreur lors de l import de la geocache'));
+        }
+    }
+
+    protected openImportDialog(): void {
+        this.showImportDialog = true;
+        this.update();
+    }
+
+    protected closeImportDialog(): void {
+        this.showImportDialog = false;
+        this.update();
+    }
+
+    protected openBookmarkListDialog(): void {
+        this.showBookmarkListDialog = true;
+        this.update();
+    }
+
+    protected closeBookmarkListDialog(): void {
+        this.showBookmarkListDialog = false;
+        this.update();
+    }
+
+    protected openPocketQueryDialog(): void {
+        this.showPocketQueryDialog = true;
+        this.update();
+    }
+
+    protected closePocketQueryDialog(): void {
+        this.showPocketQueryDialog = false;
+        this.update();
     }
 
     private async refreshZoneData(): Promise<void> {
@@ -1373,6 +1430,59 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     }
 
     protected render(): React.ReactNode {
+        return (
+            <ZoneGeocachesView
+                titleLabel={String(this.title.label || 'Geocaches')}
+                zoneId={this.zoneId}
+                rows={this.rows}
+                zones={this.zones}
+                currentZoneId={this.zoneId}
+                loading={this.loading}
+                isImporting={this.isImporting}
+                showImportDialog={this.showImportDialog}
+                showBookmarkListDialog={this.showBookmarkListDialog}
+                showPocketQueryDialog={this.showPocketQueryDialog}
+                copySelectedDialog={this.copySelectedDialog}
+                moveSelectedDialog={this.moveSelectedDialog}
+                onSubmitAddGeocache={event => this.handleAddGeocacheSubmit(event)}
+                onOpenImportDialog={() => this.openImportDialog()}
+                onOpenBookmarkListDialog={() => this.openBookmarkListDialog()}
+                onOpenPocketQueryDialog={() => this.openPocketQueryDialog()}
+                onStartImportAround={() => { void this.startImportAroundWizard(); }}
+                onRowClick={geocache => this.handleRowClick(geocache)}
+                onDeleteSelected={ids => this.handleDeleteSelected(ids)}
+                onRefreshSelected={ids => this.handleRefreshSelected(ids)}
+                onLogSelected={ids => this.openLogEditorForSelected(ids)}
+                onCopySelected={ids => this.handleCopySelected(ids)}
+                onMoveSelected={ids => this.handleMoveSelected(ids)}
+                onApplyPluginSelected={ids => this.handleApplyPluginSelected(ids)}
+                onExportGpxSelected={ids => this.handleExportGpxSelected(ids)}
+                onDelete={geocache => this.handleDelete(geocache.id, geocache.gc_code)}
+                onRefresh={id => this.handleRefresh(id)}
+                onMove={(geocache, targetZoneId) => this.handleMove(geocache, targetZoneId)}
+                onCopy={(geocache, targetZoneId) => this.handleCopy(geocache, targetZoneId)}
+                onImportAround={geocache => this.startImportAroundWizard({
+                    type: 'geocache_id',
+                    geocache_id: geocache.id,
+                    gc_code: geocache.gc_code,
+                    name: geocache.name,
+                })}
+                onImportGpx={(file, updateExisting, onProgress) => this.handleImportGpx(file, updateExisting, onProgress)}
+                onImportBookmarkList={(bookmarkCode, onProgress) => this.handleImportBookmarkList(bookmarkCode, onProgress)}
+                onImportPocketQuery={(pqCode, onProgress) => this.handleImportPocketQuery(pqCode, onProgress)}
+                onCancelImportDialog={() => this.closeImportDialog()}
+                onCancelBookmarkListDialog={() => this.closeBookmarkListDialog()}
+                onCancelPocketQueryDialog={() => this.closePocketQueryDialog()}
+                onConfirmCopySelected={targetZoneId => this.performCopySelected(this.copySelectedDialog!.geocacheIds, targetZoneId)}
+                onCancelCopySelected={() => this.closeCopySelectedDialog()}
+                onConfirmMoveSelected={targetZoneId => this.performMoveSelected(this.moveSelectedDialog!.geocacheIds, targetZoneId)}
+                onCancelMoveSelected={() => this.closeMoveSelectedDialog()}
+            />
+        );
+    }
+
+    // Temporary fallback kept while the widget UI is being peeled off incrementally.
+    protected renderLegacy(): React.ReactNode {
         return (
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: 8 }}>
                 {/* Header with import form */}
