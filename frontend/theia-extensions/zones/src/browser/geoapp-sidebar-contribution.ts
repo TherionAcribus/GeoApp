@@ -1,96 +1,99 @@
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
-import { FrontendApplicationContribution, FrontendApplication } from '@theia/core/lib/browser';
+import { FrontendApplicationContribution } from '@theia/core/lib/browser';
 import { SidebarBottomMenuWidget } from '@theia/core/lib/browser/shell/sidebar-bottom-menu-widget';
-import { CommandRegistry, MenuModelRegistry, MenuContribution } from '@theia/core/lib/common';
+import { MenuModelRegistry, MenuContribution } from '@theia/core/lib/common';
 import { ApplicationShell } from '@theia/core/lib/browser';
 import { SidebarMenu } from '@theia/core/lib/browser/shell/sidebar-menu-widget';
+import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 
 export const GEOAPP_PREFERENCES_MENU = ['geoapp-preferences-menu'];
 export const GEOAPP_AUTH_MENU = ['geoapp-auth-menu'];
 
-/**
- * Contribution pour ajouter des icônes GeoApp dans la sidebar bottom menu de Theia.
- * Ces icônes apparaissent au-dessus de l'icône des paramètres.
- */
 @injectable()
 export class GeoAppSidebarContribution implements FrontendApplicationContribution, MenuContribution {
-
-    @inject(CommandRegistry)
-    protected readonly commandRegistry: CommandRegistry;
 
     @inject(ApplicationShell)
     protected readonly shell: ApplicationShell;
 
-    protected sidebarBottomMenu: SidebarBottomMenuWidget | undefined;
+    @inject(PreferenceService)
+    protected readonly preferenceService: PreferenceService;
 
-    protected isConnected: boolean = false;
-    protected userAvatar: string | undefined;
+    protected sidebarBottomMenu: SidebarBottomMenuWidget | undefined;
+    protected isConnected = false;
+    protected authPollingStarted = false;
 
     @postConstruct()
     protected init(): void {
-        this.checkAuthStatus();
-        // Écouter les événements de changement d'authentification
-        window.addEventListener('geoapp-auth-changed', this.handleAuthChange.bind(this));
-        // Vérifier périodiquement aussi (backup)
-        setInterval(() => this.checkAuthStatus(), 60000);
+        window.addEventListener('geoapp-auth-changed', this.handleAuthChange as EventListener);
     }
 
-    protected handleAuthChange(event: Event): void {
+    protected readonly handleAuthChange = (event: Event): void => {
         const customEvent = event as CustomEvent;
-        const { isConnected, user } = customEvent.detail;
-        
+        const isConnected = Boolean(customEvent.detail?.isConnected);
         const wasConnected = this.isConnected;
         this.isConnected = isConnected;
-        this.userAvatar = user?.avatar_url;
-        
-        // Mettre à jour l'icône immédiatement si l'état a changé
+
         if (wasConnected !== this.isConnected) {
             this.updateAuthIcon();
         }
-    }
+    };
 
     registerMenus(menus: MenuModelRegistry): void {
-        // Enregistrer l'action pour le menu Préférences
         menus.registerMenuAction(GEOAPP_PREFERENCES_MENU, {
             commandId: 'geo-preferences:open',
-            label: 'Ouvrir les préférences GeoApp',
+            label: 'Ouvrir les preferences GeoApp',
             order: '0'
         });
 
-        // Enregistrer l'action pour le menu Auth
         menus.registerMenuAction(GEOAPP_AUTH_MENU, {
             commandId: 'geoapp.auth.open',
-            label: 'Gérer la connexion',
+            label: 'Gerer la connexion',
             order: '0'
         });
     }
 
-    async onStart(app: FrontendApplication): Promise<void> {
-        // Attendre un peu que l'application soit initialisée
+    onStart(): void {
+        this.scheduleSidebarSetup();
+        this.startAuthPolling();
+    }
+
+    protected scheduleSidebarSetup(): void {
         setTimeout(() => {
             this.findSidebarBottomMenu();
-            
             if (this.sidebarBottomMenu) {
                 this.addGeoAppMenus();
-            } else {
-                // Réessayer après un délai supplémentaire
-                setTimeout(() => {
-                    this.findSidebarBottomMenu();
-                    if (this.sidebarBottomMenu) {
-                        this.addGeoAppMenus();
-                    }
-                }, 2000);
+                return;
             }
+
+            setTimeout(() => {
+                this.findSidebarBottomMenu();
+                if (this.sidebarBottomMenu) {
+                    this.addGeoAppMenus();
+                }
+            }, 2000);
         }, 500);
+    }
+
+    protected startAuthPolling(): void {
+        if (this.authPollingStarted) {
+            return;
+        }
+
+        this.authPollingStarted = true;
+        setTimeout(() => void this.checkAuthStatus(), 1500);
+        setInterval(() => void this.checkAuthStatus(), 60000);
     }
 
     protected findSidebarBottomMenu(): void {
         const leftPanel = (this.shell as any).leftPanelHandler;
         const rightPanel = (this.shell as any).rightPanelHandler;
-        
-        if (leftPanel && leftPanel.bottomMenu) {
+
+        if (leftPanel?.bottomMenu) {
             this.sidebarBottomMenu = leftPanel.bottomMenu;
-        } else if (rightPanel && rightPanel.bottomMenu) {
+            return;
+        }
+
+        if (rightPanel?.bottomMenu) {
             this.sidebarBottomMenu = rightPanel.bottomMenu;
         }
     }
@@ -100,72 +103,75 @@ export class GeoAppSidebarContribution implements FrontendApplicationContributio
             return;
         }
 
-        const preferencesMenu: SidebarMenu = {
+        this.sidebarBottomMenu.addMenu({
             id: 'geoapp-preferences-menu',
             iconClass: 'fa fa-sliders',
-            title: 'Préférences GeoApp',
+            title: 'Preferences GeoApp',
             menuPath: GEOAPP_PREFERENCES_MENU,
             order: 0
-        };
+        });
 
-        const authMenu: SidebarMenu = {
+        this.sidebarBottomMenu.addMenu({
             id: 'geoapp-auth-menu',
             iconClass: this.getAuthIconClass(),
             title: this.getAuthTitle(),
             menuPath: GEOAPP_AUTH_MENU,
             order: 1
-        };
-
-        this.sidebarBottomMenu.addMenu(preferencesMenu);
-        this.sidebarBottomMenu.addMenu(authMenu);
+        });
     }
 
     protected getAuthIconClass(): string {
-        if (this.isConnected) {
-            return 'codicon codicon-account';
-        } else {
-            return 'codicon codicon-debug-disconnect';
-        }
+        return this.isConnected ? 'codicon codicon-account' : 'codicon codicon-debug-disconnect';
     }
 
     protected getAuthTitle(): string {
-        return this.isConnected ? 'Connecté à Geocaching.com' : 'Non connecté - Cliquez pour vous connecter';
+        return this.isConnected ? 'Connecte a Geocaching.com' : 'Non connecte - Cliquez pour vous connecter';
     }
 
     protected async checkAuthStatus(): Promise<void> {
+        const wasConnected = this.isConnected;
         try {
-            const response = await fetch('http://localhost:8000/api/auth/status');
-            if (response.ok) {
-                const data = await response.json();
-                const wasConnected = this.isConnected;
-                this.isConnected = data.status === 'logged_in';
-                this.userAvatar = data.user?.avatar;
-                
+            const response = await fetch(`${this.getBackendBaseUrl()}/api/auth/status`);
+            if (!response.ok) {
+                this.isConnected = false;
                 if (wasConnected !== this.isConnected) {
                     this.updateAuthIcon();
                 }
+                return;
+            }
+
+            const data = await response.json();
+            this.isConnected = data.status === 'logged_in';
+
+            if (wasConnected !== this.isConnected) {
+                this.updateAuthIcon();
             }
         } catch (error) {
             this.isConnected = false;
+            if (wasConnected !== this.isConnected) {
+                this.updateAuthIcon();
+            }
             console.debug('[GeoAppSidebar] Failed to check auth status:', error);
         }
+    }
+
+    protected getBackendBaseUrl(): string {
+        const value = String(this.preferenceService.get('geoApp.backend.apiBaseUrl', 'http://localhost:8000') || 'http://localhost:8000');
+        return value.replace(/\/+$/, '');
     }
 
     protected updateAuthIcon(): void {
         if (!this.sidebarBottomMenu) {
             return;
         }
-        
+
         this.sidebarBottomMenu.removeMenu('geoapp-auth-menu');
-        
-        const authMenu: SidebarMenu = {
+        this.sidebarBottomMenu.addMenu({
             id: 'geoapp-auth-menu',
             iconClass: this.getAuthIconClass(),
             title: this.getAuthTitle(),
             menuPath: GEOAPP_AUTH_MENU,
             order: 1
-        };
-        
-        this.sidebarBottomMenu.addMenu(authMenu);
+        });
     }
 }

@@ -5,9 +5,6 @@ import { ApplicationShell } from '@theia/core/lib/browser';
 import { MapWidget, MapContext } from './map-widget';
 import '../../../src/browser/map/map-manager-widget.css';
 
-/**
- * Widget pour gérer les cartes ouvertes (comme les terminaux dans VSCode)
- */
 @injectable()
 export class MapManagerWidget extends ReactWidget {
     static readonly ID = 'geoapp-map-manager';
@@ -27,36 +24,30 @@ export class MapManagerWidget extends ReactWidget {
         this.title.iconClass = 'fa fa-map';
 
         this.addClass('geoapp-map-manager-widget');
-        
-        console.log('[MapManagerWidget] Widget initialisé avec ID:', this.id);
-        
-        // Rafraîchir la liste toutes les secondes
-        setInterval(() => {
-            this.refreshMapList();
-        }, 1000);
-        
+
+        this.toDispose.push(this.shell.onDidAddWidget(() => this.refreshMapList()));
+        this.toDispose.push(this.shell.onDidRemoveWidget(() => this.refreshMapList()));
+        this.toDispose.push(this.shell.onDidChangeActiveWidget(() => this.refreshMapList()));
+
+        this.refreshMapList();
         this.update();
     }
 
-    /**
-     * Rafraîchit la liste des cartes ouvertes
-     */
     private refreshMapList(): void {
         const bottomWidgets = this.shell.getWidgets('bottom');
-        const mapWidgets = bottomWidgets.filter(w => w.id.startsWith('geoapp-map'));
-        
-        const newMaps = mapWidgets.map(w => {
-            const mapWidget = w as MapWidget;
-            const context = mapWidget.getContext ? mapWidget.getContext() : null;
-            
+        const mapWidgets = bottomWidgets.filter(widget => widget.id.startsWith('geoapp-map'));
+
+        const newMaps = mapWidgets.map(widget => {
+            const mapWidget = widget as MapWidget;
+            const context = mapWidget.getContext ? mapWidget.getContext() : undefined;
+
             return {
-                id: w.id,
-                label: w.title.label,
-                context: context || { type: 'general' as const, label: w.title.label }
+                id: widget.id,
+                label: widget.title.label,
+                context: context || { type: 'general' as const, label: widget.title.label }
             };
         });
 
-        // Mettre à jour seulement si la liste a changé
         if (JSON.stringify(newMaps) !== JSON.stringify(this.openMaps)) {
             this.openMaps = newMaps;
             this.update();
@@ -69,11 +60,11 @@ export class MapManagerWidget extends ReactWidget {
                 <div className="map-manager-header">
                     <h3>Cartes ouvertes ({this.openMaps.length})</h3>
                 </div>
-                
+
                 {this.openMaps.length === 0 ? (
                     <div className="map-manager-empty">
                         <p>Aucune carte ouverte</p>
-                        <small>Les cartes s'ouvrent automatiquement quand vous naviguez dans les zones ou géocaches</small>
+                        <small>Les cartes s'ouvrent automatiquement quand vous naviguez dans les zones ou geocaches</small>
                     </div>
                 ) : (
                     <div className="map-manager-list">
@@ -94,20 +85,20 @@ export class MapManagerWidget extends ReactWidget {
                                 <div className="map-item-actions">
                                     <button
                                         className="map-item-close"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
+                                        onClick={event => {
+                                            event.stopPropagation();
                                             this.closeMap(map.id);
                                         }}
                                         title="Fermer"
                                     >
-                                        ×
+                                        x
                                     </button>
                                 </div>
                             </div>
                         ))}
                     </div>
                 )}
-                
+
                 <div className="map-manager-footer">
                     <button
                         className="map-manager-close-all"
@@ -125,11 +116,11 @@ export class MapManagerWidget extends ReactWidget {
     private getMapIcon(type: 'zone' | 'geocache' | 'general'): string {
         switch (type) {
             case 'zone':
-                return '🗺️';
+                return '\u{1F5FA}\uFE0F';
             case 'geocache':
-                return '📍';
+                return '\u{1F4CD}';
             default:
-                return '🌍';
+                return '\u{1F30D}';
         }
     }
 
@@ -138,20 +129,18 @@ export class MapManagerWidget extends ReactWidget {
             case 'zone':
                 return 'Zone';
             case 'geocache':
-                return 'Géocache';
+                return 'Geocache';
             default:
-                return 'Générale';
+                return 'Generale';
         }
     }
 
     private activateMap(mapId: string): void {
-        console.log('[MapManagerWidget] Activation de la carte:', mapId);
         this.shell.activateWidget(mapId);
     }
 
     private closeMap(mapId: string): void {
-        console.log('[MapManagerWidget] Fermeture de la carte:', mapId);
-        const widget = this.shell.getWidgets('bottom').find(w => w.id === mapId);
+        const widget = this.shell.getWidgets('bottom').find(candidate => candidate.id === mapId);
         if (widget) {
             widget.close();
         }
@@ -159,10 +148,8 @@ export class MapManagerWidget extends ReactWidget {
     }
 
     private closeAllMaps(): void {
-        console.log('[MapManagerWidget] Fermeture de toutes les cartes');
-        const mapWidgets = this.shell.getWidgets('bottom').filter(w => w.id.startsWith('geoapp-map'));
-        mapWidgets.forEach(w => w.close());
+        const mapWidgets = this.shell.getWidgets('bottom').filter(widget => widget.id.startsWith('geoapp-map'));
+        mapWidgets.forEach(widget => widget.close());
         this.refreshMapList();
     }
 }
-

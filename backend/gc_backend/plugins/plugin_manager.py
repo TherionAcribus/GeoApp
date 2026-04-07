@@ -86,8 +86,10 @@ class PluginManager:
             List[Dict]: Liste des informations des plugins découverts
         """
         # Recharger le schéma pour prendre en compte les modifications récentes
+        return self._discover_plugins_batched()
+
         self._load_schema()
-        
+
         discovered_plugins = []
         discovered_paths = set()
         
@@ -152,6 +154,81 @@ class PluginManager:
         
         return discovered_plugins
     
+    def _discover_plugins_batched(self) -> List[Dict]:
+        self._load_schema()
+
+        discovered_plugins: List[Dict] = []
+        discovered_paths = set()
+
+        def scan_sources(existing_plugins_by_name: Optional[Dict[str, Plugin]] = None) -> bool:
+            db_dirty = False
+            sources = {
+                'official': self.plugins_dir / 'official',
+                'custom': self.plugins_dir / 'custom'
+            }
+
+            for source_name, source_path in sources.items():
+                if not source_path.exists():
+                    logger.warning(f"RÃ©pertoire {source_name} non trouvÃ©: {source_path}")
+                    continue
+
+                logger.debug(f"Scan des plugins {source_name} dans: {source_path}")
+
+                for plugin_json_path in source_path.rglob('plugin.json'):
+                    plugin_dir = plugin_json_path.parent
+                    discovered_paths.add(str(plugin_dir))
+
+                    logger.debug(f"TrouvÃ© plugin.json: {plugin_json_path}")
+
+                    try:
+                        plugin_info = self._load_and_validate_plugin(plugin_json_path, source_name)
+
+                        if not plugin_info:
+                            continue
+
+                        plugin_info['path'] = str(plugin_dir)
+                        plugin_info['source'] = source_name
+
+                        if existing_plugins_by_name is not None:
+                            db_dirty = self._upsert_plugin_record(plugin_info, existing_plugins_by_name) or db_dirty
+
+                        discovered_plugins.append(plugin_info)
+
+                        logger.info(
+                            f"Plugin dÃ©couvert: {plugin_info['name']} v{plugin_info['version']} "
+                            f"({source_name})"
+                        )
+                    except Exception as error:
+                        logger.opt(exception=error).error(
+                            "Erreur lors du chargement de {}: {}",
+                            plugin_json_path,
+                            error,
+                        )
+                        self._loading_errors[str(plugin_dir)] = str(error)
+
+            if existing_plugins_by_name is not None:
+                db_dirty = self._cleanup_deleted_plugins_batched(discovered_paths, existing_plugins_by_name) or db_dirty
+
+            return db_dirty
+
+        if self.app:
+            with self.app.app_context():
+                existing_plugins_by_name = {
+                    plugin.name: plugin
+                    for plugin in Plugin.query.all()
+                }
+                if scan_sources(existing_plugins_by_name):
+                    db.session.commit()
+        else:
+            scan_sources()
+
+        logger.info(
+            f"DÃ©couverte terminÃ©e: {len(discovered_plugins)} plugins trouvÃ©s "
+            f"({len(self._loading_errors)} erreurs)"
+        )
+
+        return discovered_plugins
+
     def _load_and_validate_plugin(
         self,
         plugin_json_path: Path,
@@ -357,6 +434,85 @@ class PluginManager:
         plugin.needs_network = plugin_info.get('needs_network', False)
         plugin.needs_filesystem = plugin_info.get('needs_filesystem', False)
         plugin.metadata_json = json.dumps(plugin_info)
+
+    def _upsert_plugin_record(
+        self,
+        plugin_info: Dict,
+        existing_plugins_by_name: Dict[str, Plugin]
+    ) -> bool:
+        existing = existing_plugins_by_name.get(plugin_info['name'])
+
+        if existing:
+            current_hash = plugin_info.get('_hash', '')
+            existing_metadata = {}
+            if existing.metadata_json:
+                try:
+                    existing_metadata = json.loads(existing.metadata_json)
+                except json.JSONDecodeError:
+                    pass
+
+            existing_hash = existing_metadata.get('_hash', '')
+            if current_hash and current_hash == existing_hash:
+                logger.debug(
+                    f"Plugin {plugin_info['name']} inchangÃ© (hash identique)"
+                )
+                return False
+
+            logger.info(
+                f"Mise Ã  jour plugin {plugin_info['name']} "
+                f"v{existing.version} -> v{plugin_info['version']}"
+            )
+            self._update_plugin_fields(existing, plugin_info)
+            return True
+
+        logger.info(f"CrÃ©ation nouveau plugin: {plugin_info['name']}")
+
+        new_plugin = Plugin(
+            name=plugin_info['name'],
+            version=plugin_info['version'],
+            plugin_api_version=plugin_info.get('plugin_api_version', '2.0'),
+            description=plugin_info.get('description', ''),
+            author=plugin_info.get('author', ''),
+            plugin_type=plugin_info['plugin_type'],
+            source=plugin_info['source'],
+            path=plugin_info['path'],
+            entry_point=plugin_info['entry_point'],
+            categories=plugin_info.get('categories', []),
+            input_types=plugin_info.get('input_types', {}),
+            heavy_cpu=plugin_info.get('heavy_cpu', False),
+            needs_network=plugin_info.get('needs_network', False),
+            needs_filesystem=plugin_info.get('needs_filesystem', False),
+            enabled=True,
+            metadata_json=json.dumps(plugin_info)
+        )
+
+        db.session.add(new_plugin)
+        existing_plugins_by_name[new_plugin.name] = new_plugin
+        return True
+
+    def _cleanup_deleted_plugins_batched(
+        self,
+        discovered_paths: set,
+        existing_plugins_by_name: Dict[str, Plugin]
+    ) -> bool:
+        deleted_count = 0
+
+        for plugin_name, plugin in list(existing_plugins_by_name.items()):
+            if plugin.path in discovered_paths:
+                continue
+
+            logger.info(
+                f"Suppression plugin {plugin.name} (dossier introuvable: {plugin.path})"
+            )
+            db.session.delete(plugin)
+            existing_plugins_by_name.pop(plugin_name, None)
+            deleted_count += 1
+
+        if deleted_count > 0:
+            logger.info(f"{deleted_count} plugin(s) supprimÃ©(s) de la DB")
+            return True
+
+        return False
     
     def _cleanup_deleted_plugins(self, discovered_paths: set) -> None:
         """

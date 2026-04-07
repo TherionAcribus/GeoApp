@@ -11,6 +11,8 @@ import { GeoPreferenceDefinition } from '../geo-preferences-schema';
 export class PreferenceSyncService implements FrontendApplicationContribution {
 
     private applyingRemote = false;
+    private initializationPromise: Promise<void> | undefined;
+    private initializationScheduled = false;
     private readonly backendDefinitions: Map<string, GeoPreferenceDefinition>;
 
     constructor(
@@ -27,12 +29,42 @@ export class PreferenceSyncService implements FrontendApplicationContribution {
     }
 
     async initialize(): Promise<void> {
+        if (this.initializationPromise) {
+            return this.initializationPromise;
+        }
+
+        this.initializationPromise = this.doInitialize();
+        return this.initializationPromise;
+    }
+
+    onStart(): void {
+        this.apiClient.setBaseUrl(String(this.preferenceService.get('geoApp.backend.apiBaseUrl', 'http://localhost:8000')));
+        this.scheduleInitialization();
+    }
+
+    private async doInitialize(): Promise<void> {
         this.apiClient.setBaseUrl(String(this.preferenceService.get('geoApp.backend.apiBaseUrl', 'http://localhost:8000')));
         await this.pullFromBackend();
     }
 
-    async onStart(): Promise<void> {
-        await this.initialize();
+    private scheduleInitialization(): void {
+        if (this.initializationScheduled) {
+            return;
+        }
+
+        this.initializationScheduled = true;
+        this.scheduleBackgroundTask(() => {
+            void this.initialize();
+        });
+    }
+
+    private scheduleBackgroundTask(task: () => void): void {
+        if (typeof window !== 'undefined' && typeof (window as any).requestIdleCallback === 'function') {
+            (window as any).requestIdleCallback(() => task(), { timeout: 2000 });
+            return;
+        }
+
+        setTimeout(task, 0);
     }
 
     private async pullFromBackend(): Promise<void> {

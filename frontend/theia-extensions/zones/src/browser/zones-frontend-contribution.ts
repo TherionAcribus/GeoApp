@@ -11,10 +11,6 @@ import { MapWidgetFactory } from './map/map-widget-factory';
 @injectable()
 export class ZonesFrontendContribution implements FrontendApplicationContribution {
 
-    constructor() {
-        console.log('[ZonesFrontendContribution] CONSTRUCTEUR appelé - extension zones créée');
-    }
-
     @inject(WidgetManager)
     protected readonly widgetManager: WidgetManager;
 
@@ -25,27 +21,8 @@ export class ZonesFrontendContribution implements FrontendApplicationContributio
     protected readonly geocacheLogEditorTabsManager: GeocacheLogEditorTabsManager;
 
     async onStart(app: FrontendApplication): Promise<void> {
-        console.log('[ZonesFrontendContribution] ========== onStart appelé - extension zones initialisée ==========');
+        this.schedulePostStartupWidgets(app);
 
-        // Ajouter le widget des zones
-        const widget = await this.getOrCreateWidget();
-        if (!widget.isAttached) {
-            app.shell.addWidget(widget, { area: 'left', rank: 100 });
-        }
-        app.shell.activateWidget(widget.id);
-
-        // Ajouter le gestionnaire de cartes
-        console.log('[ZonesFrontendContribution] Création du MapManagerWidget...');
-        const mapManagerWidget = await this.widgetManager.getOrCreateWidget(MapManagerWidget.ID);
-        console.log('[ZonesFrontendContribution] MapManagerWidget créé:', mapManagerWidget.id);
-        if (!mapManagerWidget.isAttached) {
-            console.log('[ZonesFrontendContribution] Ajout du MapManagerWidget à la barre latérale gauche');
-            app.shell.addWidget(mapManagerWidget, { area: 'left', rank: 200 });
-        } else {
-            console.log('[ZonesFrontendContribution] MapManagerWidget déjà attaché');
-        }
-
-        // Ecoute globale pour ouverture d'un onglet central de géocaches
         window.addEventListener('open-zone-geocaches', async (event: any) => {
             try {
                 const detail = event?.detail || {};
@@ -54,131 +31,73 @@ export class ZonesFrontendContribution implements FrontendApplicationContributio
                 if (!zoneId) {
                     return;
                 }
-                const gWidget = await this.widgetManager.getOrCreateWidget(ZoneGeocachesWidget.ID) as ZoneGeocachesWidget;
-                gWidget.setZone({ zoneId, zoneName });
-                if (!gWidget.isAttached) {
-                    app.shell.addWidget(gWidget, { area: 'main' });
+
+                const widget = await this.widgetManager.getOrCreateWidget(ZoneGeocachesWidget.ID) as ZoneGeocachesWidget;
+                widget.setZone({ zoneId, zoneName });
+                if (!widget.isAttached) {
+                    app.shell.addWidget(widget, { area: 'main' });
                 }
-                app.shell.activateWidget(gWidget.id);
-            } catch (e) {
-                // eslint-disable-next-line no-console
-                console.error('ZonesFrontendContribution: failed to open zone-geocaches widget', e);
+                app.shell.activateWidget(widget.id);
+            } catch (error) {
+                console.error('[ZonesFrontendContribution] Failed to open zone widget', error);
             }
         });
 
-        // Écoute globale pour ouverture d'une carte de géocache (utilisé par l'extension alphabets)
-        console.log('[ZonesFrontendContribution] ========== Enregistrement des écouteurs open-geocache-map ==========');
-        const eventHandler = async (event: any) => {
+        const openGeocacheMap = async (event: any) => {
             try {
-                console.log('[ZonesFrontendContribution] !!!!! ÉVÉNEMENT CUSTOMEVENTS REÇU !!!!!');
-                console.log('[ZonesFrontendContribution] Événement open-geocache-map reçu sur', event.currentTarget === document ? 'document' : 'window');
-                console.log('ZonesFrontendContribution: Événement open-geocache-map reçu', event);
-                const detail = event?.detail || {};
-                console.log('ZonesFrontendContribution: Détails de l\'événement:', detail);
-                const geocache = detail.geocache;
+                const geocache = event?.detail?.geocache;
                 if (!geocache || !geocache.id) {
-                    console.warn('ZonesFrontendContribution: Invalid geocache data for open-geocache-map event', detail);
                     return;
                 }
 
-                console.log('ZonesFrontendContribution: Received open-geocache-map event for', geocache.gc_code);
-                console.log('ZonesFrontendContribution: Données géocache:', geocache);
-
-                // Récupérer le widget de géocaches et ouvrir la carte
-                console.log('ZonesFrontendContribution: Récupération du widget ZoneGeocachesWidget');
-                const gWidget = await this.widgetManager.getOrCreateWidget(ZoneGeocachesWidget.ID) as ZoneGeocachesWidget;
-                console.log('ZonesFrontendContribution: Widget récupéré:', gWidget);
-                await gWidget.openGeocacheMap(geocache);
-                console.log('ZonesFrontendContribution: openGeocacheMap terminé');
-            } catch (e) {
-                // eslint-disable-next-line no-console
-                console.error('ZonesFrontendContribution: failed to open geocache map', e);
+                const widget = await this.widgetManager.getOrCreateWidget(ZoneGeocachesWidget.ID) as ZoneGeocachesWidget;
+                await widget.openGeocacheMap(geocache);
+            } catch (error) {
+                console.error('[ZonesFrontendContribution] Failed to open geocache map', error);
             }
         };
 
-        document.addEventListener('open-geocache-map', eventHandler);
-        window.addEventListener('open-geocache-map', eventHandler);
-        console.log('[ZonesFrontendContribution] ========== Écouteurs CustomEvent enregistrés sur document et window ==========');
+        document.addEventListener('open-geocache-map', openGeocacheMap);
+        window.addEventListener('open-geocache-map', openGeocacheMap);
 
-        // Écouteurs pour la carte générale
-        console.log('[ZonesFrontendContribution] ========== Enregistrement des écouteurs open-general-map ==========');
-        const generalMapHandler = async () => {
+        const openGeneralMap = async () => {
             try {
-                console.log('[ZonesFrontendContribution] Événement open-general-map reçu');
                 await this.mapWidgetFactory.openGeneralMap();
-                console.log('[ZonesFrontendContribution] Carte générale ouverte/activée');
             } catch (error) {
-                console.error('[ZonesFrontendContribution] Erreur lors de l\'ouverture de la carte générale', error);
+                console.error('[ZonesFrontendContribution] Failed to open general map', error);
             }
         };
-        document.addEventListener('open-general-map', generalMapHandler);
-        window.addEventListener('open-general-map', generalMapHandler);
 
-        // Écouter aussi les messages window.postMessage
-        const messageHandler = async (messageEvent: MessageEvent) => {
-            // Log seulement pour les messages pertinents (éviter le spam)
-            if (messageEvent.data && messageEvent.data.type === 'open-geocache-map' && messageEvent.data.source === 'alphabets-extension') {
-                console.log('[ZonesFrontendContribution] Ouverture carte alphabets pour geocache:', messageEvent.data.geocache?.gc_code);
-                const geocache = messageEvent.data.geocache;
-                if (geocache && geocache.id) {
-                    try {
-                        // Utiliser le widgetManager pour récupérer ou créer le widget
-                        const gWidget = await this.widgetManager.getOrCreateWidget(ZoneGeocachesWidget.ID) as ZoneGeocachesWidget;
-                        await gWidget.openGeocacheMap(geocache);
-                    } catch (error) {
-                        console.error('[ZonesFrontendContribution] Erreur lors de l\'ouverture de la carte:', error);
-                    }
-                } else {
-                    console.warn('[ZonesFrontendContribution] Données geocache invalides:', geocache);
-                }
-            } else if (messageEvent.data && messageEvent.data.type === 'open-general-map' && messageEvent.data.source === 'alphabets-extension') {
-                console.log('[ZonesFrontendContribution] !!!!! MESSAGE POSTMESSAGE OPEN-GENERAL-MAP REÇU !!!!!');
+        document.addEventListener('open-general-map', openGeneralMap);
+        window.addEventListener('open-general-map', openGeneralMap);
+
+        window.addEventListener('message', async (messageEvent: MessageEvent) => {
+            const data = messageEvent.data;
+            if (!data || data.source !== 'alphabets-extension') {
+                return;
+            }
+
+            if (data.type === 'open-geocache-map') {
                 try {
-                    await this.mapWidgetFactory.openGeneralMap();
-                    console.log('[ZonesFrontendContribution] Carte générale ouverte via postMessage');
+                    const geocache = data.geocache;
+                    if (!geocache || !geocache.id) {
+                        return;
+                    }
+
+                    const widget = await this.widgetManager.getOrCreateWidget(ZoneGeocachesWidget.ID) as ZoneGeocachesWidget;
+                    await widget.openGeocacheMap(geocache);
                 } catch (error) {
-                    console.error('[ZonesFrontendContribution] Erreur lors de l\'ouverture de la carte générale via postMessage', error);
+                    console.error('[ZonesFrontendContribution] Failed to open geocache map from message', error);
                 }
+                return;
             }
-        };
-        window.addEventListener('message', messageHandler);
-        console.log('[ZonesFrontendContribution] ========== Écouteur postMessage enregistré sur window ==========');
 
-        // Écouteur pour ouvrir le widget des logs
-        console.log('[ZonesFrontendContribution] ========== Enregistrement des écouteurs open-geocache-logs ==========');
-        const openLogsHandler = async (event: any) => {
-            try {
-                const detail = event?.detail || {};
-                const geocacheId = detail.geocacheId;
-                const gcCode = detail.gcCode;
-                const name = detail.name;
-                
-                if (!geocacheId) {
-                    console.warn('[ZonesFrontendContribution] open-geocache-logs: geocacheId manquant');
-                    return;
-                }
-                
-                console.log('[ZonesFrontendContribution] Ouverture des logs pour geocache:', gcCode || geocacheId);
-                
-                const logsWidget = await this.widgetManager.getOrCreateWidget(GeocacheLogsWidget.ID) as GeocacheLogsWidget;
-                logsWidget.setGeocache({ geocacheId, gcCode, name });
-                
-                if (!logsWidget.isAttached) {
-                    // Afficher dans le panneau droit par défaut
-                    app.shell.addWidget(logsWidget, { area: 'right' });
-                }
-                app.shell.activateWidget(logsWidget.id);
-                
-            } catch (error) {
-                console.error('[ZonesFrontendContribution] Erreur lors de l\'ouverture des logs:', error);
+            if (data.type === 'open-general-map') {
+                await openGeneralMap();
             }
-        };
-        window.addEventListener('open-geocache-logs', openLogsHandler);
-        document.addEventListener('open-geocache-logs', openLogsHandler);
+        });
 
-        // Écouteur pour ouvrir le widget des notes
-        console.log('[ZonesFrontendContribution] ========== Enregistrement des écouteurs open-geocache-notes ==========');
-        const openNotesHandler = async (event: any) => {
+        const openLogs = async (event: any) => {
             try {
                 const detail = event?.detail || {};
                 const geocacheId = detail.geocacheId;
@@ -186,53 +105,104 @@ export class ZonesFrontendContribution implements FrontendApplicationContributio
                 const name = detail.name;
 
                 if (!geocacheId) {
-                    console.warn('[ZonesFrontendContribution] open-geocache-notes: geocacheId manquant');
                     return;
                 }
 
-                console.log('[ZonesFrontendContribution] Ouverture des notes pour geocache:', gcCode || geocacheId);
-
-                const notesWidget = await this.widgetManager.getOrCreateWidget(GeocacheNotesWidget.ID) as GeocacheNotesWidget;
-                notesWidget.setGeocache({ geocacheId, gcCode, name });
-
-                if (!notesWidget.isAttached) {
-                    // Afficher dans le panneau droit par défaut
-                    app.shell.addWidget(notesWidget, { area: 'right' });
+                const widget = await this.widgetManager.getOrCreateWidget(GeocacheLogsWidget.ID) as GeocacheLogsWidget;
+                widget.setGeocache({ geocacheId, gcCode, name });
+                if (!widget.isAttached) {
+                    app.shell.addWidget(widget, { area: 'right' });
                 }
-                app.shell.activateWidget(notesWidget.id);
-
+                app.shell.activateWidget(widget.id);
             } catch (error) {
-                console.error('[ZonesFrontendContribution] Erreur lors de l\'ouverture des notes:', error);
+                console.error('[ZonesFrontendContribution] Failed to open logs widget', error);
             }
         };
-        window.addEventListener('open-geocache-notes', openNotesHandler);
-        document.addEventListener('open-geocache-notes', openNotesHandler);
 
-        // Écouteur pour ouvrir l'éditeur de logs (nouvel onglet)
-        const openLogEditorHandler = async (event: any) => {
+        window.addEventListener('open-geocache-logs', openLogs);
+        document.addEventListener('open-geocache-logs', openLogs);
+
+        const openNotes = async (event: any) => {
+            try {
+                const detail = event?.detail || {};
+                const geocacheId = detail.geocacheId;
+                const gcCode = detail.gcCode;
+                const name = detail.name;
+
+                if (!geocacheId) {
+                    return;
+                }
+
+                const widget = await this.widgetManager.getOrCreateWidget(GeocacheNotesWidget.ID) as GeocacheNotesWidget;
+                widget.setGeocache({ geocacheId, gcCode, name });
+                if (!widget.isAttached) {
+                    app.shell.addWidget(widget, { area: 'right' });
+                }
+                app.shell.activateWidget(widget.id);
+            } catch (error) {
+                console.error('[ZonesFrontendContribution] Failed to open notes widget', error);
+            }
+        };
+
+        window.addEventListener('open-geocache-notes', openNotes);
+        document.addEventListener('open-geocache-notes', openNotes);
+
+        const openLogEditor = async (event: any) => {
             try {
                 const detail = event?.detail || {};
                 const geocacheIds = Array.isArray(detail.geocacheIds) ? detail.geocacheIds : [];
                 const title = detail.title;
                 if (!geocacheIds.length) {
-                    console.warn('[ZonesFrontendContribution] open-geocache-log-editor: geocacheIds manquant');
                     return;
                 }
+
                 await this.geocacheLogEditorTabsManager.openLogEditor({ geocacheIds, title });
             } catch (error) {
-                console.error('[ZonesFrontendContribution] Erreur lors de l\'ouverture de l\'éditeur de logs:', error);
+                console.error('[ZonesFrontendContribution] Failed to open log editor', error);
             }
         };
 
-        window.addEventListener('open-geocache-log-editor', openLogEditorHandler);
-        document.addEventListener('open-geocache-log-editor', openLogEditorHandler);
-
-        console.log('[ZonesFrontendContribution] ========== Tous les écouteurs sont maintenant actifs ==========');
+        window.addEventListener('open-geocache-log-editor', openLogEditor);
+        document.addEventListener('open-geocache-log-editor', openLogEditor);
     }
 
     protected async getOrCreateWidget(): Promise<Widget> {
         return this.widgetManager.getOrCreateWidget(ZonesTreeWidget.ID);
     }
+
+    protected schedulePostStartupWidgets(app: FrontendApplication): void {
+        this.scheduleNonCriticalTask(async () => {
+            await this.attachZonesWidget(app);
+            await this.attachMapManagerWidget(app);
+        });
+    }
+
+    protected async attachZonesWidget(app: FrontendApplication): Promise<void> {
+        const widget = await this.getOrCreateWidget();
+        if (!widget.isAttached) {
+            app.shell.addWidget(widget, { area: 'left', rank: 100 });
+        }
+    }
+
+    protected async attachMapManagerWidget(app: FrontendApplication): Promise<void> {
+        const mapManagerWidget = await this.widgetManager.getOrCreateWidget(MapManagerWidget.ID);
+        if (!mapManagerWidget.isAttached) {
+            app.shell.addWidget(mapManagerWidget, { area: 'left', rank: 200 });
+        }
+    }
+
+    protected scheduleNonCriticalTask(task: () => Promise<void> | void): void {
+        const runner = () => {
+            void Promise.resolve(task()).catch(error => {
+                console.error('[ZonesFrontendContribution] Deferred startup task failed', error);
+            });
+        };
+
+        if (typeof window !== 'undefined' && typeof (window as any).requestIdleCallback === 'function') {
+            (window as any).requestIdleCallback(() => runner(), { timeout: 1500 });
+            return;
+        }
+
+        setTimeout(runner, 0);
+    }
 }
-
-
