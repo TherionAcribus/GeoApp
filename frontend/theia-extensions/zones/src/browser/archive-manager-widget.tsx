@@ -6,6 +6,9 @@ import { ConfirmDialog } from '@theia/core/lib/browser';
 import { PluginExecutorContribution } from '@mysterai/theia-plugins/lib/browser/plugins-contribution';
 import { GeocacheContext, PluginExecutorResumeSnapshot } from '@mysterai/theia-plugins/lib/browser/plugin-executor-widget';
 import { ResolutionWorkflowStepRunResponse } from '@mysterai/theia-plugins/lib/common/plugin-protocol';
+import { getErrorMessage } from './backend-api-client';
+import { ArchiveManagerService } from './archive-manager-service';
+import { ArchiveManagerController } from './archive-manager-controller';
 
 interface ArchiveStats {
     total_archived: number;
@@ -220,7 +223,6 @@ const prependArchiveWorkflowEntry = (
 export class ArchiveManagerWidget extends ReactWidget {
     static readonly ID = 'geoapp.archive.manager';
 
-    protected backendBaseUrl = 'http://localhost:8000';
     protected stats: ArchiveStats | null = null;
     protected settings: ArchiveSettings | null = null;
     protected isLoading = false;
@@ -231,7 +233,6 @@ export class ArchiveManagerWidget extends ReactWidget {
     protected bulkBeforeDate = '';
     protected lastActionResult: string | null = null;
     protected lastActionError: string | null = null;
-    protected pendingDisable = false;
     protected archives: ArchiveEntry[] = [];
     protected archivesPage = 1;
     protected archivePages = 1;
@@ -249,6 +250,8 @@ export class ArchiveManagerWidget extends ReactWidget {
     constructor(
         @inject(MessageService) protected readonly messages: MessageService,
         @inject(PluginExecutorContribution) protected readonly pluginExecutorContribution: PluginExecutorContribution,
+        @inject(ArchiveManagerService) protected readonly archiveManagerService: ArchiveManagerService,
+        @inject(ArchiveManagerController) protected readonly archiveManagerController: ArchiveManagerController,
     ) {
         super();
         this.id = ArchiveManagerWidget.ID;
@@ -268,12 +271,20 @@ export class ArchiveManagerWidget extends ReactWidget {
         this.isLoading = true;
         this.update();
         try {
-            const [statsRes, settingsRes] = await Promise.all([
-                fetch(`${this.backendBaseUrl}/api/archive/stats`, { credentials: 'include' }),
-                fetch(`${this.backendBaseUrl}/api/archive/settings`, { credentials: 'include' }),
+            const [statsResult, settingsResult] = await Promise.allSettled([
+                this.archiveManagerService.getStats(),
+                this.archiveManagerService.getSettings(),
             ]);
-            if (statsRes.ok) { this.stats = await statsRes.json(); }
-            if (settingsRes.ok) { this.settings = await settingsRes.json(); }
+            if (statsResult.status === 'fulfilled') {
+                this.stats = statsResult.value;
+            } else {
+                console.error('[ArchiveManagerWidget] loadData stats error', statsResult.reason);
+            }
+            if (settingsResult.status === 'fulfilled') {
+                this.settings = settingsResult.value;
+            } else {
+                console.error('[ArchiveManagerWidget] loadData settings error', settingsResult.reason);
+            }
             await this.loadArchives(false);
         } catch (e) {
             console.error('[ArchiveManagerWidget] loadData error', e);
@@ -287,25 +298,12 @@ export class ArchiveManagerWidget extends ReactWidget {
         this.isLoadingArchives = true;
         this.update();
         try {
-            const params = new URLSearchParams({
-                page: String(this.archivesPage),
-                per_page: '12',
+            const payload = await this.archiveManagerService.listArchives({
+                page: this.archivesPage,
+                perPage: 12,
+                solvedStatus: this.archiveStatusFilter,
+                gcCode: this.archiveSearch,
             });
-            if (this.archiveStatusFilter) {
-                params.set('solved_status', this.archiveStatusFilter);
-            }
-            if (this.archiveSearch.trim()) {
-                params.set('gc_code', this.archiveSearch.trim().toUpperCase());
-            }
-
-            const res = await fetch(`${this.backendBaseUrl}/api/archive?${params.toString()}`, {
-                credentials: 'include',
-            });
-            if (!res.ok) {
-                throw new Error(`HTTP ${res.status}`);
-            }
-
-            const payload = await res.json() as ArchiveListResponse;
             this.archives = Array.isArray(payload.archives) ? payload.archives : [];
             this.archiveTotal = Number(payload.total || 0);
             this.archivePages = Math.max(1, Number(payload.pages || 1));
@@ -326,7 +324,7 @@ export class ArchiveManagerWidget extends ReactWidget {
                 await this.loadArchiveDetails(nextSelectedGcCode);
             }
         } catch (e) {
-            this.lastActionError = `Erreur chargement archives : ${String(e)}`;
+            this.lastActionError = `Erreur chargement archives : ${getErrorMessage(e, 'Erreur lors du chargement des archives')}`;
             console.error('[ArchiveManagerWidget] loadArchives error', e);
         } finally {
             this.isLoadingArchives = false;
@@ -345,13 +343,7 @@ export class ArchiveManagerWidget extends ReactWidget {
         this.selectedArchiveGcCode = gcCode;
         this.update();
         try {
-            const res = await fetch(`${this.backendBaseUrl}/api/archive/${encodeURIComponent(gcCode)}`, {
-                credentials: 'include',
-            });
-            if (!res.ok) {
-                throw new Error(`HTTP ${res.status}`);
-            }
-            this.selectedArchive = await res.json() as ArchiveEntry;
+            this.selectedArchive = await this.archiveManagerService.getArchive(gcCode);
         } catch (e) {
             this.selectedArchive = this.archives.find(entry => entry.gc_code === gcCode) || null;
             this.lastActionError = `Erreur chargement détail archive : ${String(e)}`;
@@ -363,30 +355,11 @@ export class ArchiveManagerWidget extends ReactWidget {
     }
 
     protected getHistoryEntries(entry: ArchiveEntry | null): ArchiveHistoryEntry[] {
-        const diagnostics = entry?.resolution_diagnostics;
-        if (diagnostics?.history_state?.length) {
-            return diagnostics.history_state;
-        }
-        if (diagnostics?.resume_state) {
-            return [{
-                recorded_at: diagnostics.updated_at,
-                source: diagnostics.source,
-                workflow_kind: diagnostics.workflow_resolution?.primary?.kind,
-                workflow_confidence: diagnostics.workflow_resolution?.primary?.confidence,
-                final_confidence: diagnostics.resume_state?.workflowResolution?.control?.final_confidence,
-                control_status: diagnostics.resume_state?.workflowResolution?.control?.status,
-                current_text: diagnostics.resume_state?.currentText || diagnostics.current_text,
-                latest_event: Array.isArray(diagnostics.resume_state?.workflowEntries) && diagnostics.resume_state?.workflowEntries[0]
-                    ? diagnostics.resume_state.workflowEntries[0]
-                    : null,
-                resume_state: diagnostics.resume_state,
-            }];
-        }
-        return [];
+        return this.archiveManagerController.getHistoryEntries(entry);
     }
 
     protected getHistoryEntryKey(entry: ArchiveHistoryEntry, index: number): string {
-        return entry.entry_id || `${entry.recorded_at || 'entry'}-${index}`;
+        return this.archiveManagerController.getHistoryEntryKey(entry, index);
     }
 
     protected getArchiveListSummary(entry: ArchiveEntry): {
@@ -394,108 +367,7 @@ export class ArchiveManagerWidget extends ReactWidget {
         eventLabel: string;
         eventText: string;
     } | null {
-        const latestEntry = this.getHistoryEntries(entry)[0];
-        if (!latestEntry) {
-            return null;
-        }
-
-        const metaParts: string[] = [];
-        const workflowLabel = WORKFLOW_KIND_LABELS[latestEntry.workflow_kind || ''] || latestEntry.workflow_kind || '';
-        if (workflowLabel) {
-            metaParts.push(workflowLabel);
-        }
-        if (latestEntry.control_status) {
-            metaParts.push(CONTROL_STATUS_LABELS[latestEntry.control_status] || latestEntry.control_status);
-        }
-        if (typeof latestEntry.final_confidence === 'number') {
-            metaParts.push(`confiance ${(latestEntry.final_confidence * 100).toFixed(0)}%`);
-        }
-
-        const latestEvent = latestEntry.latest_event;
-        const eventLabel = latestEvent?.category === 'execute'
-            ? 'Dernier rejeu'
-            : 'Derniere activite';
-        const eventParts = [
-            typeof latestEvent?.message === 'string' ? latestEvent.message.trim() : '',
-            typeof latestEvent?.detail === 'string' ? latestEvent.detail.trim() : '',
-        ].filter(Boolean);
-        const eventText = truncateArchiveText(
-            eventParts.join(' | ') || latestEntry.current_text || '',
-            120,
-        );
-
-        if (!metaParts.length && !eventText) {
-            return null;
-        }
-
-        return {
-            meta: metaParts.join(' | '),
-            eventLabel,
-            eventText,
-        };
-    }
-
-    protected async fetchLiveGeocache(gcCode: string): Promise<GeocacheApiResponse | null> {
-        const response = await fetch(`${this.backendBaseUrl}/api/geocaches/by-code/${encodeURIComponent(gcCode)}`, {
-            credentials: 'include',
-        });
-        if (response.status === 404 || response.status === 409) {
-            return null;
-        }
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
-        return await response.json() as GeocacheApiResponse;
-    }
-
-    protected buildPluginExecutorContext(
-        archive: ArchiveEntry,
-        historyEntry: ArchiveHistoryEntry,
-        resumeSnapshot: PluginExecutorResumeSnapshot,
-        geocache: GeocacheApiResponse | null,
-    ): GeocacheContext {
-        const coordinatesRaw = geocache?.coordinates_raw
-            || geocache?.original_coordinates_raw
-            || archive.solved_coordinates_raw
-            || archive.original_coordinates_raw;
-        const latitude = typeof geocache?.latitude === 'number'
-            ? geocache.latitude
-            : (typeof archive.solved_latitude === 'number' ? archive.solved_latitude : undefined);
-        const longitude = typeof geocache?.longitude === 'number'
-            ? geocache.longitude
-            : (typeof archive.solved_longitude === 'number' ? archive.solved_longitude : undefined);
-        const coordinates = typeof latitude === 'number' && typeof longitude === 'number'
-            ? { latitude, longitude, coordinatesRaw }
-            : undefined;
-        const description = geocache?.description_override_html
-            || geocache?.description_html
-            || geocache?.description_override_raw
-            || geocache?.description_raw
-            || historyEntry.current_text
-            || archive.resolution_diagnostics?.current_text
-            || resumeSnapshot.currentText
-            || '';
-        const hint = geocache?.hints_decoded_override
-            || geocache?.hints_decoded
-            || geocache?.hints
-            || '';
-
-        return {
-            geocacheId: geocache?.id,
-            gcCode: geocache?.gc_code || archive.gc_code,
-            name: geocache?.name || archive.name || archive.gc_code,
-            coordinates,
-            description,
-            hint,
-            difficulty: geocache?.difficulty ?? archive.difficulty,
-            terrain: geocache?.terrain ?? archive.terrain,
-            waypoints: geocache?.waypoints || archive.waypoints_snapshot || [],
-            images: (geocache?.images || [])
-                .filter((image): image is { url?: string } => Boolean(image && image.url))
-                .map(image => ({ url: image.url || '' })),
-            checkers: geocache?.checkers || [],
-            resumeSnapshot,
-        };
+        return this.archiveManagerController.getArchiveListSummary(entry);
     }
 
     protected async restoreHistoryEntry(entry: ArchiveHistoryEntry, index: number): Promise<void> {
@@ -510,19 +382,8 @@ export class ArchiveManagerWidget extends ReactWidget {
         this.restoringHistoryEntryKey = historyEntryKey;
         this.update();
 
-        let liveGeocache: GeocacheApiResponse | null = null;
-        let usedArchiveFallback = false;
-
         try {
-            try {
-                liveGeocache = await this.fetchLiveGeocache(archive.gc_code);
-                usedArchiveFallback = !liveGeocache;
-            } catch (fetchError) {
-                usedArchiveFallback = true;
-                console.warn('[ArchiveManagerWidget] restoreHistoryEntry live geocache fetch failed', fetchError);
-            }
-
-            const context = this.buildPluginExecutorContext(archive, entry, resumeSnapshot, liveGeocache);
+            const { context, usedArchiveFallback } = await this.archiveManagerController.prepareHistoryRestoreContext(archive, entry);
             await this.pluginExecutorContribution.openWithContext(context, 'metasolver', false);
 
             if (usedArchiveFallback) {
@@ -532,7 +393,7 @@ export class ArchiveManagerWidget extends ReactWidget {
             }
         } catch (error) {
             console.error('[ArchiveManagerWidget] restoreHistoryEntry error', error);
-            this.messages.error(`Erreur restauration tentative : ${String(error)}`);
+            this.messages.error(`Erreur restauration tentative : ${getErrorMessage(error, 'Erreur lors de la restauration de tentative')}`);
         } finally {
             this.restoringHistoryEntryKey = null;
             this.update();
@@ -542,237 +403,13 @@ export class ArchiveManagerWidget extends ReactWidget {
     protected getReplayableSteps(
         resumeSnapshot: PluginExecutorResumeSnapshot,
     ): Array<{ id: string; title?: string; status?: string }> {
-        const plan = resumeSnapshot.workflowResolution?.plan || [];
-        const steps: Array<{ id: string; title?: string; status?: string }> = [];
-        for (const step of plan) {
-            const stepId = String(step?.id || '').trim();
-            if (!REPLAYABLE_WORKFLOW_STEP_IDS.has(stepId)) {
-                continue;
-            }
-            steps.push({
-                id: stepId,
-                title: typeof step?.title === 'string' ? step.title : undefined,
-                status: typeof step?.status === 'string' ? step.status : undefined,
-            });
-        }
-        return steps;
+        return this.archiveManagerController.getReplayableSteps(resumeSnapshot);
     }
 
     protected getNextReplayableStep(
         resumeSnapshot: PluginExecutorResumeSnapshot,
     ): { id: string; title?: string; status?: string } | null {
-        const replayableSteps = this.getReplayableSteps(resumeSnapshot);
-        return replayableSteps.find(step => step.status === 'planned')
-            || replayableSteps[0]
-            || null;
-    }
-
-    protected buildReplayRequest(
-        context: GeocacheContext,
-        resumeSnapshot: PluginExecutorResumeSnapshot,
-        targetStepId: string,
-        liveGeocache: GeocacheApiResponse | null,
-    ): Record<string, unknown> {
-        const workflowResolution = resumeSnapshot.workflowResolution;
-        const answerSearch = workflowResolution?.execution?.formula?.answer_search;
-        const formulaAnswers = answerSearch
-            ? Object.fromEntries(
-                Object.entries(answerSearch.answers || {})
-                    .filter(([, value]) => typeof value?.best_answer === 'string' && value.best_answer.trim().length > 0)
-                    .map(([key, value]) => [key, value.best_answer!.trim()])
-            )
-            : undefined;
-        const formulaValueTypes = answerSearch
-            ? Object.fromEntries(
-                Object.entries(answerSearch.answers || {})
-                    .filter(([, value]) => typeof value?.recommended_value_type === 'string' && value.recommended_value_type.trim().length > 0)
-                    .map(([key, value]) => [key, value.recommended_value_type!.trim()])
-            )
-            : undefined;
-        const checkerCandidate = workflowResolution?.execution?.checker?.candidate
-            || formatCheckerCandidateFromCoordinates(workflowResolution?.execution?.formula?.calculated_coordinates)
-            || formatCheckerCandidateFromCoordinates(workflowResolution?.execution?.secret_code?.metasolver_result?.coordinates)
-            || undefined;
-
-        return {
-            geocache_id: liveGeocache?.id,
-            title: context.name,
-            description: resumeSnapshot.currentText || context.description || undefined,
-            description_html: liveGeocache?.description_override_html || liveGeocache?.description_html || undefined,
-            hint: context.hint || undefined,
-            waypoints: context.waypoints,
-            checkers: context.checkers,
-            images: context.images,
-            preferred_workflow: workflowResolution?.workflow?.kind,
-            target_step_id: targetStepId,
-            formula_answers: formulaAnswers && Object.keys(formulaAnswers).length ? formulaAnswers : undefined,
-            formula_value_types: formulaValueTypes && Object.keys(formulaValueTypes).length ? formulaValueTypes : undefined,
-            checker_candidate: checkerCandidate,
-            max_secret_fragments: 5,
-            metasolver_preset: resumeSnapshot.recommendation?.effective_preset || undefined,
-            metasolver_mode: resumeSnapshot.recommendation?.mode === 'detect' ? 'detect' : 'decode',
-            max_plugins: resumeSnapshot.recommendation?.max_plugins || undefined,
-            workflow_control: workflowResolution?.control || undefined,
-        };
-    }
-
-    protected buildArchiveResolutionDiagnostics(
-        context: GeocacheContext,
-        resumeSnapshot: PluginExecutorResumeSnapshot,
-    ): Record<string, unknown> {
-        const workflowResolution = resumeSnapshot.workflowResolution;
-        const classification = resumeSnapshot.classification;
-        const recommendation = resumeSnapshot.recommendation;
-
-        return {
-            source: 'plugin_executor_metasolver',
-            schema_version: 2,
-            updated_at: resumeSnapshot.updatedAt || new Date().toISOString(),
-            geocache: {
-                geocache_id: context.geocacheId,
-                gc_code: context.gcCode,
-                name: context.name,
-            },
-            current_text: truncateArchiveText(resumeSnapshot.currentText || context.description || '', 1200),
-            workflow_resolution: workflowResolution ? {
-                primary: {
-                    kind: workflowResolution.workflow.kind,
-                    confidence: workflowResolution.workflow.confidence,
-                    score: workflowResolution.workflow.score,
-                    reason: workflowResolution.workflow.reason,
-                    forced: workflowResolution.workflow.forced || false,
-                },
-                candidates: workflowResolution.workflow_candidates.slice(0, 4).map(candidate => ({
-                    kind: candidate.kind,
-                    confidence: candidate.confidence,
-                    score: candidate.score,
-                    reason: candidate.reason,
-                    supporting_labels: candidate.supporting_labels,
-                })),
-                explanation: workflowResolution.explanation.slice(0, 4),
-                next_actions: workflowResolution.next_actions.slice(0, 6),
-                plan: workflowResolution.plan.slice(0, 6).map(step => ({
-                    id: step.id,
-                    title: step.title,
-                    status: step.status,
-                    automated: step.automated,
-                    tool: step.tool,
-                    detail: step.detail,
-                })),
-                execution: workflowResolution.execution,
-            } : null,
-            classification,
-            labels: classification?.labels.map(label => ({
-                name: label.name,
-                confidence: label.confidence,
-                evidence: label.evidence.slice(0, 3),
-            })) || [],
-            recommended_actions: classification?.recommended_actions.slice(0, 4) || [],
-            formula_signals: classification?.formula_signals.slice(0, 4) || [],
-            hidden_signals: classification?.hidden_signals.slice(0, 4) || [],
-            secret_fragments: classification?.candidate_secret_fragments.slice(0, 3).map(fragment => ({
-                text: truncateArchiveText(fragment.text, 160),
-                source: fragment.source,
-                confidence: fragment.confidence,
-                evidence: fragment.evidence.slice(0, 2),
-            })) || [],
-            metasolver: recommendation ? {
-                requested_preset: recommendation.requested_preset || null,
-                preset: recommendation.effective_preset,
-                preset_label: recommendation.effective_preset_label,
-                mode: recommendation.mode,
-                max_plugins: recommendation.max_plugins,
-                signature: recommendation.signature,
-                selected_plugins: recommendation.selected_plugins.slice(0, 8),
-                plugin_list: recommendation.plugin_list,
-                explanation: recommendation.explanation?.slice(0, 4) || [],
-                top_recommendations: recommendation.recommendations.slice(0, 5).map(item => ({
-                    name: item.name,
-                    confidence: item.confidence,
-                    score: item.score,
-                    reasons: item.reasons.slice(0, 3),
-                })),
-                recommendation_source_text: truncateArchiveText(resumeSnapshot.recommendationSourceText, 800),
-            } : null,
-            workflow: (resumeSnapshot.workflowEntries || []).slice(0, 8).map(entry => ({
-                category: entry.category,
-                message: entry.message,
-                detail: entry.detail,
-                timestamp: entry.timestamp,
-            })),
-            resume_state: {
-                updatedAt: resumeSnapshot.updatedAt,
-                currentText: resumeSnapshot.currentText,
-                recommendationSourceText: resumeSnapshot.recommendationSourceText,
-                classification: resumeSnapshot.classification,
-                recommendation: resumeSnapshot.recommendation,
-                workflowResolution: resumeSnapshot.workflowResolution,
-                workflowEntries: resumeSnapshot.workflowEntries,
-            },
-        };
-    }
-
-    protected buildReplayWorkflowLog(
-        resumeSnapshot: PluginExecutorResumeSnapshot,
-        response: ResolutionWorkflowStepRunResponse,
-        fallbackStepTitle?: string,
-    ): ArchiveWorkflowLogEntry[] {
-        let category: ArchiveWorkflowLogEntry['category'] = 'execute';
-        let message = '';
-        let detail = '';
-
-        if (response.status !== 'success') {
-            category = 'archive';
-            message = `Etape non rejouee depuis l archive: ${fallbackStepTitle || response.step?.title || response.executed_step || 'workflow'}`;
-            detail = response.message;
-            return prependArchiveWorkflowEntry(resumeSnapshot.workflowEntries, category, message, detail);
-        }
-
-        if (response.executed_step === 'execute-metasolver') {
-            category = 'secret';
-            message = 'Metasolver rejoue depuis l archive';
-            detail = String(response.result?.metasolver_result?.summary || response.message || '').trim();
-        } else if (response.executed_step === 'search-answers') {
-            category = 'formula';
-            message = 'Recherche web rejouee depuis l archive';
-            detail = response.message;
-        } else if (response.executed_step === 'calculate-final-coordinates') {
-            category = 'formula';
-            message = 'Coordonnees recalculees depuis l archive';
-            detail = String(
-                response.result?.coordinates?.ddm
-                || response.result?.coordinates?.decimal
-                || response.message
-                || ''
-            ).trim();
-        } else if (response.executed_step === 'validate-with-checker') {
-            category = 'execute';
-            message = 'Validation checker rejouee depuis l archive';
-            detail = String(
-                response.result?.result?.message
-                || response.result?.message
-                || response.message
-                || ''
-            ).trim();
-        } else {
-            message = `Etape rejouee depuis l archive: ${response.executed_step || fallbackStepTitle || 'workflow'}`;
-            detail = response.message;
-        }
-
-        return prependArchiveWorkflowEntry(resumeSnapshot.workflowEntries, category, message, truncateArchiveText(detail, 160));
-    }
-
-    protected async persistArchiveResolutionDiagnostics(gcCode: string, diagnostics: Record<string, unknown>): Promise<void> {
-        const response = await fetch(`${this.backendBaseUrl}/api/archive/${encodeURIComponent(gcCode)}/resolution-diagnostics`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify(diagnostics),
-        });
-        if (!response.ok) {
-            const payload = await response.json().catch(() => ({}));
-            throw new Error(payload?.message || payload?.error || `HTTP ${response.status}`);
-        }
+        return this.archiveManagerController.getNextReplayableStep(resumeSnapshot);
     }
 
     protected async replayHistoryEntry(entry: ArchiveHistoryEntry, index: number, targetStepId?: string): Promise<void> {
@@ -796,67 +433,21 @@ export class ArchiveManagerWidget extends ReactWidget {
         this.replayingHistoryEntryKey = historyEntryKey;
         this.update();
 
-        let liveGeocache: GeocacheApiResponse | null = null;
-        let usedArchiveFallback = false;
-
         try {
-            try {
-                liveGeocache = await this.fetchLiveGeocache(archive.gc_code);
-                usedArchiveFallback = !liveGeocache;
-            } catch (fetchError) {
-                usedArchiveFallback = true;
-                console.warn('[ArchiveManagerWidget] replayHistoryEntry live geocache fetch failed', fetchError);
-            }
-
-            const context = this.buildPluginExecutorContext(archive, entry, resumeSnapshot, liveGeocache);
-            const requestBody = this.buildReplayRequest(context, resumeSnapshot, nextStep.id, liveGeocache);
-            const response = await fetch(`${this.backendBaseUrl}/api/plugins/workflow/run-next-step`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify(requestBody),
-            });
-            const payload = await response.json().catch(() => ({}));
-            if (!response.ok) {
-                throw new Error(payload?.message || payload?.error || `HTTP ${response.status}`);
-            }
-
-            const stepResponse = payload as ResolutionWorkflowStepRunResponse;
-            const updatedRecommendation = stepResponse.workflow_resolution.execution.secret_code?.recommendation
-                || resumeSnapshot.recommendation
-                || null;
-            const updatedSourceText = String(
-                stepResponse.workflow_resolution.execution.secret_code?.selected_fragment?.text
-                || resumeSnapshot.recommendationSourceText
-                || ''
-            ).trim();
-            const updatedSnapshot: PluginExecutorResumeSnapshot = {
-                updatedAt: new Date().toISOString(),
-                currentText: resumeSnapshot.currentText || context.description || '',
-                recommendationSourceText: updatedSourceText,
-                classification: stepResponse.workflow_resolution.classification || resumeSnapshot.classification,
-                recommendation: updatedRecommendation,
-                workflowResolution: stepResponse.workflow_resolution,
-                workflowEntries: this.buildReplayWorkflowLog(resumeSnapshot, stepResponse, nextStep.title),
-            };
-
-            await this.persistArchiveResolutionDiagnostics(
-                context.gcCode,
-                this.buildArchiveResolutionDiagnostics(context, updatedSnapshot),
-            );
+            const replayResult = await this.archiveManagerController.replayHistoryEntry(archive, entry, nextStep.id);
             await this.loadArchives(true);
 
-            const fallbackMessageSuffix = usedArchiveFallback
+            const fallbackMessageSuffix = replayResult.usedArchiveFallback
                 ? ' Contexte live indisponible, rejeu base sur le snapshot archive.'
                 : '';
-            if (stepResponse.status === 'success') {
-                this.messages.info(`${stepResponse.message}${fallbackMessageSuffix}`);
+            if (replayResult.response.status === 'success') {
+                this.messages.info(`${replayResult.response.message}${fallbackMessageSuffix}`);
             } else {
-                this.messages.warn(`${stepResponse.message}${fallbackMessageSuffix}`);
+                this.messages.warn(`${replayResult.response.message}${fallbackMessageSuffix}`);
             }
         } catch (error) {
             console.error('[ArchiveManagerWidget] replayHistoryEntry error', error);
-            this.messages.error(`Erreur rejeu tentative : ${String(error)}`);
+            this.messages.error(`Erreur rejeu tentative : ${getErrorMessage(error, 'Erreur lors du rejeu de tentative')}`);
         } finally {
             this.replayingHistoryEntryKey = null;
             this.update();
@@ -892,14 +483,7 @@ export class ArchiveManagerWidget extends ReactWidget {
         this.isSaving = true;
         this.update();
         try {
-            const res = await fetch(`${this.backendBaseUrl}/api/archive/settings`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ auto_sync_enabled: !current }),
-            });
-            if (!res.ok) { throw new Error(`HTTP ${res.status}`); }
-            const json = await res.json();
+            const json = await this.archiveManagerService.updateSettings(!current);
             this.settings = { auto_sync_enabled: json.auto_sync_enabled };
             if (json.warning) {
                 this.messages.warn(json.warning);
@@ -907,7 +491,7 @@ export class ArchiveManagerWidget extends ReactWidget {
                 this.messages.info('Archivage automatique activé.');
             }
         } catch (e) {
-            this.messages.error(`Erreur: ${String(e)}`);
+            this.messages.error(`Erreur: ${getErrorMessage(e, 'Erreur lors de la mise a jour des parametres archive')}`);
         } finally {
             this.isSaving = false;
             this.update();
@@ -975,25 +559,19 @@ export class ArchiveManagerWidget extends ReactWidget {
             if (this.bulkFilter === 'by_status') { body['status'] = this.bulkStatus; }
             if (this.bulkFilter === 'before_date') { body['before_date'] = this.bulkBeforeDate; }
 
-            const res = await fetch(`${this.backendBaseUrl}/api/archive`, {
-                method: 'DELETE',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify(body),
+            const json = await this.archiveManagerService.bulkDeleteArchives(body as {
+                confirm: true;
+                filter: BulkFilter;
+                status?: string;
+                before_date?: string;
             });
-
-            const json = await res.json();
-
-            if (!res.ok) {
-                throw new Error(json.error || `HTTP ${res.status}`);
-            }
 
             this.lastActionResult = `✅ ${json.deleted} entrée(s) supprimée(s).`;
             this.messages.info(`Archive : ${json.deleted} entrée(s) supprimée(s).`);
             await this.loadData();
         } catch (e) {
-            this.lastActionError = `Erreur : ${String(e)}`;
-            this.messages.error(`Erreur suppression archive : ${String(e)}`);
+            this.lastActionError = `Erreur : ${getErrorMessage(e, 'Erreur lors de la suppression archive')}`;
+            this.messages.error(`Erreur suppression archive : ${getErrorMessage(e, 'Erreur lors de la suppression archive')}`);
         } finally {
             this.isDeleting = false;
             this.update();
