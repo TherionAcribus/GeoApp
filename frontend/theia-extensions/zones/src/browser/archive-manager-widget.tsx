@@ -1,223 +1,24 @@
 import * as React from 'react';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
+import { ConfirmDialog } from '@theia/core/lib/browser';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core';
-import { ConfirmDialog } from '@theia/core/lib/browser';
 import { PluginExecutorContribution } from '@mysterai/theia-plugins/lib/browser/plugins-contribution';
-import { GeocacheContext, PluginExecutorResumeSnapshot } from '@mysterai/theia-plugins/lib/browser/plugin-executor-widget';
-import { ResolutionWorkflowStepRunResponse } from '@mysterai/theia-plugins/lib/common/plugin-protocol';
+import { PluginExecutorResumeSnapshot } from '@mysterai/theia-plugins/lib/browser/plugin-executor-widget';
 import { getErrorMessage } from './backend-api-client';
-import { ArchiveManagerService } from './archive-manager-service';
 import { ArchiveManagerController } from './archive-manager-controller';
-
-interface ArchiveStats {
-    total_archived: number;
-    solved: number;
-    in_progress: number;
-    found: number;
-    by_cache_type: Record<string, number>;
-    by_resolution_method: Record<string, number>;
-}
-
-interface ArchiveSettings {
-    auto_sync_enabled: boolean;
-}
-
-interface ArchiveHistoryEntry {
-    entry_id?: string;
-    recorded_at?: string;
-    source?: string;
-    workflow_kind?: string;
-    workflow_confidence?: number;
-    control_status?: string;
-    final_confidence?: number;
-    current_text?: string;
-    recommendation_source_text?: string;
-    latest_event?: {
-        category?: string;
-        message?: string;
-        detail?: string;
-        timestamp?: string;
-    } | null;
-    resume_state?: PluginExecutorResumeSnapshot | null;
-}
-
-interface ArchiveDiagnostics {
-    source?: string;
-    updated_at?: string;
-    current_text?: string;
-    workflow_resolution?: {
-        primary?: {
-            kind?: string;
-            confidence?: number;
-            score?: number;
-            reason?: string;
-            forced?: boolean;
-        } | null;
-        explanation?: string[];
-        next_actions?: string[];
-        execution?: Record<string, any> | null;
-    } | null;
-    resume_state?: PluginExecutorResumeSnapshot | null;
-    history_state?: ArchiveHistoryEntry[];
-}
-
-interface ArchiveEntry {
-    id?: number;
-    gc_code: string;
-    name?: string;
-    cache_type?: string;
-    difficulty?: number;
-    terrain?: number;
-    solved_status?: string;
-    resolution_method?: string;
-    solved_coordinates_raw?: string;
-    solved_latitude?: number;
-    solved_longitude?: number;
-    original_coordinates_raw?: string;
-    waypoints_snapshot?: any[] | null;
-    found?: boolean;
-    updated_at?: string;
-    resolution_diagnostics?: ArchiveDiagnostics | null;
-}
-
-interface GeocacheApiResponse {
-    id?: number;
-    gc_code?: string;
-    name?: string;
-    difficulty?: number;
-    terrain?: number;
-    latitude?: number;
-    longitude?: number;
-    coordinates_raw?: string;
-    original_coordinates_raw?: string;
-    description_html?: string;
-    description_override_html?: string;
-    description_raw?: string;
-    description_override_raw?: string;
-    hints?: string;
-    hints_decoded?: string;
-    hints_decoded_override?: string;
-    waypoints?: any[];
-    images?: Array<{ url?: string }>;
-    checkers?: Array<{ id?: number; name?: string; url?: string }>;
-}
-
-interface ArchiveListResponse {
-    total: number;
-    page: number;
-    per_page: number;
-    pages: number;
-    archives: ArchiveEntry[];
-}
-
-type BulkFilter = 'all' | 'by_status' | 'orphaned' | 'before_date';
-
-const BULK_FILTER_LABELS: Record<BulkFilter, string> = {
-    all: 'Toutes les archives',
-    by_status: 'Par statut de résolution',
-    orphaned: 'Orphelines (géocache supprimée)',
-    before_date: 'Antérieures à une date',
-};
-
-const STATUS_OPTIONS = [
-    { value: 'not_solved', label: 'Non résolues' },
-    { value: 'in_progress', label: 'En cours' },
-    { value: 'solved', label: 'Résolues' },
-];
-
-const ARCHIVE_STATUS_FILTER_OPTIONS = [
-    { value: '', label: 'Tous les statuts' },
-    ...STATUS_OPTIONS,
-];
-
-const WORKFLOW_KIND_LABELS: Record<string, string> = {
-    general: 'Général',
-    secret_code: 'Code secret',
-    formula: 'Formule',
-    checker: 'Checker',
-    hidden_content: 'Contenu caché',
-    image_puzzle: 'Image',
-    coord_transform: 'Coordonnées',
-};
-
-const CONTROL_STATUS_LABELS: Record<string, string> = {
-    ready: 'Prêt',
-    awaiting_input: 'Attente saisie',
-    budget_exhausted: 'Budget épuisé',
-    stopped: 'Arrêté',
-    completed: 'Terminé',
-};
-
-const REPLAYABLE_WORKFLOW_STEP_IDS = new Set([
-    'execute-metasolver',
-    'search-answers',
-    'calculate-final-coordinates',
-    'validate-with-checker',
-]);
-
-type ArchiveWorkflowLogEntry = PluginExecutorResumeSnapshot['workflowEntries'][number];
-
-const truncateArchiveText = (value: string | undefined | null, maxLength: number = 180): string => {
-    const normalized = String(value || '').replace(/\s+/g, ' ').trim();
-    if (!normalized) {
-        return '';
-    }
-    if (normalized.length <= maxLength) {
-        return normalized;
-    }
-    return `${normalized.slice(0, Math.max(0, maxLength - 3))}...`;
-};
-
-const formatArchiveDate = (value?: string | null): string => {
-    if (!value) {
-        return '';
-    }
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
-        return value;
-    }
-    return date.toLocaleString('fr-FR');
-};
-
-const formatCheckerCandidateFromCoordinates = (coordinates: any): string => {
-    if (!coordinates || typeof coordinates !== 'object') {
-        return '';
-    }
-    if (typeof coordinates.ddm === 'string' && coordinates.ddm.trim()) {
-        return coordinates.ddm.trim();
-    }
-    if (typeof coordinates.formatted === 'string' && coordinates.formatted.trim()) {
-        return coordinates.formatted.trim();
-    }
-    if (typeof coordinates.decimal === 'string' && coordinates.decimal.trim()) {
-        return coordinates.decimal.trim();
-    }
-    if (coordinates.latitude !== undefined && coordinates.longitude !== undefined) {
-        return `${coordinates.latitude}, ${coordinates.longitude}`;
-    }
-    return '';
-};
-
-const prependArchiveWorkflowEntry = (
-    entries: ArchiveWorkflowLogEntry[] | undefined,
-    category: ArchiveWorkflowLogEntry['category'],
-    message: string,
-    detail?: string,
-): ArchiveWorkflowLogEntry[] => [
-    {
-        id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
-        category,
-        message,
-        detail,
-        timestamp: new Date().toLocaleTimeString('fr-FR', {
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-        }),
-    },
-    ...(entries || []),
-].slice(0, 12);
+import { ArchiveManagerService } from './archive-manager-service';
+import { ArchiveManagerView } from './archive-manager-view';
+import {
+    ArchiveEntry,
+    ArchiveHistoryEntry,
+    ArchiveListSummary,
+    ArchiveSettings,
+    ArchiveStats,
+    BulkDeleteArchivesInput,
+    BulkFilter,
+    ReplayableWorkflowStep
+} from './archive-manager-types';
 
 @injectable()
 export class ArchiveManagerWidget extends ReactWidget {
@@ -255,8 +56,8 @@ export class ArchiveManagerWidget extends ReactWidget {
     ) {
         super();
         this.id = ArchiveManagerWidget.ID;
-        this.title.label = '🗄️ Gestionnaire Archive';
-        this.title.caption = 'Gérer l\'archive de résolution des géocaches';
+        this.title.label = 'Gestionnaire Archive';
+        this.title.caption = 'Gerer l archive de resolution des geocaches';
         this.title.closable = true;
         this.title.iconClass = 'fa fa-database';
         this.addClass('theia-archive-manager-widget');
@@ -264,7 +65,7 @@ export class ArchiveManagerWidget extends ReactWidget {
 
     @postConstruct()
     initialize(): void {
-        this.loadData();
+        void this.loadData();
     }
 
     protected async loadData(): Promise<void> {
@@ -286,8 +87,8 @@ export class ArchiveManagerWidget extends ReactWidget {
                 console.error('[ArchiveManagerWidget] loadData settings error', settingsResult.reason);
             }
             await this.loadArchives(false);
-        } catch (e) {
-            console.error('[ArchiveManagerWidget] loadData error', e);
+        } catch (error) {
+            console.error('[ArchiveManagerWidget] loadData error', error);
         } finally {
             this.isLoading = false;
             this.update();
@@ -323,9 +124,9 @@ export class ArchiveManagerWidget extends ReactWidget {
             if (nextSelectedGcCode) {
                 await this.loadArchiveDetails(nextSelectedGcCode);
             }
-        } catch (e) {
-            this.lastActionError = `Erreur chargement archives : ${getErrorMessage(e, 'Erreur lors du chargement des archives')}`;
-            console.error('[ArchiveManagerWidget] loadArchives error', e);
+        } catch (error) {
+            this.lastActionError = `Erreur chargement archives : ${getErrorMessage(error, 'Erreur lors du chargement des archives')}`;
+            console.error('[ArchiveManagerWidget] loadArchives error', error);
         } finally {
             this.isLoadingArchives = false;
             this.update();
@@ -339,19 +140,62 @@ export class ArchiveManagerWidget extends ReactWidget {
             this.update();
             return;
         }
+
         this.isLoadingArchiveDetails = true;
         this.selectedArchiveGcCode = gcCode;
         this.update();
+
         try {
             this.selectedArchive = await this.archiveManagerService.getArchive(gcCode);
-        } catch (e) {
+        } catch (error) {
             this.selectedArchive = this.archives.find(entry => entry.gc_code === gcCode) || null;
-            this.lastActionError = `Erreur chargement détail archive : ${String(e)}`;
-            console.error('[ArchiveManagerWidget] loadArchiveDetails error', e);
+            this.lastActionError = `Erreur chargement detail archive : ${getErrorMessage(error, 'Erreur lors du chargement du detail archive')}`;
+            console.error('[ArchiveManagerWidget] loadArchiveDetails error', error);
         } finally {
             this.isLoadingArchiveDetails = false;
             this.update();
         }
+    }
+
+    protected setArchiveSearch(value: string): void {
+        this.archiveSearch = value;
+        this.update();
+    }
+
+    protected setArchiveStatusFilter(value: string): void {
+        this.archiveStatusFilter = value;
+        this.archivesPage = 1;
+        this.update();
+    }
+
+    protected goToPreviousArchivesPage(): void {
+        this.archivesPage = Math.max(1, this.archivesPage - 1);
+        void this.loadArchives(true);
+    }
+
+    protected goToNextArchivesPage(): void {
+        this.archivesPage = Math.min(this.archivePages, this.archivesPage + 1);
+        void this.loadArchives(true);
+    }
+
+    protected setReplayStepSelection(historyEntryKey: string, value: string): void {
+        this.replayStepSelections[historyEntryKey] = value;
+        this.update();
+    }
+
+    protected setBulkFilter(value: BulkFilter): void {
+        this.bulkFilter = value;
+        this.update();
+    }
+
+    protected setBulkStatus(value: string): void {
+        this.bulkStatus = value;
+        this.update();
+    }
+
+    protected setBulkBeforeDate(value: string): void {
+        this.bulkBeforeDate = value;
+        this.update();
     }
 
     protected getHistoryEntries(entry: ArchiveEntry | null): ArchiveHistoryEntry[] {
@@ -362,18 +206,21 @@ export class ArchiveManagerWidget extends ReactWidget {
         return this.archiveManagerController.getHistoryEntryKey(entry, index);
     }
 
-    protected getArchiveListSummary(entry: ArchiveEntry): {
-        meta: string;
-        eventLabel: string;
-        eventText: string;
-    } | null {
+    protected getArchiveListSummary(entry: ArchiveEntry): ArchiveListSummary | null {
         return this.archiveManagerController.getArchiveListSummary(entry);
+    }
+
+    protected getReplayableSteps(resumeSnapshot: PluginExecutorResumeSnapshot): ReplayableWorkflowStep[] {
+        return this.archiveManagerController.getReplayableSteps(resumeSnapshot);
+    }
+
+    protected getNextReplayableStep(resumeSnapshot: PluginExecutorResumeSnapshot): ReplayableWorkflowStep | null {
+        return this.archiveManagerController.getNextReplayableStep(resumeSnapshot);
     }
 
     protected async restoreHistoryEntry(entry: ArchiveHistoryEntry, index: number): Promise<void> {
         const archive = this.selectedArchive;
-        const resumeSnapshot = entry.resume_state || null;
-        if (!archive || !resumeSnapshot) {
+        if (!archive || !entry.resume_state) {
             this.messages.warn('Aucun snapshot exploitable pour cette tentative.');
             return;
         }
@@ -387,9 +234,9 @@ export class ArchiveManagerWidget extends ReactWidget {
             await this.pluginExecutorContribution.openWithContext(context, 'metasolver', false);
 
             if (usedArchiveFallback) {
-                this.messages.warn(`Tentative restaurée depuis l'archive pour ${archive.gc_code} (contexte live indisponible).`);
+                this.messages.warn(`Tentative restauree depuis l archive pour ${archive.gc_code} (contexte live indisponible).`);
             } else {
-                this.messages.info(`Tentative restaurée dans le Plugin Executor pour ${archive.gc_code}.`);
+                this.messages.info(`Tentative restauree dans le Plugin Executor pour ${archive.gc_code}.`);
             }
         } catch (error) {
             console.error('[ArchiveManagerWidget] restoreHistoryEntry error', error);
@@ -398,18 +245,6 @@ export class ArchiveManagerWidget extends ReactWidget {
             this.restoringHistoryEntryKey = null;
             this.update();
         }
-    }
-
-    protected getReplayableSteps(
-        resumeSnapshot: PluginExecutorResumeSnapshot,
-    ): Array<{ id: string; title?: string; status?: string }> {
-        return this.archiveManagerController.getReplayableSteps(resumeSnapshot);
-    }
-
-    protected getNextReplayableStep(
-        resumeSnapshot: PluginExecutorResumeSnapshot,
-    ): { id: string; title?: string; status?: string } | null {
-        return this.archiveManagerController.getNextReplayableStep(resumeSnapshot);
     }
 
     protected async replayHistoryEntry(entry: ArchiveHistoryEntry, index: number, targetStepId?: string): Promise<void> {
@@ -455,43 +290,46 @@ export class ArchiveManagerWidget extends ReactWidget {
     }
 
     protected toggleAutoSync = async (): Promise<void> => {
-        if (!this.settings) { return; }
-        const current = this.settings.auto_sync_enabled;
+        if (!this.settings) {
+            return;
+        }
 
+        const current = this.settings.auto_sync_enabled;
         if (current) {
-            // Activation → désactivation : demander double confirmation
             const dialog = new ConfirmDialog({
-                title: '⚠️ Désactiver l\'archivage automatique',
+                title: 'Desactiver l archivage automatique',
                 msg: [
-                    '⚠️ ATTENTION : Action non recommandée.',
+                    'Attention : action non recommandee.',
                     '',
-                    'Désactiver l\'archivage automatique signifie que les données de résolution',
-                    '(statut, coordonnées corrigées, notes, waypoints) ne seront PLUS sauvegardées',
-                    'automatiquement. En cas de suppression d\'une géocache, ces données seront perdues.',
+                    'Desactiver l archivage automatique signifie que les donnees de resolution',
+                    '(statut, coordonnees corrigees, notes, waypoints) ne seront plus sauvegardees',
+                    'automatiquement. En cas de suppression d une geocache, ces donnees seront perdues.',
                     '',
-                    'Le snapshot avant suppression restera actif comme filet de sécurité minimal.',
+                    'Le snapshot avant suppression restera actif comme filet de securite minimal.',
                     '',
-                    'Êtes-vous sûr de vouloir désactiver cette protection ?',
+                    'Etes-vous sur de vouloir desactiver cette protection ?',
                 ].join('\n'),
-                ok: 'Désactiver quand même',
+                ok: 'Desactiver quand meme',
                 cancel: 'Annuler',
             });
             const confirmed = await dialog.open();
-            if (!confirmed) { return; }
+            if (!confirmed) {
+                return;
+            }
         }
 
         this.isSaving = true;
         this.update();
         try {
-            const json = await this.archiveManagerService.updateSettings(!current);
-            this.settings = { auto_sync_enabled: json.auto_sync_enabled };
-            if (json.warning) {
-                this.messages.warn(json.warning);
+            const result = await this.archiveManagerService.updateSettings(!current);
+            this.settings = { auto_sync_enabled: result.auto_sync_enabled };
+            if (result.warning) {
+                this.messages.warn(result.warning);
             } else {
-                this.messages.info('Archivage automatique activé.');
+                this.messages.info('Archivage automatique active.');
             }
-        } catch (e) {
-            this.messages.error(`Erreur: ${getErrorMessage(e, 'Erreur lors de la mise a jour des parametres archive')}`);
+        } catch (error) {
+            this.messages.error(`Erreur : ${getErrorMessage(error, 'Erreur lors de la mise a jour des parametres archive')}`);
         } finally {
             this.isSaving = false;
             this.update();
@@ -499,12 +337,7 @@ export class ArchiveManagerWidget extends ReactWidget {
     };
 
     protected getBulkPreviewLabel(): string {
-        switch (this.bulkFilter) {
-            case 'all': return 'TOUTES les archives (irréversible)';
-            case 'by_status': return `Archives avec statut "${this.bulkStatus}"`;
-            case 'orphaned': return 'Archives dont la géocache n\'existe plus en base';
-            case 'before_date': return this.bulkBeforeDate ? `Archives antérieures au ${this.bulkBeforeDate}` : 'Archives (date non définie)';
-        }
+        return this.archiveManagerController.getBulkPreviewLabel(this.bulkFilter, this.bulkStatus, this.bulkBeforeDate);
     }
 
     protected executeBulkDelete = async (): Promise<void> => {
@@ -513,38 +346,40 @@ export class ArchiveManagerWidget extends ReactWidget {
             return;
         }
 
-        // Première confirmation
         const step1 = new ConfirmDialog({
-            title: '⚠️ Suppression en masse — Étape 1/2',
+            title: 'Suppression en masse - Etape 1/2',
             msg: [
-                '⚠️ ATTENTION : Cette opération est IRRÉVERSIBLE.',
+                'Attention : cette operation est irreversible.',
                 '',
                 `Vous allez supprimer : ${this.getBulkPreviewLabel()}`,
                 '',
-                'Les données supprimées NE PEUVENT PAS être récupérées.',
+                'Les donnees supprimees ne peuvent pas etre recuperees.',
                 'Souhaitez-vous continuer ?',
             ].join('\n'),
             ok: 'Continuer vers la confirmation finale',
             cancel: 'Annuler',
         });
         const ok1 = await step1.open();
-        if (!ok1) { return; }
+        if (!ok1) {
+            return;
+        }
 
-        // Deuxième confirmation
         const step2 = new ConfirmDialog({
-            title: '🚨 Suppression en masse — Confirmation finale',
+            title: 'Suppression en masse - Confirmation finale',
             msg: [
-                '🚨 DERNIÈRE CHANCE : Confirmez-vous la suppression irréversible ?',
+                'Derniere chance : confirmez-vous la suppression irreversible ?',
                 '',
                 `Cible : ${this.getBulkPreviewLabel()}`,
                 '',
-                'Cliquer sur "Supprimer définitivement" lancera immédiatement l\'opération.',
+                'Cliquer sur "Supprimer definitivement" lancera immediatement l operation.',
             ].join('\n'),
-            ok: 'Supprimer définitivement',
+            ok: 'Supprimer definitivement',
             cancel: 'Annuler',
         });
         const ok2 = await step2.open();
-        if (!ok2) { return; }
+        if (!ok2) {
+            return;
+        }
 
         this.isDeleting = true;
         this.lastActionResult = null;
@@ -552,26 +387,25 @@ export class ArchiveManagerWidget extends ReactWidget {
         this.update();
 
         try {
-            const body: Record<string, unknown> = {
+            const body: BulkDeleteArchivesInput = {
                 confirm: true,
                 filter: this.bulkFilter,
             };
-            if (this.bulkFilter === 'by_status') { body['status'] = this.bulkStatus; }
-            if (this.bulkFilter === 'before_date') { body['before_date'] = this.bulkBeforeDate; }
+            if (this.bulkFilter === 'by_status') {
+                body.status = this.bulkStatus;
+            }
+            if (this.bulkFilter === 'before_date') {
+                body.before_date = this.bulkBeforeDate;
+            }
 
-            const json = await this.archiveManagerService.bulkDeleteArchives(body as {
-                confirm: true;
-                filter: BulkFilter;
-                status?: string;
-                before_date?: string;
-            });
-
-            this.lastActionResult = `✅ ${json.deleted} entrée(s) supprimée(s).`;
-            this.messages.info(`Archive : ${json.deleted} entrée(s) supprimée(s).`);
+            const result = await this.archiveManagerService.bulkDeleteArchives(body);
+            this.lastActionResult = `${result.deleted} entree(s) supprimee(s).`;
+            this.messages.info(`Archive : ${result.deleted} entree(s) supprimee(s).`);
             await this.loadData();
-        } catch (e) {
-            this.lastActionError = `Erreur : ${getErrorMessage(e, 'Erreur lors de la suppression archive')}`;
-            this.messages.error(`Erreur suppression archive : ${getErrorMessage(e, 'Erreur lors de la suppression archive')}`);
+        } catch (error) {
+            const message = getErrorMessage(error, 'Erreur lors de la suppression archive');
+            this.lastActionError = `Erreur : ${message}`;
+            this.messages.error(`Erreur suppression archive : ${message}`);
         } finally {
             this.isDeleting = false;
             this.update();
@@ -579,594 +413,54 @@ export class ArchiveManagerWidget extends ReactWidget {
     };
 
     protected render(): React.ReactNode {
-        const autoSync = this.settings?.auto_sync_enabled ?? true;
-        const selectedArchive = this.selectedArchive;
-        const historyEntries = this.getHistoryEntries(selectedArchive);
-        const primaryWorkflow = selectedArchive?.resolution_diagnostics?.workflow_resolution?.primary;
-
         return (
-            <div style={{ padding: 16, display: 'grid', gap: 16, maxWidth: 1180 }}>
-                <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-                    🗄️ Gestionnaire d'Archive
-                    <button
-                        className='theia-button secondary'
-                        onClick={() => this.loadData()}
-                        disabled={this.isLoading}
-                        style={{ fontSize: 12, padding: '3px 10px', marginLeft: 8 }}
-                        title='Rafraîchir les statistiques'
-                    >
-                        {this.isLoading ? '⏳' : '🔄'} Rafraîchir
-                    </button>
-                </h2>
-
-                {/* Section Statistiques */}
-                <div style={{
-                    background: 'var(--theia-editor-background)',
-                    border: '1px solid var(--theia-panel-border)',
-                    borderRadius: 6,
-                    padding: 16,
-                }}>
-                    <h4 style={{ margin: '0 0 12px 0' }}>📊 Statistiques de l'archive</h4>
-                    {this.isLoading ? (
-                        <div style={{ opacity: 0.7 }}>Chargement…</div>
-                    ) : this.stats ? (
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-                            {[
-                                { label: 'Total archivées', value: this.stats.total_archived, color: '#60a5fa' },
-                                { label: 'Résolues', value: this.stats.solved, color: '#10b981' },
-                                { label: 'En cours', value: this.stats.in_progress, color: '#f59e0b' },
-                                { label: 'Trouvées', value: this.stats.found, color: '#a78bfa' },
-                            ].map(({ label, value, color }) => (
-                                <div key={label} style={{
-                                    textAlign: 'center',
-                                    background: 'var(--theia-sideBar-background)',
-                                    borderRadius: 4,
-                                    padding: 8,
-                                }}>
-                                    <div style={{ fontSize: 22, fontWeight: 'bold', color }}>{value}</div>
-                                    <div style={{ fontSize: 11, opacity: 0.7 }}>{label}</div>
-                                </div>
-                            ))}
-                        </div>
-                    ) : (
-                        <div style={{ opacity: 0.7 }}>Aucune donnée disponible.</div>
-                    )}
-                </div>
-
-                {/* Section Préférence auto-sync */}
-                <div style={{
-                    background: 'var(--theia-editor-background)',
-                    border: `1px solid ${autoSync ? 'var(--theia-panel-border)' : '#f59e0b'}`,
-                    borderRadius: 6,
-                    padding: 16,
-                }}>
-                    <h4 style={{ margin: '0 0 8px 0' }}>⚙️ Archivage automatique</h4>
-
-                    {!autoSync && (
-                        <div style={{
-                            background: '#92400e22',
-                            border: '1px solid #f59e0b',
-                            borderRadius: 4,
-                            padding: '8px 12px',
-                            marginBottom: 12,
-                            fontSize: 12,
-                            color: '#fbbf24',
-                        }}>
-                            ⚠️ <strong>Archivage automatique désactivé.</strong> Les données de résolution ne sont plus sauvegardées automatiquement. Le snapshot avant suppression reste actif.
-                        </div>
-                    )}
-
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div>
-                            <div style={{ fontWeight: 'bold', fontSize: 13 }}>
-                                {autoSync ? '✅ Activé (recommandé)' : '⛔ Désactivé (non recommandé)'}
-                            </div>
-                            <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4, maxWidth: 480 }}>
-                                Synchronise automatiquement l'archive lors des changements d'état (statut, coordonnées, notes, waypoints).
-                                Le snapshot avant suppression reste toujours actif.
-                            </div>
-                        </div>
-                        <button
-                            className={`theia-button ${autoSync ? 'secondary' : ''}`}
-                            onClick={this.toggleAutoSync}
-                            disabled={this.isSaving}
-                            style={{ fontSize: 12, padding: '6px 14px', whiteSpace: 'nowrap' }}
-                        >
-                            {this.isSaving ? '⏳ …' : autoSync ? '⚠️ Désactiver' : '✅ Activer'}
-                        </button>
-                    </div>
-                </div>
-
-                <div style={{
-                    background: 'var(--theia-editor-background)',
-                    border: '1px solid var(--theia-panel-border)',
-                    borderRadius: 6,
-                    padding: 16,
-                }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-                        <div>
-                            <h4 style={{ margin: 0 }}>🧭 Tentatives archivées</h4>
-                            <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>
-                                Visualise les snapshots de diagnostic et l'historique multi-tentatives.
-                            </div>
-                        </div>
-                        <div style={{ fontSize: 11, opacity: 0.7 }}>
-                            {this.archiveTotal} archive(s)
-                        </div>
-                    </div>
-
-                    <div style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
-                        <input
-                            type='text'
-                            value={this.archiveSearch}
-                            onChange={e => { this.archiveSearch = e.target.value; this.update(); }}
-                            placeholder='Filtrer par GC code'
-                            style={{
-                                background: 'var(--theia-input-background)',
-                                color: 'var(--theia-input-foreground)',
-                                border: '1px solid var(--theia-panel-border)',
-                                borderRadius: 4,
-                                padding: '6px 8px',
-                                fontSize: 12,
-                                minWidth: 180,
-                            }}
-                        />
-                        <select
-                            value={this.archiveStatusFilter}
-                            onChange={e => { this.archiveStatusFilter = e.target.value; this.archivesPage = 1; this.update(); }}
-                            style={{
-                                background: 'var(--theia-input-background)',
-                                color: 'var(--theia-input-foreground)',
-                                border: '1px solid var(--theia-panel-border)',
-                                borderRadius: 4,
-                                padding: '6px 8px',
-                                fontSize: 12,
-                                minWidth: 180,
-                            }}
-                        >
-                            {ARCHIVE_STATUS_FILTER_OPTIONS.map(option => (
-                                <option key={option.value || 'all'} value={option.value}>{option.label}</option>
-                            ))}
-                        </select>
-                        <button
-                            className='theia-button secondary'
-                            onClick={() => { void this.loadArchives(false); }}
-                            disabled={this.isLoadingArchives}
-                        >
-                            {this.isLoadingArchives ? '⏳ Chargement…' : '🔎 Charger'}
-                        </button>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '340px minmax(0, 1fr)', gap: 16 }}>
-                        <div style={{
-                            border: '1px solid var(--theia-panel-border)',
-                            borderRadius: 6,
-                            overflow: 'hidden',
-                            minHeight: 280,
-                        }}>
-                            <div style={{
-                                display: 'grid',
-                                gap: 1,
-                                background: 'var(--theia-panel-border)',
-                            }}>
-                                {this.archives.length === 0 ? (
-                                    <div style={{
-                                        background: 'var(--theia-editor-background)',
-                                        padding: 12,
-                                        fontSize: 12,
-                                        opacity: 0.7,
-                                    }}>
-                                        {this.isLoadingArchives ? 'Chargement des archives…' : 'Aucune archive trouvée pour ce filtre.'}
-                                    </div>
-                                ) : this.archives.map(entry => {
-                                    const isSelected = entry.gc_code === this.selectedArchiveGcCode;
-                                    const historyCount = entry.resolution_diagnostics?.history_state?.length || (entry.resolution_diagnostics?.resume_state ? 1 : 0);
-                                    const archiveSummary = this.getArchiveListSummary(entry);
-                                    return (
-                                        <button
-                                            key={entry.gc_code}
-                                            type='button'
-                                            onClick={() => { void this.loadArchiveDetails(entry.gc_code); }}
-                                            style={{
-                                                textAlign: 'left',
-                                                background: isSelected ? 'var(--theia-list-activeSelectionBackground)' : 'var(--theia-editor-background)',
-                                                color: 'inherit',
-                                                border: 'none',
-                                                padding: '10px 12px',
-                                                cursor: 'pointer',
-                                                display: 'grid',
-                                                gap: 4,
-                                            }}
-                                        >
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
-                                                <strong>{entry.gc_code}</strong>
-                                                <span style={{ fontSize: 10, opacity: 0.7 }}>{entry.solved_status || 'unknown'}</span>
-                                            </div>
-                                            <div style={{ fontSize: 12 }}>
-                                                {truncateArchiveText(entry.name || 'Sans nom', 56)}
-                                            </div>
-                                            <div style={{ fontSize: 11, opacity: 0.72 }}>
-                                                {historyCount} tentative(s) · {formatArchiveDate(entry.updated_at)}
-                                            </div>
-                                            {archiveSummary?.meta ? (
-                                                <div style={{ fontSize: 10, opacity: 0.76 }}>
-                                                    {archiveSummary.meta}
-                                                </div>
-                                            ) : null}
-                                            {archiveSummary?.eventText ? (
-                                                <div style={{ fontSize: 11, opacity: 0.82 }}>
-                                                    <strong>{archiveSummary.eventLabel}:</strong> {archiveSummary.eventText}
-                                                </div>
-                                            ) : null}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-
-                            <div style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                padding: '8px 10px',
-                                borderTop: '1px solid var(--theia-panel-border)',
-                                fontSize: 11,
-                            }}>
-                                <button
-                                    className='theia-button secondary'
-                                    disabled={this.archivesPage <= 1 || this.isLoadingArchives}
-                                    onClick={() => {
-                                        this.archivesPage = Math.max(1, this.archivesPage - 1);
-                                        void this.loadArchives(true);
-                                    }}
-                                >
-                                    ← Précédent
-                                </button>
-                                <span>Page {this.archivesPage}/{this.archivePages}</span>
-                                <button
-                                    className='theia-button secondary'
-                                    disabled={this.archivesPage >= this.archivePages || this.isLoadingArchives}
-                                    onClick={() => {
-                                        this.archivesPage = Math.min(this.archivePages, this.archivesPage + 1);
-                                        void this.loadArchives(true);
-                                    }}
-                                >
-                                    Suivant →
-                                </button>
-                            </div>
-                        </div>
-
-                        <div style={{
-                            border: '1px solid var(--theia-panel-border)',
-                            borderRadius: 6,
-                            padding: 14,
-                            minHeight: 280,
-                            background: 'var(--theia-editor-background)',
-                        }}>
-                            {!selectedArchive ? (
-                                <div style={{ opacity: 0.7, fontSize: 12 }}>
-                                    Sélectionnez une archive pour afficher son diagnostic et son historique.
-                                </div>
-                            ) : (
-                                <div style={{ display: 'grid', gap: 12 }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
-                                        <div>
-                                            <div style={{ fontSize: 18, fontWeight: 700 }}>{selectedArchive.gc_code}</div>
-                                            <div style={{ fontSize: 13, marginTop: 4 }}>
-                                                {selectedArchive.name || 'Sans nom'}
-                                            </div>
-                                            <div style={{ fontSize: 11, opacity: 0.72, marginTop: 4 }}>
-                                                Mis à jour le {formatArchiveDate(selectedArchive.updated_at)}
-                                                {selectedArchive.cache_type ? ` · ${selectedArchive.cache_type}` : ''}
-                                                {selectedArchive.resolution_method ? ` · méthode ${selectedArchive.resolution_method}` : ''}
-                                            </div>
-                                        </div>
-                                        <button
-                                            className='theia-button secondary'
-                                            onClick={() => { void this.loadArchiveDetails(selectedArchive.gc_code); }}
-                                            disabled={this.isLoadingArchiveDetails}
-                                        >
-                                            {this.isLoadingArchiveDetails ? '⏳ Détail…' : '🔄 Recharger le détail'}
-                                        </button>
-                                    </div>
-
-                                    <div style={{
-                                        display: 'grid',
-                                        gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-                                        gap: 10,
-                                    }}>
-                                        <div style={{ padding: '8px 10px', borderRadius: 4, background: 'var(--theia-sideBar-background)' }}>
-                                            <div style={{ fontSize: 10, opacity: 0.7 }}>Workflow courant</div>
-                                            <div style={{ marginTop: 3, fontWeight: 600 }}>
-                                                {WORKFLOW_KIND_LABELS[primaryWorkflow?.kind || ''] || primaryWorkflow?.kind || 'Inconnu'}
-                                            </div>
-                                        </div>
-                                        <div style={{ padding: '8px 10px', borderRadius: 4, background: 'var(--theia-sideBar-background)' }}>
-                                            <div style={{ fontSize: 10, opacity: 0.7 }}>Confiance workflow</div>
-                                            <div style={{ marginTop: 3, fontWeight: 600 }}>
-                                                {typeof primaryWorkflow?.confidence === 'number' ? `${(primaryWorkflow.confidence * 100).toFixed(0)}%` : 'n/a'}
-                                            </div>
-                                        </div>
-                                        <div style={{ padding: '8px 10px', borderRadius: 4, background: 'var(--theia-sideBar-background)' }}>
-                                            <div style={{ fontSize: 10, opacity: 0.7 }}>Tentatives archivées</div>
-                                            <div style={{ marginTop: 3, fontWeight: 600 }}>{historyEntries.length}</div>
-                                        </div>
-                                    </div>
-
-                                    {selectedArchive.resolution_diagnostics?.current_text ? (
-                                        <div style={{
-                                            padding: '10px 12px',
-                                            border: '1px solid var(--theia-panel-border)',
-                                            borderRadius: 4,
-                                            background: 'var(--theia-input-background)',
-                                        }}>
-                                            <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>Snapshot courant</div>
-                                            <div style={{ fontSize: 12 }}>
-                                                {truncateArchiveText(selectedArchive.resolution_diagnostics.current_text, 260)}
-                                            </div>
-                                        </div>
-                                    ) : null}
-
-                                    <div>
-                                        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
-                                            Historique des tentatives
-                                        </div>
-                                        {historyEntries.length === 0 ? (
-                                            <div style={{ fontSize: 12, opacity: 0.7 }}>
-                                                Aucun historique de tentative disponible pour cette archive.
-                                            </div>
-                                        ) : (
-                                            <div style={{ display: 'grid', gap: 10 }}>
-                                                {historyEntries.map((entry, index) => {
-                                                    const historyEntryKey = this.getHistoryEntryKey(entry, index);
-                                                    const isRestoring = this.restoringHistoryEntryKey === historyEntryKey;
-                                                    const isReplaying = this.replayingHistoryEntryKey === historyEntryKey;
-                                                    const replayableSteps = entry.resume_state
-                                                        ? this.getReplayableSteps(entry.resume_state)
-                                                        : [];
-                                                    const defaultReplayableStep = entry.resume_state
-                                                        ? this.getNextReplayableStep(entry.resume_state)
-                                                        : null;
-                                                    const selectedReplayStepId = this.replayStepSelections[historyEntryKey]
-                                                        || defaultReplayableStep?.id
-                                                        || replayableSteps[0]?.id
-                                                        || '';
-                                                    const replayableStep = replayableSteps.find(step => step.id === selectedReplayStepId)
-                                                        || defaultReplayableStep
-                                                        || null;
-                                                    const canReplay = Boolean(
-                                                        replayableStep
-                                                        && entry.resume_state?.workflowResolution?.control?.status !== 'budget_exhausted'
-                                                        && entry.resume_state?.workflowResolution?.control?.status !== 'stopped'
-                                                    );
-                                                    return (
-                                                        <div
-                                                            key={historyEntryKey}
-                                                            style={{
-                                                                border: '1px solid var(--theia-panel-border)',
-                                                                borderRadius: 6,
-                                                                padding: '10px 12px',
-                                                                background: index === 0
-                                                                    ? 'var(--theia-list-activeSelectionBackground)'
-                                                                    : 'var(--theia-input-background)',
-                                                            }}
-                                                        >
-                                                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
-                                                                <div style={{ fontWeight: 600 }}>
-                                                                    {WORKFLOW_KIND_LABELS[entry.workflow_kind || ''] || entry.workflow_kind || 'Workflow inconnu'}
-                                                                    {index === 0 ? ' - courant' : ''}
-                                                                </div>
-                                                                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                                                                    <div style={{ fontSize: 11, opacity: 0.72 }}>
-                                                                        {formatArchiveDate(entry.recorded_at)}
-                                                                    </div>
-                                                                    <button
-                                                                        className='theia-button secondary'
-                                                                        disabled={!entry.resume_state || isRestoring}
-                                                                        onClick={() => { void this.restoreHistoryEntry(entry, index); }}
-                                                                        style={{ fontSize: 11, padding: '3px 8px' }}
-                                                                        title={entry.resume_state
-                                                                            ? 'Ouvrir cette tentative dans le Plugin Executor'
-                                                                            : 'Aucun resume_state disponible pour cette tentative'}
-                                                                    >
-                                                                        {isRestoring ? 'Restauration...' : 'Restaurer'}
-                                                                    </button>
-                                                                    <select
-                                                                        value={selectedReplayStepId}
-                                                                        disabled={replayableSteps.length === 0 || isReplaying}
-                                                                        onChange={event => {
-                                                                            this.replayStepSelections[historyEntryKey] = event.target.value;
-                                                                            this.update();
-                                                                        }}
-                                                                        style={{
-                                                                            background: 'var(--theia-input-background)',
-                                                                            color: 'var(--theia-input-foreground)',
-                                                                            border: '1px solid var(--theia-panel-border)',
-                                                                            borderRadius: 4,
-                                                                            padding: '3px 6px',
-                                                                            fontSize: 11,
-                                                                            maxWidth: 220,
-                                                                        }}
-                                                                        title='Etape backend a rejouer'
-                                                                    >
-                                                                        {replayableSteps.length === 0 ? (
-                                                                            <option value=''>Aucune etape</option>
-                                                                        ) : replayableSteps.map(step => (
-                                                                            <option key={step.id} value={step.id}>
-                                                                                {`${step.title || step.id}${step.status ? ` [${step.status}]` : ''}`}
-                                                                            </option>
-                                                                        ))}
-                                                                    </select>
-                                                                    <button
-                                                                        className='theia-button secondary'
-                                                                        disabled={!canReplay || isReplaying}
-                                                                        onClick={() => { void this.replayHistoryEntry(entry, index, selectedReplayStepId || undefined); }}
-                                                                        style={{ fontSize: 11, padding: '3px 8px' }}
-                                                                        title={canReplay
-                                                                            ? `Rejouer l'etape: ${replayableStep?.title || replayableStep?.id || 'workflow'}`
-                                                                            : (entry.resume_state?.workflowResolution?.control?.summary || 'Aucune etape backend rejouable')}
-                                                                    >
-                                                                        {isReplaying ? 'Rejeu...' : 'Rejouer'}
-                                                                    </button>
-                                                                </div>
-                                                            </div>
-                                                            <div style={{ marginTop: 4, fontSize: 11, opacity: 0.76 }}>
-                                                                {entry.control_status ? `${CONTROL_STATUS_LABELS[entry.control_status] || entry.control_status} | ` : ''}
-                                                                {typeof entry.final_confidence === 'number' ? `confiance finale ${(entry.final_confidence * 100).toFixed(0)}%` : ''}
-                                                                {typeof entry.workflow_confidence === 'number' ? ` | workflow ${(entry.workflow_confidence * 100).toFixed(0)}%` : ''}
-                                                            </div>
-                                                            {replayableStep ? (
-                                                                <div style={{ marginTop: 6, fontSize: 11, opacity: 0.72 }}>
-                                                                    Etape backend selectionnee : {replayableStep.title || replayableStep.id}
-                                                                </div>
-                                                            ) : null}
-                                                            {entry.latest_event?.message ? (
-                                                                <div style={{ marginTop: 6, fontSize: 12 }}>
-                                                                    <strong>{entry.latest_event.message}</strong>
-                                                                    {entry.latest_event.detail ? ` | ${truncateArchiveText(entry.latest_event.detail, 120)}` : ''}
-                                                                </div>
-                                                            ) : null}
-                                                            {entry.current_text ? (
-                                                                <div style={{ marginTop: 6, fontSize: 12, opacity: 0.84 }}>
-                                                                    {truncateArchiveText(entry.current_text, 220)}
-                                                                </div>
-                                                            ) : null}
-                                                            {entry.recommendation_source_text ? (
-                                                                <div style={{ marginTop: 6, fontSize: 11, opacity: 0.72 }}>
-                                                                    Source recommandation : {truncateArchiveText(entry.recommendation_source_text, 140)}
-                                                                </div>
-                                                            ) : null}
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
-
-                {/* Section Suppression en masse */}
-                <div style={{
-                    background: 'var(--theia-editor-background)',
-                    border: '1px solid #ef444466',
-                    borderRadius: 6,
-                    padding: 16,
-                }}>
-                    <h4 style={{ margin: '0 0 4px 0', color: '#f87171' }}>🗑️ Suppression en masse</h4>
-                    <p style={{ fontSize: 11, opacity: 0.7, margin: '0 0 14px 0' }}>
-                        ⚠️ Opération <strong>irréversible</strong>. Une double confirmation sera demandée. Les données supprimées ne pourront pas être récupérées.
-                    </p>
-
-                    <div style={{ display: 'grid', gap: 10 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            <label style={{ fontSize: 12, minWidth: 80 }}>Cible :</label>
-                            <select
-                                value={this.bulkFilter}
-                                onChange={e => { this.bulkFilter = e.target.value as BulkFilter; this.update(); }}
-                                style={{
-                                    background: 'var(--theia-input-background)',
-                                    color: 'var(--theia-input-foreground)',
-                                    border: '1px solid var(--theia-panel-border)',
-                                    borderRadius: 4,
-                                    padding: '4px 8px',
-                                    fontSize: 12,
-                                    flex: 1,
-                                }}
-                            >
-                                {(Object.entries(BULK_FILTER_LABELS) as [BulkFilter, string][]).map(([key, label]) => (
-                                    <option key={key} value={key}>{label}</option>
-                                ))}
-                            </select>
-                        </div>
-
-                        {this.bulkFilter === 'by_status' && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                <label style={{ fontSize: 12, minWidth: 80 }}>Statut :</label>
-                                <select
-                                    value={this.bulkStatus}
-                                    onChange={e => { this.bulkStatus = e.target.value; this.update(); }}
-                                    style={{
-                                        background: 'var(--theia-input-background)',
-                                        color: 'var(--theia-input-foreground)',
-                                        border: '1px solid var(--theia-panel-border)',
-                                        borderRadius: 4,
-                                        padding: '4px 8px',
-                                        fontSize: 12,
-                                        flex: 1,
-                                    }}
-                                >
-                                    {STATUS_OPTIONS.map(o => (
-                                        <option key={o.value} value={o.value}>{o.label}</option>
-                                    ))}
-                                </select>
-                            </div>
-                        )}
-
-                        {this.bulkFilter === 'before_date' && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                <label style={{ fontSize: 12, minWidth: 80 }}>Avant le :</label>
-                                <input
-                                    type='date'
-                                    value={this.bulkBeforeDate}
-                                    onChange={e => { this.bulkBeforeDate = e.target.value; this.update(); }}
-                                    style={{
-                                        background: 'var(--theia-input-background)',
-                                        color: 'var(--theia-input-foreground)',
-                                        border: '1px solid var(--theia-panel-border)',
-                                        borderRadius: 4,
-                                        padding: '4px 8px',
-                                        fontSize: 12,
-                                        flex: 1,
-                                    }}
-                                />
-                            </div>
-                        )}
-
-                        <div style={{
-                            background: '#ef444411',
-                            border: '1px solid #ef444444',
-                            borderRadius: 4,
-                            padding: '6px 10px',
-                            fontSize: 11,
-                            color: '#fca5a5',
-                        }}>
-                            Cible sélectionnée : <strong>{this.getBulkPreviewLabel()}</strong>
-                        </div>
-
-                        {this.lastActionResult && (
-                            <div style={{ fontSize: 12, color: '#10b981', padding: '4px 0' }}>
-                                {this.lastActionResult}
-                            </div>
-                        )}
-                        {this.lastActionError && (
-                            <div style={{ fontSize: 12, color: '#f87171', padding: '4px 0' }}>
-                                {this.lastActionError}
-                            </div>
-                        )}
-
-                        <div>
-                            <button
-                                onClick={this.executeBulkDelete}
-                                disabled={this.isDeleting || (this.bulkFilter === 'before_date' && !this.bulkBeforeDate)}
-                                style={{
-                                    background: '#ef4444',
-                                    color: 'white',
-                                    border: 'none',
-                                    borderRadius: 4,
-                                    padding: '7px 18px',
-                                    fontSize: 12,
-                                    cursor: this.isDeleting ? 'wait' : 'pointer',
-                                    opacity: this.isDeleting ? 0.6 : 1,
-                                }}
-                            >
-                                {this.isDeleting ? '⏳ Suppression…' : '🗑️ Supprimer (double confirmation)'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <ArchiveManagerView
+                isLoading={this.isLoading}
+                stats={this.stats}
+                autoSync={this.settings?.auto_sync_enabled ?? true}
+                isSaving={this.isSaving}
+                isDeleting={this.isDeleting}
+                archiveTotal={this.archiveTotal}
+                archiveSearch={this.archiveSearch}
+                archiveStatusFilter={this.archiveStatusFilter}
+                archives={this.archives}
+                archivesPage={this.archivesPage}
+                archivePages={this.archivePages}
+                isLoadingArchives={this.isLoadingArchives}
+                isLoadingArchiveDetails={this.isLoadingArchiveDetails}
+                selectedArchiveGcCode={this.selectedArchiveGcCode}
+                selectedArchive={this.selectedArchive}
+                historyEntries={this.getHistoryEntries(this.selectedArchive)}
+                restoringHistoryEntryKey={this.restoringHistoryEntryKey}
+                replayingHistoryEntryKey={this.replayingHistoryEntryKey}
+                replayStepSelections={this.replayStepSelections}
+                bulkFilter={this.bulkFilter}
+                bulkStatus={this.bulkStatus}
+                bulkBeforeDate={this.bulkBeforeDate}
+                bulkPreviewLabel={this.getBulkPreviewLabel()}
+                lastActionResult={this.lastActionResult}
+                lastActionError={this.lastActionError}
+                onReload={() => { void this.loadData(); }}
+                onToggleAutoSync={() => { void this.toggleAutoSync(); }}
+                onArchiveSearchChange={value => this.setArchiveSearch(value)}
+                onArchiveStatusFilterChange={value => this.setArchiveStatusFilter(value)}
+                onLoadArchives={() => { void this.loadArchives(false); }}
+                onSelectArchive={gcCode => { void this.loadArchiveDetails(gcCode); }}
+                onPreviousArchivesPage={() => this.goToPreviousArchivesPage()}
+                onNextArchivesPage={() => this.goToNextArchivesPage()}
+                onReloadSelectedArchive={gcCode => { void this.loadArchiveDetails(gcCode); }}
+                onRestoreHistoryEntry={(entry, index) => { void this.restoreHistoryEntry(entry, index); }}
+                onReplayHistoryEntry={(entry, index, targetStepId) => { void this.replayHistoryEntry(entry, index, targetStepId); }}
+                onReplayStepSelectionChange={(historyEntryKey, value) => this.setReplayStepSelection(historyEntryKey, value)}
+                onBulkFilterChange={value => this.setBulkFilter(value)}
+                onBulkStatusChange={value => this.setBulkStatus(value)}
+                onBulkBeforeDateChange={value => this.setBulkBeforeDate(value)}
+                onExecuteBulkDelete={() => { void this.executeBulkDelete(); }}
+                getArchiveListSummary={entry => this.getArchiveListSummary(entry)}
+                getHistoryEntryKey={(entry, index) => this.getHistoryEntryKey(entry, index)}
+                getReplayableSteps={resumeSnapshot => this.getReplayableSteps(resumeSnapshot)}
+                getNextReplayableStep={resumeSnapshot => this.getNextReplayableStep(resumeSnapshot)}
+            />
         );
     }
 }
