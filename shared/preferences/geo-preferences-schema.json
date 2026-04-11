@@ -1088,6 +1088,21 @@
         "backend"
       ]
     },
+    "geoApp.checkers.geocheck.manualFallback": {
+      "type": "boolean",
+      "default": true,
+      "title": "GeoCheck : fallback manuel",
+      "description": "Lorsque GeoCheck est protégé par un système anti-bot (Anubis), affiche un lien pour vérifier manuellement les coordonnées dans le navigateur au lieu de tenter un contournement automatique.",
+      "x-category": "checkers",
+      "x-targets": [
+        "frontend",
+        "backend"
+      ],
+      "x-tags": [
+        "geocheck",
+        "anti-bot"
+      ]
+    },
     "geoApp.auth.geocaching.method": {
       "type": "string",
       "enum": [

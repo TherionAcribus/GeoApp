@@ -133,6 +133,14 @@ Deux préférences permettent de choisir si GeoApp doit laisser la fenêtre Chro
 - `geoApp.checkers.certitudes.keepPageOpen` (bool)
 - `geoApp.checkers.geocaching.keepPageOpen` (bool)
 
+## GeoCheck : fallback manuel
+
+GeoCheck.org utilise une protection anti-bot (Anubis) qui empêche la vérification automatique. Une préférence contrôle le comportement dans ce cas :
+
+- `geoApp.checkers.geocheck.manualFallback` (bool, défaut `true`)
+  - `true` : affiche un lien cliquable pour vérifier manuellement les coordonnées dans le navigateur.
+  - `false` : tente un contournement automatique (non recommandé, peut échouer).
+
 ## Synchronisation attendue
 
 - Au démarrage du frontend, un service dédié charge les préférences backend et applique les valeurs locales.  

@@ -46,7 +46,14 @@ def _should_keep_checker_page_open(url: str) -> bool:
         return bool(get_value_or_default('geoApp.checkers.certitudes.keepPageOpen', False))
     if 'geocaching.com' in url_lower:
         return bool(get_value_or_default('geoApp.checkers.geocaching.keepPageOpen', False))
+    if 'geocheck.org' in url_lower or 'geocheck.xyz' in url_lower:
+        return bool(get_value_or_default('geoApp.checkers.geocheck.keepPageOpen', True))
     return False
+
+
+def _is_geocheck_url(url: str) -> bool:
+    url_lower = (url or '').lower()
+    return 'geocheck.org' in url_lower or 'geocheck.xyz' in url_lower
 
 
 def _require_playwright():

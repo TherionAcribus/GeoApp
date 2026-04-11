@@ -15,6 +15,7 @@ from playwright.sync_api import sync_playwright
 from .adapters.base import CheckerAdapter, CheckerRunResult
 from .adapters.certitude import CertitudeAdapter
 from .adapters.geocaching_solution_checker import GeocachingSolutionCheckerAdapter
+from .adapters.geocheck import GeocheckAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,7 @@ class CheckerRunner:
         self.adapters: list[CheckerAdapter] = [
             GeocachingSolutionCheckerAdapter(),
             CertitudeAdapter(),
+            GeocheckAdapter(),
         ]
 
     def run(self, url: str, input_payload: dict[str, Any]) -> dict[str, Any]:
