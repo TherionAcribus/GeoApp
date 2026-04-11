@@ -62,11 +62,22 @@ class ImageAltTextExtractorPlugin:
                 
                 coords = self._detect_coordinates(alt) or self._detect_coordinates(title)
                 if coords:
-                    result_item["coordinates"] = coords
+                    normalized_coords = {
+                        "formatted": coords.get('ddm', ''),
+                        "latitude": coords.get('ddm_lat', ''),
+                        "longitude": coords.get('ddm_lon', ''),
+                        "decimal_latitude": coords.get('decimal_latitude'),
+                        "decimal_longitude": coords.get('decimal_longitude'),
+                        "ddm": coords.get('ddm', ''),
+                        "ddm_lat": coords.get('ddm_lat', ''),
+                        "ddm_lon": coords.get('ddm_lon', ''),
+                        "exist": True
+                    }
+                    result_item["coordinates"] = normalized_coords
                     result_item["decimal_latitude"] = coords.get('decimal_latitude')
                     result_item["decimal_longitude"] = coords.get('decimal_longitude')
                     result_item["text_output"] += f" 📍 Coordonnées: {coords.get('ddm', '')}"
-                    coordinates_found.append(coords)
+                    coordinates_found.append(normalized_coords)
                 
                 results.append(result_item)
 
