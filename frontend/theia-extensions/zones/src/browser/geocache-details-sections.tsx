@@ -50,6 +50,7 @@ interface GeocacheDetailsHeaderProps {
     onOpenLogEditor: () => void;
     onOpenNotes: () => void;
     onForceSyncArchive: () => void | Promise<void>;
+    onRefresh?: () => void | Promise<void>;
 }
 
 export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
@@ -76,7 +77,8 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
     onOpenLogs,
     onOpenLogEditor,
     onOpenNotes,
-    onForceSyncArchive
+    onForceSyncArchive,
+    onRefresh
 }) => {
     const archiveTooltip = getArchiveTooltip(archiveStatus, archiveUpdatedAt);
     const archiveColor = getArchiveColor(archiveStatus);
@@ -88,13 +90,23 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                 <h3 style={{ margin: 0 }}>{geocacheData.name}</h3>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    {onRefresh && (
+                        <button
+                            className='theia-button secondary'
+                            onClick={() => { void onRefresh(); }}
+                            style={{ fontSize: 12, padding: '4px 12px' }}
+                            title='Rafraîchir cette géocache'
+                        >
+                            🔄
+                        </button>
+                    )}
                     <button
                         className='theia-button secondary'
                         onClick={() => { void onSolveFormula(); }}
                         style={{ fontSize: 12, padding: '4px 12px' }}
                         title='Ouvrir le Formula Solver'
                     >
-                        Resoudre formule
+                        Resoudre formules
                     </button>
                     <button
                         className='theia-button secondary'

@@ -1006,6 +1006,21 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         this.update();
     };
 
+    private refreshGeocache = async (): Promise<void> => {
+        if (!this.geocacheId) {
+            return;
+        }
+        try {
+            this.messages.info('Rafraîchissement en cours...');
+            await this.geocachesService.refresh(this.geocacheId);
+            await this.load();
+            this.messages.info('Géocache rafraîchie');
+        } catch (error) {
+            console.error('[GeocacheDetailsWidget] refreshGeocache error', error);
+            this.messages.error(getErrorMessage(error, 'Erreur lors du rafraîchissement'));
+        }
+    };
+
     private async confirmStoreAllImages(options: { geocacheId: number; pendingCount: number }): Promise<boolean> {
         const dialog = new ConfirmDialog({
             title: 'Stockage local des images',
@@ -1152,6 +1167,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                     onPushWaypointToGeocaching: this.pushWaypointToGeocaching,
                     onRegisterCallback: (callback) => { this.waypointEditorCallback = callback; },
                 }}
+                onRefresh={this.refreshGeocache}
             />
         );
     }

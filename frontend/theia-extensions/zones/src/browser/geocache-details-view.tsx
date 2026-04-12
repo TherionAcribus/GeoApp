@@ -29,6 +29,7 @@ interface GeocacheDetailsViewProps {
     onToggleHintsDisplayMode: () => void | Promise<void>;
     imagesPanelProps?: GeocacheImagesPanelProps;
     waypointsEditorProps: WaypointsEditorProps;
+    onRefresh?: () => void | Promise<void>;
 }
 
 export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
@@ -41,14 +42,15 @@ export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
     displayDecodedHints,
     onToggleHintsDisplayMode,
     imagesPanelProps,
-    waypointsEditorProps
+    waypointsEditorProps,
+    onRefresh
 }) => (
     <div className='p-2'>
         {isLoading ? <div>Chargement...</div> : undefined}
         {!isLoading && !geocacheData ? <div style={{ opacity: 0.7 }}>Aucune donnee</div> : undefined}
         {!isLoading && geocacheData ? (
             <div style={{ display: 'grid', gap: 12 }}>
-                <GeocacheDetailsHeader {...headerProps} />
+                <GeocacheDetailsHeader {...headerProps} onRefresh={onRefresh} />
 
                 <GeocacheOverviewSection
                     geocacheData={geocacheData}
