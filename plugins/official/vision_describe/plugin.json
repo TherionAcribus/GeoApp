@@ -1,0 +1,50 @@
+{
+  "name": "vision_describe",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Description visuelle IA (LMStudio) : identifie le contenu d'une image (contes, scènes, personnages, animaux). Utile pour les puzzles image sans texte lisible.",
+  "author": "GeoApp",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": ["requests"],
+  "categories": ["Analysis", "Image", "AI"],
+  "kinds": ["image", "analyze"],
+  "brute_force": false,
+  "heavy_cpu": false,
+  "needs_network": true,
+  "needs_filesystem": false,
+  "timeout_seconds": 90,
+  "input_types": {
+    "geocache_id": {
+      "type": "string",
+      "label": "ID de la géocache",
+      "required": false,
+      "default_value_source": "geocache_id"
+    },
+    "context": {
+      "type": "string",
+      "label": "Contexte optionnel",
+      "required": false,
+      "placeholder": "ex: contes pour enfants, symboles templiers"
+    },
+    "base_url": {
+      "type": "string",
+      "label": "LMStudio base URL",
+      "required": false,
+      "placeholder": "http://localhost:1234"
+    },
+    "model": {
+      "type": "string",
+      "label": "Modèle vision",
+      "required": false,
+      "placeholder": "ex: llava, qwen2-vl, ..."
+    }
+  },
+  "output_types": {
+    "descriptions": {"type": "array", "label": "Descriptions visuelles"},
+    "images_analyzed": {"type": "integer", "label": "Nombre d'images analysées"}
+  },
+  "metasolver": {
+    "eligible": false
+  }
+}

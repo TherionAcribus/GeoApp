@@ -23,6 +23,15 @@ DEFAULT_STRICT_PROMPT = (
     "ni correction orthographique. Respecte les retours à la ligne."
 )
 
+DEFAULT_DESCRIBE_PROMPT = (
+    "Tu analyses une image extraite d'un listing de geocache enigme. "
+    "Decris precisement ce que represente cette image : personnages, scenes, objets, animaux identifiables. "
+    "Si l'image illustre un conte, une fable, une legende, un film ou une histoire connue (pour enfants ou adultes), "
+    "identifie clairement son titre. "
+    "Si l'image contient du texte visible, transcris-le aussi. "
+    "Reponds de facon concise et factuelle, sans interpretation speculative."
+)
+
 
 @dataclass(frozen=True)
 class VisionOcrResult:

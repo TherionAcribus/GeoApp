@@ -641,6 +641,7 @@ def _normalize_max_plugins(value: Any, default: int = 8) -> int:
 SUPPORTED_AUTOMATED_WORKFLOW_STEPS = frozenset({
     'inspect-hidden-html',
     'inspect-images',
+    'describe-images',
     'execute-direct-plugin',
     'execute-metasolver',
     'search-answers',
@@ -2313,6 +2314,30 @@ def _build_image_puzzle_execution(
                             image_url=image_url,
                             confidence=confidence if isinstance(confidence, (int, float)) else None,
                         )
+                    has_vision_ocr_hits = any(
+                        str(item.get('source') or '') == 'image_vision_text'
+                        for item in image_items
+                    )
+                    if not has_vision_ocr_hits:
+                        describe_result = manager.execute_plugin('vision_describe', vision_inputs)
+                        describe_summary = str((describe_result or {}).get('summary') or '').strip()
+                        if describe_summary:
+                            plugin_summaries.append(f"vision_describe: {describe_summary}")
+                        for item in (describe_result or {}).get('results') or []:
+                            if not isinstance(item, dict):
+                                continue
+                            text_output = str(item.get('text_output') or '').strip()
+                            if not text_output:
+                                continue
+                            image_url = str(item.get('image_url') or '').strip()
+                            confidence = item.get('confidence')
+                            register_image_item(
+                                source='image_vision_description',
+                                reason='Description visuelle IA (conte, scene, personnage identifie)',
+                                text=text_output,
+                                image_url=image_url,
+                                confidence=confidence if isinstance(confidence, (int, float)) else None,
+                            )
             else:
                 plugin_summaries.append('vision_ocr skipped: budget OCR vision epuise.')
 
@@ -4728,13 +4753,23 @@ def _build_resolution_plan(
             'detail': 'Commentaires HTML, styles inline, classes/ids CSS caches, attributs hidden',
         })
     elif workflow_kind == 'image_puzzle':
-        plan.append({
-            'id': 'inspect-images',
-            'title': 'Analyser les images et lancer OCR/QR si necessaire',
-            'status': 'planned',
-            'automated': False,
-            'detail': f"{classification.get('signal_summary', {}).get('image_count', 0)} image(s) detectee(s)",
-        })
+        plan.extend([
+            {
+                'id': 'inspect-images',
+                'title': 'Analyser les images et lancer OCR/QR si necessaire',
+                'status': 'planned',
+                'automated': False,
+                'detail': f"{classification.get('signal_summary', {}).get('image_count', 0)} image(s) detectee(s)",
+            },
+            {
+                'id': 'describe-images',
+                'title': 'Identifier visuellement le contenu des images (contes, scenes, personnages)',
+                'status': 'planned',
+                'automated': False,
+                'tool': 'geoapp.plugins.workflow.run-step',
+                'detail': 'A executer si les images sont des illustrations sans texte lisible (OCR insuffisant)',
+            },
+        ])
     elif workflow_kind == 'coord_transform':
         plan.append({
             'id': 'compare-waypoints',
@@ -5113,6 +5148,78 @@ def _run_workflow_step_orchestrator(
         message = 'Inspection des images terminee.'
         result_payload = image_payload
 
+    elif step_id == 'describe-images':
+        image_payload_existing = execution.get('image_puzzle') or {}
+        image_urls_to_describe = image_payload_existing.get('image_urls') or []
+        geocache_id = listing_inputs.get('geocache_id')
+        explicit_images = listing_inputs.get('images') or []
+        if not image_urls_to_describe and not explicit_images and geocache_id is None:
+            return {
+                'status': 'blocked',
+                'executed_step': None,
+                'message': 'Aucune image disponible pour la description visuelle. Lancez d abord inspect-images ou fournissez des images explicites.',
+                'step': selected_step,
+                'result': None,
+                'workflow_resolution': workflow_resolution,
+            }
+        describe_inputs: Dict[str, Any] = {}
+        if image_urls_to_describe:
+            describe_inputs['images'] = [{'url': url} for url in image_urls_to_describe]
+        elif explicit_images:
+            describe_inputs['images'] = explicit_images
+        if geocache_id is not None:
+            describe_inputs['geocache_id'] = geocache_id
+        context = str(data.get('describe_context') or '').strip()
+        if context:
+            describe_inputs['context'] = context
+        describe_result = get_plugin_manager().execute_plugin('vision_describe', describe_inputs)
+        describe_summary = str((describe_result or {}).get('summary') or '').strip()
+        describe_items: List[Dict[str, Any]] = []
+        for item in (describe_result or {}).get('results') or []:
+            if not isinstance(item, dict):
+                continue
+            text_output = str(item.get('text_output') or '').strip()
+            if not text_output:
+                continue
+            describe_items.append({
+                'source': 'image_vision_description',
+                'reason': 'Description visuelle IA (conte, scene, personnage identifie)',
+                'text': text_output[:160],
+                'image_url': str(item.get('image_url') or '').strip(),
+                'confidence': item.get('confidence') if isinstance(item.get('confidence'), (int, float)) else None,
+            })
+        describe_payload: Dict[str, Any] = {
+            'descriptions': describe_items,
+            'images_analyzed': int((describe_result or {}).get('images_analyzed') or 0),
+            'summary': describe_summary or 'Aucune description visuelle obtenue.',
+        }
+        image_payload_existing['describe_items'] = describe_items
+        image_payload_existing['describe_summary'] = describe_summary
+        existing_items: List[Dict[str, Any]] = image_payload_existing.get('items') or []
+        seen_keys = {
+            f"{str(it.get('source') or '')}:{str(it.get('image_url') or '')}:{str(it.get('text') or '').lower()}"
+            for it in existing_items
+        }
+        for di in describe_items:
+            key = f"image_vision_description:{str(di.get('image_url') or '')}:{str(di.get('text') or '').lower()}"
+            if key not in seen_keys:
+                existing_items.append(di)
+                seen_keys.add(key)
+        image_payload_existing['items'] = existing_items[:12]
+        execution['image_puzzle'] = image_payload_existing
+        detail = describe_summary or f"{len(describe_items)} description(s) visuelle(s)"
+        selected_step = _mark_plan_step(plan, step_id, status='completed', detail=detail, automated=True) or selected_step
+        workflow_resolution['next_actions'] = _recompute_workflow_next_actions(plan, classification)
+        if describe_items:
+            workflow_resolution['next_actions'] = list(dict.fromkeys([
+                'Utiliser les descriptions visuelles pour identifier les contes, scenes ou personnages.',
+                'Compter les mots des titres identifies et les associer aux variables de la formule.',
+                *(workflow_resolution.get('next_actions') or []),
+            ]))[:8]
+        workflow_resolution.setdefault('explanation', []).append(f"Description visuelle: {detail}")
+        message = 'Description visuelle des images terminee.'
+        result_payload = describe_payload
+
     elif step_id == 'execute-direct-plugin':
         secret_payload = execution.get('secret_code') or {}
         direct_plugin_candidate = secret_payload.get('direct_plugin_candidate') or {}
@@ -5443,6 +5550,13 @@ def _run_workflow_step_orchestrator(
         for reason in updated_control.get('stop_reasons')[:2]:
             if reason not in workflow_resolution.setdefault('explanation', []):
                 workflow_resolution['explanation'].append(reason)
+
+    if step_id == 'describe-images' and isinstance(result_payload, dict) and (result_payload.get('descriptions') or []):
+        workflow_resolution['next_actions'] = list(dict.fromkeys([
+            'Utiliser les descriptions visuelles pour identifier les contes, scenes ou personnages.',
+            'Compter les mots des titres identifies et les associer aux variables de la formule.',
+            *(workflow_resolution.get('next_actions') or []),
+        ]))[:8]
 
     return {
         'status': 'success',

@@ -1998,6 +1998,117 @@ class TestWorkflowStepRunnerAPI:
         assert data['workflow_resolution']['control']['usage']['vision_ocr_runs'] == 0
         assert data['workflow_resolution']['control']['remaining']['vision_ocr_runs'] == 0
 
+    def test_run_next_step_uses_vision_describe_when_vision_ocr_finds_no_text(self, client, app, caesar_plugin, monkeypatch):
+        original_execute_plugin = app.plugin_manager.execute_plugin
+
+        def fake_execute_plugin(plugin_name, inputs):
+            if plugin_name == 'qr_code_detector':
+                return {'status': 'success', 'summary': '0 QR', 'results': []}
+            if plugin_name == 'easyocr_ocr':
+                return {'status': 'success', 'summary': '0 OCR', 'results': []}
+            if plugin_name == 'vision_ocr':
+                return {'status': 'success', 'summary': '0 vision OCR', 'results': [], 'images_analyzed': 1}
+            if plugin_name == 'vision_describe':
+                return {
+                    'status': 'success',
+                    'summary': '1 description visuelle',
+                    'results': [
+                        {
+                            'text_output': 'Cette image illustre Boucle d Or et les Trois Ours.',
+                            'image_url': 'https://example.test/ours.gif',
+                            'confidence': 0.85,
+                        }
+                    ],
+                    'images_analyzed': 1,
+                }
+            return original_execute_plugin(plugin_name, inputs)
+
+        monkeypatch.setattr(app.plugin_manager, 'execute_plugin', fake_execute_plugin)
+
+        response = client.post(
+            '/api/plugins/workflow/run-next-step',
+            data=json.dumps({
+                'images': [{'url': 'https://example.test/ours.gif'}],
+                'preferred_workflow': 'image_puzzle',
+                'target_step_id': 'inspect-images',
+                'max_plugins': 4,
+            }),
+            content_type='application/json'
+        )
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+
+        assert data['status'] == 'success'
+        image_execution = data['workflow_resolution']['execution']['image_puzzle']
+        assert any(item['source'] == 'image_vision_description' for item in image_execution['items'])
+        assert any('vision_describe' in summary for summary in image_execution['plugin_summaries'])
+        description_item = next(
+            item for item in image_execution['items'] if item['source'] == 'image_vision_description'
+        )
+        assert 'Boucle d Or' in description_item['text']
+
+    def test_run_next_step_describe_images_step_returns_descriptions(self, client, app, caesar_plugin, monkeypatch):
+        original_execute_plugin = app.plugin_manager.execute_plugin
+
+        def fake_execute_plugin(plugin_name, inputs):
+            if plugin_name == 'vision_describe':
+                ctx = inputs.get('context') or ''
+                return {
+                    'status': 'success',
+                    'summary': '2 descriptions visuelles',
+                    'results': [
+                        {
+                            'text_output': 'Cette image illustre Boucle d Or et les Trois Ours.',
+                            'image_url': 'https://example.test/ours.gif',
+                            'confidence': 0.85,
+                        },
+                        {
+                            'text_output': 'Cette image illustre Cendrillon.',
+                            'image_url': 'https://example.test/fee.gif',
+                            'confidence': 0.82,
+                        },
+                    ],
+                    'images_analyzed': 2,
+                    'context_used': ctx,
+                }
+            return original_execute_plugin(plugin_name, inputs)
+
+        monkeypatch.setattr(app.plugin_manager, 'execute_plugin', fake_execute_plugin)
+
+        response = client.post(
+            '/api/plugins/workflow/run-next-step',
+            data=json.dumps({
+                'images': [
+                    {'url': 'https://example.test/ours.gif'},
+                    {'url': 'https://example.test/fee.gif'},
+                ],
+                'preferred_workflow': 'image_puzzle',
+                'target_step_id': 'describe-images',
+                'describe_context': 'contes pour enfants',
+            }),
+            content_type='application/json'
+        )
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+
+        assert data['status'] == 'success'
+        assert data['executed_step'] == 'describe-images'
+        result = data['result']
+        assert result['images_analyzed'] == 2
+        assert len(result['descriptions']) == 2
+        assert any('Boucle d Or' in d['text'] for d in result['descriptions'])
+        assert any('Cendrillon' in d['text'] for d in result['descriptions'])
+        assert all(d['source'] == 'image_vision_description' for d in result['descriptions'])
+        image_execution = data['workflow_resolution']['execution']['image_puzzle']
+        assert any(item['source'] == 'image_vision_description' for item in image_execution['items'])
+        assert any(
+            step['id'] == 'describe-images' and step['status'] == 'completed'
+            for step in data['workflow_resolution']['plan']
+        )
+        assert any('Utiliser les descriptions visuelles' in action for action in data['workflow_resolution']['next_actions'])
+
     def test_run_next_step_registers_barcode_results(self, client, app, caesar_plugin, monkeypatch):
         original_execute_plugin = app.plugin_manager.execute_plugin
 
