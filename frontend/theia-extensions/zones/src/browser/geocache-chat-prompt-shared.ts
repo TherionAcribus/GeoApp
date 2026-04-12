@@ -285,6 +285,57 @@ export function buildGeocacheChatPrompt(data: GeocachePromptData): string {
     ].join('\n');
 }
 
+export function buildGeocacheFreeChatContext(data: GeocachePromptData): string {
+    const lines: string[] = [
+        '--- CONTEXTE GEOCACHE ---',
+        `Nom : ${data.name}`,
+        `Code : ${data.gc_code ?? 'Inconnu'} • Type : ${data.type ?? 'Inconnu'} • Taille : ${data.size ?? 'N/A'}`,
+        `Difficulte / Terrain : ${data.difficulty ?? '?'} / ${data.terrain ?? '?'}`,
+        `Proprietaire : ${data.owner ?? 'Inconnu'} • Statut : ${data.status ?? 'Inconnu'}`,
+        `Coordonnees : ${data.coordinates_raw ?? data.original_coordinates_raw ?? 'Non renseignees'}`,
+        data.original_coordinates_raw && data.coordinates_raw && data.original_coordinates_raw !== data.coordinates_raw
+            ? `Coordonnees originales : ${data.original_coordinates_raw}`
+            : undefined,
+        data.placed_at ? `Placee le : ${data.placed_at}` : undefined,
+        `Favoris : ${data.favorites_count ?? 0} • Logs : ${data.logs_count ?? 0}`,
+        data.waypoints?.length ? `Waypoints (${data.waypoints.length}) : ${buildWaypointsSummary(data.waypoints)}` : undefined,
+        data.checkers?.length
+            ? `Checkers : ${data.checkers.map(c => (c.url ? `${c.name || 'Checker'}: ${c.url}` : (c.name || 'Checker'))).join(' • ')}`
+            : undefined,
+    ].filter((v): v is string => Boolean(v));
+
+    const descriptionSnippet = sanitizeRichText(data.description_html, 1200);
+    if (descriptionSnippet) {
+        lines.push('', 'Description :', descriptionSnippet);
+    }
+
+    const decodedHints = getDecodedHints(data);
+    if (decodedHints) {
+        lines.push('', 'Indices :', truncateText(decodedHints.trim(), 500));
+    }
+
+    if (data.waypoints?.length) {
+        lines.push('', 'Waypoints (details) :', ...buildWaypointsDetails(data.waypoints));
+    }
+
+    lines.push('', '--- FIN DU CONTEXTE ---');
+    return lines.join('\n');
+}
+
+export function buildGeocacheFreeChatFinalPrompt(draft: string, imageUrls: string[]): string {
+    const normalizedDraft = draft.trim();
+    if (!imageUrls.length) {
+        return normalizedDraft;
+    }
+    return [
+        normalizedDraft,
+        '',
+        '--- IMAGES ---',
+        ...imageUrls,
+        '--- FIN DES IMAGES ---',
+    ].join('\n');
+}
+
 export function buildGeocacheGeoAppOpenChatDetail(
     data: GeocachePromptData,
     workflowKind: GeocachePromptWorkflowKind,

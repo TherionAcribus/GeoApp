@@ -46,6 +46,7 @@ import {
     GeoAppChatWorkflowProfile,
     GeoAppChatWorkflowKind
 } from './geoapp-chat-agent';
+import { FreeChatDialog, FreeChatDialogResult } from './geocache-free-chat-dialog';
 
 interface PluginAddWaypointDetail {
     gcCoords: string;
@@ -99,6 +100,9 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
     protected chatProfileOverride: GeoAppChatWorkflowProfile = 'default';
     protected isChatRoutingPreviewLoading = false;
     protected isChatProfileMenuOpen = false;
+    protected isFreeChatDialogOpen = false;
+    protected freeChatDialogDraft: string = '';
+    protected freeChatDialogImageUrls: string[] = [];
     private readonly geocacheChangeDisposable: { dispose: () => void };
 
     private readonly handleContentClick = (): void => {
@@ -899,6 +903,30 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         }
     };
 
+    private openFreeChatDialog = (): void => {
+        if (!this.geocacheId || !this.data) {
+            this.messages.warn('Aucune geocache selectionnee pour ouvrir le Chat Libre.');
+            return;
+        }
+        this.freeChatDialogDraft = this.chatController.buildFreeChatDraft(this.data);
+        this.freeChatDialogImageUrls = (this.data.images || []).map(img => img.url).filter(Boolean);
+        this.isChatProfileMenuOpen = false;
+        this.isFreeChatDialogOpen = true;
+        this.update();
+    };
+
+    private closeFreeChatDialog = (): void => {
+        this.isFreeChatDialogOpen = false;
+        this.update();
+    };
+
+    private confirmFreeChat = (result: FreeChatDialogResult): void => {
+        if (!this.data) { return; }
+        this.isFreeChatDialogOpen = false;
+        this.chatController.openFreeChat(this.data, result.draft, result.imageUrls, result.profile);
+        this.update();
+    };
+
     /**
      * Ouvre le widget des logs pour cette géocache dans le panneau droit
      */
@@ -1076,6 +1104,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         const displayDecodedHints = this.preferencesController.getDisplayDecodedHints();
         const displayedHints = this.contentController.getDisplayedHints(d, displayDecodedHints);
         return (
+            <>
             <GeocacheDetailsView
                 isLoading={this.isLoading}
                 geocacheData={d}
@@ -1098,6 +1127,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                     onAnalyzeCode: this.analyzeCode,
                     onAnalyzeWithPlugins: this.analyzeWithPlugins,
                     onOpenAiChat: this.openGeocacheAIChat,
+                    onOpenFreeChat: this.openFreeChatDialog,
                     onToggleChatProfileMenu: this.toggleChatProfileMenu,
                     onSelectChatProfileOverride: this.selectChatProfileOverride,
                     onOpenLogs: this.openLogs,
@@ -1169,6 +1199,20 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                 }}
                 onRefresh={this.refreshGeocache}
             />
+            {this.isFreeChatDialogOpen && this.data ? (
+                <FreeChatDialog
+                    options={{
+                        initialDraft: this.freeChatDialogDraft,
+                        initialImageUrls: this.freeChatDialogImageUrls,
+                        initialProfile: this.chatProfileOverride,
+                        geocacheName: this.data.name,
+                        gcCode: this.data.gc_code,
+                    }}
+                    onConfirm={this.confirmFreeChat}
+                    onCancel={this.closeFreeChatDialog}
+                />
+            ) : undefined}
+            </>
         );
     }
 }

@@ -1,6 +1,8 @@
 ﻿import * as assert from 'assert/strict';
 import {
     buildGeocacheChatPrompt,
+    buildGeocacheFreeChatContext,
+    buildGeocacheFreeChatFinalPrompt,
     buildGeocacheGeoAppOpenChatDetail,
 } from '../geocache-chat-prompt-shared';
 
@@ -99,9 +101,49 @@ function testBuildGeocacheGeoAppOpenChatDetail(): void {
     assert.ok(detail.prompt?.includes('Waypoints (details) :'));
 }
 
+function testBuildGeocacheFreeChatContext(): void {
+    const ctx = buildGeocacheFreeChatContext(createGeocacheFixture());
+
+    assert.ok(ctx.includes('--- CONTEXTE GEOCACHE ---'));
+    assert.ok(ctx.includes('--- FIN DU CONTEXTE ---'));
+    assert.ok(ctx.includes('Nom : Mystery hybride'));
+    assert.ok(ctx.includes('Code : GC424242'));
+    assert.ok(ctx.includes('Type : Mystery Cache'));
+    assert.ok(ctx.includes('Taille : Regular'));
+    assert.ok(ctx.includes('Coordonnees originales : N 48° 50.000 E 002° 20.000'));
+    assert.ok(ctx.includes('Description :'));
+    assert.ok(ctx.includes('Formule A=2 puis lire l image.'));
+    assert.ok(ctx.includes('Indices :'));
+    assert.ok(ctx.includes('Hello world'));
+    assert.ok(ctx.includes('Waypoints (2) :'));
+    assert.ok(ctx.includes('Waypoints (details) :'));
+    assert.ok(!ctx.includes('Tu es un assistant IA'));
+    assert.ok(!ctx.includes('Tools disponibles (GeoApp) :'));
+    assert.ok(!ctx.includes('Orchestration initiale'));
+}
+
+function testBuildGeocacheFreeChatFinalPrompt(): void {
+    const draft = 'Le contexte de la cache\n--- FIN DU CONTEXTE ---';
+
+    const noImages = buildGeocacheFreeChatFinalPrompt(draft, []);
+    assert.equal(noImages, draft.trim());
+
+    const withImages = buildGeocacheFreeChatFinalPrompt(draft, [
+        'https://example.com/a.jpg',
+        'https://example.com/b.jpg',
+    ]);
+    assert.ok(withImages.includes(draft.trim()));
+    assert.ok(withImages.includes('--- IMAGES ---'));
+    assert.ok(withImages.includes('https://example.com/a.jpg'));
+    assert.ok(withImages.includes('https://example.com/b.jpg'));
+    assert.ok(withImages.includes('--- FIN DES IMAGES ---'));
+}
+
 function run(): void {
     testBuildGeocacheChatPrompt();
     testBuildGeocacheGeoAppOpenChatDetail();
+    testBuildGeocacheFreeChatContext();
+    testBuildGeocacheFreeChatFinalPrompt();
     // eslint-disable-next-line no-console
     console.log('geocache-chat-prompt-shared tests passed');
 }

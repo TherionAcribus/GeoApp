@@ -32,6 +32,7 @@ interface GeoAppOpenChatRequestDetail {
     workflowKind?: GeoAppChatWorkflowKind | string;
     preferredProfile?: GeoAppChatWorkflowProfile | string;
     resumeState?: Record<string, unknown>;
+    sessionKind?: 'auto' | 'libre';
 }
 
 interface GeoAppChatSessionMetadata {
@@ -43,6 +44,7 @@ interface GeoAppChatSessionMetadata {
     agentId?: string;
     agentName?: string;
     resumeState?: Record<string, unknown>;
+    sessionKind?: 'auto' | 'libre';
 }
 
 @injectable()
@@ -115,6 +117,9 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
     protected findExistingSession(detail: GeoAppOpenChatRequestDetail, sessionTitle: string): ChatSession | undefined {
         return this.chatService.getSessions().find(session => {
             const metadata = this.sessionMetadata.get(session.id);
+            if (detail.sessionKind && metadata?.sessionKind !== detail.sessionKind) {
+                return false;
+            }
             if (typeof detail.geocacheId === 'number' && metadata?.geocacheId === detail.geocacheId) {
                 return true;
             }
@@ -143,6 +148,7 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
             agentId: agent?.id,
             agentName: agent?.name,
             resumeState: detail.resumeState,
+            sessionKind: detail.sessionKind,
         });
     }
 

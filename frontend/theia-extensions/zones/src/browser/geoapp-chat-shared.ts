@@ -55,6 +55,7 @@ export interface GeoAppOpenChatRequestDetailPayload {
     workflowKind?: GeoAppChatWorkflowKind | string;
     preferredProfile?: GeoAppChatWorkflowProfile | string;
     resumeState?: Record<string, unknown>;
+    sessionKind?: 'auto' | 'libre';
 }
 
 export const GEOAPP_OPEN_CHAT_REQUEST_EVENT = 'geoapp-open-chat-request';
@@ -266,6 +267,7 @@ export function buildGeoAppOpenChatRequestDetail(
         workflowKind: detail.workflowKind,
         preferredProfile: detail.preferredProfile,
         resumeState: detail.resumeState,
+        sessionKind: detail.sessionKind,
     };
 }
 

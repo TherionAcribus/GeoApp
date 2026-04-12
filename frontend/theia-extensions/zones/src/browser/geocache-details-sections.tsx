@@ -44,6 +44,7 @@ interface GeocacheDetailsHeaderProps {
     onAnalyzeCode: () => void | Promise<void>;
     onAnalyzeWithPlugins: () => void | Promise<void>;
     onOpenAiChat: () => void | Promise<void>;
+    onOpenFreeChat: () => void | Promise<void>;
     onToggleChatProfileMenu: (event: React.MouseEvent<HTMLButtonElement>) => void;
     onSelectChatProfileOverride: (profile: GeoAppChatWorkflowProfile) => void;
     onOpenLogs: () => void;
@@ -72,6 +73,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
     onAnalyzeCode,
     onAnalyzeWithPlugins,
     onOpenAiChat,
+    onOpenFreeChat,
     onToggleChatProfileMenu,
     onSelectChatProfileOverride,
     onOpenLogs,
@@ -121,6 +123,14 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                         title='Analyser cette geocache avec les plugins'
                     >
                         Analyse plugins
+                    </button>
+                    <button
+                        className='theia-button secondary'
+                        onClick={() => { void onOpenFreeChat(); }}
+                        style={{ fontSize: 12, padding: '4px 12px' }}
+                        title='Ouvrir un chat libre lie a cette geocache (message modifiable avant envoi, possibilite d ajouter des images)'
+                    >
+                        Chat Libre
                     </button>
                     <div style={{ position: 'relative', display: 'flex', alignItems: 'stretch' }}>
                         <button

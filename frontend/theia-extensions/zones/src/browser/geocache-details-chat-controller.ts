@@ -2,9 +2,13 @@ import { inject, injectable } from '@theia/core/shared/inversify';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import { GeocacheDetailsService } from './geocache-details-service';
 import {
+    buildGeocacheFreeChatContext,
+    buildGeocacheFreeChatFinalPrompt,
     buildGeocacheGeoAppOpenChatDetail,
 } from './geocache-chat-prompt-shared';
 import {
+    buildGeoAppBaseSessionTitle,
+    buildGeoAppOpenChatRequestDetail,
     dispatchGeoAppOpenChatRequest,
     GeoAppWorkflowResolutionPreview,
     resolveGeoAppChatProfileForWorkflow,
@@ -72,11 +76,44 @@ export class GeocacheDetailsChatController {
         dispatchGeoAppOpenChatRequest(
             window,
             CustomEvent,
-            buildGeocacheGeoAppOpenChatDetail(
-                geocacheData,
-                workflowPreview,
-                profileOverride === 'default' ? undefined : profileOverride,
-            )
+            {
+                ...buildGeocacheGeoAppOpenChatDetail(
+                    geocacheData,
+                    workflowPreview,
+                    profileOverride === 'default' ? undefined : profileOverride,
+                ),
+                sessionKind: 'auto',
+            }
+        );
+    }
+
+    buildFreeChatDraft(geocacheData: GeocacheDto): string {
+        return buildGeocacheFreeChatContext(geocacheData);
+    }
+
+    openFreeChat(
+        geocacheData: GeocacheDto,
+        draft: string,
+        imageUrls: string[],
+        profileOverride: GeoAppChatWorkflowProfile
+    ): void {
+        const finalPrompt = buildGeocacheFreeChatFinalPrompt(draft, imageUrls);
+        const gcCode = geocacheData.gc_code;
+        const baseTitle = buildGeoAppBaseSessionTitle(gcCode, geocacheData.name, `CHAT LIBRE - ${gcCode || geocacheData.name}`);
+        dispatchGeoAppOpenChatRequest(
+            window,
+            CustomEvent,
+            buildGeoAppOpenChatRequestDetail({
+                geocacheId: geocacheData.id,
+                gcCode,
+                geocacheName: geocacheData.name,
+                sessionTitle: baseTitle,
+                prompt: finalPrompt,
+                focus: true,
+                workflowKind: 'general',
+                preferredProfile: profileOverride === 'default' ? undefined : profileOverride,
+                sessionKind: 'libre',
+            })
         );
     }
 
