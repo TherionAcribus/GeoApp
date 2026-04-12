@@ -90,17 +90,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                 <h3 style={{ margin: 0 }}>{geocacheData.name}</h3>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                    {onRefresh && (
                         <button
-                            className='theia-button secondary'
-                            onClick={() => { void onRefresh(); }}
-                            style={{ fontSize: 12, padding: '4px 12px' }}
-                            title='Rafraîchir cette géocache'
-                        >
-                            🔄
-                        </button>
-                    )}
-                    <button
                         className='theia-button secondary'
                         onClick={() => { void onSolveFormula(); }}
                         style={{ fontSize: 12, padding: '4px 12px' }}
@@ -228,6 +218,16 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                 <span style={{ opacity: 0.7 }}>{geocacheData.type}</span>
                 <span style={{ opacity: 0.7 }}>|</span>
                 <span style={{ opacity: 0.7 }}>{`Par ${geocacheData.owner || 'Inconnu'}`}</span>
+                {onRefresh && (
+                    <button
+                        className='theia-button secondary'
+                        onClick={() => { void onRefresh(); }}
+                        style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12 }}
+                        title='Rafraîchir cette géocache'
+                    >
+                        🔄
+                    </button>
+                )}
                 {archiveStatus !== 'none' ? (
                     <button
                         onClick={() => { void onForceSyncArchive(); }}
