@@ -35,7 +35,7 @@ export class FormulaSolverContribution
             widgetId: FormulaSolverWidget.ID,
             widgetName: FormulaSolverWidget.LABEL,
             defaultWidgetOptions: {
-                area: 'right',
+                area: 'left',
                 rank: 500
             },
             toggleCommandId: FormulaSolverToggleCommand.id

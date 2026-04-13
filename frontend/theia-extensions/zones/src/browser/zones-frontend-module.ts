@@ -39,6 +39,7 @@ import { GeocachingAuthWidget } from './geocaching-auth-widget';
 import { ArchiveManagerWidget } from './archive-manager-widget';
 import { ZonesMenuContribution } from './zones-menu-contribution';
 import { GeoAppSidebarContribution } from './geoapp-sidebar-contribution';
+import { GeoAppDefaultLeftPanelContribution } from './geoapp-default-left-panel-contribution';
 import { LayoutAutoSaveContribution } from './layout-auto-save-contribution';
 import { BackendApiClient } from './backend-api-client';
 import { ZonesService } from './zones-service';
@@ -208,6 +209,9 @@ export default new ContainerModule(bind => {
     bind(GeoAppSidebarContribution).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(GeoAppSidebarContribution);
     bind(MenuContribution).toService(GeoAppSidebarContribution);
+
+    bind(GeoAppDefaultLeftPanelContribution).toSelf().inSingletonScope();
+    bind(FrontendApplicationContribution).toService(GeoAppDefaultLeftPanelContribution);
 
     bind(LayoutAutoSaveContribution).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(LayoutAutoSaveContribution);

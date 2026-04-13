@@ -1,11 +1,9 @@
 import { injectable, inject } from '@theia/core/shared/inversify';
-import { FrontendApplication, FrontendApplicationContribution, WidgetManager, Widget } from '@theia/core/lib/browser';
-import { ZonesTreeWidget } from './zones-tree-widget';
+import { FrontendApplication, FrontendApplicationContribution, WidgetManager } from '@theia/core/lib/browser';
 import { ZoneGeocachesWidget } from './zone-geocaches-widget';
 import { GeocacheLogsWidget } from './geocache-logs-widget';
 import { GeocacheNotesWidget } from './geocache-notes-widget';
 import { GeocacheLogEditorTabsManager } from './geocache-log-editor-tabs-manager';
-import { MapManagerWidget } from './map/map-manager-widget';
 import { MapWidgetFactory } from './map/map-widget-factory';
 
 @injectable()
@@ -21,8 +19,6 @@ export class ZonesFrontendContribution implements FrontendApplicationContributio
     protected readonly geocacheLogEditorTabsManager: GeocacheLogEditorTabsManager;
 
     async onStart(app: FrontendApplication): Promise<void> {
-        this.schedulePostStartupWidgets(app);
-
         window.addEventListener('open-zone-geocaches', async (event: any) => {
             try {
                 const detail = event?.detail || {};
@@ -164,45 +160,5 @@ export class ZonesFrontendContribution implements FrontendApplicationContributio
 
         window.addEventListener('open-geocache-log-editor', openLogEditor);
         document.addEventListener('open-geocache-log-editor', openLogEditor);
-    }
-
-    protected async getOrCreateWidget(): Promise<Widget> {
-        return this.widgetManager.getOrCreateWidget(ZonesTreeWidget.ID);
-    }
-
-    protected schedulePostStartupWidgets(app: FrontendApplication): void {
-        this.scheduleNonCriticalTask(async () => {
-            await this.attachZonesWidget(app);
-            await this.attachMapManagerWidget(app);
-        });
-    }
-
-    protected async attachZonesWidget(app: FrontendApplication): Promise<void> {
-        const widget = await this.getOrCreateWidget();
-        if (!widget.isAttached) {
-            app.shell.addWidget(widget, { area: 'left', rank: 100 });
-        }
-    }
-
-    protected async attachMapManagerWidget(app: FrontendApplication): Promise<void> {
-        const mapManagerWidget = await this.widgetManager.getOrCreateWidget(MapManagerWidget.ID);
-        if (!mapManagerWidget.isAttached) {
-            app.shell.addWidget(mapManagerWidget, { area: 'left', rank: 200 });
-        }
-    }
-
-    protected scheduleNonCriticalTask(task: () => Promise<void> | void): void {
-        const runner = () => {
-            void Promise.resolve(task()).catch(error => {
-                console.error('[ZonesFrontendContribution] Deferred startup task failed', error);
-            });
-        };
-
-        if (typeof window !== 'undefined' && typeof (window as any).requestIdleCallback === 'function') {
-            (window as any).requestIdleCallback(() => runner(), { timeout: 1500 });
-            return;
-        }
-
-        setTimeout(runner, 0);
     }
 }
