@@ -30,6 +30,11 @@ interface GeocacheDetailsViewProps {
     imagesPanelProps?: GeocacheImagesPanelProps;
     waypointsEditorProps: WaypointsEditorProps;
     onRefresh?: () => void | Promise<void>;
+    checkerLinkOpenMode?: 'same-group' | 'new-group' | 'external-window';
+    onOpenCheckerUrl?: (url: string, mode: 'same-group' | 'new-group' | 'external-window') => void;
+    checkerContextMenu?: { x: number; y: number; url: string } | null;
+    onShowCheckerContextMenu?: (x: number, y: number, url: string) => void;
+    onCloseCheckerContextMenu?: () => void;
 }
 
 export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
@@ -43,7 +48,12 @@ export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
     onToggleHintsDisplayMode,
     imagesPanelProps,
     waypointsEditorProps,
-    onRefresh
+    onRefresh,
+    checkerLinkOpenMode,
+    onOpenCheckerUrl,
+    checkerContextMenu,
+    onShowCheckerContextMenu,
+    onCloseCheckerContextMenu
 }) => (
     <div className='p-2'>
         {isLoading ? <div>Chargement...</div> : undefined}
@@ -73,7 +83,14 @@ export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
                     <WaypointsEditorWrapper {...waypointsEditorProps} />
                 </div>
 
-                <GeocacheCheckersSection checkers={geocacheData.checkers} />
+                <GeocacheCheckersSection
+                    checkers={geocacheData.checkers}
+                    linkOpenMode={checkerLinkOpenMode}
+                    onOpenUrl={onOpenCheckerUrl}
+                    contextMenu={checkerContextMenu}
+                    onShowContextMenu={onShowCheckerContextMenu}
+                    onCloseContextMenu={onCloseCheckerContextMenu}
+                />
             </div>
         ) : undefined}
     </div>

@@ -7,6 +7,7 @@ export type GeocacheImagesStorageDefaultMode = 'never' | 'prompt' | 'always';
 export type GeocacheImagesGalleryThumbnailSize = 'small' | 'medium' | 'large';
 export type GeocacheOcrDefaultEngine = 'easyocr_ocr' | 'vision_ocr';
 export type GeocacheExternalLinksOpenMode = 'new-tab' | 'new-window';
+export type CheckerLinkOpenMode = 'same-group' | 'new-group' | 'external-window';
 export type GcPersonalNoteAutoSyncMode = 'manual' | 'onNotesOpen' | 'onDetailsOpen';
 
 @injectable()
@@ -14,6 +15,7 @@ export class GeocacheDetailsPreferencesController {
     private readonly displayDecodedHintsPreferenceKey = 'geoApp.geocache.hints.displayDecoded';
     private readonly descriptionDefaultVariantPreferenceKey = 'geoApp.geocache.description.defaultVariant';
     private readonly externalLinksOpenModePreferenceKey = 'geoApp.geocache.externalLinks.openMode';
+    private readonly checkerLinkOpenModePreferenceKey = 'geoApp.checkers.linkOpenMode';
     private readonly imagesStorageDefaultModePreferenceKey = 'geoApp.images.storage.defaultMode';
     private readonly imagesGalleryThumbnailSizePreferenceKey = 'geoApp.images.gallery.thumbnailSize';
     private readonly imagesGalleryHiddenDomainsPreferenceKey = 'geoApp.images.gallery.hiddenDomains';
@@ -58,6 +60,14 @@ export class GeocacheDetailsPreferencesController {
     getExternalLinksOpenMode(): GeocacheExternalLinksOpenMode {
         const raw = this.preferenceService.get(this.externalLinksOpenModePreferenceKey, 'new-tab') as string;
         return raw === 'new-window' ? 'new-window' : 'new-tab';
+    }
+
+    getCheckerLinkOpenMode(): CheckerLinkOpenMode {
+        const raw = this.preferenceService.get(this.checkerLinkOpenModePreferenceKey, 'same-group') as string;
+        if (raw === 'new-group' || raw === 'external-window') {
+            return raw;
+        }
+        return 'same-group';
     }
 
     getImagesStorageDefaultMode(): GeocacheImagesStorageDefaultMode {

@@ -1207,6 +1207,26 @@
         "ui",
         "navigation"
       ]
+    },
+    "geoApp.checkers.linkOpenMode": {
+      "type": "string",
+      "enum": [
+        "same-group",
+        "new-group",
+        "external-window"
+      ],
+      "default": "same-group",
+      "title": "Mode d'ouverture des liens checker (clic gauche)",
+      "description": "Comportement par défaut lors d'un clic gauche sur un lien checker : 'same-group' ouvre dans un onglet Theia du même groupe, 'new-group' ouvre dans un nouveau groupe d'onglets (split), 'external-window' ouvre dans une fenêtre externe au navigateur.",
+      "x-category": "checkers",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "ui",
+        "navigation",
+        "checkers"
+      ]
     }
   }
 }

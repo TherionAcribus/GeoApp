@@ -10,6 +10,7 @@ import {
     GeoAppChatWorkflowKind,
     GeoAppChatWorkflowProfile
 } from './geoapp-chat-agent';
+import { ContextMenu, ContextMenuItem } from './context-menu';
 
 type ArchiveStatus = 'synced' | 'needs_sync' | 'none' | 'loading';
 
@@ -370,25 +371,122 @@ export const GeocacheHintsSection: React.FC<GeocacheHintsSectionProps> = ({
     );
 };
 
+type CheckerLinkOpenMode = 'same-group' | 'new-group' | 'external-window';
+
 interface GeocacheCheckersSectionProps {
     checkers?: GeocacheChecker[];
+    linkOpenMode?: CheckerLinkOpenMode;
+    onOpenUrl?: (url: string, mode: CheckerLinkOpenMode) => void;
+    contextMenu?: { x: number; y: number; url: string } | null;
+    onShowContextMenu?: (x: number, y: number, url: string) => void;
+    onCloseContextMenu?: () => void;
 }
 
-export const GeocacheCheckersSection: React.FC<GeocacheCheckersSectionProps> = ({ checkers }) => {
+export const GeocacheCheckersSection: React.FC<GeocacheCheckersSectionProps> = ({
+    checkers,
+    linkOpenMode = 'same-group',
+    onOpenUrl,
+    contextMenu,
+    onShowContextMenu,
+    onCloseContextMenu
+}) => {
     if (!checkers || checkers.length === 0) {
         return undefined;
     }
+
+    const handleClick = (e: React.MouseEvent, url: string): void => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (onOpenUrl) {
+            onOpenUrl(url, linkOpenMode);
+        } else {
+            window.open(url, '_blank');
+        }
+    };
+
+    const handleContextMenu = (e: React.MouseEvent, url: string): void => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (onShowContextMenu) {
+            onShowContextMenu(e.clientX, e.clientY, url);
+        }
+    };
+
+    const buildContextMenuItems = (url: string): ContextMenuItem[] => [
+        {
+            label: 'Ouvrir dans un nouvel onglet (même groupe)',
+            icon: '🗂️',
+            action: () => {
+                if (onOpenUrl) { onOpenUrl(url, 'same-group'); } else { window.open(url, '_blank'); }
+            }
+        },
+        {
+            label: 'Ouvrir dans un nouveau groupe d\'onglets',
+            icon: '📐',
+            action: () => {
+                if (onOpenUrl) { onOpenUrl(url, 'new-group'); } else { window.open(url, '_blank'); }
+            }
+        },
+        {
+            label: 'Ouvrir dans une fenêtre externe',
+            icon: '🌐',
+            action: () => {
+                if (onOpenUrl) { onOpenUrl(url, 'external-window'); } else { window.open(url, '_blank', 'noopener,noreferrer'); }
+            }
+        }
+    ];
+
+    const isGeocheckUrl = (url: string): boolean => {
+        try { return new URL(url).hostname.includes('geocheck.org'); } catch { return false; }
+    };
 
     return (
         <div>
             <h4 style={{ margin: '8px 0' }}>Checkers</h4>
             <ul style={{ margin: 0, paddingLeft: 18 }}>
                 {checkers.map((checker, index) => (
-                    <li key={checker.id ?? index}>
-                        {checker.url ? <a href={checker.url} target='_blank' rel='noreferrer'>{checker.name || checker.url}</a> : (checker.name || '')}
+                    <li key={checker.id ?? index} style={{ marginBottom: 4 }}>
+                        {checker.url ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                <a
+                                    href={checker.url}
+                                    onClick={(e) => handleClick(e, checker.url!)}
+                                    onContextMenu={(e) => handleContextMenu(e, checker.url!)}
+                                    style={{ cursor: 'pointer' }}
+                                    rel='noreferrer'
+                                >
+                                    {checker.name || checker.url}
+                                </a>
+                                {isGeocheckUrl(checker.url) && (
+                                    <span
+                                        title="GeoCheck utilise un captcha dynamique qui ne s'affiche pas dans le mini-navigateur intégré. Utilisez « Ouvrir dans une fenêtre externe » (clic droit) pour accéder au captcha."
+                                        style={{
+                                            fontSize: '0.75em',
+                                            color: 'var(--theia-warningForeground, #d4a017)',
+                                            border: '1px solid var(--theia-warningForeground, #d4a017)',
+                                            borderRadius: 3,
+                                            padding: '0 4px',
+                                            cursor: 'help',
+                                            whiteSpace: 'nowrap',
+                                            opacity: 0.85,
+                                        }}
+                                    >
+                                        ⚠️ captcha → fenêtre externe
+                                    </span>
+                                )}
+                            </span>
+                        ) : (checker.name || '')}
                     </li>
                 ))}
             </ul>
+            {contextMenu && onCloseContextMenu && (
+                <ContextMenu
+                    items={buildContextMenuItems(contextMenu.url)}
+                    x={contextMenu.x}
+                    y={contextMenu.y}
+                    onClose={onCloseContextMenu}
+                />
+            )}
         </div>
     );
 };

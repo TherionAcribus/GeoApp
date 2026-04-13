@@ -133,6 +133,17 @@ Deux préférences permettent de choisir si GeoApp doit laisser la fenêtre Chro
 - `geoApp.checkers.certitudes.keepPageOpen` (bool)
 - `geoApp.checkers.geocaching.keepPageOpen` (bool)
 
+## Checkers : mode d'ouverture des liens (clic gauche)
+
+Une préférence contrôle le comportement par défaut du clic gauche sur un lien checker dans le panneau de détails d'une géocache :
+
+- `geoApp.checkers.linkOpenMode` (string, défaut `same-group`, **frontend uniquement**)
+  - `same-group` (défaut) : ouvre le lien dans un onglet Theia (mini-browser) dans le même groupe d'onglets que le widget courant.
+  - `new-group` : ouvre le lien dans un onglet Theia (mini-browser) dans un nouveau groupe d'onglets (split à droite).
+  - `external-window` : ouvre le lien dans une fenêtre externe au navigateur (hors Theia).
+
+Un **menu contextuel (clic droit)** sur chaque lien checker propose toujours les trois options, indépendamment de la préférence configurée.
+
 ## GeoCheck : fallback manuel
 
 GeoCheck.org utilise une protection anti-bot (Anubis) qui empêche la vérification automatique. Une préférence contrôle le comportement dans ce cas :

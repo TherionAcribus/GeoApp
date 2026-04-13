@@ -9,6 +9,8 @@ import { PluginExecutorContribution } from '@mysterai/theia-plugins/lib/browser/
 import { GeocacheContext } from '@mysterai/theia-plugins/lib/browser/plugin-executor-widget';
 import { FormulaSolverSolveFromGeocacheCommand } from '@mysterai/theia-formula-solver/lib/browser/formula-solver-contribution';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
+import URI from '@theia/core/lib/common/uri';
+import { MiniBrowserOpenHandler } from '@theia/mini-browser/lib/browser/mini-browser-open-handler';
 import { BackendApiClient, getErrorMessage } from './backend-api-client';
 import {
     GeocacheArchiveStatus,
@@ -20,7 +22,7 @@ import {
 } from './geocache-details-content-controller';
 import { GeocacheDetailsNavigationController } from './geocache-details-navigation-controller';
 import { GeocacheDetailsNotesController } from './geocache-details-notes-controller';
-import { GeocacheDetailsPreferencesController } from './geocache-details-preferences-controller';
+import { CheckerLinkOpenMode, GeocacheDetailsPreferencesController } from './geocache-details-preferences-controller';
 import { GeocacheDetailsView } from './geocache-details-view';
 import { GeocachesService } from './geocaches-service';
 import {
@@ -103,6 +105,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
     protected isFreeChatDialogOpen = false;
     protected freeChatDialogDraft: string = '';
     protected freeChatDialogImageUrls: string[] = [];
+    protected checkerContextMenu: { x: number; y: number; url: string } | null = null;
     private readonly geocacheChangeDisposable: { dispose: () => void };
 
     private readonly handleContentClick = (): void => {
@@ -132,7 +135,8 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         @inject(GeocacheDetailsNotesController) protected readonly notesController: GeocacheDetailsNotesController,
         @inject(GeocacheDetailsPreferencesController) protected readonly preferencesController: GeocacheDetailsPreferencesController,
         @inject(GeocacheDetailsTranslationController) protected readonly translationController: GeocacheDetailsTranslationController,
-        @inject(GeoAppWidgetEventsService) protected readonly widgetEventsService: GeoAppWidgetEventsService
+        @inject(GeoAppWidgetEventsService) protected readonly widgetEventsService: GeoAppWidgetEventsService,
+        @inject(MiniBrowserOpenHandler) protected readonly miniBrowserOpenHandler: MiniBrowserOpenHandler
     ) {
         super();
         this.id = GeocacheDetailsWidget.ID;
@@ -783,6 +787,36 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         this.update();
     }
 
+    protected openCheckerUrl = async (url: string, mode: CheckerLinkOpenMode): Promise<void> => {
+        this.checkerContextMenu = null;
+        this.update();
+        if (mode === 'external-window') {
+            window.open(url, '_blank', 'noopener,noreferrer');
+            return;
+        }
+        try {
+            const uri = new URI(url);
+            if (mode === 'new-group') {
+                await this.miniBrowserOpenHandler.open(uri, { widgetOptions: { mode: 'split-right' } });
+            } else {
+                await this.miniBrowserOpenHandler.open(uri);
+            }
+        } catch (e) {
+            console.error('[GeocacheDetailsWidget] openCheckerUrl error', e);
+            window.open(url, '_blank');
+        }
+    };
+
+    protected showCheckerContextMenu = (x: number, y: number, url: string): void => {
+        this.checkerContextMenu = { x, y, url };
+        this.update();
+    };
+
+    protected closeCheckerContextMenu = (): void => {
+        this.checkerContextMenu = null;
+        this.update();
+    };
+
     protected forceSyncArchive = async (): Promise<void> => {
         const gcCode = this.data?.gc_code;
         if (!gcCode || this.isSyncingArchive) { return; }
@@ -1198,6 +1232,11 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                     onRegisterCallback: (callback) => { this.waypointEditorCallback = callback; },
                 }}
                 onRefresh={this.refreshGeocache}
+                checkerLinkOpenMode={this.preferencesController.getCheckerLinkOpenMode()}
+                onOpenCheckerUrl={this.openCheckerUrl}
+                checkerContextMenu={this.checkerContextMenu}
+                onShowCheckerContextMenu={this.showCheckerContextMenu}
+                onCloseCheckerContextMenu={this.closeCheckerContextMenu}
             />
             {this.isFreeChatDialogOpen && this.data ? (
                 <FreeChatDialog
