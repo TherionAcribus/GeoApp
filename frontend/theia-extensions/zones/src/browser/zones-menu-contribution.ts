@@ -7,17 +7,22 @@ import { ZonesCommands } from './zones-command-contribution';
 export class ZonesMenuContribution implements MenuContribution {
 
     registerMenus(menus: MenuModelRegistry): void {
-        // Ajouter au menu View
         menus.registerMenuAction(CommonMenus.VIEW_VIEWS, {
             commandId: 'geo-preferences:open',
-            label: 'Préférences GeoApp',
-            order: '0'  // En premier
+            label: 'Preferences GeoApp',
+            order: '0'
+        });
+
+        menus.registerMenuAction(CommonMenus.VIEW_VIEWS, {
+            commandId: ZonesCommands.OPEN.id,
+            label: 'Zones',
+            order: '0.5'
         });
 
         menus.registerMenuAction(CommonMenus.VIEW_VIEWS, {
             commandId: ZonesCommands.OPEN_AUTH.id,
             label: 'Connexion Geocaching.com',
-            order: '1'  // Juste après les préférences
+            order: '1'
         });
 
         menus.registerMenuAction(CommonMenus.VIEW_VIEWS, {
