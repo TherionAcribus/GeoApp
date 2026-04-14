@@ -18,7 +18,6 @@ const PRESET_EXAMPLE_OPTIONS: Array<{ label: string; value: string }> = [
 
 const MAX_FONT_PREVIEW_LENGTH = 40;
 const IMAGE_PREVIEW_LENGTH = 10;
-const VALID_IMAGE_CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789';
 const FONT_FAMILY_PREFIX = 'alphabet-font-';
 
 const sanitizeAlphabetId = (alphabetId: string): string =>
@@ -27,11 +26,141 @@ const sanitizeAlphabetId = (alphabetId: string): string =>
 const getFontFamily = (alphabetId: string): string =>
     `${FONT_FAMILY_PREFIX}${sanitizeAlphabetId(alphabetId)}`;
 
-const isValidImageChar = (char: string): boolean =>
-    VALID_IMAGE_CHARS.includes(char.toLowerCase());
+const isConfiguredCharacterSupported = (configuredCharacters: unknown, char: string): boolean => {
+    if (configuredCharacters === 'all') {
+        return true;
+    }
+
+    if (!Array.isArray(configuredCharacters)) {
+        return false;
+    }
+
+    return configuredCharacters.some(candidate =>
+        typeof candidate === 'string' && candidate.toLowerCase() === char.toLowerCase()
+    );
+};
+
+const getSpecialCharactersMap = (alphabetConfig: Alphabet['alphabetConfig']): Record<string, string> => {
+    const specialCharacters = alphabetConfig.characters?.special;
+    if (!specialCharacters || typeof specialCharacters !== 'object') {
+        return {};
+    }
+    return specialCharacters;
+};
+
+const getPreviewImageResourcePaths = (
+    alphabetConfig: Alphabet['alphabetConfig'],
+    char: string
+): string[] => {
+    const { imageDir, imageFormat, hasUpperCase } = alphabetConfig;
+    if (!imageDir || !imageFormat || !char) {
+        return [];
+    }
+
+    const specialCharacters = getSpecialCharactersMap(alphabetConfig);
+    const specialResourceName = specialCharacters[char];
+    if (specialResourceName) {
+        return [`${imageDir}/${specialResourceName}.${imageFormat}`];
+    }
+
+    if (/^[0-9]$/.test(char) && isConfiguredCharacterSupported(alphabetConfig.characters?.numbers, char)) {
+        return [`${imageDir}/${char}.${imageFormat}`];
+    }
+
+    if (/^[a-zA-Z]$/.test(char) && isConfiguredCharacterSupported(alphabetConfig.characters?.letters, char)) {
+        const lowerChar = char.toLowerCase();
+        const upperChar = char.toUpperCase();
+        const lowercaseSuffix = alphabetConfig.lowercaseSuffix || 'lowercase';
+        const uppercaseSuffix = alphabetConfig.uppercaseSuffix || 'uppercase';
+        const candidates = hasUpperCase && char === upperChar
+            ? [
+                `${imageDir}/${upperChar}.${imageFormat}`,
+                `${imageDir}/${lowerChar}.${imageFormat}`,
+                `${imageDir}/${upperChar}_${uppercaseSuffix}.${imageFormat}`,
+                `${imageDir}/${lowerChar}_${uppercaseSuffix}.${imageFormat}`
+            ]
+            : [
+                `${imageDir}/${lowerChar}.${imageFormat}`,
+                `${imageDir}/${upperChar}.${imageFormat}`,
+                `${imageDir}/${lowerChar}_${lowercaseSuffix}.${imageFormat}`,
+                `${imageDir}/${upperChar}_${lowercaseSuffix}.${imageFormat}`
+            ];
+
+        return Array.from(new Set(candidates));
+    }
+
+    return [];
+};
 
 const loadedFonts = new Set<string>();
 const loadingFonts: Map<string, Promise<void>> = new Map();
+const previewImageAvailabilityCache: Map<string, boolean> = new Map();
+const previewImageAvailabilityLoading: Map<string, Promise<boolean>> = new Map();
+const resolvedPreviewImageCache: Map<string, string | null> = new Map();
+const resolvingPreviewImageCache: Map<string, Promise<string | null>> = new Map();
+
+const probeImageUrl = (src: string): Promise<boolean> => {
+    if (previewImageAvailabilityCache.has(src)) {
+        return Promise.resolve(previewImageAvailabilityCache.get(src)!);
+    }
+
+    if (previewImageAvailabilityLoading.has(src)) {
+        return previewImageAvailabilityLoading.get(src)!;
+    }
+
+    if (typeof Image === 'undefined') {
+        return Promise.resolve(false);
+    }
+
+    const loadPromise = new Promise<boolean>(resolve => {
+        const image = new Image();
+        image.onload = () => resolve(true);
+        image.onerror = () => resolve(false);
+        image.src = src;
+    }).then(isAvailable => {
+        previewImageAvailabilityCache.set(src, isAvailable);
+        return isAvailable;
+    }).finally(() => {
+        previewImageAvailabilityLoading.delete(src);
+    });
+
+    previewImageAvailabilityLoading.set(src, loadPromise);
+    return loadPromise;
+};
+
+const getResolvedPreviewImage = async (
+    alphabetId: string,
+    resourcePaths: string[],
+    alphabetsService: AlphabetsService
+): Promise<string | null> => {
+    const cacheKey = `${alphabetId}:${resourcePaths.join('|')}`;
+
+    if (resolvedPreviewImageCache.has(cacheKey)) {
+        return resolvedPreviewImageCache.get(cacheKey)!;
+    }
+
+    if (resolvingPreviewImageCache.has(cacheKey)) {
+        return resolvingPreviewImageCache.get(cacheKey)!;
+    }
+
+    const resolvePromise = (async () => {
+        for (const resourcePath of resourcePaths) {
+            const src = alphabetsService.getResourceUrl(alphabetId, resourcePath);
+            if (await probeImageUrl(src)) {
+                resolvedPreviewImageCache.set(cacheKey, src);
+                return src;
+            }
+        }
+
+        resolvedPreviewImageCache.set(cacheKey, null);
+        return null;
+    })().finally(() => {
+        resolvingPreviewImageCache.delete(cacheKey);
+    });
+
+    resolvingPreviewImageCache.set(cacheKey, resolvePromise);
+    return resolvePromise;
+};
 
 interface AlphabetPreviewProps {
     alphabet: Alphabet;
@@ -40,16 +169,71 @@ interface AlphabetPreviewProps {
     alphabetsService: AlphabetsService;
 }
 
+interface PreviewCharacterEntry {
+    key: string;
+    char: string;
+    resourcePaths: string[];
+}
+
 const AlphabetPreview: React.FC<AlphabetPreviewProps> = React.memo(
     ({ alphabet, previewText, fontSize, alphabetsService }) => {
         const { alphabetConfig } = alphabet;
         const fontFamily = React.useMemo(() => getFontFamily(alphabet.id), [alphabet.id]);
+        const [resolvedPreviewSources, setResolvedPreviewSources] = React.useState<Record<string, string | null>>({});
         const characterArray = React.useMemo(() => {
             if (!previewText) {
                 return [];
             }
             return Array.from(previewText);
         }, [previewText]);
+        const previewEntries = React.useMemo<PreviewCharacterEntry[]>(() => {
+            if (alphabetConfig.type !== 'images') {
+                return [];
+            }
+
+            return characterArray.slice(0, IMAGE_PREVIEW_LENGTH).map((char, index) => ({
+                key: `${alphabet.id}-${index}-${char}`,
+                char,
+                resourcePaths: getPreviewImageResourcePaths(alphabetConfig, char)
+            }));
+        }, [alphabet.id, alphabetConfig, characterArray]);
+
+        React.useEffect(() => {
+            let cancelled = false;
+
+            if (alphabetConfig.type !== 'images') {
+                return () => {
+                    cancelled = true;
+                };
+            }
+
+            previewEntries.forEach(entry => {
+                if (entry.resourcePaths.length === 0) {
+                    return;
+                }
+
+                void getResolvedPreviewImage(alphabet.id, entry.resourcePaths, alphabetsService)
+                    .then(resolvedSource => {
+                        if (cancelled) {
+                            return;
+                        }
+
+                        setResolvedPreviewSources(currentState => {
+                            if (currentState[entry.key] === resolvedSource) {
+                                return currentState;
+                            }
+                            return {
+                                ...currentState,
+                                [entry.key]: resolvedSource
+                            };
+                        });
+                    });
+            });
+
+            return () => {
+                cancelled = true;
+            };
+        }, [alphabet.id, alphabetConfig.type, previewEntries, alphabetsService]);
 
         React.useEffect(() => {
             if (typeof document === 'undefined' || typeof FontFace === 'undefined') {
@@ -121,7 +305,6 @@ const AlphabetPreview: React.FC<AlphabetPreviewProps> = React.memo(
         const hasImageConfig = Boolean(alphabetConfig.imageDir && alphabetConfig.imageFormat);
 
         if (alphabetConfig.type === 'images' && hasImageConfig) {
-            const previewChars = characterArray.slice(0, IMAGE_PREVIEW_LENGTH);
             const size = Math.round(fontSize * 1.5);
 
             return (
@@ -136,16 +319,26 @@ const AlphabetPreview: React.FC<AlphabetPreviewProps> = React.memo(
                         gap: '6px'
                     }}
                 >
-                    {previewChars.map((char, index) => {
-                        const lowerChar = char.toLowerCase();
-                        if (isValidImageChar(lowerChar)) {
-                            const resourcePath = `${alphabetConfig.imageDir}/${lowerChar}.${alphabetConfig.imageFormat}`;
-                            const src = alphabetsService.getResourceUrl(alphabet.id, resourcePath);
+                    {previewEntries.map(entry => {
+                        const resolvedSource = resolvedPreviewSources[entry.key];
+
+                        if (resolvedSource) {
                             return (
                                 <img
-                                    key={`${alphabet.id}-${index}-${char}`}
-                                    src={src}
-                                    alt={char}
+                                    key={entry.key}
+                                    src={resolvedSource}
+                                    alt={entry.char}
+                                    onError={() => {
+                                        setResolvedPreviewSources(currentState => {
+                                            if (currentState[entry.key] === null) {
+                                                return currentState;
+                                            }
+                                            return {
+                                                ...currentState,
+                                                [entry.key]: null
+                                            };
+                                        });
+                                    }}
                                     style={{
                                         width: `${size}px`,
                                         height: `${size}px`,
@@ -158,7 +351,7 @@ const AlphabetPreview: React.FC<AlphabetPreviewProps> = React.memo(
                         }
                         return (
                             <div
-                                key={`${alphabet.id}-${index}-${char}`}
+                                key={entry.key}
                                 style={{
                                     width: `${size}px`,
                                     height: `${size}px`,
@@ -171,7 +364,7 @@ const AlphabetPreview: React.FC<AlphabetPreviewProps> = React.memo(
                                     fontSize: '12px'
                                 }}
                             >
-                                {char}
+                                {entry.char}
                             </div>
                         );
                     })}
