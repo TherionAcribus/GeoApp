@@ -286,9 +286,10 @@ export function buildGeocacheChatPrompt(data: GeocachePromptData): string {
 }
 
 export function buildGeocacheFreeChatContext(data: GeocachePromptData): string {
-    const lines: string[] = [
+    const lines = [
         '--- CONTEXTE GEOCACHE ---',
         `Nom : ${data.name}`,
+        data.id !== undefined ? `ID (geocache_id) : ${data.id}` : undefined,
         `Code : ${data.gc_code ?? 'Inconnu'} • Type : ${data.type ?? 'Inconnu'} • Taille : ${data.size ?? 'N/A'}`,
         `Difficulte / Terrain : ${data.difficulty ?? '?'} / ${data.terrain ?? '?'}`,
         `Proprietaire : ${data.owner ?? 'Inconnu'} • Statut : ${data.status ?? 'Inconnu'}`,
@@ -327,12 +328,12 @@ export function buildGeocacheFreeChatFinalPrompt(draft: string, imageUrls: strin
     if (!imageUrls.length) {
         return normalizedDraft;
     }
+    const count = imageUrls.length === 1 ? '1 image associee' : `${imageUrls.length} images associees`;
     return [
         normalizedDraft,
         '',
-        '--- IMAGES ---',
-        ...imageUrls,
-        '--- FIN DES IMAGES ---',
+        `[${count} a cette geocache.]`,
+        `Instruction : pour identifier ou decrire visuellement ce(s) image(s) (insecte, animal, objet, scene, personnage...), appelle IMMEDIATEMENT run_geocache_workflow_step(geocache_id, target_step_id="describe-images"). Le module vision backend peut decrire les images automatiquement. NE PAS demander a l utilisateur de decrire l image.`,
     ].join('\n');
 }
 

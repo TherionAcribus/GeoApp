@@ -5,6 +5,8 @@ import { PreferenceService } from '@theia/core/lib/common/preferences/preference
 import { LanguageModelRegistry } from '@theia/ai-core';
 import { DEFAULT_CHAT_AGENT_PREF } from '@theia/ai-chat/lib/common/ai-chat-preferences';
 import { ChatAgent, ChatAgentLocation, ChatAgentService, ChatService, ChatSession, isSessionDeletedEvent } from '@theia/ai-chat';
+import { ImageContextVariable } from '@theia/ai-chat/lib/common/image-context-variable';
+import { AIVariableResolutionRequest } from '@theia/ai-core';
 import {
     GeoAppChatAgentId,
     GeoAppChatAgentIdsByProfile,
@@ -28,6 +30,7 @@ interface GeoAppOpenChatRequestDetail {
     geocacheName?: string;
     sessionTitle?: string;
     prompt?: string;
+    imageUrls?: string[];
     focus?: boolean;
     workflowKind?: GeoAppChatWorkflowKind | string;
     preferredProfile?: GeoAppChatWorkflowProfile | string;
@@ -85,6 +88,8 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
         const prompt = this.buildPrompt(detail);
 
         try {
+            const imageVariables = await this.fetchImagesAsVariables(detail.imageUrls || []);
+
             const existingSession = this.findExistingSession(detail, baseSessionTitle);
             if (existingSession) {
                 const pinnedAgent = await this.resolveDefaultChatAgent(detail);
@@ -94,7 +99,10 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
                 this.sanitizeSessionSettings(existingSession);
                 this.chatService.setActiveSession(existingSession.id, { focus: detail.focus !== false });
                 if (prompt) {
-                    await this.chatService.sendRequest(existingSession.id, { text: prompt });
+                    await this.chatService.sendRequest(existingSession.id, {
+                        text: prompt,
+                        ...(imageVariables.length > 0 ? { variables: imageVariables } : {}),
+                    });
                 }
                 return;
             }
@@ -106,7 +114,10 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
             this.sanitizeSessionSettings(session);
 
             if (prompt) {
-                await this.chatService.sendRequest(session.id, { text: prompt });
+                await this.chatService.sendRequest(session.id, {
+                    text: prompt,
+                    ...(imageVariables.length > 0 ? { variables: imageVariables } : {}),
+                });
             }
         } catch (error) {
             console.error('[GeoAppChatBridge] Failed to open GeoApp chat', error);
@@ -162,6 +173,38 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
         }
 
         modelWithSettings.setSettings(sanitizeGeoAppSessionSettings(session.model.settings || {}));
+    }
+
+    protected async fetchImagesAsVariables(imageUrls: string[]): Promise<AIVariableResolutionRequest[]> {
+        const variables: AIVariableResolutionRequest[] = [];
+        for (const url of imageUrls.slice(0, 5)) {
+            try {
+                const response = await fetch(url);
+                if (!response.ok) { continue; }
+                const blob = await response.blob();
+                const dataUrl = await this.readBlobAsDataUrl(blob);
+                const base64data = dataUrl.substring(dataUrl.indexOf(',') + 1);
+                const mimeType = blob.type || 'image/jpeg';
+                const name = url.split('/').pop()?.split('?')[0] || 'image';
+                variables.push(ImageContextVariable.createRequest({ data: base64data, mimeType, name }));
+            } catch {
+                // CORS or network error — skip silently
+            }
+        }
+        return variables;
+    }
+
+    protected readBlobAsDataUrl(blob: Blob): Promise<string> {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = e => {
+                const result = (e.target as FileReader | null)?.result;
+                if (typeof result === 'string') { resolve(result); }
+                else { reject(new Error('Failed to read blob as data URL')); }
+            };
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(blob);
+        });
     }
 
     protected buildPrompt(detail: GeoAppOpenChatRequestDetail): string {

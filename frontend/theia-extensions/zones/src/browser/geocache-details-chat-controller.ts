@@ -109,6 +109,7 @@ export class GeocacheDetailsChatController {
                 geocacheName: geocacheData.name,
                 sessionTitle: baseTitle,
                 prompt: finalPrompt,
+                imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
                 focus: true,
                 workflowKind: 'general',
                 preferredProfile: profileOverride === 'default' ? undefined : profileOverride,

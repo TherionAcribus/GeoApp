@@ -51,6 +51,7 @@ export interface GeoAppOpenChatRequestDetailPayload {
     geocacheName?: string;
     sessionTitle?: string;
     prompt?: string;
+    imageUrls?: string[];
     focus?: boolean;
     workflowKind?: GeoAppChatWorkflowKind | string;
     preferredProfile?: GeoAppChatWorkflowProfile | string;
@@ -263,6 +264,7 @@ export function buildGeoAppOpenChatRequestDetail(
         geocacheName: detail.geocacheName,
         sessionTitle: buildGeoAppBaseSessionTitle(detail.gcCode, detail.geocacheName, detail.sessionTitle),
         prompt: detail.prompt,
+        imageUrls: detail.imageUrls?.length ? detail.imageUrls : undefined,
         focus: detail.focus !== false,
         workflowKind: detail.workflowKind,
         preferredProfile: detail.preferredProfile,
