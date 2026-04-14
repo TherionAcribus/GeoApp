@@ -1,0 +1,20 @@
+{
+  "name": "Hymmnos",
+  "description": "Hymmnos",
+  "type": "alphabet",
+  "category": "alphabets",
+  "version": "1.0.1",
+  "alphabetConfig": {
+    "type": "font",
+    "fontFile": "fonts/Hymmnos.ttf",
+    "hasUpperCase": false,
+    "upperCaseOnly": false,
+    "characters": {
+      "letters": "all",
+      "numbers": "all",
+      "special": {
+        ".": "point"
+      }
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "Interlac",
+  "description": "Interlac",
+  "type": "alphabet",
+  "category": "alphabets",
+  "version": "1.0.0",
+  "alphabetConfig": {
+    "type": "font",
+    "fontFile": "fonts/interlac.ttf",
+    "hasUpperCase": false,
+    "upperCaseOnly": false,
+    "characters": {
+      "letters": "all",
+      "numbers": "all",
+      "special": {
+      }
+    }
+  }
+}

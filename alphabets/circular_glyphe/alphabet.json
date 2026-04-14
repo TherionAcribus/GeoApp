@@ -1,0 +1,22 @@
+{
+  "name": "Circular Glyphe",
+  "description": "Alphabet Glyphe Circulaire",
+  "type": "alphabet",
+  "category": "alphabets",
+  "version": "1.0.0",
+  "alphabetConfig": {
+    "type": "font",
+    "fontFile": "fonts/circularglyphe.ttf",
+    "hasUpperCase": false,
+    "characters": {
+      "letters": "all",
+      "numbers": "all",
+      "special": {
+        ".": "point",
+        ",": "virgule",
+        "!": "exclamation",
+        "?": "question"
+      }
+    }
+  }
+}

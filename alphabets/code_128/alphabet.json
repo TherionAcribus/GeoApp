@@ -1,0 +1,22 @@
+{
+  "name": "Code 128",
+  "description": "Alphabet Code 128",
+  "type": "alphabet",
+  "category": "alphabets",
+  "version": "1.0.0",
+  "alphabetConfig": {
+    "type": "font",
+    "fontFile": "fonts/code128.ttf",
+    "hasUpperCase": false,
+    "characters": {
+      "letters": "all",
+      "numbers": "all",
+      "special": {
+        ".": "point",
+        ",": "virgule",
+        "!": "exclamation",
+        "?": "question"
+      }
+    }
+  }
+}

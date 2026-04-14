@@ -1,0 +1,20 @@
+{
+  "name": "Fremen",
+  "description": "Fremen",
+  "type": "alphabet",
+  "category": "alphabets",
+  "version": "1.0.0",
+  "alphabetConfig": {
+    "type": "font",
+    "fontFile": "fonts/fremen.ttf",
+    "hasUpperCase": false,
+    "upperCaseOnly": false,
+    "characters": {
+      "letters": "all",
+      "numbers": "all",
+      "special": {
+        ".": "point"
+      }
+    }
+  }
+}

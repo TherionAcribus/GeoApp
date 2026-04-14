@@ -1,0 +1,19 @@
+{
+  "name": "Fabrini",
+  "description": "Fabrini",
+  "type": "alphabet",
+  "category": "alphabets",
+  "version": "1.0.0",
+  "alphabetConfig": {
+    "type": "font",
+    "fontFile": "fonts/fabrini.ttf",
+    "hasUpperCase": false,
+    "upperCaseOnly": false,
+    "characters": {
+      "letters": "all",
+      "numbers": "all",
+      "special": {
+      }
+    }
+  }
+}

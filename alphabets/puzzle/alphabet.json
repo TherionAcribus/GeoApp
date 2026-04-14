@@ -1,0 +1,27 @@
+{
+  "name": "Puzzle",
+  "description": "Puzzle",
+  "type": "alphabet",
+  "category": "alphabets",
+  "version": "1.0.0",
+  "alphabetConfig": {
+    "type": "images",
+    "imageFormat": "png",
+    "imageDir": "images",
+    "hasUpperCase": false,
+    "characters": {
+      "letters": "all",
+      "numbers": "all",
+      "special": {
+        ",": "virgule",
+        "!": "!",
+        ".": ".",
+        "interrogation": "interrogation",
+        "decimal": "decimal",
+        "espace": "espace",
+        "debut_paragraphe": "debut_paragraphe",
+        "debut_phrase": "debut_phrase"
+      }
+    }
+  }
+}

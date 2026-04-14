@@ -1,0 +1,22 @@
+{
+  "name": "Clavat Glyphe",
+  "description": "Alphabet Glyphe Clavat",
+  "type": "alphabet",
+  "category": "alphabets",
+  "version": "1.0.0",
+  "alphabetConfig": {
+    "type": "font",
+    "fontFile": "fonts/clavatscript.ttf",
+    "hasUpperCase": false,
+    "characters": {
+      "letters": "all",
+      "numbers": "all",
+      "special": {
+        ".": "point",
+        ",": "virgule",
+        "!": "exclamation",
+        "?": "question"
+      }
+    }
+  }
+}

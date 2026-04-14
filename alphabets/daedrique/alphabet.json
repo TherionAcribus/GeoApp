@@ -1,0 +1,19 @@
+{
+  "name": "Daedrique",
+  "description": "Daedrique",
+  "type": "alphabet",
+  "category": "alphabets",
+  "version": "1.0.0",
+  "alphabetConfig": {
+    "type": "font",
+    "fontFile": "fonts/daedrique.ttf",
+    "hasUpperCase": false,
+    "upperCaseOnly": false,
+    "characters": {
+      "letters": "all",
+      "numbers": "all",
+      "special": {
+      }
+    }
+  }
+}

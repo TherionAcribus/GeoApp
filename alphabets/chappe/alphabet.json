@@ -1,0 +1,17 @@
+{
+  "name": "Chappe",
+  "description": "Chappe",
+  "type": "alphabet",
+  "category": "alphabets",
+  "version": "1.0.0",
+  "alphabetConfig": {
+    "type": "images",
+    "imageFormat": "png",
+    "imageDir": "images",
+    "hasUpperCase": false,
+    "characters": {
+      "letters": "all",
+      "numbers": "all"
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "Covenant",
+  "description": "Covenant",
+  "type": "alphabet",
+  "category": "alphabets",
+  "version": "1.1.0",
+  "alphabetConfig": {
+    "type": "font",
+    "fontFile": "fonts/covenant.ttf",
+    "hasUpperCase": false,
+    "characters": {
+      "letters": "all",
+      "numbers": "all",
+      "special": {
+        ".": "point",
+        ",": "virgule",
+        "!": "exclamation",
+        "?": "question"
+      }
+    }
+  }
+}

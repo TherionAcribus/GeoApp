@@ -1,0 +1,20 @@
+{
+  "name": "Dancing Men",
+  "description": "Dancing Men",
+  "type": "alphabet",
+  "category": "alphabets",
+  "version": "1.0.0",
+  "alphabetConfig": {
+    "type": "font",
+    "fontFile": "fonts/dancing_men.ttf",
+    "hasUpperCase": false,
+    "upperCaseOnly": false,
+    "characters": {
+      "letters": "all",
+      "numbers": "all",
+      "special": {
+        ".": "point"
+      }
+    }
+  }
+}

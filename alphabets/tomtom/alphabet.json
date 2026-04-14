@@ -1,0 +1,35 @@
+{
+    "name": "TomTom",
+    "description": "Alphabet TomTom",
+    "type": "alphabet",
+    "category": "alphabets",
+    "version": "1.2.0",
+    "sources": [
+      {
+        "type": "reference",
+        "label": "Omniglot",
+        "url": "https://www.omniglot.com/conscripts/atomtom.htm",
+        "description": "Documentation sur Omniglot"
+      },
+      {
+        "type": "font",
+        "label": "Font utilisée",
+        "author": "GC Wizard",
+        "url": "https://gcwizard.net/",
+        "description": "Police de caractères TomTom"
+      }
+    ],
+        "alphabetConfig": {
+        "type": "images",
+        "imageFormat": "png",
+        "imageDir": "images",
+        "hasUpperCase": false,
+        "characters": {
+        "letters": "all",
+        "numbers": "",
+        "special": {
+            }
+        }
+    }
+  }
+  

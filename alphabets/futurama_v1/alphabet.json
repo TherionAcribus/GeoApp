@@ -1,0 +1,19 @@
+{
+  "name": "Futurama V1",
+  "description": "Futurama V1",
+  "type": "alphabet",
+  "category": "alphabets",
+  "version": "1.0.0",
+  "alphabetConfig": {
+    "type": "font",
+    "fontFile": "fonts/futuramaal1.ttf",
+    "hasUpperCase": false,
+    "upperCaseOnly": false,
+    "characters": {
+      "letters": "all",
+      "numbers": "all",
+      "special": {
+      }
+    }
+  }
+}

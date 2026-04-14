@@ -1,0 +1,26 @@
+{
+  "name": "Hobbit Rune",
+  "description": "Hobbit Rune",
+  "type": "alphabet",
+  "category": "alphabets",
+  "version": "1.0.0",
+  "alphabetConfig": {
+    "type": "images",
+    "imageFormat": "png",
+    "imageDir": "images",
+    "hasUpperCase": false,
+    "characters": {
+      "letters": "all"
+    },
+    "special": {
+      "d_": "d_",
+      "ea": "ea",
+      "ee": "ee",
+      "eo": "eo",
+      "ng": "ng",
+      "oo": "oo",
+      "st": "st",
+      "th": "th"
+    }
+  }
+}

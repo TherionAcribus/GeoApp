@@ -1,0 +1,23 @@
+{
+  "name": "Drapeaux Maritimes",
+  "description": "Drapeaux Maritimes",
+  "type": "alphabet",
+  "category": "alphabets",
+  "version": "1.0.0",
+  "alphabetConfig": {
+    "type": "images",
+    "imageFormat": "png",
+    "imageDir": "images",
+    "hasUpperCase": false,
+    "characters": {
+      "letters": "all",
+      "numbers": "all"
+    },
+    "special": {
+      "repeat1": "repeat1",
+      "repeat2": "repeat2",
+      "repeat3": "repeat3",
+      "repeat4": "repeat4"
+    }
+  }
+}
