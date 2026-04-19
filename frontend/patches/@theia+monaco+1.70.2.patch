@@ -1,0 +1,101 @@
+diff --git a/node_modules/@theia/monaco/lib/browser/monaco-indexed-db.js b/node_modules/@theia/monaco/lib/browser/monaco-indexed-db.js
+index 889dd50..62f516b 100644
+--- a/node_modules/@theia/monaco/lib/browser/monaco-indexed-db.js
++++ b/node_modules/@theia/monaco/lib/browser/monaco-indexed-db.js
+@@ -27,8 +27,11 @@ const theming_1 = require("@theia/core/lib/browser/theming");
+ const inversify_1 = require("@theia/core/shared/inversify");
+ const core_1 = require("@theia/core");
+ let _monacoDB;
+-if ('indexedDB' in window) {
+-    _monacoDB = idb.openDB('theia-monaco', 1, {
++function openMonacoDB() {
++    if (!('indexedDB' in window)) {
++        return undefined;
++    }
++    return idb.openDB('theia-monaco', 1, {
+         upgrade: db => {
+             if (!db.objectStoreNames.contains('themes')) {
+                 db.createObjectStore('themes', { keyPath: 'id' });
+@@ -36,6 +39,7 @@ if ('indexedDB' in window) {
+         }
+     });
+ }
++_monacoDB = openMonacoDB();
+ exports.monacoDB = _monacoDB;
+ var MonacoThemeState;
+ (function (MonacoThemeState) {
+@@ -48,9 +52,36 @@ async function getThemes() {
+     if (!exports.monacoDB) {
+         return [];
+     }
+-    const db = await exports.monacoDB;
+-    const result = await db.transaction('themes', 'readonly').objectStore('themes').getAll();
+-    return result.filter(MonacoThemeState.is);
++    try {
++        const db = await exports.monacoDB;
++        const result = await db.transaction('themes', 'readonly').objectStore('themes').getAll();
++        return result.filter(MonacoThemeState.is);
++    }
++    catch (error) {
++        console.warn('Failed to read monaco themes from indexedDB, resetting the store', error);
++        await resetMonacoDB();
++        return [];
++    }
++}
++async function resetMonacoDB() {
++    if (!('indexedDB' in window)) {
++        return;
++    }
++    try {
++        const db = await exports.monacoDB;
++        db.close();
++    }
++    catch {
++        // Ignore close errors and continue with the reset attempt.
++    }
++    try {
++        await idb.deleteDB('theia-monaco');
++    }
++    catch (error) {
++        console.warn('Failed to reset monaco themes indexedDB', error);
++    }
++    _monacoDB = openMonacoDB();
++    exports.monacoDB = _monacoDB;
+ }
+ function putTheme(state) {
+     const toDispose = new disposable_1.DisposableCollection(disposable_1.Disposable.create(() => { }));
+@@ -104,18 +135,24 @@ let ThemeServiceWithDB = class ThemeServiceWithDB extends theming_1.ThemeService
+     }
+     async loadUserThemeWithDB() {
+         const themeId = window.localStorage.getItem(theming_1.ThemeService.STORAGE_KEY) ?? this.defaultTheme.id;
+-        const theme = this.themes[themeId] ?? await getThemes().then(themes => {
+-            const matchingTheme = themes.find(candidate => candidate.id === themeId);
+-            if (matchingTheme) {
+-                this.onDidRetrieveThemeEmitter.fire(matchingTheme);
+-                return stateToTheme(matchingTheme);
++        try {
++            const theme = this.themes[themeId] ?? await getThemes().then(themes => {
++                const matchingTheme = themes.find(candidate => candidate.id === themeId);
++                if (matchingTheme) {
++                    this.onDidRetrieveThemeEmitter.fire(matchingTheme);
++                    return stateToTheme(matchingTheme);
++                }
++            }) ?? this.getTheme(themeId);
++            // In case the theme comes from the DB.
++            if (!this.themes[theme.id]) {
++                this.themes[theme.id] = theme;
+             }
+-        }) ?? this.getTheme(themeId);
+-        // In case the theme comes from the DB.
+-        if (!this.themes[theme.id]) {
+-            this.themes[theme.id] = theme;
++            this.setCurrentTheme(theme.id, false);
++        }
++        catch (error) {
++            console.warn('Failed to load user theme from indexedDB, falling back to the default theme', error);
++            this.setCurrentTheme(this.defaultTheme.id, false);
+         }
+-        this.setCurrentTheme(theme.id, false);
+         this.deferredInitializer.resolve();
+     }
+ };

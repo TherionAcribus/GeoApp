@@ -172,10 +172,12 @@ function testOpenChatDetailBuilder(): void {
         geocacheName: 'Bridge cache',
         sessionTitle: 'CHAT IA - GC4242',
         prompt: 'Analyse',
+        imageUrls: undefined,
         focus: true,
         workflowKind: 'formula',
         preferredProfile: 'strong',
         resumeState: undefined,
+        sessionKind: undefined,
     });
 }
 
@@ -217,10 +219,12 @@ function testDispatchGeoAppOpenChatRequest(): void {
         geocacheName: 'Dispatch cache',
         sessionTitle: 'CHAT IA - GC9000',
         prompt: 'Tester le bridge',
+        imageUrls: undefined,
         focus: true,
         workflowKind: 'hidden_content',
         preferredProfile: 'web',
         resumeState: undefined,
+        sessionKind: undefined,
     });
 }
 

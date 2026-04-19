@@ -27,14 +27,14 @@
     "typescript": "^5.0.0",
     "fs-extra": "^11.0.0",
     "@types/react": "^18.2.0",
-    "@theia/core": "1.67.0",
-    "@theia/filesystem": "1.67.0",
-    "@theia/workspace": "1.67.0"
+    "@theia/core": "1.70.2",
+    "@theia/filesystem": "1.70.2",
+    "@theia/workspace": "1.70.2"
   },
   "peerDependencies": {
-    "@theia/core": "1.67.0",
-    "@theia/filesystem": "1.67.0",
-    "@theia/workspace": "1.67.0"
+    "@theia/core": "1.70.2",
+    "@theia/filesystem": "1.70.2",
+    "@theia/workspace": "1.70.2"
   },
   "theiaExtensions": [
     {

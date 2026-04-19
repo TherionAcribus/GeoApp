@@ -23,7 +23,7 @@ export class BackendApiClient {
 
         this.preferenceService.onPreferenceChanged((event: PreferenceChange) => {
             if (event.preferenceName === 'geoApp.backend.apiBaseUrl') {
-                this.baseUrl = this.normalizeBaseUrl(String(event.newValue || 'http://localhost:8000'));
+                this.baseUrl = this.normalizeBaseUrl(this.getBackendBaseUrl());
             }
         });
     }
@@ -133,6 +133,10 @@ export class BackendApiClient {
             return 'http://localhost:8000';
         }
         return trimmed.replace(/\/+$/, '');
+    }
+
+    protected getBackendBaseUrl(): string {
+        return String(this.preferenceService.get('geoApp.backend.apiBaseUrl', 'http://localhost:8000') || 'http://localhost:8000');
     }
 }
 

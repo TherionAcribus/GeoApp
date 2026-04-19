@@ -10,8 +10,10 @@ import { GeoPreferenceDefinition } from '../geo-preferences-schema';
 @injectable()
 export class PreferenceSyncService implements FrontendApplicationContribution {
 
+    private static readonly PREFERENCE_SET_TIMEOUT_MS = 5000;
+
     private applyingRemote = false;
-    private initializationPromise: Promise<void> | undefined;
+    private initializationTask: Promise<void> | undefined;
     private initializationScheduled = false;
     private readonly backendDefinitions: Map<string, GeoPreferenceDefinition>;
 
@@ -29,12 +31,7 @@ export class PreferenceSyncService implements FrontendApplicationContribution {
     }
 
     async initialize(): Promise<void> {
-        if (this.initializationPromise) {
-            return this.initializationPromise;
-        }
-
-        this.initializationPromise = this.doInitialize();
-        return this.initializationPromise;
+        this.scheduleInitialization();
     }
 
     onStart(): void {
@@ -48,19 +45,26 @@ export class PreferenceSyncService implements FrontendApplicationContribution {
     }
 
     private scheduleInitialization(): void {
-        if (this.initializationScheduled) {
+        if (this.initializationScheduled || this.initializationTask) {
             return;
         }
 
         this.initializationScheduled = true;
         this.scheduleBackgroundTask(() => {
-            void this.initialize();
+            this.initializationScheduled = false;
+            if (this.initializationTask) {
+                return;
+            }
+            this.initializationTask = this.doInitialize().catch(error => {
+                console.error('[GeoPreferences] Could not initialize backend preference sync', error);
+            });
         });
     }
 
     private scheduleBackgroundTask(task: () => void): void {
-        if (typeof window !== 'undefined' && typeof (window as any).requestIdleCallback === 'function') {
-            (window as any).requestIdleCallback(() => task(), { timeout: 2000 });
+        if (typeof window !== 'undefined' && typeof (window as Window & { requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => void }).requestIdleCallback === 'function') {
+            (window as Window & { requestIdleCallback: (callback: () => void, options?: { timeout: number }) => void })
+                .requestIdleCallback(() => task(), { timeout: 2000 });
             return;
         }
 
@@ -78,10 +82,21 @@ export class PreferenceSyncService implements FrontendApplicationContribution {
                 if (!this.backendDefinitions.has(key)) {
                     continue;
                 }
-                await this.preferenceService.set(key, value, PreferenceScope.User);
+                if (this.areValuesEqual(this.getCurrentValue(key), value)) {
+                    continue;
+                }
+                try {
+                    await this.withTimeout(
+                        this.preferenceService.set(key, value, PreferenceScope.User),
+                        PreferenceSyncService.PREFERENCE_SET_TIMEOUT_MS,
+                        `Applying remote preference ${key}`
+                    );
+                } catch (error) {
+                    console.error(`[GeoPreferences] Failed to apply ${key}`, error);
+                }
             }
         } catch (error) {
-            console.error('[GeoPreferences] Impossible de récupérer les préférences backend', error);
+            console.error('[GeoPreferences] Could not fetch backend preferences', error);
         } finally {
             this.applyingRemote = false;
             this.apiClient.setBaseUrl(String(this.preferenceService.get('geoApp.backend.apiBaseUrl', 'http://localhost:8000')));
@@ -97,15 +112,13 @@ export class PreferenceSyncService implements FrontendApplicationContribution {
             return;
         }
 
-        // IMPORTANT: éviter de pousser des valeurs "undefined" vers le backend.
-        // Cela arrive lors de certaines réconciliations de préférences (ex: reset, scope changes)
-        // et le backend valide strictement les types -> 400 en rafale.
-        if (event.newValue === undefined || event.newValue === null) {
+        const currentValue = this.getCurrentValue(event.preferenceName);
+        if (currentValue === undefined || currentValue === null) {
             return;
         }
 
         if (event.preferenceName === 'geoApp.backend.apiBaseUrl') {
-            this.apiClient.setBaseUrl(String(event.newValue || 'http://localhost:8000'));
+            this.apiClient.setBaseUrl(String(currentValue || 'http://localhost:8000'));
             return;
         }
 
@@ -114,10 +127,47 @@ export class PreferenceSyncService implements FrontendApplicationContribution {
         }
 
         try {
-            await this.apiClient.update(event.preferenceName, event.newValue);
+            await this.apiClient.update(event.preferenceName, currentValue);
         } catch (error) {
-            console.error(`[GeoPreferences] Erreur lors de la synchronisation de ${event.preferenceName}`, error);
+            console.error(`[GeoPreferences] Failed to synchronize ${event.preferenceName}`, error);
+        }
+    }
+
+    private getCurrentValue(preferenceName: string): unknown {
+        const definition = this.store.schema.properties?.[preferenceName] as GeoPreferenceDefinition | undefined;
+        const defaultValue = definition && 'default' in definition ? definition.default : undefined;
+        return this.preferenceService.get(preferenceName, defaultValue);
+    }
+
+    private areValuesEqual(left: unknown, right: unknown): boolean {
+        if (left === right) {
+            return true;
+        }
+        if (typeof left !== 'object' || left === null || typeof right !== 'object' || right === null) {
+            return false;
+        }
+        try {
+            return JSON.stringify(left) === JSON.stringify(right);
+        } catch {
+            return false;
+        }
+    }
+
+    private async withTimeout<T>(promise: Promise<T>, timeoutMs: number, description: string): Promise<T> {
+        let timer: number | undefined;
+        try {
+            return await Promise.race([
+                promise,
+                new Promise<never>((_, reject) => {
+                    timer = window.setTimeout(() => {
+                        reject(new Error(`${description} exceeded ${timeoutMs} ms`));
+                    }, timeoutMs);
+                })
+            ]);
+        } finally {
+            if (timer !== undefined) {
+                window.clearTimeout(timer);
+            }
         }
     }
 }
-

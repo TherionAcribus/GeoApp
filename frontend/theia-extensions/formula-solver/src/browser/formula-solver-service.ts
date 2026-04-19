@@ -86,7 +86,7 @@ export class FormulaSolverServiceImpl implements FormulaSolverService {
 
         this.preferenceService.onPreferenceChanged((event: PreferenceChange) => {
             if (event.preferenceName === 'geoApp.backend.apiBaseUrl') {
-                this.updateBaseUrl(String(event.newValue || 'http://localhost:8000'));
+                this.updateBaseUrl(this.getBackendBaseUrl());
             }
         });
     }
@@ -230,5 +230,9 @@ export class FormulaSolverServiceImpl implements FormulaSolverService {
             return 'http://localhost:8000';
         }
         return trimmed.replace(/\/+$/, '');
+    }
+
+    protected getBackendBaseUrl(): string {
+        return String(this.preferenceService.get('geoApp.backend.apiBaseUrl', 'http://localhost:8000') || 'http://localhost:8000');
     }
 }

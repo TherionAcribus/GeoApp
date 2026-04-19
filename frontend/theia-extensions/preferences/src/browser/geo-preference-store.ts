@@ -66,8 +66,14 @@ export class GeoPreferenceStore {
         }
         this.onDidChangeEmitter.fire({
             key: event.preferenceName,
-            value: event.newValue
+            value: this.getCurrentValue(event.preferenceName)
         });
+    }
+
+    private getCurrentValue(preferenceName: string): unknown {
+        const definition = this.schema.properties?.[preferenceName] as GeoPreferenceDefinition | undefined;
+        const defaultValue = definition && 'default' in definition ? definition.default : undefined;
+        return this.preferenceService.get(preferenceName, defaultValue);
     }
 }
 

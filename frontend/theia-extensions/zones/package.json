@@ -1,7 +1,7 @@
 {
   "private": true,
   "name": "theia-ide-zones-ext",
-  "version": "1.65.100",
+  "version": "1.70.200",
   "description": "GeoApp Zones - Theia extension (widget barre latérale)",
   "keywords": [
     "theia-extension"
@@ -16,19 +16,19 @@
     "src"
   ],
   "dependencies": {
-    "@theia/core": "1.67.0",
-    "@theia/workspace": "1.67.0",
-    "@theia/ai-chat": "1.67.0",
-    "@theia/ai-core": "1.67.0",
+    "@theia/core": "1.70.2",
+    "@theia/workspace": "1.70.2",
+    "@theia/ai-chat": "1.70.2",
+    "@theia/ai-core": "1.70.2",
     "inversify": "^6.0.1",
     "@tanstack/react-table": "^8.10.7",
     "fabric": "^5.3.0",
-    "ol": "^9.0.0",
-    "@mysterai/theia-plugins": "1.0.0",
-    "@mysterai/theia-formula-solver": "1.0.0"
+    "ol": "^9.0.0"
   },
   "peerDependencies": {
-    "react": "^16.8.0"
+    "react": "^16.8.0",
+    "@mysterai/theia-plugins": "1.0.0",
+    "@mysterai/theia-formula-solver": "1.0.0"
   },
   "devDependencies": {
     "rimraf": "^2.7.1",

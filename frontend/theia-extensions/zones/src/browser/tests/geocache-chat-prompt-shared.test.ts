@@ -133,10 +133,11 @@ function testBuildGeocacheFreeChatFinalPrompt(): void {
         'https://example.com/b.jpg',
     ]);
     assert.ok(withImages.includes(draft.trim()));
-    assert.ok(withImages.includes('--- IMAGES ---'));
-    assert.ok(withImages.includes('https://example.com/a.jpg'));
-    assert.ok(withImages.includes('https://example.com/b.jpg'));
-    assert.ok(withImages.includes('--- FIN DES IMAGES ---'));
+    assert.ok(withImages.includes('[2 images associees a cette geocache.]'));
+    assert.ok(withImages.includes('run_geocache_workflow_step(geocache_id, target_step_id="describe-images")'));
+    assert.ok(withImages.includes('NE PAS demander a l utilisateur de decrire l image.'));
+    assert.ok(!withImages.includes('https://example.com/a.jpg'));
+    assert.ok(!withImages.includes('https://example.com/b.jpg'));
 }
 
 function run(): void {
