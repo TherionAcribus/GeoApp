@@ -44,6 +44,8 @@ export class MapWidget extends ReactWidget {
     private context: MapContext;
     private geocaches: MapGeocache[] = [];
     private mapPreferences: MapViewPreferences;
+    private autoSelectTimeout: ReturnType<typeof setTimeout> | undefined;
+    private resizeTimeout: ReturnType<typeof setTimeout> | undefined;
     private readonly geocacheChangeDisposable: { dispose: () => void };
     private readonly preferenceChangeDisposable: { dispose: () => void };
     private readonly mapPreferenceKeys = [
@@ -104,10 +106,14 @@ export class MapWidget extends ReactWidget {
         console.log(`[MapWidget ${this.id}] loadGeocaches:`, geocaches.length, 'geocaches');
         this.geocaches = geocaches;
 
+        this.clearAutoSelectTimeout();
         if (this.context.type === 'geocache' && this.context.id && geocaches.length > 0) {
             const geocacheToSelect = geocaches.find(gc => gc.id === this.context.id);
             if (geocacheToSelect) {
-                setTimeout(() => {
+                this.autoSelectTimeout = setTimeout(() => {
+                    if (!this.mapInstance) {
+                        return;
+                    }
                     this.mapService.selectGeocache({
                         id: geocacheToSelect.id,
                         gc_code: geocacheToSelect.gc_code,
@@ -467,11 +473,26 @@ export class MapWidget extends ReactWidget {
         this.node.focus();
 
         if (this.mapInstance) {
-            setTimeout(() => {
+            this.clearResizeTimeout();
+            this.resizeTimeout = setTimeout(() => {
                 if (this.mapInstance) {
                     this.updateMapSize();
                 }
             }, 100);
+        }
+    }
+
+    private clearAutoSelectTimeout(): void {
+        if (this.autoSelectTimeout) {
+            clearTimeout(this.autoSelectTimeout);
+            this.autoSelectTimeout = undefined;
+        }
+    }
+
+    private clearResizeTimeout(): void {
+        if (this.resizeTimeout) {
+            clearTimeout(this.resizeTimeout);
+            this.resizeTimeout = undefined;
         }
     }
 
@@ -483,6 +504,8 @@ export class MapWidget extends ReactWidget {
     }
 
     dispose(): void {
+        this.clearAutoSelectTimeout();
+        this.clearResizeTimeout();
         this.geocacheChangeDisposable.dispose();
         this.preferenceChangeDisposable.dispose();
         if (this.mapInstance) {

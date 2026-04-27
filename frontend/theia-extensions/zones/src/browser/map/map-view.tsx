@@ -63,6 +63,7 @@ export const MapView: React.FC<MapViewProps> = ({
     const fittedGeocacheKeyRef = React.useRef<string | null>(null);
     const [isInitialized, setIsInitialized] = React.useState(false);
     const initialZoomRef = React.useRef(preferences?.defaultZoom ?? 6);
+    const previousDefaultZoomRef = React.useRef(preferences?.defaultZoom ?? 6);
     const [currentProvider, setCurrentProvider] = React.useState(preferences?.defaultProvider ?? 'osm');
     const [popupData, setPopupData] = React.useState<GeocacheFeatureProperties | null>(null);
     const [contextMenu, setContextMenu] = React.useState<{ items: ContextMenuItem[]; x: number; y: number } | null>(null);
@@ -83,8 +84,9 @@ export const MapView: React.FC<MapViewProps> = ({
         setShowNearbyGeocaches(preferences.showNearbyGeocaches);
         setShowExclusionZones(preferences.showExclusionZones);
 
-        if (mapInstanceRef.current) {
+        if (mapInstanceRef.current && previousDefaultZoomRef.current !== preferences.defaultZoom) {
             mapInstanceRef.current.getView().setZoom(preferences.defaultZoom);
+            previousDefaultZoomRef.current = preferences.defaultZoom;
         }
         if (isInitialized && layerManagerRef.current) {
             layerManagerRef.current.changeTileProvider(preferences.defaultProvider);
