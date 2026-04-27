@@ -410,6 +410,20 @@
         "backend"
       ]
     },
+    "geoApp.map.geocacheIconScale": {
+      "type": "number",
+      "minimum": 0.4,
+      "maximum": 1.4,
+      "default": 0.75,
+      "description": "Facteur de taille applique aux icones de geocaches sur la carte.",
+      "x-category": "map",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "map"
+      ]
+    },
     "geoApp.map.showExclusionZones": {
       "type": "boolean",
       "default": true,

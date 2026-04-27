@@ -70,6 +70,7 @@ export class MapLayerManager {
     private formulaSolverPreviewLayer: any;
     private currentTileProviderId: string;
     private labelMode: MapLabelMode = 'none';
+    private geocacheIconScale = 0.75;
 
     constructor(map: Map) {
         this.map = map;
@@ -86,7 +87,11 @@ export class MapLayerManager {
         // Par défaut, afficher les géocaches individuellement (sans clustering)
         this.geocacheLayer = new VectorLayer({
             source: this.geocacheVectorSource as any,
-            style: createGeocacheStyleFromSprite,
+            style: (feature, resolution) => createGeocacheStyleFromSprite(
+                feature as Feature<Geometry>,
+                resolution,
+                { scale: this.geocacheIconScale }
+            ),
             properties: {
                 name: 'geocaches'
             },
@@ -123,7 +128,7 @@ export class MapLayerManager {
         this.nearbyGeocacheLayer = new VectorLayer({
             source: this.nearbyGeocacheVectorSource,
             style: (feature, resolution) => {
-                const styleOptions: GeocacheStyleOptions = { opacity: 0.6, scale: 0.7 };
+                const styleOptions: GeocacheStyleOptions = { opacity: 0.6, scale: this.geocacheIconScale * 0.7 };
                 return createGeocacheStyleFromSprite(feature as Feature<Geometry>, resolution, styleOptions);
             },
             properties: {
@@ -324,6 +329,16 @@ export class MapLayerManager {
         }
         this.labelMode = mode;
         this.refreshLabelVisibility();
+    }
+
+    setGeocacheIconScale(scale: number): void {
+        const safeScale = Number.isFinite(scale) ? Math.min(1.4, Math.max(0.4, scale)) : 0.75;
+        if (this.geocacheIconScale === safeScale) {
+            return;
+        }
+        this.geocacheIconScale = safeScale;
+        this.geocacheVectorSource.changed();
+        this.nearbyGeocacheVectorSource.changed();
     }
 
     private shouldShowGeocacheLabels(): boolean {
@@ -695,7 +710,11 @@ export class MapLayerManager {
             this.geocacheLayer.setStyle(createClusterStyle);
         } else {
             this.geocacheLayer.setSource(this.geocacheVectorSource as any);
-            this.geocacheLayer.setStyle(createGeocacheStyleFromSprite);
+            this.geocacheLayer.setStyle((feature, resolution) => createGeocacheStyleFromSprite(
+                feature as Feature<Geometry>,
+                resolution,
+                { scale: this.geocacheIconScale }
+            ));
         }
     }
 

@@ -16,6 +16,7 @@ import { ContextMenu, ContextMenuItem } from '../context-menu';
 export interface MapViewPreferences {
     defaultProvider: string;
     defaultZoom: number;
+    geocacheIconScale: number;
     showExclusionZones: boolean;
     showNearbyGeocaches: boolean;
 }
@@ -65,6 +66,7 @@ export const MapView: React.FC<MapViewProps> = ({
     const initialZoomRef = React.useRef(preferences?.defaultZoom ?? 6);
     const previousDefaultZoomRef = React.useRef(preferences?.defaultZoom ?? 6);
     const [currentProvider, setCurrentProvider] = React.useState(preferences?.defaultProvider ?? 'osm');
+    const [geocacheIconScale, setGeocacheIconScale] = React.useState(preferences?.geocacheIconScale ?? 0.75);
     const [popupData, setPopupData] = React.useState<GeocacheFeatureProperties | null>(null);
     const [contextMenu, setContextMenu] = React.useState<{ items: ContextMenuItem[]; x: number; y: number } | null>(null);
     const [showNearbyGeocaches, setShowNearbyGeocaches] = React.useState(preferences?.showNearbyGeocaches ?? false);
@@ -84,10 +86,17 @@ export const MapView: React.FC<MapViewProps> = ({
     }, [labelMode, isInitialized]);
 
     React.useEffect(() => {
+        if (layerManagerRef.current) {
+            layerManagerRef.current.setGeocacheIconScale(geocacheIconScale);
+        }
+    }, [geocacheIconScale, isInitialized]);
+
+    React.useEffect(() => {
         if (!preferences) {
             return;
         }
         setCurrentProvider(preferences.defaultProvider);
+        setGeocacheIconScale(preferences.geocacheIconScale);
         setShowNearbyGeocaches(preferences.showNearbyGeocaches);
         setShowExclusionZones(preferences.showExclusionZones);
 
@@ -97,6 +106,7 @@ export const MapView: React.FC<MapViewProps> = ({
         }
         if (isInitialized && layerManagerRef.current) {
             layerManagerRef.current.changeTileProvider(preferences.defaultProvider);
+            layerManagerRef.current.setGeocacheIconScale(preferences.geocacheIconScale);
         }
     }, [preferences, isInitialized]);
 
@@ -941,6 +951,12 @@ export const MapView: React.FC<MapViewProps> = ({
         setLabelMode(event.target.value as MapLabelMode);
     };
 
+    const handleIconScaleChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+        const value = Number(event.target.value);
+        setGeocacheIconScale(value);
+        onPreferenceChange?.('geoApp.map.geocacheIconScale', value);
+    };
+
     return (
         <div style={{ 
             width: '100%', 
@@ -1023,6 +1039,35 @@ export const MapView: React.FC<MapViewProps> = ({
                         }}
                     />
                     Zones d'exclusion (161m)
+                </label>
+
+                <label style={{
+                    fontSize: '12px',
+                    color: 'var(--theia-foreground)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                }}>
+                    Taille icones:
+                    <select
+                        value={geocacheIconScale}
+                        onChange={handleIconScaleChange}
+                        style={{
+                            padding: '4px 8px',
+                            fontSize: '12px',
+                            background: 'var(--theia-input-background)',
+                            color: 'var(--theia-input-foreground)',
+                            border: '1px solid var(--theia-input-border)',
+                            borderRadius: '2px',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        <option value={0.5}>Tres petite</option>
+                        <option value={0.65}>Petite</option>
+                        <option value={0.75}>Normale</option>
+                        <option value={0.9}>Grande</option>
+                        <option value={1.1}>Tres grande</option>
+                    </select>
                 </label>
 
                 <label style={{
