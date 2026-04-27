@@ -117,8 +117,15 @@ class GeocachingAuthService:
     
     def _get_credentials_file_path(self) -> Path:
         """Retourne le chemin du fichier de stockage des credentials."""
-        # Utiliser le dossier data de l'application
-        data_dir = Path(__file__).parent.parent.parent / "data"
+        override_dir = os.environ.get("GEOAPP_AUTH_DATA_DIR")
+        if override_dir:
+            data_dir = Path(override_dir)
+        elif os.name == "nt":
+            base_dir = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+            data_dir = Path(base_dir) / "GeoApp" if base_dir else Path.home() / "AppData" / "Local" / "GeoApp"
+        else:
+            base_dir = os.environ.get("XDG_CONFIG_HOME")
+            data_dir = Path(base_dir) / "geoapp" if base_dir else Path.home() / ".config" / "geoapp"
         data_dir.mkdir(parents=True, exist_ok=True)
         return data_dir / ".gc_credentials.json"
     
@@ -160,19 +167,16 @@ class GeocachingAuthService:
                     logger.info("Session restored successfully")
                     return
         
-        # 2. Fallback: essayer les cookies du navigateur si configuré
+        # 2. Ne jamais extraire automatiquement les cookies navigateur.
+        # Cette méthode doit rester une action utilisateur explicite: sinon une
+        # installation peut sembler connectée simplement parce que le navigateur
+        # local possède déjà une session Geocaching.com.
         if saved and saved.get("method") == "browser_cookies":
-            browser = saved.get("browser", "auto")
-            logger.info(f"Attempting to restore session with browser cookies ({browser})...")
-            self._load_browser_cookies(browser)
-            if self._verify_login_status():
-                self._auth_state = AuthState(
-                    status=AuthStatus.LOGGED_IN,
-                    method=AuthMethod.BROWSER_COOKIES,
-                    last_check=datetime.now()
-                )
-                self._fetch_user_info()
-                logger.info("Session restored with browser cookies")
+            logger.info("Browser cookie auth is configured but requires an explicit user action")
+            self._auth_state = AuthState(
+                status=AuthStatus.LOGGED_OUT,
+                method=AuthMethod.BROWSER_COOKIES
+            )
     
     def _load_saved_credentials(self) -> Optional[dict]:
         """Charge les credentials sauvegardés (si existants)."""
@@ -779,6 +783,8 @@ class GeocachingAuthService:
                     logger.warning(f"Logout request failed: {e}")
                 
                 self._session.cookies.clear()
+
+        self._clear_saved_credentials()
         
         self._auth_state = AuthState(
             status=AuthStatus.LOGGED_OUT,

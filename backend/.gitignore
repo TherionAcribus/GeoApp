@@ -78,6 +78,8 @@ profile_default/
 ipython_config.py
 
 *.db
+data/.gc_credentials.json
+data/.gc_credentials.*
 
 # pyenv
 .python-version

@@ -102,7 +102,12 @@ Les préférences suivantes ont été ajoutées au schéma (`geo-preferences-sch
 
 ## Stockage des credentials
 
-Les credentials sont stockés dans `gc-backend/data/.gc_credentials.json` avec permissions restrictives (600 sur Unix).
+Les credentials sont stockés dans un dossier utilisateur local, hors du dépôt de l'application :
+
+- Windows : `%LOCALAPPDATA%\GeoApp\.gc_credentials.json`
+- Linux/macOS : `$XDG_CONFIG_HOME/geoapp/.gc_credentials.json` ou `~/.config/geoapp/.gc_credentials.json`
+
+Le fichier `backend/data/.gc_credentials.json` ne doit jamais être versionné ni livré avec l'application.
 
 **Format** :
 ```json
@@ -159,4 +164,6 @@ L'ancien système chargeait directement les cookies du navigateur dans chaque se
 
 3. **Expiration des cookies** : Les cookies navigateur expirent. La méthode credentials est plus fiable sur le long terme.
 
-4. **Sécurité** : Les credentials sont stockés en clair localement. Assurez-vous que seul votre utilisateur a accès au dossier `data/`.
+4. **Sécurité** : Les credentials sont stockés en clair localement dans le profil utilisateur. Assurez-vous que seul votre utilisateur a accès à ce dossier.
+
+5. **Cookies navigateur** : Cette méthode extrait les cookies uniquement après une action explicite de l'utilisateur. Elle n'est pas restaurée automatiquement au démarrage.
