@@ -17,6 +17,8 @@ export interface GeocacheFeatureProperties {
     selected?: boolean;
     isWaypoint?: boolean;  // ✅ Indique si c'est un waypoint
     waypointId?: number;   // ✅ ID du waypoint (si isWaypoint = true)
+    waypointLabel?: string;
+    parentCacheType?: string;
     bruteForceId?: string; // ✅ ID pour les points brute force (suppression)
 }
 
@@ -113,12 +115,14 @@ function createFallbackStyle(isSelected: boolean, found?: boolean, options?: Geo
 export function createWaypointStyleFromSprite(feature: Feature<Geometry>, resolution: number): Style {
     const properties = feature.getProperties();
     const isSelected = properties.selected === true;
+    const fillColor = getWaypointColor(properties.parentCacheType);
+    const label = properties.waypointLabel || properties.name || 'WP';
 
     return new Style({
         image: new Circle({
             radius: isSelected ? 8 : 6,
             fill: new Fill({
-                color: 'rgba(76, 175, 80, 0.8)' // Vert
+                color: fillColor
             }),
             stroke: new Stroke({
                 color: isSelected ? 'rgba(0, 122, 255, 1)' : 'rgba(255, 255, 255, 0.8)',
@@ -126,19 +130,52 @@ export function createWaypointStyleFromSprite(feature: Feature<Geometry>, resolu
             })
         }),
         text: new Text({
-            text: properties.name || 'WP',
-            offsetY: -15,
+            text: label,
+            offsetY: -18,
             fill: new Fill({
-                color: '#333'
+                color: '#1f2933'
             }),
             stroke: new Stroke({
                 color: '#fff',
-                width: 3
+                width: 4
             }),
-            font: '12px sans-serif'
+            font: '600 11px sans-serif',
+            backgroundFill: new Fill({
+                color: 'rgba(255, 255, 255, 0.78)'
+            }),
+            padding: [2, 4, 2, 4]
         }),
         zIndex: isSelected ? 1000 : 5
     });
+}
+
+function getWaypointColor(cacheType?: string): string {
+    const normalizedCacheType = (cacheType || '').toLowerCase();
+    if (normalizedCacheType.includes('letterbox')) {
+        return 'rgba(156, 54, 181, 0.95)';
+    }
+
+    const iconKey = getIconByCacheType(cacheType || '')?.key || 'unknown';
+    const colors: Record<string, string> = {
+        traditional: 'rgba(47, 158, 68, 0.95)',
+        multi: 'rgba(245, 159, 0, 0.95)',
+        mystery: 'rgba(25, 113, 194, 0.95)',
+        unknown: 'rgba(25, 113, 194, 0.95)',
+        letterbox: 'rgba(156, 54, 181, 0.95)',
+        wherigo: 'rgba(12, 166, 120, 0.95)',
+        earth: 'rgba(116, 143, 252, 0.95)',
+        virtual: 'rgba(34, 139, 230, 0.95)',
+        webcam: 'rgba(23, 162, 184, 0.95)',
+        event: 'rgba(230, 119, 0, 0.95)',
+        cito: 'rgba(102, 187, 106, 0.95)',
+        mega: 'rgba(214, 51, 108, 0.95)',
+        giga: 'rgba(190, 75, 219, 0.95)',
+        ape: 'rgba(92, 148, 13, 0.95)',
+        hq: 'rgba(73, 80, 87, 0.95)',
+        maze: 'rgba(121, 85, 72, 0.95)',
+        locationless: 'rgba(96, 125, 139, 0.95)'
+    };
+    return colors[iconKey] || 'rgba(76, 175, 80, 0.95)';
 }
 
 /**

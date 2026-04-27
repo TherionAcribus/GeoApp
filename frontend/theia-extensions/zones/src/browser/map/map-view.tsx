@@ -198,7 +198,16 @@ export const MapView: React.FC<MapViewProps> = ({
             }
 
             if (props.id !== undefined) {
-                setPopupData(props);
+                if (props.isWaypoint) {
+                    setPopupData({
+                        ...props,
+                        gc_code: 'Waypoint',
+                        name: props.waypointLabel || props.name || 'Sans nom',
+                        cache_type: props.cache_type || 'Waypoint'
+                    });
+                } else {
+                    setPopupData(props);
+                }
                 if (overlayRef.current) {
                     overlayRef.current.setPosition(evt.coordinate);
                 }
@@ -232,17 +241,18 @@ export const MapView: React.FC<MapViewProps> = ({
                 };
 
                 // Menu pour waypoint existant
-                if (props.isWaypoint && props.waypointId !== undefined) {
+                if (props.isWaypoint) {
+                    const waypointDisplayName = props.waypointLabel || props.name || 'Sans nom';
                     const items: ContextMenuItem[] = [
                         {
-                            label: `📌 Waypoint: ${props.name || 'Sans nom'}`,
+                            label: `📌 Waypoint: ${waypointDisplayName}`,
                             disabled: true
                         },
                         { separator: true }
                     ];
                     
                     // Option pour définir comme coordonnées corrigées
-                    if (onSetWaypointAsCorrectedCoords) {
+                    if (onSetWaypointAsCorrectedCoords && props.waypointId !== undefined) {
                         items.push({
                             label: 'Définir comme coordonnées corrigées',
                             icon: '📍',
@@ -253,7 +263,7 @@ export const MapView: React.FC<MapViewProps> = ({
                     }
                     
                     // Option pour supprimer le waypoint
-                    if (onDeleteWaypoint) {
+                    if (onDeleteWaypoint && props.waypointId !== undefined) {
                         items.push({
                             label: 'Supprimer le waypoint',
                             icon: '🗑️',

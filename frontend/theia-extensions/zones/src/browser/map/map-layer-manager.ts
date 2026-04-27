@@ -388,9 +388,14 @@ export class MapLayerManager {
                 geocache.original_longitude !== undefined) {
                 this.addWaypoint(
                     `orig_${geocache.id}`,
-                    `${geocache.gc_code} - Original`,
+                    'Original',
                     geocache.original_longitude,
-                    geocache.original_latitude
+                    geocache.original_latitude,
+                    {
+                        geocacheName: geocache.name,
+                        gcCode: geocache.gc_code,
+                        cacheType: geocache.cache_type
+                    }
                 );
             }
             
@@ -405,7 +410,12 @@ export class MapLayerManager {
                             waypoint.id,
                             waypoint.name || waypoint.lookup || `WP${waypoint.id}`,
                             waypoint.longitude,
-                            waypoint.latitude
+                            waypoint.latitude,
+                            {
+                                geocacheName: geocache.name,
+                                gcCode: geocache.gc_code,
+                                cacheType: geocache.cache_type
+                            }
                         );
                     }
                 });
@@ -481,7 +491,13 @@ export class MapLayerManager {
     /**
      * Ajoute un waypoint
      */
-    addWaypoint(id: number | string, name: string, lon: number, lat: number): Feature<Point> {
+    addWaypoint(
+        id: number | string,
+        name: string,
+        lon: number,
+        lat: number,
+        parent?: { geocacheName: string; gcCode: string; cacheType: string }
+    ): Feature<Point> {
         const coordinate = lonLatToMapCoordinate(lon, lat);
         
         const feature = new Feature({
@@ -492,6 +508,10 @@ export class MapLayerManager {
         feature.setProperties({
             id: id,
             name: name,
+            waypointLabel: parent ? `${parent.geocacheName} (${parent.gcCode}) - ${name}` : name,
+            parentCacheType: parent?.cacheType,
+            gc_code: parent?.gcCode,
+            cache_type: parent?.cacheType || 'Waypoint',
             type: 'waypoint',
             selected: false,
             isWaypoint: true,  // ✅ Marquer comme waypoint pour le menu contextuel
