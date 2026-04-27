@@ -17,6 +17,24 @@ from ..services.geocaching_auth import get_auth_service
 logger = logging.getLogger(__name__)
 
 
+GEOCACHING_CACHE_TYPE_ID_MAP = {
+    '2': 'Traditional',
+    '3': 'Multi',
+    '4': 'Virtual',
+    '5': 'Letterbox Hybrid',
+    '6': 'Event',
+    '8': 'Mystery',
+    '11': 'Webcam',
+    '12': 'Locationless',
+    '13': 'CITO',
+    '137': 'Earthcache',
+    '453': 'Mega-Event',
+    '1858': 'Wherigo',
+    '3773': 'Groundspeak HQ',
+    '7005': 'Giga-Event',
+}
+
+
 @dataclass
 class ScrapedGeocache:
     gc_code: str
@@ -174,10 +192,29 @@ class GeocachingScraper:
             logger.debug(f"[{code}] Type found via cacheImage: {type_text}")
         if not type_text:
             # Nouveau format fallback
-            type_el = soup.select_one('[data-testid="cache-type"], .cache-type')
+            type_el = soup.select_one('[data-testid="cache-type"], .cache-type, .li__cache-type')
             type_text = text_or_none(type_el)
             if type_text:
                 logger.debug(f"[{code}] Type found via data-testid: {type_text}")
+        if not type_text:
+            type_icon = soup.select_one(
+                'svg.cache-icon use[href], svg.cache-icon use[xlink\\:href], '
+                'meta[property="og:image"][content*="/wpttypes/"], '
+                'meta[name="og:image"][content*="/wpttypes/"]'
+            )
+            icon_ref = ''
+            if type_icon:
+                icon_ref = (
+                    type_icon.get('href')
+                    or type_icon.get('xlink:href')
+                    or type_icon.get('content')
+                    or ''
+                )
+            icon_match = re.search(r'(?:#icon-|/wpttypes/)(\d+)(?:\.png)?', icon_ref)
+            if icon_match:
+                type_text = GEOCACHING_CACHE_TYPE_ID_MAP.get(icon_match.group(1))
+                if type_text:
+                    logger.debug(f"[{code}] Type found via cache type icon {icon_match.group(1)}: {type_text}")
         logger.debug(f"[{code}] Final type: {type_text}")
 
         # Taille (ancien format précis)
