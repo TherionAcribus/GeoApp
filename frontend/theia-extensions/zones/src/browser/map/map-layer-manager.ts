@@ -12,6 +12,8 @@ import { lonLatToMapCoordinate } from './map-utils';
 import { createTileLayer, DEFAULT_PROVIDER_ID } from './map-tile-providers';
 import { DetectedCoordinateHighlight, FormulaSolverPreviewOverlay } from './map-service';
 
+export type MapLabelMode = 'none' | 'geocaches' | 'waypoints' | 'all';
+
 /**
  * Interface pour un waypoint de géocache
  */
@@ -67,6 +69,7 @@ export class MapLayerManager {
     private formulaSolverPreviewVectorSource: VectorSource<Feature<Geometry>>;
     private formulaSolverPreviewLayer: any;
     private currentTileProviderId: string;
+    private labelMode: MapLabelMode = 'none';
 
     constructor(map: Map) {
         this.map = map;
@@ -315,6 +318,37 @@ export class MapLayerManager {
         return this.currentTileProviderId;
     }
 
+    setLabelMode(mode: MapLabelMode): void {
+        if (this.labelMode === mode) {
+            return;
+        }
+        this.labelMode = mode;
+        this.refreshLabelVisibility();
+    }
+
+    private shouldShowGeocacheLabels(): boolean {
+        return this.labelMode === 'geocaches' || this.labelMode === 'all';
+    }
+
+    private shouldShowWaypointLabels(): boolean {
+        return this.labelMode === 'waypoints' || this.labelMode === 'all';
+    }
+
+    private refreshLabelVisibility(): void {
+        this.geocacheVectorSource.getFeatures().forEach(feature => {
+            feature.set('showLabel', this.shouldShowGeocacheLabels());
+            feature.changed();
+        });
+        this.nearbyGeocacheVectorSource.getFeatures().forEach(feature => {
+            feature.set('showLabel', this.shouldShowGeocacheLabels());
+            feature.changed();
+        });
+        this.waypointVectorSource.getFeatures().forEach(feature => {
+            feature.set('showLabel', this.shouldShowWaypointLabels());
+            feature.changed();
+        });
+    }
+
     /**
      * Ajoute une géocache à la carte
      */
@@ -331,6 +365,8 @@ export class MapLayerManager {
             gc_code: geocache.gc_code,
             name: geocache.name,
             cache_type: geocache.cache_type,
+            geocacheLabel: `${geocache.name} (${geocache.gc_code})`,
+            showLabel: this.shouldShowGeocacheLabels(),
             difficulty: geocache.difficulty,
             terrain: geocache.terrain,
             found: geocache.found,
@@ -364,6 +400,8 @@ export class MapLayerManager {
                 gc_code: geocache.gc_code,
                 name: geocache.name,
                 cache_type: geocache.cache_type,
+                geocacheLabel: `${geocache.name} (${geocache.gc_code})`,
+                showLabel: this.shouldShowGeocacheLabels(),
                 difficulty: geocache.difficulty,
                 terrain: geocache.terrain,
                 found: geocache.found,
@@ -512,6 +550,7 @@ export class MapLayerManager {
             parentCacheType: parent?.cacheType,
             gc_code: parent?.gcCode,
             cache_type: parent?.cacheType || 'Waypoint',
+            showLabel: this.shouldShowWaypointLabels(),
             type: 'waypoint',
             selected: false,
             isWaypoint: true,  // ✅ Marquer comme waypoint pour le menu contextuel
@@ -683,6 +722,8 @@ export class MapLayerManager {
                 gc_code: geocache.gc_code,
                 name: geocache.name,
                 cache_type: geocache.cache_type,
+                geocacheLabel: `${geocache.name} (${geocache.gc_code})`,
+                showLabel: this.shouldShowGeocacheLabels(),
                 difficulty: geocache.difficulty,
                 terrain: geocache.terrain,
                 found: geocache.found,

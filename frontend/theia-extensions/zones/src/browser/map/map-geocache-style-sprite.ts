@@ -19,6 +19,8 @@ export interface GeocacheFeatureProperties {
     waypointId?: number;   // ✅ ID du waypoint (si isWaypoint = true)
     waypointLabel?: string;
     parentCacheType?: string;
+    geocacheLabel?: string;
+    showLabel?: boolean;
     bruteForceId?: string; // ✅ ID pour les points brute force (suppression)
 }
 
@@ -38,11 +40,12 @@ export function createGeocacheStyleFromSprite(feature: Feature<Geometry>, resolu
     const isSelected = properties.selected === true;
     
     // Récupérer l'icône correspondant au type de cache
+    const label = properties.showLabel ? properties.geocacheLabel || `${properties.name} (${properties.gc_code})` : undefined;
     const iconDef = getIconByCacheType(properties.cache_type || 'Unknown Cache');
     
     if (!iconDef) {
         // Fallback vers un style par défaut si le type n'est pas trouvé
-        return createFallbackStyle(isSelected, properties.found, options);
+        return createFallbackStyle(isSelected, properties.found, options, label);
     }
 
     const baseScale = isSelected ? 1.0 : 0.8;
@@ -59,6 +62,7 @@ export function createGeocacheStyleFromSprite(feature: Feature<Geometry>, resolu
             opacity: opacity,
             anchor: [0.5, 0.5], // Ancre au centre de l'icône (pour les disques)
         }),
+        text: createLabelStyle(label, -30),
         zIndex: isSelected ? 1000 : 1
     });
 
@@ -88,7 +92,7 @@ export function createGeocacheStyleFromSprite(feature: Feature<Geometry>, resolu
 /**
  * Style de secours si le type de cache n'est pas trouvé
  */
-function createFallbackStyle(isSelected: boolean, found?: boolean, options?: GeocacheStyleOptions): Style {
+function createFallbackStyle(isSelected: boolean, found?: boolean, options?: GeocacheStyleOptions, label?: string): Style {
     const baseRadius = isSelected ? 10 : 8;
     const radius = options?.scale ? baseRadius * options.scale : baseRadius;
     const baseOpacity = found ? 0.6 : 1.0;
@@ -105,6 +109,7 @@ function createFallbackStyle(isSelected: boolean, found?: boolean, options?: Geo
                 width: isSelected ? 3 : 2
             })
         }),
+        text: createLabelStyle(label, -22),
         zIndex: isSelected ? 1000 : 1
     });
 }
@@ -129,23 +134,31 @@ export function createWaypointStyleFromSprite(feature: Feature<Geometry>, resolu
                 width: isSelected ? 3 : 2
             })
         }),
-        text: new Text({
-            text: label,
-            offsetY: -18,
-            fill: new Fill({
-                color: '#1f2933'
-            }),
-            stroke: new Stroke({
-                color: '#fff',
-                width: 4
-            }),
-            font: '600 11px sans-serif',
-            backgroundFill: new Fill({
-                color: 'rgba(255, 255, 255, 0.78)'
-            }),
-            padding: [2, 4, 2, 4]
-        }),
+        text: createLabelStyle(properties.showLabel ? label : undefined, -18),
         zIndex: isSelected ? 1000 : 5
+    });
+}
+
+function createLabelStyle(label: string | undefined, offsetY: number): Text | undefined {
+    if (!label) {
+        return undefined;
+    }
+
+    return new Text({
+        text: label,
+        offsetY,
+        fill: new Fill({
+            color: '#1f2933'
+        }),
+        stroke: new Stroke({
+            color: '#fff',
+            width: 4
+        }),
+        font: '600 11px sans-serif',
+        backgroundFill: new Fill({
+            color: 'rgba(255, 255, 255, 0.78)'
+        }),
+        padding: [2, 4, 2, 4]
     });
 }
 

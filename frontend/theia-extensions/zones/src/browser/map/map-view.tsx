@@ -5,7 +5,7 @@ import { defaults as defaultControls, ScaleLine, FullScreen } from 'ol/control';
 import { defaults as defaultInteractions } from 'ol/interaction';
 import Overlay from 'ol/Overlay';
 import 'ol/ol.css';
-import { MapLayerManager, MapGeocache } from './map-layer-manager';
+import { MapLayerManager, MapGeocache, MapLabelMode } from './map-layer-manager';
 import { MapService, DetectedCoordinateHighlight, FormulaSolverPreviewOverlay } from './map-service';
 import { lonLatToMapCoordinate, calculateExtent, mapCoordinateToLonLat, formatGeocachingCoordinates } from './map-utils';
 import { TILE_PROVIDERS } from './map-tile-providers';
@@ -69,12 +69,19 @@ export const MapView: React.FC<MapViewProps> = ({
     const [contextMenu, setContextMenu] = React.useState<{ items: ContextMenuItem[]; x: number; y: number } | null>(null);
     const [showNearbyGeocaches, setShowNearbyGeocaches] = React.useState(preferences?.showNearbyGeocaches ?? false);
     const [showExclusionZones, setShowExclusionZones] = React.useState(preferences?.showExclusionZones ?? false);
+    const [labelMode, setLabelMode] = React.useState<MapLabelMode>('none');
     const [selectedGeocacheId, setSelectedGeocacheId] = React.useState<number | null>(null);
     const [nearbyGeocaches, setNearbyGeocaches] = React.useState<MapGeocache[]>([]);
 
     React.useEffect(() => {
         geocachesRef.current = geocaches;
     }, [geocaches]);
+
+    React.useEffect(() => {
+        if (layerManagerRef.current) {
+            layerManagerRef.current.setLabelMode(labelMode);
+        }
+    }, [labelMode, isInitialized]);
 
     React.useEffect(() => {
         if (!preferences) {
@@ -930,6 +937,10 @@ export const MapView: React.FC<MapViewProps> = ({
         onPreferenceChange?.('geoApp.map.showExclusionZones', checked);
     };
 
+    const handleLabelModeChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+        setLabelMode(event.target.value as MapLabelMode);
+    };
+
     return (
         <div style={{ 
             width: '100%', 
@@ -1012,6 +1023,34 @@ export const MapView: React.FC<MapViewProps> = ({
                         }}
                     />
                     Zones d'exclusion (161m)
+                </label>
+
+                <label style={{
+                    fontSize: '12px',
+                    color: 'var(--theia-foreground)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                }}>
+                    Intitules:
+                    <select
+                        value={labelMode}
+                        onChange={handleLabelModeChange}
+                        style={{
+                            padding: '4px 8px',
+                            fontSize: '12px',
+                            background: 'var(--theia-input-background)',
+                            color: 'var(--theia-input-foreground)',
+                            border: '1px solid var(--theia-input-border)',
+                            borderRadius: '2px',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        <option value="none">Masques</option>
+                        <option value="geocaches">Caches</option>
+                        <option value="waypoints">Waypoints</option>
+                        <option value="all">Caches + WP</option>
+                    </select>
                 </label>
             </div>
 
