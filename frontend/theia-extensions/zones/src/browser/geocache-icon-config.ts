@@ -71,6 +71,7 @@ export const GEOCACHE_SPRITE_CONFIG: GeocacheSpriteConfig = {
         { key: 'mystery',               x: 1300, y: 0, w: 50, h: 50, label: 'Mystery Cache' },
         { key: 'letterbox',             x: 1400, y: 0, w: 50, h: 50, label: 'Letterbox Hybrid' },
         { key: 'wherigo',               x: 1500, y: 0, w: 50, h: 50, label: 'Wherigo Cache' },
+        { key: 'found',                 x: 1700, y: 0, w: 50, h: 50, label: 'Found It' },
         { key: 'unknown',               x: 1300, y: 0, w: 50, h: 50, label: 'Unknown Cache' },
     ]
 };

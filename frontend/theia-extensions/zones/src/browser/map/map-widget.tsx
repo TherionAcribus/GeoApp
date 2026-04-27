@@ -52,6 +52,7 @@ export class MapWidget extends ReactWidget {
         'geoApp.map.defaultProvider',
         'geoApp.map.defaultZoom',
         'geoApp.map.geocacheIconScale',
+        'geoApp.map.foundGeocacheDisplayMode',
         'geoApp.map.showExclusionZones',
         'geoApp.map.showNearbyGeocaches'
     ];
@@ -407,6 +408,7 @@ export class MapWidget extends ReactWidget {
             defaultProvider: this.preferenceService.get('geoApp.map.defaultProvider', 'osm'),
             defaultZoom: this.preferenceService.get('geoApp.map.defaultZoom', 6),
             geocacheIconScale: this.preferenceService.get('geoApp.map.geocacheIconScale', 0.75),
+            foundGeocacheDisplayMode: this.preferenceService.get('geoApp.map.foundGeocacheDisplayMode', 'transparent'),
             showExclusionZones: this.preferenceService.get('geoApp.map.showExclusionZones', true),
             showNearbyGeocaches: this.preferenceService.get('geoApp.map.showNearbyGeocaches', false)
         };

@@ -19,6 +19,7 @@ Toutes les clés suivent le préfixe unique `geoApp.<domaine>.<option>` pour év
 - `geoApp.ai.enabled` : coupe toutes les fonctionnalités IA.  
 - `geoApp.map.defaultProvider` : sélectionne l'ID du fournisseur de tuiles OpenLayers.  
 - `geoApp.map.geocacheIconScale` : taille par défaut des icônes de géocaches sur la carte.  
+- `geoApp.map.foundGeocacheDisplayMode` : rendu des caches déjà trouvées (`transparent`, `hidden`, `found-icon`).  
 - `geoApp.plugins.executor.timeoutSec` : timeout appliqué par le backend lors de l'exécution des plugins.
 
 ## Rôles front / back
@@ -41,7 +42,7 @@ Toutes les clés suivent le préfixe unique `geoApp.<domaine>.<option>` pour év
 - `ai` : activation globale et granularité des assistances IA.  
 - `ui` : comportement des onglets, vue par défaut.  
 - `alphabets` : options d’affichage du module Alphabets (symboles, vue).  
-- `map` : fournisseur de tuiles, zoom initial, taille des icônes, couches toggles.  
+- `map` : fournisseur de tuiles, zoom initial, taille des icônes, rendu des caches trouvées, couches toggles.  
 - `updates` : stratégie de recherche de mises à jour.  
 - `search` : paramétrage du rafraîchissement automatique.  
 - `checkers` : automatisation Playwright des checkers (Certitude, Geocaching.com), sessions, sécurité et options d'ouverture de page.  

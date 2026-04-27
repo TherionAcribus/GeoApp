@@ -424,6 +424,23 @@
         "map"
       ]
     },
+    "geoApp.map.foundGeocacheDisplayMode": {
+      "type": "string",
+      "enum": [
+        "transparent",
+        "hidden",
+        "found-icon"
+      ],
+      "default": "found-icon",
+      "description": "Mode d'affichage des geocaches deja trouvees sur la carte.",
+      "x-category": "map",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "map"
+      ]
+    },
     "geoApp.map.showExclusionZones": {
       "type": "boolean",
       "default": true,

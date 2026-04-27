@@ -1,7 +1,9 @@
 import { Style, Circle, Fill, Stroke, Text, Icon } from 'ol/style';
 import { Feature } from 'ol';
 import { Geometry } from 'ol/geom';
-import { getIconByCacheType, GEOCACHE_SPRITE_CONFIG } from '../geocache-icon-config';
+import { getIconByCacheType, getIconByKey, GEOCACHE_SPRITE_CONFIG } from '../geocache-icon-config';
+
+export type FoundGeocacheDisplayMode = 'transparent' | 'hidden' | 'found-icon';
 
 /**
  * Interface pour les propriétés d'une feature géocache
@@ -30,6 +32,7 @@ export interface GeocacheFeatureProperties {
 export interface GeocacheStyleOptions {
     opacity?: number;
     scale?: number;
+    foundDisplayMode?: FoundGeocacheDisplayMode;
 }
 
 /**
@@ -38,10 +41,17 @@ export interface GeocacheStyleOptions {
 export function createGeocacheStyleFromSprite(feature: Feature<Geometry>, resolution: number, options?: GeocacheStyleOptions): Style | Style[] {
     const properties = feature.getProperties() as GeocacheFeatureProperties;
     const isSelected = properties.selected === true;
+    const foundDisplayMode = options?.foundDisplayMode || 'transparent';
+
+    if (properties.found && foundDisplayMode === 'hidden') {
+        return [];
+    }
     
     // Récupérer l'icône correspondant au type de cache
     const label = properties.showLabel ? properties.geocacheLabel || `${properties.name} (${properties.gc_code})` : undefined;
-    const iconDef = getIconByCacheType(properties.cache_type || 'Unknown Cache');
+    const iconDef = properties.found && foundDisplayMode === 'found-icon'
+        ? getIconByKey('found')
+        : getIconByCacheType(properties.cache_type || 'Unknown Cache');
     
     if (!iconDef) {
         // Fallback vers un style par défaut si le type n'est pas trouvé
@@ -50,7 +60,7 @@ export function createGeocacheStyleFromSprite(feature: Feature<Geometry>, resolu
 
     const baseScale = isSelected ? 1.0 : 0.8;
     const scale = options?.scale ? baseScale * options.scale : baseScale;
-    const baseOpacity = properties.found ? 0.6 : 1.0;
+    const baseOpacity = properties.found && foundDisplayMode === 'transparent' ? 0.6 : 1.0;
     const opacity = options?.opacity !== undefined ? baseOpacity * options.opacity : baseOpacity;
 
     const style = new Style({
@@ -93,9 +103,14 @@ export function createGeocacheStyleFromSprite(feature: Feature<Geometry>, resolu
  * Style de secours si le type de cache n'est pas trouvé
  */
 function createFallbackStyle(isSelected: boolean, found?: boolean, options?: GeocacheStyleOptions, label?: string): Style {
+    const foundDisplayMode = options?.foundDisplayMode || 'transparent';
+    if (found && foundDisplayMode === 'hidden') {
+        return new Style({});
+    }
+
     const baseRadius = isSelected ? 10 : 8;
     const radius = options?.scale ? baseRadius * options.scale : baseRadius;
-    const baseOpacity = found ? 0.6 : 1.0;
+    const baseOpacity = found && foundDisplayMode === 'transparent' ? 0.6 : 1.0;
     const opacity = options?.opacity !== undefined ? baseOpacity * options.opacity : baseOpacity;
 
     return new Style({

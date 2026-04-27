@@ -11,12 +11,14 @@ import { lonLatToMapCoordinate, calculateExtent, mapCoordinateToLonLat, formatGe
 import { TILE_PROVIDERS } from './map-tile-providers';
 import { fromLonLat } from 'ol/proj';
 import { GeocacheFeatureProperties } from './map-geocache-style-sprite';
+import { FoundGeocacheDisplayMode } from './map-geocache-style-sprite';
 import { ContextMenu, ContextMenuItem } from '../context-menu';
 
 export interface MapViewPreferences {
     defaultProvider: string;
     defaultZoom: number;
     geocacheIconScale: number;
+    foundGeocacheDisplayMode: FoundGeocacheDisplayMode;
     showExclusionZones: boolean;
     showNearbyGeocaches: boolean;
 }
@@ -67,6 +69,7 @@ export const MapView: React.FC<MapViewProps> = ({
     const previousDefaultZoomRef = React.useRef(preferences?.defaultZoom ?? 6);
     const [currentProvider, setCurrentProvider] = React.useState(preferences?.defaultProvider ?? 'osm');
     const [geocacheIconScale, setGeocacheIconScale] = React.useState(preferences?.geocacheIconScale ?? 0.75);
+    const [foundGeocacheDisplayMode, setFoundGeocacheDisplayMode] = React.useState<FoundGeocacheDisplayMode>(preferences?.foundGeocacheDisplayMode ?? 'transparent');
     const [popupData, setPopupData] = React.useState<GeocacheFeatureProperties | null>(null);
     const [contextMenu, setContextMenu] = React.useState<{ items: ContextMenuItem[]; x: number; y: number } | null>(null);
     const [showNearbyGeocaches, setShowNearbyGeocaches] = React.useState(preferences?.showNearbyGeocaches ?? false);
@@ -92,11 +95,18 @@ export const MapView: React.FC<MapViewProps> = ({
     }, [geocacheIconScale, isInitialized]);
 
     React.useEffect(() => {
+        if (layerManagerRef.current) {
+            layerManagerRef.current.setFoundGeocacheDisplayMode(foundGeocacheDisplayMode);
+        }
+    }, [foundGeocacheDisplayMode, isInitialized]);
+
+    React.useEffect(() => {
         if (!preferences) {
             return;
         }
         setCurrentProvider(preferences.defaultProvider);
         setGeocacheIconScale(preferences.geocacheIconScale);
+        setFoundGeocacheDisplayMode(preferences.foundGeocacheDisplayMode);
         setShowNearbyGeocaches(preferences.showNearbyGeocaches);
         setShowExclusionZones(preferences.showExclusionZones);
 
@@ -107,6 +117,7 @@ export const MapView: React.FC<MapViewProps> = ({
         if (isInitialized && layerManagerRef.current) {
             layerManagerRef.current.changeTileProvider(preferences.defaultProvider);
             layerManagerRef.current.setGeocacheIconScale(preferences.geocacheIconScale);
+            layerManagerRef.current.setFoundGeocacheDisplayMode(preferences.foundGeocacheDisplayMode);
         }
     }, [preferences, isInitialized]);
 
@@ -957,6 +968,12 @@ export const MapView: React.FC<MapViewProps> = ({
         onPreferenceChange?.('geoApp.map.geocacheIconScale', value);
     };
 
+    const handleFoundDisplayModeChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+        const value = event.target.value as FoundGeocacheDisplayMode;
+        setFoundGeocacheDisplayMode(value);
+        onPreferenceChange?.('geoApp.map.foundGeocacheDisplayMode', value);
+    };
+
     return (
         <div style={{ 
             width: '100%', 
@@ -1039,6 +1056,33 @@ export const MapView: React.FC<MapViewProps> = ({
                         }}
                     />
                     Zones d'exclusion (161m)
+                </label>
+
+                <label style={{
+                    fontSize: '12px',
+                    color: 'var(--theia-foreground)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                }}>
+                    Trouvees:
+                    <select
+                        value={foundGeocacheDisplayMode}
+                        onChange={handleFoundDisplayModeChange}
+                        style={{
+                            padding: '4px 8px',
+                            fontSize: '12px',
+                            background: 'var(--theia-input-background)',
+                            color: 'var(--theia-input-foreground)',
+                            border: '1px solid var(--theia-input-border)',
+                            borderRadius: '2px',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        <option value="transparent">Transparentes</option>
+                        <option value="hidden">Masquees</option>
+                        <option value="found-icon">Icone Found it</option>
+                    </select>
                 </label>
 
                 <label style={{

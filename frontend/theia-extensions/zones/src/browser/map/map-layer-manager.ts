@@ -7,7 +7,7 @@ import Geometry from 'ol/geom/Geometry';
 import { Style, Fill, Stroke, Circle as CircleStyle } from 'ol/style';
 import { createClusterSource } from './map-clustering';
 import { createClusterStyle } from './map-geocache-style';
-import { createGeocacheStyleFromSprite, createWaypointStyleFromSprite, createDetectedCoordinateStyle, GeocacheFeatureProperties, GeocacheStyleOptions } from './map-geocache-style-sprite';
+import { createGeocacheStyleFromSprite, createWaypointStyleFromSprite, createDetectedCoordinateStyle, FoundGeocacheDisplayMode, GeocacheFeatureProperties, GeocacheStyleOptions } from './map-geocache-style-sprite';
 import { lonLatToMapCoordinate } from './map-utils';
 import { createTileLayer, DEFAULT_PROVIDER_ID } from './map-tile-providers';
 import { DetectedCoordinateHighlight, FormulaSolverPreviewOverlay } from './map-service';
@@ -71,6 +71,7 @@ export class MapLayerManager {
     private currentTileProviderId: string;
     private labelMode: MapLabelMode = 'none';
     private geocacheIconScale = 0.75;
+    private foundGeocacheDisplayMode: FoundGeocacheDisplayMode = 'transparent';
 
     constructor(map: Map) {
         this.map = map;
@@ -90,7 +91,7 @@ export class MapLayerManager {
             style: (feature, resolution) => createGeocacheStyleFromSprite(
                 feature as Feature<Geometry>,
                 resolution,
-                { scale: this.geocacheIconScale }
+                { scale: this.geocacheIconScale, foundDisplayMode: this.foundGeocacheDisplayMode }
             ),
             properties: {
                 name: 'geocaches'
@@ -128,7 +129,11 @@ export class MapLayerManager {
         this.nearbyGeocacheLayer = new VectorLayer({
             source: this.nearbyGeocacheVectorSource,
             style: (feature, resolution) => {
-                const styleOptions: GeocacheStyleOptions = { opacity: 0.6, scale: this.geocacheIconScale * 0.7 };
+                const styleOptions: GeocacheStyleOptions = {
+                    opacity: 0.6,
+                    scale: this.geocacheIconScale * 0.7,
+                    foundDisplayMode: this.foundGeocacheDisplayMode
+                };
                 return createGeocacheStyleFromSprite(feature as Feature<Geometry>, resolution, styleOptions);
             },
             properties: {
@@ -337,6 +342,15 @@ export class MapLayerManager {
             return;
         }
         this.geocacheIconScale = safeScale;
+        this.geocacheVectorSource.changed();
+        this.nearbyGeocacheVectorSource.changed();
+    }
+
+    setFoundGeocacheDisplayMode(mode: FoundGeocacheDisplayMode): void {
+        if (this.foundGeocacheDisplayMode === mode) {
+            return;
+        }
+        this.foundGeocacheDisplayMode = mode;
         this.geocacheVectorSource.changed();
         this.nearbyGeocacheVectorSource.changed();
     }
@@ -713,7 +727,7 @@ export class MapLayerManager {
             this.geocacheLayer.setStyle((feature, resolution) => createGeocacheStyleFromSprite(
                 feature as Feature<Geometry>,
                 resolution,
-                { scale: this.geocacheIconScale }
+                { scale: this.geocacheIconScale, foundDisplayMode: this.foundGeocacheDisplayMode }
             ));
         }
     }
