@@ -12,6 +12,17 @@ export interface MoveGeocacheResult {
     already_exists?: boolean;
 }
 
+export interface NearbyGeocachesResult<T = unknown> {
+    center_geocache: {
+        id: number;
+        gc_code: string;
+        latitude: number;
+        longitude: number;
+    };
+    nearby_geocaches: T[];
+    radius_km: number;
+}
+
 @injectable()
 export class GeocachesService {
     constructor(
@@ -74,6 +85,14 @@ export class GeocachesService {
             `/api/geocaches/${id}`,
             {},
             'Erreur lors du chargement de la géocache'
+        );
+    }
+
+    async getNearby<T = unknown>(id: number, radiusKm: number = 5): Promise<NearbyGeocachesResult<T>> {
+        return this.apiClient.requestJson<NearbyGeocachesResult<T>>(
+            `/api/geocaches/${id}/nearby?radius=${encodeURIComponent(String(radiusKm))}`,
+            {},
+            'Erreur lors du chargement des geocaches voisines'
         );
     }
 

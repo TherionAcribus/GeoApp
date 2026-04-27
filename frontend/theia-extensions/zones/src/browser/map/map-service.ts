@@ -21,6 +21,7 @@ export interface SelectedGeocache {
     latitude: number;
     longitude: number;
     cache_type: string;
+    mapId?: string;
 }
 
 export interface DetectedCoordinateHighlight {
@@ -527,11 +528,16 @@ export class MapService {
         this.onDidChangeViewEmitter.dispose();
         this.onDidLoadGeocachesEmitter.dispose();
         this.onDidChangeTileProviderEmitter.dispose();
+        this.onDidHighlightCoordinateEmitter.dispose();
+        this.onDidHighlightCoordinatesEmitter.dispose();
+        this.onDidUpdateFormulaSolverPreviewOverlayEmitter.dispose();
 
         if (typeof window !== 'undefined') {
             window.removeEventListener('geoapp-map-highlight-coordinate', this.handleHighlightCoordinateEvent as EventListener);
             window.removeEventListener('geoapp-map-highlight-clear', this.handleHighlightClearEvent as EventListener);
             window.removeEventListener('geoapp-map-remove-brute-force-point', this.handleRemoveBruteForcePointEvent as EventListener);
+            window.removeEventListener('geoapp-map-formula-solver-preview-overlay', this.handleFormulaSolverPreviewOverlayEvent as EventListener);
+            window.removeEventListener('geoapp-map-formula-solver-preview-overlay-clear', this.handleFormulaSolverPreviewOverlayClearEvent as EventListener);
         }
     }
 }

@@ -45,6 +45,7 @@ export class MapWidget extends ReactWidget {
     private geocaches: MapGeocache[] = [];
     private mapPreferences: MapViewPreferences;
     private readonly geocacheChangeDisposable: { dispose: () => void };
+    private readonly preferenceChangeDisposable: { dispose: () => void };
     private readonly mapPreferenceKeys = [
         'geoApp.map.defaultProvider',
         'geoApp.map.defaultZoom',
@@ -68,7 +69,7 @@ export class MapWidget extends ReactWidget {
             label: 'Carte Generale'
         };
         this.mapPreferences = this.readMapPreferences();
-        this.preferenceService.onPreferenceChanged((event: PreferenceChange) => this.handleMapPreferenceChanged(event));
+        this.preferenceChangeDisposable = this.preferenceService.onPreferenceChanged((event: PreferenceChange) => this.handleMapPreferenceChanged(event));
         this.geocacheChangeDisposable = this.widgetEventsService.onDidChangeGeocache(event => {
             if (this.shouldReloadGeocache(event.geocacheId)) {
                 void this.reloadGeocache(event.geocacheId);
@@ -113,7 +114,8 @@ export class MapWidget extends ReactWidget {
                         name: geocacheToSelect.name,
                         latitude: geocacheToSelect.latitude,
                         longitude: geocacheToSelect.longitude,
-                        cache_type: geocacheToSelect.cache_type
+                        cache_type: geocacheToSelect.cache_type,
+                        mapId: this.id
                     });
                 }, 500);
             }
@@ -206,9 +208,11 @@ export class MapWidget extends ReactWidget {
 
         return (
             <MapView
+                mapId={this.id}
                 mapService={this.mapService}
                 geocaches={this.geocaches}
                 onMapReady={this.handleMapReady}
+                onLoadNearbyGeocaches={this.handleLoadNearbyGeocaches}
                 onAddWaypoint={onAddWaypoint}
                 onAddWaypointFromDetected={onAddWaypointFromDetected}
                 onDeleteWaypoint={onDeleteWaypoint}
@@ -430,6 +434,13 @@ export class MapWidget extends ReactWidget {
         }
     };
 
+    private handleLoadNearbyGeocaches = async (geocacheId: number, radiusKm: number): Promise<MapGeocache[]> => {
+        const data = await this.geocachesService.getNearby<MapGeocacheDto>(geocacheId, radiusKm);
+        return data.nearby_geocaches
+            .map(item => this.toMapGeocache(item))
+            .filter((item): item is MapGeocache => Boolean(item));
+    };
+
     private handleMapReady = (map: any): void => {
         this.mapInstance = map;
 
@@ -473,6 +484,7 @@ export class MapWidget extends ReactWidget {
 
     dispose(): void {
         this.geocacheChangeDisposable.dispose();
+        this.preferenceChangeDisposable.dispose();
         if (this.mapInstance) {
             this.mapInstance.setTarget(undefined);
             this.mapInstance = null;
