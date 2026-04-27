@@ -8,12 +8,19 @@ Ce document décrit comment GeoApp récupère et affiche les Points Favoris disp
 2. Lors d'un rafraîchissement des stats (`/api/auth/profile`), le backend :
    - tente d'abord l'API officielle `/api/proxy/web/v1/users/me` ;
    - en cas d'erreur (500 fréquent), bascule vers un scraping du dashboard `/account/dashboard`.
-3. Dans le HTML du dashboard, nous cherchons explicitement la section :
-   ```html
-   <li>Favorite points to award: <strong>XX</strong></li>
+3. Dans le HTML du dashboard, nous cherchons explicitement les libellés actuels :
+   ```js
+   favoritePointSummary: {"Total":1875,"Available":36,"LogsNeededToNext":9}
    ```
-   Le regex récupère la valeur à l'intérieur du `<strong>` pour éviter de confondre avec
-   `Logs until next Favorite point`.
+   C'est la source prioritaire, utilisée par le JavaScript du dashboard pour rendre :
+   ```html
+   <li>Remaining points: <strong>36</strong></li>
+   <li>Logs until next point: <strong>9</strong></li>
+   <li>Total Favorite points: <strong>1875</strong></li>
+   ```
+   `Remaining points` alimente les PF disponibles (`awarded_favorite_points`) et
+   `Total Favorite points` alimente le total (`favorite_points`). Les anciens libellés
+   restent en fallback.
 4. Le champ extrait est stocké dans `auth_state.user_info.awarded_favorite_points` et renvoyé
    par l'API `/api/auth/profile`.
 
@@ -36,7 +43,7 @@ Ce document décrit comment GeoApp récupère et affiche les Points Favoris disp
 
 1. Ouvrir le widget Geocaching dans Theia.
 2. Cliquer sur **« Rafraîchir les stats »**.
-3. Vérifier dans la console backend qu'on voit `Found 'Favorite points to award': XX`.
+3. Vérifier que l'API `/api/auth/profile/refresh` renvoie `awarded_favorite_points` avec la valeur `Remaining points`.
 4. Confirmer que la tuile "PF disponibles" affiche la même valeur.
 
 ## 5. Points d'attention

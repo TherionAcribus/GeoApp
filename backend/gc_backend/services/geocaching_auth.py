@@ -12,6 +12,7 @@ L'authentification par username/password utilise le même flow que c:geo:
 """
 from __future__ import annotations
 
+import html as html_lib
 import json
 import logging
 import os
@@ -25,6 +26,7 @@ from typing import Optional
 
 import browser_cookie3
 import requests
+from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
@@ -616,6 +618,10 @@ class GeocachingAuthService:
             # Log pour debug
             logger.info(f"API response keys: {list(data.keys())}")
             logger.debug(f"Full API response: {data}")
+
+            if 'awardedFavoritePoints' not in data:
+                logger.info("Profile stats API does not include awardedFavoritePoints, falling back to dashboard")
+                return self._fetch_profile_stats_from_dashboard()
             
             # Extraire les stats
             if self._auth_state.user_info:
@@ -688,6 +694,14 @@ class GeocachingAuthService:
             if favorites_sample:
                 logger.info(f"=== FAVORITES HTML SAMPLE ===\n{favorites_sample.group(0)}\n=== END SAMPLE ===")
             
+            dashboard_stats = self._extract_dashboard_favorite_stats(html)
+            logger.info(
+                "Dashboard favorite stats: remaining=%s, logs_until_next=%s, total=%s",
+                dashboard_stats.get('remaining_points'),
+                dashboard_stats.get('logs_until_next_point'),
+                dashboard_stats.get('total_favorite_points'),
+            )
+            
             # Chercher les stats dans le HTML
             # Pattern pour les nombres dans le dashboard
             finds_match = re.search(r'data-finds-count="(\d+)"', html)
@@ -710,6 +724,10 @@ class GeocachingAuthService:
             
             if not fp_match:
                 fp_match = re.search(r'"awardedFavoritePoints"\s*:\s*(\d+)', html)
+                if not fp_match:
+                    remaining_points = dashboard_stats.get('remaining_points')
+                    if remaining_points is not None:
+                        fp_match = re.match(r'(\d+)', str(remaining_points))
                 if not fp_match:
                     # Chercher spécifiquement "Favorite points to award: <strong>32</strong>"
                     fp_match = re.search(r'Favorite\s+points?\s+to\s+award\s*:\s*<strong>(\d+)</strong>', html, re.IGNORECASE)
@@ -746,6 +764,8 @@ class GeocachingAuthService:
                     self._auth_state.user_info.hides_count = int(hides_match.group(1))
                 if fp_match:
                     self._auth_state.user_info.awarded_favorite_points = int(fp_match.group(1))
+                if dashboard_stats.get('total_favorite_points') is not None:
+                    self._auth_state.user_info.favorite_points = dashboard_stats['total_favorite_points']
                 
                 self._auth_state.user_info.stats_last_updated = datetime.now()
                 
@@ -756,6 +776,93 @@ class GeocachingAuthService:
         except Exception as e:
             logger.warning(f"Failed to fetch stats from dashboard: {e}")
             return None
+
+    @staticmethod
+    def _extract_dashboard_favorite_stats(html: str) -> dict[str, Optional[int]]:
+        """Extrait les PF depuis le dashboard Geocaching.com actuel."""
+        candidates = GeocachingAuthService._dashboard_text_candidates(html)
+        summary_stats = GeocachingAuthService._extract_favorite_point_summary(candidates)
+
+        def find_number_after_label(label_pattern: str) -> Optional[int]:
+            patterns = [
+                rf'{label_pattern}\s*:\s*(?:<[^>]+>\s*)*([\d\s,\.]+)',
+                rf'{label_pattern}\s*:\s*\\u003c[^\\]+\\u003e\s*([\d\s,\.]+)',
+                rf'{label_pattern}\s*:\s*([\d\s,\.]+)',
+            ]
+
+            for candidate in candidates:
+                for pattern in patterns:
+                    match = re.search(pattern, candidate, re.IGNORECASE)
+                    if not match:
+                        continue
+
+                    raw_value = match.group(1)
+                    digits = re.sub(r'\D', '', raw_value)
+                    if digits:
+                        return int(digits)
+
+            return None
+
+        return {
+            'remaining_points': summary_stats.get('remaining_points') or find_number_after_label(r'Remaining\s+points'),
+            'logs_until_next_point': summary_stats.get('logs_until_next_point') or find_number_after_label(r'Logs\s+until\s+next\s+point'),
+            'total_favorite_points': summary_stats.get('total_favorite_points') or find_number_after_label(r'Total\s+Favorite\s+points'),
+        }
+
+    @staticmethod
+    def _extract_favorite_point_summary(candidates: list[str]) -> dict[str, Optional[int]]:
+        """Extrait window.sidebarProps.favoritePointSummary."""
+        for candidate in candidates:
+            match = re.search(r'favoritePointSummary\s*:\s*\{(?P<body>[^}]+)\}', candidate, re.IGNORECASE)
+            if not match:
+                match = re.search(r'"favoritePointSummary"\s*:\s*\{(?P<body>[^}]+)\}', candidate, re.IGNORECASE)
+            if not match:
+                continue
+
+            body = match.group('body')
+
+            def get_value(key: str) -> Optional[int]:
+                value_match = re.search(rf'["\']?{key}["\']?\s*:\s*["\']?([\d\s,\.]+)', body, re.IGNORECASE)
+                if not value_match:
+                    return None
+                digits = re.sub(r'\D', '', value_match.group(1))
+                return int(digits) if digits else None
+
+            return {
+                'remaining_points': get_value('Available'),
+                'logs_until_next_point': get_value('LogsNeededToNext'),
+                'total_favorite_points': get_value('Total'),
+            }
+
+        return {
+            'remaining_points': None,
+            'logs_until_next_point': None,
+            'total_favorite_points': None,
+        }
+
+    @staticmethod
+    def _dashboard_text_candidates(html: str) -> list[str]:
+        """Retourne plusieurs vues textuelles du dashboard pour les pages HTML/Next.js."""
+        candidates = [html]
+
+        unescaped = html_lib.unescape(html)
+        if unescaped not in candidates:
+            candidates.append(unescaped)
+
+        json_html = html.replace('\\u003c', '<').replace('\\u003e', '>').replace('\\u0026', '&')
+        json_html = json_html.replace('\\"', '"').replace('\\/', '/')
+        json_html = html_lib.unescape(json_html)
+        if json_html not in candidates:
+            candidates.append(json_html)
+
+        for candidate in list(candidates):
+            if '<' not in candidate:
+                continue
+            text = BeautifulSoup(candidate, 'html.parser').get_text(' ', strip=True)
+            if text and text not in candidates:
+                candidates.append(text)
+
+        return candidates
     
     def _get_current_stats(self) -> Optional[dict]:
         """Retourne les stats actuelles sous forme de dict."""
