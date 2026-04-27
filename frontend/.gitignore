@@ -7,6 +7,10 @@
 **/gen-webpack.config.js
 **/gen-webpack.node.config.js
 **/plugins
+!theia-extensions/plugins/
+!theia-extensions/plugins/**
+theia-extensions/plugins/lib/
+theia-extensions/plugins/node_modules/
 **/tsconfig.tsbuildinfo
 *.log
 license-check-summary.txt*

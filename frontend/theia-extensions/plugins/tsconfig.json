@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "experimentalDecorators": true,
+    "noImplicitAny": true,
+    "noEmitOnError": false,
+    "noImplicitThis": true,
+    "noUnusedLocals": true,
+    "strictNullChecks": true,
+    "module": "commonjs",
+    "target": "ES2017",
+    "lib": [
+      "ES2017",
+      "dom"
+    ],
+    "sourceMap": true,
+    "jsx": "react",
+    "rootDir": "src",
+    "outDir": "lib",
+    "skipLibCheck": true,
+    "declaration": true
+  },
+  "include": [
+    "src"
+  ],
+  "exclude": [
+    "lib",
+    "node_modules"
+  ]
+}

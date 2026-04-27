@@ -6,6 +6,7 @@
 const configs = require('./gen-webpack.config.js');
 const nodeConfig = require('./gen-webpack.node.config.js');
 const path = require('path');
+const webpack = require('webpack');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
 
 /**
@@ -30,6 +31,25 @@ configs[0].plugins.push(
         ]
     })
 );
+
+nodeConfig.config.resolve = nodeConfig.config.resolve || {};
+nodeConfig.config.resolve.alias = {
+    ...(nodeConfig.config.resolve.alias || {}),
+    drivelist$: path.resolve(__dirname, 'src', 'webpack-stubs', 'drivelist.js')
+};
+
+nodeConfig.config.plugins = nodeConfig.config.plugins || [];
+nodeConfig.config.plugins.push(
+    new webpack.IgnorePlugin({
+        resourceRegExp: /^@vscode\/windows-ca-certs$/
+    })
+);
+
+for (const plugin of nodeConfig.config.plugins) {
+    if (plugin?.constructor?.name === 'NativeWebpackPlugin' && plugin.bindings?.delete) {
+        plugin.bindings.delete('drivelist');
+    }
+}
 
 module.exports = [
     ...configs,

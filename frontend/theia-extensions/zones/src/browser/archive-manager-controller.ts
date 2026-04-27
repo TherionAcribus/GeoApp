@@ -267,16 +267,20 @@ export class ArchiveManagerController {
     ): Record<string, unknown> {
         const workflowResolution = resumeSnapshot.workflowResolution;
         const answerSearch = workflowResolution?.execution?.formula?.answer_search;
+        const answerEntries = Object.entries((answerSearch?.answers || {}) as Record<string, {
+            best_answer?: string;
+            recommended_value_type?: string;
+        }>);
         const formulaAnswers = answerSearch
             ? Object.fromEntries(
-                Object.entries(answerSearch.answers || {})
+                answerEntries
                     .filter(([, value]) => typeof value?.best_answer === 'string' && value.best_answer.trim().length > 0)
                     .map(([key, value]) => [key, value.best_answer!.trim()])
             )
             : undefined;
         const formulaValueTypes = answerSearch
             ? Object.fromEntries(
-                Object.entries(answerSearch.answers || {})
+                answerEntries
                     .filter(([, value]) => typeof value?.recommended_value_type === 'string' && value.recommended_value_type.trim().length > 0)
                     .map(([key, value]) => [key, value.recommended_value_type!.trim()])
             )

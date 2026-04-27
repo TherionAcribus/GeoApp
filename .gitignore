@@ -71,6 +71,10 @@ backend/data/geocache_images/
 **/gen-webpack.config.js
 **/gen-webpack.node.config.js
 frontend/plugins/
+!frontend/theia-extensions/plugins/
+!frontend/theia-extensions/plugins/**
+frontend/theia-extensions/plugins/lib/
+frontend/theia-extensions/plugins/node_modules/
 **/tsconfig.tsbuildinfo
 license-check-summary.txt*
 
