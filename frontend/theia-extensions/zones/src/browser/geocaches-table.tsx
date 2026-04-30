@@ -6,6 +6,7 @@ import {
     ColumnDef,
     flexRender,
     SortingState,
+    VisibilityState,
 } from '@tanstack/react-table';
 import { ContextMenu, ContextMenuItem } from './context-menu';
 import { MoveGeocacheDialog } from './move-geocache-dialog';
@@ -36,6 +37,12 @@ export interface Geocache {
     found: boolean;
     favorites_count: number;
     hidden_date: string | null;
+    placed_at?: string | null;
+    created_at?: string | null;
+    found_date?: string | null;
+    has_notes?: boolean;
+    notes_count?: number;
+    logs_count?: number;
     latitude?: number;
     longitude?: number;
     is_corrected?: boolean;
@@ -114,6 +121,84 @@ interface GeocachesTableProps {
     onImportAround?: (geocache: Geocache) => void;
     zones?: Array<{ id: number; name: string }>;
     currentZoneId?: number;
+    visibleColumnIds?: GeocachesTableColumnId[];
+    onVisibleColumnIdsChange?: (columnIds: GeocachesTableColumnId[]) => void;
+}
+
+export type GeocachesTableColumnId =
+    | 'gc_code'
+    | 'name'
+    | 'cache_type'
+    | 'difficulty'
+    | 'terrain'
+    | 'size'
+    | 'solved'
+    | 'found'
+    | 'placed_at'
+    | 'has_notes'
+    | 'created_at'
+    | 'found_date'
+    | 'coordinates'
+    | 'is_corrected'
+    | 'waypoints_count'
+    | 'favorites_count'
+    | 'owner'
+    | 'logs_count';
+
+interface GeocachesTableColumnDefinition {
+    id: GeocachesTableColumnId;
+    label: string;
+    description: string;
+}
+
+export const DEFAULT_GEOCACHES_TABLE_VISIBLE_COLUMNS: GeocachesTableColumnId[] = [
+    'gc_code',
+    'name',
+    'cache_type',
+    'difficulty',
+    'terrain',
+    'size',
+    'solved',
+    'found',
+    'favorites_count',
+    'owner',
+];
+
+const GEOCACHES_TABLE_COLUMN_DEFINITIONS: GeocachesTableColumnDefinition[] = [
+    { id: 'gc_code', label: 'Code GC', description: 'Identifiant public de la cache.' },
+    { id: 'name', label: 'Nom', description: 'Nom de la cache.' },
+    { id: 'cache_type', label: 'Type', description: 'Type de cache avec icône.' },
+    { id: 'difficulty', label: 'D', description: 'Difficulté.' },
+    { id: 'terrain', label: 'T', description: 'Terrain.' },
+    { id: 'size', label: 'Taille', description: 'Taille du contenant.' },
+    { id: 'solved', label: 'Résolution', description: 'État de résolution pour Mystery, Unknown et Letterbox.' },
+    { id: 'found', label: 'Trouvée', description: 'Indique si la cache a été trouvée.' },
+    { id: 'placed_at', label: 'Posée le', description: 'Date de pose de la cache.' },
+    { id: 'has_notes', label: 'Notes', description: 'Présence de notes locales ou personnelles.' },
+    { id: 'created_at', label: 'Ajoutée le', description: "Date d'ajout dans GeoApp." },
+    { id: 'found_date', label: 'Découverte le', description: 'Date de découverte connue.' },
+    { id: 'coordinates', label: 'Coordonnées', description: 'Coordonnées affichées ou décimales.' },
+    { id: 'is_corrected', label: 'Corrigée', description: 'Indique si les coordonnées sont corrigées.' },
+    { id: 'waypoints_count', label: 'Waypoints', description: 'Nombre de waypoints associes.' },
+    { id: 'favorites_count', label: 'Favoris', description: 'Nombre de points favoris.' },
+    { id: 'owner', label: 'Propriétaire', description: 'Propriétaire de la cache.' },
+    { id: 'logs_count', label: 'Logs', description: 'Nombre de logs connus.' },
+];
+
+const ALL_GEOCACHES_TABLE_COLUMN_IDS = GEOCACHES_TABLE_COLUMN_DEFINITIONS.map(def => def.id);
+
+export function normalizeGeocachesTableVisibleColumnIds(raw: unknown): GeocachesTableColumnId[] {
+    if (!Array.isArray(raw)) {
+        return [...DEFAULT_GEOCACHES_TABLE_VISIBLE_COLUMNS];
+    }
+    const valid = new Set<GeocachesTableColumnId>(ALL_GEOCACHES_TABLE_COLUMN_IDS);
+    const normalized: GeocachesTableColumnId[] = [];
+    for (const value of raw) {
+        if (typeof value === 'string' && valid.has(value as GeocachesTableColumnId) && !normalized.includes(value as GeocachesTableColumnId)) {
+            normalized.push(value as GeocachesTableColumnId);
+        }
+    }
+    return normalized.length > 0 ? normalized : [...DEFAULT_GEOCACHES_TABLE_VISIBLE_COLUMNS];
 }
 
 function findAutocompleteTokenStart(beforeCaret: string): number | null {
@@ -425,7 +510,9 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
     onCopy,
     onImportAround,
     zones = [],
-    currentZoneId
+    currentZoneId,
+    visibleColumnIds,
+    onVisibleColumnIdsChange
 }) => {
     const [sorting, setSorting] = React.useState<SortingState>([]);
     const [rowSelection, setRowSelection] = React.useState({});
@@ -433,6 +520,8 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
     const [contextMenu, setContextMenu] = React.useState<{ items: ContextMenuItem[]; x: number; y: number } | null>(null);
     const [moveDialog, setMoveDialog] = React.useState<Geocache | null>(null);
     const [copyDialog, setCopyDialog] = React.useState<Geocache | null>(null);
+    const [columnsMenuOpen, setColumnsMenuOpen] = React.useState(false);
+    const [internalVisibleColumnIds, setInternalVisibleColumnIds] = React.useState<GeocachesTableColumnId[]>(() => [...DEFAULT_GEOCACHES_TABLE_VISIBLE_COLUMNS]);
     const [advancedFiltersOpen, setAdvancedFiltersOpen] = React.useState(false);
     const [advancedClauses, setAdvancedClauses] = React.useState<AdvancedFilterClause[]>([]);
     const searchInputRef = React.useRef<HTMLInputElement>(null);
@@ -440,6 +529,31 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
     const [autocompleteSuggestions, setAutocompleteSuggestions] = React.useState<AutocompleteSuggestion[]>([]);
     const [autocompleteActiveIndex, setAutocompleteActiveIndex] = React.useState(0);
     const autocompleteReplaceRangeRef = React.useRef<{ start: number; end: number } | null>(null);
+    const activeVisibleColumnIds = React.useMemo(
+        () => normalizeGeocachesTableVisibleColumnIds(visibleColumnIds ?? internalVisibleColumnIds),
+        [visibleColumnIds, internalVisibleColumnIds]
+    );
+    const visibleColumnSet = React.useMemo(() => new Set<GeocachesTableColumnId>(activeVisibleColumnIds), [activeVisibleColumnIds]);
+    const updateVisibleColumnIds = React.useCallback(
+        (next: GeocachesTableColumnId[]) => {
+            const normalized = normalizeGeocachesTableVisibleColumnIds(next);
+            if (!visibleColumnIds) {
+                setInternalVisibleColumnIds(normalized);
+            }
+            onVisibleColumnIdsChange?.(normalized);
+        },
+        [visibleColumnIds, onVisibleColumnIdsChange]
+    );
+    const columnVisibility = React.useMemo<VisibilityState>(() => {
+        const visibility: VisibilityState = {
+            select: true,
+            actions: true,
+        };
+        for (const columnId of ALL_GEOCACHES_TABLE_COLUMN_IDS) {
+            visibility[columnId] = visibleColumnSet.has(columnId);
+        }
+        return visibility;
+    }, [visibleColumnSet]);
 
     const columns = React.useMemo<ColumnDef<Geocache>[]>(
         () => [
@@ -545,6 +659,59 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                 size: 90,
             },
             {
+                id: 'placed_at',
+                accessorFn: row => getDateTimestamp(row.placed_at ?? row.hidden_date),
+                header: 'Posée le',
+                cell: ({ row }) => <span style={{ fontSize: '0.85em' }}>{formatDate(row.original.placed_at ?? row.original.hidden_date)}</span>,
+                size: 100,
+            },
+            {
+                id: 'has_notes',
+                accessorFn: row => row.has_notes ? 1 : 0,
+                header: 'Notes',
+                cell: ({ row }) => getNotesBadge(Boolean(row.original.has_notes), row.original.notes_count),
+                size: 90,
+            },
+            {
+                id: 'created_at',
+                accessorFn: row => getDateTimestamp(row.created_at),
+                header: 'Ajoutée le',
+                cell: ({ row }) => <span style={{ fontSize: '0.85em' }}>{formatDate(row.original.created_at)}</span>,
+                size: 100,
+            },
+            {
+                id: 'found_date',
+                accessorFn: row => getDateTimestamp(row.found_date),
+                header: 'Découverte le',
+                cell: ({ row }) => <span style={{ fontSize: '0.85em' }}>{formatDate(row.original.found_date)}</span>,
+                size: 120,
+            },
+            {
+                id: 'coordinates',
+                accessorFn: row => getCoordinatesLabel(row),
+                header: 'Coordonnées',
+                cell: ({ row }) => (
+                    <span style={{ fontSize: '0.85em', whiteSpace: 'nowrap' }} title={getCoordinatesLabel(row.original)}>
+                        {getCoordinatesLabel(row.original)}
+                    </span>
+                ),
+                size: 150,
+            },
+            {
+                id: 'is_corrected',
+                accessorFn: row => row.is_corrected ? 1 : 0,
+                header: 'Corrigée',
+                cell: ({ row }) => getBooleanBadge(Boolean(row.original.is_corrected), 'Oui', 'Non'),
+                size: 90,
+            },
+            {
+                id: 'waypoints_count',
+                accessorFn: row => row.waypoints?.length ?? 0,
+                header: 'Waypoints',
+                cell: info => <span>{info.getValue() as number}</span>,
+                size: 90,
+            },
+            {
                 accessorKey: 'favorites_count',
                 header: '❤️',
                 cell: info => <span title="Favoris">{info.getValue() as number}</span>,
@@ -555,6 +722,12 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                 header: 'Propriétaire',
                 cell: info => <span style={{ fontSize: '0.9em', opacity: 0.8 }}>{info.getValue() as string || '-'}</span>,
                 size: 150,
+            },
+            {
+                accessorKey: 'logs_count',
+                header: 'Logs',
+                cell: info => <span>{(info.getValue() as number | undefined) ?? 0}</span>,
+                size: 70,
             },
             {
                 id: 'actions',
@@ -700,6 +873,7 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
         state: {
             sorting,
             rowSelection,
+            columnVisibility,
         },
         onSortingChange: setSorting,
         onRowSelectionChange: setRowSelection,
@@ -899,6 +1073,28 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
         [globalFilter]
     );
 
+    const toggleColumn = React.useCallback(
+        (columnId: GeocachesTableColumnId, checked: boolean) => {
+            if (checked) {
+                updateVisibleColumnIds([...activeVisibleColumnIds, columnId]);
+                return;
+            }
+            if (activeVisibleColumnIds.length <= 1) {
+                return;
+            }
+            updateVisibleColumnIds(activeVisibleColumnIds.filter(id => id !== columnId));
+        },
+        [activeVisibleColumnIds, updateVisibleColumnIds]
+    );
+
+    const showAllColumns = React.useCallback(() => {
+        updateVisibleColumnIds([...ALL_GEOCACHES_TABLE_COLUMN_IDS]);
+    }, [updateVisibleColumnIds]);
+
+    const restoreDefaultColumns = React.useCallback(() => {
+        updateVisibleColumnIds([...DEFAULT_GEOCACHES_TABLE_VISIBLE_COLUMNS]);
+    }, [updateVisibleColumnIds]);
+
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 8 }}>
             {/* Toolbar */}
@@ -991,6 +1187,81 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                     <span style={{ fontSize: '0.9em', opacity: 0.7 }}>
                         {filteredData.length} géocache(s)
                     </span>
+                    <div style={{ position: 'relative' }}>
+                        <button
+                            onClick={() => setColumnsMenuOpen(open => !open)}
+                            className="theia-button secondary"
+                            title="Choisir les colonnes affichées"
+                        >
+                            Colonnes ({activeVisibleColumnIds.length})
+                        </button>
+                        {columnsMenuOpen && (
+                            <div
+                                style={{
+                                    position: 'absolute',
+                                    top: '100%',
+                                    left: 0,
+                                    marginTop: 4,
+                                    width: 320,
+                                    maxHeight: 420,
+                                    overflowY: 'auto',
+                                    border: '1px solid var(--theia-panel-border)',
+                                    background: 'var(--theia-editor-background)',
+                                    borderRadius: 3,
+                                    zIndex: 12,
+                                    boxShadow: '0 4px 12px rgba(0,0,0,0.35)',
+                                    padding: 8
+                                }}
+                            >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                                    <div style={{ fontWeight: 600 }}>Colonnes</div>
+                                    <button
+                                        onClick={() => setColumnsMenuOpen(false)}
+                                        className="theia-button secondary"
+                                        style={{ padding: '2px 6px' }}
+                                        title="Fermer"
+                                    >
+                                        x
+                                    </button>
+                                </div>
+                                <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                                    <button onClick={showAllColumns} className="theia-button secondary">
+                                        Tout afficher
+                                    </button>
+                                    <button onClick={restoreDefaultColumns} className="theia-button secondary">
+                                        Paramètres d'origine
+                                    </button>
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                    {GEOCACHES_TABLE_COLUMN_DEFINITIONS.map(def => (
+                                        <label
+                                            key={def.id}
+                                            style={{
+                                                display: 'grid',
+                                                gridTemplateColumns: '18px 1fr',
+                                                gap: 8,
+                                                alignItems: 'start',
+                                                padding: '4px 2px',
+                                                cursor: 'pointer'
+                                            }}
+                                            title={def.description}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={visibleColumnSet.has(def.id)}
+                                                disabled={visibleColumnSet.has(def.id) && activeVisibleColumnIds.length <= 1}
+                                                onChange={e => toggleColumn(def.id, e.target.checked)}
+                                            />
+                                            <span>
+                                                <span style={{ display: 'block' }}>{def.label}</span>
+                                                <span style={{ display: 'block', opacity: 0.65, fontSize: '0.85em' }}>{def.description}</span>
+                                            </span>
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
                     <button
                         onClick={() => setAdvancedFiltersOpen(o => !o)}
                         className="theia-button secondary"
@@ -1453,6 +1724,12 @@ function getBadge(label: string, title: string, background: string, color = '#ff
     );
 }
 
+function getBooleanBadge(value: boolean, trueLabel: string, falseLabel: string): React.ReactNode {
+    return value
+        ? getBadge(trueLabel, trueLabel, '#3498db')
+        : getBadge(falseLabel, falseLabel, 'var(--theia-badge-background)', 'var(--theia-badge-foreground)');
+}
+
 function getResolutionBadge(solved: string, cacheType: string): React.ReactNode {
     if (!isResolutionRelevant(cacheType)) {
         return (
@@ -1478,4 +1755,41 @@ function getFoundBadge(found: boolean): React.ReactNode {
         return getBadge('Trouvée', 'Trouvée', '#2ecc71');
     }
     return getBadge('Non trouvée', 'Non trouvée', 'var(--theia-badge-background)', 'var(--theia-badge-foreground)');
+}
+
+function getNotesBadge(hasNotes: boolean, notesCount?: number): React.ReactNode {
+    if (!hasNotes) {
+        return getBadge('Non', 'Aucune note', 'var(--theia-badge-background)', 'var(--theia-badge-foreground)');
+    }
+    const suffix = typeof notesCount === 'number' && notesCount > 0 ? ` (${notesCount})` : '';
+    return getBadge(`Oui${suffix}`, 'Notes présentes', '#8e44ad');
+}
+
+function getDateTimestamp(value: string | null | undefined): number {
+    if (!value) {
+        return 0;
+    }
+    const timestamp = Date.parse(value);
+    return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function formatDate(value: string | null | undefined): string {
+    if (!value) {
+        return '-';
+    }
+    const timestamp = Date.parse(value);
+    if (!Number.isFinite(timestamp)) {
+        return value;
+    }
+    return new Date(timestamp).toLocaleDateString('fr-FR');
+}
+
+function getCoordinatesLabel(geocache: Geocache): string {
+    if (geocache.coordinates_raw) {
+        return geocache.coordinates_raw;
+    }
+    if (typeof geocache.latitude === 'number' && typeof geocache.longitude === 'number') {
+        return `${geocache.latitude.toFixed(5)}, ${geocache.longitude.toFixed(5)}`;
+    }
+    return '-';
 }

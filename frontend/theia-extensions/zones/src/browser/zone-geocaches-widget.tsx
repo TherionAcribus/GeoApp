@@ -5,8 +5,15 @@ import { ApplicationShell, StatefulWidget, WidgetManager, ConfirmDialog, Dialog 
 import { MessageService } from '@theia/core';
 import { QuickInputService, QuickPickValue } from '@theia/core/lib/common/quick-pick-service';
 import { ProgressService } from '@theia/core/lib/common/progress-service';
-import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
-import { GeocachesTable, Geocache } from './geocaches-table';
+import { PreferenceChange, PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
+import { PreferenceScope } from '@theia/core/lib/common/preferences/preference-scope';
+import {
+    DEFAULT_GEOCACHES_TABLE_VISIBLE_COLUMNS,
+    GeocachesTable,
+    Geocache,
+    GeocachesTableColumnId,
+    normalizeGeocachesTableVisibleColumnIds,
+} from './geocaches-table';
 import { ImportGpxDialog } from './import-gpx-dialog';
 import { ImportBookmarkListDialog } from './import-bookmark-list-dialog';
 import { ImportPocketQueryDialog } from './import-pocket-query-dialog';
@@ -54,9 +61,12 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     protected isImporting = false;
     protected copySelectedDialog: { geocacheIds: number[] } | null = null;
     protected moveSelectedDialog: { geocacheIds: number[] } | null = null;
+    protected tableVisibleColumnIds: GeocachesTableColumnId[] = [...DEFAULT_GEOCACHES_TABLE_VISIBLE_COLUMNS];
 
     protected interactionTimerId: number | undefined;
     private lastAccessTimestamp: number = Date.now();
+    private readonly tableVisibleColumnsPreferenceKey = 'geoApp.geocaches.table.visibleColumns';
+    private readonly preferenceChangeDisposable: { dispose: () => void };
 
     protected readonly handleGeocacheLogSubmitted = (event: CustomEvent<{ geocacheId: number; found?: boolean }>): void => {
         const detail = event?.detail;
@@ -117,6 +127,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         this.title.closable = true;
         this.title.iconClass = 'fa fa-table';
         this.addClass('theia-zone-geocaches-widget');
+        this.tableVisibleColumnIds = this.readTableVisibleColumnIds();
+        this.preferenceChangeDisposable = this.preferenceService.onPreferenceChanged(event => this.handlePreferenceChanged(event));
 
         // Écouter les événements personnalisés pour ouvrir l'onglet
         this.setupEventListeners();
@@ -124,6 +136,29 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         // eslint-disable-next-line no-console
         console.log('[ZoneGeocachesWidget] constructed');
     }
+
+    private readTableVisibleColumnIds(): GeocachesTableColumnId[] {
+        const raw = this.preferenceService.get<unknown>(
+            this.tableVisibleColumnsPreferenceKey,
+            DEFAULT_GEOCACHES_TABLE_VISIBLE_COLUMNS
+        );
+        return normalizeGeocachesTableVisibleColumnIds(raw);
+    }
+
+    private handlePreferenceChanged(event: PreferenceChange): void {
+        if (event.preferenceName !== this.tableVisibleColumnsPreferenceKey) {
+            return;
+        }
+        this.tableVisibleColumnIds = this.readTableVisibleColumnIds();
+        this.update();
+    }
+
+    protected readonly handleTableVisibleColumnIdsChange = (columnIds: GeocachesTableColumnId[]): void => {
+        const normalized = normalizeGeocachesTableVisibleColumnIds(columnIds);
+        this.tableVisibleColumnIds = normalized;
+        this.update();
+        void this.preferenceService.set(this.tableVisibleColumnsPreferenceKey, normalized, PreferenceScope.User);
+    };
 
     protected onAfterAttach(msg: any): void {
         super.onAfterAttach(msg);
@@ -134,6 +169,11 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     protected onBeforeDetach(msg: any): void {
         this.removeInteractionListeners();
         super.onBeforeDetach(msg);
+    }
+
+    dispose(): void {
+        this.preferenceChangeDisposable.dispose();
+        super.dispose();
     }
 
     protected addInteractionListeners(): void {
@@ -1437,6 +1477,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 rows={this.rows}
                 zones={this.zones}
                 currentZoneId={this.zoneId}
+                tableVisibleColumnIds={this.tableVisibleColumnIds}
                 loading={this.loading}
                 isImporting={this.isImporting}
                 showImportDialog={this.showImportDialog}
@@ -1467,6 +1508,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                     gc_code: geocache.gc_code,
                     name: geocache.name,
                 })}
+                onTableVisibleColumnIdsChange={this.handleTableVisibleColumnIdsChange}
                 onImportGpx={(file, updateExisting, onProgress) => this.handleImportGpx(file, updateExisting, onProgress)}
                 onImportBookmarkList={(bookmarkCode, onProgress) => this.handleImportBookmarkList(bookmarkCode, onProgress)}
                 onImportPocketQuery={(pqCode, onProgress) => this.handleImportPocketQuery(pqCode, onProgress)}
@@ -1611,6 +1653,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                         }}
                         zones={this.zones}
                         currentZoneId={this.zoneId}
+                        visibleColumnIds={this.tableVisibleColumnIds}
+                        onVisibleColumnIdsChange={this.handleTableVisibleColumnIdsChange}
                     />
                 )}
 

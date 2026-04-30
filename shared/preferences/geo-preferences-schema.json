@@ -377,6 +377,54 @@
         "backend"
       ]
     },
+    "geoApp.geocaches.table.visibleColumns": {
+      "type": "array",
+      "default": [
+        "gc_code",
+        "name",
+        "cache_type",
+        "difficulty",
+        "terrain",
+        "size",
+        "solved",
+        "found",
+        "favorites_count",
+        "owner"
+      ],
+      "items": {
+        "type": "string",
+        "enum": [
+          "gc_code",
+          "name",
+          "cache_type",
+          "difficulty",
+          "terrain",
+          "size",
+          "solved",
+          "found",
+          "placed_at",
+          "has_notes",
+          "created_at",
+          "found_date",
+          "coordinates",
+          "is_corrected",
+          "waypoints_count",
+          "favorites_count",
+          "owner",
+          "logs_count"
+        ]
+      },
+      "uniqueItems": true,
+      "description": "Colonnes visibles dans le tableau des géocaches d'une zone.",
+      "x-category": "ui",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "table",
+        "geocaches"
+      ]
+    },
     "geoApp.map.defaultProvider": {
       "type": "string",
       "enum": [

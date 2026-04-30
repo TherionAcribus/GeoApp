@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { GeocachesTable, Geocache } from './geocaches-table';
+import { GeocachesTable, Geocache, GeocachesTableColumnId } from './geocaches-table';
 import { ImportGpxDialog } from './import-gpx-dialog';
 import { ImportBookmarkListDialog } from './import-bookmark-list-dialog';
 import { ImportPocketQueryDialog } from './import-pocket-query-dialog';
@@ -13,6 +13,7 @@ export interface ZoneGeocachesViewProps {
     rows: Geocache[];
     zones: Array<{ id: number; name: string }>;
     currentZoneId?: number;
+    tableVisibleColumnIds: GeocachesTableColumnId[];
     loading: boolean;
     isImporting: boolean;
     showImportDialog: boolean;
@@ -38,6 +39,7 @@ export interface ZoneGeocachesViewProps {
     onMove: (geocache: Geocache, targetZoneId: number) => void | Promise<void>;
     onCopy: (geocache: Geocache, targetZoneId: number) => void | Promise<void>;
     onImportAround: (geocache: Geocache) => void | Promise<void>;
+    onTableVisibleColumnIdsChange: (columnIds: GeocachesTableColumnId[]) => void;
     onImportGpx: (file: File, updateExisting: boolean, onProgress?: (percentage: number, message: string) => void) => Promise<void>;
     onImportBookmarkList: (bookmarkCode: string, onProgress?: (percentage: number, message: string) => void) => Promise<void>;
     onImportPocketQuery: (pqCode: string, onProgress?: (percentage: number, message: string) => void) => Promise<void>;
@@ -133,6 +135,8 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
                 onImportAround={props.onImportAround}
                 zones={props.zones}
                 currentZoneId={props.currentZoneId}
+                visibleColumnIds={props.tableVisibleColumnIds}
+                onVisibleColumnIdsChange={props.onTableVisibleColumnIdsChange}
             />
         )}
 
