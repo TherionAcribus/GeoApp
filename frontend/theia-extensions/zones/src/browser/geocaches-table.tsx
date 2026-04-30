@@ -146,6 +146,8 @@ function normalizeFieldAlias(raw: string): FilterField | null {
         terrain: 'terrain',
         size: 'size',
         solved: 'solved',
+        resolution: 'solved',
+        resolved: 'solved',
         status: 'solved',
         found: 'found',
         favorites: 'favorites_count',
@@ -529,12 +531,18 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
             },
             {
                 accessorKey: 'solved',
-                header: 'Statut',
+                header: 'Résolution',
                 cell: info => {
                     const solved = info.getValue() as string;
-                    return getStatusBadge(solved, (info.row.original as Geocache).found);
+                    return getResolutionBadge(solved, (info.row.original as Geocache).cache_type);
                 },
-                size: 100,
+                size: 110,
+            },
+            {
+                accessorKey: 'found',
+                header: 'Trouvée',
+                cell: info => getFoundBadge(Boolean(info.getValue())),
+                size: 90,
             },
             {
                 accessorKey: 'favorites_count',
@@ -610,7 +618,7 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
             { field: 'difficulty', label: 'Difficulté', kind: 'number' },
             { field: 'terrain', label: 'Terrain', kind: 'number' },
             { field: 'size', label: 'Taille', kind: 'enum' },
-            { field: 'solved', label: 'Statut', kind: 'enum' },
+            { field: 'solved', label: 'Résolution', kind: 'enum' },
             { field: 'found', label: 'Trouvée', kind: 'boolean' },
             { field: 'favorites_count', label: 'Favoris', kind: 'number' },
         ];
@@ -1421,71 +1429,53 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
 };
 
 // Helper functions
-function getStatusBadge(solved: string, found: boolean): React.ReactNode {
-    if (found) {
-        return (
-            <span
-                style={{
-                    padding: '2px 6px',
-                    borderRadius: 3,
-                    fontSize: '0.85em',
-                    background: '#2ecc71',
-                    color: '#fff',
-                    fontWeight: 600,
-                }}
-                title="Trouvée"
-            >
-                ✓ Trouvée
-            </span>
-        );
-    }
-    if (solved === 'solved') {
-        return (
-            <span
-                style={{
-                    padding: '2px 6px',
-                    borderRadius: 3,
-                    fontSize: '0.85em',
-                    background: '#3498db',
-                    color: '#fff',
-                    fontWeight: 600,
-                }}
-                title="Résolue"
-            >
-                ✓ Résolue
-            </span>
-        );
-    }
-    if (solved === 'in_progress') {
-        return (
-            <span
-                style={{
-                    padding: '2px 6px',
-                    borderRadius: 3,
-                    fontSize: '0.85em',
-                    background: '#f39c12',
-                    color: '#fff',
-                    fontWeight: 600,
-                }}
-                title="En cours"
-            >
-                ⏳ En cours
-            </span>
-        );
-    }
+function isResolutionRelevant(cacheType: string | null | undefined): boolean {
+    const normalized = (cacheType ?? '').toLowerCase();
+    return normalized.includes('mystery') || normalized.includes('unknown') || normalized.includes('letterbox');
+}
+
+function getBadge(label: string, title: string, background: string, color = '#fff'): React.ReactNode {
     return (
         <span
             style={{
                 padding: '2px 6px',
                 borderRadius: 3,
                 fontSize: '0.85em',
-                background: '#7f8c8d',
-                color: '#fff',
+                background,
+                color,
                 fontWeight: 600,
+                whiteSpace: 'nowrap',
             }}
-            title="Non résolue"
+            title={title}
         >
-            ○ Non résolue
+            {label}
         </span>
     );
+}
+
+function getResolutionBadge(solved: string, cacheType: string): React.ReactNode {
+    if (!isResolutionRelevant(cacheType)) {
+        return (
+            <span
+                style={{ opacity: 0.55, fontSize: '0.85em' }}
+                title="Résolution non applicable à ce type de cache"
+            >
+                -
+            </span>
+        );
+    }
+    if (solved === 'solved') {
+        return getBadge('Résolue', 'Résolue', '#3498db');
+    }
+    if (solved === 'in_progress') {
+        return getBadge('En cours', 'Résolution en cours', '#f39c12');
+    }
+    return getBadge('Non résolue', 'Non résolue', '#7f8c8d');
+}
+
+function getFoundBadge(found: boolean): React.ReactNode {
+    if (found) {
+        return getBadge('Trouvée', 'Trouvée', '#2ecc71');
+    }
+    return getBadge('Non trouvée', 'Non trouvée', 'var(--theia-badge-background)', 'var(--theia-badge-foreground)');
 }
