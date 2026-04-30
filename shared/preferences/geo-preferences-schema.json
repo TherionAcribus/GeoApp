@@ -415,7 +415,7 @@
         ]
       },
       "uniqueItems": true,
-      "description": "Colonnes visibles dans le tableau des géocaches d'une zone.",
+      "description": "Colonnes visibles dans le tableau des géocaches d'une zone, dans leur ordre d'affichage.",
       "x-category": "ui",
       "x-targets": [
         "frontend"

@@ -4,6 +4,7 @@ import {
     getCoreRowModel,
     getSortedRowModel,
     ColumnDef,
+    ColumnOrderState,
     flexRender,
     SortingState,
     VisibilityState,
@@ -186,6 +187,9 @@ const GEOCACHES_TABLE_COLUMN_DEFINITIONS: GeocachesTableColumnDefinition[] = [
 ];
 
 const ALL_GEOCACHES_TABLE_COLUMN_IDS = GEOCACHES_TABLE_COLUMN_DEFINITIONS.map(def => def.id);
+const GEOCACHES_TABLE_COLUMN_DEFINITION_BY_ID = new Map<GeocachesTableColumnId, GeocachesTableColumnDefinition>(
+    GEOCACHES_TABLE_COLUMN_DEFINITIONS.map(def => [def.id, def])
+);
 
 export function normalizeGeocachesTableVisibleColumnIds(raw: unknown): GeocachesTableColumnId[] {
     if (!Array.isArray(raw)) {
@@ -521,6 +525,8 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
     const [moveDialog, setMoveDialog] = React.useState<Geocache | null>(null);
     const [copyDialog, setCopyDialog] = React.useState<Geocache | null>(null);
     const [columnsMenuOpen, setColumnsMenuOpen] = React.useState(false);
+    const [draggedColumnId, setDraggedColumnId] = React.useState<GeocachesTableColumnId | null>(null);
+    const [columnDragTarget, setColumnDragTarget] = React.useState<{ id: GeocachesTableColumnId; position: 'before' | 'after' } | null>(null);
     const [internalVisibleColumnIds, setInternalVisibleColumnIds] = React.useState<GeocachesTableColumnId[]>(() => [...DEFAULT_GEOCACHES_TABLE_VISIBLE_COLUMNS]);
     const [advancedFiltersOpen, setAdvancedFiltersOpen] = React.useState(false);
     const [advancedClauses, setAdvancedClauses] = React.useState<AdvancedFilterClause[]>([]);
@@ -554,6 +560,22 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
         }
         return visibility;
     }, [visibleColumnSet]);
+    const columnOrder = React.useMemo<ColumnOrderState>(() => [
+        'select',
+        ...activeVisibleColumnIds,
+        ...ALL_GEOCACHES_TABLE_COLUMN_IDS.filter(columnId => !visibleColumnSet.has(columnId)),
+        'actions',
+    ], [activeVisibleColumnIds, visibleColumnSet]);
+    const visibleColumnDefinitions = React.useMemo(
+        () => activeVisibleColumnIds
+            .map(columnId => GEOCACHES_TABLE_COLUMN_DEFINITION_BY_ID.get(columnId))
+            .filter((def): def is GeocachesTableColumnDefinition => Boolean(def)),
+        [activeVisibleColumnIds]
+    );
+    const hiddenColumnDefinitions = React.useMemo(
+        () => GEOCACHES_TABLE_COLUMN_DEFINITIONS.filter(def => !visibleColumnSet.has(def.id)),
+        [visibleColumnSet]
+    );
 
     const columns = React.useMemo<ColumnDef<Geocache>[]>(
         () => [
@@ -874,6 +896,7 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
             sorting,
             rowSelection,
             columnVisibility,
+            columnOrder,
         },
         onSortingChange: setSorting,
         onRowSelectionChange: setRowSelection,
@@ -1087,6 +1110,90 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
         [activeVisibleColumnIds, updateVisibleColumnIds]
     );
 
+    const moveColumn = React.useCallback(
+        (columnId: GeocachesTableColumnId, direction: -1 | 1) => {
+            const index = activeVisibleColumnIds.indexOf(columnId);
+            const nextIndex = index + direction;
+            if (index < 0 || nextIndex < 0 || nextIndex >= activeVisibleColumnIds.length) {
+                return;
+            }
+            const next = [...activeVisibleColumnIds];
+            const [moved] = next.splice(index, 1);
+            next.splice(nextIndex, 0, moved);
+            updateVisibleColumnIds(next);
+        },
+        [activeVisibleColumnIds, updateVisibleColumnIds]
+    );
+
+    const dropColumn = React.useCallback(
+        (draggedId: GeocachesTableColumnId, targetId: GeocachesTableColumnId, position: 'before' | 'after') => {
+            if (draggedId === targetId) {
+                return;
+            }
+            if (!activeVisibleColumnIds.includes(draggedId) || !activeVisibleColumnIds.includes(targetId)) {
+                return;
+            }
+            const next = activeVisibleColumnIds.filter(id => id !== draggedId);
+            const targetIndex = next.indexOf(targetId);
+            if (targetIndex < 0) {
+                return;
+            }
+            next.splice(position === 'after' ? targetIndex + 1 : targetIndex, 0, draggedId);
+            updateVisibleColumnIds(next);
+        },
+        [activeVisibleColumnIds, updateVisibleColumnIds]
+    );
+
+    const handleColumnDragStart = React.useCallback((event: React.DragEvent<HTMLElement>, columnId: GeocachesTableColumnId) => {
+        setDraggedColumnId(columnId);
+        setColumnDragTarget(null);
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', columnId);
+    }, []);
+
+    const handleColumnDragOver = React.useCallback((event: React.DragEvent<HTMLElement>, columnId: GeocachesTableColumnId) => {
+        event.preventDefault();
+        event.stopPropagation();
+        event.dataTransfer.dropEffect = 'move';
+        const rect = event.currentTarget.getBoundingClientRect();
+        const position = event.clientY > rect.top + rect.height / 2 ? 'after' : 'before';
+        setColumnDragTarget({ id: columnId, position });
+    }, []);
+
+    const clearColumnDragState = React.useCallback(() => {
+        setDraggedColumnId(null);
+        setColumnDragTarget(null);
+    }, []);
+
+    const handleColumnDrop = React.useCallback((event: React.DragEvent<HTMLElement>, targetId: GeocachesTableColumnId) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const rawColumnId = draggedColumnId ?? event.dataTransfer.getData('text/plain');
+        if (rawColumnId && ALL_GEOCACHES_TABLE_COLUMN_IDS.includes(rawColumnId as GeocachesTableColumnId)) {
+            dropColumn(rawColumnId as GeocachesTableColumnId, targetId, columnDragTarget?.position ?? 'before');
+        }
+        clearColumnDragState();
+    }, [draggedColumnId, columnDragTarget, dropColumn, clearColumnDragState]);
+
+    const handleVisibleColumnsDragOver = React.useCallback((event: React.DragEvent<HTMLElement>) => {
+        if (!draggedColumnId) {
+            return;
+        }
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+    }, [draggedColumnId]);
+
+    const handleVisibleColumnsDrop = React.useCallback((event: React.DragEvent<HTMLElement>) => {
+        if (!draggedColumnId || activeVisibleColumnIds.length === 0) {
+            clearColumnDragState();
+            return;
+        }
+        event.preventDefault();
+        const lastColumnId = activeVisibleColumnIds[activeVisibleColumnIds.length - 1];
+        dropColumn(draggedColumnId, lastColumnId, 'after');
+        clearColumnDragState();
+    }, [draggedColumnId, activeVisibleColumnIds, dropColumn, clearColumnDragState]);
+
     const showAllColumns = React.useCallback(() => {
         updateVisibleColumnIds([...ALL_GEOCACHES_TABLE_COLUMN_IDS]);
     }, [updateVisibleColumnIds]);
@@ -1232,17 +1339,36 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                                         Paramètres d'origine
                                     </button>
                                 </div>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                    {GEOCACHES_TABLE_COLUMN_DEFINITIONS.map(def => (
-                                        <label
+                                <div style={{ opacity: 0.7, fontSize: '0.85em', marginBottom: 6 }}>Colonnes visibles</div>
+                                <div
+                                    style={{ display: 'flex', flexDirection: 'column', gap: 6 }}
+                                    onDragOver={handleVisibleColumnsDragOver}
+                                    onDrop={handleVisibleColumnsDrop}
+                                >
+                                    {visibleColumnDefinitions.map((def, index) => {
+                                        const isDragged = draggedColumnId === def.id;
+                                        const isDropBefore = columnDragTarget?.id === def.id && columnDragTarget.position === 'before' && draggedColumnId !== def.id;
+                                        const isDropAfter = columnDragTarget?.id === def.id && columnDragTarget.position === 'after' && draggedColumnId !== def.id;
+                                        return (
+                                        <div
                                             key={def.id}
+                                            draggable
+                                            onDragStart={e => handleColumnDragStart(e, def.id)}
+                                            onDragEnter={e => handleColumnDragOver(e, def.id)}
+                                            onDragOver={e => handleColumnDragOver(e, def.id)}
+                                            onDrop={e => handleColumnDrop(e, def.id)}
+                                            onDragEnd={clearColumnDragState}
                                             style={{
                                                 display: 'grid',
-                                                gridTemplateColumns: '18px 1fr',
+                                                gridTemplateColumns: '18px 18px 1fr auto auto',
                                                 gap: 8,
-                                                alignItems: 'start',
+                                                alignItems: 'center',
                                                 padding: '4px 2px',
-                                                cursor: 'pointer'
+                                                cursor: 'grab',
+                                                opacity: isDragged ? 0.45 : 1,
+                                                borderTop: isDropBefore ? '2px solid var(--theia-focusBorder)' : '2px solid transparent',
+                                                borderBottom: isDropAfter ? '2px solid var(--theia-focusBorder)' : '2px solid transparent',
+                                                borderRadius: 3,
                                             }}
                                             title={def.description}
                                         >
@@ -1252,13 +1378,80 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                                                 disabled={visibleColumnSet.has(def.id) && activeVisibleColumnIds.length <= 1}
                                                 onChange={e => toggleColumn(def.id, e.target.checked)}
                                             />
+                                            <span
+                                                aria-hidden="true"
+                                                style={{ opacity: 0.65, cursor: 'grab', userSelect: 'none', lineHeight: 1 }}
+                                                title="Glisser pour déplacer"
+                                            >
+                                                ⋮⋮
+                                            </span>
                                             <span>
                                                 <span style={{ display: 'block' }}>{def.label}</span>
                                                 <span style={{ display: 'block', opacity: 0.65, fontSize: '0.85em' }}>{def.description}</span>
                                             </span>
-                                        </label>
-                                    ))}
+                                            <button
+                                                type="button"
+                                                className="theia-button secondary"
+                                                disabled={index === 0}
+                                                onClick={e => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    moveColumn(def.id, -1);
+                                                }}
+                                                style={{ padding: '2px 6px', minWidth: 28 }}
+                                                title="Monter cette colonne"
+                                            >
+                                                ↑
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="theia-button secondary"
+                                                disabled={index === visibleColumnDefinitions.length - 1}
+                                                onClick={e => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    moveColumn(def.id, 1);
+                                                }}
+                                                style={{ padding: '2px 6px', minWidth: 28 }}
+                                                title="Descendre cette colonne"
+                                            >
+                                                ↓
+                                            </button>
+                                        </div>
+                                        );
+                                    })}
                                 </div>
+                                {hiddenColumnDefinitions.length > 0 && (
+                                    <>
+                                        <div style={{ opacity: 0.7, fontSize: '0.85em', margin: '10px 0 6px' }}>Colonnes masquées</div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                            {hiddenColumnDefinitions.map(def => (
+                                                <label
+                                                    key={def.id}
+                                                    style={{
+                                                        display: 'grid',
+                                                        gridTemplateColumns: '18px 1fr',
+                                                        gap: 8,
+                                                        alignItems: 'start',
+                                                        padding: '4px 2px',
+                                                        cursor: 'pointer'
+                                                    }}
+                                                    title={def.description}
+                                                >
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={false}
+                                                        onChange={e => toggleColumn(def.id, e.target.checked)}
+                                                    />
+                                                    <span>
+                                                        <span style={{ display: 'block' }}>{def.label}</span>
+                                                        <span style={{ display: 'block', opacity: 0.65, fontSize: '0.85em' }}>{def.description}</span>
+                                                    </span>
+                                                </label>
+                                            ))}
+                                        </div>
+                                    </>
+                                )}
                             </div>
                         )}
                     </div>
