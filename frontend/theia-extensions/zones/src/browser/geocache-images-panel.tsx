@@ -730,12 +730,18 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     const decodeQrFromImage = async (imageId: number): Promise<void> => {
         const img = visibleImages.find(i => i.id === imageId);
         if (!img) {
+            console.warn('[GeocacheImagesPanel] decodeQrFromImage: image not found', imageId);
             return;
         }
 
         setIsSaving(true);
+        const progress = await messages.showProgress(
+            { text: 'Décodage QR…', options: { cancelable: false, location: 'notification' } }
+        );
         try {
+            progress.report({ message: 'Analyse de l\'image…' });
             const imageUrlForPlugin = resolveImageUrl(img.url);
+            console.log('[GeocacheImagesPanel] decodeQrFromImage: calling plugin with url', imageUrlForPlugin);
             const res = await fetch(`${backendBaseUrl}/api/plugins/qr_code_detector/execute`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -751,17 +757,33 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                 throw new Error(`HTTP ${res.status}`);
             }
             const result = await res.json() as any;
-            const qrPayload: string | undefined = result?.qr_codes?.[0]?.data;
-            if (!qrPayload || !String(qrPayload).trim()) {
+            console.log('[GeocacheImagesPanel] decodeQrFromImage: plugin result', result);
+
+            // Vérifier si le plugin a retourné une erreur
+            if (result?.status === 'error') {
+                const errorMsg = result?.error || 'Erreur inconnue du plugin QR';
+                console.error('[GeocacheImagesPanel] decodeQrFromImage: plugin error', errorMsg);
+                messages.error(`Erreur plugin QR: ${errorMsg}`);
                 return;
             }
 
+            const qrPayload: string | undefined = result?.qr_codes?.[0]?.data;
+            if (!qrPayload || !String(qrPayload).trim()) {
+                console.warn('[GeocacheImagesPanel] decodeQrFromImage: no QR code detected in image', imageId);
+                messages.info('Aucun QR code détecté dans cette image');
+                return;
+            }
+
+            progress.report({ message: 'Enregistrement…' });
             setSelectedId(imageId);
             setDetailsMode('fields');
             await patchImage(imageId, { qr_payload: String(qrPayload) });
+            messages.info(`QR code décodé: ${String(qrPayload).substring(0, 50)}${String(qrPayload).length > 50 ? '...' : ''}`);
         } catch (e) {
             console.error('[GeocacheImagesPanel] decode qr error', e);
+            messages.error(`Erreur décodage QR: ${String(e)}`);
         } finally {
+            progress.cancel();
             setIsSaving(false);
         }
     };
