@@ -559,25 +559,22 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
     };
 
     /**
-     * Ouvre le Plugin Executor spécifiquement pour l'analyse de page (analysis_web_page)
+     * Ouvre le Chat IA pour l'analyse de page (analysis_web_page)
      */
     protected analyzePage = (): void => {
-        const context = this.buildPluginExecutorContext();
-        if (!context) {
+        if (!this.data) {
+            this.messages.warn('Aucune géocache chargée');
             return;
         }
-
-        // Ouvrir directement avec analysis_web_page et exécution automatique
-        this.pluginExecutorContribution.openWithContext(context, 'analysis_web_page', true);
+        this.chatController.openGeocacheChat(this.data, 'general', this.chatProfileOverride);
     };
 
     protected analyzeCode = (): void => {
-        const context = this.buildPluginExecutorContext();
-        if (!context) {
+        if (!this.data) {
+            this.messages.warn('Aucune géocache chargée');
             return;
         }
-
-        this.pluginExecutorContribution.openWithContext(context, 'metasolver', true);
+        this.chatController.openGeocacheChat(this.data, 'secret_code', this.chatProfileOverride);
     };
 
     private buildPluginExecutorContext(): GeocacheContext | undefined {
