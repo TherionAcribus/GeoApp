@@ -1905,7 +1905,7 @@
   resolved "https://registry.yarnpkg.com/@parcel/watcher-win32-ia32/-/watcher-win32-ia32-2.5.6.tgz#9ac922550896dfe47bfc5ae3be4f1bcaf8155d6d"
   integrity sha512-k35yLp1ZMwwee3Ez/pxBi5cf4AoBKYXj00CZ80jUz5h8prpiaQsiRPKQMxoLstNuqe2vR4RNPEAEcjEFzhEz/g==
 
-"@parcel/watcher-win32-x64@2.5.6":
+"@parcel/watcher-win32-x64@2.5.6", "@parcel/watcher-win32-x64@^2.5.6":
   version "2.5.6"
   resolved "https://registry.yarnpkg.com/@parcel/watcher-win32-x64/-/watcher-win32-x64-2.5.6.tgz#73fdafba2e21c448f0e456bbe13178d8fe11739d"
   integrity sha512-hbQlYcCq5dlAX9Qx+kFb0FHue6vbjlf0FrNzSKdYK2APUf7tGfGxQCk2ihEREmbR6ZMc0MVAD5RIX/41gpUzTw==
@@ -3913,6 +3913,66 @@
   optionalDependencies:
     "@vscode/windows-ca-certs" "^0.3.1"
 
+"@vscode/ripgrep-darwin-arm64@1.18.0":
+  version "1.18.0"
+  resolved "https://registry.yarnpkg.com/@vscode/ripgrep-darwin-arm64/-/ripgrep-darwin-arm64-1.18.0.tgz#779cc7136822161008bdf73b378ed0c4b73915ae"
+  integrity sha512-r3ktHSvbFycQNF6sl7sNDPocpsI7J+mEzh1IaZFkY0spm3k2Z9t8hPAeOK7+p0l6p6/swkQC14XWX01low+94Q==
+
+"@vscode/ripgrep-darwin-x64@1.18.0":
+  version "1.18.0"
+  resolved "https://registry.yarnpkg.com/@vscode/ripgrep-darwin-x64/-/ripgrep-darwin-x64-1.18.0.tgz#2dfb7c897944cc382e56e77fd7b2daa015141e05"
+  integrity sha512-25b4gWbL138dGuQU244ebCKKc0q05ULBMoFSz9oAEUHNeqK/lOJViDS7DRvbDazzAzSEdan391Znks/R5mkaTQ==
+
+"@vscode/ripgrep-linux-arm64@1.18.0":
+  version "1.18.0"
+  resolved "https://registry.yarnpkg.com/@vscode/ripgrep-linux-arm64/-/ripgrep-linux-arm64-1.18.0.tgz#81ffe7207ead1ea223e0cba91db0b8494545627e"
+  integrity sha512-lQ/5zTG++U0E3IhVgS4EPTTn/U4okncaRMM5GOFfOYZywS4nuD31GhkHbNYlDk5CuDC68+hYJ0/eQeyCKJDA+g==
+
+"@vscode/ripgrep-linux-arm@1.18.0":
+  version "1.18.0"
+  resolved "https://registry.yarnpkg.com/@vscode/ripgrep-linux-arm/-/ripgrep-linux-arm-1.18.0.tgz#db244c6a28aa1c9865df677d1d2dcb7afe7ca5d0"
+  integrity sha512-GDAvufNDHu8zqLEmXstalQF0Wh6wQvdsBi/Vg3Yi3CK4a8XoFXqqXVEHEZ9xQz3t0NfoSEc9JbvK9DDS6FxyxQ==
+
+"@vscode/ripgrep-linux-ia32@1.18.0":
+  version "1.18.0"
+  resolved "https://registry.yarnpkg.com/@vscode/ripgrep-linux-ia32/-/ripgrep-linux-ia32-1.18.0.tgz#7d656dd464d2063894a2b9eed0f4ee5f8f3bf1ab"
+  integrity sha512-YWLkSUtFd4Jh5EepIhA9RJSfv3uMAVMo+2rBIGHPBnvgLrZciIs2cDKei1/p6Wc/aCzUoHyMAg2R6tw4ZCBKGg==
+
+"@vscode/ripgrep-linux-ppc64@1.18.0":
+  version "1.18.0"
+  resolved "https://registry.yarnpkg.com/@vscode/ripgrep-linux-ppc64/-/ripgrep-linux-ppc64-1.18.0.tgz#a135a075441c5317d16fd46a10c78ac1c391610e"
+  integrity sha512-quXVY8fwQ8O/lvU1yrSqSl3jlUzysRSb+AfUfCL/tRtphxsKlFvPAejryZ6vg4Bgvn8XL74xb4qMCDmWgYrT5w==
+
+"@vscode/ripgrep-linux-riscv64@1.18.0":
+  version "1.18.0"
+  resolved "https://registry.yarnpkg.com/@vscode/ripgrep-linux-riscv64/-/ripgrep-linux-riscv64-1.18.0.tgz#e3e3cd244dfc4081c7bb49406c2562841cd14524"
+  integrity sha512-f5kBQBrWfQt8Q7OhSORuNDei5dkYagBj3y4jImSUXGMy8B/Ke7SltSRcUtjPv166FAFfHCAmWuZp3+cWnX2/Vw==
+
+"@vscode/ripgrep-linux-s390x@1.18.0":
+  version "1.18.0"
+  resolved "https://registry.yarnpkg.com/@vscode/ripgrep-linux-s390x/-/ripgrep-linux-s390x-1.18.0.tgz#4603765294a64df691f9e07c5428d63019053148"
+  integrity sha512-rTOcJFGGcl2c07RUOWUo4U1ndnemKhY6A9hnMB18uk7jSgJc0d/QLBGWMWpumdtoJtpizn/wIv5mXIisJukusQ==
+
+"@vscode/ripgrep-linux-x64@1.18.0":
+  version "1.18.0"
+  resolved "https://registry.yarnpkg.com/@vscode/ripgrep-linux-x64/-/ripgrep-linux-x64-1.18.0.tgz#9d1e32feb7678e74e8f13a3bd68bcf38a89b653b"
+  integrity sha512-mQ3bVrUpnD2vs7QT0vX90Lt0cnUq467uFtEktIdsJJmW296RoSULRGqWgzG1AKxyBpNDD6l4ZO4qKf6SgyC23Q==
+
+"@vscode/ripgrep-win32-arm64@1.18.0":
+  version "1.18.0"
+  resolved "https://registry.yarnpkg.com/@vscode/ripgrep-win32-arm64/-/ripgrep-win32-arm64-1.18.0.tgz#77c6e2f58fac801b09833bc8e6f4ba24d4270130"
+  integrity sha512-vfTIjq1OHnzUjxZcHVQAMbnggp8dpGf+0QKFOZHwWPqFwXxQC8eCWM+5NUdoJ6yrElCeMzoUTXoK/LdZaniB+Q==
+
+"@vscode/ripgrep-win32-ia32@1.18.0":
+  version "1.18.0"
+  resolved "https://registry.yarnpkg.com/@vscode/ripgrep-win32-ia32/-/ripgrep-win32-ia32-1.18.0.tgz#3b45232260da5e861266b38a9d49a928019ce09f"
+  integrity sha512-//rfAE+BOw5AC2EMmepmiE36jUuevtQYNQqqlw1s3m9FlRxjxEut97RkRPHAu9BG4mSojatZx+kXZXNdyI9caQ==
+
+"@vscode/ripgrep-win32-x64@1.18.0":
+  version "1.18.0"
+  resolved "https://registry.yarnpkg.com/@vscode/ripgrep-win32-x64/-/ripgrep-win32-x64-1.18.0.tgz#3a87411620f66314f352d098b8753e5bb2e94b36"
+  integrity sha512-KNPvtElldqILHdnAetujPaowkNbpqJy3ssIGGN6F6Kve9Qi+nNLI2DN01O83JjCEVQbCzl8Ov3QZ9Eov3BR8Dg==
+
 "@vscode/ripgrep@^1.14.2":
   version "1.17.1"
   resolved "https://registry.yarnpkg.com/@vscode/ripgrep/-/ripgrep-1.17.1.tgz#7d29cdd80e343da8d973927ac91fcc9788aea484"
@@ -3921,6 +3981,24 @@
     https-proxy-agent "^7.0.2"
     proxy-from-env "^1.1.0"
     yauzl "^2.9.2"
+
+"@vscode/ripgrep@^1.18.0":
+  version "1.18.0"
+  resolved "https://registry.yarnpkg.com/@vscode/ripgrep/-/ripgrep-1.18.0.tgz#2bfa7b561a8cc2bb16393174dea5ddfa70ec611c"
+  integrity sha512-ns5lWe44tSfbTMbVUsyB+I1819PVSw4AdpgK0RNkzfWfwy6+3IUNSxwSrfTno1/oWaS/hERNz+XLWVyga2aJBQ==
+  optionalDependencies:
+    "@vscode/ripgrep-darwin-arm64" "1.18.0"
+    "@vscode/ripgrep-darwin-x64" "1.18.0"
+    "@vscode/ripgrep-linux-arm" "1.18.0"
+    "@vscode/ripgrep-linux-arm64" "1.18.0"
+    "@vscode/ripgrep-linux-ia32" "1.18.0"
+    "@vscode/ripgrep-linux-ppc64" "1.18.0"
+    "@vscode/ripgrep-linux-riscv64" "1.18.0"
+    "@vscode/ripgrep-linux-s390x" "1.18.0"
+    "@vscode/ripgrep-linux-x64" "1.18.0"
+    "@vscode/ripgrep-win32-arm64" "1.18.0"
+    "@vscode/ripgrep-win32-ia32" "1.18.0"
+    "@vscode/ripgrep-win32-x64" "1.18.0"
 
 "@vscode/sudo-prompt@9.3.1":
   version "9.3.1"
