@@ -1,32 +1,42 @@
 {
   "name": "@mysterai/theia-plugins",
   "version": "1.0.0",
-  "description": "GeoApp plugin executor extension for Theia IDE",
+  "description": "MysterAI Plugins Extension for Theia IDE",
   "keywords": [
     "theia-extension",
     "plugins",
-    "geoapp"
+    "geocaching",
+    "mysterai"
   ],
   "license": "MIT",
   "main": "lib/browser/plugins-frontend-module.js",
   "typings": "lib/browser/plugins-frontend-module.d.ts",
   "dependencies": {
-    "axios": "^1.6.0"
+    "@types/ol": "^7.0.0",
+    "axios": "^1.6.0",
+    "ol": "^10.7.0"
   },
   "scripts": {
     "prepare": "yarn run clean && yarn run build",
     "clean": "rimraf lib",
-    "build": "tsc",
+    "build": "tsc && yarn run copy:assets",
+    "test:geoapp": "node ../../node_modules/ts-node/dist/bin.js src/browser/tests/plugin-executor-geoapp-shared.test.ts",
+    "copy:assets": "node -e \"require('fs-extra').copySync('src/browser/style', 'lib/browser/style')\"",
     "watch": "tsc -w"
   },
   "devDependencies": {
     "@theia/core": "1.70.2",
+    "@theia/filesystem": "1.70.2",
+    "@theia/workspace": "1.70.2",
     "@types/react": "^18.2.0",
+    "fs-extra": "^11.0.0",
     "rimraf": "^5.0.0",
     "typescript": "^5.0.0"
   },
   "peerDependencies": {
-    "@theia/core": "1.70.2"
+    "@theia/core": "1.70.2",
+    "@theia/filesystem": "1.70.2",
+    "@theia/workspace": "1.70.2"
   },
   "theiaExtensions": [
     {

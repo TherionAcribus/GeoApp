@@ -1,3 +1,9 @@
+import {
+    ListingClassificationResponse,
+    ResolutionWorkflowKind,
+    ResolutionWorkflowResponse,
+} from '../common/plugin-protocol';
+
 export interface PluginExecutorChatContext {
     geocacheId?: number;
     gcCode?: string;
@@ -62,4 +68,40 @@ export function buildPluginExecutorGeoAppOpenChatDetail(
         resumeState,
         sessionKind: 'auto',
     };
+}
+
+export function dispatchPluginExecutorGeoAppOpenChatRequest(
+    targetWindow: Window,
+    eventCtor: typeof CustomEvent,
+    detail: PluginExecutorGeoAppOpenChatDetail
+): void {
+    targetWindow.dispatchEvent(new eventCtor('geoapp-open-chat', { detail }));
+}
+
+export function resolvePluginExecutorGeoAppWorkflowKind(
+    workflowResolution?: ResolutionWorkflowResponse | null,
+    classification?: ListingClassificationResponse | null
+): ResolutionWorkflowKind {
+    const workflowKind = workflowResolution?.workflow?.kind;
+    if (workflowKind) {
+        return workflowKind;
+    }
+
+    const labelNames = new Set((classification?.labels || []).map(label => label.name));
+    if (labelNames.has('checker')) {
+        return 'checker';
+    }
+    if (labelNames.has('formula')) {
+        return 'formula';
+    }
+    if (labelNames.has('hidden_content')) {
+        return 'hidden_content';
+    }
+    if (labelNames.has('image_puzzle')) {
+        return 'image_puzzle';
+    }
+    if ((classification?.candidate_secret_fragments || []).length > 0) {
+        return 'secret_code';
+    }
+    return 'general';
 }

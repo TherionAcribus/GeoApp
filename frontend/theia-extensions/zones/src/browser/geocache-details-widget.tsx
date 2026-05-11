@@ -570,11 +570,12 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
     };
 
     protected analyzeCode = (): void => {
-        if (!this.data) {
-            this.messages.warn('Aucune géocache chargée');
+        const context = this.buildPluginExecutorContext();
+        if (!context) {
             return;
         }
-        this.chatController.openGeocacheChat(this.data, 'secret_code', this.chatProfileOverride);
+
+        void this.pluginExecutorContribution.openWithContext(context, 'metasolver', true);
     };
 
     private buildPluginExecutorContext(): GeocacheContext | undefined {
