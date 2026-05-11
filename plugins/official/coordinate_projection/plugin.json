@@ -31,14 +31,16 @@
       "label": "Texte (optionnel)",
       "placeholder": "Ex: Projetez-vous de 1247.162 mètres à 27,309 degrés",
       "description": "En mode smooth, le plugin tente d'extraire distance/angle depuis ce texte. Peut aussi contenir des coordonnées d'origine.",
-      "default": ""
+      "default": "",
+      "default_value_source": "geocache_description"
     },
     "origin_coords": {
       "type": "string",
       "label": "Coordonnées d'origine (optionnel)",
       "placeholder": "Ex: N 49° 12.374 E 005° 52.727",
       "description": "Si vide, le plugin tentera de détecter les coordonnées dans le champ Texte.",
-      "default": ""
+      "default": "",
+      "default_value_source": "geocache_coordinates"
     },
     "strict": {
       "type": "select",

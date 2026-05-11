@@ -5804,7 +5804,7 @@ class BatchPluginTask:
                 
                 if default_value_source == 'geocache_id':
                     inputs[key] = geocache['gc_code']
-                elif default_value_source == 'geocache_description' and geocache.get('description'):
+                elif default_value_source == 'geocache_description' and 'description' in geocache:
                     inputs[key] = geocache['description']
                 elif default_value_source == 'geocache_coordinates' and geocache.get('coordinates'):
                     coords = geocache['coordinates']
@@ -7141,11 +7141,18 @@ def batch_execute_plugins():
                 decoded_hint = geocache.hints_decoded
                 if decoded_hint is None and geocache.hints:
                     decoded_hint = Geocache.decode_hint_rot13(geocache.hints)
+                # Utiliser description_html en priorité (avec stripping), sinon description_raw
+                description = geocache.description_raw or ''
+                if geocache.description_html:
+                    import re
+                    # Strip HTML tags
+                    description = re.sub(r'<[^>]+>', ' ', geocache.description_html)
+                    description = re.sub(r'\s+', ' ', description).strip()
                 geocaches.append({
                     'id': geocache.id,
                     'gc_code': geocache.gc_code,
                     'name': geocache.name,
-                    'description': geocache.description_raw,
+                    'description': description,
                     'hint': decoded_hint,
                     'difficulty': geocache.difficulty,
                     'terrain': geocache.terrain,
