@@ -558,15 +558,13 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         this.pluginExecutorContribution.openWithContext(context);
     };
 
-    /**
-     * Ouvre le Chat IA pour l'analyse de page (analysis_web_page)
-     */
     protected analyzePage = (): void => {
-        if (!this.data) {
-            this.messages.warn('Aucune géocache chargée');
+        const context = this.buildPluginExecutorContext();
+        if (!context) {
             return;
         }
-        this.chatController.openGeocacheChat(this.data, 'general', this.chatProfileOverride);
+
+        void this.pluginExecutorContribution.openWithContext(context, 'analysis_web_page', true, true);
     };
 
     protected analyzeCode = (): void => {

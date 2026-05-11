@@ -1947,6 +1947,15 @@ const PluginExecutorComponent: React.FC<{
                 </div>
             )}
 
+            {state.pluginDetails && state.selectedPlugin === 'analysis_web_page' && (
+                <AnalysisWebPagePanel
+                    pipeline={state.pluginDetails.metadata?.pipeline}
+                    geocacheContext={config.geocacheContext}
+                    autoExecute={config.autoExecute === true}
+                    isExecuting={state.isExecuting}
+                />
+            )}
+
             {/* Metasolver: panneau de prévisualisation des plugins éligibles */}
             {state.pluginDetails && state.selectedPlugin === 'metasolver' && (
                 <MetasolverPresetPanel
@@ -5141,6 +5150,71 @@ const MetasolverPresetPanel: React.FC<{
     );
 };
 
+const AnalysisWebPagePanel: React.FC<{
+    pipeline?: Array<{ plugin_name?: string; description?: string }>;
+    geocacheContext?: GeocacheContext;
+    autoExecute: boolean;
+    isExecuting: boolean;
+}> = ({ pipeline, geocacheContext, autoExecute, isExecuting }) => {
+    const steps = Array.isArray(pipeline) ? pipeline : [];
+
+    return (
+        <div className='plugin-form'>
+            <h4>Analyse complète de page</h4>
+            <div style={{ fontSize: '12px', opacity: 0.8, marginBottom: '10px' }}>
+                {geocacheContext?.gcCode ? (
+                    <>Pipeline dédié à <strong>{geocacheContext.gcCode}</strong>{geocacheContext.name ? ` - ${geocacheContext.name}` : ''}</>
+                ) : (
+                    <>Pipeline dédié à l'analyse complète du listing</>
+                )}
+                {autoExecute ? (
+                    <span style={{ marginLeft: 8 }}>
+                        {isExecuting ? 'Execution en cours...' : 'Execution automatique activee'}
+                    </span>
+                ) : undefined}
+            </div>
+            {steps.length > 0 ? (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '8px' }}>
+                    {steps.map((step, index) => (
+                        <div
+                            key={`${step.plugin_name || 'step'}-${index}`}
+                            style={{
+                                border: '1px solid var(--theia-panel-border)',
+                                borderRadius: '4px',
+                                padding: '8px 10px',
+                                background: 'var(--theia-editor-background)',
+                                minHeight: '58px',
+                            }}
+                        >
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '4px' }}>
+                                <span style={{
+                                    fontSize: '10px',
+                                    minWidth: '22px',
+                                    textAlign: 'center',
+                                    padding: '1px 4px',
+                                    borderRadius: '3px',
+                                    background: 'var(--theia-input-background)',
+                                    border: '1px solid var(--theia-panel-border)'
+                                }}>
+                                    {index + 1}
+                                </span>
+                                <strong>{step.plugin_name || 'Plugin'}</strong>
+                            </div>
+                            {step.description ? (
+                                <div style={{ fontSize: '11px', opacity: 0.75 }}>{step.description}</div>
+                            ) : undefined}
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <div style={{ fontSize: '12px', opacity: 0.7 }}>
+                    Pipeline non décrit par le plugin, mais le méta-plugin sera lancé avec le contexte de la géocache.
+                </div>
+            )}
+        </div>
+    );
+};
+
 /**
  * Génère le formulaire dynamique basé sur le schéma JSON
  * Filtre les champs techniques déjà gérés ailleurs (mode, text, input_text)
@@ -5468,6 +5542,32 @@ const PluginResultDisplay: React.FC<{
     console.log('result.summary:', result.summary);
     console.log('sortedResults.length:', sortedResults.length);
 
+    const isAnalysisWebPageResult =
+        pluginName === 'analysis_web_page' ||
+        result.plugin_info?.name === 'analysis_web_page' ||
+        Boolean((result as any).combined_results);
+    const analysisGroups = isAnalysisWebPageResult
+        ? sortedResults.reduce<Record<string, any[]>>((groups, item) => {
+            const source = String(item.source_plugin || item.plugin_name || 'resultats');
+            groups[source] = groups[source] || [];
+            groups[source].push(item);
+            return groups;
+        }, {})
+        : {};
+    const analysisSourceLabels: Record<string, string> = {
+        coordinates_finder: 'Coordonnées détectées',
+        coordinate_projection: 'Projections',
+        color_text_detector: 'Textes invisibles',
+        formula_parser: 'Formules',
+        html_comments_finder: 'Commentaires HTML',
+        image_alt_text_extractor: 'Textes d’images',
+        qr_code_detector: 'QR codes',
+        additional_waypoints_analyzer: 'Waypoints additionnels',
+        written_coords_converter: 'Coordonnées écrites',
+        resultats: 'Résultats',
+    };
+    const primaryCoordinates = (result as any).primary_coordinates;
+
     return (
         <div className='result-display'>
             <div className='result-status'>
@@ -5484,10 +5584,58 @@ const PluginResultDisplay: React.FC<{
                 </div>
             )}
 
-            {/* Debug info */}
-            <div style={{ background: 'yellow', padding: '5px', margin: '10px 0', fontSize: '12px' }}>
-                DEBUG: {sortedResults.length} résultat(s) à afficher
-            </div>
+            {isAnalysisWebPageResult && (
+                <div
+                    style={{
+                        border: '1px solid var(--theia-panel-border)',
+                        borderRadius: '4px',
+                        background: 'var(--theia-editor-background)',
+                        padding: '10px 12px',
+                        marginBottom: '15px'
+                    }}
+                >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <div>
+                            <strong>Analyse complète de page</strong>
+                            <div style={{ fontSize: '12px', opacity: 0.75, marginTop: '2px' }}>
+                                {sortedResults.length} résultat(s) agrégé(s) depuis {Object.keys(analysisGroups).length} analyseur(s)
+                            </div>
+                        </div>
+                        {primaryCoordinates ? (
+                            <div style={{
+                                fontFamily: 'monospace',
+                                padding: '6px 8px',
+                                border: '1px solid var(--theia-panel-border)',
+                                borderRadius: '4px',
+                                background: 'var(--theia-input-background)',
+                                fontSize: '12px'
+                            }}>
+                                {primaryCoordinates.formatted ||
+                                    primaryCoordinates.ddm ||
+                                    `${primaryCoordinates.latitude ?? primaryCoordinates.decimal_latitude ?? ''}, ${primaryCoordinates.longitude ?? primaryCoordinates.decimal_longitude ?? ''}`}
+                            </div>
+                        ) : undefined}
+                    </div>
+                    {Object.keys(analysisGroups).length > 0 ? (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '10px' }}>
+                            {Object.entries(analysisGroups).map(([source, items]) => (
+                                <span
+                                    key={source}
+                                    style={{
+                                        fontSize: '11px',
+                                        padding: '2px 7px',
+                                        borderRadius: '999px',
+                                        border: '1px solid var(--theia-panel-border)',
+                                        background: 'var(--theia-input-background)'
+                                    }}
+                                >
+                                    {analysisSourceLabels[source] || source}: {items.length}
+                                </span>
+                            ))}
+                        </div>
+                    ) : undefined}
+                </div>
+            )}
             
             {/* Indicateur de mode brute-force */}
             {isBruteForce && (

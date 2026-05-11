@@ -161,12 +161,18 @@ export class PluginExecutorContribution extends AbstractViewContribution<PluginE
      * Ouvre l'executor en MODE GEOCACHE avec un contexte de géocache.
      * Utilisé quand l'utilisateur clique "Analyser" depuis GeocacheDetailsWidget.
      */
-    async openWithContext(context: GeocacheContext, pluginName?: string, autoExecute: boolean = false): Promise<void> {
-        console.log('[PluginExecutorContribution] openWithContext called', context, 'pluginName:', pluginName, 'autoExecute:', autoExecute);
+    async openWithContext(
+        context: GeocacheContext,
+        pluginName?: string,
+        autoExecute: boolean = false,
+        forceDuplicate: boolean = false
+    ): Promise<void> {
+        console.log('[PluginExecutorContribution] openWithContext called', context, 'pluginName:', pluginName, 'autoExecute:', autoExecute, 'forceDuplicate:', forceDuplicate);
         await this.pluginTabsManager.openForGeocache({
             context,
             pluginName,
-            autoExecute
+            autoExecute,
+            forceDuplicate
         });
     }
     
