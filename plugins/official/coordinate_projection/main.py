@@ -401,6 +401,8 @@ class CoordinateProjectionPlugin:
             r"(?:projetez|projeter|project|move|go)(?:\s+(?:vous|yourself|from))?\s+(?:de|of|for)?\s+(\d+(?:\.\d+)?)\s*(" + all_units + r")(?:\s+(?:à|a|to|at|en direction))?\s+(\d+(?:\.\d+)?)\s*(?:" + degrees_pattern + r")",
             r"(?:à|a|at)?\s+(\d+(?:\.\d+)?)\s*(?:" + degrees_pattern + r")\s+(?:sur|sur une distance de|on|for|over)\s+(\d+(?:\.\d+)?)\s*(" + all_units + r")",
             r"project\s+yourself\s+(\d+(?:\.\d+)?)\s*(" + all_units + r")\s+at\s+(\d+(?:\.\d+)?)\s*(?:" + degrees_pattern + r")",
+            r"(?:travel|walk|move)\s+(?:at\s+)?(?:a\s+)?(?:distance\s+)?(?:of\s+)?(\d+(?:\.\d+)?)\s*(" + all_units + r")\s+(?:at\s+)?(?:a\s+)?(?:bearing\s+)?(?:of\s+)?(\d+(?:\.\d+)?)\s*(?:" + degrees_pattern + r")",
+            r"(?:at\s+)?(?:a\s+)?bearing\s+(?:of\s+)?(\d+(?:\.\d+)?)\s*(?:" + degrees_pattern + r")\s+(?:travel|walk|move)\s+(?:at\s+)?(?:a\s+)?(?:distance\s+)?(?:of\s+)?(\d+(?:\.\d+)?)\s*(" + all_units + r")",
         ]
 
         for idx, pattern in enumerate(patterns):
@@ -408,7 +410,7 @@ class CoordinateProjectionPlugin:
             if not match:
                 continue
 
-            if idx == 4:
+            if idx in (4, 7):
                 angle_str, distance_str, unit = match.groups()
             else:
                 distance_str, unit, angle_str = match.groups()
