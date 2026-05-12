@@ -233,7 +233,7 @@ export class PluginsServiceImpl implements IPluginsService {
         written?: any;
     }> {
         try {
-            const response = await this.client.post('/api/detect_coordinates', {
+            const requestBody = {
                 text,
                 include_numeric_only: options?.includeNumericOnly || false,
                 include_written: options?.includeWritten || false,
@@ -241,12 +241,16 @@ export class PluginsServiceImpl implements IPluginsService {
                 written_max_candidates: options?.writtenMaxCandidates,
                 written_include_deconcat: options?.writtenIncludeDeconcat,
                 origin_coords: options?.originCoords
-            });
-            
+            };
+            console.log('[DEBUG] Envoi POST /api/detect_coordinates:', JSON.stringify(requestBody).substring(0, 200));
+            const response = await this.client.post('/api/detect_coordinates', requestBody);
             return response.data;
             
         } catch (error) {
             console.error('Erreur lors de la détection des coordonnées:', error);
+            if (axios.isAxiosError(error) && error.response) {
+                console.error('[DEBUG] Réponse serveur:', error.response.status, error.response.data);
+            }
             // Ne pas throw d'erreur, retourner simplement "pas de coordonnées"
             return { exist: false };
         }

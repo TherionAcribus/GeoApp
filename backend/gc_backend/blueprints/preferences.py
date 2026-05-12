@@ -61,7 +61,7 @@ def update_preference(key: str):
     try:
         payload = request.get_json(force=True) or {}
     except Exception as error:  # pragma: no cover
-        logger.error('JSON invalide pour /api/preferences/%s: %s', key, error)
+        logger.error('JSON invalide pour /api/preferences/{}: {}', key, error)
         return jsonify({'error': 'JSON invalide', 'message': str(error)}), 400
 
     if 'value' not in payload:
@@ -69,7 +69,7 @@ def update_preference(key: str):
 
     try:
         value = set_preference_value(key, payload['value'])
-        logger.info('Préférence %s mise à jour -> %s', key, value)
+        logger.info('Préférence {} mise à jour -> {}', key, value)
         return jsonify({'key': key, 'value': value})
     except KeyError:
         return jsonify({'error': 'Préférence inconnue', 'key': key}), 404
@@ -82,7 +82,7 @@ def update_preferences_bulk():
     try:
         payload = request.get_json(force=True) or {}
     except Exception as error:  # pragma: no cover
-        logger.error('JSON invalide pour PATCH /api/preferences: %s', error)
+        logger.error('JSON invalide pour PATCH /api/preferences: {}', error)
         return jsonify({'error': 'JSON invalide', 'message': str(error)}), 400
 
     if 'values' not in payload or not isinstance(payload['values'], dict):
@@ -90,7 +90,7 @@ def update_preferences_bulk():
 
     try:
         updated = set_preferences_bulk(payload['values'])
-        logger.info('Préférences mises à jour en bulk: %s', ', '.join(updated.keys()))
+        logger.info('Préférences mises à jour en bulk: {}', ', '.join(updated.keys()))
         return jsonify({'updated': updated})
     except KeyError as error:
         return jsonify({'error': 'Préférence inconnue', 'message': str(error)}), 404

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Widget pour exécuter des plugins.
  * 
  * Deux modes d'utilisation :
@@ -692,13 +692,17 @@ const PluginExecutorComponent: React.FC<{
         return inputs;
     };
 
-    const handleInputChange = (key: string, value: any) => {
+    const handleInputChange = React.useCallback((key: string, value: any) => {
         setState(prev => ({
             ...prev,
             formInputs: { ...prev.formInputs, [key]: value }
         }));
-    };
-    
+    }, []);
+
+    // Callbacks stables pour éviter les re-renders infinis dans MetasolverPresetPanel
+    const handleTextChange = React.useCallback((newText: string) => handleInputChange('text', newText), [handleInputChange]);
+    const handlePluginListChange = React.useCallback((newList: string) => handleInputChange('plugin_list', newList), [handleInputChange]);
+
     /**
      * Détecte les coordonnées GPS dans les résultats d'un plugin
      */
@@ -1815,8 +1819,8 @@ const PluginExecutorComponent: React.FC<{
                     preferenceService={preferenceService}
                     commandService={commandService}
                     backendBaseUrl={backendBaseUrl}
-                    onTextChange={(newText) => handleInputChange('text', newText)}
-                    onPluginListChange={(newList) => handleInputChange('plugin_list', newList)}
+                    onTextChange={handleTextChange}
+                    onPluginListChange={handlePluginListChange}
                     onExecuteRequest={handleExecute}
                     disabled={state.isExecuting}
                 />
@@ -2094,4 +2098,4 @@ const PluginExecutorComponent: React.FC<{
         </div>
     );
 };
-
+

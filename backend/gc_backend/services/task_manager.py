@@ -134,7 +134,7 @@ class TaskManager:
             self._start_executor()
         else:
             logger.info(
-                "TaskManager initialisé en mode différé (max_workers=%s)",
+                "TaskManager initialisé en mode différé (max_workers={})",
                 max_workers
             )
 
@@ -155,7 +155,7 @@ class TaskManager:
         self._cleanup_thread.start()
 
         logger.info(
-            "TaskManager prêt (%s workers, auto_start=%s)",
+            "TaskManager prêt ({} workers, auto_start={})",
             self.max_workers,
             self._auto_start
         )

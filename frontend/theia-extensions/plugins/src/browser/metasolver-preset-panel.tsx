@@ -20,6 +20,9 @@ import {
 import { buildPluginExecutorGeoAppDiagnosticPrompt as buildGeoAppDiagnosticPrompt } from './plugin-executor-diagnostic-shared';
 import type { GeocacheContext } from './plugin-executor-widget';
 
+// Feature flag: désactiver le chargement des archives de resume state
+const ENABLE_ARCHIVE_RESUME = false;
+
 const FORMULA_SOLVER_SOLVE_FROM_GEOCACHE_COMMAND = 'formula-solver:solve-from-geocache';
 const GEOAPP_CHAT_DEFAULT_PROFILE_PREF = 'geoApp.chat.defaultProfile';
 const GEOAPP_CHAT_SECRET_CODE_PROFILE_PREF = 'geoApp.chat.workflowProfile.secretCode';
@@ -889,6 +892,12 @@ export const MetasolverPresetPanel: React.FC<{
     }, [geocacheContext?.gcCode, onPluginListChange, onTextChange, pluginList, text]);
 
     React.useEffect(() => {
+        // Feature désactivée - ne pas charger les archives
+        if (!ENABLE_ARCHIVE_RESUME) {
+            setArchivedResumeState(null);
+            return;
+        }
+
         const contextSnapshot = geocacheContext?.resumeSnapshot || null;
         if (contextSnapshot) {
             const gcCode = (geocacheContext?.gcCode || '').trim().toUpperCase();
@@ -2669,4 +2678,4 @@ export const MetasolverPresetPanel: React.FC<{
         </div>
     );
 };
-
+

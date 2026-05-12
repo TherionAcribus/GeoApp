@@ -1,10 +1,16 @@
 from typing import Optional, Dict
 import re
+import logging
 from datetime import datetime, timezone
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
+from werkzeug.exceptions import HTTPException
 from ..database import db
 from ..geocaches.models import Geocache
 import traceback
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+logger.debug("Coordinates blueprint loaded")
 try:
     from pyproj import Geod
 except ModuleNotFoundError:  # pragma: no cover
@@ -1529,6 +1535,11 @@ def detect_coordinates_in_text():
     """
     try:
         data = request.get_json()
+        logger.debug(
+            "detect_coordinates_in_text called (keys=%s, text_len=%s)",
+            list(data.keys()) if isinstance(data, dict) else None,
+            len(str(data.get('text', ''))) if isinstance(data, dict) else 0,
+        )
         if not data or 'text' not in data:
             return jsonify({"error": "Le champ 'text' est requis"}), 400
             
@@ -1543,16 +1554,16 @@ def detect_coordinates_in_text():
         # Récupérer les coordonnées d'origine (None par défaut)
         origin_coords = data.get('origin_coords')
         
-        print(f"[DEBUG] Analyse du texte pour détecter des coordonnées: '{text[:50]}...' (tronqué)")
-        print(f"[DEBUG] Détection de format numérique pur activée: {include_numeric_only}")
-        print(f"[DEBUG] Détection de coordonnées écrites activée: {include_written}")
-        print(f"[DEBUG] Coordonnées d'origine fournies: {origin_coords}")
+        logger.debug("Analyse du texte pour detecter des coordonnees: %r", text[:50])
+        logger.debug("Detection de format numerique pur activee: %s", include_numeric_only)
+        logger.debug("Detection de coordonnees ecrites activee: %s", include_written)
+        logger.debug("Coordonnees d'origine fournies: %s", origin_coords)
         
         result = detect_gps_coordinates(
             text,
             include_numeric_only=include_numeric_only,
             origin_coords=origin_coords,
-            include_written=False,
+            include_written=include_written,
         )
 
         if not include_written:
@@ -1573,10 +1584,11 @@ def detect_coordinates_in_text():
             return jsonify(enriched)
 
         try:
-            from gc_backend.blueprints.plugins import get_plugin_manager
             from gc_backend.services import WrittenCoordinatesService
 
-            plugin_manager = get_plugin_manager()
+            plugin_manager = getattr(current_app, 'plugin_manager', None)
+            if plugin_manager is None:
+                raise RuntimeError("PluginManager non initialisé")
             service = WrittenCoordinatesService(plugin_manager)
 
             langs = written_languages
@@ -1614,8 +1626,7 @@ def detect_coordinates_in_text():
             return jsonify(enriched)
         
     except Exception as e:
-        print(f"[ERROR] Erreur lors de la détection des coordonnées: {str(e)}")
-        traceback.print_exc()
+        logger.exception("Erreur lors de la detection des coordonnees: %s", e)
         return jsonify({"error": str(e)}), 500
 
 def _detect_word_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]:
@@ -1623,9 +1634,9 @@ def _detect_word_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]:
     le plugin `written_coords_converter`. Retourne un dict au même format que les autres
     fonctions de détection ou None si aucune coordonnée n'est trouvée."""
     try:
-        from gc_backend.blueprints.plugins import get_plugin_manager
-
-        plugin_manager = get_plugin_manager()
+        plugin_manager = getattr(current_app, 'plugin_manager', None)
+        if plugin_manager is None:
+            return None
         plugin_result = plugin_manager.execute_plugin(
             "written_coords_converter",
             {
@@ -1827,3 +1838,12 @@ def _detect_geocaching_standard_format(text: str) -> Optional[Dict[str, Optional
     
     print("[DEBUG] _detect_geocaching_standard_format: Aucun match trouvé")
     return None
+
+
+@coordinates_bp.errorhandler(Exception)
+def handle_coordinates_error(error):
+    """Capture toutes les erreurs non gérées dans ce blueprint."""
+    if isinstance(error, HTTPException):
+        return error
+    logger.exception("Erreur non geree dans le blueprint coordinates: %s", error)
+    return jsonify({"error": str(error), "type": type(error).__name__}), 500

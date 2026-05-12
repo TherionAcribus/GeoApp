@@ -869,9 +869,9 @@ class PluginManager:
                 if self.get_plugin(plugin_name):
                     count += 1
 
-            logger.info("Préchargement de %d plugin(s)", count)
+            logger.info("Préchargement de {} plugin(s)", count)
         except Exception as error:
-            logger.error("Erreur lors du préchargement des plugins: %s", error)
+            logger.error("Erreur lors du préchargement des plugins: {}", error)
 
         return count
     
@@ -988,10 +988,10 @@ class PluginManager:
                 self.default_timeout = int(get_value_or_default('geoApp.plugins.executor.timeoutSec', 60))
                 self.allow_long_running = bool(get_value_or_default('geoApp.plugins.executor.allowLongRunning', False))
                 logger.info(
-                    "Préférences plugins -> lazy_mode=%s timeout=%ss allow_long_running=%s",
+                    "Préférences plugins -> lazy_mode={} timeout={}s allow_long_running={}",
                     self.lazy_mode,
                     self.default_timeout,
                     self.allow_long_running
                 )
         except Exception as error:
-            logger.warning("Impossible de charger les préférences plugins: %s", error)
+            logger.warning("Impossible de charger les préférences plugins: {}", error)
