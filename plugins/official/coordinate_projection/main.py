@@ -303,7 +303,12 @@ class CoordinateProjectionPlugin:
         return ddm, lat, lon
 
     def _parse_gc_ddm(self, coord_str: str) -> Tuple[Optional[float], Optional[float]]:
-        pattern = r"""\s*([NS])\s+(\d{1,2})\s*[°º]\s+(\d{1,2}(?:\.\d+)?)\s+([EW])\s+(\d{1,3})\s*[°º]\s+(\d{1,2}(?:\.\d+)?)\s*"""
+        degree_symbol = f"(?:{chr(176)}|{chr(186)}|{chr(194)}{chr(176)}|{chr(194)}{chr(186)})"
+        pattern = (
+            r"\s*([NS])\s+(\d{1,2})\s*" + degree_symbol +
+            r"\s+(\d{1,2}(?:\.\d+)?)\s+([EW])\s+(\d{1,3})\s*" +
+            degree_symbol + r"\s+(\d{1,2}(?:\.\d+)?)\s*"
+        )
         match = re.search(pattern, coord_str.strip(), re.IGNORECASE)
         if not match:
             return None, None
@@ -392,7 +397,9 @@ class CoordinateProjectionPlugin:
             "miles": r"miles?",
         }
         all_units = "|".join(unit_patterns.values())
-        degrees_pattern = r"(?:degr[ée]s|degrees?|°)"
+        degree_symbol = f"(?:{chr(176)}|{chr(186)}|{chr(194)}{chr(176)}|{chr(194)}{chr(186)})"
+        accented_e = f"(?:e|{chr(233)}|{chr(232)}|{chr(195)}{chr(169)}|{chr(195)}{chr(168)})"
+        degrees_pattern = r"(?:degr" + accented_e + r"s?|degrees?|" + degree_symbol + r")"
 
         patterns = [
             r"(?:à|allez\sà|a|go|go\sto)\s+(\d+(?:\.\d+)?)\s*(" + all_units + r")?\s+(?:direction|azimut|cap|à|toward|towards|at|to)\s+(\d+(?:\.\d+)?)\s*(?:" + degrees_pattern + r")",

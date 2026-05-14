@@ -93,6 +93,47 @@ def test_coordinate_projection_smooth_mode_extracts_distance_and_bearing():
     assert first["decimal_longitude"] > 2.35
 
 
+def test_coordinate_projection_smooth_mode_accepts_western_unicode_degrees():
+    """Smooth mode should parse standard degree signs and western longitudes."""
+
+    plugin_dir = (
+        Path(__file__).parent.parent.parent
+        / "plugins"
+        / "official"
+        / "coordinate_projection"
+    )
+
+    metadata = PluginMetadata(
+        name="coordinate_projection",
+        version="1.0.0",
+        plugin_type=PluginType.PYTHON,
+        entry_point="main.py",
+        path=str(plugin_dir),
+        timeout_seconds=30,
+    )
+
+    wrapper = PythonPluginWrapper(metadata)
+    assert wrapper.initialize() is True
+
+    result = wrapper.execute(
+        {
+            "mode": "decode",
+            "strict": "smooth",
+            "text": "You must travel 839.006767 meters at a bearing of 340.65266005572\u00b0",
+            "origin_coords": "N 50\u00b0 16.663 W 107\u00b0 49.003",
+            "enable_gps_detection": False,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["results"]
+
+    first = result["results"][0]
+    assert first["text_output"].startswith("N 50")
+    assert first["decimal_latitude"] > 50.27
+    assert first["decimal_longitude"] < -107.81
+
+
 def test_coordinate_projection_smooth_mode_fallback_accepts_degree_symbol_inputs():
     """Fallback should accept decorated numeric strings like '43.30°' sent by the UI."""
 

@@ -111,6 +111,7 @@ abstract class BaseGeoAppChatAgent extends AbstractStreamParsingChatAgent {
             'geoapp.plugins.listing.classify',
             'geoapp.plugins.metasolver.recommend',
             'plugin.metasolver',
+            'plugin.coordinate_projection',
             'formula-solver.detect-formula',
             'formula-solver.find-questions',
             'formula-solver.search-answer',
@@ -122,10 +123,26 @@ abstract class BaseGeoAppChatAgent extends AbstractStreamParsingChatAgent {
         for (const id of ids) {
             const tool = this.toolRegistry.getFunction(id);
             if (tool) {
-                tools.push(tool);
+                tools.push(this.toChatToolRequest(tool));
             }
         }
         return tools;
+    }
+
+    /**
+     * Theia's chat confirmation layer matches streamed tool calls by ToolRequest.id,
+     * while OpenAI-compatible models stream the public function name. GeoApp keeps
+     * stable registry ids such as "geoapp.plugins.workflow.resolve", so normalize
+     * the request only for this chat turn to keep the UI/tool-call handshake intact.
+     */
+    protected toChatToolRequest(tool: ToolRequest): ToolRequest {
+        if (tool.id === tool.name) {
+            return tool;
+        }
+        return {
+            ...tool,
+            id: tool.name
+        };
     }
 }
 
