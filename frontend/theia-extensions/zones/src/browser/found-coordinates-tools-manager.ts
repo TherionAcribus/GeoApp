@@ -10,6 +10,7 @@ import {
 } from '@theia/ai-core';
 import { BackendApiClient, getErrorMessage } from './backend-api-client';
 import { GeoAppWidgetEventsService, GeocacheChangedEvent } from './geoapp-widget-events-service';
+import { MapService } from './map/map-service';
 
 type FoundCoordinatesTarget = 'default' | 'corrected_coordinates' | 'waypoint' | 'note';
 type EffectiveFoundCoordinatesTarget = Exclude<FoundCoordinatesTarget, 'default'>;
@@ -44,11 +45,15 @@ export class FoundCoordinatesToolsManager implements FrontendApplicationContribu
     @inject(GeoAppWidgetEventsService)
     protected readonly widgetEventsService!: GeoAppWidgetEventsService;
 
+    @inject(MapService)
+    protected readonly mapService!: MapService;
+
     @inject(MessageService)
     protected readonly messages!: MessageService;
 
     async onStart(): Promise<void> {
         await this.toolRegistry.registerTool(this.createSaveFoundCoordinatesTool());
+        await this.toolRegistry.registerTool(this.createHighlightFoundCoordinatesTool());
     }
 
     protected createSaveFoundCoordinatesTool(): ToolRequest {
@@ -106,6 +111,62 @@ export class FoundCoordinatesToolsManager implements FrontendApplicationContribu
                 additionalProperties: false
             } as ToolRequestParameters,
             handler: async (argString: string) => this.saveFoundCoordinates(argString)
+        };
+    }
+
+    protected createHighlightFoundCoordinatesTool(): ToolRequest {
+        return {
+            id: 'geoapp.coordinates.highlight-found',
+            name: 'highlight_found_coordinates_on_map',
+            description: 'Ajoute un point temporaire sur la carte pour une coordonnee trouvee ou candidate, sans sauvegarder la geocache. Utile meme si la coordonnee est incertaine.',
+            providerName: FoundCoordinatesToolsManager.PROVIDER_NAME,
+            parameters: {
+                type: 'object',
+                properties: {
+                    geocache_id: {
+                        type: 'number',
+                        description: 'ID GeoApp de la geocache associee.'
+                    },
+                    gc_code: {
+                        type: 'string',
+                        description: 'Code GC associe, si connu.'
+                    },
+                    coordinates_raw: {
+                        type: 'string',
+                        description: 'Coordonnee au format geocaching, ex: N 50° 17.090 W 107° 49.238.'
+                    },
+                    latitude: {
+                        type: 'number',
+                        description: 'Latitude decimale si coordinates_raw n est pas disponible.'
+                    },
+                    longitude: {
+                        type: 'number',
+                        description: 'Longitude decimale si coordinates_raw n est pas disponible.'
+                    },
+                    confidence: {
+                        type: 'number',
+                        description: 'Confiance ou plausibilite entre 0 et 1, meme faible.'
+                    },
+                    label: {
+                        type: 'string',
+                        description: 'Libelle affiche pour le point.'
+                    },
+                    note: {
+                        type: 'string',
+                        description: 'Contexte affiche dans la popup ou utilise comme note candidate.'
+                    },
+                    source: {
+                        type: 'string',
+                        description: 'Outil ou calcul source, ex: coordinate_projection.'
+                    },
+                    replace_existing: {
+                        type: 'boolean',
+                        description: 'True pour remplacer les points temporaires precedents. False pour ajouter un point en plus.'
+                    }
+                },
+                additionalProperties: false
+            } as ToolRequestParameters,
+            handler: async (argString: string) => this.highlightFoundCoordinates(argString)
         };
     }
 
@@ -177,6 +238,58 @@ export class FoundCoordinatesToolsManager implements FrontendApplicationContribu
             return this.stringify({
                 status: 'error',
                 error: getErrorMessage(error, 'Erreur lors de la sauvegarde des coordonnees trouvees')
+            });
+        }
+    }
+
+    protected async highlightFoundCoordinates(argString: string): Promise<ToolCallResult> {
+        try {
+            const args = this.parseArguments(argString) as SaveFoundCoordinatesArgs & {
+                gc_code?: string;
+                replace_existing?: boolean;
+            };
+            const coordinates = this.resolveCoordinates(args);
+            if (!coordinates) {
+                return this.stringify({
+                    status: 'error',
+                    error: 'Fournis coordinates_raw ou latitude + longitude.'
+                });
+            }
+
+            const confidence = this.toNumber(args.confidence);
+            const source = (args.source || 'GeoApp Chat').trim();
+            const label = (args.label || 'Coordonnee candidate IA').trim();
+            const note = [
+                args.note?.trim(),
+                confidence !== undefined ? `Confiance: ${confidence}` : undefined,
+                `Source: ${source}`
+            ].filter((part): part is string => Boolean(part)).join('\n');
+
+            this.mapService.highlightDetectedCoordinate({
+                latitude: coordinates.latitude,
+                longitude: coordinates.longitude,
+                formatted: coordinates.coordinatesRaw,
+                geocacheId: this.toNumber(args.geocache_id),
+                gcCode: typeof args.gc_code === 'string' ? args.gc_code.trim() : undefined,
+                pluginName: source,
+                waypointTitle: label,
+                waypointNote: note,
+                sourceResultText: note,
+                replaceExisting: args.replace_existing !== false
+            });
+
+            return this.stringify({
+                status: 'ok',
+                action: 'highlighted_on_map',
+                coordinates_raw: coordinates.coordinatesRaw,
+                latitude: coordinates.latitude,
+                longitude: coordinates.longitude,
+                confidence
+            });
+        } catch (error) {
+            return this.stringify({
+                status: 'error',
+                error: getErrorMessage(error, 'Erreur lors de l ajout du point temporaire sur la carte')
             });
         }
     }
@@ -292,6 +405,61 @@ export class FoundCoordinatesToolsManager implements FrontendApplicationContribu
             return undefined;
         }
         return trimmed.replace(/\s*,\s*/g, ' ').replace(/\s+/g, ' ');
+    }
+
+    protected resolveCoordinates(args: SaveFoundCoordinatesArgs): { coordinatesRaw: string; latitude: number; longitude: number } | undefined {
+        const raw = this.normalizeCoordinatesRaw(args.coordinates_raw);
+        if (raw) {
+            const parsed = this.parseCoordinatesRaw(raw);
+            if (parsed) {
+                return {
+                    coordinatesRaw: raw,
+                    latitude: parsed.latitude,
+                    longitude: parsed.longitude
+                };
+            }
+        }
+
+        const latitude = this.toNumber(args.latitude);
+        const longitude = this.toNumber(args.longitude);
+        const formatted = this.formatDecimalCoordinates(latitude, longitude);
+        if (latitude === undefined || longitude === undefined || !formatted) {
+            return undefined;
+        }
+        return { coordinatesRaw: formatted, latitude, longitude };
+    }
+
+    protected parseCoordinatesRaw(value: string): { latitude: number; longitude: number } | undefined {
+        const normalized = value.replace(/\s*,\s*/g, ' ').replace(/\s+/g, ' ').trim();
+        const degreeSymbol = `[${String.fromCharCode(176)}${String.fromCharCode(186)}]`;
+        const pattern = new RegExp(`([NS])\\s*(\\d{1,2})\\s*${degreeSymbol}\\s*(\\d{1,2}(?:\\.\\d+)?)\\s*([EW])\\s*(\\d{1,3})\\s*${degreeSymbol}\\s*(\\d{1,2}(?:\\.\\d+)?)`, 'i');
+        const match = normalized.match(pattern);
+        if (!match) {
+            return undefined;
+        }
+
+        const latDeg = Number(match[2]);
+        const latMin = Number(match[3]);
+        const lonDeg = Number(match[5]);
+        const lonMin = Number(match[6]);
+        if (![latDeg, latMin, lonDeg, lonMin].every(Number.isFinite)) {
+            return undefined;
+        }
+
+        let latitude = latDeg + latMin / 60;
+        let longitude = lonDeg + lonMin / 60;
+        if (match[1].toUpperCase() === 'S') {
+            latitude = -latitude;
+        }
+        if (match[4].toUpperCase() === 'W') {
+            longitude = -longitude;
+        }
+
+        if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
+            return undefined;
+        }
+
+        return { latitude, longitude };
     }
 
     protected formatDecimalCoordinates(latitude: number | undefined, longitude: number | undefined): string | undefined {

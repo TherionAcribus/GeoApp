@@ -113,6 +113,7 @@ abstract class BaseGeoAppChatAgent extends AbstractStreamParsingChatAgent {
             'plugin.metasolver',
             'plugin.coordinate_projection',
             'geoapp.coordinates.save-found',
+            'geoapp.coordinates.highlight-found',
             'formula-solver.detect-formula',
             'formula-solver.find-questions',
             'formula-solver.search-answer',
