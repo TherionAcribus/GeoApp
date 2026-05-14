@@ -40,7 +40,7 @@
 .geoapp-chat-policy-actions,
 .geoapp-chat-policy-controls,
 .geoapp-chat-policy-summary,
-.geoapp-chat-policy-skills > div,
+.geoapp-chat-policy-skill-badges,
 .geoapp-chat-policy-flags {
     display: flex;
     align-items: center;
@@ -59,14 +59,16 @@
 
 .geoapp-chat-policy-controls select,
 .geoapp-chat-policy-import textarea,
-.geoapp-chat-policy-category select {
+.geoapp-chat-policy-category select,
+.geoapp-chat-policy-skill-table select {
     color: var(--theia-input-foreground);
     background: var(--theia-input-background);
     border: 1px solid var(--theia-input-border);
 }
 
 .geoapp-chat-policy-controls select,
-.geoapp-chat-policy-category select {
+.geoapp-chat-policy-category select,
+.geoapp-chat-policy-skill-table select {
     height: 26px;
 }
 
@@ -133,6 +135,47 @@
     gap: 18px;
 }
 
+.geoapp-chat-policy-skill-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 12px;
+}
+
+.geoapp-chat-policy-skill-table th,
+.geoapp-chat-policy-skill-table td {
+    border-bottom: 1px solid var(--theia-layout-color3);
+    padding: 7px 8px;
+    text-align: left;
+    vertical-align: top;
+}
+
+.geoapp-chat-policy-skill-table th {
+    color: var(--theia-ui-font-color2);
+    font-weight: 600;
+    background: var(--theia-editorWidget-background);
+}
+
+.geoapp-chat-policy-skill-table th:nth-child(1),
+.geoapp-chat-policy-skill-table td:nth-child(1) {
+    width: 116px;
+}
+
+.geoapp-chat-policy-skill-table th:nth-child(2),
+.geoapp-chat-policy-skill-table td:nth-child(2) {
+    width: 26%;
+}
+
+.geoapp-chat-policy-skill-table th:nth-child(3),
+.geoapp-chat-policy-skill-table td:nth-child(3) {
+    width: 180px;
+}
+
+.geoapp-chat-policy-skill-table th:nth-child(5),
+.geoapp-chat-policy-skill-table td:nth-child(5) {
+    width: 112px;
+}
+
 .geoapp-chat-policy-category {
     display: flex;
     flex-direction: column;
@@ -196,9 +239,27 @@
     line-height: 1.35;
 }
 
-.geoapp-chat-policy-category code {
+.geoapp-chat-policy-category code,
+.geoapp-chat-policy-skill-table code {
     word-break: break-word;
     color: var(--theia-textCodeBlock-foreground);
+}
+
+.geoapp-chat-policy-skill-table td strong,
+.geoapp-chat-policy-skill-table td small {
+    display: block;
+}
+
+.geoapp-chat-policy-skill-table td small {
+    margin-top: 3px;
+    color: var(--theia-ui-font-color2);
+    line-height: 1.35;
+}
+
+.geoapp-chat-policy-tool-list {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
 }
 
 .geoapp-chat-policy-status,

@@ -18,6 +18,8 @@ export const GEOAPP_CHAT_BEHAVIOR_HIDDEN_CONTENT_PROFILE_PREF = 'geoApp.chat.beh
 export const GEOAPP_CHAT_BEHAVIOR_IMAGE_PUZZLE_PROFILE_PREF = 'geoApp.chat.behaviorProfile.workflow.imagePuzzle';
 export const GEOAPP_CHAT_PROMPT_PACK_PREF = 'geoApp.chat.promptPack';
 export const GEOAPP_CHAT_TOOL_POLICY_OVERRIDES_PREF = 'geoApp.chat.toolPolicy.overrides';
+export const GEOAPP_CHAT_SKILL_PACK_PREF = 'geoApp.chat.skillPack';
+export const GEOAPP_CHAT_SKILL_POLICY_OVERRIDES_PREF = 'geoApp.chat.skillPolicy.overrides';
 
 export type GeoAppChatProfile = 'local' | 'fast' | 'strong' | 'web';
 export type GeoAppChatWorkflowProfile = 'default' | GeoAppChatProfile;
@@ -25,6 +27,7 @@ export type GeoAppChatWorkflowKind = 'general' | 'secret_code' | 'formula' | 'ch
 export type GeoAppChatBehaviorProfile = 'guided' | 'safe' | 'offline' | 'automation' | 'debug';
 export type GeoAppChatWorkflowBehaviorProfile = 'default' | GeoAppChatBehaviorProfile;
 export type GeoAppChatSessionKind = 'auto' | 'libre';
+export type GeoAppChatSkillPack = 'workflow' | 'minimal' | 'full' | 'disabled';
 
 export const GeoAppChatAgentIdsByProfile: Record<GeoAppChatProfile, string> = {
     local: GeoAppChatLocalAgentId,

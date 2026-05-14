@@ -39,6 +39,7 @@ export {
     GeoAppChatBehaviorProfile,
     GeoAppChatWorkflowBehaviorProfile,
     GeoAppChatSessionKind,
+    GeoAppChatSkillPack,
     GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF,
     GEOAPP_CHAT_BEHAVIOR_SECRET_CODE_PROFILE_PREF,
     GEOAPP_CHAT_BEHAVIOR_FORMULA_PROFILE_PREF,
@@ -47,6 +48,8 @@ export {
     GEOAPP_CHAT_BEHAVIOR_IMAGE_PUZZLE_PROFILE_PREF,
     GEOAPP_CHAT_PROMPT_PACK_PREF,
     GEOAPP_CHAT_TOOL_POLICY_OVERRIDES_PREF,
+    GEOAPP_CHAT_SKILL_PACK_PREF,
+    GEOAPP_CHAT_SKILL_POLICY_OVERRIDES_PREF,
     GeoAppChatAgentIdsByProfile,
 } from './geoapp-chat-shared';
 import {

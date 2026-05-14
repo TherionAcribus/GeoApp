@@ -14,14 +14,18 @@ import {
     GEOAPP_CHAT_BEHAVIOR_IMAGE_PUZZLE_PROFILE_PREF,
     GEOAPP_CHAT_BEHAVIOR_SECRET_CODE_PROFILE_PREF,
     GEOAPP_CHAT_PROMPT_PACK_PREF,
+    GEOAPP_CHAT_SKILL_PACK_PREF,
+    GEOAPP_CHAT_SKILL_POLICY_OVERRIDES_PREF,
     GEOAPP_CHAT_TOOL_POLICY_OVERRIDES_PREF,
     GeoAppChatBehaviorProfile,
+    GeoAppChatSkillPack,
     GeoAppChatSessionKind,
     GeoAppChatWorkflowBehaviorProfile,
     GeoAppChatWorkflowKind,
 } from './geoapp-chat-shared';
-import { GeoAppChatPolicy, GeoAppChatPolicyService, GeoAppChatToolOverride } from './geoapp-chat-policy-service';
+import { GeoAppChatPolicy, GeoAppChatPolicyService, GeoAppChatSkillOverride, GeoAppChatToolOverride } from './geoapp-chat-policy-service';
 import { GeoAppAiToolCatalogEntry, GeoAppAiToolCategory, GeoAppAiToolRisk } from './geoapp-chat-tool-catalog';
+import { GeoAppChatSkillMetadata } from './geoapp-chat-skills';
 
 const WORKFLOW_OPTIONS: Array<{ value: GeoAppChatWorkflowKind; label: string }> = [
     { value: 'general', label: 'General' },
@@ -39,6 +43,13 @@ const BEHAVIOR_OPTIONS: Array<{ value: GeoAppChatWorkflowBehaviorProfile; label:
     { value: 'offline', label: 'Offline' },
     { value: 'automation', label: 'Automation' },
     { value: 'debug', label: 'Debug' },
+];
+
+const SKILL_PACK_OPTIONS: Array<{ value: GeoAppChatSkillPack; label: string }> = [
+    { value: 'workflow', label: 'Workflow' },
+    { value: 'minimal', label: 'Minimal' },
+    { value: 'full', label: 'Full' },
+    { value: 'disabled', label: 'Disabled' },
 ];
 
 const CATEGORY_ORDER: GeoAppAiToolCategory[] = [
@@ -61,6 +72,8 @@ const POLICY_DEFAULTS: Record<string, unknown> = {
     [GEOAPP_CHAT_BEHAVIOR_HIDDEN_CONTENT_PROFILE_PREF]: 'default',
     [GEOAPP_CHAT_BEHAVIOR_IMAGE_PUZZLE_PROFILE_PREF]: 'default',
     [GEOAPP_CHAT_PROMPT_PACK_PREF]: 'guided',
+    [GEOAPP_CHAT_SKILL_PACK_PREF]: 'workflow',
+    [GEOAPP_CHAT_SKILL_POLICY_OVERRIDES_PREF]: {},
     [GEOAPP_CHAT_TOOL_POLICY_OVERRIDES_PREF]: {},
 };
 
@@ -148,6 +161,12 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                             {BEHAVIOR_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
                         </select>
                     </label>
+                    <label>
+                        Skill pack
+                        <select value={policy.skillPack} onChange={event => { void this.setSkillPack(event.currentTarget.value as GeoAppChatSkillPack); }}>
+                            {SKILL_PACK_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        </select>
+                    </label>
                 </section>
 
                 <section className='geoapp-chat-policy-summary'>
@@ -161,10 +180,11 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                 </section>
 
                 <section className='geoapp-chat-policy-skills'>
-                    <h3>Skills GeoApp recommandes</h3>
-                    <div>
+                    <h3>Skills GeoApp actifs</h3>
+                    <div className='geoapp-chat-policy-skill-badges'>
                         {policy.recommendedSkillNames.map(skillName => <span key={skillName}>{skillName}</span>)}
                     </div>
+                    {this.renderSkillTable(policy)}
                 </section>
 
                 <section className='geoapp-chat-policy-import'>
@@ -246,6 +266,59 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
         );
     }
 
+    protected renderSkillTable(policy: GeoAppChatPolicy): React.ReactNode {
+        return (
+            <table className='geoapp-chat-policy-skill-table'>
+                <thead>
+                    <tr>
+                        <th>Statut</th>
+                        <th>Skill</th>
+                        <th>Workflows</th>
+                        <th>Tools associes</th>
+                        <th>Override</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {policy.skillEntries.map(skill => this.renderSkillRow(skill, policy))}
+                </tbody>
+            </table>
+        );
+    }
+
+    protected renderSkillRow(skill: GeoAppChatSkillMetadata, policy: GeoAppChatPolicy): React.ReactNode {
+        const enabled = policy.recommendedSkillNames.includes(skill.name);
+        const override = this.getSkillOverride(skill.name);
+        return (
+            <tr key={skill.name}>
+                <td>
+                    <span className={`geoapp-chat-policy-status ${enabled ? 'enabled' : 'blocked'}`}>
+                        {enabled ? 'Actif' : 'Bloque'}
+                    </span>
+                </td>
+                <td>
+                    <strong>{skill.name}</strong>
+                    <small>{skill.description}</small>
+                </td>
+                <td>{skill.workflows.join(', ')}</td>
+                <td>
+                    <div className='geoapp-chat-policy-tool-list'>
+                        {skill.toolRegistryIds.map(toolId => <code key={toolId}>{toolId}</code>)}
+                    </div>
+                </td>
+                <td>
+                    <select
+                        value={override}
+                        onChange={event => { void this.setSkillOverride(skill.name, event.currentTarget.value as GeoAppChatSkillOverride); }}
+                    >
+                        <option value='default'>default</option>
+                        <option value='enabled'>enabled</option>
+                        <option value='disabled'>disabled</option>
+                    </select>
+                </td>
+            </tr>
+        );
+    }
+
     protected renderFlags(entry: GeoAppAiToolCatalogEntry): React.ReactNode {
         const flags = [
             entry.defaultEnabled ? 'default' : undefined,
@@ -318,6 +391,11 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
         this.update();
     }
 
+    protected async setSkillPack(value: GeoAppChatSkillPack): Promise<void> {
+        await this.preferenceService.set(GEOAPP_CHAT_SKILL_PACK_PREF, value, PreferenceScope.User);
+        this.update();
+    }
+
     protected setImportText(value: string): void {
         this.importText = value;
         this.update();
@@ -341,9 +419,41 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
         return {};
     }
 
+    protected getSkillOverrides(): Record<string, GeoAppChatSkillOverride | boolean> {
+        const raw = this.preferenceService.get(GEOAPP_CHAT_SKILL_POLICY_OVERRIDES_PREF, {});
+        if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+            return { ...(raw as Record<string, GeoAppChatSkillOverride | boolean>) };
+        }
+        if (typeof raw === 'string' && raw.trim()) {
+            try {
+                const parsed = JSON.parse(raw);
+                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                    return parsed as Record<string, GeoAppChatSkillOverride | boolean>;
+                }
+            } catch {
+                return {};
+            }
+        }
+        return {};
+    }
+
     protected getToolOverride(registryId: string): GeoAppChatToolOverride {
         const override = this.getToolOverrides()[registryId];
         if (override === 'enabled' || override === 'disabled' || override === 'confirm' || override === 'default') {
+            return override;
+        }
+        if (override === true) {
+            return 'enabled';
+        }
+        if (override === false) {
+            return 'disabled';
+        }
+        return 'default';
+    }
+
+    protected getSkillOverride(skillName: string): GeoAppChatSkillOverride {
+        const override = this.getSkillOverrides()[skillName];
+        if (override === 'enabled' || override === 'disabled' || override === 'default') {
             return override;
         }
         if (override === true) {
@@ -363,6 +473,17 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
             overrides[registryId] = value;
         }
         await this.preferenceService.set(GEOAPP_CHAT_TOOL_POLICY_OVERRIDES_PREF, overrides, PreferenceScope.User);
+        this.update();
+    }
+
+    protected async setSkillOverride(skillName: string, value: GeoAppChatSkillOverride): Promise<void> {
+        const overrides = this.getSkillOverrides();
+        if (value === 'default') {
+            delete overrides[skillName];
+        } else {
+            overrides[skillName] = value;
+        }
+        await this.preferenceService.set(GEOAPP_CHAT_SKILL_POLICY_OVERRIDES_PREF, overrides, PreferenceScope.User);
         this.update();
     }
 

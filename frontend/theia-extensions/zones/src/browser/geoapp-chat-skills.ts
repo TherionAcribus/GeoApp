@@ -1,4 +1,4 @@
-import { GeoAppChatWorkflowKind } from './geoapp-chat-shared';
+import { GeoAppChatSkillPack, GeoAppChatWorkflowKind } from './geoapp-chat-shared';
 
 export const GeoAppChatSkillNames = {
     formula: 'geoapp-formula',
@@ -15,6 +15,7 @@ export interface GeoAppChatSkillMetadata {
     label: string;
     description: string;
     workflows: GeoAppChatWorkflowKind[];
+    toolRegistryIds: string[];
     content: string;
 }
 
@@ -43,15 +44,25 @@ export const GeoAppChatSkills: GeoAppChatSkillMetadata[] = [
         label: 'Formules',
         description: 'Strategie GeoApp pour detecter des formules, rattacher les variables, chercher des reponses et calculer une finale.',
         workflows: ['formula', 'general'],
+        toolRegistryIds: [
+            'formula-solver.detect-formula',
+            'formula-solver.find-questions',
+            'formula-solver.search-answer',
+            'formula-solver.calculate-value',
+            'formula-solver.calculate-coordinates',
+            'plugin.coordinate_projection',
+            'plugin.coordinate_intersection',
+            'geoapp.coordinates.highlight-found',
+        ],
         content: `${skillFrontmatter(GeoAppChatSkillNames.formula, 'Strategie GeoApp pour resoudre les caches a formules.', [
-            'detect_formula',
-            'find_questions_for_variables',
-            'search_answer_online',
-            'calculate_variable_value',
-            'calculate_final_coordinates',
-            'coordinate_projection',
-            'coordinate_intersection',
-            'highlight_found_coordinates_on_map',
+            'formula-solver.detect-formula',
+            'formula-solver.find-questions',
+            'formula-solver.search-answer',
+            'formula-solver.calculate-value',
+            'formula-solver.calculate-coordinates',
+            'plugin.coordinate_projection',
+            'plugin.coordinate_intersection',
+            'geoapp.coordinates.highlight-found',
         ])}# GeoApp Formula Skill
 
 Use this skill when the cache looks like a formula puzzle, coordinate transform, variable substitution, bearing/distance problem, or factual Q/A puzzle.
@@ -87,11 +98,17 @@ Use this skill when the cache looks like a formula puzzle, coordinate transform,
         label: 'Checkers',
         description: 'Strategie GeoApp pour utiliser Certitude, Geocaching Solution Checker et autres checkers sans inventer d URL.',
         workflows: ['checker', 'formula', 'secret_code', 'general'],
+        toolRegistryIds: [
+            'geoapp.checkers.run',
+            'geoapp.checkers.session.ensure',
+            'geoapp.checkers.session.login',
+            'geoapp.checkers.session.reset',
+        ],
         content: `${skillFrontmatter(GeoAppChatSkillNames.checkers, 'Strategie GeoApp pour valider des candidats avec des checkers.', [
-            'run_checker',
-            'ensure_checker_session',
-            'login_checker_session',
-            'reset_checker_session',
+            'geoapp.checkers.run',
+            'geoapp.checkers.session.ensure',
+            'geoapp.checkers.session.login',
+            'geoapp.checkers.session.reset',
         ])}# GeoApp Checkers Skill
 
 Use this skill when the context lists a checker URL, a Geocaching solution checker, or a validation step.
@@ -124,10 +141,15 @@ Use this skill when the context lists a checker URL, a Geocaching solution check
         label: 'Images / OCR',
         description: 'Strategie GeoApp pour inspecter les images, OCR, QR codes et descriptions vision des caches image.',
         workflows: ['image_puzzle', 'hidden_content', 'general'],
+        toolRegistryIds: [
+            'geoapp.plugins.workflow.run-step',
+            'geoapp.plugins.metasolver.recommend',
+            'plugin.metasolver',
+        ],
         content: `${skillFrontmatter(GeoAppChatSkillNames.imagePuzzle, 'Strategie GeoApp pour les enigmes image, OCR et vision.', [
-            'run_geocache_workflow_step',
-            'recommend_metasolver_plugins',
-            'metasolver',
+            'geoapp.plugins.workflow.run-step',
+            'geoapp.plugins.metasolver.recommend',
+            'plugin.metasolver',
         ])}# GeoApp Image Puzzle Skill
 
 Use this skill when the cache depends on images, OCR, QR codes, visual descriptions, hidden image metadata, or image-linked text.
@@ -158,11 +180,17 @@ Use this skill when the cache depends on images, OCR, QR codes, visual descripti
         label: 'Codes secrets',
         description: 'Strategie GeoApp pour codes secrets, metasolver, plugins directs et contenu cache.',
         workflows: ['secret_code', 'hidden_content', 'image_puzzle', 'general'],
+        toolRegistryIds: [
+            'geoapp.plugins.workflow.resolve',
+            'geoapp.plugins.workflow.run-step',
+            'geoapp.plugins.metasolver.recommend',
+            'plugin.metasolver',
+        ],
         content: `${skillFrontmatter(GeoAppChatSkillNames.secretCode, 'Strategie GeoApp pour codes secrets et metasolver.', [
-            'resolve_geocache_workflow',
-            'run_geocache_workflow_step',
-            'recommend_metasolver_plugins',
-            'metasolver',
+            'geoapp.plugins.workflow.resolve',
+            'geoapp.plugins.workflow.run-step',
+            'geoapp.plugins.metasolver.recommend',
+            'plugin.metasolver',
         ])}# GeoApp Secret Code Skill
 
 Use this skill when the cache contains encoded text, suspicious fragments, HTML/CSS hidden content, symbol alphabets, or metasolver recommendations.
@@ -194,12 +222,19 @@ Use this skill when the cache contains encoded text, suspicious fragments, HTML/
         label: 'Coordonnees',
         description: 'Strategie GeoApp pour analyser, projeter, verifier, afficher et sauvegarder des coordonnees candidates.',
         workflows: ['general', 'formula', 'checker', 'secret_code', 'hidden_content', 'image_puzzle'],
+        toolRegistryIds: [
+            'plugin.coordinate_projection',
+            'plugin.coordinate_intersection',
+            'formula-solver.calculate-coordinates',
+            'geoapp.coordinates.highlight-found',
+            'geoapp.coordinates.save-found',
+        ],
         content: `${skillFrontmatter(GeoAppChatSkillNames.coordinates, 'Strategie GeoApp pour coordonnees candidates et sauvegarde.', [
-            'coordinate_projection',
-            'coordinate_intersection',
-            'calculate_final_coordinates',
-            'highlight_found_coordinates_on_map',
-            'save_found_coordinates',
+            'plugin.coordinate_projection',
+            'plugin.coordinate_intersection',
+            'formula-solver.calculate-coordinates',
+            'geoapp.coordinates.highlight-found',
+            'geoapp.coordinates.save-found',
         ])}# GeoApp Coordinates Skill
 
 Use this skill whenever a candidate coordinate, projection, intersection, waypoint, or corrected coordinate appears.
@@ -236,7 +271,39 @@ export function getGeoAppChatSkill(name: string): GeoAppChatSkillMetadata | unde
     return GeoAppChatSkills.find(skill => skill.name === name);
 }
 
-export function getRecommendedGeoAppChatSkillNames(workflowKind?: GeoAppChatWorkflowKind): GeoAppChatSkillName[] {
+export function normalizeGeoAppChatSkillPack(value?: unknown): GeoAppChatSkillPack | undefined {
+    if (value === 'workflow' || value === 'minimal' || value === 'full' || value === 'disabled') {
+        return value;
+    }
+    return undefined;
+}
+
+export function getBaseGeoAppChatSkillNames(workflowKind?: GeoAppChatWorkflowKind, skillPack: GeoAppChatSkillPack = 'workflow'): GeoAppChatSkillName[] {
+    if (skillPack === 'disabled') {
+        return [];
+    }
+    if (skillPack === 'full') {
+        return getGeoAppChatSkillNames();
+    }
+    if (skillPack === 'minimal') {
+        if (workflowKind === 'formula') {
+            return [GeoAppChatSkillNames.formula, GeoAppChatSkillNames.coordinates];
+        }
+        if (workflowKind === 'checker') {
+            return [GeoAppChatSkillNames.checkers];
+        }
+        if (workflowKind === 'secret_code') {
+            return [GeoAppChatSkillNames.secretCode, GeoAppChatSkillNames.coordinates];
+        }
+        if (workflowKind === 'hidden_content') {
+            return [GeoAppChatSkillNames.secretCode];
+        }
+        if (workflowKind === 'image_puzzle') {
+            return [GeoAppChatSkillNames.imagePuzzle];
+        }
+        return [GeoAppChatSkillNames.coordinates];
+    }
+
     if (workflowKind === 'formula') {
         return [GeoAppChatSkillNames.formula, GeoAppChatSkillNames.coordinates, GeoAppChatSkillNames.checkers];
     }
@@ -253,6 +320,10 @@ export function getRecommendedGeoAppChatSkillNames(workflowKind?: GeoAppChatWork
         return [GeoAppChatSkillNames.imagePuzzle, GeoAppChatSkillNames.secretCode, GeoAppChatSkillNames.coordinates];
     }
     return [GeoAppChatSkillNames.coordinates, GeoAppChatSkillNames.secretCode, GeoAppChatSkillNames.formula];
+}
+
+export function getRecommendedGeoAppChatSkillNames(workflowKind?: GeoAppChatWorkflowKind, skillPack: GeoAppChatSkillPack = 'workflow'): GeoAppChatSkillName[] {
+    return getBaseGeoAppChatSkillNames(workflowKind, skillPack);
 }
 
 export function isGeoAppManagedSkillContent(content: string): boolean {

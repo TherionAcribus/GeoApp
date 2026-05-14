@@ -11,17 +11,27 @@ import {
     GEOAPP_CHAT_BEHAVIOR_IMAGE_PUZZLE_PROFILE_PREF,
     GEOAPP_CHAT_BEHAVIOR_SECRET_CODE_PROFILE_PREF,
     GEOAPP_CHAT_PROMPT_PACK_PREF,
+    GEOAPP_CHAT_SKILL_PACK_PREF,
+    GEOAPP_CHAT_SKILL_POLICY_OVERRIDES_PREF,
     GEOAPP_CHAT_TOOL_POLICY_OVERRIDES_PREF,
     GeoAppChatBehaviorProfile,
+    GeoAppChatSkillPack,
     GeoAppChatSessionKind,
     GeoAppChatWorkflowKind,
     normalizeGeoAppChatBehaviorProfile,
     resolveGeoAppChatBehaviorProfileForWorkflow,
 } from './geoapp-chat-shared';
 import { GeoAppAiToolCatalog, GeoAppAiToolCatalogEntry } from './geoapp-chat-tool-catalog';
-import { GeoAppChatSkillName, getRecommendedGeoAppChatSkillNames } from './geoapp-chat-skills';
+import {
+    GeoAppChatSkillMetadata,
+    GeoAppChatSkillName,
+    GeoAppChatSkills,
+    getRecommendedGeoAppChatSkillNames,
+    normalizeGeoAppChatSkillPack,
+} from './geoapp-chat-skills';
 
 export type GeoAppChatToolOverride = 'default' | 'enabled' | 'disabled' | 'confirm';
+export type GeoAppChatSkillOverride = 'default' | 'enabled' | 'disabled';
 
 export interface GeoAppChatPolicy {
     behaviorProfile: GeoAppChatBehaviorProfile;
@@ -32,7 +42,10 @@ export interface GeoAppChatPolicy {
     confirmToolIds: Set<string>;
     disabledToolIds: Set<string>;
     entries: GeoAppAiToolCatalogEntry[];
+    skillPack: GeoAppChatSkillPack;
+    skillEntries: GeoAppChatSkillMetadata[];
     recommendedSkillNames: GeoAppChatSkillName[];
+    disabledSkillNames: Set<GeoAppChatSkillName>;
 }
 
 interface GeoAppChatSessionCommonSettings {
@@ -63,11 +76,19 @@ export class GeoAppChatPolicyService {
         const promptPack = normalizeGeoAppChatBehaviorProfile(
             this.preferenceService.get(GEOAPP_CHAT_PROMPT_PACK_PREF, behaviorProfile)
         ) || behaviorProfile;
+        const skillPack = normalizeGeoAppChatSkillPack(
+            this.preferenceService.get(GEOAPP_CHAT_SKILL_PACK_PREF, 'workflow')
+        ) || 'workflow';
         const overrides = this.readToolOverrides();
+        const skillOverrides = this.readSkillOverrides();
         const entries = this.catalog.getEntries();
         const enabledToolIds = new Set<string>();
         const confirmToolIds = new Set<string>();
         const disabledToolIds = new Set<string>();
+        const baseSkillNames = getRecommendedGeoAppChatSkillNames(workflowKind, skillPack);
+        const baseSkillNameSet = new Set(baseSkillNames);
+        const recommendedSkillNames: GeoAppChatSkillName[] = [];
+        const disabledSkillNames = new Set<GeoAppChatSkillName>();
 
         for (const entry of entries) {
             const profileDecision = this.getProfileDecision(entry, behaviorProfile);
@@ -85,6 +106,24 @@ export class GeoAppChatPolicyService {
             }
         }
 
+        const orderedSkillNames = [
+            ...baseSkillNames,
+            ...GeoAppChatSkills
+                .map(skill => skill.name)
+                .filter(name => !baseSkillNameSet.has(name) && skillOverrides[name] === 'enabled'),
+        ];
+        for (const skillName of orderedSkillNames) {
+            if (skillOverrides[skillName] !== 'disabled') {
+                recommendedSkillNames.push(skillName);
+            }
+        }
+        const recommendedSkillNameSet = new Set(recommendedSkillNames);
+        for (const skill of GeoAppChatSkills) {
+            if (!recommendedSkillNameSet.has(skill.name)) {
+                disabledSkillNames.add(skill.name);
+            }
+        }
+
         return {
             behaviorProfile,
             promptPack,
@@ -94,7 +133,10 @@ export class GeoAppChatPolicyService {
             confirmToolIds,
             disabledToolIds,
             entries,
-            recommendedSkillNames: getRecommendedGeoAppChatSkillNames(workflowKind),
+            skillPack,
+            skillEntries: GeoAppChatSkills,
+            recommendedSkillNames,
+            disabledSkillNames,
         };
     }
 
@@ -121,14 +163,15 @@ export class GeoAppChatPolicyService {
             'Politique GeoApp active :',
             `- Profil comportemental : ${policy.behaviorProfile}`,
             `- Prompt pack : ${policy.promptPack}`,
+            `- Skill pack : ${policy.skillPack}`,
             policy.workflowKind ? `- Workflow : ${policy.workflowKind}` : undefined,
             policy.sessionKind ? `- Session : ${policy.sessionKind}` : undefined,
             '',
             policy.recommendedSkillNames.length
-                ? `Skills GeoApp recommandes : ${policy.recommendedSkillNames.join(', ')}`
+                ? `Skills GeoApp actifs : ${policy.recommendedSkillNames.join(', ')}`
                 : undefined,
             policy.recommendedSkillNames.length
-                ? 'Charge les skills recommandes avec getSkillFileContent avant d appliquer leurs strategies detaillees, si le tool est disponible.'
+                ? 'Charge les skills actifs avec getSkillFileContent avant d appliquer leurs strategies detaillees, si le tool est disponible.'
                 : undefined,
             '',
             'Tools exposes au modele :',
@@ -234,6 +277,24 @@ export class GeoAppChatPolicyService {
                 const parsed = JSON.parse(raw);
                 if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
                     return parsed as Record<string, GeoAppChatToolOverride | boolean>;
+                }
+            } catch {
+                return {};
+            }
+        }
+        return {};
+    }
+
+    protected readSkillOverrides(): Record<string, GeoAppChatSkillOverride | boolean> {
+        const raw = this.preferenceService.get(GEOAPP_CHAT_SKILL_POLICY_OVERRIDES_PREF, {});
+        if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+            return raw as Record<string, GeoAppChatSkillOverride | boolean>;
+        }
+        if (typeof raw === 'string' && raw.trim()) {
+            try {
+                const parsed = JSON.parse(raw);
+                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                    return parsed as Record<string, GeoAppChatSkillOverride | boolean>;
                 }
             } catch {
                 return {};

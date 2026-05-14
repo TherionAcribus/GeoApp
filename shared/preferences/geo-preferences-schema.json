@@ -542,6 +542,44 @@
         "prompt"
       ]
     },
+    "geoApp.chat.skillPack": {
+      "type": "string",
+      "title": "Chat IA - Pack de skills",
+      "enum": [
+        "workflow",
+        "minimal",
+        "full",
+        "disabled"
+      ],
+      "default": "workflow",
+      "description": "Pack de skills GeoApp actif. 'workflow' choisit les skills selon le workflow courant, 'minimal' limite au strict necessaire, 'full' expose tous les skills, 'disabled' les coupe sauf override explicite.",
+      "x-category": "chat",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "chat",
+        "geoapp",
+        "skills",
+        "policy"
+      ]
+    },
+    "geoApp.chat.skillPolicy.overrides": {
+      "type": "object",
+      "title": "Chat IA - Overrides skills",
+      "default": {},
+      "description": "Overrides par nom de skill GeoApp. Valeurs supportees: \"enabled\", \"disabled\" ou \"default\".",
+      "x-category": "chat",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "chat",
+        "geoapp",
+        "skills",
+        "policy"
+      ]
+    },
     "geoApp.chat.toolPolicy.overrides": {
       "type": "object",
       "title": "Chat IA - Overrides tools",

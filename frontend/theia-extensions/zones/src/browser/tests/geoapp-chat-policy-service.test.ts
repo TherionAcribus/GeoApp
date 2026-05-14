@@ -99,6 +99,7 @@ function testGuidedProfileEnablesDefaultsAndConfirmsRiskyTools(): void {
     assert.equal(policy.confirmToolIds.has('formula-solver.search-answer'), true);
     assert.equal(policy.confirmToolIds.has('geoapp.plugins.workflow.run-step'), true);
     assert.equal(policy.confirmToolIds.has('plugin.coordinate_projection'), false);
+    assert.equal(policy.skillPack, 'workflow');
     assert.deepEqual(policy.recommendedSkillNames, [
         GeoAppChatSkillNames.coordinates,
         GeoAppChatSkillNames.secretCode,
@@ -137,6 +138,34 @@ function testOverridesDisableAndForceConfirmationByRegistryId(): void {
     assert.ok(policyService.getManagedToolRequests(policy).find(request => request.name === 'dynamic_ocr')?.confirmAlwaysAllow);
 }
 
+function testSkillPackAndOverrides(): void {
+    const { policyService } = createServices({
+        'geoApp.chat.skillPack': 'minimal',
+        'geoApp.chat.skillPolicy.overrides': {
+            [GeoAppChatSkillNames.checkers]: 'enabled',
+            [GeoAppChatSkillNames.coordinates]: 'disabled',
+        },
+    });
+    const policy = policyService.resolvePolicy({
+        session: {
+            settings: {
+                commonSettings: {
+                    geoapp: {
+                        workflowKind: 'formula',
+                    },
+                },
+            },
+        },
+    } as any);
+
+    assert.equal(policy.skillPack, 'minimal');
+    assert.deepEqual(policy.recommendedSkillNames, [
+        GeoAppChatSkillNames.formula,
+        GeoAppChatSkillNames.checkers,
+    ]);
+    assert.equal(policy.disabledSkillNames.has(GeoAppChatSkillNames.coordinates), true);
+}
+
 function testWorkflowSpecificBehaviorProfile(): void {
     const { policyService } = createServices({
         'geoApp.chat.behaviorProfile.default': 'guided',
@@ -170,6 +199,7 @@ function testGeoAppSkillDefinitionsAreValid(): void {
         assert.ok(skill.content.includes('allowedTools:'));
         assert.ok(isGeoAppManagedSkillContent(skill.content));
         assert.ok(skill.workflows.length > 0);
+        assert.ok(skill.toolRegistryIds.length > 0);
     }
 }
 
@@ -178,6 +208,7 @@ function run(): void {
     testGuidedProfileEnablesDefaultsAndConfirmsRiskyTools();
     testOfflineProfileRemovesNetworkAndHighRiskTools();
     testOverridesDisableAndForceConfirmationByRegistryId();
+    testSkillPackAndOverrides();
     testWorkflowSpecificBehaviorProfile();
     testGeoAppSkillDefinitionsAreValid();
     // eslint-disable-next-line no-console
