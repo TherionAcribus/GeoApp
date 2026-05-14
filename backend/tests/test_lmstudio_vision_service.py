@@ -7,6 +7,7 @@ from gc_backend.services.ocr.lmstudio_vision_service import (
     build_openai_vision_payload,
     extract_text_from_openai_response,
     normalize_lmstudio_base_url,
+    normalize_openai_compatible_base_url,
 )
 
 
@@ -16,6 +17,20 @@ def test_normalize_lmstudio_base_url_adds_v1():
 
 def test_normalize_lmstudio_base_url_keeps_v1():
     assert normalize_lmstudio_base_url('http://localhost:1234/v1') == 'http://localhost:1234/v1'
+
+
+def test_normalize_openrouter_base_url_uses_api_v1():
+    assert normalize_openai_compatible_base_url(
+        'https://openrouter.ai',
+        'https://openrouter.ai/api/v1',
+    ) == 'https://openrouter.ai/api/v1'
+
+
+def test_normalize_openrouter_chat_completion_url():
+    assert normalize_openai_compatible_base_url(
+        'https://openrouter.ai/api/v1/chat/completions',
+        'https://openrouter.ai/api/v1',
+    ) == 'https://openrouter.ai/api/v1'
 
 
 def test_build_openai_vision_payload_contains_data_url():

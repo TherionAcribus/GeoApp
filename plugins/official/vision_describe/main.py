@@ -54,8 +54,37 @@ class VisionDescribePlugin:
 
         from gc_backend.utils.preferences import get_value_or_default
 
-        base_url = str(inputs.get("base_url") or get_value_or_default("geoApp.ocr.lmstudio.baseUrl", "http://localhost:1234"))
-        model = str(inputs.get("model") or get_value_or_default("geoApp.ocr.lmstudio.model", ""))
+        provider = str(inputs.get("provider") or get_value_or_default("geoApp.ocr.visionProvider", "lmstudio")).strip().lower()
+        if provider not in {"lmstudio", "openrouter"}:
+            provider = "lmstudio"
+
+        if provider == "openrouter":
+            base_url = str(inputs.get("base_url") or get_value_or_default("geoApp.ai.openRouter.baseUrl", "https://openrouter.ai/api/v1"))
+            model = str(inputs.get("model") or get_value_or_default("geoApp.ocr.openRouter.model", "openai/gpt-4o-mini"))
+            api_key = str(inputs.get("api_key") or get_value_or_default("geoApp.ai.openRouter.apiKey", ""))
+        else:
+            base_url = str(inputs.get("base_url") or get_value_or_default("geoApp.ocr.lmstudio.baseUrl", "http://localhost:1234"))
+            model = str(inputs.get("model") or get_value_or_default("geoApp.ocr.lmstudio.model", ""))
+            api_key = str(inputs.get("api_key") or "")
+
+        if provider == "openrouter" and not api_key.strip():
+            return {
+                "status": "error",
+                "summary": "Cle OpenRouter manquante (geoApp.ai.openRouter.apiKey)",
+                "results": [],
+                "images_analyzed": 0,
+                "plugin_info": self._build_plugin_info(start),
+            }
+
+        if not model.strip():
+            return {
+                "status": "error",
+                "summary": f"Modele vision manquant pour {provider}",
+                "results": [],
+                "images_analyzed": 0,
+                "plugin_info": self._build_plugin_info(start),
+            }
+
         context = str(inputs.get("context") or "").strip()
 
         geocache = None
@@ -86,7 +115,7 @@ class VisionDescribePlugin:
             from gc_backend.services.ocr.lmstudio_vision_service import (
                 DEFAULT_DESCRIBE_PROMPT,
                 strip_thinking_blocks,
-                vision_ocr_via_lmstudio,
+                vision_ocr_via_openai_compatible,
             )
         except Exception as exc:
             summary = f"Service Vision indisponible: {exc}"
@@ -111,12 +140,14 @@ class VisionDescribePlugin:
             images_analyzed += 1
 
             try:
-                result = vision_ocr_via_lmstudio(
+                result = vision_ocr_via_openai_compatible(
                     image_bytes=content,
                     base_url=base_url,
                     model=model,
                     prompt=prompt,
                     timeout_sec=90,
+                    provider=provider,
+                    api_key=api_key,
                 )
             except Exception as exc:  # pragma: no cover
                 logger.warning("[vision_describe] Vision failed for {}: {}", full_url, exc)

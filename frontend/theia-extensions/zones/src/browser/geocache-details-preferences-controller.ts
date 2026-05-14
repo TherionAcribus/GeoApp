@@ -6,6 +6,7 @@ import { DescriptionVariant, GeocacheDto } from './geocache-details-types';
 export type GeocacheImagesStorageDefaultMode = 'never' | 'prompt' | 'always';
 export type GeocacheImagesGalleryThumbnailSize = 'small' | 'medium' | 'large';
 export type GeocacheOcrDefaultEngine = 'easyocr_ocr' | 'vision_ocr';
+export type GeocacheOcrVisionProvider = 'lmstudio' | 'openrouter';
 export type GeocacheExternalLinksOpenMode = 'new-tab' | 'new-window';
 export type CheckerLinkOpenMode = 'same-group' | 'new-group' | 'external-window';
 export type GcPersonalNoteAutoSyncMode = 'manual' | 'onNotesOpen' | 'onDetailsOpen';
@@ -21,8 +22,10 @@ export class GeocacheDetailsPreferencesController {
     private readonly imagesGalleryHiddenDomainsPreferenceKey = 'geoApp.images.gallery.hiddenDomains';
     private readonly ocrDefaultEnginePreferenceKey = 'geoApp.ocr.defaultEngine';
     private readonly ocrDefaultLanguagePreferenceKey = 'geoApp.ocr.defaultLanguage';
+    private readonly ocrVisionProviderPreferenceKey = 'geoApp.ocr.visionProvider';
     private readonly ocrLmstudioBaseUrlPreferenceKey = 'geoApp.ocr.lmstudio.baseUrl';
     private readonly ocrLmstudioModelPreferenceKey = 'geoApp.ocr.lmstudio.model';
+    private readonly ocrOpenRouterModelPreferenceKey = 'geoApp.ocr.openRouter.model';
 
     constructor(
         @inject(PreferenceService) protected readonly preferenceService: PreferenceService
@@ -115,6 +118,11 @@ export class GeocacheDetailsPreferencesController {
         return (raw || 'auto').toString();
     }
 
+    getOcrVisionProvider(): GeocacheOcrVisionProvider {
+        const raw = this.preferenceService.get(this.ocrVisionProviderPreferenceKey, 'lmstudio') as string;
+        return raw === 'openrouter' ? 'openrouter' : 'lmstudio';
+    }
+
     getOcrLmstudioBaseUrl(): string {
         const raw = this.preferenceService.get(this.ocrLmstudioBaseUrlPreferenceKey, 'http://localhost:1234') as string;
         return (raw || 'http://localhost:1234').toString();
@@ -123,6 +131,11 @@ export class GeocacheDetailsPreferencesController {
     getOcrLmstudioModel(): string {
         const raw = this.preferenceService.get(this.ocrLmstudioModelPreferenceKey, '') as string;
         return (raw || '').toString();
+    }
+
+    getOcrOpenRouterModel(): string {
+        const raw = this.preferenceService.get(this.ocrOpenRouterModelPreferenceKey, 'openai/gpt-4o-mini') as string;
+        return (raw || 'openai/gpt-4o-mini').toString();
     }
 
     getImagesGalleryHiddenDomains(): string[] {

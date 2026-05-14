@@ -162,9 +162,10 @@ export class GeoPreferencesWidget extends ReactWidget {
         return (
             <input
                 id={key}
-                type='text'
+                type={definition['x-sensitive'] ? 'password' : 'text'}
                 value={String(value ?? definition.default ?? '')}
-                    onChange={event => this.handleTextChange(key, event.currentTarget.value)}
+                autoComplete={definition['x-sensitive'] ? 'off' : undefined}
+                onChange={event => this.handleTextChange(key, event.currentTarget.value)}
             />
         );
     }
@@ -206,6 +207,7 @@ export class GeoPreferencesWidget extends ReactWidget {
             checkers: 'Checkers',
             plugins: 'Plugins',
             backend: 'Backend',
+            ocr: 'OCR',
             notes: 'Notes',
             generic: 'Général'
         };

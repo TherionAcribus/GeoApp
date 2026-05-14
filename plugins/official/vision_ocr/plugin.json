@@ -2,7 +2,7 @@
   "name": "vision_ocr",
   "version": "1.0.0",
   "plugin_api_version": "2.0",
-  "description": "OCR IA (vision) via endpoint OpenAI-compatible (LMStudio) sur images de géocache",
+  "description": "OCR IA (vision) via endpoint OpenAI-compatible (LMStudio ou OpenRouter) sur images de geocache",
   "author": "MysterAI",
   "plugin_type": "python",
   "entry_point": "main.py",
@@ -17,21 +17,31 @@
   "input_types": {
     "geocache_id": {
       "type": "string",
-      "label": "ID de la géocache",
+      "label": "ID de la geocache",
       "required": true,
       "default_value_source": "geocache_id"
     },
+    "provider": {
+      "type": "select",
+      "label": "Fournisseur vision",
+      "required": false,
+      "options": [
+        {"value": "lmstudio", "label": "LMStudio"},
+        {"value": "openrouter", "label": "OpenRouter"}
+      ],
+      "default": "lmstudio"
+    },
     "base_url": {
       "type": "string",
-      "label": "LMStudio base URL",
+      "label": "Base URL OpenAI-compatible",
       "required": false,
-      "placeholder": "http://localhost:1234"
+      "placeholder": "http://localhost:1234 ou https://openrouter.ai/api/v1"
     },
     "model": {
       "type": "string",
-      "label": "Modèle vision",
+      "label": "Modele vision",
       "required": false,
-      "placeholder": "ex: llava, qwen2-vl, ..."
+      "placeholder": "ex: llava, qwen2-vl, openai/gpt-4o-mini"
     },
     "language": {
       "type": "select",
@@ -39,7 +49,7 @@
       "required": false,
       "options": [
         {"value": "auto", "label": "Auto"},
-        {"value": "fr", "label": "Français"},
+        {"value": "fr", "label": "Francais"},
         {"value": "en", "label": "Anglais"}
       ],
       "default": "auto"
@@ -47,6 +57,6 @@
   },
   "output_types": {
     "ocr_text": {"type": "string", "label": "Texte OCR"},
-    "images_analyzed": {"type": "integer", "label": "Nombre d'images analysées"}
+    "images_analyzed": {"type": "integer", "label": "Nombre d'images analysees"}
   }
 }

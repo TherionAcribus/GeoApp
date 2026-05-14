@@ -1,4 +1,4 @@
-"""Vision OCR service using a LMStudio OpenAI-compatible endpoint.
+"""Vision OCR service using an OpenAI-compatible endpoint.
 
 This module sends an image as a data URL in the messages payload.
 """
@@ -59,16 +59,30 @@ def strip_thinking_blocks(text: str) -> str:
     return cleaned.strip()
 
 
-def normalize_lmstudio_base_url(base_url: str) -> str:
+def normalize_openai_compatible_base_url(base_url: str, default_base_url: str = "http://localhost:1234") -> str:
     """Normalize a base URL so it points to the OpenAI-compatible /v1 root."""
     raw = (base_url or "").strip()
     if not raw:
-        return "http://localhost:1234/v1"
+        raw = default_base_url
 
     raw = raw.rstrip("/")
+    raw = re.sub(r"/chat/completions/?$", "", raw, flags=re.IGNORECASE)
+    if "openrouter.ai" in raw.lower():
+        if raw.lower().endswith("/api/v1"):
+            return raw
+        if raw.lower().endswith("/api"):
+            return f"{raw}/v1"
+        if raw.lower().endswith("/v1"):
+            return re.sub(r"/v1$", "/api/v1", raw, flags=re.IGNORECASE)
+        return f"{raw}/api/v1"
     if raw.endswith("/v1"):
         return raw
     return f"{raw}/v1"
+
+
+def normalize_lmstudio_base_url(base_url: str) -> str:
+    """Normalize a LMStudio base URL so it points to the OpenAI-compatible /v1 root."""
+    return normalize_openai_compatible_base_url(base_url, "http://localhost:1234")
 
 
 def build_openai_vision_payload(*, model: str, prompt: str, image_bytes: bytes, max_tokens: int = 1024) -> Dict[str, Any]:
@@ -133,10 +147,37 @@ def vision_ocr_via_lmstudio(
     Raises:
         RuntimeError: if the endpoint returns an error or invalid payload.
     """
-    if not model or not str(model).strip():
-        raise RuntimeError("Missing model for LMStudio vision OCR")
+    return vision_ocr_via_openai_compatible(
+        image_bytes=image_bytes,
+        base_url=base_url,
+        model=model,
+        prompt=prompt,
+        timeout_sec=timeout_sec,
+        provider="lmstudio",
+    )
 
-    v1 = normalize_lmstudio_base_url(base_url)
+
+def vision_ocr_via_openai_compatible(
+    *,
+    image_bytes: bytes,
+    base_url: str,
+    model: str,
+    prompt: Optional[str] = None,
+    timeout_sec: int = 60,
+    provider: str = "openai-compatible",
+    api_key: Optional[str] = None,
+    extra_headers: Optional[Dict[str, str]] = None,
+) -> VisionOcrResult:
+    """Run OCR using a vision model exposed through an OpenAI-compatible API."""
+    provider_label = (provider or "openai-compatible").strip().lower() or "openai-compatible"
+
+    if not model or not str(model).strip():
+        raise RuntimeError(f"Missing model for {provider_label} vision OCR")
+
+    v1 = normalize_openai_compatible_base_url(
+        base_url,
+        "https://openrouter.ai/api/v1" if provider_label == "openrouter" else "http://localhost:1234",
+    )
     endpoint = f"{v1}/chat/completions"
 
     payload = build_openai_vision_payload(
@@ -145,24 +186,33 @@ def vision_ocr_via_lmstudio(
         image_bytes=image_bytes,
     )
 
-    logger.info("[vision_ocr] Sending request to %s (model=%s)", endpoint, model)
+    headers: Dict[str, str] = {"Content-Type": "application/json"}
+    clean_api_key = (api_key or "").strip()
+    if clean_api_key:
+        headers["Authorization"] = f"Bearer {clean_api_key}"
+    if provider_label == "openrouter":
+        headers.setdefault("X-OpenRouter-Title", "GeoApp")
+    if extra_headers:
+        headers.update({key: value for key, value in extra_headers.items() if value})
+
+    logger.info("[vision_ocr] Sending request to %s (provider=%s, model=%s)", endpoint, provider_label, model)
 
     try:
-        res = requests.post(endpoint, json=payload, timeout=timeout_sec)
+        res = requests.post(endpoint, json=payload, headers=headers, timeout=timeout_sec)
     except Exception as exc:  # pragma: no cover
-        raise RuntimeError(f"LMStudio request failed: {exc}") from exc
+        raise RuntimeError(f"{provider_label} request failed: {exc}") from exc
 
     if res.status_code >= 400:
-        raise RuntimeError(f"LMStudio HTTP {res.status_code}: {res.text[:500]}")
+        raise RuntimeError(f"{provider_label} HTTP {res.status_code}: {res.text[:500]}")
 
     try:
         data = res.json()
     except Exception as exc:
-        raise RuntimeError(f"LMStudio returned invalid JSON: {exc} ({res.text[:500]})") from exc
+        raise RuntimeError(f"{provider_label} returned invalid JSON: {exc} ({res.text[:500]})") from exc
 
     text = extract_text_from_openai_response(data).strip()
     text = strip_thinking_blocks(text)
     if not text:
-        raise RuntimeError("LMStudio returned an empty response")
+        raise RuntimeError(f"{provider_label} returned an empty response")
 
-    return VisionOcrResult(text=text, provider="lmstudio", model=str(model).strip())
+    return VisionOcrResult(text=text, provider=provider_label, model=str(model).strip())

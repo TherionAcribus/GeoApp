@@ -46,8 +46,10 @@ export interface GeocacheImagesPanelProps {
     onHiddenDomainsTextChange?: (value: string) => Promise<void> | void;
     ocrDefaultEngine?: 'easyocr_ocr' | 'vision_ocr';
     ocrDefaultLanguage?: string;
+    ocrVisionProvider?: 'lmstudio' | 'openrouter';
     ocrLmstudioBaseUrl?: string;
     ocrLmstudioModel?: string;
+    ocrOpenRouterModel?: string;
 }
 
 export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
@@ -65,8 +67,10 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     onHiddenDomainsTextChange,
     ocrDefaultEngine = 'easyocr_ocr',
     ocrDefaultLanguage = 'auto',
+    ocrVisionProvider = 'lmstudio',
     ocrLmstudioBaseUrl = 'http://localhost:1234',
     ocrLmstudioModel = '',
+    ocrOpenRouterModel = 'openai/gpt-4o-mini',
 }) => {
     const [images, setImages] = React.useState<GeocacheImageV2Dto[]>([]);
     const [isLoading, setIsLoading] = React.useState(false);
@@ -631,8 +635,13 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             };
 
             if (pluginName === 'vision_ocr') {
-                inputs.base_url = (ocrLmstudioBaseUrl || 'http://localhost:1234').toString();
-                inputs.model = (ocrLmstudioModel || '').toString();
+                inputs.provider = ocrVisionProvider === 'openrouter' ? 'openrouter' : 'lmstudio';
+                if (inputs.provider === 'openrouter') {
+                    inputs.model = (ocrOpenRouterModel || 'openai/gpt-4o-mini').toString();
+                } else {
+                    inputs.base_url = (ocrLmstudioBaseUrl || 'http://localhost:1234').toString();
+                    inputs.model = (ocrLmstudioModel || '').toString();
+                }
             }
 
             const res = await fetch(`${backendBaseUrl}/api/plugins/${pluginName}/execute`, {
@@ -1123,7 +1132,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             disabled: isSaving || isContextMenuOcrBusy,
         },
         {
-            label: 'OCR (IA - LMStudio)',
+            label: `OCR (IA - ${ocrVisionProvider === 'openrouter' ? 'OpenRouter' : 'LMStudio'})`,
             action: () => { void runOcrPluginForImage(contextMenu.imageId, 'vision_ocr'); },
             disabled: isSaving || isContextMenuOcrBusy,
         },

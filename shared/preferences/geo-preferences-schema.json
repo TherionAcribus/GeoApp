@@ -34,6 +34,110 @@
         "formula-solver"
       ]
     },
+    "geoApp.ai.openRouter.enabled": {
+      "type": "boolean",
+      "default": true,
+      "title": "OpenRouter - Activer",
+      "description": "Active l'enregistrement automatique des modeles OpenRouter dans la configuration IA Theia.",
+      "x-category": "ai",
+      "x-targets": [
+        "frontend",
+        "backend"
+      ],
+      "x-tags": [
+        "openrouter",
+        "cloud"
+      ]
+    },
+    "geoApp.ai.openRouter.apiKey": {
+      "type": "string",
+      "default": "",
+      "title": "OpenRouter - Cle API",
+      "description": "Cle API OpenRouter. Elle est stockee dans les preferences GeoApp; garde cette installation locale et privee.",
+      "x-category": "ai",
+      "x-targets": [
+        "frontend",
+        "backend"
+      ],
+      "x-tags": [
+        "openrouter",
+        "secret"
+      ],
+      "x-sensitive": true
+    },
+    "geoApp.ai.openRouter.baseUrl": {
+      "type": "string",
+      "default": "https://openrouter.ai/api/v1",
+      "title": "OpenRouter - URL API",
+      "description": "URL de base OpenRouter compatible OpenAI.",
+      "x-category": "ai",
+      "x-targets": [
+        "frontend",
+        "backend"
+      ],
+      "x-tags": [
+        "openrouter",
+        "network"
+      ]
+    },
+    "geoApp.ai.openRouter.model.fast": {
+      "type": "string",
+      "default": "openai/gpt-4o-mini",
+      "title": "OpenRouter - Modele Fast",
+      "description": "Modele OpenRouter utilise pour le profil GeoApp Fast.",
+      "x-category": "ai",
+      "x-targets": [
+        "frontend",
+        "backend"
+      ],
+      "x-tags": [
+        "openrouter",
+        "chat"
+      ]
+    },
+    "geoApp.ai.openRouter.model.strong": {
+      "type": "string",
+      "default": "openai/gpt-4o",
+      "title": "OpenRouter - Modele Strong",
+      "description": "Modele OpenRouter utilise pour le profil GeoApp Strong.",
+      "x-category": "ai",
+      "x-targets": [
+        "frontend",
+        "backend"
+      ],
+      "x-tags": [
+        "openrouter",
+        "chat"
+      ]
+    },
+    "geoApp.ai.openRouter.model.web": {
+      "type": "string",
+      "default": "openai/gpt-4o",
+      "title": "OpenRouter - Modele Web",
+      "description": "Modele OpenRouter utilise pour le profil GeoApp Web.",
+      "x-category": "ai",
+      "x-targets": [
+        "frontend",
+        "backend"
+      ],
+      "x-tags": [
+        "openrouter",
+        "chat"
+      ]
+    },
+    "geoApp.ai.openRouter.enableStreaming": {
+      "type": "boolean",
+      "default": true,
+      "title": "OpenRouter - Streaming",
+      "description": "Active le streaming pour les modeles OpenRouter enregistres dans Theia.",
+      "x-category": "ai",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "openrouter"
+      ]
+    },
     "geoApp.formulaSolver.defaultMethod": {
       "type": "string",
       "enum": [
@@ -656,6 +760,25 @@
         "frontend"
       ]
     },
+    "geoApp.ocr.visionProvider": {
+      "type": "string",
+      "enum": [
+        "lmstudio",
+        "openrouter"
+      ],
+      "default": "lmstudio",
+      "title": "OCR IA - Fournisseur vision",
+      "description": "Fournisseur utilise par le plugin OCR IA/vision.",
+      "x-category": "ocr",
+      "x-targets": [
+        "frontend",
+        "backend"
+      ],
+      "x-tags": [
+        "ai",
+        "vision"
+      ]
+    },
     "geoApp.ocr.lmstudio.baseUrl": {
       "type": "string",
       "default": "http://localhost:1234",
@@ -677,6 +800,21 @@
       "x-targets": [
         "frontend",
         "backend"
+      ]
+    },
+    "geoApp.ocr.openRouter.model": {
+      "type": "string",
+      "default": "openai/gpt-4o-mini",
+      "title": "OCR IA OpenRouter - Modele vision",
+      "description": "Identifiant du modele vision OpenRouter utilise par le plugin OCR IA.",
+      "x-category": "ocr",
+      "x-targets": [
+        "frontend",
+        "backend"
+      ],
+      "x-tags": [
+        "openrouter",
+        "vision"
       ]
     },
     "geoApp.search.autoRefreshDelay": {

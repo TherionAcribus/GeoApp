@@ -55,8 +55,36 @@ class VisionOCRPlugin:
 
         from gc_backend.utils.preferences import get_value_or_default
 
-        base_url = str(inputs.get("base_url") or get_value_or_default("geoApp.ocr.lmstudio.baseUrl", "http://localhost:1234"))
-        model = str(inputs.get("model") or get_value_or_default("geoApp.ocr.lmstudio.model", ""))
+        provider = str(inputs.get("provider") or get_value_or_default("geoApp.ocr.visionProvider", "lmstudio")).strip().lower()
+        if provider not in {"lmstudio", "openrouter"}:
+            provider = "lmstudio"
+
+        if provider == "openrouter":
+            base_url = str(inputs.get("base_url") or get_value_or_default("geoApp.ai.openRouter.baseUrl", "https://openrouter.ai/api/v1"))
+            model = str(inputs.get("model") or get_value_or_default("geoApp.ocr.openRouter.model", "openai/gpt-4o-mini"))
+            api_key = str(inputs.get("api_key") or get_value_or_default("geoApp.ai.openRouter.apiKey", ""))
+        else:
+            base_url = str(inputs.get("base_url") or get_value_or_default("geoApp.ocr.lmstudio.baseUrl", "http://localhost:1234"))
+            model = str(inputs.get("model") or get_value_or_default("geoApp.ocr.lmstudio.model", ""))
+            api_key = str(inputs.get("api_key") or "")
+
+        if provider == "openrouter" and not api_key.strip():
+            return {
+                "status": "error",
+                "summary": "Cle OpenRouter manquante (geoApp.ai.openRouter.apiKey)",
+                "results": [],
+                "images_analyzed": 0,
+                "plugin_info": self._build_plugin_info(start),
+            }
+
+        if not model.strip():
+            return {
+                "status": "error",
+                "summary": f"Modele vision manquant pour {provider}",
+                "results": [],
+                "images_analyzed": 0,
+                "plugin_info": self._build_plugin_info(start),
+            }
 
         geocache = None
         if geocache_id_raw is not None:
@@ -85,7 +113,7 @@ class VisionOCRPlugin:
         try:
             from gc_backend.services.ocr.lmstudio_vision_service import (
                 DEFAULT_STRICT_PROMPT,
-                vision_ocr_via_lmstudio,
+                vision_ocr_via_openai_compatible,
             )
         except Exception as exc:
             summary = f"Service Vision OCR indisponible: {exc}"
@@ -108,12 +136,14 @@ class VisionOCRPlugin:
             images_analyzed += 1
 
             try:
-                ocr = vision_ocr_via_lmstudio(
+                ocr = vision_ocr_via_openai_compatible(
                     image_bytes=content,
                     base_url=base_url,
                     model=model,
                     prompt=DEFAULT_STRICT_PROMPT,
                     timeout_sec=90,
+                    provider=provider,
+                    api_key=api_key,
                 )
             except Exception as exc:  # pragma: no cover
                 logger.warning("[vision_ocr] Vision OCR failed for {}: {}", full_url, exc)
@@ -136,7 +166,7 @@ class VisionOCRPlugin:
                     "text_output": text,
                     "confidence": 0.95,
                     "image_url": full_url,
-                    "method": "lmstudio",
+                    "method": provider,
                     "metadata": {
                         "provider": ocr.provider,
                         "model": ocr.model,

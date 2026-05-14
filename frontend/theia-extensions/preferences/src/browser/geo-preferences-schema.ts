@@ -11,6 +11,7 @@ export type GeoPreferenceDefinition = (typeof schemaJson.properties)[GeoPreferen
     'x-targets'?: Array<'frontend' | 'backend'>;
     'x-backendKey'?: string;
     'x-tags'?: string[];
+    'x-sensitive'?: boolean;
     title?: string;
     enum?: string[] | number[];
     minimum?: number;
