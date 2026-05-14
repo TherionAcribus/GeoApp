@@ -47,6 +47,14 @@ export class GeoPreferencesWidget extends ReactWidget {
         }
     };
 
+    private openChatPolicy = async (): Promise<void> => {
+        try {
+            await this.commandService.executeCommand('geoapp.chat.policy.open');
+        } catch (error) {
+            console.error('[GeoPreferencesWidget] Failed to open Chat IA policy view', error);
+        }
+    };
+
     protected render(): React.ReactNode {
         const sections = Array.from(this.store.definitionsByCategory.entries())
             .sort(([a], [b]) => a.localeCompare(b));
@@ -83,14 +91,24 @@ export class GeoPreferencesWidget extends ReactWidget {
                                 </button>
                             )}
                             {category === 'chat' && (
-                                <button
-                                    className='theia-button secondary'
-                                    type='button'
-                                    onClick={() => { void this.openAiConfiguration(); }}
-                                    title='Ouvrir la configuration IA Theia pour les agents, prompts et tools du chat'
-                                >
-                                    Configurer IA Theia
-                                </button>
+                                <div className='geo-preferences-header-actions'>
+                                    <button
+                                        className='theia-button secondary'
+                                        type='button'
+                                        onClick={() => { void this.openChatPolicy(); }}
+                                        title='Voir la policy effective et la matrice des tools GeoApp'
+                                    >
+                                        Policy tools
+                                    </button>
+                                    <button
+                                        className='theia-button secondary'
+                                        type='button'
+                                        onClick={() => { void this.openAiConfiguration(); }}
+                                        title='Ouvrir la configuration IA Theia pour les agents, prompts et tools du chat'
+                                    >
+                                        Configurer IA Theia
+                                    </button>
+                                </div>
                             )}
                         </div>
                     </header>

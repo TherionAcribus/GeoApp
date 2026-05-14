@@ -30,5 +30,11 @@ export class ZonesMenuContribution implements MenuContribution {
             label: 'Gestionnaire d\'Archive',
             order: '2'
         });
+
+        menus.registerMenuAction(CommonMenus.VIEW_VIEWS, {
+            commandId: ZonesCommands.OPEN_CHAT_POLICY.id,
+            label: 'Policy Chat IA GeoApp',
+            order: '2.5'
+        });
     }
 }

@@ -45,6 +45,12 @@ export class GeoAppSidebarContribution implements FrontendApplicationContributio
             order: '0'
         });
 
+        menus.registerMenuAction(GEOAPP_PREFERENCES_MENU, {
+            commandId: 'geoapp.chat.policy.open',
+            label: 'Policy Chat IA',
+            order: '1'
+        });
+
         menus.registerMenuAction(GEOAPP_AUTH_MENU, {
             commandId: 'geoapp.auth.open',
             label: 'Gerer la connexion',

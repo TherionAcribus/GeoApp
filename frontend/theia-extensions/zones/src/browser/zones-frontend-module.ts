@@ -38,6 +38,7 @@ import { GeoAppLogWriterAgentContribution } from './geoapp-log-writer-agent';
 import { GeoAppChatBridge } from './geoapp-chat-bridge';
 import { GeoAppAiToolCatalog } from './geoapp-chat-tool-catalog';
 import { GeoAppChatPolicyService } from './geoapp-chat-policy-service';
+import { GeoAppChatPolicyWidget } from './geoapp-chat-policy-widget';
 import { ChatAgent } from '@theia/ai-chat/lib/common/chat-agents';
 import { GeocachingAuthWidget } from './geocaching-auth-widget';
 import { ArchiveManagerWidget } from './archive-manager-widget';
@@ -250,6 +251,12 @@ export default new ContainerModule(bind => {
 
     bind(GeoAppAiToolCatalog).toSelf().inSingletonScope();
     bind(GeoAppChatPolicyService).toSelf().inSingletonScope();
+
+    bind(GeoAppChatPolicyWidget).toSelf().inSingletonScope();
+    bind(WidgetFactory).toDynamicValue(ctx => ({
+        id: GeoAppChatPolicyWidget.ID,
+        createWidget: () => ctx.container.get(GeoAppChatPolicyWidget)
+    })).inSingletonScope();
 
     bind(GeoAppChatAgentContribution).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(GeoAppChatAgentContribution);

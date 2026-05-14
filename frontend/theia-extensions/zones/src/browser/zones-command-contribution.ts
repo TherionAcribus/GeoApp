@@ -6,13 +6,15 @@ import { ZoneGeocachesWidget } from './zone-geocaches-widget';
 import { MapWidget } from './map/map-widget';
 import { GeocachingAuthWidget } from './geocaching-auth-widget';
 import { ArchiveManagerWidget } from './archive-manager-widget';
+import { GeoAppChatPolicyCommandId, GeoAppChatPolicyWidget } from './geoapp-chat-policy-widget';
 
 export const ZonesCommands = {
     OPEN: <Command>{ id: 'zones:open', label: 'Zones: Ouvrir' },
     OPEN_ZONE: <Command>{ id: 'zones:open-zone', label: 'Zones: Ouvrir Zone' },
     OPEN_MAP: <Command>{ id: 'geoapp.map.toggle', label: 'GeoApp: Afficher la carte' },
     OPEN_AUTH: <Command>{ id: 'geoapp.auth.open', label: 'GeoApp: Connexion Geocaching.com' },
-    OPEN_ARCHIVE_MANAGER: <Command>{ id: 'geoapp.archive.manager.open', label: 'GeoApp: Gestionnaire d\'archive' }
+    OPEN_ARCHIVE_MANAGER: <Command>{ id: 'geoapp.archive.manager.open', label: 'GeoApp: Gestionnaire d\'archive' },
+    OPEN_CHAT_POLICY: <Command>{ id: GeoAppChatPolicyCommandId, label: 'GeoApp: Policy Chat IA' }
 };
 
 @injectable()
@@ -74,6 +76,16 @@ export class ZonesCommandContribution implements CommandContribution {
         commands.registerCommand(ZonesCommands.OPEN_ARCHIVE_MANAGER, {
             execute: async () => {
                 const widget = await this.widgetManager.getOrCreateWidget(ArchiveManagerWidget.ID);
+                if (!widget.isAttached) {
+                    this.shell.addWidget(widget, { area: 'main' });
+                }
+                this.shell.activateWidget(widget.id);
+            }
+        });
+
+        commands.registerCommand(ZonesCommands.OPEN_CHAT_POLICY, {
+            execute: async () => {
+                const widget = await this.widgetManager.getOrCreateWidget(GeoAppChatPolicyWidget.ID);
                 if (!widget.isAttached) {
                     this.shell.addWidget(widget, { area: 'main' });
                 }

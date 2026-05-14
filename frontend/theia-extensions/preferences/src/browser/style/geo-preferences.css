@@ -29,6 +29,13 @@
     color: var(--theia-ui-font-color2);
 }
 
+.geo-preferences-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
 .geo-preferences-items {
     display: flex;
     flex-direction: column;
