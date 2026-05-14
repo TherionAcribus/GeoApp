@@ -1,0 +1,106 @@
+{
+  "name": "coordinate_intersection",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Trouve le(s) point(s) situés à la fois à une distance d1 d'un point P1 et à une distance d2 d'un point P2 (intersection de deux cercles sur Terre).",
+  "author": "MysterAI Team",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": ["Coordinates", "Intersection"],
+  "kinds": ["geo", "calculator"],
+  "brute_force": false,
+  "enable_scoring": false,
+  "accept_accents": true,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": false
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "text": {
+      "type": "textarea",
+      "label": "Texte (mode smooth)",
+      "placeholder": "Ex: 0.3125 km from GC12K94 (N49 38.254 W112 52.619); 1.003 km from GC17DQP (N 49 38.643 W 112 51.891)",
+      "description": "En mode smooth, le plugin extrait les deux paires (coordonnée, distance) depuis ce texte.",
+      "default": "",
+      "default_value_source": "geocache_description"
+    },
+    "strict": {
+      "type": "select",
+      "label": "Mode",
+      "options": [
+        {"value": "smooth", "label": "Smooth (extraire depuis le texte)"},
+        {"value": "strict", "label": "Strict (saisir les coordonnées manuellement)"}
+      ],
+      "default": "smooth"
+    },
+    "coord1": {
+      "type": "string",
+      "label": "Coordonnée P1 (mode strict)",
+      "placeholder": "N 49° 38.254 W 112° 52.619",
+      "default": ""
+    },
+    "dist1": {
+      "type": "float",
+      "label": "Distance depuis P1 (mode strict)",
+      "placeholder": "0.3125",
+      "default": 0
+    },
+    "dist1_unit": {
+      "type": "select",
+      "label": "Unité distance P1",
+      "options": ["m", "km", "miles"],
+      "default": "km"
+    },
+    "coord2": {
+      "type": "string",
+      "label": "Coordonnée P2 (mode strict)",
+      "placeholder": "N 49° 38.643 W 112° 51.891",
+      "default": ""
+    },
+    "dist2": {
+      "type": "float",
+      "label": "Distance depuis P2 (mode strict)",
+      "placeholder": "1.003",
+      "default": 0
+    },
+    "dist2_unit": {
+      "type": "select",
+      "label": "Unité distance P2",
+      "options": ["m", "km", "miles"],
+      "default": "km"
+    },
+    "enable_gps_detection": {
+      "type": "checkbox",
+      "label": "Inclure la détection GPS sur la sortie",
+      "default": true
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Coordonnée(s) calculée(s)"
+    },
+    "decimal_latitude": {
+      "type": "number",
+      "label": "Latitude décimale"
+    },
+    "decimal_longitude": {
+      "type": "number",
+      "label": "Longitude décimale"
+    },
+    "log": {
+      "type": "string",
+      "label": "Détails"
+    }
+  }
+}
