@@ -8,12 +8,16 @@ import {
     dispatchGeoAppOpenChatRequest,
     GEOAPP_OPEN_CHAT_REQUEST_EVENT,
     getGeoAppAgentSessionLabel,
+    GEOAPP_CHAT_BEHAVIOR_CHECKER_PROFILE_PREF,
+    GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF,
+    GEOAPP_CHAT_BEHAVIOR_FORMULA_PROFILE_PREF,
     GEOAPP_CHAT_CHECKER_PROFILE_PREF,
     GEOAPP_CHAT_DEFAULT_PROFILE_PREF,
     GEOAPP_CHAT_FORMULA_PROFILE_PREF,
     GEOAPP_CHAT_HIDDEN_CONTENT_PROFILE_PREF,
     GEOAPP_CHAT_IMAGE_PUZZLE_PROFILE_PREF,
     GEOAPP_CHAT_SECRET_CODE_PROFILE_PREF,
+    resolveGeoAppChatBehaviorProfileForWorkflow,
     resolveGeoAppChatProfileForWorkflow,
     resolveGeoAppChatWorkflowKindFromClassification,
     resolveGeoAppChatWorkflowKindFromOrchestrator,
@@ -67,6 +71,37 @@ function testResolveGeoAppChatProfileForWorkflow(): void {
     );
 }
 
+function testResolveGeoAppChatBehaviorProfileForWorkflow(): void {
+    assert.equal(
+        resolveGeoAppChatBehaviorProfileForWorkflow(undefined, undefined, {}),
+        'guided'
+    );
+
+    assert.equal(
+        resolveGeoAppChatBehaviorProfileForWorkflow('formula', undefined, {
+            [GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF]: 'guided',
+            [GEOAPP_CHAT_BEHAVIOR_FORMULA_PROFILE_PREF]: 'automation',
+        }),
+        'automation'
+    );
+
+    assert.equal(
+        resolveGeoAppChatBehaviorProfileForWorkflow('checker', undefined, {
+            [GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF]: 'offline',
+            [GEOAPP_CHAT_BEHAVIOR_CHECKER_PROFILE_PREF]: 'safe',
+        }),
+        'safe'
+    );
+
+    assert.equal(
+        resolveGeoAppChatBehaviorProfileForWorkflow('checker', 'debug', {
+            [GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF]: 'safe',
+            [GEOAPP_CHAT_BEHAVIOR_CHECKER_PROFILE_PREF]: 'offline',
+        }),
+        'debug'
+    );
+}
+
 function testBuildGeoAppChatPrompt(): void {
     const resumeState = { workflow: { kind: 'formula' }, currentText: 'A=1' };
     const block = buildGeoAppResumeStateBlock(resumeState);
@@ -103,11 +138,25 @@ function testSanitizeGeoAppSessionSettings(): void {
         geoappResumeState: { step: 'x' },
         geoappGcCode: 'GC12345',
         geoappGeocacheId: 42,
+        geoappSessionKind: 'auto',
+        geoappBehaviorProfile: 'debug',
+        commonSettings: {
+            geoapp: {
+                workflowKind: 'formula',
+                sessionKind: 'auto',
+            },
+        },
         keepMe: true,
     });
 
     assert.deepEqual(sanitized, {
         temperature: 0.2,
+        commonSettings: {
+            geoapp: {
+                workflowKind: 'formula',
+                sessionKind: 'auto',
+            },
+        },
         keepMe: true,
     });
 }
@@ -176,6 +225,7 @@ function testOpenChatDetailBuilder(): void {
         focus: true,
         workflowKind: 'formula',
         preferredProfile: 'strong',
+        preferredBehaviorProfile: undefined,
         resumeState: undefined,
         sessionKind: undefined,
     });
@@ -223,6 +273,7 @@ function testDispatchGeoAppOpenChatRequest(): void {
         focus: true,
         workflowKind: 'hidden_content',
         preferredProfile: 'web',
+        preferredBehaviorProfile: undefined,
         resumeState: undefined,
         sessionKind: undefined,
     });
@@ -230,6 +281,7 @@ function testDispatchGeoAppOpenChatRequest(): void {
 
 function run(): void {
     testResolveGeoAppChatProfileForWorkflow();
+    testResolveGeoAppChatBehaviorProfileForWorkflow();
     testBuildGeoAppChatPrompt();
     testSessionTitleHelpers();
     testSanitizeGeoAppSessionSettings();

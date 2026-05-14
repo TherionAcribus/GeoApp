@@ -10,6 +10,8 @@ import { AIVariableResolutionRequest } from '@theia/ai-core';
 import {
     GeoAppChatAgentId,
     GeoAppChatAgentIdsByProfile,
+    GeoAppChatSessionKind,
+    GeoAppChatWorkflowBehaviorProfile,
     GeoAppChatProfile,
     GeoAppChatWorkflowKind,
     GeoAppChatWorkflowProfile
@@ -18,6 +20,7 @@ import {
     buildGeoAppChatDisplaySessionTitle,
     buildGeoAppChatPrompt,
     GEOAPP_OPEN_CHAT_REQUEST_EVENT,
+    normalizeGeoAppChatWorkflowBehaviorProfile,
     normalizeGeoAppChatWorkflowKind,
     resolveGeoAppChatProfileForWorkflow,
     sanitizeGeoAppSessionSettings,
@@ -34,8 +37,9 @@ interface GeoAppOpenChatRequestDetail {
     focus?: boolean;
     workflowKind?: GeoAppChatWorkflowKind | string;
     preferredProfile?: GeoAppChatWorkflowProfile | string;
+    preferredBehaviorProfile?: GeoAppChatWorkflowBehaviorProfile | string;
     resumeState?: Record<string, unknown>;
-    sessionKind?: 'auto' | 'libre';
+    sessionKind?: GeoAppChatSessionKind;
 }
 
 interface GeoAppChatSessionMetadata {
@@ -47,7 +51,8 @@ interface GeoAppChatSessionMetadata {
     agentId?: string;
     agentName?: string;
     resumeState?: Record<string, unknown>;
-    sessionKind?: 'auto' | 'libre';
+    sessionKind?: GeoAppChatSessionKind;
+    behaviorProfile?: GeoAppChatWorkflowBehaviorProfile;
 }
 
 @injectable()
@@ -126,9 +131,11 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
     };
 
     protected findExistingSession(detail: GeoAppOpenChatRequestDetail, sessionTitle: string): ChatSession | undefined {
+        const requestedSessionKind = detail.sessionKind ?? 'auto';
         return this.chatService.getSessions().find(session => {
             const metadata = this.sessionMetadata.get(session.id);
-            if (detail.sessionKind && metadata?.sessionKind !== detail.sessionKind) {
+            const sessionKind = metadata?.sessionKind ?? 'auto';
+            if (sessionKind !== requestedSessionKind) {
                 return false;
             }
             if (typeof detail.geocacheId === 'number' && metadata?.geocacheId === detail.geocacheId) {
@@ -159,8 +166,45 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
             agentId: agent?.id,
             agentName: agent?.name,
             resumeState: detail.resumeState,
-            sessionKind: detail.sessionKind,
+            sessionKind: detail.sessionKind ?? 'auto',
+            behaviorProfile: normalizeGeoAppChatWorkflowBehaviorProfile(detail.preferredBehaviorProfile),
         });
+        this.setSessionCommonGeoAppSettings(session, detail);
+    }
+
+    protected setSessionCommonGeoAppSettings(session: ChatSession, detail: GeoAppOpenChatRequestDetail): void {
+        const modelWithSettings = session.model as typeof session.model & {
+            setSettings?: (settings: { [key: string]: unknown }) => void;
+        };
+
+        if (typeof modelWithSettings.setSettings !== 'function') {
+            return;
+        }
+
+        const currentSettings = session.model.settings || {};
+        const commonSettings = this.isRecord(currentSettings.commonSettings)
+            ? currentSettings.commonSettings
+            : {};
+        const geoapp = this.isRecord(commonSettings.geoapp)
+            ? commonSettings.geoapp
+            : {};
+        const workflowKind = normalizeGeoAppChatWorkflowKind(detail.workflowKind);
+        const preferredBehaviorProfile = normalizeGeoAppChatWorkflowBehaviorProfile(detail.preferredBehaviorProfile);
+        const nextGeoapp = { ...geoapp };
+        this.setDefined(nextGeoapp, 'geocacheId', detail.geocacheId);
+        this.setDefined(nextGeoapp, 'gcCode', detail.gcCode);
+        this.setDefined(nextGeoapp, 'workflowKind', workflowKind);
+        this.setDefined(nextGeoapp, 'preferredModelProfile', detail.preferredProfile);
+        this.setDefined(nextGeoapp, 'preferredBehaviorProfile', preferredBehaviorProfile);
+        this.setDefined(nextGeoapp, 'sessionKind', detail.sessionKind ?? 'auto');
+
+        modelWithSettings.setSettings(sanitizeGeoAppSessionSettings({
+            ...currentSettings,
+            commonSettings: {
+                ...commonSettings,
+                geoapp: nextGeoapp,
+            },
+        }));
     }
 
     protected sanitizeSessionSettings(session: ChatSession): void {
@@ -173,6 +217,16 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
         }
 
         modelWithSettings.setSettings(sanitizeGeoAppSessionSettings(session.model.settings || {}));
+    }
+
+    protected isRecord(value: unknown): value is Record<string, unknown> {
+        return typeof value === 'object' && value !== null && !Array.isArray(value);
+    }
+
+    protected setDefined(record: Record<string, unknown>, key: string, value: unknown): void {
+        if (value !== undefined) {
+            record[key] = value;
+        }
     }
 
     protected async fetchImagesAsVariables(imageUrls: string[]): Promise<AIVariableResolutionRequest[]> {

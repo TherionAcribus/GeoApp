@@ -5,6 +5,7 @@ import {
     buildGeocacheFreeChatFinalPrompt,
     buildGeocacheGeoAppOpenChatDetail,
 } from '../geocache-chat-prompt-shared';
+import { GeoAppChatSystemPromptVariants } from '../geoapp-chat-system-prompts';
 
 function createGeocacheFixture() {
     return {
@@ -49,29 +50,12 @@ function createGeocacheFixture() {
 function testBuildGeocacheChatPrompt(): void {
     const prompt = buildGeocacheChatPrompt(createGeocacheFixture());
 
-    assert.ok(prompt.includes("Tu es un assistant IA specialise dans la resolution d'enigmes de geocaching."));
     assert.ok(prompt.includes('Certitude (checker) :'));
     assert.ok(prompt.includes('https://www.certitudes.org/certitude?wp=GC424242'));
     assert.ok(prompt.includes('wp="GC424242"'));
-    assert.ok(prompt.includes('Tools disponibles (GeoApp) :'));
-    assert.ok(prompt.includes('~resolve_geocache_workflow'));
-    assert.ok(prompt.includes('~coordinate_projection'));
-    assert.ok(prompt.includes('~coordinate_intersection'));
-    assert.ok(prompt.includes('~save_found_coordinates'));
-    assert.ok(prompt.includes('~highlight_found_coordinates_on_map'));
-    assert.ok(prompt.includes('~calculate_final_coordinates'));
-    assert.ok(prompt.includes('Images / OCR :'));
-    assert.ok(prompt.includes('Codes secrets / metasolver :'));
-    assert.ok(prompt.includes('Verification (checkers) :'));
-    assert.ok(prompt.includes('Si resolve_geocache_workflow remonte un direct_plugin_candidate avec should_run_directly=true'));
-    assert.ok(prompt.includes('Si execute-direct-plugin renvoie une sortie exploitable, utilise d abord ce resultat'));
-    assert.ok(prompt.includes('Si le listing indique une distance et un cap/bearing/azimut'));
-    assert.ok(prompt.includes('deux points de reference et deux distances/rayons'));
-    assert.ok(prompt.includes('meme incertaine'));
-    assert.ok(prompt.includes('applique aussi la sauvegarde automatique'));
-    assert.ok(prompt.includes('Si aucun checker n est reference'));
-    assert.ok(prompt.includes('Si un direct plugin, un calcul de formule ou une etape backend produit une coordonnee plausible'));
-    assert.ok(prompt.includes('Ne decris jamais un resultat de plugin, de checker ou de calcul comme un fait acquis'));
+    assert.ok(!prompt.includes('Tools disponibles (GeoApp) :'));
+    assert.ok(!prompt.includes('Orchestration initiale du listing :'));
+    assert.ok(!prompt.includes('~resolve_geocache_workflow'));
     assert.ok(prompt.includes('Note: le checker Geocaching peut etre stocke comme ancre'));
     assert.ok(prompt.includes('--- CONTEXTE GEOCACHE ---'));
     assert.ok(prompt.includes('Nom : Mystery hybride'));
@@ -88,7 +72,20 @@ function testBuildGeocacheChatPrompt(): void {
     assert.ok(prompt.includes('Waypoints (details) :'));
     assert.ok(prompt.includes('- P1 / STAGE • Etape 1 (Stage)'));
     assert.ok(prompt.includes('Note : Compter les marches autour du panneau.'));
-    assert.ok(prompt.includes('priorise toujours l\'execution des tools GeoApp fiables'));
+    assert.ok(prompt.includes('tools GeoApp exposes par la politique active'));
+}
+
+function testSystemPromptVariantsCarryGeoAppRules(): void {
+    const guidedTemplate = GeoAppChatSystemPromptVariants.defaultVariant.template;
+    assert.ok(guidedTemplate.includes("Tu es un assistant IA specialise dans la resolution d'enigmes de geocaching dans GeoApp."));
+    assert.ok(guidedTemplate.includes('Orchestration initiale du listing :'));
+    assert.ok(guidedTemplate.includes('Formules / coordonnees :'));
+    assert.ok(guidedTemplate.includes('Images / OCR :'));
+    assert.ok(guidedTemplate.includes('Codes secrets / metasolver :'));
+    assert.ok(guidedTemplate.includes('Verification (checkers) :'));
+    assert.ok(guidedTemplate.includes('resolve_geocache_workflow'));
+    assert.ok(guidedTemplate.includes('coordinate_projection'));
+    assert.ok(guidedTemplate.includes('run_checker'));
 }
 
 function testBuildGeocacheGeoAppOpenChatDetail(): void {
@@ -151,6 +148,7 @@ function testBuildGeocacheFreeChatFinalPrompt(): void {
 
 function run(): void {
     testBuildGeocacheChatPrompt();
+    testSystemPromptVariantsCarryGeoAppRules();
     testBuildGeocacheGeoAppOpenChatDetail();
     testBuildGeocacheFreeChatContext();
     testBuildGeocacheFreeChatFinalPrompt();

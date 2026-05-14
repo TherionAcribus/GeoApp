@@ -1,8 +1,17 @@
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { nls } from '@theia/core';
 import { FrontendApplicationContribution } from '@theia/core/lib/browser';
-import { Agent, AgentService, ToolInvocationRegistry, ToolRequest, LanguageModelRequirement } from '@theia/ai-core';
-import { AbstractStreamParsingChatAgent } from '@theia/ai-chat/lib/common/chat-agents';
+import {
+    Agent,
+    AgentService,
+    AIVariableContext,
+    LanguageModel,
+    LanguageModelMessage,
+    LanguageModelRequirement,
+    LanguageModelResponse,
+    ToolRequest
+} from '@theia/ai-core';
+import { AbstractStreamParsingChatAgent, ChatSessionContext, SystemMessageDescription } from '@theia/ai-chat/lib/common/chat-agents';
 import { MutableChatRequestModel } from '@theia/ai-chat/lib/common/chat-model';
 import {
     GeoAppChatAgentId,
@@ -27,8 +36,25 @@ export {
     GeoAppChatProfile,
     GeoAppChatWorkflowProfile,
     GeoAppChatWorkflowKind,
+    GeoAppChatBehaviorProfile,
+    GeoAppChatWorkflowBehaviorProfile,
+    GeoAppChatSessionKind,
+    GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF,
+    GEOAPP_CHAT_BEHAVIOR_SECRET_CODE_PROFILE_PREF,
+    GEOAPP_CHAT_BEHAVIOR_FORMULA_PROFILE_PREF,
+    GEOAPP_CHAT_BEHAVIOR_CHECKER_PROFILE_PREF,
+    GEOAPP_CHAT_BEHAVIOR_HIDDEN_CONTENT_PROFILE_PREF,
+    GEOAPP_CHAT_BEHAVIOR_IMAGE_PUZZLE_PROFILE_PREF,
+    GEOAPP_CHAT_PROMPT_PACK_PREF,
+    GEOAPP_CHAT_TOOL_POLICY_OVERRIDES_PREF,
     GeoAppChatAgentIdsByProfile,
 } from './geoapp-chat-shared';
+import {
+    GEOAPP_CHAT_SYSTEM_PROMPT_ID,
+    GeoAppChatPromptVariantByPack,
+    GeoAppChatSystemPromptVariants,
+} from './geoapp-chat-system-prompts';
+import { GeoAppChatPolicyService } from './geoapp-chat-policy-service';
 
 export const GeoAppChatLanguageModelRequirements: LanguageModelRequirement[] = [{
     purpose: 'chat',
@@ -41,7 +67,7 @@ function buildChatAgentConfiguration(options: { id: string; name: string; descri
         name: options.name,
         description: options.description,
         languageModelRequirements: GeoAppChatLanguageModelRequirements,
-        prompts: [],
+        prompts: [GeoAppChatSystemPromptVariants],
         variables: [],
         agentSpecificVariables: [],
         functions: [],
@@ -92,45 +118,10 @@ abstract class BaseGeoAppChatAgent extends AbstractStreamParsingChatAgent {
 
     protected defaultLanguageModelPurpose: string = 'chat';
 
-    @inject(ToolInvocationRegistry)
-    protected readonly toolRegistry!: ToolInvocationRegistry;
+    protected override systemPromptId = GEOAPP_CHAT_SYSTEM_PROMPT_ID;
 
-    override async invoke(request: MutableChatRequestModel): Promise<void> {
-        this.additionalToolRequests = this.getGeoAppTools();
-        return super.invoke(request);
-    }
-
-    protected getGeoAppTools(): ToolRequest[] {
-        const ids = [
-            'geoapp.checkers.run',
-            'geoapp.checkers.session.ensure',
-            'geoapp.checkers.session.login',
-            'geoapp.checkers.session.reset',
-            'geoapp.plugins.workflow.resolve',
-            'geoapp.plugins.workflow.run-step',
-            'geoapp.plugins.listing.classify',
-            'geoapp.plugins.metasolver.recommend',
-            'plugin.metasolver',
-            'plugin.coordinate_projection',
-            'plugin.coordinate_intersection',
-            'geoapp.coordinates.save-found',
-            'geoapp.coordinates.highlight-found',
-            'formula-solver.detect-formula',
-            'formula-solver.find-questions',
-            'formula-solver.search-answer',
-            'formula-solver.calculate-value',
-            'formula-solver.calculate-coordinates',
-        ];
-
-        const tools: ToolRequest[] = [];
-        for (const id of ids) {
-            const tool = this.toolRegistry.getFunction(id);
-            if (tool) {
-                tools.push(this.toChatToolRequest(tool));
-            }
-        }
-        return tools;
-    }
+    @inject(GeoAppChatPolicyService)
+    protected readonly chatPolicyService!: GeoAppChatPolicyService;
 
     /**
      * Theia's chat confirmation layer matches streamed tool calls by ToolRequest.id,
@@ -138,13 +129,47 @@ abstract class BaseGeoAppChatAgent extends AbstractStreamParsingChatAgent {
      * stable registry ids such as "geoapp.plugins.workflow.resolve", so normalize
      * the request only for this chat turn to keep the UI/tool-call handshake intact.
      */
-    protected toChatToolRequest(tool: ToolRequest): ToolRequest {
-        if (tool.id === tool.name) {
-            return tool;
+    protected override async sendLlmRequest(
+        request: MutableChatRequestModel,
+        messages: LanguageModelMessage[],
+        toolRequests: ToolRequest[],
+        languageModel: LanguageModel,
+        promptVariantId?: string,
+        isPromptVariantCustomized?: boolean
+    ): Promise<LanguageModelResponse> {
+        const policy = this.chatPolicyService.resolvePolicy(request);
+        const nonManagedToolRequests = this.chatPolicyService.filterNonManagedToolRequests(toolRequests);
+        const geoAppToolRequests = this.chatPolicyService.getManagedToolRequests(policy);
+
+        return super.sendLlmRequest(
+            request,
+            messages,
+            [...nonManagedToolRequests, ...geoAppToolRequests],
+            languageModel,
+            promptVariantId,
+            isPromptVariantCustomized
+        );
+    }
+
+    protected override async getSystemMessageDescription(context: AIVariableContext): Promise<SystemMessageDescription | undefined> {
+        const request = ChatSessionContext.is(context) ? context.request : undefined;
+        const policy = this.chatPolicyService.resolvePolicy(request as MutableChatRequestModel | undefined);
+        const promptVariantId = GeoAppChatPromptVariantByPack[policy.promptPack] || GeoAppChatPromptVariantByPack.guided;
+        const resolvedPrompt = await this.promptService.getResolvedPromptFragment(promptVariantId, undefined, context);
+        if (!resolvedPrompt) {
+            return super.getSystemMessageDescription(context);
         }
+
+        const variantInfo = this.promptService.getPromptVariantInfo(GEOAPP_CHAT_SYSTEM_PROMPT_ID, promptVariantId);
         return {
-            ...tool,
-            id: tool.name
+            text: [
+                resolvedPrompt.text,
+                '',
+                this.chatPolicyService.describePolicyForPrompt(policy)
+            ].join('\n'),
+            functionDescriptions: resolvedPrompt.functionDescriptions,
+            promptVariantId: variantInfo?.variantId || promptVariantId,
+            isPromptVariantCustomized: variantInfo?.isCustomized ?? false,
         };
     }
 }

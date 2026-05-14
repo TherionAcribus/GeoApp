@@ -269,7 +269,7 @@
       ],
       "default": "fast",
       "description": "Profil IA par defaut pour les conversations GeoApp (local=LLM local, fast=petit modele, strong=qualite, web=modele potentiellement connecte).",
-      "x-category": "ai",
+      "x-category": "chat",
       "x-targets": [
         "frontend"
       ],
@@ -289,7 +289,7 @@
       ],
       "default": "fast",
       "description": "Profil IA prefere pour les workflows GeoApp centres sur les codes secrets. Utiliser 'default' pour reutiliser geoApp.chat.defaultProfile.",
-      "x-category": "ai",
+      "x-category": "chat",
       "x-targets": [
         "frontend"
       ],
@@ -310,7 +310,7 @@
       ],
       "default": "strong",
       "description": "Profil IA prefere pour les workflows GeoApp de type formule. Utiliser 'default' pour reutiliser geoApp.chat.defaultProfile.",
-      "x-category": "ai",
+      "x-category": "chat",
       "x-targets": [
         "frontend"
       ],
@@ -331,7 +331,7 @@
       ],
       "default": "web",
       "description": "Profil IA prefere pour les workflows GeoApp impliquant des checkers. Utiliser 'default' pour reutiliser geoApp.chat.defaultProfile.",
-      "x-category": "ai",
+      "x-category": "chat",
       "x-targets": [
         "frontend"
       ],
@@ -352,7 +352,7 @@
       ],
       "default": "strong",
       "description": "Profil IA prefere pour les workflows GeoApp centres sur le contenu cache HTML, CSS ou texte. Utiliser 'default' pour reutiliser geoApp.chat.defaultProfile.",
-      "x-category": "ai",
+      "x-category": "chat",
       "x-targets": [
         "frontend"
       ],
@@ -373,7 +373,7 @@
       ],
       "default": "strong",
       "description": "Profil IA prefere pour les workflows GeoApp lies aux enigmes image, OCR et analyse visuelle. Utiliser 'default' pour reutiliser geoApp.chat.defaultProfile.",
-      "x-category": "ai",
+      "x-category": "chat",
       "x-targets": [
         "frontend"
       ],
@@ -381,6 +381,181 @@
         "chat",
         "geoapp",
         "image"
+      ]
+    },
+    "geoApp.chat.behaviorProfile.default": {
+      "type": "string",
+      "title": "Chat IA - Profil comportement par defaut",
+      "enum": [
+        "guided",
+        "safe",
+        "offline",
+        "automation",
+        "debug"
+      ],
+      "default": "guided",
+      "description": "Profil comportemental GeoApp applique aux conversations IA. Les profils modele local/fast/strong/web restent separes.",
+      "x-category": "chat",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "chat",
+        "geoapp",
+        "policy"
+      ]
+    },
+    "geoApp.chat.behaviorProfile.workflow.secretCode": {
+      "type": "string",
+      "title": "Chat IA - Comportement codes secrets",
+      "enum": [
+        "default",
+        "guided",
+        "safe",
+        "offline",
+        "automation",
+        "debug"
+      ],
+      "default": "default",
+      "description": "Profil comportemental pour les workflows codes secrets. 'default' reutilise le profil comportement par defaut.",
+      "x-category": "chat",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "chat",
+        "geoapp",
+        "metasolver"
+      ]
+    },
+    "geoApp.chat.behaviorProfile.workflow.formula": {
+      "type": "string",
+      "title": "Chat IA - Comportement formules",
+      "enum": [
+        "default",
+        "guided",
+        "safe",
+        "offline",
+        "automation",
+        "debug"
+      ],
+      "default": "default",
+      "description": "Profil comportemental pour les workflows formule. 'default' reutilise le profil comportement par defaut.",
+      "x-category": "chat",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "chat",
+        "geoapp",
+        "formula-solver"
+      ]
+    },
+    "geoApp.chat.behaviorProfile.workflow.checker": {
+      "type": "string",
+      "title": "Chat IA - Comportement checkers",
+      "enum": [
+        "default",
+        "guided",
+        "safe",
+        "offline",
+        "automation",
+        "debug"
+      ],
+      "default": "default",
+      "description": "Profil comportemental pour les workflows checkers. 'default' reutilise le profil comportement par defaut.",
+      "x-category": "chat",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "chat",
+        "geoapp",
+        "checkers"
+      ]
+    },
+    "geoApp.chat.behaviorProfile.workflow.hiddenContent": {
+      "type": "string",
+      "title": "Chat IA - Comportement contenu cache",
+      "enum": [
+        "default",
+        "guided",
+        "safe",
+        "offline",
+        "automation",
+        "debug"
+      ],
+      "default": "default",
+      "description": "Profil comportemental pour les workflows contenu cache. 'default' reutilise le profil comportement par defaut.",
+      "x-category": "chat",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "chat",
+        "geoapp",
+        "hidden-content"
+      ]
+    },
+    "geoApp.chat.behaviorProfile.workflow.imagePuzzle": {
+      "type": "string",
+      "title": "Chat IA - Comportement images",
+      "enum": [
+        "default",
+        "guided",
+        "safe",
+        "offline",
+        "automation",
+        "debug"
+      ],
+      "default": "default",
+      "description": "Profil comportemental pour les workflows image/OCR. 'default' reutilise le profil comportement par defaut.",
+      "x-category": "chat",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "chat",
+        "geoapp",
+        "image"
+      ]
+    },
+    "geoApp.chat.promptPack": {
+      "type": "string",
+      "title": "Chat IA - Pack de prompt",
+      "enum": [
+        "guided",
+        "safe",
+        "offline",
+        "automation",
+        "debug"
+      ],
+      "default": "guided",
+      "description": "Pack de prompt systeme GeoApp utilise par l'agent. Les variantes sont resolues via PromptService Theia.",
+      "x-category": "chat",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "chat",
+        "geoapp",
+        "prompt"
+      ]
+    },
+    "geoApp.chat.toolPolicy.overrides": {
+      "type": "object",
+      "title": "Chat IA - Overrides tools",
+      "default": {},
+      "description": "Overrides par registryId de tool GeoApp. Valeurs supportees: \"enabled\", \"disabled\", \"confirm\" ou \"default\".",
+      "x-category": "chat",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "chat",
+        "geoapp",
+        "tools",
+        "policy"
       ]
     },
     "geoApp.chat.foundCoordinates.autoSave": {
@@ -392,7 +567,7 @@
       ],
       "default": "manual",
       "description": "Determine si le chat IA doit enregistrer automatiquement une coordonnee trouvee quand le resultat est suffisamment confiant. 'manual' n'enregistre rien sans demande explicite.",
-      "x-category": "ai",
+      "x-category": "chat",
       "x-targets": [
         "frontend"
       ],
@@ -412,7 +587,7 @@
       ],
       "default": "waypoint",
       "description": "Destination utilisee par defaut quand le chat enregistre une coordonnee trouvee.",
-      "x-category": "ai",
+      "x-category": "chat",
       "x-targets": [
         "frontend"
       ],
@@ -429,7 +604,7 @@
       "maximum": 1,
       "default": 0.85,
       "description": "Confiance minimale requise pour la sauvegarde automatique des coordonnees trouvees.",
-      "x-category": "ai",
+      "x-category": "chat",
       "x-targets": [
         "frontend"
       ],

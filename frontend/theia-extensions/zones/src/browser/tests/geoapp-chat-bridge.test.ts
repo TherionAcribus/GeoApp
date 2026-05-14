@@ -207,7 +207,16 @@ async function testCreatesSessionWithWorkflowProfileAndPrompt(): Promise<void> {
     assert.equal(chatService.sessions.length, 1);
     assert.equal(chatService.sessions[0].pinnedAgent?.id, GeoAppChatStrongAgentId);
     assert.equal(chatService.sessions[0].title, 'CHAT IA - GC12345 [Strong]');
-    assert.deepEqual(chatService.sessions[0].model.settings, { temperature: 0.2 });
+    assert.deepEqual(chatService.sessions[0].model.settings, {
+        temperature: 0.2,
+        commonSettings: {
+            geoapp: {
+                gcCode: 'GC12345',
+                workflowKind: 'formula',
+                sessionKind: 'auto',
+            },
+        },
+    });
     assert.equal(chatService.sentRequests.length, 1);
     assert.match(chatService.sentRequests[0].text, /RESUME_STATE_JSON/);
     assert.equal(languageModelRegistry.calls[0].agent, GeoAppChatStrongAgentId);
@@ -251,7 +260,16 @@ async function testReusesExistingSessionByGcCode(): Promise<void> {
     });
     assert.equal(chatService.sentRequests.length, 2);
     assert.equal(chatService.sessions[0].title, 'CHAT IA - GC54321 [Fast]');
-    assert.deepEqual(chatService.sessions[0].model.settings, { keepMe: true });
+    assert.deepEqual(chatService.sessions[0].model.settings, {
+        keepMe: true,
+        commonSettings: {
+            geoapp: {
+                gcCode: 'GC54321',
+                workflowKind: 'secret_code',
+                sessionKind: 'auto',
+            },
+        },
+    });
 }
 
 async function testFallsBackToConfiguredReadyAgent(): Promise<void> {

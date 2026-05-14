@@ -82,6 +82,16 @@ export class GeoPreferencesWidget extends ReactWidget {
                                     Configurer Agent Theia (IA)
                                 </button>
                             )}
+                            {category === 'chat' && (
+                                <button
+                                    className='theia-button secondary'
+                                    type='button'
+                                    onClick={() => { void this.openAiConfiguration(); }}
+                                    title='Ouvrir la configuration IA Theia pour les agents, prompts et tools du chat'
+                                >
+                                    Configurer IA Theia
+                                </button>
+                            )}
                         </div>
                     </header>
                     <div className='geo-preferences-items'>
@@ -159,6 +169,21 @@ export class GeoPreferencesWidget extends ReactWidget {
             );
         }
 
+        if (definition.type === 'object') {
+            const objectValue = this.formatObjectValue(value, definition.default);
+            return (
+                <textarea
+                    key={`${key}:${objectValue}`}
+                    id={key}
+                    className='geo-preference-json'
+                    rows={8}
+                    defaultValue={objectValue}
+                    spellCheck={false}
+                    onBlur={event => this.handleObjectJsonBlur(key, event.currentTarget.value)}
+                />
+            );
+        }
+
         return (
             <input
                 id={key}
@@ -196,9 +221,35 @@ export class GeoPreferencesWidget extends ReactWidget {
         await this.store.setValue(key, parsed, PreferenceScope.User);
     }
 
+    private async handleObjectJsonBlur(key: string, rawValue: string): Promise<void> {
+        const trimmed = rawValue.trim();
+        if (!trimmed) {
+            await this.store.setValue(key, {}, PreferenceScope.User);
+            return;
+        }
+        try {
+            const parsed = JSON.parse(trimmed);
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                await this.store.setValue(key, parsed, PreferenceScope.User);
+            }
+        } catch (error) {
+            console.warn(`[GeoPreferencesWidget] Invalid JSON preference for ${key}`, error);
+        }
+    }
+
+    private formatObjectValue(value: unknown, fallback: unknown): string {
+        const source = value ?? fallback ?? {};
+        try {
+            return JSON.stringify(source, null, 2);
+        } catch {
+            return '{}';
+        }
+    }
+
     private toCategoryLabel(category: string): string {
         const map: Record<string, string> = {
             ai: 'Intelligence Artificielle',
+            chat: 'Chat IA GeoApp',
             ui: 'Interface utilisateur',
             alphabets: 'Alphabets',
             map: 'Carte',

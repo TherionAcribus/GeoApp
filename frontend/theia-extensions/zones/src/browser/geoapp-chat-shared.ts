@@ -10,10 +10,21 @@ export const GEOAPP_CHAT_FORMULA_PROFILE_PREF = 'geoApp.chat.workflowProfile.for
 export const GEOAPP_CHAT_CHECKER_PROFILE_PREF = 'geoApp.chat.workflowProfile.checker';
 export const GEOAPP_CHAT_HIDDEN_CONTENT_PROFILE_PREF = 'geoApp.chat.workflowProfile.hiddenContent';
 export const GEOAPP_CHAT_IMAGE_PUZZLE_PROFILE_PREF = 'geoApp.chat.workflowProfile.imagePuzzle';
+export const GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF = 'geoApp.chat.behaviorProfile.default';
+export const GEOAPP_CHAT_BEHAVIOR_SECRET_CODE_PROFILE_PREF = 'geoApp.chat.behaviorProfile.workflow.secretCode';
+export const GEOAPP_CHAT_BEHAVIOR_FORMULA_PROFILE_PREF = 'geoApp.chat.behaviorProfile.workflow.formula';
+export const GEOAPP_CHAT_BEHAVIOR_CHECKER_PROFILE_PREF = 'geoApp.chat.behaviorProfile.workflow.checker';
+export const GEOAPP_CHAT_BEHAVIOR_HIDDEN_CONTENT_PROFILE_PREF = 'geoApp.chat.behaviorProfile.workflow.hiddenContent';
+export const GEOAPP_CHAT_BEHAVIOR_IMAGE_PUZZLE_PROFILE_PREF = 'geoApp.chat.behaviorProfile.workflow.imagePuzzle';
+export const GEOAPP_CHAT_PROMPT_PACK_PREF = 'geoApp.chat.promptPack';
+export const GEOAPP_CHAT_TOOL_POLICY_OVERRIDES_PREF = 'geoApp.chat.toolPolicy.overrides';
 
 export type GeoAppChatProfile = 'local' | 'fast' | 'strong' | 'web';
 export type GeoAppChatWorkflowProfile = 'default' | GeoAppChatProfile;
 export type GeoAppChatWorkflowKind = 'general' | 'secret_code' | 'formula' | 'checker' | 'hidden_content' | 'image_puzzle';
+export type GeoAppChatBehaviorProfile = 'guided' | 'safe' | 'offline' | 'automation' | 'debug';
+export type GeoAppChatWorkflowBehaviorProfile = 'default' | GeoAppChatBehaviorProfile;
+export type GeoAppChatSessionKind = 'auto' | 'libre';
 
 export const GeoAppChatAgentIdsByProfile: Record<GeoAppChatProfile, string> = {
     local: GeoAppChatLocalAgentId,
@@ -29,6 +40,15 @@ export interface GeoAppChatPreferenceValues {
     [GEOAPP_CHAT_CHECKER_PROFILE_PREF]?: unknown;
     [GEOAPP_CHAT_HIDDEN_CONTENT_PROFILE_PREF]?: unknown;
     [GEOAPP_CHAT_IMAGE_PUZZLE_PROFILE_PREF]?: unknown;
+}
+
+export interface GeoAppChatBehaviorPreferenceValues {
+    [GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF]?: unknown;
+    [GEOAPP_CHAT_BEHAVIOR_SECRET_CODE_PROFILE_PREF]?: unknown;
+    [GEOAPP_CHAT_BEHAVIOR_FORMULA_PROFILE_PREF]?: unknown;
+    [GEOAPP_CHAT_BEHAVIOR_CHECKER_PROFILE_PREF]?: unknown;
+    [GEOAPP_CHAT_BEHAVIOR_HIDDEN_CONTENT_PROFILE_PREF]?: unknown;
+    [GEOAPP_CHAT_BEHAVIOR_IMAGE_PUZZLE_PROFILE_PREF]?: unknown;
 }
 
 export interface GeoAppAgentLike {
@@ -55,8 +75,9 @@ export interface GeoAppOpenChatRequestDetailPayload {
     focus?: boolean;
     workflowKind?: GeoAppChatWorkflowKind | string;
     preferredProfile?: GeoAppChatWorkflowProfile | string;
+    preferredBehaviorProfile?: GeoAppChatWorkflowBehaviorProfile | string;
     resumeState?: Record<string, unknown>;
-    sessionKind?: 'auto' | 'libre';
+    sessionKind?: GeoAppChatSessionKind;
 }
 
 export const GEOAPP_OPEN_CHAT_REQUEST_EVENT = 'geoapp-open-chat-request';
@@ -76,6 +97,8 @@ const GEOAPP_SESSION_SETTING_KEYS = new Set([
     'geoappResumeState',
     'geoappGcCode',
     'geoappGeocacheId',
+    'geoappSessionKind',
+    'geoappBehaviorProfile',
 ]);
 
 export function normalizeGeoAppChatWorkflowKind(value?: string): GeoAppChatWorkflowKind | undefined {
@@ -101,6 +124,20 @@ export function normalizeGeoAppChatProfile(value?: unknown): GeoAppChatProfile |
 
 export function normalizeGeoAppChatWorkflowProfile(value?: unknown): GeoAppChatWorkflowProfile | undefined {
     if (value === 'default' || value === 'local' || value === 'fast' || value === 'strong' || value === 'web') {
+        return value;
+    }
+    return undefined;
+}
+
+export function normalizeGeoAppChatBehaviorProfile(value?: unknown): GeoAppChatBehaviorProfile | undefined {
+    if (value === 'guided' || value === 'safe' || value === 'offline' || value === 'automation' || value === 'debug') {
+        return value;
+    }
+    return undefined;
+}
+
+export function normalizeGeoAppChatWorkflowBehaviorProfile(value?: unknown): GeoAppChatWorkflowBehaviorProfile | undefined {
+    if (value === 'default' || value === 'guided' || value === 'safe' || value === 'offline' || value === 'automation' || value === 'debug') {
         return value;
     }
     return undefined;
@@ -133,6 +170,40 @@ export function resolveGeoAppChatProfileForWorkflow(
                     : GEOAPP_CHAT_IMAGE_PUZZLE_PROFILE_PREF;
 
     const workflowProfile = normalizeGeoAppChatWorkflowProfile(preferences[workflowPreferenceKey]);
+    if (!workflowProfile || workflowProfile === 'default') {
+        return defaultProfile;
+    }
+
+    return workflowProfile;
+}
+
+export function resolveGeoAppChatBehaviorProfileForWorkflow(
+    workflowKind: string | undefined,
+    preferredProfile: string | undefined,
+    preferences: GeoAppChatBehaviorPreferenceValues = {}
+): GeoAppChatBehaviorProfile {
+    const explicit = normalizeGeoAppChatWorkflowBehaviorProfile(preferredProfile);
+    if (explicit && explicit !== 'default') {
+        return explicit;
+    }
+
+    const defaultProfile = normalizeGeoAppChatBehaviorProfile(preferences[GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF]) || 'guided';
+    const normalizedWorkflowKind = normalizeGeoAppChatWorkflowKind(workflowKind);
+    if (!normalizedWorkflowKind || normalizedWorkflowKind === 'general') {
+        return defaultProfile;
+    }
+
+    const workflowPreferenceKey = normalizedWorkflowKind === 'secret_code'
+        ? GEOAPP_CHAT_BEHAVIOR_SECRET_CODE_PROFILE_PREF
+        : normalizedWorkflowKind === 'formula'
+            ? GEOAPP_CHAT_BEHAVIOR_FORMULA_PROFILE_PREF
+            : normalizedWorkflowKind === 'checker'
+                ? GEOAPP_CHAT_BEHAVIOR_CHECKER_PROFILE_PREF
+                : normalizedWorkflowKind === 'hidden_content'
+                    ? GEOAPP_CHAT_BEHAVIOR_HIDDEN_CONTENT_PROFILE_PREF
+                    : GEOAPP_CHAT_BEHAVIOR_IMAGE_PUZZLE_PROFILE_PREF;
+
+    const workflowProfile = normalizeGeoAppChatWorkflowBehaviorProfile(preferences[workflowPreferenceKey]);
     if (!workflowProfile || workflowProfile === 'default') {
         return defaultProfile;
     }
@@ -268,6 +339,7 @@ export function buildGeoAppOpenChatRequestDetail(
         focus: detail.focus !== false,
         workflowKind: detail.workflowKind,
         preferredProfile: detail.preferredProfile,
+        preferredBehaviorProfile: detail.preferredBehaviorProfile,
         resumeState: detail.resumeState,
         sessionKind: detail.sessionKind,
     };
