@@ -383,6 +383,62 @@
         "image"
       ]
     },
+    "geoApp.chat.foundCoordinates.autoSave": {
+      "type": "string",
+      "title": "Chat IA - Sauvegarde auto des coordonnees",
+      "enum": [
+        "manual",
+        "confident"
+      ],
+      "default": "manual",
+      "description": "Determine si le chat IA doit enregistrer automatiquement une coordonnee trouvee quand le resultat est suffisamment confiant. 'manual' n'enregistre rien sans demande explicite.",
+      "x-category": "ai",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "chat",
+        "geoapp",
+        "coordinates"
+      ]
+    },
+    "geoApp.chat.foundCoordinates.defaultTarget": {
+      "type": "string",
+      "title": "Chat IA - Destination coordonnees trouvees",
+      "enum": [
+        "corrected_coordinates",
+        "waypoint",
+        "note"
+      ],
+      "default": "waypoint",
+      "description": "Destination utilisee par defaut quand le chat enregistre une coordonnee trouvee.",
+      "x-category": "ai",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "chat",
+        "geoapp",
+        "coordinates"
+      ]
+    },
+    "geoApp.chat.foundCoordinates.confidenceThreshold": {
+      "type": "number",
+      "title": "Chat IA - Seuil confiance coordonnees",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0.85,
+      "description": "Confiance minimale requise pour la sauvegarde automatique des coordonnees trouvees.",
+      "x-category": "ai",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "chat",
+        "geoapp",
+        "coordinates"
+      ]
+    },
     "geoApp.formulaSolver.ai.webSearchEnabled": {
       "type": "boolean",
       "default": true,

@@ -6,8 +6,9 @@ export interface GeocacheChangedEvent {
     reason:
         | 'waypoint-created'
         | 'waypoint-deleted'
-        | 'corrected-coordinates-updated';
-    source: 'map' | 'details' | 'zones';
+        | 'corrected-coordinates-updated'
+        | 'note-created';
+    source: 'map' | 'details' | 'zones' | 'chat';
 }
 
 @injectable()

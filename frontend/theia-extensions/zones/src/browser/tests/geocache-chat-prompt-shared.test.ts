@@ -56,6 +56,7 @@ function testBuildGeocacheChatPrompt(): void {
     assert.ok(prompt.includes('Tools disponibles (GeoApp) :'));
     assert.ok(prompt.includes('~resolve_geocache_workflow'));
     assert.ok(prompt.includes('~coordinate_projection'));
+    assert.ok(prompt.includes('~save_found_coordinates'));
     assert.ok(prompt.includes('~calculate_final_coordinates'));
     assert.ok(prompt.includes('Images / OCR :'));
     assert.ok(prompt.includes('Codes secrets / metasolver :'));
@@ -63,6 +64,7 @@ function testBuildGeocacheChatPrompt(): void {
     assert.ok(prompt.includes('Si resolve_geocache_workflow remonte un direct_plugin_candidate avec should_run_directly=true'));
     assert.ok(prompt.includes('Si execute-direct-plugin renvoie une sortie exploitable, utilise d abord ce resultat'));
     assert.ok(prompt.includes('Si le listing indique une distance et un cap/bearing/azimut'));
+    assert.ok(prompt.includes('Le tool respectera les preferences utilisateur'));
     assert.ok(prompt.includes('Si un direct plugin, un calcul de formule ou une etape backend produit une coordonnee plausible'));
     assert.ok(prompt.includes('Ne decris jamais un resultat de plugin, de checker ou de calcul comme un fait acquis'));
     assert.ok(prompt.includes('Note: le checker Geocaching peut etre stocke comme ancre'));
