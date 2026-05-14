@@ -66,7 +66,8 @@ function testBuildGeocacheChatPrompt(): void {
     assert.ok(prompt.includes('Si execute-direct-plugin renvoie une sortie exploitable, utilise d abord ce resultat'));
     assert.ok(prompt.includes('Si le listing indique une distance et un cap/bearing/azimut'));
     assert.ok(prompt.includes('meme incertaine'));
-    assert.ok(prompt.includes('Le tool respectera les preferences utilisateur'));
+    assert.ok(prompt.includes('applique aussi la sauvegarde automatique'));
+    assert.ok(prompt.includes('Si aucun checker n est reference'));
     assert.ok(prompt.includes('Si un direct plugin, un calcul de formule ou une etape backend produit une coordonnee plausible'));
     assert.ok(prompt.includes('Ne decris jamais un resultat de plugin, de checker ou de calcul comme un fait acquis'));
     assert.ok(prompt.includes('Note: le checker Geocaching peut etre stocke comme ancre'));

@@ -278,13 +278,16 @@ export class FoundCoordinatesToolsManager implements FrontendApplicationContribu
                 replaceExisting: args.replace_existing !== false
             });
 
+            const autoSave = await this.autoSaveAfterHighlight(args, coordinates.coordinatesRaw, label, source, confidence);
+
             return this.stringify({
                 status: 'ok',
                 action: 'highlighted_on_map',
                 coordinates_raw: coordinates.coordinatesRaw,
                 latitude: coordinates.latitude,
                 longitude: coordinates.longitude,
-                confidence
+                confidence,
+                auto_save: autoSave
             });
         } catch (error) {
             return this.stringify({
@@ -292,6 +295,44 @@ export class FoundCoordinatesToolsManager implements FrontendApplicationContribu
                 error: getErrorMessage(error, 'Erreur lors de l ajout du point temporaire sur la carte')
             });
         }
+    }
+
+    protected async autoSaveAfterHighlight(
+        args: SaveFoundCoordinatesArgs,
+        coordinatesRaw: string,
+        label: string,
+        source: string,
+        confidence: number | undefined
+    ): Promise<Record<string, unknown>> {
+        const geocacheId = this.toNumber(args.geocache_id);
+        if (!geocacheId) {
+            return { status: 'skipped', reason: 'geocache_id absent' };
+        }
+
+        const policy = this.readPolicy();
+        if (policy.autoSave !== 'confident') {
+            return { status: 'skipped', reason: 'auto-save manual' };
+        }
+
+        if (confidence === undefined) {
+            return { status: 'skipped', reason: 'confidence missing', threshold: policy.threshold };
+        }
+
+        if (confidence < policy.threshold) {
+            return { status: 'skipped', reason: 'confidence below threshold', confidence, threshold: policy.threshold };
+        }
+
+        const note = this.buildNote(coordinatesRaw, args.note, source, confidence);
+        const result = await this.persist(policy.defaultTarget, geocacheId, coordinatesRaw, label, note);
+        this.notifyChanged(geocacheId, policy.defaultTarget);
+        this.messages.info(this.toUserMessage(policy.defaultTarget, coordinatesRaw));
+        return {
+            status: 'ok',
+            target: policy.defaultTarget,
+            confidence,
+            threshold: policy.threshold,
+            result
+        };
     }
 
     protected async persist(

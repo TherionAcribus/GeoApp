@@ -248,8 +248,8 @@ export function buildGeocacheChatPrompt(data: GeocachePromptData): string {
         '- Si resolve_geocache_workflow choisit formula, appuie-toi d abord sur les formules, variables et questions deja retournees.',
         '- Si le listing indique une distance et un cap/bearing/azimut depuis les coordonnees affichees ou un waypoint, appelle coordinate_projection avec origin_coords, text, strict="smooth" et mode="decode" avant toute estimation manuelle.',
         '- Si coordinate_projection renvoie une coordonnee exploitable, utilise ce resultat comme calcul obtenu par tool; ne recalcule a la main que pour expliquer ou verifier grossierement.',
-        '- Si une coordonnee candidate est trouvee, meme incertaine, appelle highlight_found_coordinates_on_map pour ajouter un point temporaire sur la carte sans sauvegarder la geocache.',
-        '- Si une coordonnee finale est trouvee avec une bonne confiance, appelle save_found_coordinates(geocache_id, target="default", coordinates_raw ou latitude/longitude, confidence, source). Le tool respectera les preferences utilisateur et pourra refuser la sauvegarde automatique.',
+        '- Si une coordonnee candidate est trouvee, meme incertaine, appelle highlight_found_coordinates_on_map pour ajouter un point temporaire sur la carte. Ce tool applique aussi la sauvegarde automatique si les preferences utilisateur et le seuil de confiance le permettent.',
+        '- N appelle save_found_coordinates que si l utilisateur demande explicitement une sauvegarde ou si tu dois sauvegarder sans passer par le point temporaire sur la carte.',
         '- Si l utilisateur demande explicitement de l enregistrer dans les coordonnees corrigees, les notes ou un waypoint, appelle save_found_coordinates avec target="corrected_coordinates", "note" ou "waypoint" et force=true.',
         '- Si besoin, relance detect_formula(text, geocache_id?) pour extraire les formules et leurs variables.',
         '- Ensuite utilise find_questions_for_variables(text, variables) pour rattacher les questions aux lettres manquantes.',
@@ -274,6 +274,7 @@ export function buildGeocacheChatPrompt(data: GeocachePromptData): string {
         '- Si tu veux tester tout un preset sans filtrage explicite, appelle metasolver avec preset seulement et sans plugin_list.',
         '',
         'Verification (checkers) :',
+        '- Si aucun checker n est reference dans le contexte "Checkers" ou dans les champs dedies, ne cherche pas a en inventer ou a en ouvrir un. Ce n est pas un probleme; poursuis sans checker et ne le presente pas comme une piste bloquante.',
         '- Pour valider une reponse, appelle run_checker en mode tool-driven avec geocache_id (recommande) : run_checker(geocache_id, candidate). Le tool resout automatiquement le bon checker, l URL et wp.',
         '- Si un checker est fourni (ex: Certitude) et que tu proposes une reponse textuelle, valide-la en appelant le tool run_checker(url, candidate) AVANT de conclure.',
         '- Si le checker necessite une session (ex: Geocaching.com), appelle d abord ensure_checker_session(provider="geocaching"). Si logged_in=false, propose login_checker_session(provider="geocaching") puis reessaie.',
@@ -289,7 +290,7 @@ export function buildGeocacheChatPrompt(data: GeocachePromptData): string {
         ...lines,
         '',
         '--- OBJECTIF ---',
-        "Analyse l'enigme, mais priorise toujours l'execution des tools GeoApp fiables avant de rester sur un plan abstrait. Si un direct plugin ou un checker peut etre lance proprement, fais-le d abord, puis resume le resultat en max 3 pistes si necessaire.",
+        "Analyse l'enigme, mais priorise toujours l'execution des tools GeoApp fiables avant de rester sur un plan abstrait. Si un direct plugin peut etre lance proprement, fais-le d abord. Si un checker est explicitement fourni, utilise-le; sinon fais sans checker. Resume ensuite le resultat en max 3 pistes si necessaire.",
     ].join('\n');
 }
 
