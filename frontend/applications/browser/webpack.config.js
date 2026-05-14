@@ -51,6 +51,26 @@ for (const plugin of nodeConfig.config.plugins) {
     }
 }
 
+// Règle webpack pour importer les fichiers Markdown comme chaînes de texte (asset/source = Webpack 5)
+configs[0].module.rules.push({
+    test: /\.md$/,
+    type: 'asset/source'
+});
+
+// Copie des images de la documentation dans le répertoire de sortie
+configs[0].plugins.push(
+    // @ts-ignore
+    new CopyWebpackPlugin({
+        patterns: [
+            {
+                from: path.resolve(__dirname, '..', '..', 'theia-extensions', 'documentation', 'docs', 'assets'),
+                to: 'docs-assets',
+                noErrorOnMissing: true
+            }
+        ]
+    })
+);
+
 module.exports = [
     ...configs,
     nodeConfig.config

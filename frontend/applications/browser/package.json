@@ -122,7 +122,8 @@
     "@mysterai/theia-formula-solver": "1.0.0",
     "@mysterai/theia-preferences": "1.0.0",
     "@mysterai/theia-alphabets": "1.0.0",
-    "theia-ide-search-ext": "1.70.200"
+    "theia-ide-search-ext": "1.70.200",
+    "theia-ide-documentation-ext": "1.70.200"
   },
   "devDependencies": {
     "@theia/cli": "1.70.2",

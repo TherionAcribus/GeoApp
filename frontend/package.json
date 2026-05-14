@@ -85,7 +85,8 @@
     "theia-extensions/alphabets",
     "theia-extensions/search",
     "theia-extensions/updater",
-    "theia-extensions/zones"
+    "theia-extensions/zones",
+    "theia-extensions/documentation"
   ],
   "resolutions": {
     "@types/puppeteer": "^5.4.0",

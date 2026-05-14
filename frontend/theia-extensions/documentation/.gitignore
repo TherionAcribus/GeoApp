@@ -1,0 +1,5 @@
+lib/
+*.tsbuildinfo
+node_modules/
+# Le registre est généré automatiquement au build
+src/browser/generated/doc-registry.ts
