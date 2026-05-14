@@ -56,6 +56,7 @@ function testBuildGeocacheChatPrompt(): void {
     assert.ok(prompt.includes('Tools disponibles (GeoApp) :'));
     assert.ok(prompt.includes('~resolve_geocache_workflow'));
     assert.ok(prompt.includes('~coordinate_projection'));
+    assert.ok(prompt.includes('~coordinate_intersection'));
     assert.ok(prompt.includes('~save_found_coordinates'));
     assert.ok(prompt.includes('~highlight_found_coordinates_on_map'));
     assert.ok(prompt.includes('~calculate_final_coordinates'));
@@ -65,6 +66,7 @@ function testBuildGeocacheChatPrompt(): void {
     assert.ok(prompt.includes('Si resolve_geocache_workflow remonte un direct_plugin_candidate avec should_run_directly=true'));
     assert.ok(prompt.includes('Si execute-direct-plugin renvoie une sortie exploitable, utilise d abord ce resultat'));
     assert.ok(prompt.includes('Si le listing indique une distance et un cap/bearing/azimut'));
+    assert.ok(prompt.includes('deux points de reference et deux distances/rayons'));
     assert.ok(prompt.includes('meme incertaine'));
     assert.ok(prompt.includes('applique aussi la sauvegarde automatique'));
     assert.ok(prompt.includes('Si aucun checker n est reference'));
