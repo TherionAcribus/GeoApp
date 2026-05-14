@@ -19,6 +19,7 @@ import {
     resolveGeoAppChatBehaviorProfileForWorkflow,
 } from './geoapp-chat-shared';
 import { GeoAppAiToolCatalog, GeoAppAiToolCatalogEntry } from './geoapp-chat-tool-catalog';
+import { GeoAppChatSkillName, getRecommendedGeoAppChatSkillNames } from './geoapp-chat-skills';
 
 export type GeoAppChatToolOverride = 'default' | 'enabled' | 'disabled' | 'confirm';
 
@@ -31,6 +32,7 @@ export interface GeoAppChatPolicy {
     confirmToolIds: Set<string>;
     disabledToolIds: Set<string>;
     entries: GeoAppAiToolCatalogEntry[];
+    recommendedSkillNames: GeoAppChatSkillName[];
 }
 
 interface GeoAppChatSessionCommonSettings {
@@ -92,6 +94,7 @@ export class GeoAppChatPolicyService {
             confirmToolIds,
             disabledToolIds,
             entries,
+            recommendedSkillNames: getRecommendedGeoAppChatSkillNames(workflowKind),
         };
     }
 
@@ -120,6 +123,13 @@ export class GeoAppChatPolicyService {
             `- Prompt pack : ${policy.promptPack}`,
             policy.workflowKind ? `- Workflow : ${policy.workflowKind}` : undefined,
             policy.sessionKind ? `- Session : ${policy.sessionKind}` : undefined,
+            '',
+            policy.recommendedSkillNames.length
+                ? `Skills GeoApp recommandes : ${policy.recommendedSkillNames.join(', ')}`
+                : undefined,
+            policy.recommendedSkillNames.length
+                ? 'Charge les skills recommandes avec getSkillFileContent avant d appliquer leurs strategies detaillees, si le tool est disponible.'
+                : undefined,
             '',
             'Tools exposes au modele :',
             ...Array.from(byCategory.entries()).map(([category, names]) => `- ${category}: ${names.sort().join(', ')}`),

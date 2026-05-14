@@ -6,6 +6,7 @@ import {
     buildGeocacheGeoAppOpenChatDetail,
 } from '../geocache-chat-prompt-shared';
 import { GeoAppChatSystemPromptVariants } from '../geoapp-chat-system-prompts';
+import { GeoAppChatSkillNames } from '../geoapp-chat-skills';
 
 function createGeocacheFixture() {
     return {
@@ -78,14 +79,17 @@ function testBuildGeocacheChatPrompt(): void {
 function testSystemPromptVariantsCarryGeoAppRules(): void {
     const guidedTemplate = GeoAppChatSystemPromptVariants.defaultVariant.template;
     assert.ok(guidedTemplate.includes("Tu es un assistant IA specialise dans la resolution d'enigmes de geocaching dans GeoApp."));
-    assert.ok(guidedTemplate.includes('Orchestration initiale du listing :'));
-    assert.ok(guidedTemplate.includes('Formules / coordonnees :'));
-    assert.ok(guidedTemplate.includes('Images / OCR :'));
-    assert.ok(guidedTemplate.includes('Codes secrets / metasolver :'));
-    assert.ok(guidedTemplate.includes('Verification (checkers) :'));
+    assert.ok(guidedTemplate.includes('Orchestration GeoApp :'));
+    assert.ok(guidedTemplate.includes('Skills disponibles dans Theia :'));
+    assert.ok(guidedTemplate.includes('{{skills}}'));
+    assert.ok(guidedTemplate.includes('~{getSkillFileContent}'));
+    assert.ok(guidedTemplate.includes(GeoAppChatSkillNames.formula));
+    assert.ok(guidedTemplate.includes(GeoAppChatSkillNames.checkers));
+    assert.ok(guidedTemplate.includes(GeoAppChatSkillNames.imagePuzzle));
+    assert.ok(guidedTemplate.includes(GeoAppChatSkillNames.secretCode));
+    assert.ok(guidedTemplate.includes(GeoAppChatSkillNames.coordinates));
     assert.ok(guidedTemplate.includes('resolve_geocache_workflow'));
-    assert.ok(guidedTemplate.includes('coordinate_projection'));
-    assert.ok(guidedTemplate.includes('run_checker'));
+    assert.ok(guidedTemplate.includes('run_geocache_workflow_step'));
 }
 
 function testBuildGeocacheGeoAppOpenChatDetail(): void {

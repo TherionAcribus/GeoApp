@@ -3,6 +3,7 @@ import { ToolRequest } from '@theia/ai-core';
 
 import { GeoAppChatPolicyService } from '../geoapp-chat-policy-service';
 import { GeoAppAiToolCatalog } from '../geoapp-chat-tool-catalog';
+import { GeoAppChatSkillNames, GeoAppChatSkills, isGeoAppManagedSkillContent } from '../geoapp-chat-skills';
 
 type FakePreferenceValues = Record<string, unknown>;
 
@@ -98,6 +99,11 @@ function testGuidedProfileEnablesDefaultsAndConfirmsRiskyTools(): void {
     assert.equal(policy.confirmToolIds.has('formula-solver.search-answer'), true);
     assert.equal(policy.confirmToolIds.has('geoapp.plugins.workflow.run-step'), true);
     assert.equal(policy.confirmToolIds.has('plugin.coordinate_projection'), false);
+    assert.deepEqual(policy.recommendedSkillNames, [
+        GeoAppChatSkillNames.coordinates,
+        GeoAppChatSkillNames.secretCode,
+        GeoAppChatSkillNames.formula,
+    ]);
     assert.ok(exposed.find(request => request.name === 'run_checker')?.confirmAlwaysAllow);
 }
 
@@ -149,8 +155,22 @@ function testWorkflowSpecificBehaviorProfile(): void {
     } as any);
 
     assert.equal(policy.behaviorProfile, 'safe');
+    assert.deepEqual(policy.recommendedSkillNames, [
+        GeoAppChatSkillNames.checkers,
+        GeoAppChatSkillNames.coordinates,
+    ]);
     assert.equal(policy.enabledToolIds.has('geoapp.checkers.run'), false);
     assert.equal(policy.enabledToolIds.has('plugin.coordinate_projection'), true);
+}
+
+function testGeoAppSkillDefinitionsAreValid(): void {
+    assert.equal(GeoAppChatSkills.length, 5);
+    for (const skill of GeoAppChatSkills) {
+        assert.ok(skill.content.includes(`name: ${skill.name}`));
+        assert.ok(skill.content.includes('allowedTools:'));
+        assert.ok(isGeoAppManagedSkillContent(skill.content));
+        assert.ok(skill.workflows.length > 0);
+    }
 }
 
 function run(): void {
@@ -159,6 +179,7 @@ function run(): void {
     testOfflineProfileRemovesNetworkAndHighRiskTools();
     testOverridesDisableAndForceConfirmationByRegistryId();
     testWorkflowSpecificBehaviorProfile();
+    testGeoAppSkillDefinitionsAreValid();
     // eslint-disable-next-line no-console
     console.log('geoapp-chat-policy-service tests passed');
 }

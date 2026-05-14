@@ -11,6 +11,7 @@
 .geoapp-chat-policy-header,
 .geoapp-chat-policy-controls,
 .geoapp-chat-policy-summary,
+.geoapp-chat-policy-skills,
 .geoapp-chat-policy-import {
     border-bottom: 1px solid var(--theia-layout-color3);
     padding-bottom: 12px;
@@ -39,6 +40,7 @@
 .geoapp-chat-policy-actions,
 .geoapp-chat-policy-controls,
 .geoapp-chat-policy-summary,
+.geoapp-chat-policy-skills > div,
 .geoapp-chat-policy-flags {
     display: flex;
     align-items: center;
@@ -85,6 +87,29 @@
 
 .geoapp-chat-policy-summary strong {
     font-size: 13px;
+}
+
+.geoapp-chat-policy-skills {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.geoapp-chat-policy-skills h3 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.geoapp-chat-policy-skills span {
+    display: inline-flex;
+    align-items: center;
+    min-height: 22px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: var(--theia-badge-background);
+    color: var(--theia-badge-foreground);
+    font-size: 12px;
 }
 
 .geoapp-chat-policy-import {

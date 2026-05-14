@@ -157,6 +157,14 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                     <div><span>Tools actifs</span><strong>{enabledCount}</strong></div>
                     <div><span>Confirmation</span><strong>{confirmCount}</strong></div>
                     <div><span>Bloques</span><strong>{disabledCount}</strong></div>
+                    <div><span>Skills</span><strong>{policy.recommendedSkillNames.length}</strong></div>
+                </section>
+
+                <section className='geoapp-chat-policy-skills'>
+                    <h3>Skills GeoApp recommandes</h3>
+                    <div>
+                        {policy.recommendedSkillNames.map(skillName => <span key={skillName}>{skillName}</span>)}
+                    </div>
                 </section>
 
                 <section className='geoapp-chat-policy-import'>
