@@ -14,6 +14,7 @@
 .geoapp-chat-policy-skills,
 .geoapp-chat-policy-diagnostics,
 .geoapp-chat-policy-prompt-preview,
+.geoapp-chat-policy-tool-filters,
 .geoapp-chat-policy-import {
     border-bottom: 1px solid var(--theia-layout-color3);
     padding-bottom: 12px;
@@ -101,14 +102,16 @@
 
 .geoapp-chat-policy-skills h3,
 .geoapp-chat-policy-diagnostics h3,
-.geoapp-chat-policy-prompt-preview h3 {
+.geoapp-chat-policy-prompt-preview h3,
+.geoapp-chat-policy-tool-filters h3 {
     margin: 0;
     font-size: 13px;
     font-weight: 600;
 }
 
 .geoapp-chat-policy-diagnostics,
-.geoapp-chat-policy-prompt-preview {
+.geoapp-chat-policy-prompt-preview,
+.geoapp-chat-policy-tool-filters {
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -243,10 +246,59 @@
     resize: vertical;
 }
 
+.geoapp-chat-policy-tool-filters header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.geoapp-chat-policy-tool-filters header span {
+    color: var(--theia-ui-font-color2);
+    font-size: 12px;
+}
+
+.geoapp-chat-policy-tool-filter-grid {
+    display: grid;
+    grid-template-columns: minmax(220px, 2fr) repeat(4, minmax(150px, 1fr)) auto;
+    gap: 8px;
+    align-items: end;
+}
+
+.geoapp-chat-policy-tool-filter-grid label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    color: var(--theia-ui-font-color2);
+    font-size: 12px;
+}
+
+.geoapp-chat-policy-tool-filter-grid input,
+.geoapp-chat-policy-tool-filter-grid select {
+    min-width: 0;
+    height: 26px;
+    color: var(--theia-input-foreground);
+    background: var(--theia-input-background);
+    border: 1px solid var(--theia-input-border);
+}
+
+.geoapp-chat-policy-tool-filter-grid button {
+    white-space: nowrap;
+}
+
 .geoapp-chat-policy-matrix {
     display: flex;
     flex-direction: column;
     gap: 18px;
+}
+
+.geoapp-chat-policy-empty {
+    padding: 12px;
+    color: var(--theia-ui-font-color2);
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-layout-color3);
+    font-size: 12px;
 }
 
 .geoapp-chat-policy-skill-table {
@@ -334,11 +386,16 @@
 
 .geoapp-chat-policy-category th:nth-child(5),
 .geoapp-chat-policy-category td:nth-child(5) {
-    width: 180px;
+    width: 150px;
 }
 
 .geoapp-chat-policy-category th:nth-child(6),
 .geoapp-chat-policy-category td:nth-child(6) {
+    width: 190px;
+}
+
+.geoapp-chat-policy-category th:nth-child(7),
+.geoapp-chat-policy-category td:nth-child(7) {
     width: 112px;
 }
 
@@ -380,6 +437,30 @@
     padding: 0 9px 9px;
     flex-direction: row;
     flex-wrap: wrap;
+}
+
+.geoapp-chat-policy-skill-recommendations {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.geoapp-chat-policy-skill-recommendations span {
+    display: inline-flex;
+    align-items: center;
+    min-height: 20px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-layout-color3);
+    color: var(--theia-ui-font-color1);
+}
+
+.geoapp-chat-policy-skill-recommendations .blocked-recommendation {
+    background: var(--theia-inputValidation-warningBackground);
+    border-color: var(--theia-inputValidation-warningBorder);
+    color: var(--theia-inputValidation-warningForeground);
 }
 
 .geoapp-chat-policy-status,
@@ -425,4 +506,14 @@
 
 .geoapp-chat-policy-muted {
     color: var(--theia-ui-font-color2);
+}
+
+@media (max-width: 1200px) {
+    .geoapp-chat-policy-tool-filter-grid {
+        grid-template-columns: repeat(2, minmax(180px, 1fr));
+    }
+
+    .geoapp-chat-policy-tool-filter-grid button {
+        justify-self: start;
+    }
 }

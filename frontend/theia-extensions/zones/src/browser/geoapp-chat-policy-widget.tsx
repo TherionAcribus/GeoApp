@@ -73,6 +73,31 @@ const CATEGORY_ORDER: GeoAppAiToolCategory[] = [
     'debug',
 ];
 
+type GeoAppChatToolStatusFilter = 'all' | 'enabled' | 'confirm' | 'blocked';
+type GeoAppChatToolSkillFilter = 'all' | 'recommended' | 'blocked_recommended';
+
+const RISK_OPTIONS: Array<{ value: 'all' | GeoAppAiToolRisk; label: string }> = [
+    { value: 'all', label: 'Tous les risques' },
+    { value: 'read_only', label: 'Lecture' },
+    { value: 'local_write', label: 'Écriture locale' },
+    { value: 'network', label: 'Réseau' },
+    { value: 'auth', label: 'Auth' },
+    { value: 'high', label: 'Élevé' },
+];
+
+const STATUS_OPTIONS: Array<{ value: GeoAppChatToolStatusFilter; label: string }> = [
+    { value: 'all', label: 'Tous les statuts' },
+    { value: 'enabled', label: 'Actifs' },
+    { value: 'confirm', label: 'Confirmation' },
+    { value: 'blocked', label: 'Bloqués' },
+];
+
+const SKILL_RECOMMENDATION_OPTIONS: Array<{ value: GeoAppChatToolSkillFilter; label: string }> = [
+    { value: 'all', label: 'Toutes les recommandations' },
+    { value: 'recommended', label: 'Recommandés par skill' },
+    { value: 'blocked_recommended', label: 'Recommandés mais bloqués' },
+];
+
 const POLICY_DEFAULTS: Record<string, unknown> = {
     [GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF]: 'guided',
     [GEOAPP_CHAT_BEHAVIOR_SECRET_CODE_PROFILE_PREF]: 'default',
@@ -100,6 +125,11 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
     protected promptPreview?: GeoAppChatSystemPromptPreview;
     protected promptPreviewSignature = '';
     protected promptPreviewLoading = false;
+    protected toolSearchTerm = '';
+    protected toolStatusFilter: GeoAppChatToolStatusFilter = 'all';
+    protected toolRiskFilter: 'all' | GeoAppAiToolRisk = 'all';
+    protected toolCategoryFilter: 'all' | GeoAppAiToolCategory = 'all';
+    protected toolSkillFilter: GeoAppChatToolSkillFilter = 'all';
 
     @inject(SkillService) @optional()
     protected readonly skillService: SkillService | undefined;
@@ -132,7 +162,9 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
     protected render(): React.ReactNode {
         const policy = this.resolvePreviewPolicy();
         this.ensurePromptPreview(policy);
-        const entriesByCategory = this.groupEntries(policy.entries);
+        const skillRecommendations = this.getActiveSkillRecommendations(policy);
+        const filteredEntries = this.filterEntries(policy.entries, policy, skillRecommendations);
+        const entriesByCategory = this.groupEntries(filteredEntries);
         const enabledCount = policy.enabledToolIds.size;
         const confirmCount = policy.confirmToolIds.size;
         const disabledCount = policy.disabledToolIds.size;
@@ -219,14 +251,21 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                     </button>
                 </section>
 
+                {this.renderToolFilters(policy.entries.length, filteredEntries.length)}
+
                 <div className='geoapp-chat-policy-matrix'>
                     {CATEGORY_ORDER.map(category => {
                         const entries = entriesByCategory.get(category) || [];
                         if (!entries.length) {
                             return undefined;
                         }
-                        return this.renderCategoryTable(category, entries, policy);
+                        return this.renderCategoryTable(category, entries, policy, skillRecommendations);
                     })}
+                    {!filteredEntries.length && (
+                        <section className='geoapp-chat-policy-empty'>
+                            Aucun tool ne correspond aux filtres courants.
+                        </section>
+                    )}
                 </div>
             </div>
         );
@@ -301,7 +340,62 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
         );
     }
 
-    protected renderCategoryTable(category: GeoAppAiToolCategory, entries: GeoAppAiToolCatalogEntry[], policy: GeoAppChatPolicy): React.ReactNode {
+    protected renderToolFilters(totalCount: number, filteredCount: number): React.ReactNode {
+        return (
+            <section className='geoapp-chat-policy-tool-filters'>
+                <header>
+                    <h3>Matrice des tools</h3>
+                    <span>{filteredCount} / {totalCount} tools affichés</span>
+                </header>
+                <div className='geoapp-chat-policy-tool-filter-grid'>
+                    <label>
+                        Recherche
+                        <input
+                            type='search'
+                            value={this.toolSearchTerm}
+                            placeholder='Nom, registry ID, description, skill...'
+                            onChange={event => this.setToolSearchTerm(event.currentTarget.value)}
+                        />
+                    </label>
+                    <label>
+                        Statut
+                        <select value={this.toolStatusFilter} onChange={event => this.setToolStatusFilter(event.currentTarget.value as GeoAppChatToolStatusFilter)}>
+                            {STATUS_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        </select>
+                    </label>
+                    <label>
+                        Risque
+                        <select value={this.toolRiskFilter} onChange={event => this.setToolRiskFilter(event.currentTarget.value as 'all' | GeoAppAiToolRisk)}>
+                            {RISK_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        </select>
+                    </label>
+                    <label>
+                        Catégorie
+                        <select value={this.toolCategoryFilter} onChange={event => this.setToolCategoryFilter(event.currentTarget.value as 'all' | GeoAppAiToolCategory)}>
+                            <option value='all'>Toutes les catégories</option>
+                            {CATEGORY_ORDER.map(category => <option key={category} value={category}>{this.formatCategory(category)}</option>)}
+                        </select>
+                    </label>
+                    <label>
+                        Skills
+                        <select value={this.toolSkillFilter} onChange={event => this.setToolSkillFilter(event.currentTarget.value as GeoAppChatToolSkillFilter)}>
+                            {SKILL_RECOMMENDATION_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        </select>
+                    </label>
+                    <button className='theia-button secondary' type='button' onClick={() => this.resetToolFilters()}>
+                        Réinitialiser filtres
+                    </button>
+                </div>
+            </section>
+        );
+    }
+
+    protected renderCategoryTable(
+        category: GeoAppAiToolCategory,
+        entries: GeoAppAiToolCatalogEntry[],
+        policy: GeoAppChatPolicy,
+        skillRecommendations: Map<string, GeoAppChatSkillMetadata[]>
+    ): React.ReactNode {
         return (
             <section key={category} className='geoapp-chat-policy-category'>
                 <h3>{this.formatCategory(category)}</h3>
@@ -313,20 +407,27 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                             <th>Registry ID</th>
                             <th>Risque</th>
                             <th>Flags</th>
+                            <th>Skills</th>
                             <th>Override</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {entries.map(entry => this.renderToolRow(entry, policy))}
+                        {entries.map(entry => this.renderToolRow(entry, policy, skillRecommendations))}
                     </tbody>
                 </table>
             </section>
         );
     }
 
-    protected renderToolRow(entry: GeoAppAiToolCatalogEntry, policy: GeoAppChatPolicy): React.ReactNode {
+    protected renderToolRow(
+        entry: GeoAppAiToolCatalogEntry,
+        policy: GeoAppChatPolicy,
+        skillRecommendations: Map<string, GeoAppChatSkillMetadata[]>
+    ): React.ReactNode {
         const status = this.getToolStatus(entry, policy);
         const override = this.getToolOverride(entry.registryId);
+        const recommendingSkills = skillRecommendations.get(entry.registryId) || [];
+        const blockedRecommendedTool = recommendingSkills.length > 0 && !policy.enabledToolIds.has(entry.registryId);
         return (
             <tr key={entry.registryId}>
                 <td>
@@ -339,6 +440,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                 <td><code>{entry.registryId}</code></td>
                 <td><span className={`geoapp-chat-policy-risk ${entry.risk}`}>{this.formatRisk(entry.risk)}</span></td>
                 <td>{this.renderFlags(entry)}</td>
+                <td>{this.renderToolSkillRecommendations(recommendingSkills, blockedRecommendedTool)}</td>
                 <td>
                     <select
                         value={override}
@@ -351,6 +453,18 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                     </select>
                 </td>
             </tr>
+        );
+    }
+
+    protected renderToolSkillRecommendations(recommendingSkills: GeoAppChatSkillMetadata[], blockedRecommendedTool: boolean): React.ReactNode {
+        if (!recommendingSkills.length) {
+            return <span className='geoapp-chat-policy-muted'>-</span>;
+        }
+        return (
+            <div className='geoapp-chat-policy-skill-recommendations'>
+                {blockedRecommendedTool && <span className='blocked-recommendation'>Skill recommande, tool bloqué</span>}
+                {recommendingSkills.map(skill => <span key={skill.name}>{skill.name}</span>)}
+            </div>
         );
     }
 
@@ -501,6 +615,66 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
         return groups;
     }
 
+    protected filterEntries(
+        entries: GeoAppAiToolCatalogEntry[],
+        policy: GeoAppChatPolicy,
+        skillRecommendations: Map<string, GeoAppChatSkillMetadata[]>
+    ): GeoAppAiToolCatalogEntry[] {
+        const searchTerm = this.toolSearchTerm.trim().toLowerCase();
+        return entries.filter(entry => {
+            const status = this.getToolStatus(entry, policy).kind as GeoAppChatToolStatusFilter;
+            const recommendingSkills = skillRecommendations.get(entry.registryId) || [];
+            const isBlockedRecommended = recommendingSkills.length > 0 && !policy.enabledToolIds.has(entry.registryId);
+
+            if (this.toolStatusFilter !== 'all' && status !== this.toolStatusFilter) {
+                return false;
+            }
+            if (this.toolRiskFilter !== 'all' && entry.risk !== this.toolRiskFilter) {
+                return false;
+            }
+            if (this.toolCategoryFilter !== 'all' && entry.category !== this.toolCategoryFilter) {
+                return false;
+            }
+            if (this.toolSkillFilter === 'recommended' && !recommendingSkills.length) {
+                return false;
+            }
+            if (this.toolSkillFilter === 'blocked_recommended' && !isBlockedRecommended) {
+                return false;
+            }
+            if (!searchTerm) {
+                return true;
+            }
+
+            const searchable = [
+                entry.publicName,
+                entry.registryId,
+                entry.description,
+                entry.category,
+                entry.risk,
+                entry.provider,
+                ...recommendingSkills.map(skill => skill.name),
+                ...recommendingSkills.map(skill => skill.label),
+            ].filter((value): value is string => Boolean(value)).join(' ').toLowerCase();
+            return searchable.includes(searchTerm);
+        });
+    }
+
+    protected getActiveSkillRecommendations(policy: GeoAppChatPolicy): Map<string, GeoAppChatSkillMetadata[]> {
+        const recommendations = new Map<string, GeoAppChatSkillMetadata[]>();
+        const activeSkillNames = new Set(policy.recommendedSkillNames);
+        for (const skill of policy.skillEntries) {
+            if (!activeSkillNames.has(skill.name)) {
+                continue;
+            }
+            for (const toolId of skill.toolRegistryIds) {
+                const current = recommendations.get(toolId) || [];
+                current.push(skill);
+                recommendations.set(toolId, current);
+            }
+        }
+        return recommendations;
+    }
+
     protected getToolStatus(entry: GeoAppAiToolCatalogEntry, policy: GeoAppChatPolicy): { kind: string; label: string } {
         if (!policy.enabledToolIds.has(entry.registryId)) {
             return { kind: 'blocked', label: 'Bloque' };
@@ -533,6 +707,40 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
 
     protected setImportText(value: string): void {
         this.importText = value;
+        this.update();
+    }
+
+    protected setToolSearchTerm(value: string): void {
+        this.toolSearchTerm = value;
+        this.update();
+    }
+
+    protected setToolStatusFilter(value: GeoAppChatToolStatusFilter): void {
+        this.toolStatusFilter = value;
+        this.update();
+    }
+
+    protected setToolRiskFilter(value: 'all' | GeoAppAiToolRisk): void {
+        this.toolRiskFilter = value;
+        this.update();
+    }
+
+    protected setToolCategoryFilter(value: 'all' | GeoAppAiToolCategory): void {
+        this.toolCategoryFilter = value;
+        this.update();
+    }
+
+    protected setToolSkillFilter(value: GeoAppChatToolSkillFilter): void {
+        this.toolSkillFilter = value;
+        this.update();
+    }
+
+    protected resetToolFilters(): void {
+        this.toolSearchTerm = '';
+        this.toolStatusFilter = 'all';
+        this.toolRiskFilter = 'all';
+        this.toolCategoryFilter = 'all';
+        this.toolSkillFilter = 'all';
         this.update();
     }
 
