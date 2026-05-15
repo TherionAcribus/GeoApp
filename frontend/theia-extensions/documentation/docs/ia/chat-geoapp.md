@@ -250,6 +250,15 @@ Sélectionnez un pack dans la liste. La zone de détail affiche :
 
 Le contenu effectif est le texte actuellement utilisé par Theia pour ce prompt pack, avant l'ajout de la policy effective.
 
+La vue affiche aussi une comparaison simple avec la version GeoApp intégrée :
+
+- nombre de lignes du prompt actif ;
+- nombre de caractères du prompt actif ;
+- nombre de lignes et de caractères de la version GeoApp ;
+- première ligne où une différence est détectée.
+
+Cette comparaison permet de voir rapidement si une personnalisation change fortement le prompt, sans avoir besoin d'ouvrir deux fichiers côte à côte.
+
 ### Éditer dans Theia
 
 Le bouton **Éditer dans Theia** ouvre le fichier de personnalisation du prompt pack sélectionné.
@@ -347,6 +356,14 @@ Le bouton **Restaurer GeoApp** remplace la skill par la version GeoApp intégré
 Si la skill est personnalisée, GeoApp demande confirmation avant de remplacer le fichier. Cela évite d'écraser silencieusement vos modifications.
 
 Après restauration, GeoApp demande à Theia de rafraîchir les skills. Si la skill reste affichée comme **Non découverte**, redémarrez GeoApp ou relancez le chargement des skills côté Theia.
+
+### Exporter une skill personnalisée
+
+Si une skill GeoApp est personnalisée, le bouton **Exporter** apparaît dans la table des skills.
+
+Cet export copie dans le presse-papiers une configuration GeoApp minimale contenant uniquement cette skill. Vous pouvez ensuite la réimporter dans le champ d'import de configuration, ou la partager avec un autre poste.
+
+Les skills en version GeoApp standard ne proposent pas ce bouton, car elles peuvent être restaurées directement depuis GeoApp.
 
 ### Changer le statut d'une skill
 
@@ -446,6 +463,7 @@ Quand vous collez une configuration JSON dans le champ d'import, GeoApp affiche 
 
 - type de configuration : complète ou ancienne policy JSON ;
 - nombre de préférences détectées ;
+- noms des préférences qui seront modifiées ;
 - nombre de prompt packs personnalisés ;
 - nombre de skills personnalisées ;
 - noms des prompts et skills qui seront restaurés.

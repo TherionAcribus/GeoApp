@@ -359,6 +359,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                             <span>{selectedRow.isCustomized ? 'Version personnalisée active' : 'Version GeoApp active'}</span>
                         </div>
                         <p>{selectedRow.description || 'Aucune description.'}</p>
+                        {this.renderPromptComparison(selectedRow)}
                         <details open>
                             <summary>Contenu effectif</summary>
                             <pre>{selectedRow.template || 'Prompt indisponible.'}</pre>
@@ -387,6 +388,51 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
         );
     }
 
+    protected renderPromptComparison(row: GeoAppChatPromptPackRow): React.ReactNode {
+        const builtIn = this.getBuiltInPromptVariant(row.variantId);
+        if (!builtIn) {
+            return (
+                <div className='geoapp-chat-policy-prompt-compare'>
+                    <strong>Comparaison GeoApp indisponible</strong>
+                    <span>La version intégrée de ce prompt pack est introuvable.</span>
+                </div>
+            );
+        }
+        const activeStats = this.getTextStats(row.template);
+        const builtInStats = this.getTextStats(builtIn.template);
+        const firstDiffLine = this.getFirstDifferentLine(row.template, builtIn.template);
+        return (
+            <div className='geoapp-chat-policy-prompt-compare'>
+                <strong>{firstDiffLine === undefined ? 'Identique à la version GeoApp' : 'Différent de la version GeoApp'}</strong>
+                <span>Actif : {activeStats.lines} ligne(s), {activeStats.characters} caractère(s)</span>
+                <span>GeoApp : {builtInStats.lines} ligne(s), {builtInStats.characters} caractère(s)</span>
+                {firstDiffLine !== undefined && <small>Première différence détectée à la ligne {firstDiffLine}.</small>}
+            </div>
+        );
+    }
+
+    protected getTextStats(value: string): { lines: number; characters: number } {
+        if (!value) {
+            return { lines: 0, characters: 0 };
+        }
+        return {
+            lines: value.split(/\r\n|\r|\n/).length,
+            characters: value.length,
+        };
+    }
+
+    protected getFirstDifferentLine(left: string, right: string): number | undefined {
+        const leftLines = left.split(/\r\n|\r|\n/);
+        const rightLines = right.split(/\r\n|\r|\n/);
+        const lineCount = Math.max(leftLines.length, rightLines.length);
+        for (let index = 0; index < lineCount; index++) {
+            if ((leftLines[index] || '') !== (rightLines[index] || '')) {
+                return index + 1;
+            }
+        }
+        return undefined;
+    }
+
     protected renderImportPreview(): React.ReactNode {
         const serialized = this.importText.trim();
         if (!serialized) {
@@ -400,6 +446,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                     <span>{preview.policyCount} préférence(s)</span>
                     <span>{preview.customizedPromptCount} prompt pack(s) personnalisé(s)</span>
                     <span>{preview.customizedSkillCount} skill(s) personnalisée(s)</span>
+                    {preview.policyKeys.length > 0 && <small>Préférences : {preview.policyKeys.join(', ')}</small>}
                     {preview.customizedPromptNames.length > 0 && <small>Prompts : {preview.customizedPromptNames.join(', ')}</small>}
                     {preview.customizedSkillNames.length > 0 && <small>Skills : {preview.customizedSkillNames.join(', ')}</small>}
                 </div>
@@ -753,10 +800,18 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
         if (!state || state.status === 'geoapp_default') {
             return <span className='geoapp-chat-policy-muted'>-</span>;
         }
+        const canExport = state.status === 'customized' || (state.status === 'not_discovered' && !state.managedContent);
         return (
-            <button className='theia-button secondary' type='button' onClick={() => { void this.restoreGeoAppSkill(skill, state); }}>
-                Restaurer GeoApp
-            </button>
+            <div className='geoapp-chat-policy-skill-actions'>
+                {canExport && (
+                    <button className='theia-button secondary' type='button' onClick={() => { void this.exportCustomSkill(skill); }}>
+                        Exporter
+                    </button>
+                )}
+                <button className='theia-button secondary' type='button' onClick={() => { void this.restoreGeoAppSkill(skill, state); }}>
+                    Restaurer GeoApp
+                </button>
+            </div>
         );
     }
 
@@ -1032,6 +1087,36 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
         }
     }
 
+    protected async exportCustomSkill(skill: GeoAppChatSkillMetadata): Promise<void> {
+        try {
+            const skillExport = (await this.skillStateService.getSkillExports()).find(candidate => candidate.name === skill.name);
+            if (!skillExport?.isCustomized || !skillExport.content?.trim()) {
+                this.messages.warn(`La skill ${skill.name} n'a pas de contenu personnalisé exportable.`);
+                return;
+            }
+            const serialized = JSON.stringify({
+                type: 'geoapp-chat-configuration',
+                version: 3,
+                exportedAt: new Date().toISOString(),
+                policy: {},
+                promptPacks: [],
+                skills: [skillExport],
+            }, null, 2);
+            try {
+                await navigator.clipboard.writeText(serialized);
+                this.messages.info(`Skill ${skill.name} copiée dans le presse-papiers.`);
+            } catch (error) {
+                console.warn('[GeoAppChatPolicyWidget] Skill export clipboard failed', error);
+                this.importText = serialized;
+                this.messages.warn('Impossible de copier automatiquement; l’export de skill est affiché dans le champ import/export.');
+                this.update();
+            }
+        } catch (error) {
+            console.error('[GeoAppChatPolicyWidget] Failed to export custom skill', error);
+            this.messages.error(`Impossible d'exporter la skill ${skill.name}.`);
+        }
+    }
+
     protected getPromptPackRows(): GeoAppChatPromptPackRow[] {
         return Object.entries(GeoAppChatPromptVariantByPack).map(([pack, variantId]) => {
             const fragment = this.promptService?.getPromptFragment(variantId);
@@ -1288,6 +1373,9 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
         }
         if (preview.customizedSkillNames.length) {
             lines.push(`Skills : ${preview.customizedSkillNames.join(', ')}`);
+        }
+        if (preview.policyKeys.length) {
+            lines.push(`Préférences : ${preview.policyKeys.join(', ')}`);
         }
         return lines.join('\n');
     }

@@ -375,6 +375,34 @@
     font-size: 12px;
 }
 
+.geoapp-chat-policy-prompt-compare {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    padding: 7px 8px;
+    border: 1px solid var(--theia-layout-color3);
+    border-radius: 4px;
+    background: var(--theia-editorWidget-background);
+    color: var(--theia-ui-font-color2);
+    font-size: 12px;
+}
+
+.geoapp-chat-policy-prompt-compare strong {
+    color: var(--theia-ui-font-color1);
+}
+
+.geoapp-chat-policy-prompt-compare span {
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: var(--theia-badge-background);
+    color: var(--theia-badge-foreground);
+}
+
+.geoapp-chat-policy-prompt-compare small {
+    flex-basis: 100%;
+}
+
 .geoapp-chat-policy-prompt-detail details {
     border: 1px solid var(--theia-layout-color3);
     background: var(--theia-editorWidget-background);
@@ -428,6 +456,12 @@
     background: var(--theia-badge-background);
     color: var(--theia-badge-foreground);
     font-size: 12px;
+}
+
+.geoapp-chat-policy-skill-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
 }
 
 .geoapp-chat-policy-import {

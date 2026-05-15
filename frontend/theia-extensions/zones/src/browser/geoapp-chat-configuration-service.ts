@@ -73,6 +73,7 @@ export interface GeoAppChatConfigurationImportPreview {
     version?: unknown;
     exportedAt?: string;
     policyCount: number;
+    policyKeys: string[];
     customizedPromptCount: number;
     customizedPromptNames: string[];
     customizedSkillCount: number;
@@ -138,12 +139,15 @@ export class GeoAppChatConfigurationService {
         const customSkills = record.type === 'geoapp-chat-configuration' && Array.isArray(record.skills)
             ? this.getCustomSkillImports(record.skills)
             : [];
+        const policyKeys = Object.keys(GEOAPP_CHAT_POLICY_DEFAULTS)
+            .filter(key => Object.prototype.hasOwnProperty.call(policyRecord, key));
 
         return {
             format: record.type === 'geoapp-chat-configuration' ? 'full' : 'legacy',
             version: record.version,
             exportedAt: typeof record.exportedAt === 'string' ? record.exportedAt : undefined,
-            policyCount: Object.keys(GEOAPP_CHAT_POLICY_DEFAULTS).filter(key => Object.prototype.hasOwnProperty.call(policyRecord, key)).length,
+            policyCount: policyKeys.length,
+            policyKeys,
             customizedPromptCount: customizedPromptPacks.length,
             customizedPromptNames: customizedPromptPacks.map(promptPack => promptPack.pack || promptPack.variantId),
             customizedSkillCount: customSkills.length,

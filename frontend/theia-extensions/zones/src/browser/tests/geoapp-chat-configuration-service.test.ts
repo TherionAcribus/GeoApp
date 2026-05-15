@@ -292,6 +292,10 @@ function testPreviewSummarizesFullConfiguration(): void {
     assert.equal(preview.version, 3);
     assert.equal(preview.exportedAt, '2026-05-15T10:00:00.000Z');
     assert.equal(preview.policyCount, 2);
+    assert.deepEqual(preview.policyKeys, [
+        GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF,
+        GEOAPP_CHAT_PROMPT_PACK_PREF,
+    ]);
     assert.equal(preview.customizedPromptCount, 1);
     assert.deepEqual(preview.customizedPromptNames, ['safe']);
     assert.equal(preview.customizedSkillCount, 1);
@@ -320,6 +324,10 @@ async function testLegacyPolicyImportStillWorks(): Promise<void> {
     }));
     assert.equal(preview.format, 'legacy');
     assert.equal(preview.policyCount, 2);
+    assert.deepEqual(preview.policyKeys, [
+        GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF,
+        GEOAPP_CHAT_PROMPT_PACK_PREF,
+    ]);
     assert.equal(preview.customizedPromptCount, 0);
     assert.equal(preview.customizedSkillCount, 0);
 }
