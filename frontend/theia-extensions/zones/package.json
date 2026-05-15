@@ -38,7 +38,7 @@
   "scripts": {
     "clean": "rimraf lib *.tsbuildinfo",
     "build": "tsc -b",
-    "test:geoapp": "node ../../node_modules/ts-node/dist/bin.js src/browser/tests/geocache-chat-prompt-shared.test.ts && node ../../node_modules/ts-node/dist/bin.js src/browser/tests/geoapp-chat-shared.test.ts && node ../../node_modules/ts-node/dist/bin.js src/browser/tests/geoapp-chat-policy-service.test.ts && node ../../node_modules/ts-node/dist/bin.js src/browser/tests/geoapp-chat-agent.test.ts && node ../../node_modules/ts-node/dist/bin.js src/browser/tests/geoapp-chat-bridge.test.ts",
+    "test:geoapp": "node ../../node_modules/ts-node/dist/bin.js src/browser/tests/geocache-chat-prompt-shared.test.ts && node ../../node_modules/ts-node/dist/bin.js src/browser/tests/geoapp-chat-shared.test.ts && node ../../node_modules/ts-node/dist/bin.js src/browser/tests/geoapp-chat-policy-service.test.ts && node ../../node_modules/ts-node/dist/bin.js src/browser/tests/geoapp-chat-configuration-service.test.ts && node ../../node_modules/ts-node/dist/bin.js src/browser/tests/geoapp-chat-agent.test.ts && node ../../node_modules/ts-node/dist/bin.js src/browser/tests/geoapp-chat-bridge.test.ts",
     "watch": "rimraf lib *.tsbuildinfo && tsc -w",
     "lint": "eslint --ext js,jsx,ts,tsx src",
     "lint:fix": "eslint --ext js,jsx,ts,tsx src --fix",
