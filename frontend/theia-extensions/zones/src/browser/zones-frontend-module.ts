@@ -40,6 +40,7 @@ import { GeoAppAiToolCatalog } from './geoapp-chat-tool-catalog';
 import { GeoAppChatPolicyService } from './geoapp-chat-policy-service';
 import { GeoAppChatPolicyWidget } from './geoapp-chat-policy-widget';
 import { GeoAppChatSkillSeeder } from './geoapp-chat-skill-seeder';
+import { GeoAppChatSkillStateService } from './geoapp-chat-skill-state-service';
 import { ChatAgent } from '@theia/ai-chat/lib/common/chat-agents';
 import { GeocachingAuthWidget } from './geocaching-auth-widget';
 import { ArchiveManagerWidget } from './archive-manager-widget';
@@ -261,6 +262,7 @@ export default new ContainerModule(bind => {
 
     bind(GeoAppChatSkillSeeder).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(GeoAppChatSkillSeeder);
+    bind(GeoAppChatSkillStateService).toSelf().inSingletonScope();
 
     bind(GeoAppChatAgentContribution).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(GeoAppChatAgentContribution);

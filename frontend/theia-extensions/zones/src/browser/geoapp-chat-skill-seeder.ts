@@ -4,7 +4,7 @@ import { EnvVariablesServer } from '@theia/core/lib/common/env-variables';
 import { URI } from '@theia/core';
 import { BinaryBuffer } from '@theia/core/lib/common/buffer';
 import { FileService } from '@theia/filesystem/lib/browser/file-service';
-import { SkillService } from '@theia/ai-core/lib/browser';
+import { SkillService } from '@theia/ai-core/lib/browser/skill-service';
 
 import { GeoAppChatSkills, isGeoAppManagedSkillContent } from './geoapp-chat-skills';
 

@@ -35,6 +35,7 @@ import {
 } from './geoapp-chat-policy-service';
 import { GeoAppAiToolCatalogEntry, GeoAppAiToolCategory, GeoAppAiToolRisk } from './geoapp-chat-tool-catalog';
 import { GeoAppChatSkillMetadata } from './geoapp-chat-skills';
+import { GeoAppChatSkillState, GeoAppChatSkillStateService } from './geoapp-chat-skill-state-service';
 
 const WORKFLOW_OPTIONS: Array<{ value: GeoAppChatWorkflowKind; label: string }> = [
     { value: 'general', label: 'General' },
@@ -130,12 +131,16 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
     protected toolRiskFilter: 'all' | GeoAppAiToolRisk = 'all';
     protected toolCategoryFilter: 'all' | GeoAppAiToolCategory = 'all';
     protected toolSkillFilter: GeoAppChatToolSkillFilter = 'all';
+    protected skillStates = new Map<string, GeoAppChatSkillState>();
+    protected skillStatesLoading = false;
+    protected skillStatesLoaded = false;
 
     @inject(SkillService) @optional()
     protected readonly skillService: SkillService | undefined;
 
     constructor(
         @inject(GeoAppChatPolicyService) protected readonly chatPolicyService: GeoAppChatPolicyService,
+        @inject(GeoAppChatSkillStateService) protected readonly skillStateService: GeoAppChatSkillStateService,
         @inject(PreferenceService) protected readonly preferenceService: PreferenceService,
         @inject(MessageService) protected readonly messages: MessageService,
         @inject(CommandService) protected readonly commandService: CommandService,
@@ -156,11 +161,16 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                 this.update();
             }
         });
+        this.skillService?.onSkillsChanged(() => {
+            this.skillStatesLoaded = false;
+            this.update();
+        });
         this.update();
     }
 
     protected render(): React.ReactNode {
         const policy = this.resolvePreviewPolicy();
+        this.ensureSkillStates();
         this.ensurePromptPreview(policy);
         const skillRecommendations = this.getActiveSkillRecommendations(policy);
         const filteredEntries = this.filterEntries(policy.entries, policy, skillRecommendations);
@@ -232,6 +242,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
 
                 <section className='geoapp-chat-policy-skills'>
                     <h3>Skills GeoApp actifs</h3>
+                    {this.skillStatesLoading && <p className='geoapp-chat-policy-muted'>Analyse des versions de skills en cours...</p>}
                     <div className='geoapp-chat-policy-skill-badges'>
                         {policy.recommendedSkillNames.map(skillName => <span key={skillName}>{skillName}</span>)}
                     </div>
@@ -475,9 +486,11 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                     <tr>
                         <th>Statut</th>
                         <th>Skill</th>
+                        <th>Version</th>
                         <th>Workflows</th>
                         <th>Tools associes</th>
                         <th>Override</th>
+                        <th>Action</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -490,6 +503,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
     protected renderSkillRow(skill: GeoAppChatSkillMetadata, policy: GeoAppChatPolicy): React.ReactNode {
         const enabled = policy.recommendedSkillNames.includes(skill.name);
         const override = this.getSkillOverride(skill.name);
+        const state = this.skillStates.get(skill.name);
         return (
             <tr key={skill.name}>
                 <td>
@@ -500,7 +514,9 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                 <td>
                     <strong>{skill.name}</strong>
                     <small>{skill.description}</small>
+                    {state?.location && <small className='geoapp-chat-policy-path'>{state.location}</small>}
                 </td>
+                <td>{this.renderSkillState(state)}</td>
                 <td>{skill.workflows.join(', ')}</td>
                 <td>
                     <div className='geoapp-chat-policy-tool-list'>
@@ -517,7 +533,33 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                         <option value='disabled'>disabled</option>
                     </select>
                 </td>
+                <td>{this.renderSkillAction(skill, state)}</td>
             </tr>
+        );
+    }
+
+    protected renderSkillState(state: GeoAppChatSkillState | undefined): React.ReactNode {
+        if (!state) {
+            return <span className='geoapp-chat-policy-muted'>Analyse...</span>;
+        }
+        return (
+            <div className='geoapp-chat-policy-skill-state'>
+                <span className={`geoapp-chat-policy-skill-state-badge ${state.status}`}>
+                    {this.formatSkillState(state.status)}
+                </span>
+                <small>{state.message}</small>
+            </div>
+        );
+    }
+
+    protected renderSkillAction(skill: GeoAppChatSkillMetadata, state: GeoAppChatSkillState | undefined): React.ReactNode {
+        if (!state || state.status === 'geoapp_default') {
+            return <span className='geoapp-chat-policy-muted'>-</span>;
+        }
+        return (
+            <button className='theia-button secondary' type='button' onClick={() => { void this.restoreGeoAppSkill(skill, state); }}>
+                Restaurer GeoApp
+            </button>
         );
     }
 
@@ -603,6 +645,25 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
             skillServiceAvailable: Boolean(this.skillService),
             discoveredSkillNames: this.skillService?.getSkills().map(skill => skill.name),
         };
+    }
+
+    protected ensureSkillStates(): void {
+        if (this.skillStatesLoaded || this.skillStatesLoading) {
+            return;
+        }
+        this.skillStatesLoading = true;
+        void this.skillStateService.getSkillStates()
+            .then(states => {
+                this.skillStates = states;
+                this.skillStatesLoaded = true;
+                this.skillStatesLoading = false;
+                this.update();
+            })
+            .catch(error => {
+                console.error('[GeoAppChatPolicyWidget] Failed to inspect GeoApp skill states', error);
+                this.skillStatesLoading = false;
+                this.update();
+            });
     }
 
     protected groupEntries(entries: GeoAppAiToolCatalogEntry[]): Map<GeoAppAiToolCategory, GeoAppAiToolCatalogEntry[]> {
@@ -742,6 +803,25 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
         this.toolCategoryFilter = 'all';
         this.toolSkillFilter = 'all';
         this.update();
+    }
+
+    protected async restoreGeoAppSkill(skill: GeoAppChatSkillMetadata, state: GeoAppChatSkillState): Promise<void> {
+        const shouldConfirm = state.status === 'customized';
+        if (shouldConfirm && typeof window !== 'undefined' && !window.confirm(
+            `La skill ${skill.name} semble personnalisée. Restaurer la version GeoApp remplacera le contenu actuel du fichier actif. Continuer ?`
+        )) {
+            return;
+        }
+        try {
+            await this.skillStateService.restoreGeoAppSkill(skill.name);
+            this.skillStatesLoaded = false;
+            this.promptPreviewSignature = '';
+            this.messages.info(`Skill ${skill.name} restaurée avec la version GeoApp.`);
+            this.update();
+        } catch (error) {
+            console.error('[GeoAppChatPolicyWidget] Failed to restore GeoApp skill', error);
+            this.messages.error(`Impossible de restaurer la skill ${skill.name}.`);
+        }
     }
 
     protected getToolOverrides(): Record<string, GeoAppChatToolOverride | boolean> {
@@ -925,5 +1005,17 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
             error: 'Erreur',
         };
         return labels[severity];
+    }
+
+    protected formatSkillState(status: GeoAppChatSkillState['status']): string {
+        const labels: Record<GeoAppChatSkillState['status'], string> = {
+            geoapp_default: 'GeoApp',
+            customized: 'Personnalisée',
+            outdated: 'À mettre à jour',
+            missing: 'Absente',
+            not_discovered: 'Non découverte',
+            unreadable: 'Illisible',
+        };
+        return labels[status];
     }
 }

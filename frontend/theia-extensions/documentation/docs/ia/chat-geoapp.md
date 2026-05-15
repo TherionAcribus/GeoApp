@@ -29,7 +29,7 @@ La section **Chat IA GeoApp** contient aussi deux boutons importants :
 
 | Bouton | Rôle |
 |---|---|
-| **Policy tools** | Ouvre la vue détaillée qui montre quels tools et skills sont actifs. |
+| **Policy tools** | Ouvre la vue détaillée qui montre la policy effective, les tools, les skills, les diagnostics et le prompt final. |
 | **Configurer IA Theia** | Ouvre la configuration IA native de Theia : modèles, fournisseurs, agents, tools et confirmations globales. |
 
 Vous pouvez aussi ouvrir la vue **Policy Chat IA GeoApp** depuis les menus GeoApp ou depuis la palette de commandes.
@@ -50,7 +50,7 @@ Selon les réglages actifs, le Chat IA peut notamment :
 - afficher temporairement une coordonnée sur la carte ;
 - enregistrer une coordonnée trouvée, si vous le demandez ou si votre configuration l'autorise.
 
-Les outils disponibles changent selon le workflow, le profil comportemental, les préférences utilisateur et les confirmations Theia.
+Les outils disponibles changent selon le workflow, le profil comportemental, les préférences utilisateur, les skills actives et les confirmations Theia.
 
 ## Les concepts importants
 
@@ -178,11 +178,13 @@ Elle affiche :
 - le prompt pack ;
 - le skill pack ;
 - le nombre de tools actifs, bloqués ou soumis à confirmation ;
-- les skills actives ;
-- la matrice des tools par catégorie ;
+- les diagnostics runtime ;
+- l'aperçu du prompt final envoyé au modèle ;
+- les skills actives et leur état ;
+- la matrice filtrable des tools ;
 - les overrides manuels.
 
-Cette vue est utile quand vous vous demandez : "Pourquoi l'IA n'a pas utilisé ce checker ?" ou "Pourquoi ce tool demande confirmation ?"
+Cette vue est utile quand vous vous demandez : "Pourquoi l'IA n'a pas utilisé ce checker ?", "Pourquoi ce tool demande confirmation ?" ou "Pourquoi une skill n'est pas disponible ?"
 
 ### Tester une policy
 
@@ -193,7 +195,61 @@ En haut de la vue, vous pouvez changer :
 - **Profil preview** : teste un comportement sans forcément changer toutes les préférences.
 - **Skill pack** : change le pack de skills actif.
 
-La matrice se met à jour pour montrer la policy effective.
+La vue se met à jour pour montrer la policy effective.
+
+## Diagnostic runtime
+
+Le bloc **Diagnostic runtime** signale les problèmes qui peuvent expliquer un comportement inattendu du chat.
+
+Il peut par exemple indiquer :
+
+- qu'un tool GeoApp attendu n'est pas enregistré dans Theia ;
+- que `getSkillFileContent` n'est pas disponible ;
+- qu'une skill GeoApp active n'a pas encore été découverte par Theia ;
+- qu'une skill recommande un tool absent ;
+- qu'une skill recommande un tool bloqué par la policy.
+
+Ces messages ne signifient pas toujours qu'il y a une erreur grave. Ils servent surtout à comprendre ce que le modèle voit réellement.
+
+## Aperçu du prompt final
+
+La vue **Policy Chat IA GeoApp** contient aussi un **Aperçu du prompt final**.
+
+Cet aperçu montre :
+
+- le variant de prompt utilisé ;
+- si le prompt est la version GeoApp par défaut ou une version personnalisée ;
+- le prompt système résolu par Theia ;
+- la policy injectée dans le prompt ;
+- les tools référencés directement par le prompt.
+
+C'est l'endroit le plus utile pour vérifier ce que l'IA reçoit vraiment comme consignes avant de répondre.
+
+## Matrice des tools
+
+La matrice des tools affiche les outils GeoApp visibles par la policy courante.
+
+Vous pouvez filtrer la matrice par :
+
+- recherche texte : nom, registry ID, description ou skill ;
+- statut : actifs, confirmation, bloqués ;
+- risque : lecture, écriture locale, réseau, auth, élevé ;
+- catégorie : workflow, metasolver, formules, coordonnées, checkers, image/OCR, web, plugins ;
+- recommandation de skill.
+
+Le compteur indique combien de tools sont affichés par rapport au total.
+
+### Recommandations skill/tool
+
+La colonne **Skills** montre quelles skills actives recommandent un tool.
+
+Si vous voyez **Skill recommande, tool bloqué**, cela veut dire :
+
+- une skill active sait que ce tool serait utile ;
+- mais la policy actuelle ne l'expose pas à l'IA ;
+- l'IA devra donc proposer une étape manuelle ou utiliser une autre stratégie.
+
+Vous pouvez corriger cela en changeant le profil comportemental, le workflow, ou l'override du tool.
 
 ### Changer le statut d'un tool
 
@@ -207,6 +263,29 @@ Dans la matrice, chaque tool possède un champ **Override** :
 | `confirm` | Autorise le tool, mais demande confirmation. |
 
 Pour un usage quotidien, évitez de tout mettre en `enabled`. Le mode `default` permet à GeoApp d'adapter les tools au contexte.
+
+## État des skills GeoApp
+
+La table des skills affiche maintenant l'état de chaque skill GeoApp.
+
+| État | Signification |
+|---|---|
+| **GeoApp** | La skill active correspond à la version intégrée de GeoApp. |
+| **Personnalisée** | La skill a été modifiée par l'utilisateur. GeoApp ne l'écrase pas automatiquement. |
+| **À mettre à jour** | La skill est une ancienne version GeoApp. |
+| **Absente** | Le fichier de skill n'existe pas dans le dossier de configuration. |
+| **Non découverte** | Le fichier existe, mais Theia ne l'a pas encore chargé. |
+| **Illisible** | Theia connaît la skill, mais GeoApp ne peut pas lire son fichier. |
+
+La table affiche aussi le chemin du fichier actif quand il est connu.
+
+### Restaurer une skill GeoApp
+
+Le bouton **Restaurer GeoApp** remplace la skill par la version GeoApp intégrée.
+
+Si la skill est personnalisée, GeoApp demande confirmation avant de remplacer le fichier. Cela évite d'écraser silencieusement vos modifications.
+
+Après restauration, GeoApp demande à Theia de rafraîchir les skills. Si la skill reste affichée comme **Non découverte**, redémarrez GeoApp ou relancez le chargement des skills côté Theia.
 
 ### Changer le statut d'une skill
 
@@ -295,6 +374,8 @@ L'export est pratique pour partager une configuration entre plusieurs installati
 - Si vous travaillez sur une cache sensible ou privée, préférez `local` + `offline`.
 - Gardez `guided` comme base si vous ne savez pas quel profil choisir.
 - Utilisez la vue **Policy Chat IA GeoApp** quand un comportement vous surprend.
+- Consultez le diagnostic runtime quand une skill ou un tool semble absent.
+- Utilisez les filtres de matrice pour vérifier rapidement ce qui est bloqué ou soumis à confirmation.
 
 ## Dépannage rapide
 
@@ -302,7 +383,18 @@ L'export est pratique pour partager une configuration entre plusieurs installati
 
 Ouvrez **Policy Chat IA GeoApp**, choisissez le workflow correspondant, puis vérifiez si le tool est **Actif**, **Confirmation** ou **Bloqué**.
 
-Si le tool est bloqué, regardez son override et le profil comportemental actif.
+Si le tool est bloqué, regardez son override, le profil comportemental actif et la colonne **Skills**.
+
+### Une skill recommande un tool bloqué
+
+Cela signifie que la stratégie sait utiliser ce tool, mais que votre policy actuelle l'interdit.
+
+Vous pouvez :
+
+- passer le tool en `confirm` ;
+- passer le tool en `enabled` ;
+- choisir un profil comportemental moins restrictif ;
+- garder le blocage et suivre une étape manuelle.
 
 ### L'IA demande une confirmation
 
@@ -315,11 +407,20 @@ Vérifiez que :
 - la cache contient un checker connu ou une URL de checker ;
 - les tools de catégorie **Checkers** sont actifs ;
 - le workflow de la session est bien `checker`, `formula` ou `secret_code` ;
-- une connexion n'est pas nécessaire.
+- une connexion n'est pas nécessaire ;
+- le diagnostic runtime ne signale pas un tool checker absent.
 
 ### L'IA n'utilise pas la bonne stratégie
 
 Vérifiez le workflow, le pack de skills et les skills actives. Pour une énigme à formule, la skill `geoapp-formula` doit être active. Pour une image, la skill `geoapp-image-puzzle` est souvent utile.
+
+### Une skill est marquée personnalisée
+
+Cela veut dire que son fichier ne correspond pas à la version GeoApp intégrée. Si c'est volontaire, gardez-la ainsi. Si vous voulez revenir à la version officielle, cliquez sur **Restaurer GeoApp**.
+
+### Une skill est non découverte
+
+Le fichier existe, mais Theia ne l'a pas encore chargé. Essayez de rafraîchir les skills ou de redémarrer GeoApp.
 
 ### Je veux revenir à une configuration simple
 
@@ -333,6 +434,7 @@ Dans **Policy Chat IA GeoApp**, cliquez sur **Réinitialiser**. La configuration
 | Profil de modèle | Choix du type de modèle IA : `local`, `fast`, `strong`, `web`. |
 | Profil comportemental | Règle la prudence et l'automatisation du Chat IA. |
 | Prompt pack | Ensemble de consignes données à l'IA. |
+| Prompt final | Prompt système résolu, complété par la policy effective. |
 | Tool | Action que l'IA peut demander à GeoApp d'exécuter. |
 | Skill | Stratégie spécialisée chargée pour un type de problème. |
 | Policy | Résultat final des réglages : tools exposés, confirmations, skills actives et comportement appliqué. |

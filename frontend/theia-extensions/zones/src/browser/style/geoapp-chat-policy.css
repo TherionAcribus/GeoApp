@@ -329,16 +329,26 @@
 
 .geoapp-chat-policy-skill-table th:nth-child(2),
 .geoapp-chat-policy-skill-table td:nth-child(2) {
-    width: 26%;
+    width: 24%;
 }
 
 .geoapp-chat-policy-skill-table th:nth-child(3),
 .geoapp-chat-policy-skill-table td:nth-child(3) {
+    width: 170px;
+}
+
+.geoapp-chat-policy-skill-table th:nth-child(4),
+.geoapp-chat-policy-skill-table td:nth-child(4) {
     width: 180px;
 }
 
-.geoapp-chat-policy-skill-table th:nth-child(5),
-.geoapp-chat-policy-skill-table td:nth-child(5) {
+.geoapp-chat-policy-skill-table th:nth-child(6),
+.geoapp-chat-policy-skill-table td:nth-child(6) {
+    width: 112px;
+}
+
+.geoapp-chat-policy-skill-table th:nth-child(7),
+.geoapp-chat-policy-skill-table td:nth-child(7) {
     width: 112px;
 }
 
@@ -425,6 +435,52 @@
     margin-top: 3px;
     color: var(--theia-ui-font-color2);
     line-height: 1.35;
+}
+
+.geoapp-chat-policy-path {
+    word-break: break-all;
+}
+
+.geoapp-chat-policy-skill-state {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.geoapp-chat-policy-skill-state small {
+    color: var(--theia-ui-font-color2);
+    line-height: 1.35;
+}
+
+.geoapp-chat-policy-skill-state-badge {
+    display: inline-flex;
+    align-items: center;
+    align-self: flex-start;
+    min-height: 20px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    white-space: nowrap;
+    background: var(--theia-badge-background);
+    color: var(--theia-badge-foreground);
+}
+
+.geoapp-chat-policy-skill-state-badge.geoapp_default {
+    background: #2f855a;
+    color: #fff;
+}
+
+.geoapp-chat-policy-skill-state-badge.customized,
+.geoapp-chat-policy-skill-state-badge.outdated,
+.geoapp-chat-policy-skill-state-badge.not_discovered {
+    background: #9a6700;
+    color: #fff;
+}
+
+.geoapp-chat-policy-skill-state-badge.missing,
+.geoapp-chat-policy-skill-state-badge.unreadable {
+    background: var(--theia-inputValidation-errorBackground);
+    color: var(--theia-inputValidation-errorForeground);
 }
 
 .geoapp-chat-policy-tool-list {
