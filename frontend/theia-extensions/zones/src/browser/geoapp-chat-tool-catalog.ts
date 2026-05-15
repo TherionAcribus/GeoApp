@@ -183,10 +183,18 @@ export class GeoAppAiToolCatalog {
     protected readonly toolRegistry!: ToolInvocationRegistry;
 
     getEntries(): GeoAppAiToolCatalogEntry[] {
-        return this.toolRegistry.getAllFunctions()
+        return this.getAllToolRequests()
             .map(tool => this.toCatalogEntry(tool))
             .filter((entry): entry is GeoAppAiToolCatalogEntry => entry !== undefined)
             .sort((a, b) => a.category.localeCompare(b.category) || a.publicName.localeCompare(b.publicName));
+    }
+
+    getAllToolRequests(): ToolRequest[] {
+        return this.toolRegistry.getAllFunctions();
+    }
+
+    hasRegisteredTool(idOrName: string): boolean {
+        return this.getAllToolRequests().some(tool => tool.id === idOrName || tool.name === idOrName);
     }
 
     getEntry(registryIdOrPublicName: string): GeoAppAiToolCatalogEntry | undefined {

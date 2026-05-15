@@ -1,9 +1,10 @@
 import * as React from 'react';
-import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
+import { injectable, inject, optional, postConstruct } from '@theia/core/shared/inversify';
 import { CommandService, MessageService } from '@theia/core';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import { PreferenceScope } from '@theia/core/lib/common/preferences/preference-scope';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
+import { SkillService } from '@theia/ai-core/lib/browser/skill-service';
 
 import '../../src/browser/style/geoapp-chat-policy.css';
 import {
@@ -23,7 +24,15 @@ import {
     GeoAppChatWorkflowBehaviorProfile,
     GeoAppChatWorkflowKind,
 } from './geoapp-chat-shared';
-import { GeoAppChatPolicy, GeoAppChatPolicyService, GeoAppChatSkillOverride, GeoAppChatToolOverride } from './geoapp-chat-policy-service';
+import {
+    GeoAppChatPolicy,
+    GeoAppChatPolicyDiagnostic,
+    GeoAppChatRuntimeDiagnosticOptions,
+    GeoAppChatPolicyService,
+    GeoAppChatSkillOverride,
+    GeoAppChatSystemPromptPreview,
+    GeoAppChatToolOverride
+} from './geoapp-chat-policy-service';
 import { GeoAppAiToolCatalogEntry, GeoAppAiToolCategory, GeoAppAiToolRisk } from './geoapp-chat-tool-catalog';
 import { GeoAppChatSkillMetadata } from './geoapp-chat-skills';
 
@@ -88,6 +97,12 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
     protected sessionKind: GeoAppChatSessionKind = 'auto';
     protected behaviorOverride: GeoAppChatWorkflowBehaviorProfile = 'default';
     protected importText = '';
+    protected promptPreview?: GeoAppChatSystemPromptPreview;
+    protected promptPreviewSignature = '';
+    protected promptPreviewLoading = false;
+
+    @inject(SkillService) @optional()
+    protected readonly skillService: SkillService | undefined;
 
     constructor(
         @inject(GeoAppChatPolicyService) protected readonly chatPolicyService: GeoAppChatPolicyService,
@@ -116,6 +131,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
 
     protected render(): React.ReactNode {
         const policy = this.resolvePreviewPolicy();
+        this.ensurePromptPreview(policy);
         const entriesByCategory = this.groupEntries(policy.entries);
         const enabledCount = policy.enabledToolIds.size;
         const confirmCount = policy.confirmToolIds.size;
@@ -179,6 +195,9 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                     <div><span>Skills</span><strong>{policy.recommendedSkillNames.length}</strong></div>
                 </section>
 
+                {this.renderDiagnostics()}
+                {this.renderPromptPreview(policy)}
+
                 <section className='geoapp-chat-policy-skills'>
                     <h3>Skills GeoApp actifs</h3>
                     <div className='geoapp-chat-policy-skill-badges'>
@@ -210,6 +229,75 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                     })}
                 </div>
             </div>
+        );
+    }
+
+    protected renderDiagnostics(): React.ReactNode {
+        const diagnostics = this.promptPreview?.diagnostics || [];
+        return (
+            <section className='geoapp-chat-policy-diagnostics'>
+                <h3>Diagnostic runtime</h3>
+                {this.promptPreviewLoading && <p className='geoapp-chat-policy-muted'>Résolution du diagnostic en cours...</p>}
+                {!this.promptPreviewLoading && diagnostics.length === 0 && (
+                    <p className='geoapp-chat-policy-ok'>Aucun problème détecté pour cette policy.</p>
+                )}
+                {diagnostics.map((diagnostic, index) => this.renderDiagnostic(diagnostic, index))}
+            </section>
+        );
+    }
+
+    protected renderDiagnostic(diagnostic: GeoAppChatPolicyDiagnostic, index: number): React.ReactNode {
+        return (
+            <article key={`${diagnostic.title}:${index}`} className={`geoapp-chat-policy-diagnostic ${diagnostic.severity}`}>
+                <strong>{this.formatDiagnosticSeverity(diagnostic.severity)} - {diagnostic.title}</strong>
+                <p>{diagnostic.message}</p>
+                {diagnostic.details?.length ? (
+                    <ul>
+                        {diagnostic.details.map(detail => <li key={detail}><code>{detail}</code></li>)}
+                    </ul>
+                ) : undefined}
+            </article>
+        );
+    }
+
+    protected renderPromptPreview(policy: GeoAppChatPolicy): React.ReactNode {
+        const preview = this.promptPreview;
+        return (
+            <section className='geoapp-chat-policy-prompt-preview'>
+                <header>
+                    <div>
+                        <h3>Aperçu du prompt final</h3>
+                        <p>Prompt système résolu par Theia, policy injectée et tools référencés par le prompt.</p>
+                    </div>
+                    <div className='geoapp-chat-policy-prompt-meta'>
+                        <span>Variant: <strong>{preview?.promptVariantId || policy.promptPack}</strong></span>
+                        <span>{preview?.isPromptVariantCustomized ? 'Personnalisé' : 'GeoApp par défaut'}</span>
+                    </div>
+                </header>
+                {this.promptPreviewLoading && <p className='geoapp-chat-policy-muted'>Résolution du prompt en cours...</p>}
+                {preview && !this.promptPreviewLoading && (
+                    <>
+                        <details open>
+                            <summary>Prompt final envoyé au modèle</summary>
+                            <pre>{preview.finalPromptText}</pre>
+                        </details>
+                        <details>
+                            <summary>Policy injectée seule</summary>
+                            <pre>{preview.policyPromptText}</pre>
+                        </details>
+                        <details>
+                            <summary>Tools référencés par le prompt système ({preview.functionToolNames.length})</summary>
+                            {preview.functionToolNames.length ? (
+                                <div className='geoapp-chat-policy-tool-list compact'>
+                                    {preview.functionToolNames.map(name => <code key={name}>{name}</code>)}
+                                </div>
+                            ) : (
+                                <p className='geoapp-chat-policy-muted'>Aucun tool référencé directement par le prompt résolu.</p>
+                            )}
+                        </details>
+                    </>
+                )}
+            </section>
         );
     }
 
@@ -354,6 +442,53 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                 },
             },
         } as any);
+    }
+
+    protected ensurePromptPreview(policy: GeoAppChatPolicy): void {
+        const signature = this.getPromptPreviewSignature(policy);
+        if (signature === this.promptPreviewSignature || this.promptPreviewLoading) {
+            return;
+        }
+        this.promptPreviewSignature = signature;
+        this.promptPreviewLoading = true;
+        void this.chatPolicyService.resolveSystemPromptPreview(policy, undefined, this.getRuntimeDiagnosticOptions())
+            .then(preview => {
+                if (this.promptPreviewSignature === signature) {
+                    this.promptPreview = preview;
+                    this.promptPreviewLoading = false;
+                    this.update();
+                }
+            })
+            .catch(error => {
+                console.error('[GeoAppChatPolicyWidget] Failed to resolve prompt preview', error);
+                if (this.promptPreviewSignature === signature) {
+                    this.promptPreview = undefined;
+                    this.promptPreviewLoading = false;
+                    this.update();
+                }
+            });
+    }
+
+    protected getPromptPreviewSignature(policy: GeoAppChatPolicy): string {
+        return JSON.stringify({
+            workflowKind: policy.workflowKind,
+            sessionKind: policy.sessionKind,
+            behaviorProfile: policy.behaviorProfile,
+            promptPack: policy.promptPack,
+            skillPack: policy.skillPack,
+            enabledToolIds: Array.from(policy.enabledToolIds).sort(),
+            confirmToolIds: Array.from(policy.confirmToolIds).sort(),
+            disabledToolIds: Array.from(policy.disabledToolIds).sort(),
+            recommendedSkillNames: [...policy.recommendedSkillNames].sort(),
+            discoveredSkillNames: this.skillService?.getSkills().map(skill => skill.name).sort(),
+        });
+    }
+
+    protected getRuntimeDiagnosticOptions(): GeoAppChatRuntimeDiagnosticOptions {
+        return {
+            skillServiceAvailable: Boolean(this.skillService),
+            discoveredSkillNames: this.skillService?.getSkills().map(skill => skill.name),
+        };
     }
 
     protected groupEntries(entries: GeoAppAiToolCatalogEntry[]): Map<GeoAppAiToolCategory, GeoAppAiToolCatalogEntry[]> {
@@ -573,5 +708,14 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
             high: 'eleve',
         };
         return labels[risk] || risk;
+    }
+
+    protected formatDiagnosticSeverity(severity: GeoAppChatPolicyDiagnostic['severity']): string {
+        const labels: Record<GeoAppChatPolicyDiagnostic['severity'], string> = {
+            info: 'Info',
+            warning: 'Attention',
+            error: 'Erreur',
+        };
+        return labels[severity];
     }
 }

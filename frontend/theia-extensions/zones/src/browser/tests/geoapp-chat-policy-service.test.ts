@@ -203,7 +203,49 @@ function testGeoAppSkillDefinitionsAreValid(): void {
     }
 }
 
-function run(): void {
+async function testRuntimeDiagnosticsReportMissingToolsAndSkills(): Promise<void> {
+    const { policyService } = createServices();
+    const policy = policyService.resolvePolicy();
+    const diagnostics = policyService.getRuntimeDiagnostics(policy, {
+        skillServiceAvailable: true,
+        discoveredSkillNames: [],
+    });
+
+    assert.ok(diagnostics.find(diagnostic => diagnostic.title === 'Tools GeoApp attendus non enregistrés'));
+    assert.ok(diagnostics.find(diagnostic => diagnostic.title === 'Tool getSkillFileContent absent'));
+    assert.ok(diagnostics.find(diagnostic => diagnostic.title === 'Skills GeoApp actives non découvertes'));
+}
+
+async function testSystemPromptPreviewIncludesResolvedPromptAndPolicy(): Promise<void> {
+    const { policyService } = createServices();
+    (policyService as any).promptService = {
+        getResolvedPromptFragment: async () => ({
+            id: 'geoapp-chat-system-guided',
+            text: 'PROMPT RESOLU',
+            functionDescriptions: new Map([
+                ['getSkillFileContent', tool('getSkillFileContent', 'getSkillFileContent')],
+            ]),
+        }),
+        getPromptVariantInfo: () => ({
+            variantId: 'geoapp-chat-system-guided',
+            isCustomized: false,
+        }),
+    };
+
+    const policy = policyService.resolvePolicy();
+    const preview = await policyService.resolveSystemPromptPreview(policy, undefined, {
+        skillServiceAvailable: true,
+        discoveredSkillNames: [...policy.recommendedSkillNames],
+    });
+
+    assert.equal(preview.promptVariantId, 'geoapp-chat-system-guided');
+    assert.equal(preview.isPromptVariantCustomized, false);
+    assert.ok(preview.finalPromptText.includes('PROMPT RESOLU'));
+    assert.ok(preview.finalPromptText.includes('Politique GeoApp active :'));
+    assert.deepEqual(preview.functionToolNames, ['getSkillFileContent']);
+}
+
+async function run(): Promise<void> {
     testCatalogMapsStaticAndDynamicTools();
     testGuidedProfileEnablesDefaultsAndConfirmsRiskyTools();
     testOfflineProfileRemovesNetworkAndHighRiskTools();
@@ -211,8 +253,10 @@ function run(): void {
     testSkillPackAndOverrides();
     testWorkflowSpecificBehaviorProfile();
     testGeoAppSkillDefinitionsAreValid();
+    await testRuntimeDiagnosticsReportMissingToolsAndSkills();
+    await testSystemPromptPreviewIncludesResolvedPromptAndPolicy();
     // eslint-disable-next-line no-console
     console.log('geoapp-chat-policy-service tests passed');
 }
 
-run();
+void run();
