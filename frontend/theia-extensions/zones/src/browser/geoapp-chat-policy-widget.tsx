@@ -237,6 +237,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                     <div><span>Skills</span><strong>{policy.recommendedSkillNames.length}</strong></div>
                 </section>
 
+                {this.renderPolicyHelp()}
                 {this.renderDiagnostics()}
                 {this.renderPromptPreview(policy)}
 
@@ -279,6 +280,72 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                     )}
                 </div>
             </div>
+        );
+    }
+
+    protected renderPolicyHelp(): React.ReactNode {
+        return (
+            <section className='geoapp-chat-policy-help'>
+                <details>
+                    <summary>Aide rapide : profils, skills et overrides</summary>
+                    <div className='geoapp-chat-policy-help-grid'>
+                        <article>
+                            <h3>Profils comportement</h3>
+                            <dl>
+                                <dt>guided</dt>
+                                <dd>Mode recommandé : aide active, confirmation sur les actions sensibles.</dd>
+                                <dt>safe</dt>
+                                <dd>Mode prudent : moins d'automatisation, davantage de blocages.</dd>
+                                <dt>offline</dt>
+                                <dd>Mode local : évite réseau, auth, checkers et services externes.</dd>
+                                <dt>automation</dt>
+                                <dd>Mode rapide : exécute davantage d'étapes quand les données suffisent.</dd>
+                                <dt>debug</dt>
+                                <dd>Mode diagnostic : expose plus d'informations pour comprendre le routage.</dd>
+                            </dl>
+                        </article>
+                        <article>
+                            <h3>Packs de skills</h3>
+                            <dl>
+                                <dt>workflow</dt>
+                                <dd>GeoApp choisit les skills selon le type d'énigme détecté.</dd>
+                                <dt>minimal</dt>
+                                <dd>Charge seulement les skills essentielles pour limiter le bruit.</dd>
+                                <dt>full</dt>
+                                <dd>Expose toutes les skills GeoApp au chat.</dd>
+                                <dt>disabled</dt>
+                                <dd>Désactive les skills, sauf override manuel.</dd>
+                            </dl>
+                        </article>
+                        <article>
+                            <h3>Overrides tools</h3>
+                            <dl>
+                                <dt>default</dt>
+                                <dd>Utilise la règle normale du profil courant.</dd>
+                                <dt>enabled</dt>
+                                <dd>Force l'exposition du tool au modèle.</dd>
+                                <dt>confirm</dt>
+                                <dd>Autorise le tool, mais garde une confirmation Theia.</dd>
+                                <dt>disabled</dt>
+                                <dd>Retire le tool de ce que l'IA peut utiliser.</dd>
+                            </dl>
+                        </article>
+                        <article>
+                            <h3>États des skills</h3>
+                            <dl>
+                                <dt>GeoApp</dt>
+                                <dd>La version active correspond à la version intégrée.</dd>
+                                <dt>Personnalisée</dt>
+                                <dd>Le fichier a été modifié par l'utilisateur et n'est pas écrasé automatiquement.</dd>
+                                <dt>À mettre à jour</dt>
+                                <dd>La skill est gérée par GeoApp, mais diffère de la version actuelle.</dd>
+                                <dt>Non découverte</dt>
+                                <dd>Le fichier existe, mais Theia ne l'a pas encore chargé.</dd>
+                            </dl>
+                        </article>
+                    </div>
+                </details>
+            </section>
         );
     }
 

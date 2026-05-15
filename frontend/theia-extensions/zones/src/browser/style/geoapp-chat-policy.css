@@ -11,6 +11,7 @@
 .geoapp-chat-policy-header,
 .geoapp-chat-policy-controls,
 .geoapp-chat-policy-summary,
+.geoapp-chat-policy-help,
 .geoapp-chat-policy-skills,
 .geoapp-chat-policy-diagnostics,
 .geoapp-chat-policy-prompt-preview,
@@ -101,6 +102,7 @@
 }
 
 .geoapp-chat-policy-skills h3,
+.geoapp-chat-policy-help h3,
 .geoapp-chat-policy-diagnostics h3,
 .geoapp-chat-policy-prompt-preview h3,
 .geoapp-chat-policy-tool-filters h3 {
@@ -110,11 +112,56 @@
 }
 
 .geoapp-chat-policy-diagnostics,
+.geoapp-chat-policy-help,
 .geoapp-chat-policy-prompt-preview,
 .geoapp-chat-policy-tool-filters {
     display: flex;
     flex-direction: column;
     gap: 8px;
+}
+
+.geoapp-chat-policy-help details {
+    border: 1px solid var(--theia-layout-color3);
+    background: var(--theia-editorWidget-background);
+}
+
+.geoapp-chat-policy-help summary {
+    cursor: pointer;
+    padding: 8px 10px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.geoapp-chat-policy-help-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(180px, 1fr));
+    gap: 10px;
+    padding: 0 10px 10px;
+}
+
+.geoapp-chat-policy-help article {
+    min-width: 0;
+    border-top: 1px solid var(--theia-layout-color3);
+    padding-top: 8px;
+}
+
+.geoapp-chat-policy-help dl {
+    margin: 6px 0 0;
+    display: grid;
+    grid-template-columns: minmax(88px, auto) 1fr;
+    gap: 4px 8px;
+    font-size: 12px;
+}
+
+.geoapp-chat-policy-help dt {
+    font-weight: 600;
+    color: var(--theia-ui-font-color1);
+}
+
+.geoapp-chat-policy-help dd {
+    margin: 0;
+    color: var(--theia-ui-font-color2);
+    line-height: 1.35;
 }
 
 .geoapp-chat-policy-ok {
@@ -569,7 +616,21 @@
         grid-template-columns: repeat(2, minmax(180px, 1fr));
     }
 
+    .geoapp-chat-policy-help-grid {
+        grid-template-columns: repeat(2, minmax(180px, 1fr));
+    }
+
     .geoapp-chat-policy-tool-filter-grid button {
         justify-self: start;
+    }
+}
+
+@media (max-width: 760px) {
+    .geoapp-chat-policy-help-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .geoapp-chat-policy-help dl {
+        grid-template-columns: 1fr;
     }
 }
