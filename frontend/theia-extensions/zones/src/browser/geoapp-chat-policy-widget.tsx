@@ -290,6 +290,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                         placeholder='Coller une configuration JSON complète ou une ancienne policy JSON exportée ici...'
                         onChange={event => this.setImportText(event.currentTarget.value)}
                     />
+                    {this.renderImportPreview()}
                     <button className='theia-button secondary' type='button' disabled={!this.importText.trim()} onClick={() => { void this.importPolicyConfiguration(); }}>
                         Importer
                     </button>
@@ -384,6 +385,32 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                 </div>
             </section>
         );
+    }
+
+    protected renderImportPreview(): React.ReactNode {
+        const serialized = this.importText.trim();
+        if (!serialized) {
+            return undefined;
+        }
+        try {
+            const preview = this.chatConfigurationService.previewConfiguration(serialized);
+            return (
+                <div className='geoapp-chat-policy-import-preview'>
+                    <strong>{preview.format === 'full' ? 'Configuration complète' : 'Ancienne policy JSON'}</strong>
+                    <span>{preview.policyCount} préférence(s)</span>
+                    <span>{preview.customizedPromptCount} prompt pack(s) personnalisé(s)</span>
+                    <span>{preview.customizedSkillCount} skill(s) personnalisée(s)</span>
+                    {preview.customizedPromptNames.length > 0 && <small>Prompts : {preview.customizedPromptNames.join(', ')}</small>}
+                    {preview.customizedSkillNames.length > 0 && <small>Skills : {preview.customizedSkillNames.join(', ')}</small>}
+                </div>
+            );
+        } catch {
+            return (
+                <div className='geoapp-chat-policy-import-preview error'>
+                    JSON invalide ou configuration non reconnue.
+                </div>
+            );
+        }
     }
 
     protected renderPolicyHelp(): React.ReactNode {
@@ -1222,13 +1249,13 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
 
     protected async importPolicyConfiguration(): Promise<void> {
         try {
+            const preview = this.chatConfigurationService.previewConfiguration(this.importText);
+            if (typeof window !== 'undefined' && !window.confirm(this.formatImportPreviewConfirmation(preview))) {
+                return;
+            }
             const result = await this.chatConfigurationService.importConfiguration(this.importText, {
-                confirmPromptPacks: count => typeof window === 'undefined' || window.confirm(
-                    `Importer cette configuration restaurera ${count} prompt pack(s) personnalisé(s). Continuer ?`
-                ),
-                confirmSkills: count => typeof window === 'undefined' || window.confirm(
-                    `Importer cette configuration restaurera ${count} skill(s) personnalisée(s). Continuer ?`
-                ),
+                confirmPromptPacks: () => true,
+                confirmSkills: () => true,
                 confirmOverwriteSkill: skillName => typeof window === 'undefined' || window.confirm(
                     `La skill ${skillName} est déjà personnalisée localement. Remplacer son contenu par celui de l'import ?`
                 ),
@@ -1245,6 +1272,24 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
             console.error('[GeoAppChatPolicyWidget] Import failed', error);
             this.messages.error('Configuration JSON invalide.');
         }
+    }
+
+    protected formatImportPreviewConfirmation(preview: ReturnType<GeoAppChatConfigurationService['previewConfiguration']>): string {
+        const lines = [
+            'Importer cette configuration Chat IA GeoApp ?',
+            '',
+            `Format : ${preview.format === 'full' ? 'configuration complète' : 'ancienne policy JSON'}`,
+            `Préférences : ${preview.policyCount}`,
+            `Prompt packs personnalisés : ${preview.customizedPromptCount}`,
+            `Skills personnalisées : ${preview.customizedSkillCount}`,
+        ];
+        if (preview.customizedPromptNames.length) {
+            lines.push(`Prompts : ${preview.customizedPromptNames.join(', ')}`);
+        }
+        if (preview.customizedSkillNames.length) {
+            lines.push(`Skills : ${preview.customizedSkillNames.join(', ')}`);
+        }
+        return lines.join('\n');
     }
 
     protected async importPromptPackCustomizationsFromConfiguration(record: Record<string, unknown>): Promise<number> {

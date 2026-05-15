@@ -442,6 +442,16 @@ Les prompt packs non personnalisés ne sont pas réécrits : GeoApp continue d'u
 
 Les skills GeoApp non personnalisées ne sont pas réécrites non plus. Si une skill locale est déjà personnalisée, GeoApp demande confirmation avant de la remplacer par la version contenue dans l'import.
 
+Quand vous collez une configuration JSON dans le champ d'import, GeoApp affiche un aperçu avant import :
+
+- type de configuration : complète ou ancienne policy JSON ;
+- nombre de préférences détectées ;
+- nombre de prompt packs personnalisés ;
+- nombre de skills personnalisées ;
+- noms des prompts et skills qui seront restaurés.
+
+Au clic sur **Importer**, GeoApp affiche une confirmation globale avec ce résumé. Si une skill locale est déjà personnalisée, GeoApp demande ensuite une confirmation spécifique avant de remplacer son contenu.
+
 L'export est pratique pour partager une configuration entre plusieurs installations locales, sauvegarder une stratégie de résolution, ou revenir à un profil connu.
 
 ### Deux niveaux d'export

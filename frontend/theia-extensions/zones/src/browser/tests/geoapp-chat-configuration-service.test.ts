@@ -258,6 +258,46 @@ async function testFullImportAppliesPolicyCustomPromptsAndCustomSkills(): Promis
     ]);
 }
 
+function testPreviewSummarizesFullConfiguration(): void {
+    const { service } = createService();
+    const serialized = JSON.stringify({
+        type: 'geoapp-chat-configuration',
+        version: 3,
+        exportedAt: '2026-05-15T10:00:00.000Z',
+        policy: {
+            [GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF]: 'safe',
+            [GEOAPP_CHAT_PROMPT_PACK_PREF]: 'safe',
+        },
+        promptPacks: [
+            {
+                pack: 'safe',
+                variantId: GeoAppChatPromptVariantByPack.safe,
+                name: 'Safe custom',
+                template: 'CUSTOM SAFE PROMPT',
+                isCustomized: true,
+            },
+        ],
+        skills: [
+            {
+                name: GeoAppChatSkillNames.coordinates,
+                isCustomized: true,
+                content: '# Imported coordinates skill',
+            },
+        ],
+    });
+
+    const preview = service.previewConfiguration(serialized);
+
+    assert.equal(preview.format, 'full');
+    assert.equal(preview.version, 3);
+    assert.equal(preview.exportedAt, '2026-05-15T10:00:00.000Z');
+    assert.equal(preview.policyCount, 2);
+    assert.equal(preview.customizedPromptCount, 1);
+    assert.deepEqual(preview.customizedPromptNames, ['safe']);
+    assert.equal(preview.customizedSkillCount, 1);
+    assert.deepEqual(preview.customizedSkillNames, [GeoAppChatSkillNames.coordinates]);
+}
+
 async function testLegacyPolicyImportStillWorks(): Promise<void> {
     const { service, preferenceService, promptCustomizationService, skillStateService } = createService();
 
@@ -273,11 +313,21 @@ async function testLegacyPolicyImportStillWorks(): Promise<void> {
     assert.equal(preferenceService.updates[GEOAPP_CHAT_PROMPT_PACK_PREF], 'debug');
     assert.deepEqual(promptCustomizationService.created, []);
     assert.deepEqual(skillStateService.imported, []);
+
+    const preview = service.previewConfiguration(JSON.stringify({
+        [GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF]: 'debug',
+        [GEOAPP_CHAT_PROMPT_PACK_PREF]: 'debug',
+    }));
+    assert.equal(preview.format, 'legacy');
+    assert.equal(preview.policyCount, 2);
+    assert.equal(preview.customizedPromptCount, 0);
+    assert.equal(preview.customizedSkillCount, 0);
 }
 
 async function run(): Promise<void> {
     await testFullExportIncludesPolicyPromptsAndCustomSkills();
     await testFullImportAppliesPolicyCustomPromptsAndCustomSkills();
+    testPreviewSummarizesFullConfiguration();
     await testLegacyPolicyImportStillWorks();
     // eslint-disable-next-line no-console
     console.log('geoapp-chat-configuration-service tests passed');

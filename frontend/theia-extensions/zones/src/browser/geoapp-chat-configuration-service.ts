@@ -68,6 +68,17 @@ export interface GeoAppChatConfigurationImportResult {
     promptCustomizationUnavailable: boolean;
 }
 
+export interface GeoAppChatConfigurationImportPreview {
+    format: 'full' | 'legacy';
+    version?: unknown;
+    exportedAt?: string;
+    policyCount: number;
+    customizedPromptCount: number;
+    customizedPromptNames: string[];
+    customizedSkillCount: number;
+    customizedSkillNames: string[];
+}
+
 @injectable()
 export class GeoAppChatConfigurationService {
 
@@ -110,6 +121,33 @@ export class GeoAppChatConfigurationService {
             importedPromptCount: promptResult.importedCount,
             importedSkillCount,
             promptCustomizationUnavailable: promptResult.unavailable,
+        };
+    }
+
+    previewConfiguration(serialized: string): GeoAppChatConfigurationImportPreview {
+        const parsed = JSON.parse(serialized);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            throw new Error('Invalid configuration shape');
+        }
+        const record = parsed as Record<string, unknown>;
+        const policyRecord = this.getPolicyImportRecord(record);
+        const promptPacks = record.type === 'geoapp-chat-configuration' && Array.isArray(record.promptPacks)
+            ? this.getPromptPackImports(record.promptPacks)
+            : [];
+        const customizedPromptPacks = promptPacks.filter(promptPack => promptPack.isCustomized && promptPack.template.trim());
+        const customSkills = record.type === 'geoapp-chat-configuration' && Array.isArray(record.skills)
+            ? this.getCustomSkillImports(record.skills)
+            : [];
+
+        return {
+            format: record.type === 'geoapp-chat-configuration' ? 'full' : 'legacy',
+            version: record.version,
+            exportedAt: typeof record.exportedAt === 'string' ? record.exportedAt : undefined,
+            policyCount: Object.keys(GEOAPP_CHAT_POLICY_DEFAULTS).filter(key => Object.prototype.hasOwnProperty.call(policyRecord, key)).length,
+            customizedPromptCount: customizedPromptPacks.length,
+            customizedPromptNames: customizedPromptPacks.map(promptPack => promptPack.pack || promptPack.variantId),
+            customizedSkillCount: customSkills.length,
+            customizedSkillNames: customSkills.map(skill => skill.name),
         };
     }
 
