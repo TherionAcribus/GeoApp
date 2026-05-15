@@ -420,12 +420,40 @@ Pour réduire les échanges externes, utilisez le profil comportemental `offline
 
 Dans **Policy Chat IA GeoApp**, vous pouvez :
 
-- **Exporter** la configuration Chat IA GeoApp au format JSON ;
-- **Importer** une configuration JSON ;
+- **Exporter** une configuration Chat IA GeoApp complète au format JSON ;
+- **Importer** une configuration JSON complète ou une ancienne configuration de policy ;
 - **Réinitialiser** les réglages de policy aux valeurs par défaut ;
 - ouvrir **Configurer IA Theia** pour les réglages IA natifs de Theia.
 
-L'export est pratique pour partager une configuration entre plusieurs installations locales ou revenir à un profil connu.
+L'export complet contient :
+
+- les profils comportementaux ;
+- le prompt pack actif ;
+- le skill pack actif ;
+- les overrides de tools ;
+- les overrides de skills ;
+- la liste des prompt packs GeoApp ;
+- le contenu des prompt packs qui sont personnalisés ;
+- le contenu des skills GeoApp qui sont personnalisées.
+
+Lors de l'import, GeoApp restaure les préférences de policy, les prompt packs marqués comme personnalisés dans l'export, et les skills GeoApp personnalisées.
+
+Les prompt packs non personnalisés ne sont pas réécrits : GeoApp continue d'utiliser sa version intégrée. Cela évite d'écraser inutilement les versions officielles lorsque vous importez une configuration.
+
+Les skills GeoApp non personnalisées ne sont pas réécrites non plus. Si une skill locale est déjà personnalisée, GeoApp demande confirmation avant de la remplacer par la version contenue dans l'import.
+
+L'export est pratique pour partager une configuration entre plusieurs installations locales, sauvegarder une stratégie de résolution, ou revenir à un profil connu.
+
+### Deux niveaux d'export
+
+GeoApp propose deux niveaux d'export :
+
+| Export | Contenu | Usage |
+|---|---|---|
+| **Configuration complète** | Policy, overrides, skill pack, prompt pack actif, prompts personnalisés et skills personnalisées. | Sauvegarder ou partager toute une configuration IA. |
+| **Prompt pack seul** | Un seul prompt pack et son contenu. | Partager seulement une variante de consignes. |
+
+Si vous voulez reproduire le comportement complet du Chat IA sur un autre poste, utilisez l'export de configuration complète.
 
 ## Conseils d'utilisation
 

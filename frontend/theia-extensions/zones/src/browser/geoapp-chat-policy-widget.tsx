@@ -40,8 +40,8 @@ import {
     GeoAppChatToolOverride
 } from './geoapp-chat-policy-service';
 import { GeoAppAiToolCatalogEntry, GeoAppAiToolCategory, GeoAppAiToolRisk } from './geoapp-chat-tool-catalog';
-import { GeoAppChatSkillMetadata } from './geoapp-chat-skills';
-import { GeoAppChatSkillState, GeoAppChatSkillStateService } from './geoapp-chat-skill-state-service';
+import { GeoAppChatSkillMetadata, GeoAppChatSkills } from './geoapp-chat-skills';
+import { GeoAppChatSkillExport, GeoAppChatSkillState, GeoAppChatSkillStateService } from './geoapp-chat-skill-state-service';
 import { GeoAppChatPromptVariantByPack, GeoAppChatSystemPromptVariants } from './geoapp-chat-system-prompts';
 
 const WORKFLOW_OPTIONS: Array<{ value: GeoAppChatWorkflowKind; label: string }> = [
@@ -91,6 +91,24 @@ interface GeoAppChatPromptPackRow {
     description?: string;
     template: string;
     isCustomized: boolean;
+}
+
+interface GeoAppChatPromptPackExport {
+    pack: string;
+    variantId: string;
+    name: string;
+    description?: string;
+    template: string;
+    isCustomized: boolean;
+}
+
+interface GeoAppChatConfigurationExport {
+    type: 'geoapp-chat-configuration';
+    version: 3;
+    exportedAt: string;
+    policy: Record<string, unknown>;
+    promptPacks: GeoAppChatPromptPackExport[];
+    skills: GeoAppChatSkillExport[];
 }
 
 const RISK_OPTIONS: Array<{ value: 'all' | GeoAppAiToolRisk; label: string }> = [
@@ -280,7 +298,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                         value={this.importText}
                         rows={4}
                         spellCheck={false}
-                        placeholder='Coller une configuration JSON exportee ici...'
+                        placeholder='Coller une configuration JSON complète ou une ancienne policy JSON exportée ici...'
                         onChange={event => this.setImportText(event.currentTarget.value)}
                     />
                     <button className='theia-button secondary' type='button' disabled={!this.importText.trim()} onClick={() => { void this.importPolicyConfiguration(); }}>
@@ -1208,15 +1226,33 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
         return config;
     }
 
+    protected async getFullConfigurationExport(): Promise<GeoAppChatConfigurationExport> {
+        return {
+            type: 'geoapp-chat-configuration',
+            version: 3,
+            exportedAt: new Date().toISOString(),
+            policy: this.getPolicyConfiguration(),
+            promptPacks: this.getPromptPackRows().map(row => ({
+                pack: row.pack,
+                variantId: row.variantId,
+                name: row.name,
+                description: row.description,
+                template: row.template,
+                isCustomized: row.isCustomized,
+            })),
+            skills: await this.skillStateService.getSkillExports(),
+        };
+    }
+
     protected async exportPolicyConfiguration(): Promise<void> {
-        const serialized = JSON.stringify(this.getPolicyConfiguration(), null, 2);
+        const serialized = JSON.stringify(await this.getFullConfigurationExport(), null, 2);
         try {
             await navigator.clipboard.writeText(serialized);
-            this.messages.info('Configuration Chat IA GeoApp copiee dans le presse-papiers.');
+            this.messages.info('Configuration complète Chat IA GeoApp copiée dans le presse-papiers.');
         } catch (error) {
             console.warn('[GeoAppChatPolicyWidget] Clipboard export failed', error);
             this.importText = serialized;
-            this.messages.warn('Impossible de copier automatiquement; la configuration est affichee dans le champ import/export.');
+            this.messages.warn('Impossible de copier automatiquement; la configuration est affichée dans le champ import/export.');
             this.update();
         }
     }
@@ -1228,21 +1264,150 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                 throw new Error('Invalid configuration shape');
             }
 
-            const updates: Array<Promise<void>> = [];
             const record = parsed as Record<string, unknown>;
-            for (const key of Object.keys(POLICY_DEFAULTS)) {
-                if (Object.prototype.hasOwnProperty.call(record, key)) {
-                    updates.push(this.preferenceService.set(key, record[key], PreferenceScope.User));
-                }
-            }
-            await Promise.all(updates);
+            const policyRecord = this.getPolicyImportRecord(record);
+            const importedPolicyCount = await this.importPolicyPreferences(policyRecord);
+            const importedPromptCount = await this.importPromptPackCustomizationsFromConfiguration(record);
+            const importedSkillCount = await this.importCustomSkillsFromConfiguration(record);
             this.importText = '';
-            this.messages.info('Configuration Chat IA GeoApp importee.');
+            this.promptPreviewSignature = '';
+            this.skillStatesLoaded = false;
+            this.messages.info(`Configuration Chat IA GeoApp importée (${importedPolicyCount} préférences, ${importedPromptCount} prompt packs personnalisés, ${importedSkillCount} skills personnalisées).`);
             this.update();
         } catch (error) {
             console.error('[GeoAppChatPolicyWidget] Import failed', error);
             this.messages.error('Configuration JSON invalide.');
         }
+    }
+
+    protected getPolicyImportRecord(record: Record<string, unknown>): Record<string, unknown> {
+        if (
+            record.type === 'geoapp-chat-configuration' &&
+            record.policy &&
+            typeof record.policy === 'object' &&
+            !Array.isArray(record.policy)
+        ) {
+            return record.policy as Record<string, unknown>;
+        }
+        return record;
+    }
+
+    protected async importPolicyPreferences(record: Record<string, unknown>): Promise<number> {
+        const updates: Array<Promise<void>> = [];
+        for (const key of Object.keys(POLICY_DEFAULTS)) {
+            if (Object.prototype.hasOwnProperty.call(record, key)) {
+                updates.push(this.preferenceService.set(key, record[key], PreferenceScope.User));
+            }
+        }
+        await Promise.all(updates);
+        return updates.length;
+    }
+
+    protected async importPromptPackCustomizationsFromConfiguration(record: Record<string, unknown>): Promise<number> {
+        if (record.type !== 'geoapp-chat-configuration' || !Array.isArray(record.promptPacks)) {
+            return 0;
+        }
+        const promptPacks = this.getPromptPackImports(record.promptPacks);
+        const customizedPromptPacks = promptPacks.filter(promptPack => promptPack.isCustomized);
+        if (!customizedPromptPacks.length) {
+            return 0;
+        }
+        if (!this.promptCustomizationService) {
+            this.messages.warn('Service de personnalisation des prompts indisponible; les prompt packs personnalisés n’ont pas été importés.');
+            return 0;
+        }
+        if (typeof window !== 'undefined' && !window.confirm(
+            `Importer cette configuration restaurera ${customizedPromptPacks.length} prompt pack(s) personnalisé(s). Continuer ?`
+        )) {
+            return 0;
+        }
+
+        let importedCount = 0;
+        const knownVariantIds = new Set<string>(Object.values(GeoAppChatPromptVariantByPack));
+        for (const promptPack of customizedPromptPacks) {
+            if (!knownVariantIds.has(promptPack.variantId) || !promptPack.template.trim()) {
+                continue;
+            }
+            await this.promptCustomizationService.removeAllPromptFragmentCustomizations(promptPack.variantId);
+            await this.promptCustomizationService.createBuiltInPromptFragmentCustomization(promptPack.variantId, promptPack.template);
+            importedCount++;
+        }
+        return importedCount;
+    }
+
+    protected getPromptPackImports(value: unknown[]): GeoAppChatPromptPackExport[] {
+        const imports: GeoAppChatPromptPackExport[] = [];
+        for (const item of value) {
+            if (!item || typeof item !== 'object' || Array.isArray(item)) {
+                continue;
+            }
+            const record = item as Record<string, unknown>;
+            if (typeof record.variantId !== 'string' || typeof record.template !== 'string') {
+                continue;
+            }
+            imports.push({
+                pack: typeof record.pack === 'string' ? record.pack : record.variantId,
+                variantId: record.variantId,
+                name: typeof record.name === 'string' ? record.name : record.variantId,
+                description: typeof record.description === 'string' ? record.description : undefined,
+                template: record.template,
+                isCustomized: record.isCustomized === true,
+            });
+        }
+        return imports;
+    }
+
+    protected async importCustomSkillsFromConfiguration(record: Record<string, unknown>): Promise<number> {
+        if (record.type !== 'geoapp-chat-configuration' || !Array.isArray(record.skills)) {
+            return 0;
+        }
+        const skills = this.getCustomSkillImports(record.skills);
+        if (!skills.length) {
+            return 0;
+        }
+        if (typeof window !== 'undefined' && !window.confirm(
+            `Importer cette configuration restaurera ${skills.length} skill(s) personnalisée(s). Continuer ?`
+        )) {
+            return 0;
+        }
+
+        let importedCount = 0;
+        const currentStates = await this.skillStateService.getSkillStates();
+        for (const skill of skills) {
+            const currentState = this.skillStates.get(skill.name) || currentStates.get(skill.name);
+            const shouldConfirmOverwrite = currentState?.status === 'customized' && typeof window !== 'undefined';
+            if (shouldConfirmOverwrite && !window.confirm(
+                `La skill ${skill.name} est déjà personnalisée localement. Remplacer son contenu par celui de l'import ?`
+            )) {
+                continue;
+            }
+            const imported = await this.skillStateService.importCustomSkillContent(skill.name, skill.content);
+            if (imported) {
+                importedCount++;
+            }
+        }
+        return importedCount;
+    }
+
+    protected getCustomSkillImports(value: unknown[]): Array<{ name: string; content: string }> {
+        const knownSkillNames = new Set<string>(GeoAppChatSkills.map(skill => skill.name));
+        const imports: Array<{ name: string; content: string }> = [];
+        for (const item of value) {
+            if (!item || typeof item !== 'object' || Array.isArray(item)) {
+                continue;
+            }
+            const record = item as Record<string, unknown>;
+            if (
+                record.isCustomized === true &&
+                typeof record.name === 'string' &&
+                knownSkillNames.has(record.name) &&
+                typeof record.content === 'string' &&
+                record.content.trim()
+            ) {
+                imports.push({ name: record.name, content: record.content });
+            }
+        }
+        return imports;
     }
 
     protected async resetPolicyConfiguration(): Promise<void> {

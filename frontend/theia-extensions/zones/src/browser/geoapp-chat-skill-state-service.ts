@@ -25,6 +25,16 @@ export interface GeoAppChatSkillState {
     message: string;
 }
 
+export interface GeoAppChatSkillExport {
+    name: string;
+    label: string;
+    status: GeoAppChatSkillStateKind;
+    location?: string;
+    configLocation: string;
+    isCustomized: boolean;
+    content?: string;
+}
+
 @injectable()
 export class GeoAppChatSkillStateService {
 
@@ -53,6 +63,39 @@ export class GeoAppChatSkillStateService {
         const discoveredSkill = this.skillService.getSkill(skill.name);
         const skillFileUri = discoveredSkill ? URI.fromFilePath(discoveredSkill.location) : await this.getConfigSkillFileUri(skill.name);
         await this.fileService.writeFile(skillFileUri, BinaryBuffer.fromString(skill.content));
+        await this.refreshSkillService();
+        return this.getSkillState(skill);
+    }
+
+    async getSkillExports(): Promise<GeoAppChatSkillExport[]> {
+        const exports: GeoAppChatSkillExport[] = [];
+        for (const skill of GeoAppChatSkills) {
+            const state = await this.getSkillState(skill);
+            const isCustomized = state.status === 'customized' || (state.status === 'not_discovered' && !state.managedContent);
+            const content = isCustomized
+                ? await this.readExistingContent(URI.fromFilePath(state.location || state.configLocation))
+                : undefined;
+            exports.push({
+                name: skill.name,
+                label: skill.label,
+                status: state.status,
+                location: state.location,
+                configLocation: state.configLocation,
+                isCustomized,
+                content,
+            });
+        }
+        return exports;
+    }
+
+    async importCustomSkillContent(skillName: string, content: string): Promise<GeoAppChatSkillState | undefined> {
+        const skill = GeoAppChatSkills.find(candidate => candidate.name === skillName);
+        if (!skill) {
+            return undefined;
+        }
+        const discoveredSkill = this.skillService.getSkill(skill.name);
+        const skillFileUri = discoveredSkill ? URI.fromFilePath(discoveredSkill.location) : await this.getConfigSkillFileUri(skill.name);
+        await this.fileService.writeFile(skillFileUri, BinaryBuffer.fromString(content));
         await this.refreshSkillService();
         return this.getSkillState(skill);
     }
