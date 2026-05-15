@@ -5,6 +5,12 @@ import { PreferenceService } from '@theia/core/lib/common/preferences/preference
 import { PreferenceScope } from '@theia/core/lib/common/preferences/preference-scope';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { SkillService } from '@theia/ai-core/lib/browser/skill-service';
+import {
+    PromptFragment,
+    PromptFragmentCustomizationService,
+    PromptService,
+    isCustomizedPromptFragment
+} from '@theia/ai-core/lib/common/prompt-service';
 
 import '../../src/browser/style/geoapp-chat-policy.css';
 import {
@@ -36,6 +42,7 @@ import {
 import { GeoAppAiToolCatalogEntry, GeoAppAiToolCategory, GeoAppAiToolRisk } from './geoapp-chat-tool-catalog';
 import { GeoAppChatSkillMetadata } from './geoapp-chat-skills';
 import { GeoAppChatSkillState, GeoAppChatSkillStateService } from './geoapp-chat-skill-state-service';
+import { GeoAppChatPromptVariantByPack, GeoAppChatSystemPromptVariants } from './geoapp-chat-system-prompts';
 
 const WORKFLOW_OPTIONS: Array<{ value: GeoAppChatWorkflowKind; label: string }> = [
     { value: 'general', label: 'General' },
@@ -76,6 +83,15 @@ const CATEGORY_ORDER: GeoAppAiToolCategory[] = [
 
 type GeoAppChatToolStatusFilter = 'all' | 'enabled' | 'confirm' | 'blocked';
 type GeoAppChatToolSkillFilter = 'all' | 'recommended' | 'blocked_recommended';
+
+interface GeoAppChatPromptPackRow {
+    pack: string;
+    variantId: string;
+    name: string;
+    description?: string;
+    template: string;
+    isCustomized: boolean;
+}
 
 const RISK_OPTIONS: Array<{ value: 'all' | GeoAppAiToolRisk; label: string }> = [
     { value: 'all', label: 'Tous les risques' },
@@ -134,9 +150,17 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
     protected skillStates = new Map<string, GeoAppChatSkillState>();
     protected skillStatesLoading = false;
     protected skillStatesLoaded = false;
+    protected selectedPromptVariantId = GeoAppChatPromptVariantByPack.guided;
+    protected promptImportText = '';
 
     @inject(SkillService) @optional()
     protected readonly skillService: SkillService | undefined;
+
+    @inject(PromptService) @optional()
+    protected readonly promptService: PromptService | undefined;
+
+    @inject(PromptFragmentCustomizationService) @optional()
+    protected readonly promptCustomizationService: PromptFragmentCustomizationService | undefined;
 
     constructor(
         @inject(GeoAppChatPolicyService) protected readonly chatPolicyService: GeoAppChatPolicyService,
@@ -240,6 +264,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                 {this.renderPolicyHelp()}
                 {this.renderDiagnostics()}
                 {this.renderPromptPreview(policy)}
+                {this.renderPromptPackEditor()}
 
                 <section className='geoapp-chat-policy-skills'>
                     <h3>Skills GeoApp actifs</h3>
@@ -280,6 +305,77 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                     )}
                 </div>
             </div>
+        );
+    }
+
+    protected renderPromptPackEditor(): React.ReactNode {
+        const promptRows = this.getPromptPackRows();
+        const selectedRow = promptRows.find(row => row.variantId === this.selectedPromptVariantId) || promptRows[0];
+        return (
+            <section className='geoapp-chat-policy-prompt-editor'>
+                <header>
+                    <div>
+                        <h3>Prompt packs GeoApp</h3>
+                        <p>Consulter, éditer, exporter, importer ou réinitialiser les variantes utilisées par le Chat IA.</p>
+                    </div>
+                    <div className='geoapp-chat-policy-prompt-editor-actions'>
+                        <button className='theia-button secondary' type='button' onClick={() => { void this.editSelectedPromptPack(); }}>
+                            Éditer dans Theia
+                        </button>
+                        <button className='theia-button secondary' type='button' onClick={() => { void this.resetSelectedPromptPack(); }}>
+                            Reset GeoApp
+                        </button>
+                        <button className='theia-button secondary' type='button' onClick={() => { void this.exportSelectedPromptPack(); }}>
+                            Exporter
+                        </button>
+                    </div>
+                </header>
+                <div className='geoapp-chat-policy-prompt-editor-body'>
+                    <div className='geoapp-chat-policy-prompt-list'>
+                        {promptRows.map(row => (
+                            <button
+                                key={row.variantId}
+                                className={row.variantId === selectedRow.variantId ? 'selected' : ''}
+                                type='button'
+                                onClick={() => this.setSelectedPromptVariantId(row.variantId)}
+                            >
+                                <strong>{row.pack}</strong>
+                                <span>{row.name}</span>
+                                <em>{row.isCustomized ? 'Personnalisé' : 'GeoApp'}</em>
+                            </button>
+                        ))}
+                    </div>
+                    <div className='geoapp-chat-policy-prompt-detail'>
+                        <div className='geoapp-chat-policy-prompt-detail-meta'>
+                            <span>Variant: <strong>{selectedRow.variantId}</strong></span>
+                            <span>{selectedRow.isCustomized ? 'Version personnalisée active' : 'Version GeoApp active'}</span>
+                        </div>
+                        <p>{selectedRow.description || 'Aucune description.'}</p>
+                        <details open>
+                            <summary>Contenu effectif</summary>
+                            <pre>{selectedRow.template || 'Prompt indisponible.'}</pre>
+                        </details>
+                        <details>
+                            <summary>Importer un contenu pour ce prompt pack</summary>
+                            <textarea
+                                value={this.promptImportText}
+                                rows={8}
+                                spellCheck={false}
+                                placeholder='Coller ici le contenu complet du prompt à importer...'
+                                onChange={event => this.setPromptImportText(event.currentTarget.value)}
+                            />
+                            <button
+                                className='theia-button secondary'
+                                type='button'
+                                disabled={!this.promptImportText.trim()}
+                                onClick={() => { void this.importSelectedPromptPack(); }}
+                            >
+                                Importer comme personnalisation
+                            </button>
+                        </details>
+                    </div>
+                </div>
+            </section>
         );
     }
 
@@ -872,6 +968,17 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
         this.update();
     }
 
+    protected setSelectedPromptVariantId(value: string): void {
+        this.selectedPromptVariantId = value;
+        this.promptImportText = '';
+        this.update();
+    }
+
+    protected setPromptImportText(value: string): void {
+        this.promptImportText = value;
+        this.update();
+    }
+
     protected async restoreGeoAppSkill(skill: GeoAppChatSkillMetadata, state: GeoAppChatSkillState): Promise<void> {
         const shouldConfirm = state.status === 'customized';
         if (shouldConfirm && typeof window !== 'undefined' && !window.confirm(
@@ -889,6 +996,122 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
             console.error('[GeoAppChatPolicyWidget] Failed to restore GeoApp skill', error);
             this.messages.error(`Impossible de restaurer la skill ${skill.name}.`);
         }
+    }
+
+    protected getPromptPackRows(): GeoAppChatPromptPackRow[] {
+        return Object.entries(GeoAppChatPromptVariantByPack).map(([pack, variantId]) => {
+            const fragment = this.promptService?.getPromptFragment(variantId);
+            const builtIn = this.getBuiltInPromptVariant(variantId);
+            return {
+                pack,
+                variantId,
+                name: fragment?.name || builtIn?.name || variantId,
+                description: fragment?.description || builtIn?.description,
+                template: fragment?.template || builtIn?.template || '',
+                isCustomized: Boolean(fragment && isCustomizedPromptFragment(fragment)),
+            };
+        });
+    }
+
+    protected getBuiltInPromptVariant(variantId: string): PromptFragment | undefined {
+        if (GeoAppChatSystemPromptVariants.defaultVariant.id === variantId) {
+            return GeoAppChatSystemPromptVariants.defaultVariant;
+        }
+        return GeoAppChatSystemPromptVariants.variants?.find(variant => variant.id === variantId);
+    }
+
+    protected async editSelectedPromptPack(): Promise<void> {
+        if (!this.promptService) {
+            this.messages.warn('PromptService Theia indisponible.');
+            return;
+        }
+        await this.promptService.editBuiltInCustomization(this.selectedPromptVariantId);
+    }
+
+    protected async resetSelectedPromptPack(): Promise<void> {
+        if (!this.promptService) {
+            this.messages.warn('PromptService Theia indisponible.');
+            return;
+        }
+        if (typeof window !== 'undefined' && !window.confirm(
+            `Réinitialiser ${this.selectedPromptVariantId} supprimera sa personnalisation et reviendra à la version GeoApp. Continuer ?`
+        )) {
+            return;
+        }
+        await this.promptService.resetToBuiltIn(this.selectedPromptVariantId);
+        this.promptPreviewSignature = '';
+        this.messages.info('Prompt pack réinitialisé avec la version GeoApp.');
+        this.update();
+    }
+
+    protected async exportSelectedPromptPack(): Promise<void> {
+        const row = this.getPromptPackRows().find(candidate => candidate.variantId === this.selectedPromptVariantId);
+        if (!row) {
+            this.messages.warn('Prompt pack introuvable.');
+            return;
+        }
+        const serialized = JSON.stringify({
+            type: 'geoapp-chat-prompt-pack',
+            version: 1,
+            pack: row.pack,
+            variantId: row.variantId,
+            name: row.name,
+            description: row.description,
+            template: row.template,
+        }, null, 2);
+        try {
+            await navigator.clipboard.writeText(serialized);
+            this.messages.info('Prompt pack copié dans le presse-papiers.');
+        } catch (error) {
+            console.warn('[GeoAppChatPolicyWidget] Prompt pack export clipboard failed', error);
+            this.promptImportText = serialized;
+            this.messages.warn('Impossible de copier automatiquement; l’export est affiché dans le champ import.');
+            this.update();
+        }
+    }
+
+    protected async importSelectedPromptPack(): Promise<void> {
+        if (!this.promptCustomizationService) {
+            this.messages.warn('Service de personnalisation des prompts indisponible.');
+            return;
+        }
+        const importedTemplate = this.parsePromptImportText(this.promptImportText);
+        if (!importedTemplate.trim()) {
+            this.messages.warn('Contenu de prompt vide.');
+            return;
+        }
+        if (typeof window !== 'undefined' && !window.confirm(
+            `Importer ce contenu remplacera la personnalisation active de ${this.selectedPromptVariantId}. Continuer ?`
+        )) {
+            return;
+        }
+        await this.promptCustomizationService.removeAllPromptFragmentCustomizations(this.selectedPromptVariantId);
+        await this.promptCustomizationService.createBuiltInPromptFragmentCustomization(this.selectedPromptVariantId, importedTemplate);
+        this.promptImportText = '';
+        this.promptPreviewSignature = '';
+        this.messages.info('Prompt pack importé comme personnalisation Theia.');
+        this.update();
+    }
+
+    protected parsePromptImportText(value: string): string {
+        const trimmed = value.trim();
+        if (!trimmed) {
+            return '';
+        }
+        try {
+            const parsed = JSON.parse(trimmed);
+            if (
+                parsed &&
+                typeof parsed === 'object' &&
+                !Array.isArray(parsed) &&
+                typeof (parsed as { template?: unknown }).template === 'string'
+            ) {
+                return (parsed as { template: string }).template;
+            }
+        } catch {
+            // Plain text imports are supported.
+        }
+        return value;
     }
 
     protected getToolOverrides(): Record<string, GeoAppChatToolOverride | boolean> {

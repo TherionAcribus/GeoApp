@@ -225,6 +225,67 @@ Cet aperçu montre :
 
 C'est l'endroit le plus utile pour vérifier ce que l'IA reçoit vraiment comme consignes avant de répondre.
 
+## Éditer les prompt packs
+
+La section **Prompt packs GeoApp** permet de consulter et personnaliser les consignes principales du Chat IA.
+
+Chaque prompt pack correspond à un mode :
+
+- `guided` ;
+- `safe` ;
+- `offline` ;
+- `automation` ;
+- `debug`.
+
+Pour chaque pack, la vue indique si la version active est la version **GeoApp** ou une version **Personnalisée**.
+
+### Consulter un prompt pack
+
+Sélectionnez un pack dans la liste. La zone de détail affiche :
+
+- son identifiant de variant ;
+- son état : version GeoApp ou personnalisée ;
+- sa description ;
+- son contenu effectif.
+
+Le contenu effectif est le texte actuellement utilisé par Theia pour ce prompt pack, avant l'ajout de la policy effective.
+
+### Éditer dans Theia
+
+Le bouton **Éditer dans Theia** ouvre le fichier de personnalisation du prompt pack sélectionné.
+
+Si aucune personnalisation n'existe encore, GeoApp/Theia crée une copie de la version GeoApp comme point de départ. Vous pouvez ensuite modifier le fichier, l'enregistrer, puis revenir dans la vue Policy.
+
+### Reset GeoApp
+
+Le bouton **Reset GeoApp** supprime la personnalisation du prompt pack sélectionné et revient à la version intégrée dans GeoApp.
+
+Cette action est utile si vous avez testé des consignes personnalisées et souhaitez revenir au comportement officiel.
+
+### Exporter un prompt pack
+
+Le bouton **Exporter** copie dans le presse-papiers un JSON contenant :
+
+- le type d'export ;
+- la version du format ;
+- le nom du pack ;
+- l'identifiant du variant ;
+- la description ;
+- le contenu du prompt.
+
+Cet export permet de sauvegarder ou partager une variante de prompt.
+
+### Importer un prompt pack
+
+Dans le panneau d'import, vous pouvez coller :
+
+- soit le JSON exporté par GeoApp ;
+- soit directement le texte complet d'un prompt.
+
+Le bouton **Importer comme personnalisation** remplace la personnalisation active du prompt pack sélectionné. GeoApp demande confirmation avant de le faire.
+
+L'import ne modifie que le prompt pack sélectionné. Les autres packs restent inchangés.
+
 ## Matrice des tools
 
 La matrice des tools affiche les outils GeoApp visibles par la policy courante.
@@ -434,6 +495,7 @@ Dans **Policy Chat IA GeoApp**, cliquez sur **Réinitialiser**. La configuration
 | Profil de modèle | Choix du type de modèle IA : `local`, `fast`, `strong`, `web`. |
 | Profil comportemental | Règle la prudence et l'automatisation du Chat IA. |
 | Prompt pack | Ensemble de consignes données à l'IA. |
+| Prompt pack personnalisé | Version modifiée par l'utilisateur d'un prompt pack GeoApp. |
 | Prompt final | Prompt système résolu, complété par la policy effective. |
 | Tool | Action que l'IA peut demander à GeoApp d'exécuter. |
 | Skill | Stratégie spécialisée chargée pour un type de problème. |
