@@ -13,6 +13,10 @@ import { GeocacheNotesService } from 'theia-ide-zones-ext/lib/browser/geocache-n
 import { GeocacheTabsManager } from 'theia-ide-zones-ext/lib/browser/geocache-tabs-manager';
 import { ZoneTabsManager } from 'theia-ide-zones-ext/lib/browser/zone-tabs-manager';
 import { GeoAppWidgetEventsService } from 'theia-ide-zones-ext/lib/browser/geoapp-widget-events-service';
+import { PluginsService } from '@mysterai/theia-plugins/lib/common/plugin-protocol';
+import { PluginTabsManager } from '@mysterai/theia-plugins/lib/browser/plugin-tabs-manager';
+import { AlphabetsService } from '@mysterai/theia-alphabets/lib/browser/services/alphabets-service';
+import { AlphabetTabsManager } from '@mysterai/theia-alphabets/lib/browser/alphabet-tabs-manager';
 
 export const AIDE_TOOL_PREFIX = 'aide_';
 
@@ -69,6 +73,18 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
     @inject(GeoAppWidgetEventsService)
     protected readonly widgetEventsService!: GeoAppWidgetEventsService;
 
+    @inject(PluginsService)
+    protected readonly pluginsService!: PluginsService;
+
+    @inject(PluginTabsManager)
+    protected readonly pluginTabsManager!: PluginTabsManager;
+
+    @inject(AlphabetsService)
+    protected readonly alphabetsService!: AlphabetsService;
+
+    @inject(AlphabetTabsManager)
+    protected readonly alphabetTabsManager!: AlphabetTabsManager;
+
     async onStart(): Promise<void> {
         const tools = this.buildAllTools();
         for (const tool of tools) {
@@ -87,6 +103,8 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
             ...this.buildGeocacheTools(),
             ...this.buildWaypointTools(),
             ...this.buildNoteTools(),
+            ...this.buildPluginTools(),
+            ...this.buildAlphabetTools(),
         ];
     }
 
@@ -216,6 +234,171 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                     try {
                         await this.geocacheTabsManager.openGeocacheDetails({ geocacheId: args.geocache_id, name: args.name });
                         return ok(`Géocache ${args.geocache_id} ouverte.`);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+        ];
+    }
+
+    // ─── Plugins ──────────────────────────────────────────────────────────────
+
+    private buildPluginTools(): ToolRequest[] {
+        return [
+            {
+                id: 'aide_list_plugins',
+                name: 'aide_list_plugins',
+                description: 'Retourne la liste complète des plugins disponibles avec leurs catégories et tags. ' +
+                    'Ne filtre PAS par texte : pour trouver un plugin à partir d\'un concept sémantique ' +
+                    '(ex: "magie", "téléphone", "morse"), récupérez la liste complète puis identifiez ' +
+                    'le plugin par vos propres connaissances. Filtre optionnel par catégorie API uniquement.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    category: { type: 'string', description: 'Filtrer par catégorie API (ex: "cipher", "encoding", "morse"). Laisser vide pour tout retourner.', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const filters: any = {};
+                        if (args.category) { filters.category = args.category; }
+                        const plugins = await this.pluginsService.listPlugins(filters);
+                        let tagsMap: Map<string, string[]> = new Map();
+                        try {
+                            const eligible = await this.pluginsService.getMetasolverEligiblePlugins('all');
+                            for (const ep of eligible.plugins) {
+                                tagsMap.set(ep.name, ep.tags);
+                            }
+                        } catch { /* tags optionnels */ }
+                        return ok(plugins.map(p => ({
+                            name: p.name,
+                            description: p.description,
+                            categories: p.categories,
+                            tags: tagsMap.get(p.name) ?? [],
+                            source: p.source,
+                            enabled: p.enabled,
+                        })));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_get_plugin_info',
+                name: 'aide_get_plugin_info',
+                description: 'Retourne les détails complets d\'un plugin : description, catégories, paramètres d\'entrée, auteur.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    plugin_name: { type: 'string', description: 'Nom exact du plugin (tel que retourné par aide_list_plugins).', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const plugin = await this.pluginsService.getPlugin(args.plugin_name);
+                        return ok({
+                            name: plugin.name,
+                            description: plugin.description,
+                            categories: plugin.categories,
+                            source: plugin.source,
+                            enabled: plugin.enabled,
+                            author: plugin.author,
+                            version: plugin.version,
+                            heavy_cpu: plugin.heavy_cpu,
+                            needs_network: plugin.needs_network,
+                            input_types: plugin.input_types,
+                        });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_open_plugin_tab',
+                name: 'aide_open_plugin_tab',
+                description: 'Ouvre un onglet de déchiffrement avec un plugin pré-sélectionné.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    plugin_name: { type: 'string', description: 'Nom exact du plugin à ouvrir (tel que retourné par aide_list_plugins).', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        await this.pluginTabsManager.openPlugin({ pluginName: args.plugin_name });
+                        return ok(`Plugin "${args.plugin_name}" ouvert.`);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+        ];
+    }
+
+    // ─── Alphabets ────────────────────────────────────────────────────────────
+
+    private buildAlphabetTools(): ToolRequest[] {
+        return [
+            {
+                id: 'aide_list_alphabets',
+                name: 'aide_list_alphabets',
+                description: 'Liste les alphabets de décodage de symboles disponibles. Accepte un texte de recherche optionnel pour trouver un alphabet par nom, tag ou description.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    search: { type: 'string', description: 'Texte de recherche optionnel (ex: "gallifreyen", "alien", "runes").', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const options = args.search
+                            ? { query: args.search, search_in_name: true, search_in_tags: true, search_in_readme: true }
+                            : undefined;
+                        const alphabets = await this.alphabetsService.listAlphabets(options);
+                        return ok(alphabets.map(a => ({
+                            id: a.id,
+                            name: a.name,
+                            description: a.description,
+                            type: a.type,
+                            tags: a.tags,
+                            source: a.source,
+                        })));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_get_alphabet_info',
+                name: 'aide_get_alphabet_info',
+                description: 'Retourne les détails d\'un alphabet : nom, description, tags, type de rendu (polices ou images), jeu de caractères supportés.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    alphabet_id: { type: 'string', description: 'ID de l\'alphabet (tel que retourné par aide_list_alphabets).', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const alphabet = await this.alphabetsService.getAlphabet(args.alphabet_id);
+                        return ok({
+                            id: alphabet.id,
+                            name: alphabet.name,
+                            description: alphabet.description,
+                            type: alphabet.type,
+                            tags: alphabet.tags,
+                            source: alphabet.source,
+                            sources: alphabet.sources,
+                            config: {
+                                renderType: alphabet.alphabetConfig.type,
+                                hasUpperCase: alphabet.alphabetConfig.hasUpperCase,
+                                letters: alphabet.alphabetConfig.characters.letters,
+                                numbers: alphabet.alphabetConfig.characters.numbers,
+                                specialChars: Object.keys(alphabet.alphabetConfig.characters.special ?? {}),
+                            },
+                        });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_open_alphabet_tab',
+                name: 'aide_open_alphabet_tab',
+                description: 'Ouvre un onglet de décodage de symboles pour un alphabet spécifique.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    alphabet_id: { type: 'string', description: 'ID de l\'alphabet à ouvrir (tel que retourné par aide_list_alphabets).', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        await this.alphabetTabsManager.openAlphabet({ alphabetId: args.alphabet_id });
+                        return ok(`Alphabet "${args.alphabet_id}" ouvert.`);
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
             },

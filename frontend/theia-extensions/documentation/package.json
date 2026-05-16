@@ -21,6 +21,8 @@
     "@theia/ai-chat": "1.70.2",
     "@theia/ai-core": "1.70.2",
     "theia-ide-zones-ext": "1.70.200",
+    "@mysterai/theia-plugins": "1.0.0",
+    "@mysterai/theia-alphabets": "1.0.0",
     "flexsearch": "^0.7.31",
     "react-markdown": "^9.0.1",
     "remark-gfm": "^4.0.0",

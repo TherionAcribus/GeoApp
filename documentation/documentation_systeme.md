@@ -28,7 +28,9 @@ Le système d'aide offre aux utilisateurs de GeoApp une documentation consultabl
 - **Widget de documentation** ouvert dans la zone principale (onglet pleine largeur)
 - **Navigation par chapitres/pages** dans une sidebar de navigation
 - **Recherche plein texte par section** via FlexSearch
-- **Agent IA `@Aide`** accessible depuis le chat Theia, répondant à partir du contenu de la doc
+- **Agent IA `@Aide`** accessible depuis le chat Theia — **mode hybride** : répond aux questions documentaires *et* exécute des actions applicatives (ouvrir des widgets, gérer des zones, géocaches, waypoints, notes)
+- **22 tools d'action** (`aide_*`) injectés au LLM à chaque requête, avec confirmation Theia native pour les actions destructives
+- **Contexte UI dynamique** : `@Aide` connaît le widget actif, la zone active et les onglets ouverts
 - **Icône 📖** dans la barre d'activité gauche (bas) pour un accès rapide
 - **Raccourci clavier** `Shift+F1` et entrée dans le menu **Aide**
 
@@ -52,13 +54,16 @@ frontend/theia-extensions/documentation/
 ├── src/browser/
 │   ├── generated/
 │   │   └── doc-registry.ts           ← GÉNÉRÉ, ne pas modifier à la main
-│   ├── doc-types.ts                  ← interfaces TypeScript
+│   ├── doc-types.ts                  ← interfaces TypeScript doc
 │   ├── doc-content-service.ts        ← service de lecture et parsing
 │   ├── doc-search-service.ts         ← moteur de recherche FlexSearch
 │   ├── doc-navigation-tree.tsx       ← composant arborescence chapitres
 │   ├── doc-viewer.tsx                ← rendu Markdown (react-markdown)
 │   ├── doc-widget.tsx                ← ReactWidget principal (ID: geoapp-documentation)
-│   ├── doc-agent.ts                  ← ChatAgent @Aide
+│   ├── doc-agent.ts                  ← ChatAgent @Aide (hybride doc + actions)
+│   ├── doc-action-types.ts           ← interface DocActionUiContext
+│   ├── doc-action-context-service.ts ← collecte widget actif, zone active, onglets
+│   ├── doc-action-tools.ts           ← DocActionToolsManager : 22 tools aide_*
 │   ├── doc-contribution.ts           ← commandes, menus, keybindings, icône sidebar
 │   ├── doc-frontend-module.ts        ← module InversifyJS
 │   ├── types.d.ts                    ← déclarations de modules
@@ -88,9 +93,17 @@ docs/*.md  ──[build]──▶  doc-registry.ts (imports webpack)
                                    (résultats)
 
                    DocContentService
+                   DocActionContextService ──▶ ApplicationShell + ZonesService
                          │
                     GeoAppDocAgent
-                    (prompt système = ToC + doc complète)
+                    (prompt système = règles + contexte UI + catalogue tools + doc)
+                    (sendLlmRequest → 22 tools aide_* passés au LLM)
+                         │
+                    DocActionToolsManager
+                    (handlers → ZonesService, GeocachesService,
+                                GeocacheNotesService, GeocacheTabsManager,
+                                ZoneTabsManager, GeoAppWidgetEventsService,
+                                CommandService)
 ```
 
 ### Dépendances npm
@@ -102,7 +115,8 @@ docs/*.md  ──[build]──▶  doc-registry.ts (imports webpack)
 | `remark-gfm` | ^4.0.0 | Extension GitHub Flavored Markdown |
 | `gray-matter` | ^4.0.3 | Parsing frontmatter YAML (utilisé seulement côté script) |
 | `@theia/ai-chat` | 1.70.2 | Base `AbstractStreamParsingChatAgent` pour @Aide |
-| `@theia/ai-core` | 1.70.2 | `AgentService`, `AIVariableContext`, etc. |
+| `@theia/ai-core` | 1.70.2 | `AgentService`, `AIVariableContext`, `ToolRequest`, etc. |
+| `theia-ide-zones-ext` | 1.70.200 | Services GeoApp injectés dans les handlers d'actions |
 
 ---
 
@@ -471,7 +485,9 @@ interface DocViewerProps {
 
 ## 8. Agent IA @Aide
 
-### Classe
+`@Aide` est un agent IA **hybride** : il répond aux questions documentaires *et* exécute des actions dans l'application GeoApp, selon l'intention détectée par le LLM via le prompt système.
+
+### Classe et injections
 
 ```typescript
 // doc-agent.ts
@@ -483,21 +499,139 @@ class GeoAppDocAgent extends AbstractStreamParsingChatAgent {
     @inject(DocContentService)
     protected readonly contentService: DocContentService;
 
-    protected override async getSystemMessageDescription(
-        _context: AIVariableContext
-    ): Promise<SystemMessageDescription | undefined>
+    @inject(DocActionToolsManager)
+    protected readonly actionToolsManager: DocActionToolsManager;
+
+    @inject(DocActionContextService)
+    protected readonly actionContextService: DocActionContextService;
+
+    protected override async sendLlmRequest(...): Promise<LanguageModelResponse>
+    protected override async getSystemMessageDescription(...): Promise<SystemMessageDescription>
 }
 ```
 
+### Mode hybride — routing par prompt engineering
+
+Le LLM décide seul d'appeler (ou non) un tool :
+
+| Message utilisateur | Comportement |
+|---|---|
+| « Comment créer une zone ? » | Répond depuis la documentation |
+| « Crée une zone "Bretagne" » | Appelle `aide_create_zone` |
+| « Ouvre le panneau plugins » | Appelle `aide_open_plugins_panel` |
+| « Peux-tu lister mes zones ? » | Appelle `aide_list_zones` |
+| « Supprime la zone "Test" » | Appelle `aide_delete_zone` → dialog Theia |
+
+Règles clés du prompt :
+- Appeler le tool **immédiatement** dans la même réponse (pas d'annonce textuelle préalable)
+- Reconnaître `Peux-tu...`, `Pourrais-tu...`, `Vas-y`, `Fais-le` comme des demandes d'action directe
+- Pour les IDs inconnus : appeler `aide_list_zones` ou `aide_list_geocaches_in_zone` avant d'agir
+- Pour les actions ⚠, la confirmation Theia est automatique — pas de validation verbale supplémentaire
+
+### `sendLlmRequest` — injection des tools
+
+`GeoAppDocAgent` surcharge `sendLlmRequest` pour injecter les 22 tools `aide_*` à chaque requête :
+
+```typescript
+protected override async sendLlmRequest(
+    request, messages, toolRequests, languageModel, ...
+): Promise<LanguageModelResponse> {
+    const nonAideTools = toolRequests.filter(t => !t.id.startsWith('aide_'));
+    const aideTools = this.actionToolsManager.buildAllTools();
+    return super.sendLlmRequest(request, messages, [...nonAideTools, ...aideTools], ...);
+}
+```
+
+Les tools `aide_*` ne passent jamais dans les autres agents (ils ne sont pas dans `ToolInvocationRegistry` de façon globale — ils sont injectés directement dans l'appel LLM de `@Aide`).
+
+> **Note** : `DocActionToolsManager.onStart()` appelle quand même `toolRegistry.registerTool()` pour chaque tool — cela les rend visibles dans l'interface de gestion des tools Theia. Mais `sendLlmRequest` reconstruit les instances fraîches à chaque requête.
+
 ### Prompt système
 
-Construit dynamiquement à chaque nouvelle conversation :
+Construit dynamiquement à chaque appel de `getSystemMessageDescription()` :
 
-1. Instruction de rôle (`@Aide`, documentation GeoApp, répondre uniquement depuis la doc)
-2. Table des matières (chapitres + titres + descriptions des pages)
-3. Contenu complet de toutes les pages (Markdown, frontmatter strippé)
+1. **Rôle et règles générales** : répondre en français, depuis la doc pour les questions
+2. **Règles d'action** : appeler les tools immédiatement, reconnaître les formulations d'action
+3. **Catalogue des tools** : liste structurée des 22 tools avec signatures et ⚠ pour les destructifs
+4. **Contexte UI** : widget actif, zone active, onglets ouverts (voir `DocActionContextService`)
+5. **Table des matières** de la documentation
+6. **Documentation complète** (toutes les pages, frontmatter strippé)
 
-> Le prompt est reconstruit à chaque appel de `getSystemMessageDescription()` — cela garantit la fraîcheur du contenu après un rebuild. En pratique l'agent est singleton donc l'initialisation n'est faite qu'une fois.
+### `DocActionContextService`
+
+Collecte l'état UI courant de GeoApp à chaque requête :
+
+```typescript
+interface DocActionUiContext {
+    activeWidget?: {
+        id: string;
+        kind: 'geocache-details' | 'zone-geocaches' | 'zones-list' | 'documentation' | 'other';
+        geocacheId?: number; gcCode?: string; geocacheName?: string;
+        zoneId?: number; zoneName?: string;
+    };
+    activeZone?: { id: number | null; name?: string };
+    openTabs: Array<{ id: string; kind: string; geocacheId?: number; zoneId?: number; ... }>;
+}
+```
+
+Sources : `ApplicationShell.activeWidget`, `ZonesService.getActiveZone()`, introspection des widgets dans `shell.getWidgets('main')`.
+
+Permet à `@Aide` de résoudre les références implicites : « cette zone », « cette cache », « l'onglet actif ».
+
+### `DocActionToolsManager`
+
+`FrontendApplicationContribution` qui enregistre 22 tools et fournit `buildAllTools()` :
+
+**Navigation (9 tools) :**
+
+| Tool | Action |
+|---|---|
+| `aide_open_documentation` | Commande `geoapp.documentation.open` |
+| `aide_open_preferences` | Commande `preferences:open` |
+| `aide_open_plugins_panel` | Commande `plugins.openBrowser` |
+| `aide_open_alphabets_panel` | Commande `alphabets.openList` |
+| `aide_open_map` | Commande `geoapp.map.toggle` |
+| `aide_open_archive_manager` | Commande `geoapp.archive.manager.open` |
+| `aide_open_zones_list` | Commande `zones:open` |
+| `aide_open_zone_tab(zone_id)` | `ZoneTabsManager.openZone()` |
+| `aide_open_geocache(geocache_id)` | `GeocacheTabsManager.openGeocacheDetails()` |
+
+**Zones (4 tools) :**
+
+| Tool | Confirme ? | Service |
+|---|---|---|
+| `aide_list_zones` | non | `ZonesService.list()` |
+| `aide_create_zone(name, description?)` | non | `ZonesService.create()` |
+| `aide_set_active_zone(zone_id)` | non | `ZonesService.setActiveZone()` |
+| `aide_delete_zone(zone_id, zone_name)` | **⚠ oui** | `ZonesService.delete()` |
+
+**Géocaches (4 tools) :**
+
+| Tool | Confirme ? | Service |
+|---|---|---|
+| `aide_list_geocaches_in_zone(zone_id)` | non | `ZonesService.listGeocaches()` |
+| `aide_add_geocache_by_code(zone_id, gc_code)` | **⚠ oui** | `GeocachesService.addToZone()` |
+| `aide_copy_geocache_to_zone(geocache_id, target_zone_id)` | **⚠ oui** | `GeocachesService.copy()` |
+| `aide_delete_geocache(geocache_id)` | **⚠ oui** | `GeocachesService.delete()` |
+
+**Waypoints (2 tools) :**
+
+| Tool | Confirme ? | Service |
+|---|---|---|
+| `aide_create_waypoint(geocache_id, name, gc_coords, note?, type?)` | non | `GeocachesService.createWaypoint()` |
+| `aide_delete_waypoint(geocache_id, waypoint_id)` | **⚠ oui** | `GeocachesService.deleteWaypoint()` |
+
+**Notes (3 tools) :**
+
+| Tool | Confirme ? | Service |
+|---|---|---|
+| `aide_create_note(geocache_id, content, note_type?)` | non | `GeocacheNotesService.createNote()` |
+| `aide_update_note(note_id, content, note_type?)` | non | `GeocacheNotesService.updateNote()` |
+| `aide_delete_note(note_id)` | **⚠ oui** | `GeocacheNotesService.deleteNote()` |
+
+La confirmation ⚠ est implémentée via `confirmAlwaysAllow` sur le `ToolRequest` — Theia affiche automatiquement un dialog avant l'exécution du handler.
+
+Après chaque mutation réussie (create/delete zone, setActive, add/copy/delete geocache), `GeoAppWidgetEventsService.requestZonesRefresh()` est appelé pour rafraîchir la liste des zones.
 
 ### Enregistrement Theia
 
@@ -508,16 +642,16 @@ bind(ChatAgent).toService(GeoAppDocAgent);          // ← rend l'agent disponib
 bind(GeoAppDocAgentContribution).toSelf().inSingletonScope();
 bind(FrontendApplicationContribution).toService(GeoAppDocAgentContribution);
 // GeoAppDocAgentContribution.onStart() appelle agentService.registerAgent(docAgent)
-// → l'agent est configurable dans les settings Theia (sélection du modèle)
 ```
 
 ### Utilisation dans le chat
 
-Dans le panneau AI Chat de Theia :
-
 ```
 @Aide comment créer une nouvelle zone ?
-@Aide quels plugins sont disponibles ?
+@Aide crée une zone "Bretagne 2025"
+@Aide ouvre le panneau des plugins
+@Aide liste mes zones
+@Aide ajoute GC12345 à la zone 2
 ```
 
 ---
@@ -530,9 +664,15 @@ Module InversifyJS chargé automatiquement par Theia via `theiaExtensions[].fron
 
 ```typescript
 export default new ContainerModule(bind => {
-    // Services
+    // Services doc
     bind(DocContentService).toSelf().inSingletonScope();
     bind(DocSearchService).toSelf().inSingletonScope();
+
+    // Services d'action @Aide
+    bind(DocActionContextService).toSelf().inSingletonScope();
+    bind(DocActionToolsManager).toSelf().inSingletonScope();
+    bind(FrontendApplicationContribution).toService(DocActionToolsManager);
+    // DocActionToolsManager.onStart() enregistre les 22 tools aide_* dans ToolInvocationRegistry
 
     // Widget
     bind(DocWidget).toSelf().inSingletonScope();
@@ -548,7 +688,7 @@ export default new ContainerModule(bind => {
     bind(KeybindingContribution).toService(DocContribution);
     bind(FrontendApplicationContribution).toService(DocContribution);
 
-    // Agent IA
+    // Agent IA hybride
     bind(GeoAppDocAgent).toSelf().inSingletonScope();
     bind(ChatAgent).toService(GeoAppDocAgent);
     bind(GeoAppDocAgentContribution).toSelf().inSingletonScope();
@@ -631,13 +771,44 @@ Par défaut : `{ purpose: 'chat', identifier: 'default/universal' }`.
 
 Modifier `GeoAppDocAgent.getSystemMessageDescription()` dans `doc-agent.ts`. Par exemple, ajouter un résumé de la version de GeoApp ou des instructions spécifiques au contexte courant de l'utilisateur.
 
-### Ajouter des outils (tool calls) à @Aide
+### Ajouter un tool d'action à @Aide
 
-`AbstractStreamParsingChatAgent` supporte les tool calls. Pour ajouter un outil `search_docs` :
+Les tools sont définis dans `DocActionToolsManager.buildAllTools()` (`doc-action-tools.ts`). Pour ajouter un nouveau tool `aide_mon_action` :
 
-1. Implémenter une `ToolRequest` dans `doc-agent.ts`
-2. La référencer dans `this.functions`
-3. Le LLM peut alors appeler l'outil et recevoir les résultats structurés
+1. Dans la méthode `buildAllTools()` (ou une méthode `buildXxxTools()` dédiée), ajouter un objet `ToolRequest` :
+
+```typescript
+{
+    id: 'aide_mon_action',
+    name: 'aide_mon_action',
+    description: 'Description courte destinée au LLM.',
+    providerName: DocActionToolsManager.PROVIDER_NAME,
+    parameters: buildParams({
+        param1: { type: 'string', description: 'Desc param1', required: true },
+        param2: { type: 'number', description: 'Desc param2', required: false },
+    }),
+    // confirmAlwaysAllow: 'Message du dialog si action sensible.',  ← décommenter si ⚠
+    handler: async (argString: string) => {
+        const args = parseArgs(argString);
+        try {
+            const result = await this.monService.doSomething(args.param1);
+            this.widgetEventsService.requestZonesRefresh();  // si mutation visible dans l'UI
+            return ok(result);
+        } catch (e: any) { return err(e?.message ?? String(e)); }
+    },
+}
+```
+
+2. Injecter le service nécessaire dans `DocActionToolsManager` si besoin :
+
+```typescript
+@inject(MonService)
+protected readonly monService!: MonService;
+```
+
+3. Ajouter une ligne dans le catalogue du prompt système (`doc-agent.ts`, section `## Tools @Aide disponibles`).
+
+4. Rebuilder : `yarn build` dans `documentation/`.
 
 ### Ajouter un bouton dans le toolbar du widget
 
