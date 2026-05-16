@@ -1785,7 +1785,7 @@ const PluginExecutorComponent: React.FC<{
             )}
 
             {/* Formulaire dynamique */}
-            {state.pluginDetails && (
+            {state.pluginDetails && state.selectedPlugin !== 'metasolver' && (
                 <div className='plugin-form'>
                     <h4>⚙️ Paramètres</h4>
                     {renderDynamicForm(
@@ -1814,6 +1814,11 @@ const PluginExecutorComponent: React.FC<{
                     pluginList={state.formInputs.plugin_list || ''}
                     text={String(state.formInputs.text || '')}
                     maxPlugins={typeof state.formInputs.max_plugins === 'number' ? state.formInputs.max_plugins : undefined}
+                    detectCoordinates={state.formInputs.detect_coordinates !== false}
+                    detectWrittenCoordinates={state.formInputs.detect_written_coordinates === true}
+                    writtenCoordinatesLanguage={String(state.formInputs.written_coordinates_language || 'auto')}
+                    enableBruteforce={state.formInputs.enable_bruteforce !== false}
+                    streamingVerbosity={state.streamingVerbosity}
                     geocacheContext={config?.geocacheContext}
                     pluginsService={pluginsService}
                     preferenceService={preferenceService}
@@ -1821,13 +1826,15 @@ const PluginExecutorComponent: React.FC<{
                     backendBaseUrl={backendBaseUrl}
                     onTextChange={handleTextChange}
                     onPluginListChange={handlePluginListChange}
+                    onSettingChange={handleInputChange}
+                    onStreamingVerbosityChange={level => setState(prev => ({ ...prev, streamingVerbosity: level }))}
                     onExecuteRequest={handleExecute}
                     disabled={state.isExecuting}
                 />
             )}
             
             {/* Options avancées : Brute-force et Scoring */}
-            {state.pluginDetails && (state.pluginDetails.metadata?.brute_force || state.pluginDetails.metadata?.enable_scoring) && (
+            {state.pluginDetails && state.selectedPlugin !== 'metasolver' && (state.pluginDetails.metadata?.brute_force || state.pluginDetails.metadata?.enable_scoring) && (
                 <div className='plugin-form'>
                     <h4>🔧 Options avancées</h4>
                     
@@ -1923,8 +1930,9 @@ const PluginExecutorComponent: React.FC<{
             )}
 
             {/* Boutons d'exécution */}
-            {state.pluginDetails && (
+            {state.pluginDetails && (state.selectedPlugin !== 'metasolver' || state.isExecuting) && (
                 <div className='execution-controls'>
+                    {state.selectedPlugin !== 'metasolver' && (
                     <div className='execution-mode'>
                         <label>
                             <input
@@ -1947,25 +1955,6 @@ const PluginExecutorComponent: React.FC<{
                             Asynchrone
                         </label>
                     </div>
-
-                    {/* Sélecteur de verbosité pour metasolver */}
-                    {state.selectedPlugin === 'metasolver' && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
-                            <span style={{ opacity: 0.7 }}>Détail :</span>
-                            {(['minimal', 'normal', 'detailed'] as const).map(level => (
-                                <label key={level} style={{ cursor: 'pointer' }}>
-                                    <input
-                                        type='radio'
-                                        value={level}
-                                        checked={state.streamingVerbosity === level}
-                                        onChange={() => setState(prev => ({ ...prev, streamingVerbosity: level }))}
-                                        disabled={state.isExecuting}
-                                        style={{ marginRight: '2px' }}
-                                    />
-                                    {level === 'minimal' ? 'Min' : level === 'normal' ? 'Normal' : 'Détaillé'}
-                                </label>
-                            ))}
-                        </div>
                     )}
 
                     <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>

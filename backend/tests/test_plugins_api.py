@@ -842,6 +842,32 @@ class TestWorkflowOrchestratorAPI:
         assert 'alpha_decoder' in data['execution']['secret_code']['recommendation']['selected_plugins']
         assert any(step['id'] == 'recommend-metasolver-plugins' for step in data['plan'])
 
+    def test_resolve_workflow_prefers_compact_numeric_fragment_over_title(self, client, app, caesar_plugin):
+        response = client.post(
+            '/api/plugins/workflow/resolve',
+            data=json.dumps({
+                'title': 'No Asky, No Touchy!',
+                'description': (
+                    "This isn't exactly basic...the coordinates can be found in the\n"
+                    "information below.\n"
+                    "78325257423248544650495032\n"
+                    "87324950494232535646545150\n\n"
+                    "Happy hunting ...."
+                ),
+                'max_plugins': 5
+            }),
+            content_type='application/json'
+        )
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        fragment = data['execution']['secret_code']['selected_fragment']
+
+        assert data['workflow']['kind'] == 'secret_code'
+        assert fragment['source'] == 'description'
+        assert fragment['text'] == '78325257423248544650495032 87324950494232535646545150'
+        assert fragment['confidence'] > 0.5
+
     def test_resolve_workflow_prefers_direct_pi_plugin(self, client, app, pi_digits_plugin):
         response = client.post(
             '/api/plugins/workflow/resolve',

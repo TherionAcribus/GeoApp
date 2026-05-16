@@ -1856,6 +1856,10 @@ def _score_secret_fragment(signature: Dict[str, Any], source_name: str) -> float
         score += 10
 
     fragment_length = int(signature.get('non_space_length', 0))
+    if dominant_kind == 'digits' and fragment_length >= 12:
+        score += 18
+    if dominant_kind == 'digits' and fragment_length >= 24 and int(signature.get('group_count', 0)) <= 3:
+        score += 8
     if 4 <= fragment_length <= 64:
         score += 8
     if source_name == 'html_comment':
@@ -1943,6 +1947,7 @@ def _extract_secret_fragments(
 
     patterns = (
         ('morse_like', re.compile(r'(?<!\S)(?=[.\-/| ]{5,}[.\-])[.\-/| ]{5,}(?!\S)')),
+        ('long_digit_block', re.compile(r'(?<!\w)(?:\d{8,}(?:[\s,;:/_-]+\d{8,})*)(?!\w)')),
         ('digit_groups', re.compile(r'(?<!\w)(?:\d{1,3}(?:[\s,;:/_-]+\d{1,3}){2,})(?!\w)')),
         ('tap_code', re.compile(r'(?<!\w)(?:[1-5]{2}(?:\s+[1-5]{2}){1,})(?!\w)')),
         ('bacon_like', re.compile(r'(?<!\w)(?:[AB]{5}(?:[\s,;:/_-]*[AB]{5})+)(?!\w)', flags=re.IGNORECASE)),
@@ -3455,13 +3460,21 @@ def _select_primary_secret_fragment(classification: Dict[str, Any], listing_inpu
     hint = str(listing_inputs.get('hint') or '').strip()
     if hint:
         exact_hint = next((item for item in fragments if str(item.get('text') or '').strip() == hint), None)
-        if exact_hint:
+        if exact_hint and (
+            exact_hint is fragments[0]
+            or float(exact_hint.get('confidence') or 0.0) >= 0.5
+            or float(exact_hint.get('score') or 0.0) >= 50.0
+        ):
             return exact_hint
 
     title = str(listing_inputs.get('title') or '').strip()
     if title:
         exact_title = next((item for item in fragments if str(item.get('text') or '').strip() == title), None)
-        if exact_title:
+        if exact_title and (
+            exact_title is fragments[0]
+            or float(exact_title.get('confidence') or 0.0) >= 0.5
+            or float(exact_title.get('score') or 0.0) >= 50.0
+        ):
             return exact_title
 
     return fragments[0]

@@ -4,6 +4,7 @@ import {
     PluginsService,
     ListingClassificationResponse,
     MetasolverEligiblePlugin,
+    MetasolverPresetInfo,
     MetasolverRecommendationResponse,
     MetasolverSignature,
     GeographicPlausibilityAssessment,
@@ -766,6 +767,11 @@ export const MetasolverPresetPanel: React.FC<{
     pluginList: string;
     text: string;
     maxPlugins?: number;
+    detectCoordinates: boolean;
+    detectWrittenCoordinates: boolean;
+    writtenCoordinatesLanguage: string;
+    enableBruteforce: boolean;
+    streamingVerbosity: 'minimal' | 'normal' | 'detailed';
     geocacheContext?: GeocacheContext;
     pluginsService: PluginsService;
     preferenceService: PreferenceService;
@@ -773,10 +779,34 @@ export const MetasolverPresetPanel: React.FC<{
     backendBaseUrl: string;
     onTextChange: (newText: string) => void;
     onPluginListChange: (newList: string) => void;
+    onSettingChange: (key: string, value: any) => void;
+    onStreamingVerbosityChange: (level: 'minimal' | 'normal' | 'detailed') => void;
     onExecuteRequest: () => void;
     disabled: boolean;
-}> = ({ preset, pluginList, text, maxPlugins, geocacheContext, pluginsService, preferenceService, commandService, backendBaseUrl, onTextChange, onPluginListChange, onExecuteRequest, disabled }) => {
+}> = ({
+    preset,
+    pluginList,
+    text,
+    maxPlugins,
+    detectCoordinates,
+    detectWrittenCoordinates,
+    writtenCoordinatesLanguage,
+    enableBruteforce,
+    streamingVerbosity,
+    geocacheContext,
+    pluginsService,
+    preferenceService,
+    commandService,
+    backendBaseUrl,
+    onTextChange,
+    onPluginListChange,
+    onSettingChange,
+    onStreamingVerbosityChange,
+    onExecuteRequest,
+    disabled
+}) => {
     const [eligiblePlugins, setEligiblePlugins] = React.useState<MetasolverEligiblePlugin[]>([]);
+    const [availablePresets, setAvailablePresets] = React.useState<Record<string, MetasolverPresetInfo>>({});
     const [workflowResolution, setWorkflowResolution] = React.useState<ResolutionWorkflowResponse | null>(null);
     const [classification, setClassification] = React.useState<ListingClassificationResponse | null>(null);
     const [recommendation, setRecommendation] = React.useState<MetasolverRecommendationResponse | null>(null);
@@ -790,6 +820,7 @@ export const MetasolverPresetPanel: React.FC<{
     const [workflowEntries, setWorkflowEntries] = React.useState<MetasolverWorkflowLogEntry[]>([]);
     const [archivedResumeState, setArchivedResumeState] = React.useState<ArchivedMetasolverResumeState | null>(null);
     const [expanded, setExpanded] = React.useState(false);
+    const [diagnosticExpanded, setDiagnosticExpanded] = React.useState(false);
     const [selectionMode, setSelectionMode] = React.useState<MetasolverSelectionMode>(
         pluginList.trim() ? 'manual' : 'recommended'
     );
@@ -838,15 +869,29 @@ export const MetasolverPresetPanel: React.FC<{
     }, [geoAppWorkflowKind, preferenceService]);
 
     React.useEffect(() => {
-        setSelectionMode(prev => pluginList.trim() ? 'manual' : (prev === 'preset' ? 'preset' : 'recommended'));
+        const normalizedPluginList = pluginList.trim();
+        const normalizedRecommendationList = (recommendation?.plugin_list || '').trim();
+        setSelectionMode(prev => {
+            if (normalizedPluginList && normalizedPluginList !== normalizedRecommendationList) {
+                return 'manual';
+            }
+            return normalizedPluginList ? 'recommended' : (prev === 'preset' ? 'preset' : 'recommended');
+        });
         setManualSelectedPlugins(new Set(parsePluginListValue(pluginList)));
-    }, [pluginList]);
+    }, [pluginList, recommendation?.plugin_list]);
 
     React.useEffect(() => {
-        setSelectionMode(prev => pluginList.trim() ? 'manual' : (prev === 'preset' ? 'preset' : 'recommended'));
+        const normalizedPluginList = pluginList.trim();
+        const normalizedRecommendationList = (recommendation?.plugin_list || '').trim();
+        setSelectionMode(prev => {
+            if (normalizedPluginList && normalizedPluginList !== normalizedRecommendationList) {
+                return 'manual';
+            }
+            return normalizedPluginList ? 'recommended' : (prev === 'preset' ? 'preset' : 'recommended');
+        });
         setManualSelectedPlugins(new Set(parsePluginListValue(pluginList)));
         autoApplyKeyRef.current = null;
-    }, [preset]);
+    }, [preset, pluginList, recommendation?.plugin_list]);
 
     const appendWorkflowEntry = React.useCallback((
         category: MetasolverWorkflowLogEntry['category'],
@@ -995,11 +1040,13 @@ export const MetasolverPresetPanel: React.FC<{
                 const data = await pluginsService.getMetasolverEligiblePlugins(preset);
                 if (!cancelled) {
                     setEligiblePlugins(data.plugins || []);
+                    setAvailablePresets(data.available_presets || {});
                 }
             } catch (err: any) {
                 if (!cancelled) {
                     setError(err?.message || 'Erreur de chargement');
                     setEligiblePlugins([]);
+                    setAvailablePresets({});
                 }
             } finally {
                 if (!cancelled) {
@@ -1277,7 +1324,7 @@ export const MetasolverPresetPanel: React.FC<{
             return;
         }
         const names = new Set(recommendation.selected_plugins || []);
-        if (!(text || '').trim() && recommendationSourceText) {
+        if (recommendationSourceText && (text || '').trim() !== recommendationSourceText) {
             onTextChange(recommendationSourceText);
         }
         setSelectionMode('recommended');
@@ -1316,9 +1363,38 @@ export const MetasolverPresetPanel: React.FC<{
 
     const includedCount = currentSelectedPlugins.size;
     const signatureBadges = recommendation?.signature ? buildSignatureBadges(recommendation.signature) : [];
+    const presetEntries = React.useMemo(() => {
+        const entries = Object.entries(availablePresets);
+        if (entries.length > 0) {
+            return entries;
+        }
+        return [
+            ['all', { label: 'Tous les codes', description: '' }],
+            ['frequent', { label: 'Codes frequents', description: '' }],
+            ['letters_only', { label: 'Codes a lettres', description: '' }],
+            ['digits_only', { label: 'Codes a chiffres', description: '' }],
+            ['symbols_only', { label: 'Codes a symboles', description: '' }],
+            ['words_only', { label: 'Codes a mots', description: '' }],
+            ['substitution', { label: 'Substitution', description: '' }],
+            ['transposition', { label: 'Transposition', description: '' }],
+            ['numeral', { label: 'Systemes numeriques', description: '' }],
+            ['no_key', { label: 'Sans cle', description: '' }],
+        ] as Array<[string, MetasolverPresetInfo]>;
+    }, [availablePresets]);
     const primaryWorkflow = workflowResolution?.workflow || null;
     const hasSecretCodeLabel = primaryWorkflow?.kind === 'secret_code' || Boolean(classification?.labels.some(label => label.name === 'secret_code'));
     const bestSecretFragment = workflowResolution?.execution.secret_code?.selected_fragment || classification?.candidate_secret_fragments?.[0] || null;
+    const currentText = (text || '').trim();
+    const recommendedFragmentText = (bestSecretFragment?.text || recommendationSourceText || '').trim();
+    const hasDifferentRecommendedFragment = Boolean(recommendedFragmentText && currentText !== recommendedFragmentText);
+    const activeFragmentLabel = currentText
+        ? (hasDifferentRecommendedFragment ? 'Texte courant' : 'Fragment actif')
+        : (recommendedFragmentText ? 'Fragment detecte' : 'Texte courant');
+    const activeFragmentPreview = currentText || recommendedFragmentText;
+    const recommendedPluginNames = recommendation?.selected_plugins || [];
+    const compactWorkflowLabel = primaryWorkflow
+        ? `${WORKFLOW_TITLES[primaryWorkflow.kind] || primaryWorkflow.kind} ${(primaryWorkflow.confidence * 100).toFixed(0)}%`
+        : (loadingClassification ? 'Analyse du listing...' : 'Workflow non determine');
     const formulaAnswerSearch = workflowResolution?.execution.formula?.answer_search || null;
     const formulaCalculatedCoordinates = workflowResolution?.execution.formula?.calculated_coordinates || null;
     const hiddenExecution = workflowResolution?.execution.hidden_content || null;
@@ -1858,7 +1934,219 @@ export const MetasolverPresetPanel: React.FC<{
                 </div>
             )}
 
-            {(loadingClassification || workflowResolution || classification) && (
+            <div style={{
+                marginTop: '10px',
+                padding: '10px',
+                border: '1px solid var(--theia-panel-border)',
+                borderRadius: '4px',
+                background: 'var(--theia-editor-background)',
+                display: 'grid',
+                gap: '10px'
+            }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center' }}>
+                    <div>
+                        <div style={{ fontSize: '12px', fontWeight: 600 }}>Analyse metasolver</div>
+                        <div style={{ fontSize: '11px', opacity: 0.75, marginTop: '2px' }}>{compactWorkflowLabel}</div>
+                    </div>
+                    <div style={{ fontSize: '11px', opacity: 0.75 }}>
+                        {includedCount}/{eligiblePlugins.length || recommendedPluginNames.length || 0} plugin(s)
+                    </div>
+                </div>
+
+                <div style={{
+                    padding: '8px 10px',
+                    border: '1px solid var(--theia-panel-border)',
+                    borderRadius: '4px',
+                    background: 'var(--theia-input-background)'
+                }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center' }}>
+                        <div style={{ fontSize: '11px', fontWeight: 600 }}>{activeFragmentLabel}</div>
+                        {hasDifferentRecommendedFragment ? (
+                            <button
+                                type='button'
+                                className='theia-button secondary'
+                                onClick={() => applySecretFragment(recommendedFragmentText)}
+                                disabled={disabled}
+                                title='Remplacer le texte courant par le fragment detecte'
+                            >
+                                Utiliser le fragment detecte
+                            </button>
+                        ) : null}
+                    </div>
+                    {activeFragmentPreview ? (
+                        <div style={{
+                            marginTop: '6px',
+                            fontFamily: 'monospace',
+                            fontSize: '12px',
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-word',
+                            maxHeight: '90px',
+                            overflowY: 'auto'
+                        }}>
+                            {activeFragmentPreview}
+                        </div>
+                    ) : (
+                        <div style={{ marginTop: '6px', fontSize: '12px', opacity: 0.7 }}>
+                            Aucun texte selectionne
+                        </div>
+                    )}
+                </div>
+
+                {recommendedPluginNames.length > 0 ? (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
+                        <span style={{ fontSize: '11px', opacity: 0.75 }}>Recommandes</span>
+                        {recommendedPluginNames.slice(0, 8).map(name => (
+                            <span
+                                key={name}
+                                style={{
+                                    fontSize: '11px',
+                                    padding: '2px 7px',
+                                    borderRadius: '999px',
+                                    border: '1px solid var(--theia-panel-border)',
+                                    background: currentSelectedPlugins.has(name)
+                                        ? 'var(--theia-list-activeSelectionBackground)'
+                                        : 'var(--theia-input-background)'
+                                }}
+                            >
+                                {name}
+                            </span>
+                        ))}
+                        {recommendedPluginNames.length > 8 ? (
+                            <span style={{ fontSize: '11px', opacity: 0.7 }}>+{recommendedPluginNames.length - 8}</span>
+                        ) : null}
+                    </div>
+                ) : null}
+
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'end' }}>
+                    <label style={{ display: 'grid', gap: '3px', fontSize: '11px' }}>
+                        Preset
+                        <select
+                            className='theia-select'
+                            value={preset || 'all'}
+                            onChange={event => onSettingChange('preset', event.target.value)}
+                            disabled={disabled}
+                            style={{ minWidth: '180px' }}
+                        >
+                            {presetEntries.map(([value, info]) => (
+                                <option key={value} value={value}>{info.label || value}</option>
+                            ))}
+                        </select>
+                    </label>
+                    <label style={{ display: 'grid', gap: '3px', fontSize: '11px', width: '90px' }}>
+                        Limite
+                        <input
+                            type='number'
+                            min={0}
+                            value={maxPlugins ?? 0}
+                            onChange={event => onSettingChange('max_plugins', Number.parseInt(event.target.value, 10) || 0)}
+                            disabled={disabled}
+                        />
+                    </label>
+                    <label style={{ display: 'flex', gap: '6px', alignItems: 'center', fontSize: '12px', marginBottom: '4px' }}>
+                        <input
+                            type='checkbox'
+                            checked={enableBruteforce}
+                            onChange={event => onSettingChange('enable_bruteforce', event.target.checked)}
+                            disabled={disabled}
+                        />
+                        Bruteforce
+                    </label>
+                    <label style={{ display: 'flex', gap: '6px', alignItems: 'center', fontSize: '12px', marginBottom: '4px' }}>
+                        <input
+                            type='checkbox'
+                            checked={detectCoordinates}
+                            onChange={event => onSettingChange('detect_coordinates', event.target.checked)}
+                            disabled={disabled}
+                        />
+                        Coordonnees
+                    </label>
+                    {detectCoordinates ? (
+                        <label style={{ display: 'flex', gap: '6px', alignItems: 'center', fontSize: '12px', marginBottom: '4px' }}>
+                            <input
+                                type='checkbox'
+                                checked={detectWrittenCoordinates}
+                                onChange={event => onSettingChange('detect_written_coordinates', event.target.checked)}
+                                disabled={disabled}
+                            />
+                            Mots
+                        </label>
+                    ) : null}
+                    {detectCoordinates && detectWrittenCoordinates ? (
+                        <select
+                            className='theia-select'
+                            value={writtenCoordinatesLanguage || 'auto'}
+                            onChange={event => onSettingChange('written_coordinates_language', event.target.value)}
+                            disabled={disabled}
+                            style={{ marginBottom: '1px' }}
+                        >
+                            <option value='auto'>Auto</option>
+                            <option value='fr'>FR</option>
+                            <option value='en'>EN</option>
+                            <option value='fr,en'>FR + EN</option>
+                        </select>
+                    ) : null}
+                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center', fontSize: '12px', marginBottom: '4px' }}>
+                        <span style={{ opacity: 0.75 }}>Detail</span>
+                        {(['minimal', 'normal', 'detailed'] as const).map(level => (
+                            <label key={level} style={{ display: 'flex', gap: '3px', alignItems: 'center', cursor: 'pointer' }}>
+                                <input
+                                    type='radio'
+                                    value={level}
+                                    checked={streamingVerbosity === level}
+                                    onChange={() => onStreamingVerbosityChange(level)}
+                                    disabled={disabled}
+                                />
+                                {level === 'minimal' ? 'Min' : level === 'normal' ? 'Normal' : 'Detaille'}
+                            </label>
+                        ))}
+                    </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <button
+                        type='button'
+                        className='theia-button main'
+                        onClick={() => {
+                            if (hasDifferentRecommendedFragment) {
+                                executeSecretFragment(recommendedFragmentText);
+                            } else {
+                                onExecuteRequest();
+                            }
+                        }}
+                        disabled={disabled || !(activeFragmentPreview || recommendedFragmentText)}
+                        title={hasDifferentRecommendedFragment ? 'Executer le fragment detecte avec la recommandation courante' : 'Executer metasolver'}
+                    >
+                        {hasDifferentRecommendedFragment ? 'Executer le fragment detecte' : 'Executer metasolver'}
+                    </button>
+                    <button
+                        type='button'
+                        className='theia-button secondary'
+                        onClick={() => void applyRecommendation()}
+                        disabled={disabled || !recommendation || loadingRecommendation}
+                    >
+                        {loadingRecommendation ? 'Analyse...' : 'Appliquer la recommandation'}
+                    </button>
+                    {canSendToGeoAppChat ? (
+                        <button
+                            type='button'
+                            className='theia-button secondary'
+                            onClick={sendDiagnosticToGeoAppChat}
+                            disabled={disabled || loadingClassification || loadingRecommendation}
+                        >
+                            Envoyer au chat GeoApp
+                        </button>
+                    ) : null}
+                    <button
+                        type='button'
+                        className='theia-button secondary'
+                        onClick={() => setDiagnosticExpanded(!diagnosticExpanded)}
+                    >
+                        {diagnosticExpanded ? 'Masquer les details' : 'Voir les details'}
+                    </button>
+                </div>
+            </div>
+
+            {diagnosticExpanded && (loadingClassification || workflowResolution || classification) && (
                 <div style={{
                     marginTop: '10px',
                     padding: '10px',
@@ -2489,13 +2777,13 @@ export const MetasolverPresetPanel: React.FC<{
                 </div>
             )}
 
-            {!text.trim() && !workflowResolution && (
+            {diagnosticExpanded && !text.trim() && !workflowResolution && (
                 <div style={{ marginTop: '8px', fontSize: '12px', opacity: 0.7 }}>
                     Renseignez le texte à analyser pour obtenir une sélection dynamique.
                 </div>
             )}
 
-            {recommendation?.signature && (
+            {diagnosticExpanded && recommendation?.signature && (
                 <div style={{
                     marginTop: '10px',
                     padding: '10px',
@@ -2528,6 +2816,7 @@ export const MetasolverPresetPanel: React.FC<{
                 </div>
             )}
 
+            {diagnosticExpanded && (
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px' }}>
                 <button
                     type='button'
@@ -2549,8 +2838,9 @@ export const MetasolverPresetPanel: React.FC<{
                     {includedCount}/{eligiblePlugins.length} plugin(s) sélectionné(s)
                 </div>
             </div>
+            )}
 
-            {recommendation && recommendation.recommendations.length > 0 && (
+            {diagnosticExpanded && recommendation && recommendation.recommendations.length > 0 && (
                 <div style={{ marginTop: '10px' }}>
                     <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '6px' }}>
                         Plugins recommandés
@@ -2598,6 +2888,7 @@ export const MetasolverPresetPanel: React.FC<{
                 </div>
             )}
 
+            {diagnosticExpanded && (
             <div
                 style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', userSelect: 'none', marginTop: '12px' }}
                 onClick={() => setExpanded(!expanded)}
@@ -2609,15 +2900,16 @@ export const MetasolverPresetPanel: React.FC<{
                     {expanded ? '▲ Réduire' : '▼ Détails'}
                 </span>
             </div>
+            )}
 
-            {!expanded && !loadingEligible && eligiblePlugins.length > 0 && (
+            {diagnosticExpanded && !expanded && !loadingEligible && eligiblePlugins.length > 0 && (
                 <div style={{ fontSize: '12px', opacity: 0.7, marginTop: '4px' }}>
                     {Array.from(currentSelectedPlugins).slice(0, 8).join(', ')}
                     {currentSelectedPlugins.size > 8 && ` +${currentSelectedPlugins.size - 8} autres`}
                 </div>
             )}
 
-            {expanded && !loadingEligible && (
+            {diagnosticExpanded && expanded && !loadingEligible && (
                 <div style={{ marginTop: '8px', maxHeight: '320px', overflowY: 'auto' }}>
                     {eligiblePlugins.length === 0 && (
                         <div style={{ fontSize: '13px', opacity: 0.7 }}>Aucun plugin éligible pour ce preset</div>
