@@ -2886,10 +2886,30 @@ def _recommend_metasolver_plugins_response(
     requested_preset: str = '',
     mode: str = 'decode',
     max_plugins: int = 8,
+    extract_fragments: bool = False,
+    max_secret_fragments: int = 5,
 ) -> Dict[str, Any]:
     manager = get_plugin_manager()
     presets = _load_metasolver_presets(manager)
-    signature = _analyze_metasolver_signature(text)
+    candidate_secret_fragments: List[Dict[str, Any]] = []
+    selected_fragment: Optional[Dict[str, Any]] = None
+    analysis_text = text
+    if extract_fragments:
+        candidate_secret_fragments = _extract_secret_fragments(
+            title='',
+            description=text,
+            hint='',
+            waypoint_text='',
+            hidden_comments=[],
+            hidden_texts=[],
+            max_fragments=max_secret_fragments,
+        )
+        selected_fragment = candidate_secret_fragments[0] if candidate_secret_fragments else None
+        selected_text = str((selected_fragment or {}).get('text') or '').strip()
+        if selected_text:
+            analysis_text = selected_text
+
+    signature = _analyze_metasolver_signature(analysis_text)
 
     normalized_mode = mode if mode in {'decode', 'detect'} else 'decode'
     effective_preset = requested_preset or signature.get('suggested_preset') or 'frequent'
@@ -2919,6 +2939,8 @@ def _recommend_metasolver_plugins_response(
         f"Preset effectif: {effective_preset}",
         f"Plugins recommandes: {len(selected_plugins)} / {len(scored)} eligibles",
     ]
+    if selected_fragment:
+        explanation.insert(0, f"Fragment analyse: {str(selected_fragment.get('text') or '')[:80]}")
 
     return {
         'requested_preset': requested_preset or None,
@@ -2928,6 +2950,9 @@ def _recommend_metasolver_plugins_response(
         'mode': normalized_mode,
         'max_plugins': max_plugins,
         'signature': signature,
+        'analysis_text': analysis_text,
+        'candidate_secret_fragments': candidate_secret_fragments,
+        'selected_fragment': selected_fragment,
         'recommendations': recommendations,
         'selected_plugins': selected_plugins,
         'plugin_list': ', '.join(selected_plugins),
@@ -6176,6 +6201,8 @@ def metasolver_recommend_plugins():
     requested_preset = (data.get('preset') or '').strip().lower()
     mode = (data.get('mode') or 'decode').strip().lower()
     max_plugins = _normalize_max_plugins(data.get('max_plugins'), default=8)
+    extract_fragments = bool(data.get('extract_fragments', False))
+    max_secret_fragments = _normalize_max_plugins(data.get('max_secret_fragments'), default=5)
 
     try:
         payload = _recommend_metasolver_plugins_response(
@@ -6183,6 +6210,8 @@ def metasolver_recommend_plugins():
             requested_preset=requested_preset,
             mode=mode,
             max_plugins=max_plugins,
+            extract_fragments=extract_fragments,
+            max_secret_fragments=max_secret_fragments,
         )
         return jsonify(payload), 200
     except Exception as e:

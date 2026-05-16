@@ -292,6 +292,32 @@ class TestMetasolverRecommendationAPI:
         assert 'alpha_decoder' in data['selected_plugins']
         assert data['recommendations'][0]['name'] == 'alpha_decoder'
 
+    def test_recommend_metasolver_plugins_extracts_code_fragment_only(self, client, app, caesar_plugin):
+        response = client.post(
+            '/api/plugins/metasolver/recommend',
+            data=json.dumps({
+                'text': (
+                    "This isn't exactly basic...the coordinates can be found in the\n"
+                    "information below.\n"
+                    "78325257423248544650495032\n"
+                    "87324950494232535646545150\n\n"
+                    "Happy hunting ...."
+                ),
+                'preset': 'all',
+                'max_plugins': 5,
+                'extract_fragments': True
+            }),
+            content_type='application/json'
+        )
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+
+        assert data['selected_fragment']['source'] == 'description'
+        assert data['analysis_text'] == '78325257423248544650495032 87324950494232535646545150'
+        assert data['signature']['dominant_input_kind'] == 'digits'
+        assert 'candidate_secret_fragments' in data
+
     def test_recommend_metasolver_plugins_for_t9(self, client, app, caesar_plugin):
         response = client.post(
             '/api/plugins/metasolver/recommend',

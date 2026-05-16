@@ -1769,13 +1769,17 @@ const PluginExecutorComponent: React.FC<{
             {/* Zone de texte - Toujours affichée si plugin chargé */}
             {state.pluginDetails && (
                 <div className='plugin-form'>
-                    <h4>📝 Texte à traiter</h4>
+                    <h4>{state.selectedPlugin === 'metasolver' ? '📝 Texte à décoder' : '📝 Texte à traiter'}</h4>
                     <div className='form-field'>
                         <label>
-                            {state.formInputs.mode === 'encode' ? 'Texte à encoder' : 
-                             context.gcCode ? 'Description / Énigme' : 'Texte à décoder'}
+                            {state.selectedPlugin === 'metasolver'
+                                ? 'Texte à décoder'
+                                : state.formInputs.mode === 'encode' ? 'Texte à encoder' :
+                                    context.gcCode ? 'Description / Énigme' : 'Texte à décoder'}
                             <span style={{ fontSize: '12px', opacity: 0.7, marginLeft: '8px' }}>
-                                (Modifiez le texte avant d'exécuter le plugin)
+                                {state.selectedPlugin === 'metasolver'
+                                    ? '(Collez un code, ou un texte contenant un code à extraire)'
+                                    : "(Modifiez le texte avant d'exécuter le plugin)"}
                             </span>
                         </label>
                         <textarea
@@ -1784,7 +1788,9 @@ const PluginExecutorComponent: React.FC<{
                             rows={8}
                             placeholder={state.formInputs.mode === 'encode' ? 
                                 'Entrez le texte à encoder...' : 
-                                'Collez ici le texte à analyser...'}
+                                state.selectedPlugin === 'metasolver'
+                                    ? 'Collez ici le code à décoder...'
+                                    : 'Collez ici le texte à analyser...'}
                             disabled={state.isExecuting}
                             style={{ width: '100%', fontFamily: 'monospace', fontSize: '13px' }}
                         />

@@ -816,7 +816,6 @@ export const MetasolverPresetPanel: React.FC<{
     const [loadingRecommendation, setLoadingRecommendation] = React.useState(false);
     const [runningWorkflowStepId, setRunningWorkflowStepId] = React.useState<string | null>(null);
     const [error, setError] = React.useState<string | null>(null);
-    const [pendingAutoExecutionText, setPendingAutoExecutionText] = React.useState<string | null>(null);
     const [workflowEntries, setWorkflowEntries] = React.useState<MetasolverWorkflowLogEntry[]>([]);
     const [archivedResumeState, setArchivedResumeState] = React.useState<ArchivedMetasolverResumeState | null>(null);
     const [expanded, setExpanded] = React.useState(false);
@@ -922,7 +921,6 @@ export const MetasolverPresetPanel: React.FC<{
         setWorkflowEntries(workflowLog);
         setError(null);
         setExpanded(true);
-        setPendingAutoExecutionText(null);
         skipNextWorkflowRefreshRef.current = true;
         skipNextRecommendationRefreshRef.current = true;
 
@@ -1065,7 +1063,6 @@ export const MetasolverPresetPanel: React.FC<{
             return;
         }
         lastTextValueRef.current = text || '';
-        setPendingAutoExecutionText(null);
         setWorkflowResolution(null);
         setClassification(null);
         setRecommendation(null);
@@ -1167,128 +1164,39 @@ export const MetasolverPresetPanel: React.FC<{
         );
     }, [recommendation, recommendationSourceText, appendWorkflowEntry]);
 
-    React.useEffect(() => {
-        if (!pendingAutoExecutionText) {
-            return;
-        }
-
-        const currentText = (text || '').trim();
-        if (currentText !== pendingAutoExecutionText) {
-            return;
-        }
-        if (loadingClassification || loadingRecommendation || disabled) {
-            return;
-        }
-        if (!recommendation) {
-            return;
-        }
-        if (recommendationSourceText !== pendingAutoExecutionText) {
-            return;
-        }
-
-        const expectedPluginList = (recommendation.plugin_list || '').trim();
-        const currentPluginList = (pluginList || '').trim();
-        if (currentPluginList !== expectedPluginList) {
-            return;
-        }
-
-        appendWorkflowEntry(
-            'execute',
-            'Execution automatique du metasolver',
-            `Texte: ${pendingAutoExecutionText.slice(0, 60)}`
-        );
-        setPendingAutoExecutionText(null);
-        onExecuteRequest();
-    }, [
-        pendingAutoExecutionText,
-        text,
-        recommendation,
-        recommendationSourceText,
-        pluginList,
-        loadingClassification,
-        loadingRecommendation,
-        disabled,
-        appendWorkflowEntry,
-        onExecuteRequest,
-    ]);
-
     const runAssistedAnalysis = React.useCallback(async () => {
         if (disabled || loadingClassification || loadingRecommendation) {
             return;
         }
 
         const trimmedText = (text || '').trim();
-        const geocacheId = typeof geocacheContext?.geocacheId === 'number' ? geocacheContext.geocacheId : undefined;
-        const hasDirectInput = Boolean(trimmedText || geocacheContext?.hint || geocacheContext?.name);
-
-        if (!geocacheId && !hasDirectInput) {
+        if (!trimmedText) {
             setWorkflowResolution(null);
             setClassification(null);
             setRecommendation(null);
             setRecommendationSourceText('');
-            appendWorkflowEntry('classify', 'Analyse ignoree', 'Aucun texte ou contexte de geocache');
+            appendWorkflowEntry('recommend', 'Analyse ignoree', 'Aucun texte a decoder');
             return;
         }
 
-        setLoadingClassification(true);
-        setLoadingRecommendation(false);
+        setWorkflowResolution(null);
+        setClassification(null);
+        setLoadingClassification(false);
+        setLoadingRecommendation(true);
         setError(null);
         try {
-            const workflowData = await pluginsService.resolveWorkflow({
-                geocache_id: geocacheId,
-                title: geocacheContext?.name || undefined,
-                description: trimmedText || geocacheContext?.description || undefined,
-                hint: geocacheContext?.hint || undefined,
-                waypoints: geocacheContext?.waypoints,
-                checkers: geocacheContext?.checkers,
-                images: geocacheContext?.images,
-                max_secret_fragments: 5,
-                metasolver_preset: preset,
-                metasolver_mode: 'decode',
-                max_plugins: maxPlugins,
-            });
-
-            setWorkflowResolution(workflowData);
-            setClassification(workflowData.classification || null);
-
-            const secretExecution = workflowData.execution.secret_code;
-            const hiddenExecution = workflowData.execution.hidden_content;
-            const imageExecution = workflowData.execution.image_puzzle;
-            const workflowRecommendation = secretExecution?.recommendation
-                || hiddenExecution?.recommendation
-                || imageExecution?.recommendation
-                || null;
-            const workflowSourceText = (
-                secretExecution?.selected_fragment?.text
-                || hiddenExecution?.selected_fragment?.text
-                || imageExecution?.selected_fragment?.text
-                || imageExecution?.items?.[0]?.text
-                || trimmedText
-            ).trim();
-
-            if (workflowRecommendation && workflowSourceText) {
-                setRecommendation(workflowRecommendation);
-                setRecommendationSourceText(workflowSourceText);
-                return;
-            }
-
-            if (!workflowSourceText) {
-                setRecommendation(null);
-                setRecommendationSourceText('');
-                return;
-            }
-
-            setLoadingRecommendation(true);
             const recommendationData = await pluginsService.recommendMetasolverPlugins({
-                text: workflowSourceText,
+                text: trimmedText,
                 preset,
                 mode: 'decode',
-                max_plugins: maxPlugins
+                max_plugins: maxPlugins,
+                extract_fragments: true,
+                max_secret_fragments: 5
             });
             setRecommendation(recommendationData);
-            setRecommendationSourceText(workflowSourceText);
+            setRecommendationSourceText((recommendationData.analysis_text || recommendationData.selected_fragment?.text || trimmedText).trim());
         } catch (err: any) {
-            setError(err?.message || 'Erreur de recherche assistee');
+            setError(err?.message || 'Erreur de recommandation metasolver');
             setWorkflowResolution(null);
             setClassification(null);
             setRecommendation(null);
@@ -1300,7 +1208,6 @@ export const MetasolverPresetPanel: React.FC<{
     }, [
         appendWorkflowEntry,
         disabled,
-        geocacheContext,
         loadingClassification,
         loadingRecommendation,
         maxPlugins,
@@ -1345,25 +1252,46 @@ export const MetasolverPresetPanel: React.FC<{
     }, [eligiblePlugins, onPluginListChange, appendWorkflowEntry]);
 
     const handleTogglePlugin = React.useCallback((pluginName: string, checked: boolean) => {
-        setManualSelectedPlugins(prev => {
-            const next = new Set(prev.size > 0 ? prev : Array.from(currentSelectedPlugins));
-            if (checked) {
-                next.add(pluginName);
-            } else {
-                next.delete(pluginName);
-            }
+        const next = new Set(manualSelectedPlugins.size > 0 ? Array.from(manualSelectedPlugins) : Array.from(currentSelectedPlugins));
+        if (checked) {
+            next.add(pluginName);
+        } else {
+            next.delete(pluginName);
+        }
 
-            if (next.size === 0) {
-                setSelectionMode('preset');
-                onPluginListChange('');
-                return new Set(eligiblePlugins.map(plugin => plugin.name));
-            }
+        if (next.size === 0) {
+            setSelectionMode('preset');
+            setManualSelectedPlugins(new Set(eligiblePlugins.map(plugin => plugin.name)));
+            onPluginListChange('');
+            return;
+        }
 
-            setSelectionMode('manual');
-            onPluginListChange(Array.from(next).join(', '));
-            return next;
-        });
-    }, [currentSelectedPlugins, eligiblePlugins, onPluginListChange]);
+        setSelectionMode('manual');
+        setManualSelectedPlugins(next);
+        onPluginListChange(Array.from(next).join(', '));
+        appendWorkflowEntry('recommend', 'Selection personnalisee', Array.from(next).slice(0, 6).join(', '));
+    }, [appendWorkflowEntry, currentSelectedPlugins, eligiblePlugins, manualSelectedPlugins, onPluginListChange]);
+
+    const selectionSelectValue = selectionMode === 'recommended' && recommendation
+        ? '__recommended__'
+        : selectionMode === 'manual'
+            ? '__manual__'
+            : (preset || 'all');
+
+    const handleSelectionChange = React.useCallback((value: string) => {
+        if (value === '__recommended__') {
+            applyRecommendation();
+            return;
+        }
+        if (value === '__manual__') {
+            return;
+        }
+        onSettingChange('preset', value);
+        setSelectionMode('preset');
+        setManualSelectedPlugins(new Set(eligiblePlugins.map(plugin => plugin.name)));
+        onPluginListChange('');
+        appendWorkflowEntry('recommend', `Preset selectionne: ${value}`);
+    }, [appendWorkflowEntry, applyRecommendation, eligiblePlugins, onPluginListChange, onSettingChange]);
 
     const includedCount = currentSelectedPlugins.size;
     const signatureBadges = recommendation?.signature ? buildSignatureBadges(recommendation.signature) : [];
@@ -1387,18 +1315,13 @@ export const MetasolverPresetPanel: React.FC<{
     }, [availablePresets]);
     const primaryWorkflow = workflowResolution?.workflow || null;
     const hasSecretCodeLabel = primaryWorkflow?.kind === 'secret_code' || Boolean(classification?.labels.some(label => label.name === 'secret_code'));
-    const bestSecretFragment = workflowResolution?.execution.secret_code?.selected_fragment || classification?.candidate_secret_fragments?.[0] || null;
+    const codeFragments = recommendation?.candidate_secret_fragments || classification?.candidate_secret_fragments || [];
+    const bestSecretFragment = recommendation?.selected_fragment || workflowResolution?.execution.secret_code?.selected_fragment || codeFragments[0] || null;
     const currentText = (text || '').trim();
-    const recommendedFragmentText = (bestSecretFragment?.text || recommendationSourceText || '').trim();
-    const hasDifferentRecommendedFragment = Boolean(recommendedFragmentText && currentText !== recommendedFragmentText);
-    const activeFragmentLabel = currentText
-        ? (hasDifferentRecommendedFragment ? 'Texte courant' : 'Fragment actif')
-        : (recommendedFragmentText ? 'Fragment detecte' : 'Texte courant');
-    const activeFragmentPreview = currentText || recommendedFragmentText;
     const recommendedPluginNames = recommendation?.selected_plugins || [];
     const compactWorkflowLabel = primaryWorkflow
         ? `${WORKFLOW_TITLES[primaryWorkflow.kind] || primaryWorkflow.kind} ${(primaryWorkflow.confidence * 100).toFixed(0)}%`
-        : (loadingClassification ? 'Analyse du listing...' : 'Workflow non determine');
+        : (loadingRecommendation ? 'Analyse du code...' : 'Analyse non lancee');
     const formulaAnswerSearch = workflowResolution?.execution.formula?.answer_search || null;
     const formulaCalculatedCoordinates = workflowResolution?.execution.formula?.calculated_coordinates || null;
     const hiddenExecution = workflowResolution?.execution.hidden_content || null;
@@ -1436,7 +1359,6 @@ export const MetasolverPresetPanel: React.FC<{
     const canSendToGeoAppChat = Boolean((text || '').trim() || workflowResolution || classification || recommendation);
 
     const applySecretFragment = React.useCallback((fragmentText: string) => {
-        setPendingAutoExecutionText(null);
         lastTextValueRef.current = fragmentText;
         onTextChange(fragmentText);
         onPluginListChange('');
@@ -1444,27 +1366,6 @@ export const MetasolverPresetPanel: React.FC<{
         setManualSelectedPlugins(new Set());
         appendWorkflowEntry('secret', 'Fragment selectionne manuellement', fragmentText.slice(0, 60));
     }, [onTextChange, onPluginListChange, appendWorkflowEntry]);
-
-    const executeSecretFragment = React.useCallback((fragmentText: string) => {
-        const normalizedText = fragmentText.trim();
-        if (!normalizedText) {
-            return;
-        }
-        setPendingAutoExecutionText(normalizedText);
-        lastTextValueRef.current = normalizedText;
-        onTextChange(normalizedText);
-        onPluginListChange('');
-        setSelectionMode('recommended');
-        setManualSelectedPlugins(new Set());
-        appendWorkflowEntry('secret', 'Preparation de l execution automatique', normalizedText.slice(0, 60));
-    }, [onTextChange, onPluginListChange, appendWorkflowEntry]);
-
-    const executeBestSecretFragment = React.useCallback(() => {
-        if (!bestSecretFragment) {
-            return;
-        }
-        executeSecretFragment(bestSecretFragment.text);
-    }, [bestSecretFragment, executeSecretFragment]);
 
     const openFormulaSolver = React.useCallback(async () => {
         if (!formulaGeocacheId) {
@@ -1801,10 +1702,10 @@ export const MetasolverPresetPanel: React.FC<{
         if (plannedStepIds.has('execute-metasolver') && bestSecretFragment) {
             addAction(
                 'execute-best-fragment',
-                'Executer le meilleur fragment',
-                () => executeBestSecretFragment(),
+                'Utiliser le meilleur fragment',
+                () => applySecretFragment(bestSecretFragment.text),
                 disabled,
-                'Utiliser le meilleur fragment puis executer metasolver'
+                'Remplacer le texte courant par le meilleur fragment detecte'
             );
         }
         if (plannedStepIds.has('inspect-hidden-html')) {
@@ -1902,7 +1803,6 @@ export const MetasolverPresetPanel: React.FC<{
         runningWorkflowStepId,
         applySecretFragment,
         applyRecommendation,
-        executeBestSecretFragment,
         openFormulaSolver,
         runWorkflowStep,
         sendDiagnosticToGeoAppChat,
@@ -1959,45 +1859,6 @@ export const MetasolverPresetPanel: React.FC<{
                     </div>
                 </div>
 
-                <div style={{
-                    padding: '8px 10px',
-                    border: '1px solid var(--theia-panel-border)',
-                    borderRadius: '4px',
-                    background: 'var(--theia-input-background)'
-                }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center' }}>
-                        <div style={{ fontSize: '11px', fontWeight: 600 }}>{activeFragmentLabel}</div>
-                        {hasDifferentRecommendedFragment ? (
-                            <button
-                                type='button'
-                                className='theia-button secondary'
-                                onClick={() => applySecretFragment(recommendedFragmentText)}
-                                disabled={disabled}
-                                title='Remplacer le texte courant par le fragment detecte'
-                            >
-                                Utiliser le fragment detecte
-                            </button>
-                        ) : null}
-                    </div>
-                    {activeFragmentPreview ? (
-                        <div style={{
-                            marginTop: '6px',
-                            fontFamily: 'monospace',
-                            fontSize: '12px',
-                            whiteSpace: 'pre-wrap',
-                            wordBreak: 'break-word',
-                            maxHeight: '90px',
-                            overflowY: 'auto'
-                        }}>
-                            {activeFragmentPreview}
-                        </div>
-                    ) : (
-                        <div style={{ marginTop: '6px', fontSize: '12px', opacity: 0.7 }}>
-                            Aucun texte selectionne
-                        </div>
-                    )}
-                </div>
-
                 {recommendedPluginNames.length > 0 ? (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
                         <span style={{ fontSize: '11px', opacity: 0.75 }}>Recommandes</span>
@@ -2025,14 +1886,20 @@ export const MetasolverPresetPanel: React.FC<{
 
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'end' }}>
                     <label style={{ display: 'grid', gap: '3px', fontSize: '11px' }}>
-                        Preset
+                        Selection
                         <select
                             className='theia-select'
-                            value={preset || 'all'}
-                            onChange={event => onSettingChange('preset', event.target.value)}
+                            value={selectionSelectValue}
+                            onChange={event => handleSelectionChange(event.target.value)}
                             disabled={disabled}
                             style={{ minWidth: '180px' }}
                         >
+                            {recommendation ? (
+                                <option value='__recommended__'>Recommandation</option>
+                            ) : null}
+                            {selectionMode === 'manual' ? (
+                                <option value='__manual__'>Selection personnalisee</option>
+                            ) : null}
                             {presetEntries.map(([value, info]) => (
                                 <option key={value} value={value}>{info.label || value}</option>
                             ))}
@@ -2120,26 +1987,20 @@ export const MetasolverPresetPanel: React.FC<{
                     </button>
                     <button
                         type='button'
-                        className='theia-button main'
-                        onClick={() => {
-                            if (hasDifferentRecommendedFragment) {
-                                executeSecretFragment(recommendedFragmentText);
-                            } else {
-                                onExecuteRequest();
-                            }
-                        }}
-                        disabled={disabled || !(activeFragmentPreview || recommendedFragmentText)}
-                        title={hasDifferentRecommendedFragment ? 'Executer le fragment detecte avec la recommandation courante' : 'Executer metasolver'}
-                    >
-                        {hasDifferentRecommendedFragment ? 'Executer le fragment detecte' : 'Executer metasolver'}
-                    </button>
-                    <button
-                        type='button'
                         className='theia-button secondary'
                         onClick={() => void applyRecommendation()}
                         disabled={disabled || !recommendation || loadingRecommendation}
                     >
                         {loadingRecommendation ? 'Analyse...' : 'Appliquer la recommandation'}
+                    </button>
+                    <button
+                        type='button'
+                        className='theia-button main'
+                        onClick={onExecuteRequest}
+                        disabled={disabled || !currentText}
+                        title='Executer les plugins selectionnes sur le texte courant'
+                    >
+                        Executer les plugins
                     </button>
                     {canSendToGeoAppChat ? (
                         <button
@@ -2160,6 +2021,86 @@ export const MetasolverPresetPanel: React.FC<{
                     </button>
                 </div>
             </div>
+
+            {diagnosticExpanded && codeFragments.length > 0 && (
+                <div style={{
+                    marginTop: '10px',
+                    padding: '10px',
+                    border: '1px solid var(--theia-panel-border)',
+                    borderRadius: '4px',
+                    background: 'var(--theia-editor-background)'
+                }}>
+                    <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px' }}>
+                        Fragments de code probables
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {codeFragments.slice(0, 3).map(fragment => {
+                            const fragmentBadges = buildSignatureBadges(fragment.signature).slice(0, 4);
+                            const isCurrentText = (text || '').trim() === fragment.text.trim();
+                            return (
+                                <div
+                                    key={`${fragment.source}-${fragment.text}`}
+                                    style={{
+                                        padding: '8px 10px',
+                                        border: '1px solid var(--theia-panel-border)',
+                                        borderRadius: '4px',
+                                        background: isCurrentText
+                                            ? 'var(--theia-list-activeSelectionBackground)'
+                                            : 'var(--theia-input-background)'
+                                    }}
+                                >
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center' }}>
+                                        <div style={{ fontSize: '11px', opacity: 0.7 }}>
+                                            {fragment.source} - conf {(fragment.confidence * 100).toFixed(0)}%
+                                        </div>
+                                        <button
+                                            type='button'
+                                            className='theia-button secondary'
+                                            onClick={() => applySecretFragment(fragment.text)}
+                                            disabled={disabled}
+                                        >
+                                            {isCurrentText ? 'Fragment actif' : 'Utiliser ce fragment'}
+                                        </button>
+                                    </div>
+                                    <div style={{
+                                        marginTop: '6px',
+                                        fontFamily: 'monospace',
+                                        fontSize: '12px',
+                                        overflowX: 'auto',
+                                        whiteSpace: 'pre-wrap',
+                                        wordBreak: 'break-word'
+                                    }}>
+                                        {fragment.text}
+                                    </div>
+                                    {fragmentBadges.length > 0 ? (
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px' }}>
+                                            {fragmentBadges.map(badge => (
+                                                <span
+                                                    key={`${fragment.text}-${badge}`}
+                                                    style={{
+                                                        fontSize: '10px',
+                                                        padding: '1px 6px',
+                                                        borderRadius: '999px',
+                                                        background: 'var(--theia-editor-background)',
+                                                        border: '1px solid var(--theia-panel-border)'
+                                                    }}
+                                                >
+                                                    {badge}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    ) : null}
+                                    {fragment.evidence.length > 0 ? (
+                                        <div style={{ marginTop: '6px', fontSize: '11px', opacity: 0.75 }}>
+                                            {fragment.evidence.slice(0, 2).join(' - ')}
+                                        </div>
+                                    ) : null}
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
 
             {diagnosticExpanded && (loadingClassification || workflowResolution || classification) && (
                 <div style={{
@@ -2663,7 +2604,7 @@ export const MetasolverPresetPanel: React.FC<{
                         </div>
                     ) : null}
 
-                    {classification?.candidate_secret_fragments?.length ? (
+                    {codeFragments.length ? (
                         <div style={{ marginTop: '10px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'center', marginBottom: '6px' }}>
                                 <div style={{ fontSize: '12px', fontWeight: 600 }}>
@@ -2671,7 +2612,7 @@ export const MetasolverPresetPanel: React.FC<{
                                 </div>
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                {classification.candidate_secret_fragments.slice(0, 3).map(fragment => {
+                                {codeFragments.slice(0, 3).map(fragment => {
                                     const fragmentBadges = buildSignatureBadges(fragment.signature).slice(0, 4);
                                     const isCurrentText = (text || '').trim() === fragment.text.trim();
                                     return (
@@ -2739,9 +2680,9 @@ export const MetasolverPresetPanel: React.FC<{
                                 })}
                             </div>
                         </div>
-                    ) : classification && hasSecretCodeLabel ? (
+                    ) : (classification && hasSecretCodeLabel) || recommendation ? (
                         <div style={{ marginTop: '8px', fontSize: '11px', opacity: 0.8 }}>
-                            La classification detecte un code secret, mais aucun fragment compact n&apos;a ete extrait automatiquement.
+                            Aucun fragment compact n&apos;a ete extrait automatiquement.
                         </div>
                     ) : null}
 

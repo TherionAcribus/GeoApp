@@ -225,6 +225,8 @@ export interface MetasolverRecommendationRequest {
     preset?: string;
     mode?: 'decode' | 'detect';
     max_plugins?: number;
+    extract_fragments?: boolean;
+    max_secret_fragments?: number;
 }
 
 export interface MetasolverRecommendationResponse {
@@ -235,6 +237,9 @@ export interface MetasolverRecommendationResponse {
     mode: string;
     max_plugins: number;
     signature: MetasolverSignature;
+    analysis_text?: string;
+    candidate_secret_fragments?: ListingSecretFragment[];
+    selected_fragment?: ListingSecretFragment | null;
     recommendations: MetasolverRecommendation[];
     selected_plugins: string[];
     plugin_list: string;
