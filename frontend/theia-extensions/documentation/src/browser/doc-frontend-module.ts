@@ -13,6 +13,8 @@ import { DocContentService } from './doc-content-service';
 import { DocSearchService } from './doc-search-service';
 import { DocContribution } from './doc-contribution';
 import { GeoAppDocAgent, GeoAppDocAgentContribution } from './doc-agent';
+import { DocActionToolsManager } from './doc-action-tools';
+import { DocActionContextService } from './doc-action-context-service';
 import { ChatAgent } from '@theia/ai-chat/lib/common/chat-agents';
 
 export default new ContainerModule(bind => {
@@ -20,6 +22,10 @@ export default new ContainerModule(bind => {
 
     bind(DocContentService).toSelf().inSingletonScope();
     bind(DocSearchService).toSelf().inSingletonScope();
+
+    bind(DocActionContextService).toSelf().inSingletonScope();
+    bind(DocActionToolsManager).toSelf().inSingletonScope();
+    bind(FrontendApplicationContribution).toService(DocActionToolsManager);
 
     bind(DocWidget).toSelf().inSingletonScope();
     bind(WidgetFactory).toDynamicValue(ctx => ({
