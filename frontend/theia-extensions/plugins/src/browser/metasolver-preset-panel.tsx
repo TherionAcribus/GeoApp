@@ -829,6 +829,7 @@ export const MetasolverPresetPanel: React.FC<{
     const lastWorkflowLogKeyRef = React.useRef<string>('');
     const lastRecommendationLogKeyRef = React.useRef<string>('');
     const autoRestoredArchiveGcCodeRef = React.useRef<string>('');
+    const lastTextValueRef = React.useRef<string>(text || '');
     const skipNextWorkflowRefreshRef = React.useRef(false);
     const skipNextRecommendationRefreshRef = React.useRef(false);
     const geoAppWorkflowKind = React.useMemo(() => {
@@ -1060,87 +1061,33 @@ export const MetasolverPresetPanel: React.FC<{
     }, [preset, pluginsService]);
 
     React.useEffect(() => {
-        let cancelled = false;
+        if (lastTextValueRef.current === (text || '')) {
+            return;
+        }
+        lastTextValueRef.current = text || '';
+        setPendingAutoExecutionText(null);
+        setWorkflowResolution(null);
+        setClassification(null);
+        setRecommendation(null);
+        setRecommendationSourceText('');
+        setWorkflowEntries([]);
+        lastWorkflowLogKeyRef.current = '';
+        lastRecommendationLogKeyRef.current = '';
+    }, [text]);
 
-        const timeoutId = window.setTimeout(() => {
-            const fetchWorkflowResolution = async () => {
-                if (skipNextWorkflowRefreshRef.current) {
-                    skipNextWorkflowRefreshRef.current = false;
-                    setLoadingClassification(false);
-                    return;
-                }
-
-                const trimmedText = (text || '').trim();
-                const geocacheId = typeof geocacheContext?.geocacheId === 'number' ? geocacheContext.geocacheId : undefined;
-                const hasDirectInput = Boolean(trimmedText || geocacheContext?.hint || geocacheContext?.name);
-
-                if (!geocacheId && !hasDirectInput) {
-                    setWorkflowResolution(null);
-                    setClassification(null);
-                    setLoadingClassification(false);
-                    return;
-                }
-
-                setLoadingClassification(true);
-                setError(null);
-                try {
-                    const data = await pluginsService.resolveWorkflow({
-                        geocache_id: geocacheId,
-                        title: geocacheContext?.name || undefined,
-                        description: trimmedText || geocacheContext?.description || undefined,
-                        hint: geocacheContext?.hint || undefined,
-                        waypoints: geocacheContext?.waypoints,
-                        checkers: geocacheContext?.checkers,
-                        images: geocacheContext?.images,
-                        max_secret_fragments: 5,
-                        metasolver_preset: preset,
-                        metasolver_mode: 'decode',
-                        max_plugins: maxPlugins,
-                    });
-                    if (!cancelled) {
-                        setWorkflowResolution(data);
-                        setClassification(data.classification || null);
-                    }
-                } catch (err: any) {
-                    if (!cancelled) {
-                        setError(err?.message || 'Erreur de resolution du workflow');
-                        setWorkflowResolution(null);
-                        setClassification(null);
-                    }
-                } finally {
-                    if (!cancelled) {
-                        setLoadingClassification(false);
-                    }
-                }
-            };
-
-            void fetchWorkflowResolution();
-        }, 300);
-
-        return () => {
-            cancelled = true;
-            window.clearTimeout(timeoutId);
-        };
+    React.useEffect(() => {
+        skipNextWorkflowRefreshRef.current = false;
+        setLoadingClassification(false);
+        return undefined;
     }, [text, geocacheContext, maxPlugins, pluginsService, preset]);
 
     React.useEffect(() => {
-        let cancelled = false;
         if (skipNextRecommendationRefreshRef.current) {
             skipNextRecommendationRefreshRef.current = false;
             return undefined;
         }
 
         const trimmedText = (text || '').trim();
-        const orchestratorFragmentText = (workflowResolution?.execution.secret_code?.selected_fragment?.text || '').trim();
-        const orchestratorRecommendation = workflowResolution?.execution.secret_code?.recommendation || null;
-
-        if (!trimmedText && orchestratorRecommendation && orchestratorFragmentText) {
-            setRecommendation(orchestratorRecommendation);
-            setRecommendationSourceText(orchestratorFragmentText);
-            setLoadingRecommendation(false);
-            return undefined;
-        }
-
         if (!trimmedText) {
             setRecommendation(null);
             setRecommendationSourceText('');
@@ -1148,48 +1095,7 @@ export const MetasolverPresetPanel: React.FC<{
             return undefined;
         }
 
-        if (orchestratorRecommendation && orchestratorFragmentText === trimmedText) {
-            setRecommendation(orchestratorRecommendation);
-            setRecommendationSourceText(trimmedText);
-            setLoadingRecommendation(false);
-            return undefined;
-        }
-
-        const timeoutId = window.setTimeout(() => {
-            const fetchRecommendation = async () => {
-                setLoadingRecommendation(true);
-                setError(null);
-                try {
-                    const data = await pluginsService.recommendMetasolverPlugins({
-                        text: trimmedText,
-                        preset,
-                        mode: 'decode',
-                        max_plugins: maxPlugins
-                    });
-                    if (!cancelled) {
-                        setRecommendation(data);
-                        setRecommendationSourceText(trimmedText);
-                    }
-                } catch (err: any) {
-                    if (!cancelled) {
-                        setError(err?.message || 'Erreur de recommandation');
-                        setRecommendation(null);
-                        setRecommendationSourceText('');
-                    }
-                } finally {
-                    if (!cancelled) {
-                        setLoadingRecommendation(false);
-                    }
-                }
-            };
-
-            void fetchRecommendation();
-        }, 350);
-
-        return () => {
-            cancelled = true;
-            window.clearTimeout(timeoutId);
-        };
+        return undefined;
     }, [text, preset, maxPlugins, pluginsService, workflowResolution]);
 
     React.useEffect(() => {
@@ -1306,6 +1212,103 @@ export const MetasolverPresetPanel: React.FC<{
         onExecuteRequest,
     ]);
 
+    const runAssistedAnalysis = React.useCallback(async () => {
+        if (disabled || loadingClassification || loadingRecommendation) {
+            return;
+        }
+
+        const trimmedText = (text || '').trim();
+        const geocacheId = typeof geocacheContext?.geocacheId === 'number' ? geocacheContext.geocacheId : undefined;
+        const hasDirectInput = Boolean(trimmedText || geocacheContext?.hint || geocacheContext?.name);
+
+        if (!geocacheId && !hasDirectInput) {
+            setWorkflowResolution(null);
+            setClassification(null);
+            setRecommendation(null);
+            setRecommendationSourceText('');
+            appendWorkflowEntry('classify', 'Analyse ignoree', 'Aucun texte ou contexte de geocache');
+            return;
+        }
+
+        setLoadingClassification(true);
+        setLoadingRecommendation(false);
+        setError(null);
+        try {
+            const workflowData = await pluginsService.resolveWorkflow({
+                geocache_id: geocacheId,
+                title: geocacheContext?.name || undefined,
+                description: trimmedText || geocacheContext?.description || undefined,
+                hint: geocacheContext?.hint || undefined,
+                waypoints: geocacheContext?.waypoints,
+                checkers: geocacheContext?.checkers,
+                images: geocacheContext?.images,
+                max_secret_fragments: 5,
+                metasolver_preset: preset,
+                metasolver_mode: 'decode',
+                max_plugins: maxPlugins,
+            });
+
+            setWorkflowResolution(workflowData);
+            setClassification(workflowData.classification || null);
+
+            const secretExecution = workflowData.execution.secret_code;
+            const hiddenExecution = workflowData.execution.hidden_content;
+            const imageExecution = workflowData.execution.image_puzzle;
+            const workflowRecommendation = secretExecution?.recommendation
+                || hiddenExecution?.recommendation
+                || imageExecution?.recommendation
+                || null;
+            const workflowSourceText = (
+                secretExecution?.selected_fragment?.text
+                || hiddenExecution?.selected_fragment?.text
+                || imageExecution?.selected_fragment?.text
+                || imageExecution?.items?.[0]?.text
+                || trimmedText
+            ).trim();
+
+            if (workflowRecommendation && workflowSourceText) {
+                setRecommendation(workflowRecommendation);
+                setRecommendationSourceText(workflowSourceText);
+                return;
+            }
+
+            if (!workflowSourceText) {
+                setRecommendation(null);
+                setRecommendationSourceText('');
+                return;
+            }
+
+            setLoadingRecommendation(true);
+            const recommendationData = await pluginsService.recommendMetasolverPlugins({
+                text: workflowSourceText,
+                preset,
+                mode: 'decode',
+                max_plugins: maxPlugins
+            });
+            setRecommendation(recommendationData);
+            setRecommendationSourceText(workflowSourceText);
+        } catch (err: any) {
+            setError(err?.message || 'Erreur de recherche assistee');
+            setWorkflowResolution(null);
+            setClassification(null);
+            setRecommendation(null);
+            setRecommendationSourceText('');
+        } finally {
+            setLoadingClassification(false);
+            setLoadingRecommendation(false);
+        }
+    }, [
+        appendWorkflowEntry,
+        disabled,
+        geocacheContext,
+        loadingClassification,
+        loadingRecommendation,
+        maxPlugins,
+        pluginsService,
+        preset,
+        text,
+    ]);
+
     const currentSelectedPlugins = React.useMemo(() => {
         if (selectionMode === 'preset' && !pluginList.trim()) {
             return new Set(eligiblePlugins.map(plugin => plugin.name));
@@ -1325,6 +1328,7 @@ export const MetasolverPresetPanel: React.FC<{
         }
         const names = new Set(recommendation.selected_plugins || []);
         if (recommendationSourceText && (text || '').trim() !== recommendationSourceText) {
+            lastTextValueRef.current = recommendationSourceText;
             onTextChange(recommendationSourceText);
         }
         setSelectionMode('recommended');
@@ -1433,6 +1437,7 @@ export const MetasolverPresetPanel: React.FC<{
 
     const applySecretFragment = React.useCallback((fragmentText: string) => {
         setPendingAutoExecutionText(null);
+        lastTextValueRef.current = fragmentText;
         onTextChange(fragmentText);
         onPluginListChange('');
         setSelectionMode('recommended');
@@ -1446,6 +1451,7 @@ export const MetasolverPresetPanel: React.FC<{
             return;
         }
         setPendingAutoExecutionText(normalizedText);
+        lastTextValueRef.current = normalizedText;
         onTextChange(normalizedText);
         onPluginListChange('');
         setSelectionMode('recommended');
@@ -2103,6 +2109,15 @@ export const MetasolverPresetPanel: React.FC<{
                 </div>
 
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <button
+                        type='button'
+                        className='theia-button secondary'
+                        onClick={() => void runAssistedAnalysis()}
+                        disabled={disabled || loadingClassification || loadingRecommendation}
+                        title='Analyser le texte et calculer une recommandation de plugins'
+                    >
+                        {loadingClassification || loadingRecommendation ? 'Analyse...' : 'Analyser / recommander'}
+                    </button>
                     <button
                         type='button'
                         className='theia-button main'

@@ -376,12 +376,13 @@ export class PluginExecutorWidget extends ReactWidget implements StatefulWidget 
      */
     public initializeGeocacheMode(context: GeocacheContext, pluginName?: string, autoExecute?: boolean): void {
         this.lastAccessTimestamp = Date.now();
+        const shouldAutoExecute = autoExecute === true && pluginName !== 'metasolver';
         this.config = {
             mode: 'geocache',
             geocacheContext: context,
             pluginName,
             allowPluginChaining: true,  // Permet d'enchaîner les plugins
-            autoExecute: autoExecute === true
+            autoExecute: shouldAutoExecute
         };
         this.title.label = `Analyse: ${context.gcCode}`;
         this.title.iconClass = 'fa fa-search';
@@ -552,7 +553,14 @@ const PluginExecutorComponent: React.FC<{
 
     // Exécuter automatiquement si configuré
     React.useEffect(() => {
-        if (config.autoExecute && state.pluginDetails && state.selectedPlugin && !state.isExecuting && !state.result) {
+        if (
+            config.autoExecute
+            && state.pluginDetails
+            && state.selectedPlugin
+            && state.selectedPlugin !== 'metasolver'
+            && !state.isExecuting
+            && !state.result
+        ) {
             console.log('[Plugin Executor] Exécution automatique déclenchée');
             // Petit délai pour laisser le rendu se faire
             setTimeout(() => {

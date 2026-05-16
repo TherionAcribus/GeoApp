@@ -573,7 +573,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             return;
         }
 
-        void this.pluginExecutorContribution.openWithContext(context, 'metasolver', true);
+        void this.pluginExecutorContribution.openWithContext(context, 'metasolver', false);
     };
 
     private buildPluginExecutorContext(): GeocacheContext | undefined {
