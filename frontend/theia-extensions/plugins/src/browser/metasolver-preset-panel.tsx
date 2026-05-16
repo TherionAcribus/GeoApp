@@ -770,7 +770,6 @@ export const MetasolverPresetPanel: React.FC<{
     detectCoordinates: boolean;
     detectWrittenCoordinates: boolean;
     writtenCoordinatesLanguage: string;
-    enableBruteforce: boolean;
     streamingVerbosity: 'minimal' | 'normal' | 'detailed';
     geocacheContext?: GeocacheContext;
     pluginsService: PluginsService;
@@ -791,7 +790,6 @@ export const MetasolverPresetPanel: React.FC<{
     detectCoordinates,
     detectWrittenCoordinates,
     writtenCoordinatesLanguage,
-    enableBruteforce,
     streamingVerbosity,
     geocacheContext,
     pluginsService,
@@ -1770,25 +1768,6 @@ export const MetasolverPresetPanel: React.FC<{
                 'Basculer vers le workflow Formula Solver pour cette geocache'
             );
         }
-        if (plannedStepIds.has('inspect-hidden-html') || plannedStepIds.has('inspect-images') || plannedStepIds.has('validate-with-checker')) {
-            addAction(
-                'send-chat-contextual',
-                'Envoyer au chat GeoApp',
-                () => sendDiagnosticToGeoAppChat(),
-                disabled || loadingClassification || loadingRecommendation || !canSendToGeoAppChat,
-                'Ouvrir ou reutiliser un chat GeoApp avec le diagnostic courant'
-            );
-        }
-        if (actions.length === 0 && canSendToGeoAppChat) {
-            addAction(
-                'send-chat-fallback',
-                'Envoyer au chat GeoApp',
-                () => sendDiagnosticToGeoAppChat(),
-                disabled || loadingClassification || loadingRecommendation || !canSendToGeoAppChat,
-                'Continuer l analyse dans le chat GeoApp'
-            );
-        }
-
         return actions;
     }, [
         workflowResolution?.plan,
@@ -1796,7 +1775,6 @@ export const MetasolverPresetPanel: React.FC<{
         recommendation,
         formulaGeocacheId,
         derivedCheckerCandidate,
-        canSendToGeoAppChat,
         disabled,
         loadingClassification,
         loadingRecommendation,
@@ -1805,7 +1783,6 @@ export const MetasolverPresetPanel: React.FC<{
         applyRecommendation,
         openFormulaSolver,
         runWorkflowStep,
-        sendDiagnosticToGeoAppChat,
     ]);
 
     return (
@@ -1884,15 +1861,22 @@ export const MetasolverPresetPanel: React.FC<{
                     </div>
                 ) : null}
 
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'end' }}>
-                    <label style={{ display: 'grid', gap: '3px', fontSize: '11px' }}>
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'minmax(160px, 190px) 70px minmax(185px, max-content) minmax(210px, max-content) minmax(92px, max-content) minmax(84px, max-content)',
+                    gap: '8px 12px',
+                    alignItems: 'end',
+                    overflowX: 'auto',
+                    paddingBottom: '2px'
+                }}>
+                    <label style={{ display: 'grid', gap: '3px', fontSize: '11px', minWidth: 0 }}>
                         Selection
                         <select
                             className='theia-select'
                             value={selectionSelectValue}
                             onChange={event => handleSelectionChange(event.target.value)}
                             disabled={disabled}
-                            style={{ minWidth: '180px' }}
+                            style={{ width: '100%' }}
                         >
                             {recommendation ? (
                                 <option value='__recommended__'>Recommandation</option>
@@ -1905,74 +1889,93 @@ export const MetasolverPresetPanel: React.FC<{
                             ))}
                         </select>
                     </label>
-                    <label style={{ display: 'grid', gap: '3px', fontSize: '11px', width: '90px' }}>
-                        Limite
+                    <label
+                        style={{ display: 'grid', gap: '3px', fontSize: '11px', minWidth: 0 }}
+                        title='Nombre maximum de plugins a executer. 0 = illimite.'
+                    >
+                        Max plugins
                         <input
                             type='number'
                             min={0}
                             value={maxPlugins ?? 0}
                             onChange={event => onSettingChange('max_plugins', Number.parseInt(event.target.value, 10) || 0)}
                             disabled={disabled}
+                            style={{ width: '100%', boxSizing: 'border-box' }}
                         />
                     </label>
-                    <label style={{ display: 'flex', gap: '6px', alignItems: 'center', fontSize: '12px', marginBottom: '4px' }}>
-                        <input
-                            type='checkbox'
-                            checked={enableBruteforce}
-                            onChange={event => onSettingChange('enable_bruteforce', event.target.checked)}
-                            disabled={disabled}
-                        />
-                        Bruteforce
-                    </label>
-                    <label style={{ display: 'flex', gap: '6px', alignItems: 'center', fontSize: '12px', marginBottom: '4px' }}>
+                    <label
+                        style={{
+                            display: 'flex',
+                            gap: '6px',
+                            alignItems: 'center',
+                            fontSize: '12px',
+                            marginBottom: '4px',
+                            minHeight: '24px',
+                            whiteSpace: 'nowrap',
+                            minWidth: 0
+                        }}
+                        title='Chercher des coordonnees GPS dans les resultats produits par les plugins'
+                    >
                         <input
                             type='checkbox'
                             checked={detectCoordinates}
                             onChange={event => onSettingChange('detect_coordinates', event.target.checked)}
                             disabled={disabled}
                         />
-                        Coordonnees
+                        Detecter coordonnees GPS
                     </label>
                     {detectCoordinates ? (
-                        <label style={{ display: 'flex', gap: '6px', alignItems: 'center', fontSize: '12px', marginBottom: '4px' }}>
+                        <label
+                            style={{
+                                display: 'flex',
+                                gap: '6px',
+                                alignItems: 'center',
+                                fontSize: '12px',
+                                marginBottom: '4px',
+                                minHeight: '24px',
+                                whiteSpace: 'nowrap',
+                                minWidth: 0
+                            }}
+                            title='Inclure la detection de coordonnees ecrites avec des mots'
+                        >
                             <input
                                 type='checkbox'
                                 checked={detectWrittenCoordinates}
                                 onChange={event => onSettingChange('detect_written_coordinates', event.target.checked)}
                                 disabled={disabled}
                             />
-                            Mots
+                            Inclure coordonnees ecrites
                         </label>
                     ) : null}
                     {detectCoordinates && detectWrittenCoordinates ? (
+                        <label style={{ display: 'grid', gap: '3px', fontSize: '11px', minWidth: 0 }}>
+                            Langue mots
+                            <select
+                                className='theia-select'
+                                value={writtenCoordinatesLanguage || 'auto'}
+                                onChange={event => onSettingChange('written_coordinates_language', event.target.value)}
+                                disabled={disabled}
+                            >
+                                <option value='auto'>Auto</option>
+                                <option value='fr'>FR</option>
+                                <option value='en'>EN</option>
+                                <option value='fr,en'>FR + EN</option>
+                            </select>
+                        </label>
+                    ) : null}
+                    <label style={{ display: 'grid', gap: '3px', fontSize: '11px', minWidth: 0 }}>
+                        Detail
                         <select
                             className='theia-select'
-                            value={writtenCoordinatesLanguage || 'auto'}
-                            onChange={event => onSettingChange('written_coordinates_language', event.target.value)}
+                            value={streamingVerbosity}
+                            onChange={event => onStreamingVerbosityChange(event.target.value as 'minimal' | 'normal' | 'detailed')}
                             disabled={disabled}
-                            style={{ marginBottom: '1px' }}
                         >
-                            <option value='auto'>Auto</option>
-                            <option value='fr'>FR</option>
-                            <option value='en'>EN</option>
-                            <option value='fr,en'>FR + EN</option>
+                            <option value='minimal'>Min</option>
+                            <option value='normal'>Normal</option>
+                            <option value='detailed'>Detaille</option>
                         </select>
-                    ) : null}
-                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center', fontSize: '12px', marginBottom: '4px' }}>
-                        <span style={{ opacity: 0.75 }}>Detail</span>
-                        {(['minimal', 'normal', 'detailed'] as const).map(level => (
-                            <label key={level} style={{ display: 'flex', gap: '3px', alignItems: 'center', cursor: 'pointer' }}>
-                                <input
-                                    type='radio'
-                                    value={level}
-                                    checked={streamingVerbosity === level}
-                                    onChange={() => onStreamingVerbosityChange(level)}
-                                    disabled={disabled}
-                                />
-                                {level === 'minimal' ? 'Min' : level === 'normal' ? 'Normal' : 'Detaille'}
-                            </label>
-                        ))}
-                    </div>
+                    </label>
                 </div>
 
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -2002,16 +2005,6 @@ export const MetasolverPresetPanel: React.FC<{
                     >
                         Executer les plugins
                     </button>
-                    {canSendToGeoAppChat ? (
-                        <button
-                            type='button'
-                            className='theia-button secondary'
-                            onClick={sendDiagnosticToGeoAppChat}
-                            disabled={disabled || loadingClassification || loadingRecommendation}
-                        >
-                            Envoyer au chat GeoApp
-                        </button>
-                    ) : null}
                     <button
                         type='button'
                         className='theia-button secondary'

@@ -1831,7 +1831,6 @@ const PluginExecutorComponent: React.FC<{
                     detectCoordinates={state.formInputs.detect_coordinates !== false}
                     detectWrittenCoordinates={state.formInputs.detect_written_coordinates === true}
                     writtenCoordinatesLanguage={String(state.formInputs.written_coordinates_language || 'auto')}
-                    enableBruteforce={state.formInputs.enable_bruteforce !== false}
                     streamingVerbosity={state.streamingVerbosity}
                     geocacheContext={config?.geocacheContext}
                     pluginsService={pluginsService}
