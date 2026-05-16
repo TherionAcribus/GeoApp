@@ -1,21 +1,24 @@
 ---
-title: "Les outils de déchiffrement"
-description: "Référence complète des plugins de déchiffrement disponibles dans GeoApp."
+title: "Les outils de dechiffrement"
+description: "Reference des plugins et outils de dechiffrement disponibles dans GeoApp."
 order: 10
-tags: [plugin, outil, déchiffrement, cipher, code]
+tags: [plugin, outil, dechiffrement, cipher, code]
 ---
 
-# Les outils de déchiffrement
+# Les outils de dechiffrement
 
-> 📝 **Page en cours de rédaction.** Les grandes lignes sont disponibles ci-dessous.
+GeoApp propose plusieurs outils pour explorer les enigmes de geocaching : plugins de decodage, analyse de texte, outils de coordonnees, workflow IA et aide integree.
 
 ## Sujets couverts dans ce chapitre
 
-- Liste complète des outils disponibles par catégorie
-- Chiffres classiques (César, Vigenère, Morse, Braille...)
-- Codes modernes (Base64, Hex, Binaire...)
-- Chiffres historiques (Enigma, ADFGVX, Playfair...)
-- Alphabets alternatifs (Elfique, Pigpen, Sémaphore...)
-- Outils mathématiques et coordonnées
-- Analyse d'images (OCR, stéganographie)
-- Le Métasolveur — résolution automatique multi-étapes
+- Chiffres classiques : Cesar, Vigenere, Morse, Braille...
+- Codes modernes : Base64, Hex, Binaire...
+- Chiffres historiques : Enigma, ADFGVX, Playfair...
+- Alphabets alternatifs : Pigpen, Semaphore...
+- Outils mathematiques et coordonnees
+- Analyse d'images, OCR et steganographie
+- MetaSolver pour lancer plusieurs plugins de decodage sur un fragment de code
+
+## Pages detaillees
+
+- [Utiliser MetaSolver](./metasolver.md) : lancer plusieurs plugins de decodage sur un fragment de code, appliquer une recommandation et comprendre les options.
