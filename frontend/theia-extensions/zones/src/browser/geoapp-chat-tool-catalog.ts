@@ -12,6 +12,7 @@ export type GeoAppAiToolCategory =
     | 'image'
     | 'web'
     | 'plugins'
+    | 'utility'
     | 'debug';
 
 export type GeoAppAiToolRisk = 'read_only' | 'local_write' | 'network' | 'auth' | 'high';
@@ -172,6 +173,20 @@ const STATIC_TOOL_METADATA: Record<string, Omit<GeoAppAiToolMetadata, 'publicNam
         category: 'formula',
         risk: 'read_only',
         workflowKinds: ['formula'],
+        defaultEnabled: true,
+    },
+    'aide_calculate': {
+        registryId: 'aide_calculate',
+        category: 'utility',
+        risk: 'read_only',
+        workflowKinds: ['general', 'secret_code', 'formula', 'checker', 'hidden_content', 'image_puzzle'],
+        defaultEnabled: true,
+    },
+    'aide_calculate_batch': {
+        registryId: 'aide_calculate_batch',
+        category: 'utility',
+        risk: 'read_only',
+        workflowKinds: ['general', 'secret_code', 'formula', 'checker', 'hidden_content', 'image_puzzle'],
         defaultEnabled: true,
     },
 };

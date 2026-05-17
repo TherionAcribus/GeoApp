@@ -1,0 +1,13 @@
+diff --git a/node_modules/openai/lib/ChatCompletionStream.js b/node_modules/openai/lib/ChatCompletionStream.js
+index 1b1bc23..9c2542c 100644
+--- a/node_modules/openai/lib/ChatCompletionStream.js
++++ b/node_modules/openai/lib/ChatCompletionStream.js
+@@ -404,7 +404,7 @@ function finalizeChatCompletion(snapshot, params) {
+         id,
+         choices: choices.map(({ message, finish_reason, index, logprobs, ...choiceRest }) => {
+             if (!finish_reason) {
+-                throw new error_1.OpenAIError(`missing finish_reason for choice ${index}`);
++                finish_reason = 'stop'; // OpenRouter: some models omit finish_reason
+             }
+             const { content = null, function_call, tool_calls, ...messageRest } = message;
+             const role = message.role; // this is what we expect; in theory it could be different which would make our types a slight lie but would be fine.

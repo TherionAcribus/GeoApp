@@ -4,7 +4,6 @@ import {
     ToolInvocationRegistry,
     ToolRequest,
     ToolRequestParameters,
-    ToolCallResult,
 } from '@theia/ai-core';
 import { CalculatorService } from './calculator-service';
 
@@ -21,7 +20,7 @@ function buildParams(
         properties[key] = rest;
         if (isRequired) { required.push(key); }
     }
-    return { type: 'object', properties, required, additionalProperties: false } as ToolRequestParameters;
+    return { type: 'object', properties, ...(required.length ? { required } : {}) } as ToolRequestParameters;
 }
 
 function parseArgs(argString: string): Record<string, any> {

@@ -16,6 +16,7 @@ const BASE_GUARDRAILS = [
     '5. Ne JAMAIS inventer une URL de checker. Utilise uniquement celles fournies dans le contexte.',
     '6. Si un step automatise fiable est disponible via GeoApp et autorise par le profil courant, execute-le avant de rester au niveau plan theorique.',
     '7. Ne decris jamais un resultat de plugin, de checker ou de calcul comme un fait acquis si tu ne l as pas obtenu via un tool call dans cet echange.',
+    '8. CALCULS : Pour toute operation non triviale (racine carree, logarithme, trigonometrie, puissance, division avec grand nombre, factorielle, arrondi, combinatoire, coordonnees GPS), utilise OBLIGATOIREMENT ~aide_calculate ou ~aide_calculate_batch. Ne jamais calculer mentalement ou estimer le resultat. Meme pour une division comme 25745465/7845, appelle ~aide_calculate.',
     '',
     'Skills :',
     `- Skills GeoApp natifs : ${GEOAPP_SKILL_NAMES}.`,
