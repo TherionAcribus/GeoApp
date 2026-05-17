@@ -24,6 +24,10 @@ type GeocacheImageV2Dto = {
     detected_features?: Record<string, unknown> | null;
 };
 
+type ImageEditorTool = 'select' | 'draw' | 'text' | 'image' | 'shapes' | 'snippet';
+type ImageEditorSnippetAction = 'create' | 'ocr' | 'qr';
+type SnippetSelectionBounds = { left: number; top: number; width: number; height: number };
+
 export interface GeocacheImageEditorContext {
     backendBaseUrl: string;
     geocacheId: number;
@@ -42,8 +46,15 @@ export class GeocacheImageEditorWidget extends ReactWidget {
     protected isLoading = false;
     protected error: string | null = null;
     protected image: GeocacheImageV2Dto | null = null;
+    protected images: GeocacheImageV2Dto[] = [];
     protected isSaving = false;
+    protected activeSnippetAction: ImageEditorSnippetAction | null = null;
+    protected lastActionMessage: string | null = null;
+    protected lastSnippetImage: GeocacheImageV2Dto | null = null;
+    protected lastExtractedKind: 'ocr' | 'qr' | null = null;
+    protected lastExtractedText: string | null = null;
     protected didApplyRemoteEditorState = false;
+    protected loadedEditorStateJson: string | null = null;
 
     protected canvasElement: HTMLCanvasElement | null = null;
     protected fabricCanvas: any | null = null;
@@ -51,7 +62,7 @@ export class GeocacheImageEditorWidget extends ReactWidget {
     protected baseImageObjectUrl: string | null = null;
     protected baseImageObjectUrlPendingRevoke: string | null = null;
 
-    protected tool: 'select' | 'draw' | 'text' | 'image' | 'shapes' | 'snippet' = 'select';
+    protected tool: ImageEditorTool = 'select';
     protected isRestoringHistory = false;
     protected undoStack: string[] = [];
     protected redoStack: string[] = [];
@@ -60,6 +71,8 @@ export class GeocacheImageEditorWidget extends ReactWidget {
     protected snippetIsDragging = false;
     protected snippetStartX = 0;
     protected snippetStartY = 0;
+    protected snippetSelectionBounds: SnippetSelectionBounds | null = null;
+    protected snippetPreviewDataUrl: string | null = null;
 
     protected textFill = '#ffffff';
     protected textFontSize = 28;
@@ -128,6 +141,7 @@ export class GeocacheImageEditorWidget extends ReactWidget {
         this.addClass('theia-geocache-image-editor-widget');
 
         this.node.tabIndex = 0;
+        this.node.addEventListener('keydown', this.onEditorKeyDown);
     }
 
     setContext(context: GeocacheImageEditorContext): void {
@@ -135,6 +149,7 @@ export class GeocacheImageEditorWidget extends ReactWidget {
         this.geocacheId = context.geocacheId;
         this.imageId = context.imageId;
         this.didApplyRemoteEditorState = false;
+        this.loadedEditorStateJson = null;
         const label = context.imageTitle ? `Image Editor - ${context.imageTitle}` : `Image Editor - #${context.imageId}`;
         this.title.label = label;
         this.update();
@@ -152,6 +167,7 @@ export class GeocacheImageEditorWidget extends ReactWidget {
     }
 
     override dispose(): void {
+        this.node.removeEventListener('keydown', this.onEditorKeyDown);
         this.disposeFabric();
         super.dispose();
     }
@@ -222,6 +238,8 @@ export class GeocacheImageEditorWidget extends ReactWidget {
 
         this.isLoading = true;
         this.error = null;
+        this.loadedEditorStateJson = null;
+        this.didApplyRemoteEditorState = false;
         this.update();
 
         try {
@@ -232,22 +250,47 @@ export class GeocacheImageEditorWidget extends ReactWidget {
                 throw new Error(`HTTP ${res.status}`);
             }
             const images = (await res.json()) as GeocacheImageV2Dto[];
+            this.images = Array.isArray(images) ? images : [];
             this.image = images.find(i => i.id === this.imageId) ?? null;
             if (!this.image) {
                 this.error = 'Image introuvable';
+            } else {
+                this.loadedEditorStateJson = await this.fetchRemoteEditorStateJson(this.image.id);
             }
         } catch (e) {
             console.error('[GeocacheImageEditorWidget] load error', e);
             this.error = 'Impossible de charger l\'image';
         } finally {
             this.isLoading = false;
+            this.didApplyRemoteEditorState = true;
             this.update();
 
             if (!this.error && this.image) {
                 this.ensureFabricReady();
-                await this.loadRemoteEditorStateIfAny();
-                void this.refreshBaseImageSource();
+                if (this.loadedEditorStateJson) {
+                    this.restoreFromJson(this.loadedEditorStateJson);
+                } else {
+                    this.ensureBaseImageObject();
+                    void this.refreshBaseImageSource();
+                }
             }
+        }
+    }
+
+    protected async fetchRemoteEditorStateJson(imageId: number): Promise<string | null> {
+        try {
+            const res = await fetch(`${this.backendBaseUrl}/api/geocache-images/${imageId}/editor-state`, {
+                credentials: 'include',
+            });
+            if (!res.ok) {
+                return null;
+            }
+            const data = (await res.json()) as { editor_state_json?: string | null };
+            const json = (data?.editor_state_json || '').trim();
+            return json || null;
+        } catch (e) {
+            console.error('[GeocacheImageEditorWidget] load editor state error', e);
+            return null;
         }
     }
 
@@ -264,8 +307,7 @@ export class GeocacheImageEditorWidget extends ReactWidget {
 
         try {
             const editorStateJson = JSON.stringify(this.fabricCanvas.toJSON());
-            const dataUrl = this.fabricCanvas.toDataURL({ format: 'png' });
-            const renderedBlob = await fetch(dataUrl).then(r => r.blob());
+            const renderedBlob = await this.exportCanvasBlob({ format: 'png' });
 
             const form = new FormData();
             form.append('rendered_file', renderedBlob, 'edited.png');
@@ -286,10 +328,14 @@ export class GeocacheImageEditorWidget extends ReactWidget {
             }
 
             const created = (await res.json()) as GeocacheImageV2Dto;
+            this.images = this.images
+                .filter(existing => existing.id !== created.id)
+                .concat(created);
             this.image = created;
             this.imageId = created.id;
             this.geocacheId = created.geocache_id;
             this.didApplyRemoteEditorState = true;
+            this.loadedEditorStateJson = editorStateJson;
 
             const label = (created.title || '').trim()
                 ? `Image Editor - ${(created.title || '').trim()}`
@@ -355,7 +401,10 @@ export class GeocacheImageEditorWidget extends ReactWidget {
             });
 
             this.fabricCanvas.on('object:added', this.recordHistorySnapshot);
+            this.fabricCanvas.on('object:moving', this.onObjectTransforming);
+            this.fabricCanvas.on('object:scaling', this.onObjectTransforming);
             this.fabricCanvas.on('object:modified', this.recordHistorySnapshot);
+            this.fabricCanvas.on('object:modified', this.onObjectModified);
             this.fabricCanvas.on('object:removed', this.recordHistorySnapshot);
             this.fabricCanvas.on('path:created', this.recordHistorySnapshot);
 
@@ -366,16 +415,17 @@ export class GeocacheImageEditorWidget extends ReactWidget {
             this.fabricCanvas.on('mouse:down', this.onCanvasMouseDown);
             this.fabricCanvas.on('mouse:move', this.onCanvasMouseMove);
             this.fabricCanvas.on('mouse:up', this.onCanvasMouseUp);
+            this.fabricCanvas.on('mouse:wheel', this.onCanvasMouseWheel);
 
             this.applyTool('select');
         }
 
-        if (this.fabricCanvas && this.fabricCanvas.getObjects().length === 0) {
+        if (this.fabricCanvas && this.fabricCanvas.getObjects().length === 0 && this.didApplyRemoteEditorState && !this.loadedEditorStateJson) {
             this.ensureBaseImageObject();
         }
     }
 
-    protected applyTool(tool: 'select' | 'draw' | 'text' | 'image' | 'shapes' | 'snippet'): void {
+    protected applyTool(tool: ImageEditorTool): void {
         this.tool = tool;
         if (!this.fabricCanvas) {
             this.update();
@@ -395,6 +445,8 @@ export class GeocacheImageEditorWidget extends ReactWidget {
     protected clearSnippetSelection(): void {
         if (!this.fabricCanvas) {
             this.snippetSelectionRect = null;
+            this.snippetSelectionBounds = null;
+            this.snippetPreviewDataUrl = null;
             this.update();
             return;
         }
@@ -406,10 +458,71 @@ export class GeocacheImageEditorWidget extends ReactWidget {
             }
         }
         this.snippetSelectionRect = null;
+        this.snippetSelectionBounds = null;
+        this.snippetPreviewDataUrl = null;
         this.fabricCanvas.discardActiveObject?.();
         this.fabricCanvas.requestRenderAll?.();
         this.update();
     }
+
+    protected readonly onObjectTransforming = (opt: any): void => {
+        if (opt?.target !== this.snippetSelectionRect) {
+            return;
+        }
+        this.updateSnippetSelectionDetails(false);
+    };
+
+    protected readonly onObjectModified = (opt: any): void => {
+        if (opt?.target !== this.snippetSelectionRect) {
+            return;
+        }
+        this.updateSnippetSelectionDetails(true);
+    };
+
+    protected readonly onEditorKeyDown = (event: KeyboardEvent): void => {
+        const target = event.target as HTMLElement | null;
+        const targetTag = target?.tagName?.toLowerCase();
+        const isEditableTarget = Boolean(
+            target?.isContentEditable ||
+            targetTag === 'input' ||
+            targetTag === 'textarea' ||
+            targetTag === 'select'
+        );
+        if (isEditableTarget) {
+            return;
+        }
+
+        if (event.key === 'Escape' && this.snippetSelectionRect) {
+            this.clearSnippetSelection();
+            event.preventDefault();
+            return;
+        }
+
+        if ((event.key === 'Delete' || event.key === 'Backspace') && this.fabricCanvas?.getActiveObject?.()) {
+            if (this.fabricCanvas.getActiveObject?.() === this.snippetSelectionRect) {
+                this.clearSnippetSelection();
+            } else {
+                this.deleteSelection();
+            }
+            event.preventDefault();
+            return;
+        }
+
+        if (this.tool !== 'snippet' || !this.snippetSelectionRect || this.isSaving || event.key !== 'Enter') {
+            return;
+        }
+
+        event.preventDefault();
+        if (event.ctrlKey || event.metaKey) {
+            void this.runOcrOnSnippetSelection();
+            return;
+        }
+        if (event.shiftKey) {
+            void this.runQrOnSnippetSelection();
+            return;
+        }
+        void this.createSnippetFromSelection();
+    };
 
     protected readonly onCanvasMouseDown = (opt: any): void => {
         if (!this.fabricCanvas) {
@@ -451,6 +564,12 @@ export class GeocacheImageEditorWidget extends ReactWidget {
             strokeDashArray: [6, 4],
             selectable: true,
             evented: true,
+            borderColor: '#f97316',
+            cornerColor: '#f97316',
+            cornerStrokeColor: '#111827',
+            cornerSize: 11,
+            cornerStyle: 'circle',
+            padding: 3,
             hasRotatingPoint: false,
             lockRotation: true,
             transparentCorners: false,
@@ -461,7 +580,7 @@ export class GeocacheImageEditorWidget extends ReactWidget {
         this.fabricCanvas.add(rect);
         this.fabricCanvas.setActiveObject?.(rect);
         this.fabricCanvas.requestRenderAll?.();
-        this.update();
+        this.updateSnippetSelectionDetails(false);
     };
 
     protected readonly onCanvasMouseMove = (opt: any): void => {
@@ -478,6 +597,7 @@ export class GeocacheImageEditorWidget extends ReactWidget {
         this.snippetSelectionRect.set({ left, top, width, height });
         this.snippetSelectionRect.setCoords?.();
         this.fabricCanvas.requestRenderAll?.();
+        this.updateSnippetSelectionDetails(false);
     };
 
     protected readonly onCanvasMouseUp = (): void => {
@@ -485,6 +605,37 @@ export class GeocacheImageEditorWidget extends ReactWidget {
             return;
         }
         this.snippetIsDragging = false;
+        this.updateSnippetSelectionDetails(true);
+    };
+
+    protected readonly onCanvasMouseWheel = (opt: any): void => {
+        if (!this.fabricCanvas) {
+            return;
+        }
+
+        const event = opt?.e as WheelEvent | undefined;
+        if (!event || (!event.ctrlKey && !event.metaKey)) {
+            return;
+        }
+
+        const currentZoom = typeof this.fabricCanvas.getZoom === 'function'
+            ? this.fabricCanvas.getZoom()
+            : this.imageZoom;
+        const nextZoom = this.clamp(currentZoom * Math.pow(0.999, event.deltaY), 0.1, 6);
+        const point = new (fabric as any).Point(event.offsetX, event.offsetY);
+
+        if (typeof this.fabricCanvas.zoomToPoint === 'function') {
+            this.fabricCanvas.zoomToPoint(point, nextZoom);
+        } else {
+            this.fabricCanvas.setViewportTransform([nextZoom, 0, 0, nextZoom, 0, 0]);
+        }
+
+        this.imageZoom = Number(nextZoom.toFixed(2));
+        this.fabricCanvas.requestRenderAll?.();
+        this.update();
+
+        event.preventDefault();
+        event.stopPropagation();
     };
 
     protected getSelectionRectForSnippet(): any | null {
@@ -520,34 +671,122 @@ export class GeocacheImageEditorWidget extends ReactWidget {
         }
     }
 
-    protected async createSnippetFromSelection(): Promise<void> {
-        if (!this.fabricCanvas || !this.imageId || !this.image) {
+    protected normalizeSnippetBounds(bounds: { left: number; top: number; width: number; height: number } | null): SnippetSelectionBounds | null {
+        if (!bounds) {
+            return null;
+        }
+        return {
+            left: Math.max(0, Math.floor(bounds.left)),
+            top: Math.max(0, Math.floor(bounds.top)),
+            width: Math.max(1, Math.floor(bounds.width)),
+            height: Math.max(1, Math.floor(bounds.height)),
+        };
+    }
+
+    protected areSnippetBoundsEqual(a: SnippetSelectionBounds | null, b: SnippetSelectionBounds | null): boolean {
+        if (!a || !b) {
+            return a === b;
+        }
+        return a.left === b.left && a.top === b.top && a.width === b.width && a.height === b.height;
+    }
+
+    protected updateSnippetSelectionDetails(refreshPreview: boolean): void {
+        const rect = this.getSelectionRectForSnippet();
+        const bounds = this.normalizeSnippetBounds(this.getBoundingRectWithoutViewport(rect));
+        const changed = !this.areSnippetBoundsEqual(this.snippetSelectionBounds, bounds);
+
+        this.snippetSelectionBounds = bounds;
+        if (!bounds || bounds.width < 2 || bounds.height < 2) {
+            this.snippetPreviewDataUrl = null;
+            if (changed || refreshPreview) {
+                this.update();
+            }
             return;
         }
+
+        if (changed && !refreshPreview) {
+            this.snippetPreviewDataUrl = null;
+        }
+
+        if (refreshPreview) {
+            this.snippetPreviewDataUrl = this.exportCanvasDataUrl({
+                format: 'png',
+                left: bounds.left,
+                top: bounds.top,
+                width: bounds.width,
+                height: bounds.height,
+                multiplier: 1,
+                withoutTransform: true,
+                withoutShadow: true,
+            });
+        }
+
+        if (changed || refreshPreview) {
+            this.update();
+        }
+    }
+
+    protected exportCanvasDataUrl(options: Record<string, unknown> = {}): string {
+        if (!this.fabricCanvas) {
+            return '';
+        }
+
+        const rect = this.snippetSelectionRect;
+        const previousVisible = rect ? rect.visible : undefined;
+        const previousActive = this.fabricCanvas.getActiveObject?.();
+
+        try {
+            if (rect) {
+                rect.set?.({ visible: false });
+                if (previousActive === rect) {
+                    this.fabricCanvas.discardActiveObject?.();
+                }
+                this.fabricCanvas.requestRenderAll?.();
+            }
+            return this.fabricCanvas.toDataURL(options);
+        } finally {
+            if (rect) {
+                rect.set?.({ visible: previousVisible !== false });
+                if (previousActive === rect) {
+                    this.fabricCanvas.setActiveObject?.(rect);
+                }
+                this.fabricCanvas.requestRenderAll?.();
+            }
+        }
+    }
+
+    protected async exportCanvasBlob(options: Record<string, unknown> = {}): Promise<Blob> {
+        const dataUrl = this.exportCanvasDataUrl(options);
+        return fetch(dataUrl).then(r => r.blob());
+    }
+
+    protected async createSnippetFromSelection(): Promise<GeocacheImageV2Dto | null> {
+        if (!this.fabricCanvas || !this.imageId || !this.image) {
+            return null;
+        }
         if (this.isSaving) {
-            return;
+            return null;
         }
 
         const rect = this.getSelectionRectForSnippet();
         if (!rect) {
-            return;
+            return null;
         }
 
-        const bounds = this.getBoundingRectWithoutViewport(rect);
+        const bounds = this.normalizeSnippetBounds(this.getBoundingRectWithoutViewport(rect));
         if (!bounds || bounds.width < 2 || bounds.height < 2) {
-            return;
+            return null;
         }
 
         this.isSaving = true;
+        this.activeSnippetAction = 'create';
+        this.lastActionMessage = 'Création de la sous-image…';
         this.update();
 
         try {
-            const left = Math.max(0, Math.floor(bounds.left));
-            const top = Math.max(0, Math.floor(bounds.top));
-            const width = Math.max(1, Math.floor(bounds.width));
-            const height = Math.max(1, Math.floor(bounds.height));
+            const { left, top, width, height } = bounds;
 
-            const dataUrl = this.fabricCanvas.toDataURL({
+            const renderedBlob = await this.exportCanvasBlob({
                 format: 'png',
                 left,
                 top,
@@ -557,7 +796,6 @@ export class GeocacheImageEditorWidget extends ReactWidget {
                 withoutTransform: true,
                 withoutShadow: true,
             });
-            const renderedBlob = await fetch(dataUrl).then(r => r.blob());
 
             const form = new FormData();
             form.append('rendered_file', renderedBlob, 'snippet.png');
@@ -575,17 +813,284 @@ export class GeocacheImageEditorWidget extends ReactWidget {
             }
 
             const created = (await res.json()) as GeocacheImageV2Dto;
+            this.images = this.images
+                .filter(existing => existing.id !== created.id)
+                .concat(created);
+            this.lastSnippetImage = created;
+            this.lastActionMessage = `Sous-image #${created.id} créée.`;
 
             window.dispatchEvent(new CustomEvent('geoapp-geocache-images-updated', {
                 detail: { geocacheId: created.geocache_id }
             }));
+            return created;
         } catch (e) {
             console.error('[GeocacheImageEditorWidget] create snippet error', e);
             this.error = 'Impossible de créer la sous-image';
+            this.lastActionMessage = 'Impossible de créer la sous-image.';
+            return null;
+        } finally {
+            this.isSaving = false;
+            this.activeSnippetAction = null;
+            this.update();
+        }
+    }
+
+    protected stripThinkingBlocks(value: string): string {
+        const raw = (value ?? '').toString();
+        if (!raw.trim()) {
+            return '';
+        }
+        return raw
+            .replace(/\[THINK\][\s\S]*?\[\/THINK\]/gi, '')
+            .replace(/<think>[\s\S]*?<\/think>/gi, '')
+            .replace(/\[ANALYSIS\][\s\S]*?\[\/ANALYSIS\]/gi, '')
+            .replace(/<analysis>[\s\S]*?<\/analysis>/gi, '')
+            .trim();
+    }
+
+    protected extractTextFromPluginResult(result: any): string {
+        if (!result) {
+            return '';
+        }
+        const items = Array.isArray(result.results) ? result.results : [];
+        const texts = items
+            .map((item: any) => (item?.text_output ?? '').toString())
+            .map((text: string) => text.trim())
+            .filter((text: string) => Boolean(text));
+
+        if (texts.length > 0) {
+            return texts.join('\n\n');
+        }
+
+        return (result.text_output ?? '').toString().trim();
+    }
+
+    protected async patchImageMetadata(imageId: number, payload: Partial<GeocacheImageV2Dto>): Promise<GeocacheImageV2Dto | null> {
+        try {
+            const res = await fetch(`${this.backendBaseUrl}/api/geocache-images/${imageId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify(payload),
+            });
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status}`);
+            }
+            const updated = (await res.json()) as GeocacheImageV2Dto;
+            this.images = this.images.map(existing => existing.id === updated.id ? updated : existing);
+            if (this.image?.id === updated.id) {
+                this.image = updated;
+            }
+            window.dispatchEvent(new CustomEvent('geoapp-geocache-images-updated', {
+                detail: { geocacheId: updated.geocache_id }
+            }));
+            return updated;
+        } catch (e) {
+            console.error('[GeocacheImageEditorWidget] patch image metadata error', e);
+            return null;
+        }
+    }
+
+    protected async executeImagePlugin(pluginName: 'easyocr_ocr' | 'qr_code_detector', image: GeocacheImageV2Dto): Promise<any> {
+        const imageUrl = this.resolveImageUrl(image.url);
+        const res = await fetch(`${this.backendBaseUrl}/api/plugins/${pluginName}/execute`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+                inputs: {
+                    geocache_id: this.geocacheId,
+                    images: [{ url: imageUrl }],
+                    language: 'auto',
+                }
+            }),
+        });
+        if (!res.ok) {
+            throw new Error(`HTTP ${res.status}`);
+        }
+        return res.json();
+    }
+
+    protected async runOcrOnSnippetSelection(): Promise<void> {
+        const snippet = await this.createSnippetFromSelection();
+        if (!snippet) {
+            return;
+        }
+
+        this.isSaving = true;
+        this.activeSnippetAction = 'ocr';
+        this.lastActionMessage = `OCR de la sous-image #${snippet.id}…`;
+        this.update();
+
+        try {
+            const result = await this.executeImagePlugin('easyocr_ocr', snippet);
+            const text = this.stripThinkingBlocks(this.extractTextFromPluginResult(result));
+            if (!text.trim()) {
+                this.lastActionMessage = `OCR terminé sur #${snippet.id}, aucun texte détecté.`;
+                return;
+            }
+
+            await this.patchImageMetadata(snippet.id, {
+                ocr_text: text,
+                ocr_language: 'auto',
+            });
+            this.lastSnippetImage = snippet;
+            this.lastExtractedKind = 'ocr';
+            this.lastExtractedText = text;
+            this.lastActionMessage = `OCR enregistré sur la sous-image #${snippet.id}.`;
+        } catch (e) {
+            console.error('[GeocacheImageEditorWidget] OCR snippet error', e);
+            this.lastActionMessage = `OCR impossible sur la sous-image #${snippet.id}.`;
+        } finally {
+            this.isSaving = false;
+            this.activeSnippetAction = null;
+            this.update();
+        }
+    }
+
+    protected async runQrOnSnippetSelection(): Promise<void> {
+        const snippet = await this.createSnippetFromSelection();
+        if (!snippet) {
+            return;
+        }
+
+        this.isSaving = true;
+        this.activeSnippetAction = 'qr';
+        this.lastActionMessage = `Décodage QR de la sous-image #${snippet.id}…`;
+        this.update();
+
+        try {
+            const result = await this.executeImagePlugin('qr_code_detector', snippet);
+            const qrPayload = (result?.qr_codes?.[0]?.data ?? '').toString().trim();
+            if (!qrPayload) {
+                this.lastActionMessage = `QR terminé sur #${snippet.id}, aucun code détecté.`;
+                return;
+            }
+
+            await this.patchImageMetadata(snippet.id, {
+                qr_payload: qrPayload,
+            });
+            this.lastSnippetImage = snippet;
+            this.lastExtractedKind = 'qr';
+            this.lastExtractedText = qrPayload;
+            this.lastActionMessage = `QR enregistré sur la sous-image #${snippet.id}.`;
+        } catch (e) {
+            console.error('[GeocacheImageEditorWidget] QR snippet error', e);
+            this.lastActionMessage = `QR impossible sur la sous-image #${snippet.id}.`;
+        } finally {
+            this.isSaving = false;
+            this.activeSnippetAction = null;
+            this.update();
+        }
+    }
+
+    protected buildLastExtractionContent(): string | null {
+        const text = (this.lastExtractedText || '').trim();
+        if (!text || !this.lastExtractedKind) {
+            return null;
+        }
+
+        const snippet = this.lastSnippetImage;
+        const kindLabel = this.lastExtractedKind === 'qr' ? 'QR' : 'OCR';
+        const sourceLine = snippet
+            ? `Image Editor - ${kindLabel} zone - sous-image #${snippet.id}`
+            : `Image Editor - ${kindLabel} zone`;
+
+        return [
+            sourceLine,
+            '',
+            text,
+        ].join('\n');
+    }
+
+    protected async addLastExtractionToNotes(): Promise<void> {
+        if (!this.geocacheId) {
+            return;
+        }
+
+        const content = this.buildLastExtractionContent();
+        if (!content) {
+            return;
+        }
+
+        this.isSaving = true;
+        this.lastActionMessage = 'Ajout du résultat aux notes…';
+        this.update();
+
+        try {
+            const res = await fetch(`${this.backendBaseUrl}/api/geocaches/${this.geocacheId}/notes`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                    content,
+                    note_type: 'user',
+                    source: 'user',
+                    source_plugin: 'image_editor',
+                }),
+            });
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status}`);
+            }
+            this.lastActionMessage = 'Résultat ajouté aux notes.';
+            window.dispatchEvent(new CustomEvent('open-geocache-notes', {
+                detail: { backendBaseUrl: this.backendBaseUrl, geocacheId: this.geocacheId }
+            }));
+        } catch (e) {
+            console.error('[GeocacheImageEditorWidget] add extraction to notes error', e);
+            this.lastActionMessage = 'Impossible d’ajouter le résultat aux notes.';
         } finally {
             this.isSaving = false;
             this.update();
         }
+    }
+
+    protected openLastExtractionInChat(): void {
+        if (!this.geocacheId) {
+            return;
+        }
+
+        const content = this.buildLastExtractionContent();
+        if (!content) {
+            return;
+        }
+
+        const snippet = this.lastSnippetImage;
+        const kindLabel = this.lastExtractedKind === 'qr' ? 'QR' : 'OCR';
+        const imageUrls = snippet ? [this.resolveImageUrl(snippet.url)] : undefined;
+        const prompt = [
+            `J’ai extrait ce résultat depuis une zone d’image de géocache (${kindLabel}).`,
+            snippet ? `Sous-image: #${snippet.id}` : '',
+            '',
+            content,
+            '',
+            'Analyse ce résultat dans le contexte d’une énigme de géocaching. Cherche notamment coordonnées, codes, formules, indices exploitables ou pistes de recherche.',
+        ].filter(Boolean).join('\n');
+
+        window.dispatchEvent(new CustomEvent('geoapp-open-chat-request', {
+            detail: {
+                geocacheId: this.geocacheId,
+                sessionTitle: `Image ${kindLabel} - géocache #${this.geocacheId}`,
+                prompt,
+                imageUrls,
+                focus: true,
+                workflowKind: 'image_puzzle',
+                preferredProfile: 'default',
+                sessionKind: 'auto',
+                resumeState: {
+                    workflow: { kind: 'image_puzzle' },
+                    imageEditor: {
+                        sourceImageId: this.imageId,
+                        snippetImageId: snippet?.id,
+                        extractionKind: this.lastExtractedKind,
+                    },
+                    currentText: content,
+                },
+            }
+        }));
+
+        this.lastActionMessage = 'Résultat envoyé au Chat IA.';
+        this.update();
     }
 
     protected getViewportCenterPoint(): { x: number; y: number } {
@@ -737,6 +1242,82 @@ export class GeocacheImageEditorWidget extends ReactWidget {
         return base ?? null;
     }
 
+    protected getImageById(imageId: number | null | undefined): GeocacheImageV2Dto | null {
+        if (typeof imageId !== 'number') {
+            return null;
+        }
+        return this.images.find(img => img.id === imageId) ?? null;
+    }
+
+    protected getRootImage(image: GeocacheImageV2Dto): GeocacheImageV2Dto {
+        let current = image;
+        const visited = new Set<number>();
+
+        while (current.parent_image_id && !visited.has(current.id)) {
+            visited.add(current.id);
+            const parent = this.getImageById(current.parent_image_id);
+            if (!parent) {
+                break;
+            }
+            current = parent;
+        }
+
+        return current;
+    }
+
+    protected shouldUseRootImageForEditableState(image: GeocacheImageV2Dto): boolean {
+        if (!this.loadedEditorStateJson || !image.parent_image_id) {
+            return false;
+        }
+
+        const derivationType = (image.derivation_type || '').toLowerCase();
+        return derivationType.startsWith('edited') || derivationType.startsWith('copy');
+    }
+
+    protected getEditorBaseImage(): GeocacheImageV2Dto | null {
+        if (!this.image) {
+            return null;
+        }
+        if (this.shouldUseRootImageForEditableState(this.image)) {
+            return this.getRootImage(this.image);
+        }
+        return this.image;
+    }
+
+    protected async ensureImageStoredForCanvas(image: GeocacheImageV2Dto): Promise<GeocacheImageV2Dto> {
+        if (image.stored) {
+            return image;
+        }
+
+        try {
+            const res = await fetch(`${this.backendBaseUrl}/api/geocache-images/${image.id}/store`, {
+                method: 'POST',
+                credentials: 'include',
+            });
+            if (!res.ok) {
+                return image;
+            }
+            const updated = (await res.json()) as GeocacheImageV2Dto;
+            this.images = this.images.map(existing => existing.id === updated.id ? updated : existing);
+            if (this.image?.id === updated.id) {
+                this.image = updated;
+            }
+            return updated;
+        } catch (e) {
+            console.warn('[GeocacheImageEditorWidget] failed to store editor base image', e);
+            return image;
+        }
+    }
+
+    protected async resolveEditorBaseImageUrlForCanvas(): Promise<string> {
+        const baseImage = this.getEditorBaseImage();
+        if (!baseImage) {
+            return '';
+        }
+        const storedBase = await this.ensureImageStoredForCanvas(baseImage);
+        return this.resolveImageUrlForCanvas(storedBase.url);
+    }
+
     protected ensureBaseImageObject(): void {
         if (!this.fabricCanvas || !this.canvasElement || !this.image) {
             return;
@@ -746,7 +1327,10 @@ export class GeocacheImageEditorWidget extends ReactWidget {
             return;
         }
 
-        void this.resolveImageUrlForCanvas(this.image.url).then(src => {
+        void this.resolveEditorBaseImageUrlForCanvas().then(src => {
+            if (!src) {
+                return;
+            }
             fabric.Image.fromURL(
                 src,
             (img: any) => {
@@ -809,7 +1393,7 @@ export class GeocacheImageEditorWidget extends ReactWidget {
             return;
         }
 
-        const src = await this.resolveImageUrlForCanvas(this.image.url);
+        const src = await this.resolveEditorBaseImageUrlForCanvas();
         if (!src) {
             return;
         }
@@ -1935,8 +2519,7 @@ export class GeocacheImageEditorWidget extends ReactWidget {
 
         try {
             const editorStateJson = JSON.stringify(this.fabricCanvas.toJSON());
-            const dataUrl = this.fabricCanvas.toDataURL({ format: 'png' });
-            const renderedBlob = await fetch(dataUrl).then(r => r.blob());
+            const renderedBlob = await this.exportCanvasBlob({ format: 'png' });
 
             const form = new FormData();
             form.append('rendered_file', renderedBlob, 'edited.png');
@@ -1987,10 +2570,14 @@ export class GeocacheImageEditorWidget extends ReactWidget {
             }
             const updated = (await res.json()) as GeocacheImageV2Dto;
 
+            this.images = this.images
+                .filter(existing => existing.id !== updated.id)
+                .concat(updated);
             this.image = updated;
             this.imageId = updated.id;
             this.geocacheId = updated.geocache_id;
             this.didApplyRemoteEditorState = true;
+            this.loadedEditorStateJson = editorStateJson;
 
             const label = (updated.title || '').trim()
                 ? `Image Editor - ${(updated.title || '').trim()}`
@@ -2008,6 +2595,200 @@ export class GeocacheImageEditorWidget extends ReactWidget {
             this.isSaving = false;
             this.update();
         }
+    }
+
+    protected getToolLabel(tool: ImageEditorTool = this.tool): string {
+        switch (tool) {
+            case 'select':
+                return 'Sélection';
+            case 'snippet':
+                return 'Découpe';
+            case 'draw':
+                return 'Dessin';
+            case 'text':
+                return 'Texte';
+            case 'image':
+                return 'Image';
+            case 'shapes':
+                return 'Formes';
+        }
+    }
+
+    protected getToolHint(): string {
+        switch (this.tool) {
+            case 'select':
+                return this.selectionCount > 0
+                    ? 'Modifiez les calques sélectionnés depuis les contrôles actifs.'
+                    : 'Cliquez un calque pour le déplacer, le dupliquer ou l’ordonner.';
+            case 'snippet':
+                return 'Tracez une zone sur l’image, puis créez une sous-image exploitable dans la galerie.';
+            case 'draw':
+                return 'Dessinez au pinceau, au surligneur ou avec la gomme. Les traits restent éditables.';
+            case 'text':
+                return 'Ajoutez du texte puis ajustez sa taille, sa couleur et son fond.';
+            case 'image':
+                return 'Ajustez l’image de travail : rotation, contraste, couleurs, courbes et zoom.';
+            case 'shapes':
+                return 'Ajoutez des repères visuels : rectangles, cercles, lignes et flèches.';
+        }
+    }
+
+    protected getToolIcon(tool: ImageEditorTool): string {
+        switch (tool) {
+            case 'select':
+                return 'fa fa-mouse-pointer';
+            case 'snippet':
+                return 'fa fa-crop';
+            case 'draw':
+                return 'fa fa-pencil';
+            case 'text':
+                return 'fa fa-font';
+            case 'image':
+                return 'fa fa-adjust';
+            case 'shapes':
+                return 'fa fa-square-o';
+        }
+    }
+
+    protected renderToolSidebar(canEditImage: boolean): React.ReactNode {
+        const tools: Array<{ id: ImageEditorTool; title: string; disabled?: boolean }> = [
+            { id: 'select', title: 'Sélection' },
+            { id: 'snippet', title: 'Découper une zone' },
+            { id: 'draw', title: 'Dessiner' },
+            { id: 'text', title: 'Ajouter du texte' },
+            { id: 'shapes', title: 'Ajouter une forme' },
+            { id: 'image', title: 'Ajuster l’image', disabled: !canEditImage && !this.image },
+        ];
+
+        return (
+            <nav className='rounded border border-[var(--theia-panel-border)] bg-[var(--theia-editor-background)] p-1 flex flex-col items-center gap-1'>
+                {tools.map(tool => {
+                    const active = this.tool === tool.id;
+                    return (
+                        <button
+                            key={tool.id}
+                            type='button'
+                            className={`theia-button secondary !px-0 w-10 h-9 flex items-center justify-center ${active ? 'border border-sky-500' : ''}`}
+                            title={tool.title}
+                            aria-label={tool.title}
+                            onClick={() => {
+                                this.applyTool(tool.id);
+                                if (tool.id === 'image') {
+                                    this.ensureBaseImageObject();
+                                }
+                                if (tool.id === 'text') {
+                                    this.addText();
+                                }
+                            }}
+                            disabled={Boolean(tool.disabled)}
+                        >
+                            <i className={this.getToolIcon(tool.id)} aria-hidden='true' />
+                        </button>
+                    );
+                })}
+            </nav>
+        );
+    }
+
+    protected renderWorkflowPanel(img: GeocacheImageV2Dto): React.ReactNode {
+        const baseImage = this.getEditorBaseImage();
+        const isUsingSeparateBase = Boolean(baseImage && baseImage.id !== img.id);
+        const objectCount = Math.max(0, (this.fabricCanvas?.getObjects?.() ?? []).length - (this.getBaseImageObject() ? 1 : 0));
+        const hasTransientSnippet = Boolean(this.snippetSelectionRect);
+        const snippetBounds = this.snippetSelectionBounds;
+        const hasExtraction = Boolean((this.lastExtractedText || '').trim());
+        const extractionPreview = (this.lastExtractedText || '').trim();
+
+        return (
+            <aside className='rounded border border-[var(--theia-panel-border)] bg-[var(--theia-editor-background)] p-3 text-xs grid gap-3'>
+                <div>
+                    <div className='font-semibold text-sm'>Mode actif</div>
+                    <div className='mt-1 text-[var(--theia-foreground)]'>{this.getToolLabel()}</div>
+                    <div className='mt-1 opacity-70 leading-relaxed'>{this.getToolHint()}</div>
+                </div>
+
+                <div className='grid gap-1'>
+                    <div className='font-semibold'>État</div>
+                    <div className='opacity-80'>Calques éditables : {objectCount}</div>
+                    <div className='opacity-80'>Zoom : {Math.round(this.imageZoom * 100)}%</div>
+                    {hasTransientSnippet && snippetBounds ? (
+                        <div className='rounded border border-orange-500/50 bg-orange-500/10 p-2'>
+                            <div className='font-semibold text-orange-200'>Zone de découpe</div>
+                            <div className='mt-1 opacity-90'>
+                                {snippetBounds.width} × {snippetBounds.height}px
+                            </div>
+                            <div className='opacity-70'>
+                                x {snippetBounds.left}, y {snippetBounds.top}
+                            </div>
+                        </div>
+                    ) : hasTransientSnippet ? <div className='opacity-80'>Sélection de découpe prête</div> : null}
+                    {this.lastActionMessage ? (
+                        <div className='mt-2 rounded border border-[var(--theia-panel-border)] bg-black/10 p-2 opacity-90'>
+                            {this.lastActionMessage}
+                        </div>
+                    ) : null}
+                </div>
+
+                {this.snippetPreviewDataUrl ? (
+                    <div className='grid gap-2'>
+                        <div className='font-semibold'>Aperçu zone</div>
+                        <div className='rounded border border-[var(--theia-panel-border)] bg-black/20 p-2'>
+                            <img
+                                src={this.snippetPreviewDataUrl}
+                                alt='Aperçu de la zone sélectionnée'
+                                className='max-h-36 w-full object-contain'
+                            />
+                        </div>
+                    </div>
+                ) : null}
+
+                {hasExtraction ? (
+                    <div className='grid gap-2'>
+                        <div className='font-semibold'>Résultat zone</div>
+                        <div className='max-h-28 overflow-auto rounded border border-[var(--theia-panel-border)] bg-black/10 p-2 whitespace-pre-wrap'>
+                            {extractionPreview.length > 420 ? `${extractionPreview.slice(0, 420)}…` : extractionPreview}
+                        </div>
+                        <div className='flex flex-wrap gap-2'>
+                            <button
+                                type='button'
+                                className='theia-button secondary'
+                                onClick={() => { void this.addLastExtractionToNotes(); }}
+                                disabled={this.isSaving}
+                            >
+                                Ajouter aux notes
+                            </button>
+                            <button
+                                type='button'
+                                className='theia-button secondary'
+                                onClick={() => this.openLastExtractionInChat()}
+                                disabled={this.isSaving}
+                            >
+                                Envoyer au Chat IA
+                            </button>
+                        </div>
+                    </div>
+                ) : null}
+
+                <div className='grid gap-1'>
+                    <div className='font-semibold'>Base d’édition</div>
+                    <div className='opacity-80'>
+                        {isUsingSeparateBase && baseImage
+                            ? `Image originale #${baseImage.id}`
+                            : `Image #${img.id}`}
+                    </div>
+                    {isUsingSeparateBase ? (
+                        <div className='opacity-70 leading-relaxed'>
+                            Les calques sont rouverts sur l’original pour éviter de réappliquer une annotation déjà exportée.
+                        </div>
+                    ) : null}
+                </div>
+
+                <div className='grid gap-1 opacity-70'>
+                    <div>Ctrl + molette : zoom autour du pointeur</div>
+                    <div>Les sous-images et exports ignorent le rectangle de découpe temporaire.</div>
+                </div>
+            </aside>
+        );
     }
 
     protected renderBadges(img: GeocacheImageV2Dto): React.ReactNode {
@@ -2069,7 +2850,7 @@ export class GeocacheImageEditorWidget extends ReactWidget {
         const canEditImage = Boolean(baseImage);
 
         return (
-            <div className='p-3 grid gap-3'>
+            <div className='p-3 grid gap-3 h-full min-h-0'>
                 <div className='flex items-start justify-between gap-3'>
                     <div className='min-w-0'>
                         <div className='font-semibold truncate'>Image #{img.id}</div>
@@ -2078,22 +2859,21 @@ export class GeocacheImageEditorWidget extends ReactWidget {
                     {this.renderBadges(img)}
                 </div>
 
-                <div className='flex flex-wrap items-center gap-2'>
-                    <button
-                        type='button'
-                        className={`theia-button secondary ${this.tool === 'select' ? 'border border-sky-500' : ''}`}
-                        onClick={() => this.applyTool('select')}
-                    >
-                        Sélection
-                    </button>
+                <div className='grid gap-3 xl:grid-cols-[52px_minmax(0,1fr)_320px] min-h-0'>
+                    {this.renderToolSidebar(canEditImage)}
 
-                    <button
-                        type='button'
-                        className={`theia-button secondary ${this.tool === 'snippet' ? 'border border-sky-500' : ''}`}
-                        onClick={() => this.applyTool('snippet')}
-                    >
-                        Découper
-                    </button>
+                    <div className='min-w-0 grid gap-3 content-start'>
+                        <div className='rounded border border-[var(--theia-panel-border)] bg-[var(--theia-editor-background)] p-2 max-h-64 overflow-y-auto'>
+                            <div className='flex flex-wrap items-center gap-2'>
+                                <div className='w-full flex items-center justify-between gap-2 border-b border-[var(--theia-panel-border)] pb-2 mb-1'>
+                                    <div>
+                                        <div className='text-xs uppercase opacity-60'>Options</div>
+                                        <div className='font-semibold'>{this.getToolLabel()}</div>
+                                    </div>
+                                    <div className='text-xs opacity-70 text-right'>
+                                        {this.selectionCount ? `${this.selectionCount} sélectionné(s)` : 'Aucun calque sélectionné'}
+                                    </div>
+                                </div>
 
                     {showSelectControls ? (
                         <div className='flex flex-wrap items-center gap-2 ml-2'>
@@ -2227,6 +3007,12 @@ export class GeocacheImageEditorWidget extends ReactWidget {
 
                     {showSnippetControls ? (
                         <div className='flex flex-wrap items-center gap-2 ml-2'>
+                            {this.snippetSelectionBounds ? (
+                                <span className='text-xs rounded border border-orange-500/50 bg-orange-500/10 px-2 py-1'>
+                                    {this.snippetSelectionBounds.width} × {this.snippetSelectionBounds.height}px
+                                </span>
+                            ) : null}
+
                             <button
                                 type='button'
                                 className='theia-button secondary'
@@ -2242,7 +3028,27 @@ export class GeocacheImageEditorWidget extends ReactWidget {
                                 onClick={() => { void this.createSnippetFromSelection(); }}
                                 disabled={this.isSaving || !this.snippetSelectionRect}
                             >
-                                Créer sous-image
+                                {this.activeSnippetAction === 'create' ? 'Création…' : 'Créer sous-image'}
+                            </button>
+
+                            <button
+                                type='button'
+                                className='theia-button secondary'
+                                onClick={() => { void this.runOcrOnSnippetSelection(); }}
+                                disabled={this.isSaving || !this.snippetSelectionRect}
+                                title='Créer une sous-image puis lancer EasyOCR dessus'
+                            >
+                                {this.activeSnippetAction === 'ocr' ? 'OCR…' : 'OCR zone'}
+                            </button>
+
+                            <button
+                                type='button'
+                                className='theia-button secondary'
+                                onClick={() => { void this.runQrOnSnippetSelection(); }}
+                                disabled={this.isSaving || !this.snippetSelectionRect}
+                                title='Créer une sous-image puis lancer le détecteur QR dessus'
+                            >
+                                {this.activeSnippetAction === 'qr' ? 'QR…' : 'QR zone'}
                             </button>
                         </div>
                     ) : null}
@@ -2414,34 +3220,6 @@ export class GeocacheImageEditorWidget extends ReactWidget {
                             </button>
                         </div>
                     ) : null}
-                    <button
-                        type='button'
-                        className={`theia-button secondary ${this.tool === 'draw' ? 'border border-sky-500' : ''}`}
-                        onClick={() => this.applyTool('draw')}
-                    >
-                        Dessin
-                    </button>
-
-                    <button
-                        type='button'
-                        className={`theia-button secondary ${this.tool === 'shapes' ? 'border border-sky-500' : ''}`}
-                        onClick={() => this.applyTool('shapes')}
-                    >
-                        Formes
-                    </button>
-
-                    <button
-                        type='button'
-                        className={`theia-button secondary ${this.tool === 'image' ? 'border border-sky-500' : ''}`}
-                        onClick={() => {
-                            this.applyTool('image');
-                            this.ensureBaseImageObject();
-                        }}
-                        disabled={!canEditImage && !this.image}
-                    >
-                        Image
-                    </button>
-
                     {showImageControls ? (
                         <div className='flex flex-wrap items-center gap-2 ml-2'>
                             <span className='text-xs opacity-70'>Ajustements image</span>
@@ -2950,17 +3728,6 @@ export class GeocacheImageEditorWidget extends ReactWidget {
                             </button>
                         </div>
                     ) : null}
-                    <button
-                        type='button'
-                        className={`theia-button secondary ${this.tool === 'text' ? 'border border-sky-500' : ''}`}
-                        onClick={() => {
-                            this.applyTool('text');
-                            this.addText();
-                        }}
-                    >
-                        Texte
-                    </button>
-
                     {showTextControls ? (
                         <div className='flex flex-wrap items-center gap-2 ml-2'>
                             <label className='text-xs opacity-70'>
@@ -3079,7 +3846,7 @@ export class GeocacheImageEditorWidget extends ReactWidget {
                         onClick={() => { void this.save(); }}
                         disabled={this.isSaving}
                     >
-                        {this.isSaving ? 'Sauvegarde…' : 'Enregistrer'}
+                        {this.isSaving ? 'Sauvegarde…' : 'Mettre à jour'}
                     </button>
 
                     <button
@@ -3088,7 +3855,7 @@ export class GeocacheImageEditorWidget extends ReactWidget {
                         onClick={() => { void this.saveAsNew(); }}
                         disabled={this.isSaving}
                     >
-                        Enregistrer sous…
+                        Créer version
                     </button>
 
                     <button
@@ -3097,7 +3864,7 @@ export class GeocacheImageEditorWidget extends ReactWidget {
                         onClick={() => this.undo()}
                         disabled={!canUndo}
                     >
-                        Undo
+                        Annuler
                     </button>
                     <button
                         type='button'
@@ -3105,17 +3872,22 @@ export class GeocacheImageEditorWidget extends ReactWidget {
                         onClick={() => this.redo()}
                         disabled={!canRedo}
                     >
-                        Redo
+                        Rétablir
                     </button>
                 </div>
+                        </div>
 
-                <div className='rounded border border-[var(--theia-panel-border)] bg-[var(--theia-editor-background)] p-2'>
-                    <canvas className='w-full rounded bg-black/20' ref={this.setCanvasRef} />
-                </div>
+                        <div className='rounded border border-[var(--theia-panel-border)] bg-[var(--theia-editor-background)] p-2 overflow-auto'>
+                            <canvas className='w-full rounded bg-black/20' ref={this.setCanvasRef} />
+                        </div>
 
-                <div className='text-xs opacity-70'>
-                    {img.title ? <div>Titre: {img.title}</div> : null}
-                    {img.note ? <div>Note: {img.note}</div> : null}
+                        <div className='text-xs opacity-70'>
+                            {img.title ? <div>Titre: {img.title}</div> : null}
+                            {img.note ? <div>Note: {img.note}</div> : null}
+                        </div>
+                    </div>
+
+                    {this.renderWorkflowPanel(img)}
                 </div>
             </div>
         );
