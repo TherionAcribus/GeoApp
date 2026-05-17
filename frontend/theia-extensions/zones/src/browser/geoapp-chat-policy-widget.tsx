@@ -79,6 +79,7 @@ const CATEGORY_ORDER: GeoAppAiToolCategory[] = [
     'image',
     'web',
     'plugins',
+    'utility',
     'debug',
 ];
 
@@ -1514,6 +1515,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
             image: 'Image / OCR',
             web: 'Web',
             plugins: 'Plugins dynamiques',
+            utility: 'Utilitaires',
             debug: 'Debug',
         };
         return labels[category] || category;

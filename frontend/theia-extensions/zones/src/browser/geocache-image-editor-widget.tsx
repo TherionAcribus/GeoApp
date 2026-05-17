@@ -3357,7 +3357,7 @@ export class GeocacheImageEditorWidget extends ReactWidget {
         ];
 
         return (
-            <nav className='rounded border border-[var(--theia-panel-border)] bg-[var(--theia-editor-background)] p-1 flex flex-col items-center gap-1'>
+            <nav className='geoapp-image-editor-tools'>
                 {tools.map(tool => {
                     const active = this.tool === tool.id;
                     return (
@@ -3553,19 +3553,245 @@ export class GeocacheImageEditorWidget extends ReactWidget {
         );
     }
 
-    protected renderActiveModeBanner(): React.ReactNode {
+    protected renderEditorStyles(): React.ReactNode {
         return (
-            <div className='sticky top-0 z-10 rounded border border-[var(--theia-panel-border)] bg-[var(--theia-editor-background)]/95 p-2 shadow-sm'>
-                <div className='flex items-start gap-2'>
-                    <div className='w-8 h-8 rounded border border-[var(--theia-panel-border)] flex items-center justify-center shrink-0'>
+            <style>
+                {`
+                .theia-geocache-image-editor-widget .geoapp-image-editor-root {
+                    box-sizing: border-box;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 8px;
+                    height: 100%;
+                    min-height: 0;
+                    overflow: hidden;
+                    padding: 8px;
+                }
+                .theia-geocache-image-editor-widget .geoapp-image-editor-titlebar,
+                .theia-geocache-image-editor-widget .geoapp-image-editor-modebar,
+                .theia-geocache-image-editor-widget .geoapp-image-editor-footer {
+                    flex: 0 0 auto;
+                    border: 1px solid var(--theia-panel-border);
+                    background: var(--theia-editor-background);
+                    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+                }
+                .theia-geocache-image-editor-widget .geoapp-image-editor-titlebar {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 12px;
+                    padding: 6px 8px;
+                    min-height: 34px;
+                }
+                .theia-geocache-image-editor-widget .geoapp-image-editor-modebar {
+                    display: grid;
+                    grid-template-columns: minmax(220px, 1fr) auto;
+                    align-items: center;
+                    gap: 12px;
+                    padding: 8px;
+                }
+                .theia-geocache-image-editor-widget .geoapp-image-editor-mode-main {
+                    display: flex;
+                    align-items: flex-start;
+                    gap: 8px;
+                    min-width: 0;
+                }
+                .theia-geocache-image-editor-widget .geoapp-image-editor-mode-icon {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    width: 32px;
+                    height: 32px;
+                    flex: 0 0 32px;
+                    border: 1px solid var(--theia-panel-border);
+                    background: rgba(255, 255, 255, 0.04);
+                }
+                .theia-geocache-image-editor-widget .geoapp-image-editor-pills {
+                    display: flex;
+                    flex-wrap: wrap;
+                    justify-content: flex-end;
+                    gap: 6px;
+                    min-width: 0;
+                }
+                .theia-geocache-image-editor-widget .geoapp-image-editor-pill {
+                    max-width: 360px;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                    border: 1px solid var(--theia-panel-border);
+                    background: rgba(255, 255, 255, 0.04);
+                    padding: 3px 7px;
+                    font-size: 12px;
+                }
+                .theia-geocache-image-editor-widget .geoapp-image-editor-pill-accent {
+                    border-color: rgba(249, 115, 22, 0.7);
+                    background: rgba(249, 115, 22, 0.16);
+                }
+                .theia-geocache-image-editor-widget .geoapp-image-editor-pill-info {
+                    border-color: rgba(56, 189, 248, 0.55);
+                    background: rgba(56, 189, 248, 0.13);
+                }
+                .theia-geocache-image-editor-widget .geoapp-image-editor-body {
+                    display: grid;
+                    grid-template-columns: 48px minmax(0, 1fr) 320px;
+                    gap: 8px;
+                    flex: 1 1 auto;
+                    min-height: 0;
+                    overflow: hidden;
+                }
+                .theia-geocache-image-editor-widget .geoapp-image-editor-tools {
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    gap: 6px;
+                    min-height: 0;
+                    overflow: auto;
+                    border: 1px solid var(--theia-panel-border);
+                    background: var(--theia-editor-background);
+                    padding: 4px;
+                }
+                .theia-geocache-image-editor-widget .geoapp-image-editor-center {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 8px;
+                    min-width: 0;
+                    min-height: 0;
+                    overflow: hidden;
+                }
+                .theia-geocache-image-editor-widget .geoapp-image-editor-options-panel {
+                    flex: 0 0 auto;
+                    max-height: 170px;
+                    overflow: auto;
+                    border: 1px solid var(--theia-panel-border);
+                    background: var(--theia-editor-background);
+                    padding: 8px;
+                }
+                .theia-geocache-image-editor-widget .geoapp-image-editor-options-row,
+                .theia-geocache-image-editor-widget .geoapp-image-editor-options-panel .flex {
+                    display: flex;
+                    flex-wrap: wrap;
+                    align-items: center;
+                    gap: 8px;
+                }
+                .theia-geocache-image-editor-widget .geoapp-image-editor-options-heading {
+                    flex: 1 0 100%;
+                    display: flex;
+                    justify-content: space-between;
+                    gap: 8px;
+                    border-bottom: 1px solid var(--theia-panel-border);
+                    padding-bottom: 6px;
+                    margin-bottom: 4px;
+                }
+                .theia-geocache-image-editor-widget .geoapp-image-editor-canvas-wrap {
+                    flex: 1 1 auto;
+                    min-height: 0;
+                    overflow: auto;
+                    border: 1px solid var(--theia-panel-border);
+                    background: var(--theia-editor-background);
+                    padding: 8px;
+                }
+                .theia-geocache-image-editor-widget .geoapp-image-editor-canvas-wrap canvas {
+                    display: block;
+                    background: rgba(0, 0, 0, 0.22);
+                }
+                .theia-geocache-image-editor-widget .geoapp-image-editor-meta {
+                    flex: 0 0 auto;
+                    font-size: 12px;
+                    opacity: 0.72;
+                    max-height: 44px;
+                    overflow: auto;
+                }
+                .theia-geocache-image-editor-widget .geoapp-image-editor-inspector {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 10px;
+                    min-height: 0;
+                    overflow: auto;
+                    border: 1px solid var(--theia-panel-border);
+                    background: var(--theia-editor-background);
+                    padding: 8px;
+                }
+                .theia-geocache-image-editor-widget .geoapp-image-editor-footer {
+                    display: flex;
+                    flex-wrap: wrap;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 8px;
+                    padding: 5px 8px;
+                    font-size: 12px;
+                    opacity: 0.9;
+                }
+                @media (max-width: 980px) {
+                    .theia-geocache-image-editor-widget .geoapp-image-editor-body {
+                        grid-template-columns: 44px minmax(0, 1fr);
+                    }
+                    .theia-geocache-image-editor-widget .geoapp-image-editor-inspector {
+                        grid-column: 1 / -1;
+                        max-height: 220px;
+                    }
+                    .theia-geocache-image-editor-widget .geoapp-image-editor-modebar {
+                        grid-template-columns: 1fr;
+                    }
+                    .theia-geocache-image-editor-widget .geoapp-image-editor-pills {
+                        justify-content: flex-start;
+                    }
+                }
+                `}
+            </style>
+        );
+    }
+
+    protected renderActiveModeBanner(): React.ReactNode {
+        const objectCount = Math.max(0, (this.fabricCanvas?.getObjects?.() ?? []).length - (this.getBaseImageObject() ? 1 : 0));
+        const snippetBounds = this.snippetSelectionBounds;
+
+        return (
+            <div className='geoapp-image-editor-modebar'>
+                <div className='geoapp-image-editor-mode-main'>
+                    <div className='geoapp-image-editor-mode-icon'>
                         <i className={this.getToolIcon(this.tool)} aria-hidden='true' />
                     </div>
-                    <div className='min-w-0'>
-                        <div className='text-xs uppercase opacity-60'>Mode actif</div>
+                    <div className='min-w-0' style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 11, opacity: 0.62, textTransform: 'uppercase' }}>Mode actif</div>
                         <div className='font-semibold'>{this.getToolLabel()}</div>
-                        <div className='text-xs opacity-75 leading-relaxed'>{this.getToolHint()}</div>
+                        <div style={{ fontSize: 12, opacity: 0.76, lineHeight: 1.35 }}>{this.getToolHint()}</div>
                     </div>
+
                 </div>
+
+                <div className='geoapp-image-editor-pills'>
+                    <span className='geoapp-image-editor-pill'>
+                            Zoom {Math.round(this.imageZoom * 100)}%
+                        </span>
+                    <span className='geoapp-image-editor-pill'>
+                            {objectCount} calque{objectCount > 1 ? 's' : ''}
+                        </span>
+                    {snippetBounds ? (
+                        <span className='geoapp-image-editor-pill geoapp-image-editor-pill-accent'>
+                                Zone {snippetBounds.width} × {snippetBounds.height}px · x {snippetBounds.left}, y {snippetBounds.top}
+                            </span>
+                    ) : null}
+                    {this.lastActionMessage ? (
+                        <span className='geoapp-image-editor-pill geoapp-image-editor-pill-info'>
+                                {this.lastActionMessage}
+                            </span>
+                    ) : null}
+                </div>
+            </div>
+        );
+    }
+
+    protected renderEditorFooter(img: GeocacheImageV2Dto): React.ReactNode {
+        const baseImage = this.getEditorBaseImage();
+        const baseLabel = baseImage && baseImage.id !== img.id
+            ? `Base: originale #${baseImage.id}`
+            : `Base: image #${img.id}`;
+
+        return (
+            <div className='geoapp-image-editor-footer'>
+                <span>{baseLabel}</span>
+                <span>Ctrl + molette: zoom · Entrée: sous-image · Ctrl + Entrée: OCR · Alt + Entrée: recherche IA/Web</span>
+                <span>Exports sans rectangle de découpe</span>
             </div>
         );
     }
@@ -3679,37 +3905,12 @@ export class GeocacheImageEditorWidget extends ReactWidget {
     protected renderWorkflowPanel(img: GeocacheImageV2Dto): React.ReactNode {
         const baseImage = this.getEditorBaseImage();
         const isUsingSeparateBase = Boolean(baseImage && baseImage.id !== img.id);
-        const objectCount = Math.max(0, (this.fabricCanvas?.getObjects?.() ?? []).length - (this.getBaseImageObject() ? 1 : 0));
-        const hasTransientSnippet = Boolean(this.snippetSelectionRect);
-        const snippetBounds = this.snippetSelectionBounds;
         const hasExtraction = Boolean((this.lastExtractedText || '').trim());
         const extractionPreview = (this.lastExtractedText || '').trim();
         const extractionHints = hasExtraction ? this.getExtractionHints(extractionPreview) : [];
 
         return (
-            <aside className='rounded border border-[var(--theia-panel-border)] bg-[var(--theia-editor-background)] p-3 text-xs grid gap-3'>
-                <div className='grid gap-1'>
-                    <div className='font-semibold'>État</div>
-                    <div className='opacity-80'>Calques éditables : {objectCount}</div>
-                    <div className='opacity-80'>Zoom : {Math.round(this.imageZoom * 100)}%</div>
-                    {hasTransientSnippet && snippetBounds ? (
-                        <div className='rounded border border-orange-500/50 bg-orange-500/10 p-2'>
-                            <div className='font-semibold text-orange-200'>Zone de découpe</div>
-                            <div className='mt-1 opacity-90'>
-                                {snippetBounds.width} × {snippetBounds.height}px
-                            </div>
-                            <div className='opacity-70'>
-                                x {snippetBounds.left}, y {snippetBounds.top}
-                            </div>
-                        </div>
-                    ) : hasTransientSnippet ? <div className='opacity-80'>Sélection de découpe prête</div> : null}
-                    {this.lastActionMessage ? (
-                        <div className='mt-2 rounded border border-[var(--theia-panel-border)] bg-black/10 p-2 opacity-90'>
-                            {this.lastActionMessage}
-                        </div>
-                    ) : null}
-                </div>
-
+            <aside className='geoapp-image-editor-inspector'>
                 {this.renderLayersPanel()}
 
                 {this.snippetPreviewDataUrl ? (
@@ -3767,11 +3968,6 @@ export class GeocacheImageEditorWidget extends ReactWidget {
                     ) : null}
                 </div>
 
-                <div className='grid gap-1 opacity-70'>
-                    <div>Ctrl + molette : zoom autour du pointeur</div>
-                    <div>Découpe : Entrée crée une sous-image, Ctrl + Entrée lance l’OCR, Alt + Entrée ouvre la recherche IA/Web.</div>
-                    <div>Les sous-images et exports ignorent le rectangle de découpe temporaire.</div>
-                </div>
             </aside>
         );
     }
@@ -3835,29 +4031,31 @@ export class GeocacheImageEditorWidget extends ReactWidget {
         const canEditImage = Boolean(baseImage);
 
         return (
-            <div className='p-3 grid gap-3 h-full min-h-0' onClick={() => this.closeContextMenu()}>
-                <div className='flex items-start justify-between gap-3'>
-                    <div className='min-w-0'>
+            <div className='geoapp-image-editor-root' onClick={() => this.closeContextMenu()}>
+                {this.renderEditorStyles()}
+
+                <div className='geoapp-image-editor-titlebar'>
+                    <div style={{ minWidth: 0 }}>
                         <div className='font-semibold truncate'>Image #{img.id}</div>
-                        <div className='text-xs opacity-70 truncate'>{img.source_url}</div>
+                        <div style={{ fontSize: 12, opacity: 0.7, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{img.source_url}</div>
                     </div>
                     {this.renderBadges(img)}
                 </div>
 
                 {this.renderActiveModeBanner()}
 
-                <div className='grid gap-3 xl:grid-cols-[52px_minmax(0,1fr)_320px] min-h-0'>
+                <div className='geoapp-image-editor-body'>
                     {this.renderToolSidebar(canEditImage)}
 
-                    <div className='min-w-0 grid gap-3 content-start'>
-                        <div className='rounded border border-[var(--theia-panel-border)] bg-[var(--theia-editor-background)] p-2 max-h-64 overflow-y-auto'>
-                            <div className='flex flex-wrap items-center gap-2'>
-                                <div className='w-full flex items-center justify-between gap-2 border-b border-[var(--theia-panel-border)] pb-2 mb-1'>
+                    <div className='geoapp-image-editor-center'>
+                        <div className='geoapp-image-editor-options-panel'>
+                            <div className='geoapp-image-editor-options-row'>
+                                <div className='geoapp-image-editor-options-heading'>
                                     <div>
-                                        <div className='text-xs uppercase opacity-60'>Options</div>
+                                        <div style={{ fontSize: 11, opacity: 0.62, textTransform: 'uppercase' }}>Options</div>
                                         <div className='font-semibold'>{this.getToolLabel()}</div>
                                     </div>
-                                    <div className='text-xs opacity-70 text-right'>
+                                    <div style={{ fontSize: 12, opacity: 0.7, textAlign: 'right' }}>
                                         {this.selectionCount ? `${this.selectionCount} sélectionné(s)` : 'Aucun calque sélectionné'}
                                     </div>
                                 </div>
@@ -4874,14 +5072,11 @@ export class GeocacheImageEditorWidget extends ReactWidget {
                 </div>
                         </div>
 
-                        <div
-                            className='rounded border border-[var(--theia-panel-border)] bg-[var(--theia-editor-background)] p-2 overflow-auto'
-                            onContextMenu={event => this.openEditorContextMenu(event)}
-                        >
+                        <div className='geoapp-image-editor-canvas-wrap' onContextMenu={event => this.openEditorContextMenu(event)}>
                             <canvas className='w-full rounded bg-black/20' ref={this.setCanvasRef} />
                         </div>
 
-                        <div className='text-xs opacity-70'>
+                        <div className='geoapp-image-editor-meta'>
                             {img.title ? <div>Titre: {img.title}</div> : null}
                             {img.note ? <div>Note: {img.note}</div> : null}
                         </div>
@@ -4889,6 +5084,7 @@ export class GeocacheImageEditorWidget extends ReactWidget {
 
                     {this.renderWorkflowPanel(img)}
                 </div>
+                {this.renderEditorFooter(img)}
                 {this.renderContextMenu()}
             </div>
         );
