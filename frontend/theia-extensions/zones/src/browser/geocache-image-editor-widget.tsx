@@ -27,6 +27,12 @@ type GeocacheImageV2Dto = {
 type ImageEditorTool = 'select' | 'draw' | 'text' | 'image' | 'shapes' | 'snippet';
 type ImageEditorSnippetAction = 'create' | 'ocr' | 'qr' | 'visual-search';
 type SnippetSelectionBounds = { left: number; top: number; width: number; height: number };
+type ImageEditorExtractionHintKind = 'coordinates' | 'url' | 'checker' | 'gc-code' | 'code' | 'formula';
+type ImageEditorExtractionHint = {
+    kind: ImageEditorExtractionHintKind;
+    label: string;
+    value: string;
+};
 
 export interface GeocacheImageEditorContext {
     backendBaseUrl: string;
@@ -1029,6 +1035,87 @@ export class GeocacheImageEditorWidget extends ReactWidget {
         ].join('\n');
     }
 
+    protected getExtractionHints(text: string = this.lastExtractedText || ''): ImageEditorExtractionHint[] {
+        const source = text.trim();
+        if (!source) {
+            return [];
+        }
+
+        const hints: ImageEditorExtractionHint[] = [];
+        const seen = new Set<string>();
+        const addHint = (kind: ImageEditorExtractionHintKind, label: string, value: string): void => {
+            const clean = value.trim().replace(/[.,;:!?]+$/g, '');
+            if (!clean) {
+                return;
+            }
+            const key = `${kind}:${clean.toLowerCase()}`;
+            if (seen.has(key)) {
+                return;
+            }
+            seen.add(key);
+            hints.push({ kind, label, value: clean });
+        };
+
+        const urlRegex = /\bhttps?:\/\/[^\s<>"')\]]+/gi;
+        for (const match of source.matchAll(urlRegex)) {
+            const value = match[0];
+            const lowered = value.toLowerCase();
+            const isChecker = lowered.includes('certitudes.org') ||
+                lowered.includes('geocheck') ||
+                lowered.includes('solution-checker') ||
+                lowered.includes('checker');
+            addHint(isChecker ? 'checker' : 'url', isChecker ? 'Checker potentiel' : 'Lien', value);
+        }
+
+        const gcCodeRegex = /\bGC[A-Z0-9]{3,8}\b/gi;
+        for (const match of source.matchAll(gcCodeRegex)) {
+            addHint('gc-code', 'Code GC', match[0].toUpperCase());
+        }
+
+        const gcCoordRegex = /\b[NS]\s*\d{1,2}\s*[°º]?\s*\d{1,2}(?:[.,]\d+)?\s*['’]?\s*[,;/ ]+\s*[EOW]\s*\d{1,3}\s*[°º]?\s*\d{1,2}(?:[.,]\d+)?\s*['’]?/gi;
+        for (const match of source.matchAll(gcCoordRegex)) {
+            addHint('coordinates', 'Coordonnées possibles', match[0].replace(/\s+/g, ' '));
+        }
+
+        const decimalCoordRegex = /\b[-+]?\d{1,2}[.,]\d{4,}\s*[,;/]\s*[-+]?\d{1,3}[.,]\d{4,}\b/g;
+        for (const match of source.matchAll(decimalCoordRegex)) {
+            addHint('coordinates', 'Coordonnées décimales possibles', match[0].replace(/\s+/g, ' '));
+        }
+
+        const formulaRegex = /\b[NSWE]\s*=\s*[A-Z0-9+\-*/().,\s]{3,}/gi;
+        for (const match of source.matchAll(formulaRegex)) {
+            addHint('formula', 'Formule possible', match[0].replace(/\s+/g, ' '));
+        }
+
+        const codeRegex = /\b(?=[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])[A-Z0-9]{6,}\b/g;
+        for (const match of source.toUpperCase().matchAll(codeRegex)) {
+            const value = match[0];
+            if (value.startsWith('GC') || /^HTTP/.test(value)) {
+                continue;
+            }
+            addHint('code', 'Code potentiel', value);
+            if (hints.filter(hint => hint.kind === 'code').length >= 6) {
+                break;
+            }
+        }
+
+        return hints.slice(0, 12);
+    }
+
+    protected buildExtractionHintsContent(hints: ImageEditorExtractionHint[] = this.getExtractionHints()): string | null {
+        const content = this.buildLastExtractionContent();
+        if (!content || hints.length === 0) {
+            return null;
+        }
+
+        return [
+            content,
+            '',
+            'Pistes détectées automatiquement :',
+            ...hints.map(hint => `- ${hint.label}: ${hint.value}`),
+        ].join('\n');
+    }
+
     protected async addLastExtractionToNotes(): Promise<void> {
         if (!this.geocacheId) {
             return;
@@ -1065,6 +1152,48 @@ export class GeocacheImageEditorWidget extends ReactWidget {
         } catch (e) {
             console.error('[GeocacheImageEditorWidget] add extraction to notes error', e);
             this.lastActionMessage = 'Impossible d’ajouter le résultat aux notes.';
+        } finally {
+            this.isSaving = false;
+            this.update();
+        }
+    }
+
+    protected async addExtractionHintsToNotes(): Promise<void> {
+        if (!this.geocacheId) {
+            return;
+        }
+
+        const content = this.buildExtractionHintsContent();
+        if (!content) {
+            return;
+        }
+
+        this.isSaving = true;
+        this.lastActionMessage = 'Ajout des pistes détectées aux notes…';
+        this.update();
+
+        try {
+            const res = await fetch(`${this.backendBaseUrl}/api/geocaches/${this.geocacheId}/notes`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                    content,
+                    note_type: 'user',
+                    source: 'user',
+                    source_plugin: 'image_editor',
+                }),
+            });
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status}`);
+            }
+            this.lastActionMessage = 'Pistes détectées ajoutées aux notes.';
+            window.dispatchEvent(new CustomEvent('open-geocache-notes', {
+                detail: { backendBaseUrl: this.backendBaseUrl, geocacheId: this.geocacheId }
+            }));
+        } catch (e) {
+            console.error('[GeocacheImageEditorWidget] add extraction hints to notes error', e);
+            this.lastActionMessage = 'Impossible d’ajouter les pistes détectées aux notes.';
         } finally {
             this.isSaving = false;
             this.update();
@@ -1116,6 +1245,56 @@ export class GeocacheImageEditorWidget extends ReactWidget {
         }));
 
         this.lastActionMessage = 'Résultat envoyé au Chat IA.';
+        this.update();
+    }
+
+    protected openExtractionHintsInChat(): void {
+        if (!this.geocacheId) {
+            return;
+        }
+
+        const hints = this.getExtractionHints();
+        const content = this.buildExtractionHintsContent(hints);
+        if (!content) {
+            return;
+        }
+
+        const snippet = this.lastSnippetImage;
+        const imageUrls = snippet ? [this.resolveImageUrl(snippet.url)] : undefined;
+        const prompt = [
+            'J’ai détecté automatiquement des pistes dans une zone OCR/QR d’image de géocache.',
+            snippet ? `Sous-image: #${snippet.id}` : '',
+            '',
+            content,
+            '',
+            'Vérifie ces pistes. Dis lesquelles semblent fiables, lesquelles peuvent être des faux positifs OCR, et propose les prochaines actions utiles pour résoudre l’énigme.',
+            'Si des coordonnées sont plausibles, reformate-les proprement et indique si elles peuvent servir de waypoint ou de coordonnées corrigées.',
+        ].filter(Boolean).join('\n');
+
+        window.dispatchEvent(new CustomEvent('geoapp-open-chat-request', {
+            detail: {
+                geocacheId: this.geocacheId,
+                sessionTitle: `Pistes image - géocache #${this.geocacheId}`,
+                prompt,
+                imageUrls,
+                focus: true,
+                workflowKind: hints.some(hint => hint.kind === 'checker') ? 'checker' : 'image_puzzle',
+                preferredProfile: hints.some(hint => hint.kind === 'url' || hint.kind === 'checker') ? 'web' : 'default',
+                sessionKind: 'auto',
+                resumeState: {
+                    workflow: { kind: 'image_puzzle' },
+                    imageEditor: {
+                        sourceImageId: this.imageId,
+                        snippetImageId: snippet?.id,
+                        extractionKind: this.lastExtractedKind,
+                        hints,
+                    },
+                    currentText: content,
+                },
+            }
+        }));
+
+        this.lastActionMessage = 'Pistes détectées envoyées au Chat IA.';
         this.update();
     }
 
@@ -2762,6 +2941,65 @@ export class GeocacheImageEditorWidget extends ReactWidget {
         );
     }
 
+    protected getExtractionHintClassName(kind: ImageEditorExtractionHintKind): string {
+        switch (kind) {
+            case 'coordinates':
+                return 'border-emerald-500/50 bg-emerald-500/10 text-emerald-100';
+            case 'checker':
+                return 'border-amber-500/50 bg-amber-500/10 text-amber-100';
+            case 'url':
+                return 'border-sky-500/50 bg-sky-500/10 text-sky-100';
+            case 'gc-code':
+                return 'border-cyan-500/50 bg-cyan-500/10 text-cyan-100';
+            case 'formula':
+                return 'border-fuchsia-500/50 bg-fuchsia-500/10 text-fuchsia-100';
+            case 'code':
+                return 'border-slate-500/50 bg-slate-500/10 text-slate-100';
+        }
+    }
+
+    protected renderExtractionHints(hints: ImageEditorExtractionHint[]): React.ReactNode {
+        if (!hints.length) {
+            return null;
+        }
+
+        return (
+            <div className='grid gap-2'>
+                <div className='font-semibold'>Pistes détectées</div>
+                <div className='flex flex-wrap gap-1.5'>
+                    {hints.map((hint, index) => (
+                        <span
+                            key={`${hint.kind}-${hint.value}-${index}`}
+                            className={`rounded border px-2 py-1 ${this.getExtractionHintClassName(hint.kind)}`}
+                            title={hint.value}
+                        >
+                            <span className='opacity-75'>{hint.label}: </span>
+                            <span className='font-semibold'>{hint.value.length > 42 ? `${hint.value.slice(0, 42)}…` : hint.value}</span>
+                        </span>
+                    ))}
+                </div>
+                <div className='flex flex-wrap gap-2'>
+                    <button
+                        type='button'
+                        className='theia-button secondary'
+                        onClick={() => this.openExtractionHintsInChat()}
+                        disabled={this.isSaving}
+                    >
+                        Vérifier avec le Chat IA
+                    </button>
+                    <button
+                        type='button'
+                        className='theia-button secondary'
+                        onClick={() => { void this.addExtractionHintsToNotes(); }}
+                        disabled={this.isSaving}
+                    >
+                        Ajouter pistes aux notes
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     protected renderWorkflowPanel(img: GeocacheImageV2Dto): React.ReactNode {
         const baseImage = this.getEditorBaseImage();
         const isUsingSeparateBase = Boolean(baseImage && baseImage.id !== img.id);
@@ -2770,6 +3008,7 @@ export class GeocacheImageEditorWidget extends ReactWidget {
         const snippetBounds = this.snippetSelectionBounds;
         const hasExtraction = Boolean((this.lastExtractedText || '').trim());
         const extractionPreview = (this.lastExtractedText || '').trim();
+        const extractionHints = hasExtraction ? this.getExtractionHints(extractionPreview) : [];
 
         return (
             <aside className='rounded border border-[var(--theia-panel-border)] bg-[var(--theia-editor-background)] p-3 text-xs grid gap-3'>
@@ -2838,6 +3077,7 @@ export class GeocacheImageEditorWidget extends ReactWidget {
                                 Envoyer au Chat IA
                             </button>
                         </div>
+                        {this.renderExtractionHints(extractionHints)}
                     </div>
                 ) : null}
 
