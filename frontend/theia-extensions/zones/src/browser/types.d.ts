@@ -27,6 +27,11 @@ declare module '*.svg' {
     export default content;
 }
 
+declare module '*.css' {
+    const content: string;
+    export default content;
+}
+
 declare module 'fabric' {
     export const fabric: any;
 }

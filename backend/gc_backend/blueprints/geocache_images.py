@@ -88,6 +88,45 @@ def _safe_resolve_stored_file(stored_path: str) -> Path:
     return full_path
 
 
+def _is_uploaded_source(source_url: str | None) -> bool:
+    return (source_url or '').startswith('geoapp-upload://')
+
+
+def _is_http_source(source_url: str | None) -> bool:
+    return (source_url or '').lower().startswith(('http://', 'https://'))
+
+
+def _can_download_source(image: GeocacheImage) -> bool:
+    """Only original remote listing images can be downloaded/re-downloaded."""
+    return not image.parent_image_id and _is_http_source(image.source_url)
+
+
+def _can_delete_image(image: GeocacheImage) -> bool:
+    """Uploaded roots and all derived images are user-managed and deletable."""
+    root = _get_root_image(image)
+    return bool(image.parent_image_id) or _is_uploaded_source(root.source_url)
+
+
+def _parse_requested_image_ids() -> set[int] | None:
+    payload = request.get_json(silent=True) if request.is_json else None
+    if not isinstance(payload, dict) or 'image_ids' not in payload:
+        return None
+
+    raw_ids = payload.get('image_ids')
+    if raw_ids is None:
+        return None
+    if not isinstance(raw_ids, list):
+        raise ValueError('image_ids must be a list')
+
+    ids: set[int] = set()
+    for value in raw_ids:
+        try:
+            ids.add(int(value))
+        except (TypeError, ValueError):
+            raise ValueError('image_ids must contain integers') from None
+    return ids
+
+
 @bp.get('/api/geocaches/<int:geocache_id>/images')
 def list_geocache_images(geocache_id: int):
     geocache = Geocache.query.get(geocache_id)
@@ -508,6 +547,9 @@ def duplicate_geocache_image(image_id: int):
     if not source:
         return jsonify({'error': 'Image not found'}), 404
 
+    if not source.stored or not source.stored_path:
+        return jsonify({'error': 'Image must be stored before it can be duplicated'}), 400
+
     derivation_type = _next_derivation_type(source, source.id, 'copy')
     duplicated = GeocacheImage(
         geocache_id=source.geocache_id,
@@ -567,6 +609,9 @@ def store_geocache_image(image_id: int):
     if image.stored and image.stored_path:
         return jsonify(image.to_dict())
 
+    if not _can_download_source(image):
+        return jsonify({'error': 'Only remote original images can be stored'}), 400
+
     try:
         content, content_type, status_code = download_image(image.source_url)
         if status_code >= 400:
@@ -588,6 +633,9 @@ def store_geocache_image(image_id: int):
 
         db.session.commit()
         return jsonify(image.to_dict())
+    except ValueError as exc:
+        db.session.rollback()
+        return jsonify({'error': str(exc)}), 400
     except Exception as exc:
         logger.error('Failed to store image %s: %s', image_id, exc, exc_info=True)
         db.session.rollback()
@@ -599,6 +647,9 @@ def unstore_geocache_image(image_id: int):
     image = GeocacheImage.query.get(image_id)
     if not image:
         return jsonify({'error': 'Image not found'}), 404
+
+    if not _can_download_source(image):
+        return jsonify({'error': 'Only remote original images can remove local storage'}), 400
 
     if not image.stored and not image.stored_path:
         return jsonify(image.to_dict())
@@ -629,9 +680,8 @@ def delete_geocache_image(image_id: int):
     if not image:
         return jsonify({'error': 'Image not found'}), 404
 
-    root = _get_root_image(image)
-    if not (root.source_url or '').startswith('geoapp-upload://'):
-        return jsonify({'error': 'Only uploaded images can be deleted'}), 400
+    if not _can_delete_image(image):
+        return jsonify({'error': 'Only uploaded images and derived images can be deleted'}), 400
 
     visited: set[int] = set()
     stack = [image]
@@ -674,13 +724,24 @@ def store_all_geocache_images(geocache_id: int):
     ensure_images_v2_for_geocache(geocache)
     db.session.commit()
 
+    try:
+        requested_ids = _parse_requested_image_ids()
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+
     images = GeocacheImage.query.filter_by(geocache_id=geocache_id).order_by(GeocacheImage.id.asc()).all()
+    if requested_ids is not None:
+        images = [img for img in images if img.id in requested_ids]
 
     stored_count = 0
     failed: list[dict] = []
+    skipped: list[dict] = []
 
     for img in images:
         if img.stored and img.stored_path:
+            continue
+        if not _can_download_source(img):
+            skipped.append({'id': img.id, 'reason': 'not_remote_original'})
             continue
         try:
             content, content_type, status_code = download_image(img.source_url)
@@ -706,7 +767,7 @@ def store_all_geocache_images(geocache_id: int):
             failed.append({'id': img.id, 'error': str(exc)})
 
     db.session.commit()
-    return jsonify({'stored': stored_count, 'failed': failed})
+    return jsonify({'stored': stored_count, 'failed': failed, 'skipped': skipped})
 
 
 @bp.get('/api/geocache-images/<int:image_id>/content')

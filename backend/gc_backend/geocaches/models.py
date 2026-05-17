@@ -164,6 +164,8 @@ class GeocacheImage(db.Model):
     def get_display_url(self) -> str:
         if self.stored:
             return f'/api/geocache-images/{self.id}/content'
+        if self.parent_image_id or (self.source_url or '').startswith('geoapp-upload://'):
+            return ''
         return self.source_url
 
     def to_dict(self) -> dict:

@@ -933,17 +933,42 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         }
     };
 
-    private openFreeChatDialog = (): void => {
+    private openFreeChatDialog = async (): Promise<void> => {
         if (!this.geocacheId || !this.data) {
             this.messages.warn('Aucune geocache selectionnee pour ouvrir le Chat Libre.');
             return;
         }
         this.freeChatDialogDraft = this.chatController.buildFreeChatDraft(this.data);
-        this.freeChatDialogImageUrls = (this.data.images || []).map(img => img.url).filter(Boolean);
+        this.freeChatDialogImageUrls = await this.loadFreeChatImageUrls();
         this.isChatProfileMenuOpen = false;
         this.isFreeChatDialogOpen = true;
         this.update();
     };
+
+    private async loadFreeChatImageUrls(): Promise<string[]> {
+        const legacyUrls = (this.data?.images || []).map(img => img.url).filter(Boolean);
+        if (!this.geocacheId) {
+            return legacyUrls;
+        }
+
+        try {
+            const backendBaseUrl = this.apiClient.getBaseUrl();
+            const res = await fetch(`${backendBaseUrl}/api/geocaches/${this.geocacheId}/images`, { credentials: 'include' });
+            if (!res.ok) {
+                return legacyUrls;
+            }
+
+            const images = await res.json() as Array<{ url?: string; source_url?: string }>;
+            const urls = images
+                .map(img => (img.url || img.source_url || '').trim())
+                .filter(Boolean)
+                .map(url => url.startsWith('/') ? `${backendBaseUrl}${url}` : url);
+            return urls.length ? urls : legacyUrls;
+        } catch (error) {
+            console.warn('[GeocacheDetailsWidget] loadFreeChatImageUrls error', error);
+            return legacyUrls;
+        }
+    }
 
     private closeFreeChatDialog = (): void => {
         this.isFreeChatDialogOpen = false;

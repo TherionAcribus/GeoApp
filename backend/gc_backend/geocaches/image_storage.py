@@ -3,15 +3,27 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import logging
 import mimetypes
 from pathlib import Path
 from typing import Optional, Tuple
+from urllib.parse import urlparse
 
 import requests
 
 
 logger = logging.getLogger(__name__)
+
+MAX_IMAGE_DOWNLOAD_BYTES = 15 * 1024 * 1024
+DOWNLOAD_CHUNK_SIZE = 64 * 1024
+
+IMAGE_SIGNATURES: tuple[tuple[str, bytes], ...] = (
+    ('image/png', b'\x89PNG\r\n\x1a\n'),
+    ('image/jpeg', b'\xff\xd8'),
+    ('image/gif', b'GIF87a'),
+    ('image/gif', b'GIF89a'),
+)
 
 
 def get_images_root_dir() -> Path:
@@ -44,11 +56,56 @@ def guess_extension(source_url: str, content_type: Optional[str]) -> str:
     return '.jpg'
 
 
-def download_image(source_url: str, timeout_sec: int = 20) -> Tuple[bytes, str, int]:
+def validate_remote_image_url(source_url: str) -> None:
+    """Reject non-HTTP and obvious local/private targets before downloading."""
+    parsed = urlparse(source_url or '')
+    if parsed.scheme not in {'http', 'https'} or not parsed.netloc:
+        raise ValueError('Only HTTP(S) image URLs can be downloaded')
+
+    host = (parsed.hostname or '').strip().lower()
+    if host in {'localhost'}:
+        raise ValueError('Local image URLs cannot be downloaded')
+
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return
+
+    if ip.is_loopback or ip.is_private or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+        raise ValueError('Private image URLs cannot be downloaded')
+
+
+def detect_image_mime_type(content: bytes, declared_content_type: Optional[str] = None) -> str:
+    """Return a safe image MIME type based on bytes, falling back to trusted declarations."""
+    if not content:
+        raise ValueError('Image content is empty')
+
+    for mime_type, signature in IMAGE_SIGNATURES:
+        if content.startswith(signature):
+            return mime_type
+
+    if content.startswith(b'RIFF') and len(content) > 12 and content[8:12] == b'WEBP':
+        return 'image/webp'
+
+    raise ValueError('Downloaded file is not a supported image')
+
+
+def download_image(source_url: str, timeout_sec: int = 20, max_bytes: int = MAX_IMAGE_DOWNLOAD_BYTES) -> Tuple[bytes, str, int]:
     """Download an image and return (content, content_type, status_code)."""
-    res = requests.get(source_url, stream=True, timeout=timeout_sec)
-    content_type = res.headers.get('content-type', '')
-    return res.content, content_type, res.status_code
+    validate_remote_image_url(source_url)
+
+    with requests.get(source_url, stream=True, timeout=timeout_sec) as res:
+        content_type = res.headers.get('content-type', '')
+        chunks: list[bytes] = []
+        total = 0
+        for chunk in res.iter_content(chunk_size=DOWNLOAD_CHUNK_SIZE):
+            if not chunk:
+                continue
+            total += len(chunk)
+            if total > max_bytes:
+                raise ValueError('Image is too large')
+            chunks.append(chunk)
+        return b''.join(chunks), content_type, res.status_code
 
 
 def write_image_file(geocache_id: int, image_id: int, content: bytes, content_type: Optional[str], source_url: str) -> Tuple[str, str, int, str]:
@@ -62,14 +119,14 @@ def write_image_file(geocache_id: int, image_id: int, content: bytes, content_ty
     """
     geocache_dir = ensure_geocache_dir(geocache_id)
 
-    ext = guess_extension(source_url, content_type)
+    mime_type = detect_image_mime_type(content, content_type)
+    ext = guess_extension(source_url, mime_type)
     filename = f"{image_id}{ext}"
     full_path = geocache_dir / filename
 
     full_path.write_bytes(content)
 
     sha = hashlib.sha256(content).hexdigest()
-    mime_type = (content_type or '').split(';')[0].strip() or mimetypes.guess_type(str(full_path))[0] or 'application/octet-stream'
     byte_size = len(content)
 
     stored_path = f"{geocache_id}/{filename}"

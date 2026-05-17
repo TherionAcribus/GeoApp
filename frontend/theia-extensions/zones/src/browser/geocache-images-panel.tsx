@@ -6,6 +6,7 @@ import * as React from 'react';
 import { MessageService } from '@theia/core';
 import { LanguageModelRegistry, LanguageModelService, UserRequest, getJsonOfResponse, getTextOfResponse, isLanguageModelParsedResponse } from '@theia/ai-core';
 import { ContextMenu, ContextMenuItem } from './context-menu';
+import '../../src/browser/style/geocache-images-panel.css';
 
 export type GeocacheImageV2Dto = {
     id: number;
@@ -17,6 +18,8 @@ export type GeocacheImageV2Dto = {
     derivation_type?: string;
     title?: string | null;
     note?: string | null;
+    mime_type?: string | null;
+    byte_size?: number | null;
     qr_payload?: string | null;
     ocr_text?: string | null;
     ocr_language?: string | null;
@@ -117,8 +120,9 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
 
     const [hiddenDomainsDraft, setHiddenDomainsDraft] = React.useState(hiddenDomainsText ?? '');
     const [isSavingHiddenDomains, setIsSavingHiddenDomains] = React.useState(false);
+    const [showHiddenImages, setShowHiddenImages] = React.useState(false);
 
-    const [detailsMode, setDetailsMode] = React.useState<'hidden' | 'fields' | 'preview'>('hidden');
+    const [, setDetailsMode] = React.useState<'hidden' | 'fields' | 'preview'>('hidden');
 
     const [contextMenu, setContextMenu] = React.useState<ThumbnailContextMenuState | null>(null);
 
@@ -139,11 +143,11 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     const thumbnailImageClassName = React.useMemo(() => {
         switch (effectiveThumbnailSize) {
             case 'large':
-                return 'h-24 w-36 rounded object-cover';
+                return 'geoapp-images-thumbnail-image geoapp-images-thumbnail-image--large';
             case 'medium':
-                return 'h-16 w-24 rounded object-cover';
+                return 'geoapp-images-thumbnail-image geoapp-images-thumbnail-image--medium';
             default:
-                return 'h-12 w-16 rounded object-cover';
+                return 'geoapp-images-thumbnail-image geoapp-images-thumbnail-image--small';
         }
     }, [effectiveThumbnailSize]);
 
@@ -160,7 +164,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
 
     const sizeButtonClassName = (size: GalleryThumbnailSize): string => {
         const isActive = effectiveThumbnailSize === size;
-        return `theia-button secondary ${isActive ? 'border border-sky-500' : ''}`;
+        return `theia-button secondary geoapp-images-size-button ${isActive ? 'is-active' : ''}`;
     };
 
     const changeThumbnailSize = (size: GalleryThumbnailSize): void => {
@@ -220,11 +224,14 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     }, [normalizedHiddenDomains]);
 
     const visibleImages = React.useMemo(() => {
+        if (showHiddenImages) {
+            return images;
+        }
         if (!normalizedHiddenDomains.length) {
             return images;
         }
         return images.filter(img => !isHiddenByDomain(img.source_url));
-    }, [images, isHiddenByDomain, normalizedHiddenDomains.length]);
+    }, [images, isHiddenByDomain, normalizedHiddenDomains.length, showHiddenImages]);
 
     const selected = React.useMemo(() => visibleImages.find(i => i.id === selectedId) ?? null, [visibleImages, selectedId]);
 
@@ -309,22 +316,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     }, [selected]);
 
     const handleThumbnailClick = (imageId: number): void => {
-        if (selectedId !== imageId) {
-            setSelectedId(imageId);
-            setDetailsMode('fields');
-            return;
-        }
-
-        if (detailsMode === 'hidden') {
-            setDetailsMode('fields');
-            return;
-        }
-
-        if (detailsMode === 'fields') {
-            setDetailsMode('preview');
-            return;
-        }
-
+        setSelectedId(imageId);
         setDetailsMode('fields');
     };
 
@@ -336,6 +328,88 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             y: e.clientY,
             imageId,
         });
+    };
+
+    const isUploadedImage = React.useCallback((img: GeocacheImageV2Dto | null | undefined): boolean => {
+        return Boolean((img?.source_url || '').startsWith('geoapp-upload://'));
+    }, []);
+
+    const isRemoteOriginalImage = React.useCallback((img: GeocacheImageV2Dto | null | undefined): boolean => {
+        if (!img || img.parent_image_id) {
+            return false;
+        }
+        return /^https?:\/\//i.test((img.source_url || '').trim());
+    }, []);
+
+    const canStoreImage = React.useCallback((img: GeocacheImageV2Dto | null | undefined): boolean => {
+        return Boolean(img && !img.stored && isRemoteOriginalImage(img));
+    }, [isRemoteOriginalImage]);
+
+    const canUnstoreImage = React.useCallback((img: GeocacheImageV2Dto | null | undefined): boolean => {
+        return Boolean(img?.stored && isRemoteOriginalImage(img));
+    }, [isRemoteOriginalImage]);
+
+    const canDeleteImage = React.useCallback((img: GeocacheImageV2Dto | null | undefined): boolean => {
+        return Boolean(img && (Boolean(img.parent_image_id) || isUploadedImage(img)));
+    }, [isUploadedImage]);
+
+    const isMissingLocalImage = React.useCallback((img: GeocacheImageV2Dto | null | undefined): boolean => {
+        return Boolean(img && !img.stored && (Boolean(img.parent_image_id) || isUploadedImage(img)));
+    }, [isUploadedImage]);
+
+    const getImageKindLabel = React.useCallback((img: GeocacheImageV2Dto): string => {
+        if (isUploadedImage(img)) {
+            return 'Ajout manuel';
+        }
+        if (img.derivation_type?.startsWith('edited')) {
+            return 'Image éditée';
+        }
+        if (img.derivation_type?.startsWith('snippet')) {
+            return 'Sous-image';
+        }
+        if (img.derivation_type?.startsWith('copy')) {
+            return 'Copie';
+        }
+        if (img.parent_image_id) {
+            return 'Dérivée';
+        }
+        return 'Image du listing';
+    }, [isUploadedImage]);
+
+    const getImageTitle = React.useCallback((img: GeocacheImageV2Dto): string => {
+        const title = (img.title || '').trim();
+        return title || `Image #${img.id}`;
+    }, []);
+
+    const formatByteSize = React.useCallback((value?: number | null): string => {
+        if (!value || value <= 0) {
+            return 'taille inconnue';
+        }
+        if (value < 1024) {
+            return `${value} o`;
+        }
+        if (value < 1024 * 1024) {
+            return `${(value / 1024).toFixed(1)} Ko`;
+        }
+        return `${(value / (1024 * 1024)).toFixed(1)} Mo`;
+    }, []);
+
+    const readResponseError = async (res: Response): Promise<string> => {
+        try {
+            const data = await res.json() as any;
+            if (data?.error) {
+                return String(data.error);
+            }
+        } catch {
+        }
+        try {
+            const txt = await res.text();
+            if (txt) {
+                return txt;
+            }
+        } catch {
+        }
+        return `HTTP ${res.status}`;
     };
 
     const uploadNewImage = async (file: File): Promise<void> => {
@@ -388,19 +462,8 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     };
 
     const canSearchImageOnGoogle = React.useCallback((img: GeocacheImageV2Dto | null): boolean => {
-        if (!img) {
-            return false;
-        }
-
-        // Simplification: recherche Internet uniquement pour les images "en ligne".
-        // Les images dérivées (snippets/edits/crops) ne sont pas en ligne -> pas de recherche.
-        if (img.parent_image_id) {
-            return false;
-        }
-
-        const url = (img.source_url || '').trim();
-        return Boolean(url) && /^https?:\/\//i.test(url);
-    }, []);
+        return isRemoteOriginalImage(img);
+    }, [isRemoteOriginalImage]);
 
     const searchImageOnGoogleById = async (imageId: number): Promise<void> => {
         const img = visibleImages.find(i => i.id === imageId);
@@ -428,21 +491,32 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     const duplicateImageById = async (imageId: number): Promise<void> => {
         setIsSaving(true);
         try {
+            const source = images.find(i => i.id === imageId) ?? visibleImages.find(i => i.id === imageId);
+            if (source && canStoreImage(source)) {
+                const storeRes = await fetch(`${backendBaseUrl}/api/geocache-images/${imageId}/store`, {
+                    method: 'POST',
+                    credentials: 'include',
+                });
+                if (!storeRes.ok) {
+                    throw new Error(await readResponseError(storeRes));
+                }
+            }
+
             const res = await fetch(`${backendBaseUrl}/api/geocache-images/${imageId}/duplicate`, {
                 method: 'POST',
                 credentials: 'include',
             });
             if (!res.ok) {
-                throw new Error(`HTTP ${res.status}`);
+                throw new Error(await readResponseError(res));
             }
             const created = (await res.json()) as GeocacheImageV2Dto;
-            window.dispatchEvent(new CustomEvent('geoapp-geocache-images-updated', {
-                detail: { geocacheId }
-            }));
             setSelectedId(created.id);
             setDetailsMode('fields');
+            await loadImages();
+            messages.info('Image dupliquée');
         } catch (e) {
             console.error('[GeocacheImagesPanel] duplicate image error', e);
+            messages.error(`Impossible de dupliquer l'image : ${String(e)}`);
         } finally {
             setIsSaving(false);
         }
@@ -508,6 +582,12 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             let imageUrlForFetch = resolveImageUrl(img.url);
 
             if (!img.stored) {
+                if (!canStoreImage(img)) {
+                    messages.error('Cette image n\'a pas de fichier local exploitable.');
+                    setSelectedId(imageId);
+                    setDetailsMode('fields');
+                    return;
+                }
                 try {
                     const storeRes = await fetch(`${backendBaseUrl}/api/geocache-images/${imageId}/store`, {
                         method: 'POST',
@@ -611,6 +691,12 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             // If the image isn't stored, /content returns 404 JSON and OCR receives non-image bytes.
             // We store the image first so the backend can serve a proper binary.
             if (!img.stored) {
+                if (!canStoreImage(img)) {
+                    messages.error('Cette image n\'a pas de fichier local exploitable.');
+                    setSelectedId(imageId);
+                    setDetailsMode('fields');
+                    return;
+                }
                 try {
                     const storeRes = await fetch(`${backendBaseUrl}/api/geocache-images/${imageId}/store`, {
                         method: 'POST',
@@ -652,7 +738,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                 signal: abortController.signal,
             });
             if (!res.ok) {
-                throw new Error(`HTTP ${res.status}`);
+                throw new Error(await readResponseError(res));
             }
 
             const result = await res.json() as any;
@@ -668,6 +754,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                 });
                 setSelectedId(imageId);
                 setDetailsMode('fields');
+                messages.info('OCR terminé sans texte détecté');
                 return;
             }
 
@@ -686,6 +773,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                 return;
             }
             console.error('[GeocacheImagesPanel] ocr error', e);
+            messages.error(`OCR: erreur (${String(e)})`);
         } finally {
             setOcrInProgress(imageId, false);
         }
@@ -705,13 +793,14 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                 body: JSON.stringify(payload),
             });
             if (!res.ok) {
-                throw new Error(`HTTP ${res.status}`);
+                throw new Error(await readResponseError(res));
             }
             const updated = (await res.json()) as GeocacheImageV2Dto;
             setImages(prev => prev.map(i => (i.id === updated.id ? updated : i)));
             return updated;
         } catch (e) {
             console.error('[GeocacheImagesPanel] patch image error', e);
+            messages.error(`Impossible d'enregistrer l'image : ${String(e)}`);
             return null;
         }
     };
@@ -728,7 +817,10 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                 qr_payload: draftQr,
                 ocr_text: draftOcr
             };
-            await patchImage(selected.id, payload);
+            const updated = await patchImage(selected.id, payload);
+            if (updated) {
+                messages.info('Métadonnées enregistrées');
+            }
         } catch (e) {
             console.error('[GeocacheImagesPanel] save metadata error', e);
         } finally {
@@ -749,7 +841,25 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
         );
         try {
             progress.report({ message: 'Analyse de l\'image…' });
-            const imageUrlForPlugin = resolveImageUrl(img.url);
+            let imageUrlForPlugin = resolveImageUrl(img.url);
+            if (!img.stored) {
+                if (!canStoreImage(img)) {
+                    messages.error('Cette image n\'a pas de fichier local exploitable.');
+                    setSelectedId(imageId);
+                    setDetailsMode('fields');
+                    return;
+                }
+                const storeRes = await fetch(`${backendBaseUrl}/api/geocache-images/${imageId}/store`, {
+                    method: 'POST',
+                    credentials: 'include',
+                });
+                if (!storeRes.ok) {
+                    throw new Error(await readResponseError(storeRes));
+                }
+                const storedImage = (await storeRes.json()) as GeocacheImageV2Dto;
+                imageUrlForPlugin = resolveImageUrl(storedImage.url);
+                setImages(prev => prev.map(i => (i.id === storedImage.id ? storedImage : i)));
+            }
             console.log('[GeocacheImagesPanel] decodeQrFromImage: calling plugin with url', imageUrlForPlugin);
             const res = await fetch(`${backendBaseUrl}/api/plugins/qr_code_detector/execute`, {
                 method: 'POST',
@@ -889,6 +999,11 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     };
 
     const storeImageById = async (imageId: number): Promise<void> => {
+        const img = images.find(i => i.id === imageId) ?? visibleImages.find(i => i.id === imageId);
+        if (!canStoreImage(img)) {
+            return;
+        }
+
         setIsSaving(true);
         try {
             const res = await fetch(`${backendBaseUrl}/api/geocache-images/${imageId}/store`, {
@@ -896,18 +1011,25 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                 credentials: 'include'
             });
             if (!res.ok) {
-                throw new Error(`HTTP ${res.status}`);
+                throw new Error(await readResponseError(res));
             }
             const updated = (await res.json()) as GeocacheImageV2Dto;
             setImages(prev => prev.map(i => (i.id === updated.id ? updated : i)));
+            messages.info('Image stockée localement');
         } catch (e) {
             console.error('[GeocacheImagesPanel] store image error', e);
+            messages.error(`Impossible de stocker l'image : ${String(e)}`);
         } finally {
             setIsSaving(false);
         }
     };
 
     const unstoreImageById = async (imageId: number): Promise<void> => {
+        const img = images.find(i => i.id === imageId) ?? visibleImages.find(i => i.id === imageId);
+        if (!canUnstoreImage(img)) {
+            return;
+        }
+
         setIsSaving(true);
         try {
             const res = await fetch(`${backendBaseUrl}/api/geocache-images/${imageId}/unstore`, {
@@ -915,10 +1037,11 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                 credentials: 'include',
             });
             if (!res.ok) {
-                throw new Error(`HTTP ${res.status}`);
+                throw new Error(await readResponseError(res));
             }
             const updated = (await res.json()) as GeocacheImageV2Dto;
             setImages(prev => prev.map(i => (i.id === updated.id ? updated : i)));
+            messages.info('Stockage local supprimé');
         } catch (e) {
             console.error('[GeocacheImagesPanel] unstore image error', e);
             messages.error(`Impossible de supprimer le stockage local : ${String(e)}`);
@@ -928,6 +1051,16 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     };
 
     const deleteImageById = async (imageId: number): Promise<void> => {
+        const img = images.find(i => i.id === imageId) ?? visibleImages.find(i => i.id === imageId);
+        if (!canDeleteImage(img)) {
+            return;
+        }
+
+        const confirmed = window.confirm(`Supprimer ${img ? getImageTitle(img) : 'cette image'} et ses dérivés éventuels ?`);
+        if (!confirmed) {
+            return;
+        }
+
         setIsSaving(true);
         try {
             const res = await fetch(`${backendBaseUrl}/api/geocache-images/${imageId}`, {
@@ -935,12 +1068,13 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                 credentials: 'include',
             });
             if (!res.ok) {
-                throw new Error(`HTTP ${res.status}`);
+                throw new Error(await readResponseError(res));
             }
 
             setImages(prev => prev.filter(i => i.id !== imageId));
             setSelectedId(prev => (prev === imageId ? null : prev));
             await loadImages();
+            messages.info('Image supprimée');
         } catch (e) {
             console.error('[GeocacheImagesPanel] delete image error', e);
             messages.error(`Impossible de supprimer l'image : ${String(e)}`);
@@ -957,18 +1091,36 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     };
 
     const storeAll = async () => {
+        const imageIds = visibleImages
+            .filter(img => canStoreImage(img))
+            .map(img => img.id);
+
+        if (!imageIds.length) {
+            messages.info('Aucune image visible à stocker');
+            return;
+        }
+
         setIsSaving(true);
         try {
             const res = await fetch(`${backendBaseUrl}/api/geocaches/${geocacheId}/images/store`, {
                 method: 'POST',
-                credentials: 'include'
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ image_ids: imageIds }),
             });
             if (!res.ok) {
-                throw new Error(`HTTP ${res.status}`);
+                throw new Error(await readResponseError(res));
             }
+            const payload = await res.json() as { stored?: number; failed?: unknown[]; skipped?: unknown[] };
             await loadImages();
+            if (payload.failed?.length) {
+                messages.warn(`${payload.stored || 0} image(s) stockée(s), ${payload.failed.length} échec(s)`);
+            } else {
+                messages.info(`${payload.stored || 0} image(s) stockée(s)`);
+            }
         } catch (e) {
             console.error('[GeocacheImagesPanel] store all images error', e);
+            messages.error(`Impossible de stocker les images : ${String(e)}`);
         } finally {
             setIsSaving(false);
         }
@@ -1047,22 +1199,26 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
         const hasQr = Boolean((img.qr_payload || '').trim());
         const hasOcr = Boolean((img.ocr_text || '').trim());
         const isDerived = Boolean(img.parent_image_id);
+        const isMissing = isMissingLocalImage(img);
 
-        const badges: { label: string; className: string }[] = [];
+        const badges: { label: string; tone: string }[] = [];
         if (img.stored) {
-            badges.push({ label: 'LOCAL', className: 'bg-emerald-600/30 text-emerald-200 border-emerald-700/60' });
+            badges.push({ label: 'LOCAL', tone: 'success' });
+        }
+        if (isMissing) {
+            badges.push({ label: 'MANQUANT', tone: 'danger' });
         }
         if (hasNote) {
-            badges.push({ label: 'NOTE', className: 'bg-sky-600/30 text-sky-200 border-sky-700/60' });
+            badges.push({ label: 'NOTE', tone: 'info' });
         }
         if (hasQr) {
-            badges.push({ label: 'QR', className: 'bg-purple-600/30 text-purple-200 border-purple-700/60' });
+            badges.push({ label: 'QR', tone: 'accent' });
         }
         if (hasOcr) {
-            badges.push({ label: 'OCR', className: 'bg-amber-600/30 text-amber-200 border-amber-700/60' });
+            badges.push({ label: 'OCR', tone: 'warning' });
         }
         if (isDerived) {
-            badges.push({ label: 'DERIVED', className: 'bg-slate-600/30 text-slate-200 border-slate-700/60' });
+            badges.push({ label: 'DÉRIVÉE', tone: 'neutral' });
         }
 
         if (!badges.length) {
@@ -1070,9 +1226,9 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
         }
 
         return (
-            <div className='mt-1 flex flex-wrap gap-1'>
+            <div className='geoapp-images-badges'>
                 {badges.map(b => (
-                    <span key={b.label} className={`text-[10px] px-1.5 py-0.5 rounded border ${b.className}`}>
+                    <span key={b.label} className={`geoapp-images-badge geoapp-images-badge--${b.tone}`}>
                         {b.label}
                     </span>
                 ))}
@@ -1081,16 +1237,17 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     };
 
     if (isLoading) {
-        return <div className='opacity-70'>Chargement des images…</div>;
+        return <div className='geoapp-images-loading'>Chargement des images...</div>;
     }
 
     const selectedImage = selected;
-    const showDetails = detailsMode !== 'hidden' && Boolean(selectedImage);
-    const showPreview = detailsMode === 'preview' && Boolean(selectedImage);
+    const showDetails = Boolean(selectedImage);
     const isContextMenuOcrBusy = contextMenu ? Boolean(ocrInProgressById[contextMenu.imageId]) : false;
     const contextMenuImage = contextMenu ? (visibleImages.find(i => i.id === contextMenu.imageId) ?? null) : null;
-    const isContextMenuUploadedImage = Boolean((contextMenuImage?.source_url || '').startsWith('geoapp-upload://'));
     const isContextMenuGoogleSearchEnabled = canSearchImageOnGoogle(contextMenuImage);
+    const isContextMenuStoreEnabled = canStoreImage(contextMenuImage);
+    const isContextMenuUnstoreEnabled = canUnstoreImage(contextMenuImage);
+    const isContextMenuDeleteEnabled = canDeleteImage(contextMenuImage);
 
     const contextMenuItems: ContextMenuItem[] = contextMenu ? [
         {
@@ -1147,15 +1304,15 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
         {
             label: 'Stocker localement',
             action: () => { void storeImageById(contextMenu.imageId); },
-            disabled: isSaving || Boolean(contextMenuImage?.stored),
+            disabled: isSaving || !isContextMenuStoreEnabled,
         },
-        ...(!isContextMenuUploadedImage ? [{
+        ...(isContextMenuUnstoreEnabled ? [{
             label: 'Supprimer stockage local',
             action: () => { void unstoreImageById(contextMenu.imageId); },
-            disabled: isSaving || !Boolean(contextMenuImage?.stored),
+            disabled: isSaving,
             danger: true,
         }] : []),
-        ...(isContextMenuUploadedImage ? [{
+        ...(isContextMenuDeleteEnabled ? [{
             label: 'Supprimer l\'image',
             action: () => { void deleteImageById(contextMenu.imageId); },
             disabled: isSaving,
@@ -1171,8 +1328,23 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
         },
     ] : [];
 
+    const hiddenImagesCount = normalizedHiddenDomains.length
+        ? images.filter(img => isHiddenByDomain(img.source_url)).length
+        : 0;
+    const visiblePendingStoreCount = visibleImages.filter(img => canStoreImage(img)).length;
+    const derivedCount = images.filter(img => Boolean(img.parent_image_id)).length;
+    const analyzedCount = images.filter(img => Boolean((img.ocr_text || '').trim()) || Boolean((img.qr_payload || '').trim())).length;
+    const selectedCanStore = canStoreImage(selectedImage);
+    const selectedCanUnstore = canUnstoreImage(selectedImage);
+    const selectedCanDelete = canDeleteImage(selectedImage);
+    const selectedCanGoogle = canSearchImageOnGoogle(selectedImage);
+    const selectedIsOcrBusy = selectedImage ? Boolean(ocrInProgressById[selectedImage.id]) : false;
+    const selectedIsHidden = Boolean(selectedImage && isHiddenByDomain(selectedImage.source_url));
+    const selectedIsMissing = isMissingLocalImage(selectedImage);
+    const selectedPreviewUrl = selectedImage && selectedImage.url ? resolveImageUrl(selectedImage.url) : '';
+
     return (
-        <div className='grid gap-3 relative'>
+        <div className='geoapp-images-panel'>
             <input
                 ref={uploadInputRef}
                 type='file'
@@ -1187,14 +1359,24 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                 }}
             />
 
-            <div className='flex items-center justify-between'>
-                <div className='font-semibold'>Images</div>
-                <div className='flex items-center gap-2'>
-                    <button className='theia-button secondary' onClick={triggerUploadDialog} disabled={isSaving} type='button'>
-                        + Ajouter image…
+            <header className='geoapp-images-header'>
+                <div className='geoapp-images-title-block'>
+                    <div className='geoapp-images-title'>Galerie</div>
+                    <div className='geoapp-images-stats'>
+                        <span>{images.length} image(s)</span>
+                        <span>{derivedCount} dérivée(s)</span>
+                        <span>{analyzedCount} analysée(s)</span>
+                        {hiddenImagesCount > 0 && <span>{hiddenImagesCount} masquée(s)</span>}
+                    </div>
+                </div>
+
+                <div className='geoapp-images-toolbar'>
+                    <button className='theia-button secondary geoapp-images-icon-button' onClick={triggerUploadDialog} disabled={isSaving} type='button'>
+                        <span className='codicon codicon-add' />
+                        Ajouter
                     </button>
 
-                    <div className='flex items-center gap-1'>
+                    <div className='geoapp-images-size-group' aria-label='Taille des vignettes'>
                         <button
                             className={sizeButtonClassName('small')}
                             onClick={() => changeThumbnailSize('small')}
@@ -1224,26 +1406,36 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                         </button>
                     </div>
 
-                    <button className='theia-button secondary' onClick={storeAll} disabled={isSaving} type='button'>
-                        Stocker tout
+                    <button className='theia-button secondary geoapp-images-icon-button' onClick={storeAll} disabled={isSaving || visiblePendingStoreCount <= 0} type='button'>
+                        <span className='codicon codicon-cloud-download' />
+                        Stocker visibles
                     </button>
                 </div>
-            </div>
+            </header>
+
+            {hiddenImagesCount > 0 && (
+                <div className='geoapp-images-hidden-strip'>
+                    <span>{hiddenImagesCount} image(s) correspondent aux domaines masqués.</span>
+                    <button className='theia-button secondary' type='button' onClick={() => setShowHiddenImages(!showHiddenImages)}>
+                        {showHiddenImages ? 'Masquer' : 'Afficher'}
+                    </button>
+                </div>
+            )}
 
             {onHiddenDomainsTextChange && (
-                <details className='rounded border border-[var(--theia-panel-border)] bg-[var(--theia-editor-background)] p-2'>
-                    <summary className='cursor-pointer select-none text-sm opacity-80'>
-                        Domaines masqués (1 par ligne)
+                <details className='geoapp-images-hidden-config'>
+                    <summary>
+                        Domaines masqués
                     </summary>
-                    <div className='mt-2 grid gap-2'>
+                    <div className='geoapp-images-hidden-config-body'>
                         <textarea
-                            className='theia-input w-full resize-y'
+                            className='theia-input geoapp-images-textarea'
                             rows={3}
                             value={hiddenDomainsDraft}
                             onChange={e => setHiddenDomainsDraft(e.target.value)}
                             placeholder={'geocheck.org\ncertitudes.org'}
                         />
-                        <div className='flex items-center justify-end gap-2'>
+                        <div className='geoapp-images-form-actions'>
                             <button
                                 className='theia-button secondary'
                                 type='button'
@@ -1275,134 +1467,220 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             )}
 
             {!visibleImages.length ? (
-                <div className='opacity-70 italic'>Aucune image</div>
+                <div className='geoapp-images-empty'>
+                    {images.length > 0 ? 'Toutes les images sont masquées.' : 'Aucune image'}
+                </div>
             ) : (
-                <div className='flex gap-3'>
-                    <div className={showDetails ? 'w-64 shrink-0' : 'min-w-0 flex-1'}>
-                        <div className='flex gap-2 overflow-x-auto pb-2'>
+                <div className='geoapp-images-body'>
+                    <section className='geoapp-images-browser' aria-label='Images de la géocache'>
+                        <div className='geoapp-images-grid'>
                             {visibleImages.map(img => (
                                 (() => {
                                     const isOcrBusy = Boolean(ocrInProgressById[img.id]);
+                                    const isCurrentHidden = isHiddenByDomain(img.source_url);
+                                    const isMissing = isMissingLocalImage(img);
                                     return (
-                                        <div key={img.id} className='relative shrink-0'>
-                                            <button
-                                                type='button'
-                                                className={`relative rounded border ${img.id === selectedId ? 'border-sky-500' : 'border-[var(--theia-panel-border)]'} p-1`}
-                                                onClick={() => handleThumbnailClick(img.id)}
-                                                onContextMenu={(e) => openThumbnailContextMenu(e, img.id)}
-                                                title={img.source_url}
-                                                disabled={isSaving}
-                                                aria-busy={isOcrBusy}
-                                            >
-                                                <img
-                                                    className={`${thumbnailImageClassName} ${isOcrBusy ? 'opacity-50' : ''}`}
-                                                    src={resolveImageUrl(img.url)}
-                                                    alt=''
-                                                    width={thumbnailDimensions.width}
-                                                    height={thumbnailDimensions.height}
-                                                />
-
-                                                {renderBadges(img)}
-                                            </button>
-
-                                            {isOcrBusy && (
-                                                <div className='absolute inset-0 flex items-center justify-center rounded pointer-events-none'>
-                                                    <div className='flex flex-col items-center gap-1 bg-black/60 rounded px-2 py-1'>
-                                                        <div className='h-5 w-5 animate-spin rounded-full border-2 border-white/70 border-t-transparent' />
-                                                        <div className='text-[10px] font-medium text-white/90'>OCR…</div>
+                                        <button
+                                            key={img.id}
+                                            type='button'
+                                            className={`geoapp-images-thumbnail ${img.id === selectedId ? 'is-selected' : ''} ${isCurrentHidden ? 'is-hidden-domain' : ''}`}
+                                            onClick={() => handleThumbnailClick(img.id)}
+                                            onContextMenu={(e) => openThumbnailContextMenu(e, img.id)}
+                                            title={img.source_url}
+                                            disabled={isSaving}
+                                            aria-busy={isOcrBusy}
+                                            aria-pressed={img.id === selectedId}
+                                        >
+                                            <div className='geoapp-images-thumbnail-frame'>
+                                                {isMissing || !img.url ? (
+                                                    <div className='geoapp-images-thumbnail-placeholder'>
+                                                        <span className='codicon codicon-warning' />
                                                     </div>
-                                                </div>
-                                            )}
+                                                ) : (
+                                                    <img
+                                                        className={`${thumbnailImageClassName} ${isOcrBusy ? 'is-busy' : ''}`}
+                                                        src={resolveImageUrl(img.url)}
+                                                        alt=''
+                                                        width={thumbnailDimensions.width}
+                                                        height={thumbnailDimensions.height}
+                                                    />
+                                                )}
 
-                                            {isOcrBusy && (
-                                                <button
-                                                    type='button'
-                                                    className='absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-white text-xs font-bold hover:bg-red-700 shadow-md'
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        cancelOcrForImage(img.id);
-                                                    }}
-                                                    title="Annuler l'OCR"
-                                                >
-                                                    ✕
-                                                </button>
-                                            )}
-                                        </div>
+                                                {isOcrBusy && (
+                                                    <div className='geoapp-images-thumbnail-busy'>
+                                                        <div className='geoapp-images-spinner' />
+                                                        <span>OCR</span>
+                                                    </div>
+                                                )}
+
+                                                {isOcrBusy && (
+                                                    <span
+                                                        role='button'
+                                                        tabIndex={0}
+                                                        className='geoapp-images-thumbnail-cancel'
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            cancelOcrForImage(img.id);
+                                                        }}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Enter' || e.key === ' ') {
+                                                                e.preventDefault();
+                                                                e.stopPropagation();
+                                                                cancelOcrForImage(img.id);
+                                                            }
+                                                        }}
+                                                        title="Annuler l'OCR"
+                                                    >
+                                                        ×
+                                                    </span>
+                                                )}
+                                            </div>
+
+                                            <div className='geoapp-images-thumbnail-meta'>
+                                                <span>{getImageTitle(img)}</span>
+                                                <small>{getImageKindLabel(img)}</small>
+                                            </div>
+                                            {renderBadges(img)}
+                                        </button>
                                     );
                                 })()
                             ))}
                         </div>
-                    </div>
+                    </section>
 
                     {showDetails && selectedImage && (
-                        <div className='min-w-0 flex-1'>
-                            <div className='grid gap-3 rounded border border-[var(--theia-panel-border)] bg-[var(--theia-editor-background)] p-3'>
-                                <div className='flex items-start justify-between gap-3'>
-                                    <div className='min-w-0'>
-                                        <div className='truncate font-semibold'>Image #{selectedImage.id}</div>
-                                        <div className='truncate text-xs opacity-70'>{selectedImage.source_url}</div>
-                                    </div>
-                                    <div className='flex gap-2'>
-                                        {!selectedImage.stored && (
-                                            <button className='theia-button secondary' onClick={storeSelected} disabled={isSaving} type='button'>
-                                                Stocker
-                                            </button>
-                                        )}
-                                    </div>
-                                </div>
-
-                            {showPreview && (
-                                <img className='max-h-72 w-full rounded object-contain bg-black/20' src={resolveImageUrl(selectedImage.url)} alt='' />
-                            )}
-
-                            <div className='grid gap-2'>
-                                <div>
-                                    <label className='block text-xs opacity-70'>Titre</label>
-                                    <input className='theia-input w-full' value={draftTitle} onChange={e => setDraftTitle(e.target.value)} />
-                                </div>
-
-                                <div>
-                                    <label className='block text-xs opacity-70'>Note</label>
-                                    <textarea
-                                        className='theia-input w-full resize-y'
-                                        rows={4}
-                                        value={draftNote}
-                                        onChange={e => setDraftNote(e.target.value)}
-                                    />
-                                </div>
-
-                                {Boolean((draftQr || '').trim()) && (
+                        <>
+                            <section className='geoapp-images-preview'>
+                                <div className='geoapp-images-preview-header'>
                                     <div>
-                                        <label className='block text-xs opacity-70'>QR payload</label>
+                                        <div className='geoapp-images-selected-title'>{getImageTitle(selectedImage)}</div>
+                                        <div className='geoapp-images-selected-subtitle'>
+                                            {getImageKindLabel(selectedImage)}
+                                            {selectedIsHidden ? ' · domaine masqué' : ''}
+                                        </div>
+                                    </div>
+                                    <div className='geoapp-images-selected-status'>
+                                        {selectedImage.stored ? 'Local' : selectedCanStore ? 'Distant' : selectedIsMissing ? 'Fichier manquant' : 'Non stockée'}
+                                    </div>
+                                </div>
+
+                                <div className='geoapp-images-preview-frame'>
+                                    {selectedIsMissing || !selectedPreviewUrl ? (
+                                        <div className='geoapp-images-preview-placeholder'>
+                                            <span className='codicon codicon-warning' />
+                                            <strong>Fichier local indisponible</strong>
+                                            <span>Cette image dérivée ne peut pas être affichée tant que son fichier n'existe plus.</span>
+                                        </div>
+                                    ) : (
+                                        <img src={selectedPreviewUrl} alt={getImageTitle(selectedImage)} />
+                                    )}
+                                </div>
+
+                                <div className='geoapp-images-action-bar'>
+                                    <button className='theia-button geoapp-images-icon-button' type='button' onClick={() => openImageEditor(selectedImage.id)} disabled={isSaving || selectedIsMissing}>
+                                        <span className='codicon codicon-edit' />
+                                        Éditer
+                                    </button>
+                                    <button className='theia-button secondary geoapp-images-icon-button' type='button' onClick={() => { void runDefaultOcrForImage(selectedImage.id); }} disabled={isSaving || selectedIsOcrBusy || selectedIsMissing}>
+                                        <span className='codicon codicon-whole-word' />
+                                        OCR
+                                    </button>
+                                    <button className='theia-button secondary geoapp-images-icon-button' type='button' onClick={() => { void decodeQrFromImage(selectedImage.id); }} disabled={isSaving || selectedIsMissing}>
+                                        <span className='codicon codicon-key' />
+                                        QR
+                                    </button>
+                                    <button className='theia-button secondary geoapp-images-icon-button' type='button' onClick={() => { void searchImageOnGoogleById(selectedImage.id); }} disabled={isSaving || !selectedCanGoogle}>
+                                        <span className='codicon codicon-search' />
+                                        Lens
+                                    </button>
+                                    <button className='theia-button secondary geoapp-images-icon-button' type='button' onClick={() => { void duplicateImageById(selectedImage.id); }} disabled={isSaving || selectedIsMissing}>
+                                        <span className='codicon codicon-copy' />
+                                        Dupliquer
+                                    </button>
+                                    <button className='theia-button secondary geoapp-images-icon-button' type='button' onClick={() => { void downloadImageById(selectedImage.id); }} disabled={isSaving || !selectedImage.stored}>
+                                        <span className='codicon codicon-desktop-download' />
+                                        Télécharger
+                                    </button>
+                                </div>
+                            </section>
+
+                            <aside className='geoapp-images-inspector'>
+                                <div className='geoapp-images-inspector-section'>
+                                    <h4>Informations</h4>
+                                    <div className='geoapp-images-field'>
+                                        <label>Titre</label>
+                                        <input className='theia-input geoapp-images-input' value={draftTitle} onChange={e => setDraftTitle(e.target.value)} />
+                                    </div>
+
+                                    <div className='geoapp-images-field'>
+                                        <label>Note</label>
                                         <textarea
-                                            className='theia-input w-full resize-y'
+                                            className='theia-input geoapp-images-textarea'
+                                            rows={4}
+                                            value={draftNote}
+                                            onChange={e => setDraftNote(e.target.value)}
+                                        />
+                                    </div>
+
+                                    <div className='geoapp-images-info-list'>
+                                        <div><span>Source</span><code title={selectedImage.source_url}>{selectedImage.source_url || 'n/a'}</code></div>
+                                        <div><span>Type</span><strong>{getImageKindLabel(selectedImage)}</strong></div>
+                                        <div><span>Taille</span><strong>{formatByteSize(selectedImage.byte_size)}</strong></div>
+                                    </div>
+                                </div>
+
+                                <div className='geoapp-images-inspector-section'>
+                                    <h4>Analyse</h4>
+                                    <div className='geoapp-images-field'>
+                                        <label>QR payload</label>
+                                        <textarea
+                                            className='theia-input geoapp-images-textarea'
                                             rows={3}
                                             value={draftQr}
                                             onChange={e => setDraftQr(e.target.value)}
+                                            placeholder='Résultat QR ou saisie manuelle'
                                         />
                                     </div>
-                                )}
 
-                                {Boolean((draftOcr || '').trim()) && (
-                                    <div>
-                                        <label className='block text-xs opacity-70'>OCR</label>
+                                    <div className='geoapp-images-field'>
+                                        <label>OCR</label>
                                         <textarea
-                                            className='theia-input w-full resize-y'
-                                            rows={5}
+                                            className='theia-input geoapp-images-textarea'
+                                            rows={7}
                                             value={draftOcr}
                                             onChange={e => setDraftOcr(e.target.value)}
+                                            placeholder='Texte détecté ou transcription manuelle'
                                         />
                                     </div>
-                                )}
-                            </div>
 
-                                <div className='flex justify-end'>
-                                    <button className='theia-button' onClick={saveMetadata} disabled={isSaving} type='button'>
-                                        Sauvegarder
-                                    </button>
+                                    <div className='geoapp-images-form-actions'>
+                                        {Boolean((draftQr || '').trim()) && (
+                                            <button className='theia-button secondary' type='button' onClick={() => { void copyQrPayload(selectedImage.id); }}>
+                                                Copier QR
+                                            </button>
+                                        )}
+                                        <button className='theia-button' onClick={saveMetadata} disabled={isSaving} type='button'>
+                                            Sauvegarder
+                                        </button>
+                                    </div>
                                 </div>
-                            </div>
-                        </div>
+
+                                <div className='geoapp-images-inspector-section'>
+                                    <h4>Stockage</h4>
+                                    <div className='geoapp-images-storage-actions'>
+                                        <button className='theia-button secondary' onClick={storeSelected} disabled={isSaving || !selectedCanStore} type='button'>
+                                            Stocker localement
+                                        </button>
+                                        <button className='theia-button secondary' onClick={() => { void unstoreImageById(selectedImage.id); }} disabled={isSaving || !selectedCanUnstore} type='button'>
+                                            Retirer local
+                                        </button>
+                                        <button className='theia-button secondary geoapp-images-danger-button' onClick={() => { void deleteImageById(selectedImage.id); }} disabled={isSaving || !selectedCanDelete} type='button'>
+                                            Supprimer
+                                        </button>
+                                    </div>
+                                </div>
+                            </aside>
+                        </>
                     )}
                 </div>
             )}

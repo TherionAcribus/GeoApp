@@ -32,11 +32,13 @@ def app(tmp_path):
 
     # Isoler le stockage disque des images vers un dossier temporaire.
     import gc_backend.geocaches.image_storage as image_storage
+    import gc_backend.blueprints.geocache_images as geocache_images_blueprint
 
     def _tmp_images_root_dir():
         return tmp_path / 'geocache_images'
 
     image_storage.get_images_root_dir = _tmp_images_root_dir  # type: ignore[assignment]
+    geocache_images_blueprint.get_images_root_dir = _tmp_images_root_dir  # type: ignore[assignment]
 
     with app.app_context():
         db.create_all()
@@ -197,6 +199,75 @@ class TestGeocacheImageEdits:
             assert duplicated is not None
             assert duplicated.parent_image_id == derived_id
             assert duplicated.derivation_type.startswith('copy')
+            assert duplicated.stored is True
+
+    def test_delete_remote_original_is_rejected(self, client, seed_data):
+        response = client.delete(f"/api/geocache-images/{seed_data['original_image_id']}")
+        assert response.status_code == 400
+        payload = json.loads(response.data)
+        assert payload['error'] == 'Only uploaded images and derived images can be deleted'
+
+    def test_delete_remote_derived_image_is_allowed(self, client, app, seed_data):
+        create_resp = client.post(
+            f"/api/geocache-images/{seed_data['original_image_id']}/edits",
+            data={
+                'editor_state_json': json.dumps({'objects': []}),
+                'rendered_file': (io.BytesIO(_make_png_bytes()), 'render.png', 'image/png'),
+            },
+            content_type='multipart/form-data',
+        )
+        assert create_resp.status_code == 200
+        derived_id = json.loads(create_resp.data)['id']
+
+        response = client.delete(f"/api/geocache-images/{derived_id}")
+        assert response.status_code == 200
+        payload = json.loads(response.data)
+        assert derived_id in payload['deleted']
+
+        with app.app_context():
+            assert GeocacheImage.query.get(derived_id) is None
+            assert GeocacheImage.query.get(seed_data['original_image_id']) is not None
+
+    def test_unstore_rejects_derived_image(self, client, app, seed_data):
+        create_resp = client.post(
+            f"/api/geocache-images/{seed_data['original_image_id']}/edits",
+            data={
+                'editor_state_json': json.dumps({'objects': []}),
+                'rendered_file': (io.BytesIO(_make_png_bytes()), 'render.png', 'image/png'),
+            },
+            content_type='multipart/form-data',
+        )
+        assert create_resp.status_code == 200
+        derived_id = json.loads(create_resp.data)['id']
+
+        response = client.post(f"/api/geocache-images/{derived_id}/unstore")
+        assert response.status_code == 400
+        payload = json.loads(response.data)
+        assert payload['error'] == 'Only remote original images can remove local storage'
+
+        with app.app_context():
+            derived = GeocacheImage.query.get(derived_id)
+            assert derived is not None
+            assert derived.stored is True
+
+    def test_unstored_derived_image_has_no_display_url(self, client, app, seed_data):
+        with app.app_context():
+            derived = GeocacheImage(
+                geocache_id=seed_data['geocache_id'],
+                source_url='https://example.invalid/image.jpg',
+                parent_image_id=seed_data['original_image_id'],
+                derivation_type='copy',
+                stored=False,
+            )
+            db.session.add(derived)
+            db.session.commit()
+            derived_id = derived.id
+
+        response = client.get(f"/api/geocaches/{seed_data['geocache_id']}/images")
+        assert response.status_code == 200
+        payload = json.loads(response.data)
+        derived_payload = next(item for item in payload if item['id'] == derived_id)
+        assert derived_payload['url'] == ''
 
     def test_create_snippet_new_creates_variant_and_stores_crop_rect(self, client, app, seed_data):
         crop1 = {'left': 10, 'top': 12, 'width': 80, 'height': 50}
