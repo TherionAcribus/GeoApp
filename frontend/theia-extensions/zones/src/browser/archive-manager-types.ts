@@ -1,4 +1,5 @@
-import { GeocacheContext, PluginExecutorResumeSnapshot } from '@mysterai/theia-plugins/lib/browser/plugin-executor-widget';
+import { GeocacheContext } from '@mysterai/theia-plugins/lib/browser/plugin-executor-widget';
+import type { PluginExecutorResumeSnapshot } from '@mysterai/theia-plugins/lib/browser/metasolver-preset-panel';
 import { ResolutionWorkflowStepRunResponse } from '@mysterai/theia-plugins/lib/common/plugin-protocol';
 
 export interface ArchiveStats {

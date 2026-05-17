@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { PluginExecutorResumeSnapshot } from '@mysterai/theia-plugins/lib/browser/plugin-executor-widget';
+import type { PluginExecutorResumeSnapshot } from '@mysterai/theia-plugins/lib/browser/metasolver-preset-panel';
 import {
     ARCHIVE_STATUS_FILTER_OPTIONS,
     ArchiveEntry,

@@ -78,6 +78,14 @@ export const MapView: React.FC<MapViewProps> = ({
     const [selectedGeocacheId, setSelectedGeocacheId] = React.useState<number | null>(null);
     const [nearbyGeocaches, setNearbyGeocaches] = React.useState<MapGeocache[]>([]);
 
+    const openGeocacheDetails = React.useCallback((geocacheId: number, geocacheName?: string, gcCode?: string): void => {
+        if (!onOpenGeocacheDetails) {
+            return;
+        }
+
+        onOpenGeocacheDetails(geocacheId, geocacheName || gcCode || 'Cache inconnue');
+    }, [onOpenGeocacheDetails]);
+
     React.useEffect(() => {
         geocachesRef.current = geocaches;
     }, [geocaches]);
@@ -161,7 +169,7 @@ export const MapView: React.FC<MapViewProps> = ({
                 element: popupRef.current,
                 autoPan: false,  // ✅ Désactiver le recentrage automatique de la carte
                 positioning: 'bottom-center',
-                stopEvent: false,
+                stopEvent: true,
                 offset: [0, -10]
             });
             map.addOverlay(overlay);
@@ -465,8 +473,8 @@ export const MapView: React.FC<MapViewProps> = ({
                             label: 'Ouvrir la cache',
                             icon: '📖',
                             action: () => {
-                                if (onOpenGeocacheDetails && props.id !== undefined) {
-                                    onOpenGeocacheDetails(props.id, props.name || props.gc_code || 'Cache inconnue');
+                                if (props.id !== undefined) {
+                                    openGeocacheDetails(props.id, props.name, props.gc_code);
                                 }
                             }
                         },
@@ -974,6 +982,8 @@ export const MapView: React.FC<MapViewProps> = ({
         onPreferenceChange?.('geoApp.map.foundGeocacheDisplayMode', value);
     };
 
+    const canOpenPopupGeocache = Boolean(popupData && popupData.id > 0 && !(popupData as GeocacheFeatureProperties).isWaypoint);
+
     return (
         <div style={{ 
             width: '100%', 
@@ -1165,21 +1175,47 @@ export const MapView: React.FC<MapViewProps> = ({
                         padding: '12px',
                         minWidth: '220px',
                         boxShadow: '0 3px 14px rgba(0,0,0,0.4)',
-                        pointerEvents: 'none'
+                        pointerEvents: 'auto'
                     }}
                 >
                     {popupData && (
                         <div style={{ color: 'var(--theia-foreground)' }}>
                             {/* Titre : GC + nom */}
-                            <div style={{ 
-                                fontWeight: 'bold', 
-                                fontSize: '14px',
-                                marginBottom: '6px',
-                                color: 'var(--theia-textLink-foreground)'
-                            }}>
-                                {popupData.gc_code}
-                                {popupData.name ? ` - ${popupData.name}` : ''}
-                            </div>
+                            {canOpenPopupGeocache ? (
+                                <button
+                                    type="button"
+                                    onMouseDown={(event) => {
+                                        event.stopPropagation();
+                                    }}
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        openGeocacheDetails(popupData.id, popupData.name, popupData.gc_code);
+                                    }}
+                                    style={{
+                                        all: 'unset',
+                                        display: 'block',
+                                        fontWeight: 'bold',
+                                        fontSize: '14px',
+                                        marginBottom: '6px',
+                                        color: 'var(--theia-textLink-foreground)',
+                                        cursor: 'pointer'
+                                    }}
+                                    title="Ouvrir la cache"
+                                >
+                                    {popupData.gc_code}
+                                    {popupData.name ? ` - ${popupData.name}` : ''}
+                                </button>
+                            ) : (
+                                <div style={{
+                                    fontWeight: 'bold',
+                                    fontSize: '14px',
+                                    marginBottom: '6px',
+                                    color: 'var(--theia-textLink-foreground)'
+                                }}>
+                                    {popupData.gc_code}
+                                    {popupData.name ? ` - ${popupData.name}` : ''}
+                                </div>
+                            )}
 
                             {/* D/T */}
                             <div style={{ 

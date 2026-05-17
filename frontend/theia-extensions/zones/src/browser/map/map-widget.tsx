@@ -428,12 +428,6 @@ export class MapWidget extends ReactWidget {
 
     private handleOpenGeocacheDetails = async (geocacheId: number, geocacheName: string): Promise<void> => {
         try {
-            if (typeof window !== 'undefined') {
-                window.dispatchEvent(new CustomEvent('geoapp-open-geocache-details', {
-                    detail: { geocacheId, geocacheName }
-                }));
-            }
-
             await this.geocacheTabsManager.openGeocacheDetails({
                 geocacheId,
                 name: geocacheName

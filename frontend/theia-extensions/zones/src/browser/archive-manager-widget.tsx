@@ -4,7 +4,7 @@ import { ConfirmDialog } from '@theia/core/lib/browser';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core';
 import { PluginExecutorContribution } from '@mysterai/theia-plugins/lib/browser/plugins-contribution';
-import { PluginExecutorResumeSnapshot } from '@mysterai/theia-plugins/lib/browser/plugin-executor-widget';
+import type { PluginExecutorResumeSnapshot } from '@mysterai/theia-plugins/lib/browser/metasolver-preset-panel';
 import { getErrorMessage } from './backend-api-client';
 import { ArchiveManagerController } from './archive-manager-controller';
 import { ArchiveManagerService } from './archive-manager-service';
