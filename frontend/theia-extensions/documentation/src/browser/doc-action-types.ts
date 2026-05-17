@@ -8,6 +8,15 @@ export interface DocActionUiContext {
         zoneId?: number;
         zoneName?: string;
     };
+    lastGeoAppWidget?: {
+        widgetId: string;
+        kind: string;
+        geocacheId?: number;
+        gcCode?: string;
+        geocacheName?: string;
+        zoneId?: number;
+        zoneName?: string;
+    };
     activeZone?: {
         id: number | null;
         name?: string;
@@ -17,6 +26,7 @@ export interface DocActionUiContext {
         kind: string;
         geocacheId?: number;
         gcCode?: string;
+        geocacheName?: string;
         zoneId?: number;
         zoneName?: string;
     }>;

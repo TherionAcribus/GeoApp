@@ -604,6 +604,52 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
     private buildGeocacheTools(): ToolRequest[] {
         return [
             {
+                id: 'aide_get_geocache_details',
+                name: 'aide_get_geocache_details',
+                description: 'Retourne le contenu complet d\'une géocache : nom, code GC, type, difficulté, terrain, coordonnées, ' +
+                    'description (texte brut), indices, waypoints et statut résolu/trouvé. ' +
+                    'À appeler quand l\'utilisateur demande le contenu de "cette cache" ou "la cache à l\'écran".',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    geocache_id: { type: 'number', description: 'ID de la géocache.', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const raw = await this.geocachesService.get<Record<string, unknown>>(args.geocache_id);
+                        const desc = typeof raw['description_raw'] === 'string' ? raw['description_raw']
+                            : typeof raw['description'] === 'string' ? raw['description'] : null;
+                        const hint = raw['hints_decoded'] ?? raw['hint_raw'] ?? raw['hint'] ?? raw['hints'] ?? null;
+                        const waypoints = (Array.isArray(raw['waypoints']) ? raw['waypoints'] : [])
+                            .map((w: Record<string, unknown>) => ({
+                                id: w['id'],
+                                name: w['name'],
+                                type: w['type'],
+                                gc_coords: w['gc_coords'],
+                                note: w['note'],
+                            }));
+                        return ok({
+                            id: raw['id'],
+                            gc_code: raw['gc_code'],
+                            name: raw['name'],
+                            owner: raw['owner'],
+                            cache_type: raw['cache_type'] ?? raw['type'],
+                            difficulty: raw['difficulty'],
+                            terrain: raw['terrain'],
+                            size: raw['size'],
+                            solved: raw['solved'],
+                            found: raw['found'],
+                            favorites_count: raw['favorites_count'],
+                            coordinates_raw: raw['coordinates_raw'],
+                            is_corrected: raw['is_corrected'],
+                            description: typeof desc === 'string' ? desc.substring(0, 3000) : null,
+                            hint,
+                            waypoints,
+                        });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
                 id: 'aide_list_geocaches_in_zone',
                 name: 'aide_list_geocaches_in_zone',
                 description: 'Liste les géocaches d\'une zone avec leurs id, code GC et noms.',
