@@ -25,7 +25,7 @@ type GeocacheImageV2Dto = {
 };
 
 type ImageEditorTool = 'select' | 'draw' | 'text' | 'image' | 'shapes' | 'snippet';
-type ImageEditorSnippetAction = 'create' | 'ocr' | 'qr';
+type ImageEditorSnippetAction = 'create' | 'ocr' | 'qr' | 'visual-search';
 type SnippetSelectionBounds = { left: number; top: number; width: number; height: number };
 
 export interface GeocacheImageEditorContext {
@@ -513,6 +513,10 @@ export class GeocacheImageEditorWidget extends ReactWidget {
         }
 
         event.preventDefault();
+        if (event.altKey) {
+            void this.runVisualSearchOnSnippetSelection();
+            return;
+        }
         if (event.ctrlKey || event.metaKey) {
             void this.runOcrOnSnippetSelection();
             return;
@@ -984,6 +988,28 @@ export class GeocacheImageEditorWidget extends ReactWidget {
         }
     }
 
+    protected async runVisualSearchOnSnippetSelection(): Promise<void> {
+        const snippet = await this.createSnippetFromSelection();
+        if (!snippet) {
+            return;
+        }
+
+        this.isSaving = true;
+        this.activeSnippetAction = 'visual-search';
+        this.lastSnippetImage = snippet;
+        this.lastActionMessage = `Préparation de la recherche visuelle pour la sous-image #${snippet.id}…`;
+        this.update();
+
+        try {
+            this.openSnippetVisualSearchInChat(snippet);
+            this.lastActionMessage = `Sous-image #${snippet.id} envoyée au Chat IA pour recherche visuelle.`;
+        } finally {
+            this.isSaving = false;
+            this.activeSnippetAction = null;
+            this.update();
+        }
+    }
+
     protected buildLastExtractionContent(): string | null {
         const text = (this.lastExtractedText || '').trim();
         if (!text || !this.lastExtractedKind) {
@@ -1091,6 +1117,52 @@ export class GeocacheImageEditorWidget extends ReactWidget {
 
         this.lastActionMessage = 'Résultat envoyé au Chat IA.';
         this.update();
+    }
+
+    protected openSnippetVisualSearchInChat(snippet: GeocacheImageV2Dto): void {
+        if (!this.geocacheId) {
+            return;
+        }
+
+        const bounds = this.snippetSelectionBounds;
+        const imageUrl = this.resolveImageUrl(snippet.url);
+        const prompt = [
+            'Analyse cette sous-image comme un indice visuel de géocaching.',
+            snippet.title ? `Titre image: ${snippet.title}` : '',
+            snippet.note ? `Note image: ${snippet.note}` : '',
+            bounds ? `Zone source: x ${bounds.left}, y ${bounds.top}, ${bounds.width} × ${bounds.height}px.` : '',
+            '',
+            'Objectifs:',
+            '- identifier les éléments visibles, logos, symboles, lieux, objets, textes partiels, QR/codes/barcodes éventuels ;',
+            '- proposer des hypothèses utiles pour résoudre une énigme de géocache ;',
+            '- proposer des requêtes web précises si une recherche internet peut aider ;',
+            '- extraire toute piste pouvant mener à des coordonnées, une formule, un mot-clé ou un checker.',
+            '',
+            'Réponds avec les observations fiables d’abord, puis les pistes à vérifier.',
+        ].filter(Boolean).join('\n');
+
+        window.dispatchEvent(new CustomEvent('geoapp-open-chat-request', {
+            detail: {
+                geocacheId: this.geocacheId,
+                sessionTitle: `Recherche image - sous-image #${snippet.id}`,
+                prompt,
+                imageUrls: [imageUrl],
+                focus: true,
+                workflowKind: 'image_puzzle',
+                preferredProfile: 'web',
+                sessionKind: 'auto',
+                resumeState: {
+                    workflow: { kind: 'image_puzzle' },
+                    imageEditor: {
+                        sourceImageId: this.imageId,
+                        snippetImageId: snippet.id,
+                        action: 'visual-search',
+                        bounds,
+                    },
+                    currentText: prompt,
+                },
+            }
+        }));
     }
 
     protected getViewportCenterPoint(): { x: number; y: number } {
@@ -2785,6 +2857,7 @@ export class GeocacheImageEditorWidget extends ReactWidget {
 
                 <div className='grid gap-1 opacity-70'>
                     <div>Ctrl + molette : zoom autour du pointeur</div>
+                    <div>Découpe : Entrée crée une sous-image, Ctrl + Entrée lance l’OCR, Alt + Entrée ouvre la recherche IA/Web.</div>
                     <div>Les sous-images et exports ignorent le rectangle de découpe temporaire.</div>
                 </div>
             </aside>
@@ -3049,6 +3122,16 @@ export class GeocacheImageEditorWidget extends ReactWidget {
                                 title='Créer une sous-image puis lancer le détecteur QR dessus'
                             >
                                 {this.activeSnippetAction === 'qr' ? 'QR…' : 'QR zone'}
+                            </button>
+
+                            <button
+                                type='button'
+                                className='theia-button secondary'
+                                onClick={() => { void this.runVisualSearchOnSnippetSelection(); }}
+                                disabled={this.isSaving || !this.snippetSelectionRect}
+                                title='Créer une sous-image puis ouvrir le Chat IA avec recherche web'
+                            >
+                                {this.activeSnippetAction === 'visual-search' ? 'Recherche…' : 'Recherche IA/Web'}
                             </button>
                         </div>
                     ) : null}
