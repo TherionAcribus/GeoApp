@@ -33,6 +33,11 @@ type ImageEditorExtractionHint = {
     label: string;
     value: string;
 };
+type ImageEditorContextMenuState = {
+    x: number;
+    y: number;
+    targetObject: any | null;
+};
 
 export interface GeocacheImageEditorContext {
     backendBaseUrl: string;
@@ -59,6 +64,7 @@ export class GeocacheImageEditorWidget extends ReactWidget {
     protected lastSnippetImage: GeocacheImageV2Dto | null = null;
     protected lastExtractedKind: 'ocr' | 'qr' | null = null;
     protected lastExtractedText: string | null = null;
+    protected contextMenu: ImageEditorContextMenuState | null = null;
     protected didApplyRemoteEditorState = false;
     protected loadedEditorStateJson: string | null = null;
 
@@ -495,6 +501,13 @@ export class GeocacheImageEditorWidget extends ReactWidget {
             targetTag === 'select'
         );
         if (isEditableTarget) {
+            return;
+        }
+
+        if (event.key === 'Escape' && this.contextMenu) {
+            this.contextMenu = null;
+            this.update();
+            event.preventDefault();
             return;
         }
 
@@ -1298,6 +1311,275 @@ export class GeocacheImageEditorWidget extends ReactWidget {
         this.update();
     }
 
+    protected getHintWorkflowKind(hint: ImageEditorExtractionHint): string {
+        switch (hint.kind) {
+            case 'checker':
+                return 'checker';
+            case 'formula':
+                return 'formula';
+            case 'code':
+            case 'gc-code':
+                return 'secret_code';
+            case 'coordinates':
+            case 'url':
+                return 'image_puzzle';
+        }
+    }
+
+    protected getHintPreferredProfile(hint: ImageEditorExtractionHint): string {
+        if (hint.kind === 'checker' || hint.kind === 'url') {
+            return 'web';
+        }
+        if (hint.kind === 'formula') {
+            return 'strong';
+        }
+        return 'default';
+    }
+
+    protected buildSingleHintPrompt(hint: ImageEditorExtractionHint): string {
+        const snippet = this.lastSnippetImage;
+        const content = this.buildLastExtractionContent();
+        const kindGuidance: Record<ImageEditorExtractionHintKind, string> = {
+            coordinates: 'Vérifie si cette valeur ressemble à des coordonnées géocaching valides. Reformate-les proprement, signale les ambiguïtés OCR, et indique si cela mérite un waypoint ou une coordonnée corrigée.',
+            checker: 'Vérifie ce checker ou lien de validation. Dis quel service il semble utiliser et quelle action GeoApp pertinente peut suivre.',
+            url: 'Analyse ce lien dans le contexte de l’énigme. Cherche ce qu’il peut révéler, quelles requêtes web complémentaires lancer, et quels éléments garder en note.',
+            'gc-code': 'Analyse ce code GC dans le contexte de l’image et de la géocache courante. Dis s’il semble être une référence utile, une fausse piste ou une cible de recherche.',
+            formula: 'Analyse cette formule potentielle. Identifie les variables, les formats de coordonnées attendus, et propose les prochaines étapes de résolution.',
+            code: 'Analyse ce code potentiel. Propose les familles de décodage plausibles en géocaching et les tests prioritaires.',
+        };
+
+        return [
+            `Piste détectée depuis l’éditeur d’image : ${hint.label}`,
+            `Valeur : ${hint.value}`,
+            snippet ? `Sous-image: #${snippet.id}` : '',
+            '',
+            kindGuidance[hint.kind],
+            content ? ['', 'Contexte OCR/QR complet :', content].join('\n') : '',
+        ].filter(Boolean).join('\n');
+    }
+
+    protected openExtractionHintInChat(hint: ImageEditorExtractionHint): void {
+        if (!this.geocacheId) {
+            return;
+        }
+
+        const snippet = this.lastSnippetImage;
+        const prompt = this.buildSingleHintPrompt(hint);
+        const imageUrls = snippet ? [this.resolveImageUrl(snippet.url)] : undefined;
+
+        window.dispatchEvent(new CustomEvent('geoapp-open-chat-request', {
+            detail: {
+                geocacheId: this.geocacheId,
+                sessionTitle: `${hint.label} - image #${snippet?.id || this.imageId}`,
+                prompt,
+                imageUrls,
+                focus: true,
+                workflowKind: this.getHintWorkflowKind(hint),
+                preferredProfile: this.getHintPreferredProfile(hint),
+                sessionKind: 'auto',
+                resumeState: {
+                    workflow: { kind: this.getHintWorkflowKind(hint) },
+                    imageEditor: {
+                        sourceImageId: this.imageId,
+                        snippetImageId: snippet?.id,
+                        extractionKind: this.lastExtractedKind,
+                        hint,
+                    },
+                    currentText: prompt,
+                },
+            }
+        }));
+
+        this.lastActionMessage = `${hint.label} envoyé au Chat IA.`;
+        this.update();
+    }
+
+    protected async copyExtractionHintValue(hint: ImageEditorExtractionHint): Promise<void> {
+        try {
+            await navigator.clipboard?.writeText(hint.value);
+            this.lastActionMessage = `${hint.label} copié dans le presse-papiers.`;
+        } catch (e) {
+            console.error('[GeocacheImageEditorWidget] copy hint error', e);
+            this.lastActionMessage = 'Impossible de copier cette piste.';
+        } finally {
+            this.update();
+        }
+    }
+
+    protected openEditorContextMenu(event: React.MouseEvent): void {
+        event.preventDefault();
+        event.stopPropagation();
+
+        let targetObject: any | null = null;
+        if (this.fabricCanvas && typeof this.fabricCanvas.findTarget === 'function') {
+            targetObject = this.fabricCanvas.findTarget(event.nativeEvent, true) ?? null;
+        }
+
+        const base = this.getBaseImageObject();
+        if (targetObject === base) {
+            targetObject = null;
+        }
+
+        if (targetObject && targetObject !== this.snippetSelectionRect) {
+            this.applyTool('select');
+            this.fabricCanvas?.setActiveObject?.(targetObject);
+            this.fabricCanvas?.requestRenderAll?.();
+            this.onSelectionChanged();
+        }
+
+        this.contextMenu = {
+            x: Math.min(event.clientX, Math.max(12, window.innerWidth - 280)),
+            y: Math.min(event.clientY, Math.max(12, window.innerHeight - 360)),
+            targetObject,
+        };
+        this.update();
+    }
+
+    protected closeContextMenu(): void {
+        if (!this.contextMenu) {
+            return;
+        }
+        this.contextMenu = null;
+        this.update();
+    }
+
+    protected isLikelyPublicImageUrl(url: string): boolean {
+        try {
+            const parsed = new URL(url);
+            const host = parsed.hostname.toLowerCase();
+            return parsed.protocol.startsWith('http') &&
+                host !== 'localhost' &&
+                host !== '127.0.0.1' &&
+                host !== '0.0.0.0' &&
+                !host.startsWith('192.168.') &&
+                !host.startsWith('10.') &&
+                !/^172\.(1[6-9]|2\d|3[01])\./.test(host);
+        } catch {
+            return false;
+        }
+    }
+
+    protected isLikelyDirectImageUrl(url: string): boolean {
+        return /\.(png|jpe?g|gif|bmp|tiff?|webp)([?#].*)?$/i.test(url);
+    }
+
+    protected getPublicReverseSearchUrl(image: GeocacheImageV2Dto): string | null {
+        const candidates = [
+            image.url,
+            image.parent_image_id ? '' : image.source_url,
+        ]
+            .map(url => (url || '').trim())
+            .filter(Boolean)
+            .map(url => this.resolveImageUrl(url));
+
+        return candidates.find(url => this.isLikelyPublicImageUrl(url) && this.isLikelyDirectImageUrl(url)) ?? null;
+    }
+
+    protected getReverseSearchUploadUrl(engine: 'google-lens' | 'tineye'): string {
+        return engine === 'tineye' ? 'https://tineye.com/' : 'https://lens.google.com/';
+    }
+
+    protected getBlobExtension(blob: Blob): string {
+        return blob.type.includes('webp') ? 'webp'
+            : blob.type.includes('jpeg') ? 'jpg'
+                : blob.type.includes('gif') ? 'gif'
+                    : blob.type.includes('bmp') ? 'bmp'
+                        : blob.type.includes('tiff') ? 'tiff'
+                            : 'png';
+    }
+
+    protected downloadBlobForManualReverseSearch(blob: Blob, filename: string): void {
+        const ext = this.getBlobExtension(blob);
+        const objectUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = objectUrl;
+        link.download = `${filename}.${ext}`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30000);
+    }
+
+    protected async downloadImageForManualReverseSearch(image: GeocacheImageV2Dto, engine: 'google-lens' | 'tineye'): Promise<void> {
+        const imageUrl = this.resolveImageUrl(image.url);
+        const res = await fetch(imageUrl, { credentials: 'include' });
+        if (!res.ok) {
+            throw new Error(`HTTP ${res.status}`);
+        }
+        const blob = await res.blob();
+        this.downloadBlobForManualReverseSearch(blob, `geoapp-image-${image.id}-${engine}`);
+    }
+
+    protected async exportSnippetSelectionBlob(): Promise<Blob | null> {
+        const rect = this.getSelectionRectForSnippet();
+        const bounds = this.normalizeSnippetBounds(this.getBoundingRectWithoutViewport(rect));
+        if (!bounds || bounds.width < 2 || bounds.height < 2) {
+            return null;
+        }
+
+        return this.exportCanvasBlob({
+            format: 'png',
+            left: bounds.left,
+            top: bounds.top,
+            width: bounds.width,
+            height: bounds.height,
+            multiplier: 1,
+            withoutTransform: true,
+            withoutShadow: true,
+        });
+    }
+
+    protected async openReverseImageSearchForSelection(engine: 'google-lens' | 'tineye' = 'google-lens'): Promise<void> {
+        const engineLabel = engine === 'tineye' ? 'TinEye' : 'Google Lens';
+        try {
+            const blob = await this.exportSnippetSelectionBlob();
+            if (!blob) {
+                this.lastActionMessage = 'Aucune zone valide à envoyer en recherche image.';
+                return;
+            }
+            this.downloadBlobForManualReverseSearch(blob, `geoapp-selection-${this.imageId || 'image'}-${engine}`);
+            window.open(this.getReverseSearchUploadUrl(engine), '_blank', 'noopener,noreferrer');
+            this.lastActionMessage = `${engineLabel} ouvert avec la sélection téléchargée pour upload manuel.`;
+        } catch (e) {
+            console.error('[GeocacheImageEditorWidget] reverse image search selection error', e);
+            window.open(this.getReverseSearchUploadUrl(engine), '_blank', 'noopener,noreferrer');
+            this.lastActionMessage = `${engineLabel} ouvert, mais la sélection n’a pas pu être préparée automatiquement.`;
+        } finally {
+            this.closeContextMenu();
+            this.update();
+        }
+    }
+
+    protected async openReverseImageSearchForImage(image: GeocacheImageV2Dto | null, engine: 'google-lens' | 'tineye' = 'google-lens'): Promise<void> {
+        if (!image) {
+            return;
+        }
+
+        const publicUrl = this.getPublicReverseSearchUrl(image);
+        const engineLabel = engine === 'tineye' ? 'TinEye' : 'Google Lens';
+
+        try {
+            if (publicUrl) {
+                const externalUrl = engine === 'tineye'
+                    ? `https://tineye.com/search?url=${encodeURIComponent(publicUrl)}`
+                    : `https://lens.google.com/uploadbyurl?url=${encodeURIComponent(publicUrl)}`;
+                window.open(externalUrl, '_blank', 'noopener,noreferrer');
+                this.lastActionMessage = `Recherche image ouverte dans ${engineLabel}.`;
+            } else {
+                await this.downloadImageForManualReverseSearch(image, engine);
+                window.open(this.getReverseSearchUploadUrl(engine), '_blank', 'noopener,noreferrer');
+                this.lastActionMessage = `${engineLabel} ouvert avec l’image téléchargée pour upload manuel.`;
+            }
+        } catch (e) {
+            console.error('[GeocacheImageEditorWidget] reverse image search error', e);
+            window.open(this.getReverseSearchUploadUrl(engine), '_blank', 'noopener,noreferrer');
+            this.lastActionMessage = `${engineLabel} ouvert, mais l’image n’a pas pu être préparée automatiquement.`;
+        } finally {
+            this.closeContextMenu();
+            this.update();
+        }
+    }
+
     protected openSnippetVisualSearchInChat(snippet: GeocacheImageV2Dto): void {
         if (!this.geocacheId) {
             return;
@@ -1862,6 +2144,121 @@ export class GeocacheImageEditorWidget extends ReactWidget {
             return active.getObjects();
         }
         return [active];
+    }
+
+    protected getLayerObjects(): any[] {
+        if (!this.fabricCanvas) {
+            return [];
+        }
+        const base = this.getBaseImageObject();
+        const objects = this.fabricCanvas.getObjects?.() ?? [];
+        return objects
+            .filter((obj: any) => obj && obj !== base && obj !== this.snippetSelectionRect)
+            .slice()
+            .reverse();
+    }
+
+    protected getLayerLabel(obj: any, index: number): string {
+        const type = (obj?.type || '').toString();
+        if (type === 'i-text' || type === 'textbox' || type === 'text') {
+            const text = (obj?.text || '').toString().trim();
+            return text ? `Texte: ${text.slice(0, 24)}` : `Texte ${index + 1}`;
+        }
+        if (type === 'path') {
+            return `Dessin ${index + 1}`;
+        }
+        if (type === 'image') {
+            return `Image ${index + 1}`;
+        }
+        if (type === 'group') {
+            return `Groupe ${index + 1}`;
+        }
+        if (type === 'rect') {
+            return `Rectangle ${index + 1}`;
+        }
+        if (type === 'circle') {
+            return `Cercle ${index + 1}`;
+        }
+        if (type === 'triangle') {
+            return `Triangle ${index + 1}`;
+        }
+        if (type === 'line') {
+            return `Ligne ${index + 1}`;
+        }
+        return `Calque ${index + 1}`;
+    }
+
+    protected isLayerSelected(obj: any): boolean {
+        return this.getSelectedObjects().some(selected => selected === obj);
+    }
+
+    protected selectLayerObject(obj: any): void {
+        if (!this.fabricCanvas || !obj || obj.visible === false) {
+            return;
+        }
+        this.applyTool('select');
+        this.fabricCanvas.setActiveObject?.(obj);
+        this.fabricCanvas.requestRenderAll?.();
+        this.onSelectionChanged();
+    }
+
+    protected toggleLayerVisibility(obj: any): void {
+        if (!this.fabricCanvas || !obj) {
+            return;
+        }
+        const nextVisible = obj.visible === false;
+        obj.set?.({ visible: nextVisible });
+        if (!nextVisible && this.isLayerSelected(obj)) {
+            this.fabricCanvas.discardActiveObject?.();
+        }
+        this.fabricCanvas.requestRenderAll?.();
+        this.recordHistorySnapshot();
+        this.onSelectionChanged();
+        this.update();
+    }
+
+    protected toggleLayerLock(obj: any): void {
+        if (!this.fabricCanvas || !obj) {
+            return;
+        }
+        const nextLocked = obj.selectable !== false;
+        obj.set?.({
+            selectable: !nextLocked,
+            evented: !nextLocked,
+            lockMovementX: nextLocked,
+            lockMovementY: nextLocked,
+            lockScalingX: nextLocked,
+            lockScalingY: nextLocked,
+            lockRotation: nextLocked,
+        });
+        if (nextLocked && this.isLayerSelected(obj)) {
+            this.fabricCanvas.discardActiveObject?.();
+        }
+        this.fabricCanvas.requestRenderAll?.();
+        this.recordHistorySnapshot();
+        this.onSelectionChanged();
+        this.update();
+    }
+
+    protected moveLayerObject(obj: any, direction: 'up' | 'down'): void {
+        if (!this.fabricCanvas || !obj) {
+            return;
+        }
+        if (direction === 'up') {
+            this.fabricCanvas.bringForward(obj);
+        } else {
+            this.fabricCanvas.sendBackwards(obj);
+        }
+        const base = this.getBaseImageObject();
+        if (base) {
+            this.fabricCanvas.sendToBack(base);
+        }
+        if (this.snippetSelectionRect) {
+            this.fabricCanvas.bringToFront(this.snippetSelectionRect);
+        }
+        this.fabricCanvas.requestRenderAll?.();
+        this.recordHistorySnapshot();
+        this.update();
     }
 
     protected setSelectionOpacity(value: number): void {
@@ -2966,16 +3363,40 @@ export class GeocacheImageEditorWidget extends ReactWidget {
         return (
             <div className='grid gap-2'>
                 <div className='font-semibold'>Pistes détectées</div>
-                <div className='flex flex-wrap gap-1.5'>
+                <div className='grid gap-1.5'>
                     {hints.map((hint, index) => (
-                        <span
+                        <div
                             key={`${hint.kind}-${hint.value}-${index}`}
-                            className={`rounded border px-2 py-1 ${this.getExtractionHintClassName(hint.kind)}`}
+                            className={`grid grid-cols-[1fr_auto] items-center gap-2 rounded border px-2 py-1 ${this.getExtractionHintClassName(hint.kind)}`}
                             title={hint.value}
                         >
-                            <span className='opacity-75'>{hint.label}: </span>
-                            <span className='font-semibold'>{hint.value.length > 42 ? `${hint.value.slice(0, 42)}…` : hint.value}</span>
-                        </span>
+                            <div className='min-w-0'>
+                                <div className='opacity-75'>{hint.label}</div>
+                                <div className='truncate font-semibold'>{hint.value}</div>
+                            </div>
+                            <div className='flex items-center gap-1'>
+                                <button
+                                    type='button'
+                                    className='theia-button secondary !px-0 w-7 h-7'
+                                    title='Vérifier cette piste avec le Chat IA'
+                                    aria-label='Vérifier cette piste avec le Chat IA'
+                                    onClick={() => this.openExtractionHintInChat(hint)}
+                                    disabled={this.isSaving}
+                                >
+                                    <i className='fa fa-comments' aria-hidden='true' />
+                                </button>
+                                <button
+                                    type='button'
+                                    className='theia-button secondary !px-0 w-7 h-7'
+                                    title='Copier la valeur'
+                                    aria-label='Copier la valeur'
+                                    onClick={() => { void this.copyExtractionHintValue(hint); }}
+                                    disabled={this.isSaving}
+                                >
+                                    <i className='fa fa-copy' aria-hidden='true' />
+                                </button>
+                            </div>
+                        </div>
                     ))}
                 </div>
                 <div className='flex flex-wrap gap-2'>
@@ -3000,6 +3421,213 @@ export class GeocacheImageEditorWidget extends ReactWidget {
         );
     }
 
+    protected renderLayersPanel(): React.ReactNode {
+        const layers = this.getLayerObjects();
+        if (!layers.length) {
+            return (
+                <div className='grid gap-1'>
+                    <div className='font-semibold'>Calques</div>
+                    <div className='opacity-70'>Aucun calque ajouté.</div>
+                </div>
+            );
+        }
+
+        return (
+            <div className='grid gap-2'>
+                <div className='font-semibold'>Calques</div>
+                <div className='grid gap-1 max-h-48 overflow-auto pr-1'>
+                    {layers.map((layer, index) => {
+                        const selected = this.isLayerSelected(layer);
+                        const visible = layer.visible !== false;
+                        const locked = layer.selectable === false;
+                        return (
+                            <div
+                                key={`${layer.type || 'layer'}-${index}`}
+                                className={`grid grid-cols-[1fr_auto] gap-2 rounded border p-2 ${selected ? 'border-sky-500 bg-sky-500/10' : 'border-[var(--theia-panel-border)] bg-black/10'}`}
+                            >
+                                <button
+                                    type='button'
+                                    className='min-w-0 text-left'
+                                    onClick={() => this.selectLayerObject(layer)}
+                                    disabled={!visible}
+                                    title={this.getLayerLabel(layer, index)}
+                                >
+                                    <div className={`truncate font-semibold ${visible ? '' : 'opacity-45'}`}>
+                                        {this.getLayerLabel(layer, index)}
+                                    </div>
+                                    <div className='opacity-60'>
+                                        {visible ? 'visible' : 'masqué'} · {locked ? 'verrouillé' : 'éditable'}
+                                    </div>
+                                </button>
+                                <div className='flex items-center gap-1'>
+                                    <button
+                                        type='button'
+                                        className='theia-button secondary !px-0 w-7 h-7'
+                                        title={visible ? 'Masquer' : 'Afficher'}
+                                        aria-label={visible ? 'Masquer le calque' : 'Afficher le calque'}
+                                        onClick={() => this.toggleLayerVisibility(layer)}
+                                    >
+                                        <i className={`fa ${visible ? 'fa-eye' : 'fa-eye-slash'}`} aria-hidden='true' />
+                                    </button>
+                                    <button
+                                        type='button'
+                                        className='theia-button secondary !px-0 w-7 h-7'
+                                        title={locked ? 'Déverrouiller' : 'Verrouiller'}
+                                        aria-label={locked ? 'Déverrouiller le calque' : 'Verrouiller le calque'}
+                                        onClick={() => this.toggleLayerLock(layer)}
+                                    >
+                                        <i className={`fa ${locked ? 'fa-lock' : 'fa-unlock'}`} aria-hidden='true' />
+                                    </button>
+                                    <button
+                                        type='button'
+                                        className='theia-button secondary !px-0 w-7 h-7'
+                                        title='Monter'
+                                        aria-label='Monter le calque'
+                                        onClick={() => this.moveLayerObject(layer, 'up')}
+                                    >
+                                        <i className='fa fa-arrow-up' aria-hidden='true' />
+                                    </button>
+                                    <button
+                                        type='button'
+                                        className='theia-button secondary !px-0 w-7 h-7'
+                                        title='Descendre'
+                                        aria-label='Descendre le calque'
+                                        onClick={() => this.moveLayerObject(layer, 'down')}
+                                    >
+                                        <i className='fa fa-arrow-down' aria-hidden='true' />
+                                    </button>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        );
+    }
+
+    protected renderActiveModeBanner(): React.ReactNode {
+        return (
+            <div className='sticky top-0 z-10 rounded border border-[var(--theia-panel-border)] bg-[var(--theia-editor-background)]/95 p-2 shadow-sm'>
+                <div className='flex items-start gap-2'>
+                    <div className='w-8 h-8 rounded border border-[var(--theia-panel-border)] flex items-center justify-center shrink-0'>
+                        <i className={this.getToolIcon(this.tool)} aria-hidden='true' />
+                    </div>
+                    <div className='min-w-0'>
+                        <div className='text-xs uppercase opacity-60'>Mode actif</div>
+                        <div className='font-semibold'>{this.getToolLabel()}</div>
+                        <div className='text-xs opacity-75 leading-relaxed'>{this.getToolHint()}</div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    protected renderContextMenu(): React.ReactNode {
+        if (!this.contextMenu) {
+            return null;
+        }
+
+        const target = this.contextMenu.targetObject;
+        const hasLayerTarget = Boolean(target && target !== this.snippetSelectionRect);
+        const hasSnippetSelection = Boolean(this.snippetSelectionRect);
+        const lastSnippet = this.lastSnippetImage;
+        const layerLocked = target?.selectable === false;
+        const layerVisible = target?.visible !== false;
+
+        const buttonClass = 'w-full text-left px-2 py-1.5 hover:bg-[var(--theia-list-hoverBackground)] disabled:opacity-50';
+        const contextMenuStyle: React.CSSProperties = {
+            position: 'fixed',
+            left: this.contextMenu.x,
+            top: this.contextMenu.y,
+            zIndex: 100000,
+            width: 280,
+            maxHeight: 'calc(100vh - 24px)',
+            overflowY: 'auto',
+            background: 'var(--theia-menu-background, var(--theia-editor-background))',
+            color: 'var(--theia-menu-foreground, var(--theia-foreground))',
+            boxShadow: '0 10px 26px rgba(0, 0, 0, 0.35)',
+        };
+
+        return (
+            <div
+                className='rounded border border-[var(--theia-panel-border)] p-1 text-xs'
+                style={contextMenuStyle}
+                onClick={event => event.stopPropagation()}
+                onContextMenu={event => event.preventDefault()}
+            >
+                {hasSnippetSelection ? (
+                    <div className='grid border-b border-[var(--theia-panel-border)] pb-1 mb-1'>
+                        <div className='px-2 py-1 opacity-60 uppercase'>Zone sélectionnée</div>
+                        <button className={buttonClass} type='button' onClick={() => { this.closeContextMenu(); void this.createSnippetFromSelection(); }}>
+                            Créer sous-image
+                        </button>
+                        <button className={buttonClass} type='button' onClick={() => { this.closeContextMenu(); void this.runOcrOnSnippetSelection(); }}>
+                            OCR zone
+                        </button>
+                        <button className={buttonClass} type='button' onClick={() => { this.closeContextMenu(); void this.runQrOnSnippetSelection(); }}>
+                            QR zone
+                        </button>
+                        <button className={buttonClass} type='button' onClick={() => { this.closeContextMenu(); void this.runVisualSearchOnSnippetSelection(); }}>
+                            Recherche IA/Web
+                        </button>
+                        <button className={buttonClass} type='button' onClick={() => { this.closeContextMenu(); void this.openReverseImageSearchForSelection('google-lens'); }}>
+                            Google Lens sur la zone
+                        </button>
+                        <button className={buttonClass} type='button' onClick={() => { this.closeContextMenu(); void this.openReverseImageSearchForSelection('tineye'); }}>
+                            TinEye sur la zone
+                        </button>
+                        <button className={buttonClass} type='button' onClick={() => { this.clearSnippetSelection(); this.closeContextMenu(); }}>
+                            Effacer la sélection
+                        </button>
+                    </div>
+                ) : null}
+
+                {hasLayerTarget ? (
+                    <div className='grid border-b border-[var(--theia-panel-border)] pb-1 mb-1'>
+                        <div className='px-2 py-1 opacity-60 uppercase'>Calque</div>
+                        <button className={buttonClass} type='button' onClick={() => { this.selectLayerObject(target); this.closeContextMenu(); }}>
+                            Sélectionner
+                        </button>
+                        <button className={buttonClass} type='button' onClick={() => { this.toggleLayerVisibility(target); this.closeContextMenu(); }}>
+                            {layerVisible ? 'Masquer' : 'Afficher'}
+                        </button>
+                        <button className={buttonClass} type='button' onClick={() => { this.toggleLayerLock(target); this.closeContextMenu(); }}>
+                            {layerLocked ? 'Déverrouiller' : 'Verrouiller'}
+                        </button>
+                        <button className={buttonClass} type='button' onClick={() => { this.moveLayerObject(target, 'up'); this.closeContextMenu(); }}>
+                            Monter
+                        </button>
+                        <button className={buttonClass} type='button' onClick={() => { this.moveLayerObject(target, 'down'); this.closeContextMenu(); }}>
+                            Descendre
+                        </button>
+                        <button className={buttonClass} type='button' onClick={() => { void this.duplicateSelection(); this.closeContextMenu(); }}>
+                            Dupliquer
+                        </button>
+                        <button className={buttonClass} type='button' onClick={() => { this.deleteSelection(); this.closeContextMenu(); }}>
+                            Supprimer
+                        </button>
+                    </div>
+                ) : null}
+
+                <div className='grid'>
+                    <div className='px-2 py-1 opacity-60 uppercase'>Recherche image Internet</div>
+                    <button className={buttonClass} type='button' onClick={() => { void this.openReverseImageSearchForImage(this.image, 'google-lens'); }} disabled={!this.image}>
+                        Google Lens image courante
+                    </button>
+                    <button className={buttonClass} type='button' onClick={() => { void this.openReverseImageSearchForImage(this.image, 'tineye'); }} disabled={!this.image}>
+                        TinEye image courante
+                    </button>
+                    <button className={buttonClass} type='button' onClick={() => { void this.openReverseImageSearchForImage(lastSnippet, 'google-lens'); }} disabled={!lastSnippet}>
+                        Google Lens dernière sous-image
+                    </button>
+                    <div className='px-2 py-1 opacity-60 leading-relaxed'>
+                        Si l’image est locale, GeoApp la télécharge puis ouvre la page d’upload.
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
     protected renderWorkflowPanel(img: GeocacheImageV2Dto): React.ReactNode {
         const baseImage = this.getEditorBaseImage();
         const isUsingSeparateBase = Boolean(baseImage && baseImage.id !== img.id);
@@ -3012,12 +3640,6 @@ export class GeocacheImageEditorWidget extends ReactWidget {
 
         return (
             <aside className='rounded border border-[var(--theia-panel-border)] bg-[var(--theia-editor-background)] p-3 text-xs grid gap-3'>
-                <div>
-                    <div className='font-semibold text-sm'>Mode actif</div>
-                    <div className='mt-1 text-[var(--theia-foreground)]'>{this.getToolLabel()}</div>
-                    <div className='mt-1 opacity-70 leading-relaxed'>{this.getToolHint()}</div>
-                </div>
-
                 <div className='grid gap-1'>
                     <div className='font-semibold'>État</div>
                     <div className='opacity-80'>Calques éditables : {objectCount}</div>
@@ -3039,6 +3661,8 @@ export class GeocacheImageEditorWidget extends ReactWidget {
                         </div>
                     ) : null}
                 </div>
+
+                {this.renderLayersPanel()}
 
                 {this.snippetPreviewDataUrl ? (
                     <div className='grid gap-2'>
@@ -3163,7 +3787,7 @@ export class GeocacheImageEditorWidget extends ReactWidget {
         const canEditImage = Boolean(baseImage);
 
         return (
-            <div className='p-3 grid gap-3 h-full min-h-0'>
+            <div className='p-3 grid gap-3 h-full min-h-0' onClick={() => this.closeContextMenu()}>
                 <div className='flex items-start justify-between gap-3'>
                     <div className='min-w-0'>
                         <div className='font-semibold truncate'>Image #{img.id}</div>
@@ -3171,6 +3795,8 @@ export class GeocacheImageEditorWidget extends ReactWidget {
                     </div>
                     {this.renderBadges(img)}
                 </div>
+
+                {this.renderActiveModeBanner()}
 
                 <div className='grid gap-3 xl:grid-cols-[52px_minmax(0,1fr)_320px] min-h-0'>
                     {this.renderToolSidebar(canEditImage)}
@@ -4200,7 +4826,10 @@ export class GeocacheImageEditorWidget extends ReactWidget {
                 </div>
                         </div>
 
-                        <div className='rounded border border-[var(--theia-panel-border)] bg-[var(--theia-editor-background)] p-2 overflow-auto'>
+                        <div
+                            className='rounded border border-[var(--theia-panel-border)] bg-[var(--theia-editor-background)] p-2 overflow-auto'
+                            onContextMenu={event => this.openEditorContextMenu(event)}
+                        >
                             <canvas className='w-full rounded bg-black/20' ref={this.setCanvasRef} />
                         </div>
 
@@ -4212,6 +4841,7 @@ export class GeocacheImageEditorWidget extends ReactWidget {
 
                     {this.renderWorkflowPanel(img)}
                 </div>
+                {this.renderContextMenu()}
             </div>
         );
     }
