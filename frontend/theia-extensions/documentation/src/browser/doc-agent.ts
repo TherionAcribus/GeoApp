@@ -15,7 +15,7 @@ import {
 import { MutableChatRequestModel } from '@theia/ai-chat/lib/common/chat-model';
 import { LanguageModelMessage } from '@theia/ai-core/lib/common/language-model';
 import { DocContentService } from './doc-content-service';
-import { DocActionToolsManager, AIDE_TOOL_PREFIX } from './doc-action-tools';
+import { DocActionToolsManager } from './doc-action-tools';
 import { DocActionContextService } from './doc-action-context-service';
 
 export const GeoAppDocAgentId = 'geoapp-doc-aide';
@@ -56,12 +56,13 @@ export class GeoAppDocAgent extends AbstractStreamParsingChatAgent {
         promptVariantId?: string,
         isPromptVariantCustomized?: boolean
     ): Promise<LanguageModelResponse> {
-        const nonAideTools = toolRequests.filter(t => !t.id.startsWith(AIDE_TOOL_PREFIX));
-        const aideTools = this.actionToolsManager.buildAllTools();
+        const docToolIds = new Set(this.actionToolsManager.buildAllTools().map(t => t.id));
+        const nonDocTools = toolRequests.filter(t => !docToolIds.has(t.id));
+        const docTools = this.actionToolsManager.buildAllTools();
         return super.sendLlmRequest(
             request,
             messages,
-            [...nonAideTools, ...aideTools],
+            [...nonDocTools, ...docTools],
             languageModel,
             promptVariantId,
             isPromptVariantCustomized
@@ -163,6 +164,12 @@ export class GeoAppDocAgent extends AbstractStreamParsingChatAgent {
             '- aide_list_preferences(category?) — Liste les préférences avec valeurs courantes. Catégories : ai, formulaSolver, chat, ui, map, plugins, ocr, images, updates, backend, logs, search.',
             '- aide_get_preference(key) — Valeur courante + métadonnées d\'une préférence spécifique.',
             '- aide_set_preference(key, value) — Modifie une préférence (validation type/enum/plage automatique). Clés API protégées.',
+            '',
+            '**Calculatrice :**',
+            '- aide_calculate(expression, angle_unit?) — Évalue une expression mathématique. Angles en RADIANS par défaut, utiliser angle_unit="deg" pour les degrés. Ex: "sqrt(144)", "sin(pi/6)", "factorial(10)", "log10(1000)", "2^10", "combinations(10,3)".',
+            '- aide_calculate_batch(expressions, angle_unit?) — Évalue plusieurs expressions séparées par ";". Idéal pour résoudre plusieurs formules de coordonnées en parallèle.',
+            '- aide_open_calculator — Ouvre le panneau calculatrice dans la barre latérale.',
+            '  ⚡ RÈGLE ABSOLUE : utiliser aide_calculate pour TOUT calcul numérique lors de la résolution d\'énigmes. Ne jamais estimer ni calculer mentalement.',
             '',
             uiContextBlock,
             '',

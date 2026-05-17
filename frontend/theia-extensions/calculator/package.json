@@ -1,0 +1,40 @@
+{
+  "name": "@mysterai/theia-calculator",
+  "version": "1.0.0",
+  "description": "MysterAI Calculator Extension for Theia IDE",
+  "keywords": [
+    "theia-extension",
+    "calculator",
+    "geocaching",
+    "mysterai"
+  ],
+  "license": "MIT",
+  "main": "lib/browser/calculator-frontend-module.js",
+  "typings": "lib/browser/calculator-frontend-module.d.ts",
+  "dependencies": {
+    "mathjs": "^12.0.0"
+  },
+  "scripts": {
+    "clean": "rimraf lib",
+    "build": "tsc && yarn run copy:assets",
+    "copy:assets": "node -e \"require('fs-extra').copySync('src/browser/style', 'lib/browser/style')\"",
+    "watch": "tsc -w"
+  },
+  "devDependencies": {
+    "rimraf": "^5.0.0",
+    "typescript": "^5.0.0",
+    "fs-extra": "^11.0.0",
+    "@types/react": "^18.2.0",
+    "@theia/core": "1.70.2",
+    "@theia/ai-core": "1.70.2"
+  },
+  "peerDependencies": {
+    "@theia/core": "1.70.2",
+    "@theia/ai-core": "1.70.2"
+  },
+  "theiaExtensions": [
+    {
+      "frontend": "lib/browser/calculator-frontend-module"
+    }
+  ]
+}

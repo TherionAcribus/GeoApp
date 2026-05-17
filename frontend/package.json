@@ -42,7 +42,7 @@
     "build:dev": "yarn build:extensions && yarn build:applications:dev",
     "build:applications": "lerna run --scope=\"theia-ide*app\" build:prod --concurrency 1",
     "build:applications:dev": "lerna run --scope=\"theia-ide*app\" build --concurrency 1",
-    "build:extensions": "yarn workspace @mysterai/theia-plugins build && lerna run --scope=\"@mysterai/theia-alphabets\" --scope=\"@mysterai/theia-preferences\" --scope=\"@mysterai/theia-formula-solver\" build && lerna run --scope=\"theia-ide*ext\" build",
+    "build:extensions": "yarn workspace @mysterai/theia-plugins build && lerna run --scope=\"@mysterai/theia-alphabets\" --scope=\"@mysterai/theia-preferences\" --scope=\"@mysterai/theia-formula-solver\" --scope=\"@mysterai/theia-calculator\" build && lerna run --scope=\"theia-ide*ext\" build",
     "download:plugins": "theia download:plugins --rate-limit=15 --parallel=false && yarn permissions:writeable",
     "package:applications": "lerna run --scope=\"theia-ide*app\" package --concurrency 1",
     "package:applications:preview": "lerna run --scope=\"theia-ide*app\" package:preview --concurrency 1",
@@ -86,7 +86,8 @@
     "theia-extensions/search",
     "theia-extensions/updater",
     "theia-extensions/zones",
-    "theia-extensions/documentation"
+    "theia-extensions/documentation",
+    "theia-extensions/calculator"
   ],
   "resolutions": {
     "@types/puppeteer": "^5.4.0",

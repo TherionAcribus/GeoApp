@@ -123,7 +123,8 @@
     "@mysterai/theia-preferences": "1.0.0",
     "@mysterai/theia-alphabets": "1.0.0",
     "theia-ide-search-ext": "1.70.200",
-    "theia-ide-documentation-ext": "1.70.200"
+    "theia-ide-documentation-ext": "1.70.200",
+    "@mysterai/theia-calculator": "1.0.0"
   },
   "devDependencies": {
     "@theia/cli": "1.70.2",

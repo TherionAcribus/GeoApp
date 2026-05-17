@@ -7,7 +7,7 @@ tags: [IA, aide, actions, zones, geocaches, waypoints, notes, navigation, plugin
 
 # Actions avec @Aide
 
-En plus de répondre aux questions documentaires, `@Aide` peut effectuer des actions directement dans GeoApp : ouvrir des panneaux, rechercher et ouvrir des plugins ou des alphabets, créer ou supprimer des zones, ajouter des géocaches, créer des waypoints et des notes. **31 actions** sont disponibles.
+En plus de répondre aux questions documentaires, `@Aide` peut effectuer des actions directement dans GeoApp : ouvrir des panneaux, rechercher et ouvrir des plugins ou des alphabets, créer ou supprimer des zones, ajouter des géocaches, créer des waypoints et des notes, et **effectuer des calculs mathématiques**. **34 actions** sont disponibles.
 
 ## Fonctionnement en mode hybride
 
@@ -29,6 +29,8 @@ En plus de répondre aux questions documentaires, `@Aide` peut effectuer des act
 | « Active la recherche web dans le Formula Solver » | Lit la préférence, la met à jour à `true` |
 | « Liste mes zones » | Retourne la liste de toutes les zones |
 | « Supprime cette zone » | Demande confirmation Theia, puis supprime |
+| « Calcule sqrt(144) + 2^8 » | Évalue l'expression et retourne le résultat |
+| « Résous les coordonnées N 48° (A+B).CDE si A=3 B=7 C=sqrt(25) » | Calcule chaque variable via aide_calculate |
 
 ## Contexte UI
 
@@ -141,9 +143,33 @@ Vous n'avez pas besoin de confirmer verbalement : la boîte de dialogue apparaî
 
 > **Sécurité :** `@Aide` ne peut jamais lire ni modifier la clé API OpenRouter (`geoApp.ai.openRouter.apiKey`) ni aucune autre valeur marquée comme sensible.
 
+### Calculatrice scientifique
+
+`@Aide` dispose d'une calculatrice scientifique complète pour résoudre les formules de coordonnées et les énigmes mathématiques.
+
+| Demande (exemples) | Action |
+|---|---|
+| « Calcule sqrt(144) » | Retourne `12` |
+| « Combien font sin(30) en degrés ? » | Retourne `0.5` (avec angle_unit="deg") |
+| « Calcule 2^10 » | Retourne `1024` |
+| « Factorielle de 7 » | Calcule `factorial(7)` = `5040` |
+| « Calcule log10(1000) » | Retourne `3` |
+| « Résous A=floor(3.7), B=ceil(2.1), C=A+B » | Évalue via batch : `3; 3; 6` |
+| « Ouvre la calculatrice » | Affiche le panneau calculatrice |
+
+**Fonctions disponibles :**
+- **Trigonométrie :** `sin`, `cos`, `tan`, `asin`, `acos`, `atan` — angles en rad par défaut, `angle_unit="deg"` pour les degrés
+- **Algèbre :** `sqrt`, `cbrt`, `abs`, `floor`, `ceil`, `round`, `factorial`, `combinations`, `permutations`
+- **Logarithmes :** `log` (naturel/ln), `log10`, `log2`, `exp`
+- **Constantes :** `pi`, `e`
+- **Opérateurs :** `+`, `-`, `*`, `/`, `^` (puissance), `%` (modulo)
+
+> **Règle :** `@Aide` utilise systématiquement la calculatrice pour tout résultat numérique lors de la résolution d'énigmes. Les résultats sont exacts, jamais estimés.
+
 ## Conseils d'utilisation
 
 - **Plugins et alphabets :** donnez une description en langage naturel, `@Aide` trouvera le bon outil. Inutile de connaître le nom exact.
 - **Zones et caches :** démarrez par « Liste mes zones » si vous ne connaissez pas les IDs. Pour les identifiants manquants, `@Aide` les cherchera automatiquement.
 - **Notes :** précisez `note_type: system` uniquement pour des notes système ; laissez vide pour une note utilisateur.
 - **Coordonnées :** les waypoints doivent être au format **DDM** (ex: `N 48° 51.500 E 002° 17.600`).
+- **Calculs :** pour les formules de géocaches (ex: `N 48° (A×B+C).DEF`), donnez les valeurs de chaque variable et `@Aide` calculera les coordonnées finales.
