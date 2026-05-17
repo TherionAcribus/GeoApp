@@ -1529,20 +1529,58 @@ export class GeocacheImageEditorWidget extends ReactWidget {
         });
     }
 
+    protected async copyImageBlobToClipboard(blob: Blob): Promise<boolean> {
+        const ClipboardItemCtor = (window as any).ClipboardItem;
+        if (!navigator.clipboard?.write || !ClipboardItemCtor) {
+            return false;
+        }
+
+        try {
+            const pngBlob = blob.type === 'image/png'
+                ? blob
+                : new Blob([blob], { type: 'image/png' });
+            await navigator.clipboard.write([
+                new ClipboardItemCtor({ 'image/png': pngBlob }),
+            ]);
+            return true;
+        } catch (e) {
+            console.warn('[GeocacheImageEditorWidget] image clipboard write failed', e);
+            return false;
+        }
+    }
+
     protected async openReverseImageSearchForSelection(engine: 'google-lens' | 'tineye' = 'google-lens'): Promise<void> {
         const engineLabel = engine === 'tineye' ? 'TinEye' : 'Google Lens';
+        const searchWindow = window.open('about:blank', '_blank', 'noopener,noreferrer');
         try {
             const blob = await this.exportSnippetSelectionBlob();
             if (!blob) {
                 this.lastActionMessage = 'Aucune zone valide à envoyer en recherche image.';
+                searchWindow?.close();
                 return;
             }
-            this.downloadBlobForManualReverseSearch(blob, `geoapp-selection-${this.imageId || 'image'}-${engine}`);
-            window.open(this.getReverseSearchUploadUrl(engine), '_blank', 'noopener,noreferrer');
-            this.lastActionMessage = `${engineLabel} ouvert avec la sélection téléchargée pour upload manuel.`;
+
+            const copied = await this.copyImageBlobToClipboard(blob);
+            if (!copied) {
+                this.downloadBlobForManualReverseSearch(blob, `geoapp-selection-${this.imageId || 'image'}-${engine}`);
+            }
+
+            if (searchWindow) {
+                searchWindow.location.href = this.getReverseSearchUploadUrl(engine);
+            } else {
+                window.open(this.getReverseSearchUploadUrl(engine), '_blank', 'noopener,noreferrer');
+            }
+
+            this.lastActionMessage = copied
+                ? `${engineLabel} ouvert. La sélection est copiée : collez-la dans la zone d’upload avec Ctrl+V.`
+                : `${engineLabel} ouvert. La sélection a été téléchargée : déposez ce fichier dans la zone d’upload.`;
         } catch (e) {
             console.error('[GeocacheImageEditorWidget] reverse image search selection error', e);
-            window.open(this.getReverseSearchUploadUrl(engine), '_blank', 'noopener,noreferrer');
+            if (searchWindow) {
+                searchWindow.location.href = this.getReverseSearchUploadUrl(engine);
+            } else {
+                window.open(this.getReverseSearchUploadUrl(engine), '_blank', 'noopener,noreferrer');
+            }
             this.lastActionMessage = `${engineLabel} ouvert, mais la sélection n’a pas pu être préparée automatiquement.`;
         } finally {
             this.closeContextMenu();
@@ -1557,6 +1595,7 @@ export class GeocacheImageEditorWidget extends ReactWidget {
 
         const publicUrl = this.getPublicReverseSearchUrl(image);
         const engineLabel = engine === 'tineye' ? 'TinEye' : 'Google Lens';
+        let searchWindow: Window | null = null;
 
         try {
             if (publicUrl) {
@@ -1566,13 +1605,22 @@ export class GeocacheImageEditorWidget extends ReactWidget {
                 window.open(externalUrl, '_blank', 'noopener,noreferrer');
                 this.lastActionMessage = `Recherche image ouverte dans ${engineLabel}.`;
             } else {
+                searchWindow = window.open('about:blank', '_blank', 'noopener,noreferrer');
                 await this.downloadImageForManualReverseSearch(image, engine);
-                window.open(this.getReverseSearchUploadUrl(engine), '_blank', 'noopener,noreferrer');
-                this.lastActionMessage = `${engineLabel} ouvert avec l’image téléchargée pour upload manuel.`;
+                if (searchWindow) {
+                    searchWindow.location.href = this.getReverseSearchUploadUrl(engine);
+                } else {
+                    window.open(this.getReverseSearchUploadUrl(engine), '_blank', 'noopener,noreferrer');
+                }
+                this.lastActionMessage = `${engineLabel} ouvert. L’image a été téléchargée : déposez ce fichier dans la zone d’upload.`;
             }
         } catch (e) {
             console.error('[GeocacheImageEditorWidget] reverse image search error', e);
-            window.open(this.getReverseSearchUploadUrl(engine), '_blank', 'noopener,noreferrer');
+            if (searchWindow) {
+                searchWindow.location.href = this.getReverseSearchUploadUrl(engine);
+            } else {
+                window.open(this.getReverseSearchUploadUrl(engine), '_blank', 'noopener,noreferrer');
+            }
             this.lastActionMessage = `${engineLabel} ouvert, mais l’image n’a pas pu être préparée automatiquement.`;
         } finally {
             this.closeContextMenu();
