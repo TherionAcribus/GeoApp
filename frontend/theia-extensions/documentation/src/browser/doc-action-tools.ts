@@ -17,6 +17,8 @@ import { PluginsService } from '@mysterai/theia-plugins/lib/common/plugin-protoc
 import { PluginTabsManager } from '@mysterai/theia-plugins/lib/browser/plugin-tabs-manager';
 import { AlphabetsService } from '@mysterai/theia-alphabets/lib/browser/services/alphabets-service';
 import { AlphabetTabsManager } from '@mysterai/theia-alphabets/lib/browser/alphabet-tabs-manager';
+import { GeoPreferenceStore } from '@mysterai/theia-preferences/lib/browser/geo-preference-store';
+import { GeoPreferenceDefinition } from '@mysterai/theia-preferences/lib/browser/geo-preferences-schema';
 
 export const AIDE_TOOL_PREFIX = 'aide_';
 
@@ -85,6 +87,9 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
     @inject(AlphabetTabsManager)
     protected readonly alphabetTabsManager!: AlphabetTabsManager;
 
+    @inject(GeoPreferenceStore)
+    protected readonly preferenceStore!: GeoPreferenceStore;
+
     async onStart(): Promise<void> {
         const tools = this.buildAllTools();
         for (const tool of tools) {
@@ -105,6 +110,118 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
             ...this.buildNoteTools(),
             ...this.buildPluginTools(),
             ...this.buildAlphabetTools(),
+            ...this.buildPreferenceTools(),
+        ];
+    }
+
+    // ─── Preferences ──────────────────────────────────────────────────────────
+
+    private buildPreferenceTools(): ToolRequest[] {
+        return [
+            {
+                id: 'aide_list_preferences',
+                name: 'aide_list_preferences',
+                description: 'Liste toutes les préférences GeoApp avec leur valeur courante, type, description et valeurs possibles. ' +
+                    'Catégories disponibles : ai, formulaSolver, chat, ui, map, plugins, ocr, images, updates, backend, logs, search. ' +
+                    'Les valeurs sensibles (clés API) sont masquées.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    category: { type: 'string', description: 'Filtrer par catégorie (ex: "ai", "map", "ui"). Laisser vide pour tout retourner.', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const entries = args.category
+                            ? [...(this.preferenceStore.definitionsByCategory.get(args.category) ?? [])]
+                            : this.preferenceStore.definitions;
+                        const snapshot = this.preferenceStore.getSnapshot();
+                        return ok(entries.map(({ key, definition }) => {
+                            const def = definition as GeoPreferenceDefinition;
+                            return {
+                                key,
+                                category: def['x-category'],
+                                type: def.type,
+                                description: def.description,
+                                default: def.default,
+                                enum: def.enum,
+                                minimum: def.minimum,
+                                maximum: def.maximum,
+                                value: def['x-sensitive'] ? '***' : snapshot[key],
+                                sensitive: def['x-sensitive'] ?? false,
+                            };
+                        }));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_get_preference',
+                name: 'aide_get_preference',
+                description: 'Retourne la valeur courante et les métadonnées d\'une préférence GeoApp spécifique.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    key: { type: 'string', description: 'Clé de la préférence (ex: "geoApp.ai.enabled", "geoApp.map.defaultProvider").', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const def = this.preferenceStore.schema.properties?.[args.key] as GeoPreferenceDefinition | undefined;
+                        if (!def) { return err(`Préférence inconnue : "${args.key}".`); }
+                        if (def['x-sensitive']) { return err(`Cette préférence est sensible et ne peut pas être lue par @Aide.`); }
+                        const snapshot = this.preferenceStore.getSnapshot();
+                        return ok({
+                            key: args.key,
+                            value: snapshot[args.key],
+                            default: def.default,
+                            type: def.type,
+                            description: def.description,
+                            enum: def.enum,
+                            minimum: def.minimum,
+                            maximum: def.maximum,
+                            category: def['x-category'],
+                        });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_set_preference',
+                name: 'aide_set_preference',
+                description: 'Modifie la valeur d\'une préférence GeoApp. Valide le type, les valeurs enum et les plages numériques. ' +
+                    'Les préférences sensibles (clés API) sont protégées et ne peuvent pas être modifiées.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    key: { type: 'string', description: 'Clé de la préférence à modifier (ex: "geoApp.ai.enabled").', required: true },
+                    value: { type: 'string', description: 'Nouvelle valeur. Booléens: "true"/"false". Nombres: "42". Enum: la valeur choisie.', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const def = this.preferenceStore.schema.properties?.[args.key] as GeoPreferenceDefinition | undefined;
+                        if (!def) { return err(`Préférence inconnue : "${args.key}".`); }
+                        if (def['x-sensitive']) { return err(`Cette préférence est sensible et ne peut pas être modifiée par @Aide.`); }
+                        let coerced: unknown = args.value;
+                        if (def.type === 'boolean') {
+                            coerced = args.value === true || String(args.value).toLowerCase() === 'true';
+                        } else if (def.type === 'integer') {
+                            coerced = parseInt(String(args.value), 10);
+                            if (isNaN(coerced as number)) { return err(`Valeur invalide pour "${args.key}" : attendu un entier.`); }
+                        } else if (def.type === 'number') {
+                            coerced = parseFloat(String(args.value));
+                            if (isNaN(coerced as number)) { return err(`Valeur invalide pour "${args.key}" : attendu un nombre.`); }
+                        }
+                        if (def.enum && !(def.enum as unknown[]).includes(coerced)) {
+                            return err(`Valeur invalide pour "${args.key}". Valeurs acceptées : ${(def.enum as unknown[]).join(', ')}`);
+                        }
+                        if (def.minimum !== undefined && (coerced as number) < def.minimum) {
+                            return err(`Valeur trop petite pour "${args.key}" : minimum ${def.minimum}.`);
+                        }
+                        if (def.maximum !== undefined && (coerced as number) > def.maximum) {
+                            return err(`Valeur trop grande pour "${args.key}" : maximum ${def.maximum}.`);
+                        }
+                        await this.preferenceStore.setValue(args.key, coerced);
+                        return ok(`Préférence "${args.key}" mise à jour : ${JSON.stringify(coerced)}.`);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
         ];
     }
 

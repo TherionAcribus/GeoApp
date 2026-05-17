@@ -1,13 +1,13 @@
 ---
 title: "Actions avec @Aide"
-description: "Comment utiliser @Aide pour naviguer dans GeoApp, ouvrir des plugins et alphabets, et agir sur les zones, géocaches, waypoints et notes."
+description: "Comment utiliser @Aide pour naviguer dans GeoApp, ouvrir des plugins et alphabets, gérer les préférences, et agir sur les zones, géocaches, waypoints et notes."
 order: 30
-tags: [IA, aide, actions, zones, geocaches, waypoints, notes, navigation, plugins, alphabets]
+tags: [IA, aide, actions, zones, geocaches, waypoints, notes, navigation, plugins, alphabets, préférences]
 ---
 
 # Actions avec @Aide
 
-En plus de répondre aux questions documentaires, `@Aide` peut effectuer des actions directement dans GeoApp : ouvrir des panneaux, rechercher et ouvrir des plugins ou des alphabets, créer ou supprimer des zones, ajouter des géocaches, créer des waypoints et des notes. **28 actions** sont disponibles.
+En plus de répondre aux questions documentaires, `@Aide` peut effectuer des actions directement dans GeoApp : ouvrir des panneaux, rechercher et ouvrir des plugins ou des alphabets, créer ou supprimer des zones, ajouter des géocaches, créer des waypoints et des notes. **31 actions** sont disponibles.
 
 ## Fonctionnement en mode hybride
 
@@ -26,6 +26,7 @@ En plus de répondre aux questions documentaires, `@Aide` peut effectuer des act
 | « Ouvre le plugin Morse » | Cherche le plugin dans la liste, ouvre l'onglet |
 | « Ouvre l'alphabet Aurebesh » | Cherche l'alphabet, ouvre l'onglet décodeur |
 | « Quel plugin pour décoder du Morse ? » | Répond depuis la documentation ou la liste des plugins |
+| « Active la recherche web dans le Formula Solver » | Lit la préférence, la met à jour à `true` |
 | « Liste mes zones » | Retourne la liste de toutes les zones |
 | « Supprime cette zone » | Demande confirmation Theia, puis supprime |
 
@@ -123,6 +124,22 @@ Vous n'avez pas besoin de confirmer verbalement : la boîte de dialogue apparaî
 | « Ajoute une note "Indice : chercher près du banc" sur la cache 42 » | Crée une note utilisateur |
 | « Modifie la note 12 avec le texte "..." » | Met à jour la note |
 | « Supprime la note 12 » ⚠ | Demande confirmation, puis supprime |
+
+### Préférences GeoApp
+
+`@Aide` peut lire et modifier toutes les préférences GeoApp (IA, carte, plugins, interface, OCR, mises à jour...). Les clés API et valeurs sensibles sont **protégées** : elles ne peuvent pas être lues ni modifiées.
+
+| Demande (exemples) | Action |
+|---|---|
+| « Quelles sont mes préférences IA ? » | Liste les préférences de catégorie `ai` avec valeurs courantes |
+| « Quelle est la valeur de geoApp.map.defaultProvider ? » | Lit la préférence et ses valeurs possibles |
+| « Active la recherche web du Formula Solver » | Modifie `geoApp.formulaSolver.ai.webSearchEnabled` à `true` |
+| « Passe le zoom par défaut de la carte à 12 » | Modifie `geoApp.map.defaultZoom` à `12` (validé entre 2 et 18) |
+| « Change le fournisseur de carte en satellite » | Modifie `geoApp.map.defaultProvider` à `satellite` (enum validé) |
+| « Désactive le mode lazy des plugins » | Modifie `geoApp.plugins.lazyMode` à `false` |
+| « Quelles sont les préférences de l'OCR ? » | Liste les préférences de catégorie `ocr` |
+
+> **Sécurité :** `@Aide` ne peut jamais lire ni modifier la clé API OpenRouter (`geoApp.ai.openRouter.apiKey`) ni aucune autre valeur marquée comme sensible.
 
 ## Conseils d'utilisation
 
