@@ -4,6 +4,7 @@
 
 import * as React from 'react';
 import { MessageService } from '@theia/core';
+import { ConfirmDialog } from '@theia/core/lib/browser';
 import { LanguageModelRegistry, LanguageModelService, UserRequest, getJsonOfResponse, getTextOfResponse, isLanguageModelParsedResponse } from '@theia/ai-core';
 import { ContextMenu, ContextMenuItem } from './context-menu';
 import '../../src/browser/style/geocache-images-panel.css';
@@ -318,6 +319,11 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     const handleThumbnailClick = (imageId: number): void => {
         setSelectedId(imageId);
         setDetailsMode('fields');
+    };
+
+    const closeSelectedImage = (): void => {
+        setSelectedId(null);
+        setDetailsMode('hidden');
     };
 
     const openThumbnailContextMenu = (e: React.MouseEvent, imageId: number): void => {
@@ -1056,7 +1062,11 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             return;
         }
 
-        const confirmed = window.confirm(`Supprimer ${img ? getImageTitle(img) : 'cette image'} et ses dérivés éventuels ?`);
+        const dialog = new ConfirmDialog({
+            title: "Supprimer l'image",
+            msg: `Supprimer ${img ? getImageTitle(img) : 'cette image'} et ses dérivés éventuels ?`,
+        });
+        const confirmed = await dialog.open();
         if (!confirmed) {
             return;
         }
@@ -1559,8 +1569,18 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                                             {selectedIsHidden ? ' · domaine masqué' : ''}
                                         </div>
                                     </div>
-                                    <div className='geoapp-images-selected-status'>
-                                        {selectedImage.stored ? 'Local' : selectedCanStore ? 'Distant' : selectedIsMissing ? 'Fichier manquant' : 'Non stockée'}
+                                    <div className='geoapp-images-preview-header-actions'>
+                                        <div className='geoapp-images-selected-status'>
+                                            {selectedImage.stored ? 'Local' : selectedCanStore ? 'Distant' : selectedIsMissing ? 'Fichier manquant' : 'Non stockée'}
+                                        </div>
+                                        <button
+                                            className='theia-button secondary geoapp-images-close-button'
+                                            type='button'
+                                            onClick={closeSelectedImage}
+                                            title="Fermer l'aperçu"
+                                        >
+                                            <span className='codicon codicon-close' />
+                                        </button>
                                     </div>
                                 </div>
 

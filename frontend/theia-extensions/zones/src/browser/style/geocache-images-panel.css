@@ -315,6 +315,13 @@
     gap: 10px;
 }
 
+.geoapp-images-preview-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+}
+
 .geoapp-images-selected-title {
     font-weight: 600;
     overflow-wrap: anywhere;
@@ -330,6 +337,16 @@
     flex: 0 0 auto;
     color: var(--theia-descriptionForeground);
     font-size: 12px;
+}
+
+.geoapp-images-close-button {
+    min-width: 28px;
+    width: 28px;
+    height: 26px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .geoapp-images-preview-frame {
