@@ -161,6 +161,8 @@ export interface MetasolverEligiblePlugin {
     input_charset: string;
     tags: string[];
     priority: number;
+    key_fields?: string[];
+    requires_key?: boolean;
 }
 
 export interface MetasolverEligiblePluginsResponse {
@@ -215,6 +217,8 @@ export interface MetasolverRecommendation {
     input_charset: string;
     tags: string[];
     priority: number;
+    key_fields?: string[];
+    requires_key?: boolean;
     score: number;
     confidence: number;
     reasons: string[];

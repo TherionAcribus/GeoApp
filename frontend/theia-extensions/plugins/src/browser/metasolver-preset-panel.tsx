@@ -32,6 +32,10 @@ const GEOAPP_CHAT_CHECKER_PROFILE_PREF = 'geoApp.chat.workflowProfile.checker';
 const GEOAPP_CHAT_HIDDEN_CONTENT_PROFILE_PREF = 'geoApp.chat.workflowProfile.hiddenContent';
 const GEOAPP_CHAT_IMAGE_PUZZLE_PROFILE_PREF = 'geoApp.chat.workflowProfile.imagePuzzle';
 type MetasolverSelectionMode = 'recommended' | 'preset' | 'manual';
+type MetasolverKeyEntry = {
+    id: string;
+    value: string;
+};
 
 const METASOLVER_CHARSET_ICONS: Record<string, string> = {
     letters: 'ABC',
@@ -46,6 +50,66 @@ const parsePluginListValue = (value: string): string[] =>
         .split(',')
         .map(item => item.trim())
         .filter(Boolean);
+
+const createMetasolverKeyId = (): string => `key_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+const normalizeMetasolverKeys = (rawValue: unknown): MetasolverKeyEntry[] => {
+    const normalizeEntry = (entry: unknown, index: number): MetasolverKeyEntry | null => {
+        if (!entry) {
+            return null;
+        }
+        if (typeof entry === 'string') {
+            return {
+                id: `key_${index}`,
+                value: entry,
+            };
+        }
+        if (typeof entry !== 'object') {
+            return null;
+        }
+
+        const record = entry as Record<string, unknown>;
+        return {
+            id: String(record.id || `key_${index}`),
+            value: String(record.value || ''),
+        };
+    };
+
+    if (Array.isArray(rawValue)) {
+        return rawValue
+            .map((entry, index) => normalizeEntry(entry, index))
+            .filter((entry): entry is MetasolverKeyEntry => Boolean(entry));
+    }
+
+    if (rawValue && typeof rawValue === 'object') {
+        const record = rawValue as Record<string, unknown>;
+        if ('value' in record || 'field' in record || 'name' in record) {
+            const entry = normalizeEntry(record, 0);
+            return entry ? [entry] : [];
+        }
+        return Object.entries(record).map(([field, value], index) => ({
+            id: `key_${index}`,
+            value: String(field === 'value' ? value || '' : value || ''),
+        }));
+    }
+
+    if (typeof rawValue === 'string' && rawValue.trim()) {
+        return [{
+            id: 'key_0',
+            value: rawValue,
+        }];
+    }
+
+    return [];
+};
+
+const serializeMetasolverKeys = (entries: MetasolverKeyEntry[]): Array<{ field: string; value: string }> =>
+    entries
+        .map(entry => ({
+            field: 'key',
+            value: entry.value,
+        }))
+        .filter(entry => entry.value.trim());
 
 const buildSignatureBadges = (signature: MetasolverSignature): string[] => {
     const badges: string[] = [
@@ -771,6 +835,7 @@ export const MetasolverPresetPanel: React.FC<{
     detectWrittenCoordinates: boolean;
     writtenCoordinatesLanguage: string;
     streamingVerbosity: 'minimal' | 'normal' | 'detailed';
+    keys?: unknown;
     geocacheContext?: GeocacheContext;
     pluginsService: PluginsService;
     preferenceService: PreferenceService;
@@ -791,6 +856,7 @@ export const MetasolverPresetPanel: React.FC<{
     detectWrittenCoordinates,
     writtenCoordinatesLanguage,
     streamingVerbosity,
+    keys,
     geocacheContext,
     pluginsService,
     preferenceService,
@@ -1226,6 +1292,48 @@ export const MetasolverPresetPanel: React.FC<{
         }
         return new Set(eligiblePlugins.map(plugin => plugin.name));
     }, [eligiblePlugins, manualSelectedPlugins, pluginList, recommendation, selectionMode]);
+
+    const pluginMetadataByName = React.useMemo(() => {
+        const byName = new Map<string, { key_fields?: string[]; requires_key?: boolean }>();
+        for (const plugin of eligiblePlugins) {
+            byName.set(plugin.name, plugin);
+        }
+        for (const plugin of recommendation?.recommendations || []) {
+            byName.set(plugin.name, plugin);
+        }
+        return byName;
+    }, [eligiblePlugins, recommendation]);
+
+    const selectedKeyPluginCount = React.useMemo(() => {
+        return Array.from(currentSelectedPlugins).filter(pluginName => {
+            const plugin = pluginMetadataByName.get(pluginName);
+            return Boolean(plugin?.requires_key || (plugin?.key_fields || []).length > 0);
+        }).length;
+    }, [currentSelectedPlugins, pluginMetadataByName]);
+
+    const keyEntries = React.useMemo(() => normalizeMetasolverKeys(keys), [keys]);
+
+    const updateKeyEntries = React.useCallback((nextEntries: MetasolverKeyEntry[]) => {
+        onSettingChange('metasolver_keys', serializeMetasolverKeys(nextEntries));
+    }, [onSettingChange]);
+
+    const addKeyEntry = React.useCallback(() => {
+        updateKeyEntries([
+            ...keyEntries,
+            {
+                id: createMetasolverKeyId(),
+                value: '',
+            },
+        ]);
+    }, [keyEntries, updateKeyEntries]);
+
+    const updateKeyEntry = React.useCallback((id: string, patch: Partial<MetasolverKeyEntry>) => {
+        updateKeyEntries(keyEntries.map(entry => entry.id === id ? { ...entry, ...patch } : entry));
+    }, [keyEntries, updateKeyEntries]);
+
+    const removeKeyEntry = React.useCallback((id: string) => {
+        updateKeyEntries(keyEntries.filter(entry => entry.id !== id));
+    }, [keyEntries, updateKeyEntries]);
 
     const applyRecommendation = React.useCallback(() => {
         if (!recommendation) {
@@ -1976,6 +2084,75 @@ export const MetasolverPresetPanel: React.FC<{
                             <option value='detailed'>Detaille</option>
                         </select>
                     </label>
+                </div>
+
+                <div style={{
+                    display: 'grid',
+                    gap: '6px',
+                    padding: '8px',
+                    border: '1px solid var(--theia-panel-border)',
+                    borderRadius: '4px',
+                    background: 'var(--theia-input-background)'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', minWidth: 0 }}>
+                            <span style={{ fontSize: '12px', fontWeight: 600 }}>Clés</span>
+                            {selectedKeyPluginCount > 0 ? (
+                                <span style={{ fontSize: '11px', opacity: 0.7 }}>
+                                    {selectedKeyPluginCount} plugin(s) à clé
+                                </span>
+                            ) : null}
+                        </div>
+                        <button
+                            type='button'
+                            className='theia-button secondary'
+                            onClick={addKeyEntry}
+                            disabled={disabled}
+                            title='Ajouter une clé'
+                            style={{ minWidth: '28px', padding: '2px 8px', fontWeight: 700 }}
+                        >
+                            +
+                        </button>
+                    </div>
+                    {keyEntries.map(entry => (
+                        <div
+                            key={entry.id}
+                            style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'minmax(180px, 1fr) 30px',
+                                gap: '6px',
+                                alignItems: 'center'
+                            }}
+                        >
+                            <input
+                                type='text'
+                                value={entry.value}
+                                onChange={event => updateKeyEntry(entry.id, { value: event.target.value })}
+                                disabled={disabled}
+                                placeholder='CLE'
+                                style={{
+                                    width: '100%',
+                                    boxSizing: 'border-box',
+                                    minWidth: 0,
+                                    padding: '4px 6px',
+                                    border: '1px solid var(--theia-input-border)',
+                                    background: 'var(--theia-input-background)',
+                                    color: 'var(--theia-input-foreground)',
+                                    borderRadius: '4px'
+                                }}
+                            />
+                            <button
+                                type='button'
+                                className='theia-button secondary'
+                                onClick={() => removeKeyEntry(entry.id)}
+                                disabled={disabled}
+                                title='Retirer cette clé'
+                                style={{ minWidth: '28px', padding: '2px 0' }}
+                            >
+                                x
+                            </button>
+                        </div>
+                    ))}
                 </div>
 
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>

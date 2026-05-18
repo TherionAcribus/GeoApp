@@ -22,6 +22,23 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+KEY_FIELD_ALIASES = {
+    "cle": "key",
+    "cipher_key": "key",
+    "mot_cle": "keyword",
+    "motcle": "keyword",
+    "keyword": "keyword",
+    "candidate_key": "candidate_keys",
+    "candidate_keys": "candidate_keys",
+    "keys": "candidate_keys",
+    "transposition_key": "transpo_key",
+    "transpo_key": "transpo_key",
+    "polybius_key": "polybius_key",
+    "polybe_key": "polybius_key",
+}
+
+GENERIC_KEY_FIELDS = ("key", "keyword", "transpo_key", "polybius_key")
+
 try:
     from gc_backend.plugins.scoring import score_and_rank_results as _score_and_rank
     from gc_backend.plugins.scoring.scorer import score_text_fast as _score_fast
@@ -118,6 +135,7 @@ class MetaSolverPlugin:
         plugin_list_raw = inputs.get("plugin_list") or ""
         enable_bruteforce = bool(inputs.get("enable_bruteforce", True))
         detect_coordinates = bool(inputs.get("detect_coordinates", True))
+        key_entries = self._parse_key_entries(inputs)
         max_plugins = inputs.get("max_plugins")
         try:
             max_plugins_int: Optional[int] = None if max_plugins in (None, "") else int(max_plugins)
@@ -162,7 +180,11 @@ class MetaSolverPlugin:
             """Execute a single candidate plugin (thread-safe)."""
             pname = candidate["name"]
             plugin_inputs = dict(request_payload)
-            plugin_inputs.update(self._build_additional_inputs(candidate["metadata"]))
+            plugin_inputs.update(self._build_additional_inputs(
+                candidate["metadata"],
+                key_entries=key_entries,
+                plugin_name=pname,
+            ))
             t0 = time.time()
             try:
                 result = self._execute_with_fallback(pname, plugin_inputs, candidate)
@@ -278,6 +300,7 @@ class MetaSolverPlugin:
                 "max_plugins": max_plugins_int,
                 "enable_bruteforce": enable_bruteforce,
                 "detect_coordinates": detect_coordinates,
+                "metasolver_keys": self._summarize_key_entries(key_entries),
             },
             "results": aggregated_results,
             "combined_results": combined_results,
@@ -343,6 +366,7 @@ class MetaSolverPlugin:
         plugin_list_raw = inputs.get("plugin_list") or ""
         enable_bruteforce = bool(inputs.get("enable_bruteforce", True))
         detect_coordinates = bool(inputs.get("detect_coordinates", True))
+        key_entries = self._parse_key_entries(inputs)
         max_plugins = inputs.get("max_plugins")
         try:
             max_plugins_int: Optional[int] = None if max_plugins in (None, "") else int(max_plugins)
@@ -401,7 +425,11 @@ class MetaSolverPlugin:
             """Execute a single plugin (thread-safe)."""
             pname = candidate["name"]
             plugin_inputs = dict(request_payload)
-            plugin_inputs.update(self._build_additional_inputs(candidate["metadata"]))
+            plugin_inputs.update(self._build_additional_inputs(
+                candidate["metadata"],
+                key_entries=key_entries,
+                plugin_name=pname,
+            ))
             t0 = time.time()
             try:
                 result = self._execute_with_fallback(pname, plugin_inputs, candidate)
@@ -567,6 +595,7 @@ class MetaSolverPlugin:
                 "max_plugins": max_plugins_int,
                 "enable_bruteforce": enable_bruteforce,
                 "detect_coordinates": detect_coordinates,
+                "metasolver_keys": self._summarize_key_entries(key_entries),
             },
             "results": aggregated_results,
             "combined_results": combined_results,
@@ -795,7 +824,13 @@ class MetaSolverPlugin:
         except Exception:
             return None
 
-    def _build_additional_inputs(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
+    def _build_additional_inputs(
+        self,
+        metadata: Dict[str, Any],
+        *,
+        key_entries: Optional[List[Dict[str, Any]]] = None,
+        plugin_name: str = "",
+    ) -> Dict[str, Any]:
         """Prépare les champs additionnels à transmettre à un plugin cible."""
 
         extras: Dict[str, Any] = {}
@@ -807,7 +842,217 @@ class MetaSolverPlugin:
         elif "enable_gps_detection" in input_types:
             extras["enable_gps_detection"] = True
 
+        extras.update(self._build_key_inputs_for_plugin(
+            input_types=input_types,
+            key_entries=key_entries or [],
+            plugin_name=plugin_name,
+        ))
+
         return extras
+
+    def _parse_key_entries(self, inputs: Dict[str, Any]) -> List[Dict[str, Any]]:
+        entries: List[Dict[str, Any]] = []
+
+        for raw_key in ("metasolver_keys", "key_entries", "keys"):
+            if raw_key in inputs:
+                entries.extend(self._normalize_key_entries(inputs.get(raw_key)))
+
+        for field in ("key", "keyword", "candidate_keys", "transpo_key", "polybius_key"):
+            value = inputs.get(field)
+            if self._has_key_value(value):
+                entries.append({"field": field, "value": value})
+
+        return [
+            entry
+            for entry in entries
+            if self._has_key_value(entry.get("value"))
+        ]
+
+    def _normalize_key_entries(self, raw_value: Any) -> List[Dict[str, Any]]:
+        if raw_value is None:
+            return []
+
+        if isinstance(raw_value, list):
+            entries: List[Dict[str, Any]] = []
+            for item in raw_value:
+                entries.extend(self._normalize_key_entries(item))
+            return entries
+
+        if isinstance(raw_value, dict):
+            if "value" in raw_value or "field" in raw_value or "name" in raw_value:
+                return [{
+                    "field": self._normalize_key_field(raw_value.get("field") or raw_value.get("name") or "key"),
+                    "value": raw_value.get("value"),
+                    "plugin": raw_value.get("plugin") or raw_value.get("plugin_name"),
+                }]
+
+            entries = []
+            plugin_filter = raw_value.get("plugin") or raw_value.get("plugin_name")
+            for field, value in raw_value.items():
+                if field in {"id", "plugin", "plugin_name"}:
+                    continue
+                entries.append({
+                    "field": self._normalize_key_field(field),
+                    "value": value,
+                    "plugin": plugin_filter,
+                })
+            return entries
+
+        if isinstance(raw_value, str):
+            return [{"field": "key", "value": raw_value}]
+
+        return [{"field": "key", "value": raw_value}]
+
+    @staticmethod
+    def _normalize_key_field(field: Any) -> str:
+        normalized = str(field or "key").strip().lower().replace("-", "_").replace(" ", "_")
+        return KEY_FIELD_ALIASES.get(normalized, normalized or "key")
+
+    @staticmethod
+    def _has_key_value(value: Any) -> bool:
+        if value is None:
+            return False
+        if isinstance(value, str):
+            return bool(value.strip())
+        if isinstance(value, list):
+            return any(MetaSolverPlugin._has_key_value(item) for item in value)
+        return True
+
+    def _entry_matches_plugin(self, entry: Dict[str, Any], plugin_name: str) -> bool:
+        plugin_filter = str(entry.get("plugin") or "").strip().lower()
+        if not plugin_filter:
+            return True
+        requested = {
+            item.strip()
+            for item in plugin_filter.replace(";", ",").split(",")
+            if item.strip()
+        }
+        return plugin_name.strip().lower() in requested
+
+    def _resolve_key_input_field(self, input_types: Dict[str, Any], requested_field: str) -> Optional[str]:
+        requested_field = self._normalize_key_field(requested_field)
+        if requested_field in input_types:
+            return requested_field
+
+        if requested_field == "key":
+            for field in GENERIC_KEY_FIELDS:
+                if field in input_types:
+                    return field
+            return None
+
+        if requested_field == "keyword" and "key" in input_types:
+            return "key"
+
+        if requested_field.endswith("_key") and "key" in input_types:
+            return "key"
+
+        return None
+
+    def _flatten_key_values(self, values: List[Any]) -> List[str]:
+        flattened: List[str] = []
+        for value in values:
+            if isinstance(value, list):
+                flattened.extend(self._flatten_key_values(value))
+                continue
+            text = str(value).strip()
+            if text:
+                flattened.append(text)
+
+        unique_values: List[str] = []
+        seen = set()
+        for value in flattened:
+            if value not in seen:
+                unique_values.append(value)
+                seen.add(value)
+        return unique_values
+
+    def _coerce_key_value(self, value: Any, field_def: Any) -> Any:
+        field_type = (field_def or {}).get("type") if isinstance(field_def, dict) else None
+        values = self._flatten_key_values(value if isinstance(value, list) else [value])
+        first_value = values[0] if values else ""
+
+        if field_type in {"number", "integer"}:
+            try:
+                return int(first_value) if field_type == "integer" else float(first_value)
+            except (TypeError, ValueError):
+                return value
+
+        if field_type in {"checkbox", "boolean"}:
+            return str(first_value).strip().lower() in {"true", "1", "yes", "on"}
+
+        return ", ".join(values)
+
+    def _build_key_inputs_for_plugin(
+        self,
+        *,
+        input_types: Dict[str, Any],
+        key_entries: List[Dict[str, Any]],
+        plugin_name: str,
+    ) -> Dict[str, Any]:
+        if not input_types or not key_entries:
+            return {}
+
+        values_by_field: Dict[str, List[Any]] = {}
+        fallback_values_by_field: Dict[str, List[Any]] = {}
+        generic_key_values: List[Any] = []
+
+        for entry in key_entries:
+            if not self._entry_matches_plugin(entry, plugin_name):
+                continue
+
+            requested_field = self._normalize_key_field(entry.get("field"))
+            value = entry.get("value")
+            if not self._has_key_value(value):
+                continue
+
+            if requested_field == "key":
+                generic_key_values.append(value)
+
+            actual_field = self._resolve_key_input_field(input_types, requested_field)
+            if not actual_field:
+                continue
+
+            target = fallback_values_by_field if actual_field != requested_field else values_by_field
+            target.setdefault(actual_field, []).append(value)
+
+        extras: Dict[str, Any] = {}
+        fields_to_apply = set(values_by_field) | set(fallback_values_by_field)
+        for field in fields_to_apply:
+            if field == "candidate_keys":
+                continue
+            values = values_by_field.get(field) or fallback_values_by_field.get(field) or []
+            if not values:
+                continue
+            extras[field] = self._coerce_key_value(values[0], input_types.get(field))
+
+        if "candidate_keys" in input_types:
+            candidate_values = list(values_by_field.get("candidate_keys") or [])
+            candidate_values.extend(fallback_values_by_field.get("candidate_keys") or [])
+            candidate_values.extend(generic_key_values)
+            normalized_candidates = self._flatten_key_values(candidate_values)
+            if normalized_candidates:
+                extras["candidate_keys"] = ", ".join(normalized_candidates)
+                extras["bruteforce"] = True
+                extras["brute_force"] = True
+                extras["enable_bruteforce"] = True
+
+        return extras
+
+    def _summarize_key_entries(self, key_entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        summary: List[Dict[str, Any]] = []
+        for entry in key_entries:
+            value = entry.get("value")
+            value_text = str(value or "").strip()
+            if not value_text:
+                continue
+            summarized = {
+                "field": self._normalize_key_field(entry.get("field")),
+                "value": value_text,
+            }
+            if entry.get("plugin"):
+                summarized["plugin"] = str(entry.get("plugin"))
+            summary.append(summarized)
+        return summary
 
     def _build_combined_entry(self, plugin_result: Dict[str, Any]) -> Dict[str, Any]:
         """Synthétise les informations d'un plugin exécuté."""

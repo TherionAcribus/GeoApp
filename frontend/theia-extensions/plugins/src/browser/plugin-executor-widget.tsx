@@ -1832,6 +1832,7 @@ const PluginExecutorComponent: React.FC<{
                     detectWrittenCoordinates={state.formInputs.detect_written_coordinates === true}
                     writtenCoordinatesLanguage={String(state.formInputs.written_coordinates_language || 'auto')}
                     streamingVerbosity={state.streamingVerbosity}
+                    keys={state.formInputs.metasolver_keys}
                     geocacheContext={config?.geocacheContext}
                     pluginsService={pluginsService}
                     preferenceService={preferenceService}
