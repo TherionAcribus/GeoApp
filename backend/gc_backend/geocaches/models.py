@@ -143,6 +143,8 @@ class GeocacheImage(db.Model):
 
     editor_state_json = db.Column(db.Text)
 
+    image_type = db.Column(db.String(20), default='listing')
+
     title = db.Column(db.String(255))
     note = db.Column(db.Text)
     tags = db.Column(db.JSON)
@@ -182,6 +184,7 @@ class GeocacheImage(db.Model):
             'parent_image_id': self.parent_image_id,
             'derivation_type': self.derivation_type,
             'crop_rect': self.crop_rect,
+            'image_type': self.image_type,
             'title': self.title,
             'note': self.note,
             'tags': self.tags,

@@ -156,7 +156,10 @@ def patch_geocache_image(image_id: int):
         'qr_payload': str,
         'ocr_text': str,
         'ocr_language': str,
+        'image_type': str,
     }
+
+    _VALID_IMAGE_TYPES = {'listing', 'owner', 'spoiler'}
 
     for key, expected in allowed.items():
         if key not in payload:
@@ -171,6 +174,8 @@ def patch_geocache_image(image_id: int):
             return jsonify({'error': f'Invalid type for {key}'}), 400
         if expected is str and not isinstance(value, str):
             return jsonify({'error': f'Invalid type for {key}'}), 400
+        if key == 'image_type' and value not in _VALID_IMAGE_TYPES:
+            return jsonify({'error': f'image_type must be one of: {", ".join(sorted(_VALID_IMAGE_TYPES))}'}), 400
         setattr(image, key, value)
 
     db.session.commit()

@@ -629,13 +629,21 @@ class GeocachingScraper:
                 low = src.lower()
                 if any(s in low for s in ['wpttypes', 'icons', 'smilies']):
                     continue
-                images.append({'url': src})
-        gallery = soup.find('div', {'class': 'CachePageImages'})
+                images.append({'url': src, 'type': 'listing'})
+        gallery = soup.find(class_='CachePageImages')
         if gallery:
-            for img in gallery.find_all('img'):
-                src = img.get('src')
-                if src:
-                    images.append({'url': src})
+            gallery_links = gallery.find_all('a', href=True)
+            logger.debug('[scraper] CachePageImages: found gallery element (%s), %d <a href> found', gallery.name, len(gallery_links))
+            for a in gallery_links:
+                href = (a.get('href') or '').strip()
+                if not href:
+                    continue
+                title = (a.get('data-title') or a.get_text(strip=True) or '').strip()
+                img_type = 'spoiler' if 'spoiler' in title.lower() else 'owner'
+                logger.debug('[scraper] CachePageImages image: type=%s title=%r url=%s', img_type, title, href)
+                images.append({'url': href, 'title': title, 'type': img_type})
+        else:
+            logger.debug('[scraper] CachePageImages: no gallery element found in page')
 
         # Statut trouvé
         found = None
@@ -690,6 +698,13 @@ class GeocachingScraper:
             **({'found_date': found_date} if found_date is not None else {}),
         )
 
+        listing_imgs = [i for i in (images or []) if i.get('type') == 'listing']
+        owner_imgs = [i for i in (images or []) if i.get('type') == 'owner']
+        spoiler_imgs = [i for i in (images or []) if i.get('type') == 'spoiler']
+        logger.info(
+            "[scraper] %s: %d image(s) au total — listing=%d, owner=%d, spoiler=%d",
+            code, len(images or []), len(listing_imgs), len(owner_imgs), len(spoiler_imgs),
+        )
         logger.info(f"Successfully scraped {code}: name='{name}', owner='{owner_text}', type='{type_text}', size='{size_text}', difficulty={difficulty}, terrain={terrain}, coords={latitude},{longitude}, favs={favorites_count}, logs={logs_count}")
         return scraped
 

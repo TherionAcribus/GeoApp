@@ -17,6 +17,7 @@ export type GeocacheImageV2Dto = {
     stored: boolean;
     parent_image_id?: number | null;
     derivation_type?: string;
+    image_type?: 'listing' | 'owner' | 'spoiler' | null;
     title?: string | null;
     note?: string | null;
     mime_type?: string | null;
@@ -378,6 +379,12 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
         }
         if (img.parent_image_id) {
             return 'Dérivée';
+        }
+        if (img.image_type === 'spoiler') {
+            return 'Spoiler';
+        }
+        if (img.image_type === 'owner') {
+            return 'Image propriétaire';
         }
         return 'Image du listing';
     }, [isUploadedImage]);
@@ -1212,6 +1219,11 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
         const isMissing = isMissingLocalImage(img);
 
         const badges: { label: string; tone: string }[] = [];
+        if (img.image_type === 'spoiler') {
+            badges.push({ label: 'SPOILER', tone: 'danger' });
+        } else if (img.image_type === 'owner') {
+            badges.push({ label: 'PROPRIO', tone: 'info' });
+        }
         if (img.stored) {
             badges.push({ label: 'LOCAL', tone: 'success' });
         }

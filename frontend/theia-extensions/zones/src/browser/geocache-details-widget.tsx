@@ -1097,6 +1097,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             this.messages.info('Rafraîchissement en cours...');
             await this.geocachesService.refresh(this.geocacheId);
             await this.load();
+            window.dispatchEvent(new CustomEvent('geoapp-geocache-images-updated', { detail: { geocacheId: this.geocacheId } }));
             this.messages.info('Géocache rafraîchie');
         } catch (error) {
             console.error('[GeocacheDetailsWidget] refreshGeocache error', error);
