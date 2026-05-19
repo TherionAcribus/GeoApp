@@ -1,6 +1,7 @@
 import { ContainerModule } from '@theia/core/shared/inversify';
 import { FrontendApplicationContribution, WidgetFactory } from '@theia/core/lib/browser';
 import { CommandContribution, MenuContribution } from '@theia/core/lib/common';
+import { bindRootContributionProvider } from '@theia/core/lib/common/contribution-provider';
 import { ZonesTreeWidget } from './zones-tree-widget';
 import { ZonesFrontendContribution } from './zones-frontend-contribution';
 import { ZonesCommandContribution } from './zones-command-contribution';
@@ -67,8 +68,14 @@ import { GeocacheNotesService } from './geocache-notes-service';
 import { GeocacheNotesController } from './geocache-notes-controller';
 import { ArchiveManagerService } from './archive-manager-service';
 import { ArchiveManagerController } from './archive-manager-controller';
+import {
+    GeocacheDetailsHeaderActionContribution,
+    GeocacheDetailsHeaderActionRegistry
+} from './geocache-details-header-actions';
 
 export default new ContainerModule(bind => {
+    bindRootContributionProvider(bind, GeocacheDetailsHeaderActionContribution);
+
     bind(BackendApiClient).toSelf().inSingletonScope();
     bind(ZonesService).toSelf().inSingletonScope();
     bind(GeocachesService).toSelf().inSingletonScope();
@@ -82,6 +89,7 @@ export default new ContainerModule(bind => {
     bind(GeocacheDetailsNotesController).toSelf().inSingletonScope();
     bind(GeocacheDetailsPreferencesController).toSelf().inSingletonScope();
     bind(GeocacheDetailsTranslationController).toSelf().inSingletonScope();
+    bind(GeocacheDetailsHeaderActionRegistry).toSelf().inSingletonScope();
     bind(GeocacheNotesController).toSelf().inSingletonScope();
     bind(ArchiveManagerController).toSelf().inSingletonScope();
     bind(GeoAppWidgetEventsService).toSelf().inSingletonScope();

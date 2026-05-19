@@ -20,6 +20,7 @@ import {
     buildGeoAppChatDisplaySessionTitle,
     buildGeoAppChatPrompt,
     GEOAPP_OPEN_CHAT_REQUEST_EVENT,
+    GeoAppChatImageContext,
     normalizeGeoAppChatWorkflowBehaviorProfile,
     normalizeGeoAppChatWorkflowKind,
     resolveGeoAppChatProfileForWorkflow,
@@ -34,10 +35,13 @@ interface GeoAppOpenChatRequestDetail {
     sessionTitle?: string;
     prompt?: string;
     imageUrls?: string[];
+    imageContexts?: GeoAppChatImageContext[];
     focus?: boolean;
     workflowKind?: GeoAppChatWorkflowKind | string;
     preferredProfile?: GeoAppChatWorkflowProfile | string;
     preferredBehaviorProfile?: GeoAppChatWorkflowBehaviorProfile | string;
+    preferredAgentId?: string;
+    earthcoachMode?: string;
     resumeState?: Record<string, unknown>;
     sessionKind?: GeoAppChatSessionKind;
 }
@@ -53,6 +57,7 @@ interface GeoAppChatSessionMetadata {
     resumeState?: Record<string, unknown>;
     sessionKind?: GeoAppChatSessionKind;
     behaviorProfile?: GeoAppChatWorkflowBehaviorProfile;
+    preferredAgentId?: string;
 }
 
 @injectable()
@@ -93,7 +98,7 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
         const prompt = this.buildPrompt(detail);
 
         try {
-            const imageVariables = await this.fetchImagesAsVariables(detail.imageUrls || []);
+            const imageVariables = await this.fetchImagesAsVariables(this.getImageContexts(detail));
 
             const existingSession = this.findExistingSession(detail, baseSessionTitle);
             if (existingSession) {
@@ -168,6 +173,7 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
             resumeState: detail.resumeState,
             sessionKind: detail.sessionKind ?? 'auto',
             behaviorProfile: normalizeGeoAppChatWorkflowBehaviorProfile(detail.preferredBehaviorProfile),
+            preferredAgentId: detail.preferredAgentId,
         });
         this.setSessionCommonGeoAppSettings(session, detail);
     }
@@ -196,6 +202,8 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
         this.setDefined(nextGeoapp, 'workflowKind', workflowKind);
         this.setDefined(nextGeoapp, 'preferredModelProfile', detail.preferredProfile);
         this.setDefined(nextGeoapp, 'preferredBehaviorProfile', preferredBehaviorProfile);
+        this.setDefined(nextGeoapp, 'preferredAgentId', detail.preferredAgentId);
+        this.setDefined(nextGeoapp, 'earthcoachMode', detail.earthcoachMode);
         this.setDefined(nextGeoapp, 'sessionKind', detail.sessionKind ?? 'auto');
 
         modelWithSettings.setSettings(sanitizeGeoAppSessionSettings({
@@ -229,9 +237,20 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
         }
     }
 
-    protected async fetchImagesAsVariables(imageUrls: string[]): Promise<AIVariableResolutionRequest[]> {
+    protected getImageContexts(detail: GeoAppOpenChatRequestDetail): GeoAppChatImageContext[] {
+        if (detail.imageContexts?.length) {
+            return detail.imageContexts;
+        }
+        return (detail.imageUrls || []).map(url => ({
+            url,
+            origin: 'cache_listing',
+        }));
+    }
+
+    protected async fetchImagesAsVariables(imageContexts: GeoAppChatImageContext[]): Promise<AIVariableResolutionRequest[]> {
         const variables: AIVariableResolutionRequest[] = [];
-        for (const url of imageUrls.slice(0, 5)) {
+        for (const imageContext of imageContexts.slice(0, 5)) {
+            const url = imageContext.url;
             try {
                 const response = await fetch(url);
                 if (!response.ok) { continue; }
@@ -239,7 +258,11 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
                 const dataUrl = await this.readBlobAsDataUrl(blob);
                 const base64data = dataUrl.substring(dataUrl.indexOf(',') + 1);
                 const mimeType = blob.type || 'image/jpeg';
-                const name = url.split('/').pop()?.split('?')[0] || 'image';
+                const fallbackName = url.split('/').pop()?.split('?')[0] || 'image';
+                const name = [
+                    imageContext.origin,
+                    imageContext.label || imageContext.id || fallbackName,
+                ].filter(Boolean).join(' - ');
                 variables.push(ImageContextVariable.createRequest({ data: base64data, mimeType, name }));
             } catch {
                 // CORS or network error — skip silently
@@ -280,6 +303,14 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
     protected async resolveDefaultChatAgent(detail?: GeoAppOpenChatRequestDetail): Promise<ChatAgent | undefined> {
         const available = this.chatAgentService.getAgents();
         const candidates: ChatAgent[] = [];
+
+        const preferredAgentId = (detail?.preferredAgentId || '').trim();
+        if (preferredAgentId) {
+            const preferredAgent = this.chatAgentService.getAgent(preferredAgentId);
+            if (preferredAgent) {
+                candidates.push(preferredAgent);
+            }
+        }
 
         const preferredProfile = this.resolveRequestedProfile(detail);
         if (preferredProfile) {

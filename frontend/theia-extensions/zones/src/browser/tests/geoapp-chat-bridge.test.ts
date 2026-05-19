@@ -301,6 +301,50 @@ async function testFallsBackToConfiguredReadyAgent(): Promise<void> {
     );
 }
 
+async function testPreferredAgentIdWinsOverWorkflowProfile(): Promise<void> {
+    const earthCoachAgent = { id: 'earthcoach', name: '@EarthCoach' };
+    const { bridge, chatService, languageModelRegistry } = createBridge({
+        agents: [
+            { id: GeoAppChatStrongAgentId, name: 'GeoApp Chat (Strong)' },
+            earthCoachAgent,
+        ],
+        preferences: {
+            'geoApp.chat.defaultProfile': 'fast',
+            'geoApp.chat.workflowProfile.formula': 'strong',
+        },
+        readyAgentIds: ['earthcoach'],
+    });
+
+    await triggerOpenChat(bridge, {
+        gcCode: 'GC-EARTH',
+        prompt: 'EarthCoach context',
+        workflowKind: 'formula',
+        preferredAgentId: 'earthcoach',
+        earthcoachMode: 'resolver',
+        sessionKind: 'earthcoach',
+    });
+
+    assert.equal(chatService.sessions.length, 1);
+    assert.equal(chatService.sessions[0].pinnedAgent?.id, 'earthcoach');
+    assert.equal(chatService.sessions[0].title, 'CHAT IA - GC-EARTH [@EarthCoach]');
+    assert.deepEqual(chatService.sessions[0].model.settings, {
+        temperature: 0.2,
+        commonSettings: {
+            geoapp: {
+                gcCode: 'GC-EARTH',
+                workflowKind: 'formula',
+                preferredAgentId: 'earthcoach',
+                earthcoachMode: 'resolver',
+                sessionKind: 'earthcoach',
+            },
+        },
+    });
+    assert.deepEqual(
+        languageModelRegistry.calls.map(call => call.agent),
+        ['earthcoach']
+    );
+}
+
 async function testBridgeLifecycleHandlesWindowEventsAndStop(): Promise<void> {
     await withFakeWindow(async fakeWindow => {
         const { bridge, chatService } = createBridge({
@@ -441,6 +485,7 @@ async function run(): Promise<void> {
     await testCreatesSessionWithWorkflowProfileAndPrompt();
     await testReusesExistingSessionByGcCode();
     await testFallsBackToConfiguredReadyAgent();
+    await testPreferredAgentIdWinsOverWorkflowProfile();
     await testBridgeLifecycleHandlesWindowEventsAndStop();
     await testBridgeRemovesSessionMetadataOnDeletedEvent();
     await testBridgeAcceptsGeocacheDetailsPayloadBuilder();

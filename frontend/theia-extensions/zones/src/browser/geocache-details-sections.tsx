@@ -11,6 +11,7 @@ import {
     GeoAppChatWorkflowProfile
 } from './geoapp-chat-agent';
 import { ContextMenu, ContextMenuItem } from './context-menu';
+import { GeocacheDetailsHeaderAction } from './geocache-details-header-actions';
 
 type ArchiveStatus = 'synced' | 'needs_sync' | 'none' | 'loading';
 
@@ -53,6 +54,7 @@ interface GeocacheDetailsHeaderProps {
     onOpenNotes: () => void;
     onForceSyncArchive: () => void | Promise<void>;
     onRefresh?: () => void | Promise<void>;
+    extraActions?: GeocacheDetailsHeaderAction[];
 }
 
 export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
@@ -81,7 +83,8 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
     onOpenLogEditor,
     onOpenNotes,
     onForceSyncArchive,
-    onRefresh
+    onRefresh,
+    extraActions = []
 }) => {
     const archiveTooltip = getArchiveTooltip(archiveStatus, archiveUpdatedAt);
     const archiveColor = getArchiveColor(archiveStatus);
@@ -125,6 +128,18 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                     >
                         Analyse plugins
                     </button>
+                    {extraActions.map(action => (
+                        <button
+                            key={action.id}
+                            className={action.className || 'theia-button secondary'}
+                            onClick={() => { void action.execute({ geocacheData }); }}
+                            disabled={action.isEnabled ? !action.isEnabled({ geocacheData }) : false}
+                            style={{ fontSize: 12, padding: '4px 12px' }}
+                            title={action.title}
+                        >
+                            {action.label}
+                        </button>
+                    ))}
                     <button
                         className='theia-button secondary'
                         onClick={() => { void onOpenFreeChat(); }}

@@ -26,8 +26,17 @@ export type GeoAppChatWorkflowProfile = 'default' | GeoAppChatProfile;
 export type GeoAppChatWorkflowKind = 'general' | 'secret_code' | 'formula' | 'checker' | 'hidden_content' | 'image_puzzle';
 export type GeoAppChatBehaviorProfile = 'guided' | 'safe' | 'offline' | 'automation' | 'debug';
 export type GeoAppChatWorkflowBehaviorProfile = 'default' | GeoAppChatBehaviorProfile;
-export type GeoAppChatSessionKind = 'auto' | 'libre';
+export type GeoAppChatSessionKind = 'auto' | 'libre' | 'earthcoach';
 export type GeoAppChatSkillPack = 'workflow' | 'minimal' | 'full' | 'disabled';
+export type GeoAppChatImageOrigin = 'cache_listing' | 'user_observation' | 'educational_reference';
+
+export interface GeoAppChatImageContext {
+    url: string;
+    origin: GeoAppChatImageOrigin;
+    id?: string;
+    label?: string;
+    description?: string;
+}
 
 export const GeoAppChatAgentIdsByProfile: Record<GeoAppChatProfile, string> = {
     local: GeoAppChatLocalAgentId,
@@ -75,10 +84,13 @@ export interface GeoAppOpenChatRequestDetailPayload {
     sessionTitle?: string;
     prompt?: string;
     imageUrls?: string[];
+    imageContexts?: GeoAppChatImageContext[];
     focus?: boolean;
     workflowKind?: GeoAppChatWorkflowKind | string;
     preferredProfile?: GeoAppChatWorkflowProfile | string;
     preferredBehaviorProfile?: GeoAppChatWorkflowBehaviorProfile | string;
+    preferredAgentId?: string;
+    earthcoachMode?: string;
     resumeState?: Record<string, unknown>;
     sessionKind?: GeoAppChatSessionKind;
 }
@@ -338,11 +350,14 @@ export function buildGeoAppOpenChatRequestDetail(
         geocacheName: detail.geocacheName,
         sessionTitle: buildGeoAppBaseSessionTitle(detail.gcCode, detail.geocacheName, detail.sessionTitle),
         prompt: detail.prompt,
+        imageContexts: detail.imageContexts?.length ? detail.imageContexts : undefined,
         imageUrls: detail.imageUrls?.length ? detail.imageUrls : undefined,
         focus: detail.focus !== false,
         workflowKind: detail.workflowKind,
         preferredProfile: detail.preferredProfile,
         preferredBehaviorProfile: detail.preferredBehaviorProfile,
+        preferredAgentId: detail.preferredAgentId,
+        earthcoachMode: detail.earthcoachMode,
         resumeState: detail.resumeState,
         sessionKind: detail.sessionKind,
     };

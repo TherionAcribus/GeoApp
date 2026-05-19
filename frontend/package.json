@@ -87,7 +87,8 @@
     "theia-extensions/updater",
     "theia-extensions/zones",
     "theia-extensions/documentation",
-    "theia-extensions/calculator"
+    "theia-extensions/calculator",
+    "theia-extensions/earthcoach"
   ],
   "resolutions": {
     "@types/puppeteer": "^5.4.0",

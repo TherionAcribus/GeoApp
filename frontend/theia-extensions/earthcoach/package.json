@@ -1,0 +1,43 @@
+{
+  "private": true,
+  "name": "theia-ide-earthcoach-ext",
+  "version": "1.70.200",
+  "description": "GeoApp EarthCoach - assistant IA EarthCache pour Theia",
+  "keywords": [
+    "theia-extension",
+    "geocaching",
+    "earthcache",
+    "ai"
+  ],
+  "license": "MIT",
+  "files": [
+    "lib",
+    "src"
+  ],
+  "main": "lib/browser/earthcoach-frontend-module.js",
+  "typings": "lib/browser/earthcoach-frontend-module.d.ts",
+  "dependencies": {
+    "@theia/core": "1.70.2",
+    "@theia/ai-chat": "1.70.2",
+    "@theia/ai-core": "1.70.2",
+    "theia-ide-zones-ext": "1.70.200"
+  },
+  "peerDependencies": {
+    "react": "^16.8.0"
+  },
+  "devDependencies": {
+    "rimraf": "^2.7.1",
+    "typescript": "^4.5.5"
+  },
+  "scripts": {
+    "clean": "rimraf lib *.tsbuildinfo",
+    "build": "tsc -b",
+    "test:earthcoach": "node ../../node_modules/ts-node/dist/bin.js src/browser/tests/earthcoach-prompt-builder.test.ts",
+    "watch": "rimraf lib *.tsbuildinfo && tsc -w"
+  },
+  "theiaExtensions": [
+    {
+      "frontend": "lib/browser/earthcoach-frontend-module"
+    }
+  ]
+}

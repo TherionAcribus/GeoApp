@@ -39,6 +39,8 @@ export {
     GeoAppChatBehaviorProfile,
     GeoAppChatWorkflowBehaviorProfile,
     GeoAppChatSessionKind,
+    GeoAppChatImageOrigin,
+    GeoAppChatImageContext,
     GeoAppChatSkillPack,
     GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF,
     GEOAPP_CHAT_BEHAVIOR_SECRET_CODE_PROFILE_PREF,

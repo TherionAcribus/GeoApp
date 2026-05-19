@@ -49,6 +49,7 @@ import {
     GeoAppChatWorkflowKind
 } from './geoapp-chat-agent';
 import { FreeChatDialog, FreeChatDialogResult } from './geocache-free-chat-dialog';
+import { GeocacheDetailsHeaderActionRegistry } from './geocache-details-header-actions';
 
 interface PluginAddWaypointDetail {
     gcCoords: string;
@@ -135,6 +136,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         @inject(GeocacheDetailsNotesController) protected readonly notesController: GeocacheDetailsNotesController,
         @inject(GeocacheDetailsPreferencesController) protected readonly preferencesController: GeocacheDetailsPreferencesController,
         @inject(GeocacheDetailsTranslationController) protected readonly translationController: GeocacheDetailsTranslationController,
+        @inject(GeocacheDetailsHeaderActionRegistry) protected readonly headerActionRegistry: GeocacheDetailsHeaderActionRegistry,
         @inject(GeoAppWidgetEventsService) protected readonly widgetEventsService: GeoAppWidgetEventsService,
         @inject(MiniBrowserOpenHandler) protected readonly miniBrowserOpenHandler: MiniBrowserOpenHandler
     ) {
@@ -1190,6 +1192,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                     onOpenLogEditor: this.openLogEditor,
                     onOpenNotes: this.openNotes,
                     onForceSyncArchive: this.forceSyncArchive,
+                    extraActions: this.headerActionRegistry.getActions({ geocacheData: d! }),
                 }}
                 coordinatesEditorProps={{
                     geocacheData: d!,
