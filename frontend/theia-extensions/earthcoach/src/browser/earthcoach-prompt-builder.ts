@@ -102,6 +102,9 @@ function buildActionInstruction(action: EarthCoachQuickAction, mode: EarthCoachM
     if (action === 'explain_word') {
         return 'Action demandee: expliquer un mot. Demande le terme a expliquer si aucun terme precis n est fourni, puis explique-le simplement dans le contexte EarthCache.';
     }
+    if (action === 'illustrate_term') {
+        return 'Action demandee: illustrer un terme geologique. Utilise des references externes educational_reference si disponibles, puis precise que les images sont generiques.';
+    }
     if (action === 'analyze_observations') {
         return 'Action demandee: analyser les observations personnelles. Separe observation, interpretation et hypothese; signale ce qui manque.';
     }

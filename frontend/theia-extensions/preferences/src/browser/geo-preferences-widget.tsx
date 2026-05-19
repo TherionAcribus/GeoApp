@@ -268,6 +268,7 @@ export class GeoPreferencesWidget extends ReactWidget {
         const map: Record<string, string> = {
             ai: 'Intelligence Artificielle',
             chat: 'Chat IA GeoApp',
+            earthcoach: 'EarthCoach',
             ui: 'Interface utilisateur',
             alphabets: 'Alphabets',
             map: 'Carte',

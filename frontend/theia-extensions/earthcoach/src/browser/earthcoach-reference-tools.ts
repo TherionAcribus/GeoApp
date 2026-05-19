@@ -5,6 +5,13 @@ import {
     ToolRequest,
     ToolRequestParameters,
 } from '@theia/ai-core';
+import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
+import {
+    EARTHCOACH_REFERENCES_LANGUAGE_PREF,
+    EARTHCOACH_REFERENCES_MAX_ARTICLES_PREF,
+    EARTHCOACH_REFERENCES_MAX_IMAGES_PREF,
+    EARTHCOACH_REFERENCES_WEB_ENABLED_PREF,
+} from './earthcoach-preferences';
 
 const PROVIDER_NAME = 'geoapp.earthcoach';
 
@@ -65,6 +72,36 @@ interface WikimediaImagePage {
     }>;
 }
 
+export interface EarthCoachReferenceArticle {
+    title: string;
+    summary?: string;
+    url?: string;
+    thumbnailUrl?: string;
+    origin: 'educational_reference';
+    source: string;
+}
+
+export interface EarthCoachReferenceImage {
+    id: string;
+    title: string;
+    imageUrl?: string;
+    thumbnailUrl?: string;
+    pageUrl?: string;
+    description?: string;
+    license?: string;
+    origin: 'educational_reference';
+    source: 'Wikimedia Commons';
+}
+
+export interface EarthCoachReferenceSearchResult {
+    query: string;
+    language: 'fr' | 'en';
+    origin: 'educational_reference';
+    articles: EarthCoachReferenceArticle[];
+    images: EarthCoachReferenceImage[];
+    usage_rule: string;
+}
+
 @injectable()
 export class EarthCoachReferenceTools implements FrontendApplicationContribution {
 
@@ -72,6 +109,9 @@ export class EarthCoachReferenceTools implements FrontendApplicationContribution
 
     @inject(ToolInvocationRegistry)
     protected readonly toolRegistry!: ToolInvocationRegistry;
+
+    @inject(PreferenceService)
+    protected readonly preferenceService!: PreferenceService;
 
     async onStart(): Promise<void> {
         try {
@@ -108,6 +148,11 @@ export class EarthCoachReferenceTools implements FrontendApplicationContribution
                     description: 'Inclure des images pedagogiques Wikimedia Commons. Defaut: true.',
                     required: false,
                 },
+                max_images: {
+                    type: 'number',
+                    description: 'Nombre maximal d images a retourner. Defaut: preference EarthCoach.',
+                    required: false,
+                },
             }),
             handler: async (argString: string) => {
                 const args = parseArgs(argString);
@@ -115,21 +160,13 @@ export class EarthCoachReferenceTools implements FrontendApplicationContribution
                 if (!query) {
                     return err('query is required');
                 }
-                const language = args.language === 'en' ? 'en' : 'fr';
-                const includeImages = args.include_images !== false;
                 try {
-                    const [articles, images] = await Promise.all([
-                        this.searchWikipedia(query, language),
-                        includeImages ? this.searchCommonsImages(query) : Promise.resolve([]),
-                    ]);
-                    return ok({
+                    return ok(await this.searchReference({
                         query,
-                        language,
-                        origin: 'educational_reference',
-                        articles,
-                        images,
-                        usage_rule: 'Ces resultats sont des references pedagogiques externes. Ne les presente jamais comme une observation utilisateur ni comme une image du listing.',
-                    });
+                        language: args.language === 'en' ? 'en' : args.language === 'fr' ? 'fr' : undefined,
+                        includeImages: args.include_images !== false,
+                        maxImages: this.toNumber(args.max_images),
+                    }));
                 } catch (error: any) {
                     return err(error?.message || String(error));
                 }
@@ -137,20 +174,47 @@ export class EarthCoachReferenceTools implements FrontendApplicationContribution
         };
     }
 
-    protected async searchWikipedia(query: string, language: 'fr' | 'en'): Promise<Array<{
-        title: string;
-        summary?: string;
-        url?: string;
-        thumbnailUrl?: string;
-        origin: 'educational_reference';
-        source: string;
-    }>> {
+    async searchReference(options: {
+        query: string;
+        language?: 'fr' | 'en';
+        includeImages?: boolean;
+        maxArticles?: number;
+        maxImages?: number;
+    }): Promise<EarthCoachReferenceSearchResult> {
+        if (!this.preferenceService.get(EARTHCOACH_REFERENCES_WEB_ENABLED_PREF, true)) {
+            throw new Error('La recherche web EarthCoach est desactivee dans les preferences.');
+        }
+
+        const query = options.query.trim();
+        if (!query) {
+            throw new Error('query is required');
+        }
+
+        const language = options.language || this.getDefaultLanguage();
+        const maxArticles = this.clampNumber(options.maxArticles ?? this.preferenceService.get(EARTHCOACH_REFERENCES_MAX_ARTICLES_PREF, 3), 1, 8);
+        const maxImages = this.clampNumber(options.maxImages ?? this.preferenceService.get(EARTHCOACH_REFERENCES_MAX_IMAGES_PREF, 5), 0, 12);
+        const includeImages = options.includeImages !== false && maxImages > 0;
+        const [articles, images] = await Promise.all([
+            this.searchWikipedia(query, language, maxArticles),
+            includeImages ? this.searchCommonsImages(query, maxImages) : Promise.resolve([]),
+        ]);
+        return {
+            query,
+            language,
+            origin: 'educational_reference',
+            articles,
+            images,
+            usage_rule: 'Ces resultats sont des references pedagogiques externes. Ne les presente jamais comme une observation utilisateur ni comme une image du listing.',
+        };
+    }
+
+    protected async searchWikipedia(query: string, language: 'fr' | 'en', limit: number): Promise<EarthCoachReferenceArticle[]> {
         const endpoint = `https://${language}.wikipedia.org/w/api.php`;
         const params = new URLSearchParams({
             action: 'query',
             generator: 'search',
             gsrsearch: query,
-            gsrlimit: '3',
+            gsrlimit: String(limit),
             prop: 'extracts|info|pageimages',
             exintro: '1',
             explaintext: '1',
@@ -179,23 +243,13 @@ export class EarthCoachReferenceTools implements FrontendApplicationContribution
             }));
     }
 
-    protected async searchCommonsImages(query: string): Promise<Array<{
-        id: string;
-        title: string;
-        imageUrl?: string;
-        thumbnailUrl?: string;
-        pageUrl?: string;
-        description?: string;
-        license?: string;
-        origin: 'educational_reference';
-        source: 'Wikimedia Commons';
-    }>> {
+    protected async searchCommonsImages(query: string, limit: number): Promise<EarthCoachReferenceImage[]> {
         const params = new URLSearchParams({
             action: 'query',
             generator: 'search',
             gsrsearch: query,
             gsrnamespace: '6',
-            gsrlimit: '5',
+            gsrlimit: String(limit),
             prop: 'imageinfo',
             iiprop: 'url|extmetadata',
             iiurlwidth: '640',
@@ -233,5 +287,28 @@ export class EarthCoachReferenceTools implements FrontendApplicationContribution
     protected cleanHtml(value?: string): string | undefined {
         const text = (value || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
         return text || undefined;
+    }
+
+    protected getDefaultLanguage(): 'fr' | 'en' {
+        return String(this.preferenceService.get(EARTHCOACH_REFERENCES_LANGUAGE_PREF, 'fr')) === 'en' ? 'en' : 'fr';
+    }
+
+    protected toNumber(value: unknown): number | undefined {
+        if (typeof value === 'number' && Number.isFinite(value)) {
+            return value;
+        }
+        if (typeof value === 'string' && value.trim()) {
+            const parsed = Number(value);
+            return Number.isFinite(parsed) ? parsed : undefined;
+        }
+        return undefined;
+    }
+
+    protected clampNumber(value: unknown, min: number, max: number): number {
+        const parsed = this.toNumber(value);
+        if (parsed === undefined) {
+            return min;
+        }
+        return Math.max(min, Math.min(max, Math.round(parsed)));
     }
 }

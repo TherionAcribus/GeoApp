@@ -1,5 +1,5 @@
 import { ContainerModule } from '@theia/core/shared/inversify';
-import { FrontendApplicationContribution } from '@theia/core/lib/browser';
+import { FrontendApplicationContribution, WidgetFactory } from '@theia/core/lib/browser';
 import { CommandContribution, MenuContribution } from '@theia/core/lib/common';
 import { ChatAgent } from '@theia/ai-chat/lib/common/chat-agents';
 import {
@@ -9,12 +9,19 @@ import { EarthCoachAgent, EarthCoachAgentContribution } from './earthcoach-agent
 import { EarthCoachCommandContribution } from './earthcoach-command-contribution';
 import { EarthCoachContextService } from './earthcoach-context-service';
 import { EarthCoachReferenceTools } from './earthcoach-reference-tools';
+import { EarthCoachReferenceWidget } from './earthcoach-reference-widget';
 
 export default new ContainerModule(bind => {
     bind(EarthCoachContextService).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(EarthCoachContextService);
     bind(EarthCoachReferenceTools).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(EarthCoachReferenceTools);
+
+    bind(EarthCoachReferenceWidget).toSelf();
+    bind(WidgetFactory).toDynamicValue(ctx => ({
+        id: EarthCoachReferenceWidget.ID,
+        createWidget: () => ctx.container.get(EarthCoachReferenceWidget),
+    })).inSingletonScope();
 
     bind(EarthCoachAgent).toSelf().inSingletonScope();
     bind(ChatAgent).toService(EarthCoachAgent);

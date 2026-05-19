@@ -1750,6 +1750,73 @@
         "data-preservation"
       ]
     },
+    "geoApp.earthCoach.references.web.enabled": {
+      "type": "boolean",
+      "default": true,
+      "title": "EarthCoach - Recherches externes",
+      "description": "Autorise EarthCoach a chercher des references pedagogiques externes sur Wikipedia et Wikimedia Commons.",
+      "x-category": "earthcoach",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "earthcoach",
+        "references",
+        "web"
+      ]
+    },
+    "geoApp.earthCoach.references.language": {
+      "type": "string",
+      "enum": [
+        "fr",
+        "en"
+      ],
+      "default": "fr",
+      "title": "EarthCoach - Langue des references",
+      "description": "Langue par defaut des recherches pedagogiques EarthCoach.",
+      "x-category": "earthcoach",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "earthcoach",
+        "references"
+      ]
+    },
+    "geoApp.earthCoach.references.maxArticles": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 8,
+      "default": 3,
+      "title": "EarthCoach - Articles maximum",
+      "description": "Nombre maximal d'articles Wikipedia retournes par EarthCoach.",
+      "x-category": "earthcoach",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "earthcoach",
+        "references",
+        "wikipedia"
+      ]
+    },
+    "geoApp.earthCoach.references.maxImages": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 12,
+      "default": 5,
+      "title": "EarthCoach - Images maximum",
+      "description": "Nombre maximal d'images pedagogiques Wikimedia Commons retournees par EarthCoach.",
+      "x-category": "earthcoach",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "earthcoach",
+        "references",
+        "images"
+      ]
+    },
     "geoApp.geocache.externalLinks.openMode": {
       "type": "string",
       "enum": [

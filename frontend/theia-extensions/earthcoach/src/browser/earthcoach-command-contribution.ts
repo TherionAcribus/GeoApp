@@ -6,7 +6,7 @@ import {
     MenuModelRegistry,
     MessageService,
 } from '@theia/core/lib/common';
-import { CommonMenus } from '@theia/core/lib/browser';
+import { ApplicationShell, CommonMenus, WidgetManager } from '@theia/core/lib/browser';
 import { QuickInputService, QuickPickValue } from '@theia/core/lib/common/quick-pick-service';
 import {
     buildGeoAppOpenChatRequestDetail,
@@ -25,11 +25,16 @@ import {
     EarthCoachQuickAction,
 } from './earthcoach-types';
 import { buildEarthCoachPrompt, toImageContext } from './earthcoach-prompt-builder';
+import { EarthCoachReferenceWidget } from './earthcoach-reference-widget';
 
 export namespace EarthCoachCommands {
     export const OPEN = {
         id: 'earthcoach.open',
         label: 'Ouvrir EarthCoach',
+    };
+    export const OPEN_REFERENCES = {
+        id: 'earthcoach.references.open',
+        label: 'References EarthCoach',
     };
 }
 
@@ -43,6 +48,11 @@ const QUICK_ACTIONS: Array<QuickPickValue<EarthCoachQuickAction>> = [
         label: 'Preparer ma visite',
         description: 'Checklist terrain et observations a relever',
         value: 'prepare_visit',
+    },
+    {
+        label: 'Illustrer un terme',
+        description: 'Images et references pedagogiques externes',
+        value: 'illustrate_term',
     },
     {
         label: 'Expliquer un mot',
@@ -70,12 +80,21 @@ export class EarthCoachCommandContribution implements CommandContribution, MenuC
     @inject(QuickInputService)
     protected readonly quickInputService!: QuickInputService;
 
+    @inject(WidgetManager)
+    protected readonly widgetManager!: WidgetManager;
+
+    @inject(ApplicationShell)
+    protected readonly shell!: ApplicationShell;
+
     @inject(EarthCoachContextService)
     protected readonly contextService!: EarthCoachContextService;
 
     registerCommands(registry: CommandRegistry): void {
         registry.registerCommand(EarthCoachCommands.OPEN, {
             execute: (request?: EarthCoachOpenRequest) => this.openEarthCoach(request),
+        });
+        registry.registerCommand(EarthCoachCommands.OPEN_REFERENCES, {
+            execute: (query?: string) => this.openReferenceWidget(typeof query === 'string' ? query : undefined),
         });
     }
 
@@ -84,6 +103,11 @@ export class EarthCoachCommandContribution implements CommandContribution, MenuC
             commandId: EarthCoachCommands.OPEN.id,
             label: 'EarthCoach',
             order: '42',
+        });
+        menus.registerMenuAction(CommonMenus.VIEW_VIEWS, {
+            commandId: EarthCoachCommands.OPEN_REFERENCES.id,
+            label: 'References EarthCoach',
+            order: '43',
         });
     }
 
@@ -113,6 +137,17 @@ export class EarthCoachCommandContribution implements CommandContribution, MenuC
 
         const action = request?.action || await this.pickAction();
         if (!action) {
+            return;
+        }
+        if (action === 'illustrate_term') {
+            const term = await this.quickInputService.input({
+                title: 'EarthCoach',
+                prompt: 'Terme geologique a illustrer',
+                placeHolder: 'calcaire coquillier',
+            });
+            if (term?.trim()) {
+                await this.openReferenceWidget(term.trim());
+            }
             return;
         }
         const mode = action === 'resolve' ? 'resolver' : 'coach';
@@ -168,5 +203,16 @@ export class EarthCoachCommandContribution implements CommandContribution, MenuC
             matchOnDescription: true,
         });
         return picked?.value;
+    }
+
+    protected async openReferenceWidget(query?: string): Promise<void> {
+        const widget = await this.widgetManager.getOrCreateWidget<EarthCoachReferenceWidget>(EarthCoachReferenceWidget.ID);
+        if (!widget.isAttached) {
+            this.shell.addWidget(widget, { area: 'right', mode: 'tab-after' });
+        }
+        this.shell.activateWidget(widget.id);
+        if (query?.trim()) {
+            await widget.search(query.trim());
+        }
     }
 }

@@ -5,6 +5,7 @@ export type EarthCoachMode = 'coach' | 'resolver';
 export type EarthCoachQuickAction =
     | 'understand'
     | 'prepare_visit'
+    | 'illustrate_term'
     | 'explain_word'
     | 'analyze_observations'
     | 'resolve';
