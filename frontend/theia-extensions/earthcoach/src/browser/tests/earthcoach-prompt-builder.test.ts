@@ -2,6 +2,7 @@ import * as assert from 'assert/strict';
 import { buildEarthCoachPrompt, toImageContext } from '../earthcoach-prompt-builder';
 import { buildEarthCoachSystemPrompt } from '../earthcoach-prompts';
 import { GeoImage, UserObservation } from '../earthcoach-types';
+import { EarthCoachNoteTools } from '../earthcoach-note-tools';
 import { EarthCoachReferenceTools } from '../earthcoach-reference-tools';
 import {
     EARTHCOACH_REFERENCES_ALLOWED_SOURCES_PREF,
@@ -53,6 +54,7 @@ function testSystemPromptModes(): void {
     assert.match(coachPrompt, /Mode courant: coach/);
     assert.match(coachPrompt, /Ne donne jamais directement les reponses finales/);
     assert.match(coachPrompt, /earthcoach_search_reference/);
+    assert.match(coachPrompt, /earthcoach_save_note/);
     assert.match(coachPrompt, /educational_reference/);
 
     const resolverPrompt = buildEarthCoachSystemPrompt('resolver');
@@ -66,6 +68,56 @@ function testReferenceToolShape(): void {
     assert.equal(tools[0].id, EarthCoachReferenceTools.SEARCH_REFERENCE_TOOL_ID);
     assert.equal(tools[0].name, 'earthcoach_search_reference');
     assert.match(tools[0].description, /references pedagogiques externes/);
+}
+
+function testNoteToolShape(): void {
+    const tools = new EarthCoachNoteTools().buildAllTools();
+    assert.equal(tools.length, 1);
+    assert.equal(tools[0].id, EarthCoachNoteTools.SAVE_NOTE_TOOL_ID);
+    assert.equal(tools[0].name, 'earthcoach_save_note');
+    assert.match(tools[0].description, /source=earthcoach/);
+}
+
+class TestNoteTools extends EarthCoachNoteTools {
+
+    createdNotes: Array<{ geocacheId: number; payload: any }> = [];
+    changedEvents: any[] = [];
+
+    constructor() {
+        super();
+        (this as any).notesService = {
+            createNote: async (geocacheId: number, payload: any) => {
+                this.createdNotes.push({ geocacheId, payload });
+            },
+        };
+        (this as any).widgetEventsService = {
+            notifyGeocacheChanged: (event: any) => {
+                this.changedEvents.push(event);
+            },
+        };
+    }
+}
+
+async function testSaveEarthCoachNote(): Promise<void> {
+    const tools = new TestNoteTools();
+    await tools.saveEarthCoachNote({
+        geocacheId: 42,
+        title: 'Checklist terrain',
+        content: 'Observer les strates et noter leur orientation.',
+    });
+
+    assert.equal(tools.createdNotes.length, 1);
+    assert.equal(tools.createdNotes[0].geocacheId, 42);
+    assert.equal(tools.createdNotes[0].payload.note_type, 'system');
+    assert.equal(tools.createdNotes[0].payload.source, 'earthcoach');
+    assert.equal(tools.createdNotes[0].payload.source_plugin, 'earthcoach');
+    assert.match(tools.createdNotes[0].payload.content, /\[EarthCoach\] Checklist terrain/);
+    assert.match(tools.createdNotes[0].payload.content, /Observer les strates/);
+    assert.deepEqual(tools.changedEvents[0], {
+        geocacheId: 42,
+        reason: 'note-created',
+        source: 'chat',
+    });
 }
 
 class TestReferenceTools extends EarthCoachReferenceTools {
@@ -197,11 +249,13 @@ function testImageContextMapping(): void {
 async function run(): Promise<void> {
     testSystemPromptModes();
     testReferenceToolShape();
+    testNoteToolShape();
     testPromptIncludesImageOriginsAndObservations();
     testResolverInstructionDoesNotPretendTerrain();
     testImageContextMapping();
     await testReferenceSearchUsesPreferencesAndCache();
     await testReferenceSearchHonorsAllowedSources();
+    await testSaveEarthCoachNote();
     // eslint-disable-next-line no-console
     console.log('earthcoach-prompt-builder tests passed');
 }

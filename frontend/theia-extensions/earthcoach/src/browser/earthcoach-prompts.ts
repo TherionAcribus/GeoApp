@@ -26,6 +26,11 @@ const SHARED_RULES = [
     '- Les resultats de ce tool sont toujours des educational_reference.',
     '- Quand tu utilises une reference externe, cite le lien source si le tool le fournit.',
     '- Tu peux afficher les images pedagogiques en Markdown, mais tu dois les presenter comme exemples generiques.',
+    '',
+    'Notes GeoApp:',
+    '- Si l utilisateur demande explicitement d enregistrer une synthese, checklist ou analyse dans les notes, utilise le tool ~earthcoach_save_note.',
+    '- N utilise jamais ~earthcoach_save_note sans demande explicite de sauvegarde.',
+    '- Une note EarthCoach doit rester un brouillon ou une synthese fondee sur les donnees fournies; elle ne doit pas inventer d observation terrain.',
 ].join('\n');
 
 const COACH_RULES = [

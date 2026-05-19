@@ -17,6 +17,7 @@ import { MutableChatRequestModel } from '@theia/ai-chat/lib/common/chat-model';
 import { LanguageModelMessage } from '@theia/ai-core/lib/common/language-model';
 import { EarthCoachAgentId, EarthCoachMode } from './earthcoach-types';
 import { buildEarthCoachSystemPrompt } from './earthcoach-prompts';
+import { EarthCoachNoteTools } from './earthcoach-note-tools';
 import { EarthCoachReferenceTools } from './earthcoach-reference-tools';
 
 export const EarthCoachLanguageModelRequirements: LanguageModelRequirement[] = [{
@@ -43,6 +44,9 @@ export class EarthCoachAgent extends AbstractStreamParsingChatAgent {
     @inject(EarthCoachReferenceTools)
     protected readonly referenceTools!: EarthCoachReferenceTools;
 
+    @inject(EarthCoachNoteTools)
+    protected readonly noteTools!: EarthCoachNoteTools;
+
     protected override async sendLlmRequest(
         request: MutableChatRequestModel,
         messages: LanguageModelMessage[],
@@ -51,12 +55,16 @@ export class EarthCoachAgent extends AbstractStreamParsingChatAgent {
         promptVariantId?: string,
         isPromptVariantCustomized?: boolean
     ): Promise<LanguageModelResponse> {
-        const earthCoachToolIds = new Set(this.referenceTools.buildAllTools().map(tool => tool.id));
+        const earthCoachTools = [
+            ...this.referenceTools.buildAllTools(),
+            ...this.noteTools.buildAllTools(),
+        ];
+        const earthCoachToolIds = new Set(earthCoachTools.map(tool => tool.id));
         const nonEarthCoachTools = toolRequests.filter(tool => !earthCoachToolIds.has(tool.id));
         return super.sendLlmRequest(
             request,
             messages,
-            [...nonEarthCoachTools, ...this.referenceTools.buildAllTools()],
+            [...nonEarthCoachTools, ...earthCoachTools],
             languageModel,
             promptVariantId,
             isPromptVariantCustomized

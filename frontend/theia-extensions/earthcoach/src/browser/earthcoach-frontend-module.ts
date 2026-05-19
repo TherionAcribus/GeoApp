@@ -8,6 +8,7 @@ import {
 import { EarthCoachAgent, EarthCoachAgentContribution } from './earthcoach-agent';
 import { EarthCoachCommandContribution } from './earthcoach-command-contribution';
 import { EarthCoachContextService } from './earthcoach-context-service';
+import { EarthCoachNoteTools } from './earthcoach-note-tools';
 import { EarthCoachReferenceTools } from './earthcoach-reference-tools';
 import { EarthCoachReferenceWidget } from './earthcoach-reference-widget';
 
@@ -16,6 +17,8 @@ export default new ContainerModule(bind => {
     bind(FrontendApplicationContribution).toService(EarthCoachContextService);
     bind(EarthCoachReferenceTools).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(EarthCoachReferenceTools);
+    bind(EarthCoachNoteTools).toSelf().inSingletonScope();
+    bind(FrontendApplicationContribution).toService(EarthCoachNoteTools);
 
     bind(EarthCoachReferenceWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(ctx => ({

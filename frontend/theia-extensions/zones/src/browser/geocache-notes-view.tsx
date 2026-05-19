@@ -240,8 +240,12 @@ export function GeocacheNotesView(props: GeocacheNotesViewProps): React.JSX.Elem
                             {props.notes.map(note => {
                                 const isEditing = props.editingNoteId === note.id;
                                 const isUserNote = note.source === 'user';
-                                const typeLabel = note.note_type === 'system' ? 'Systeme' : 'Utilisateur';
-                                const typeColor = note.note_type === 'system' ? '#6b7280' : '#3b82f6';
+                                const typeLabel = note.source === 'earthcoach'
+                                    ? 'EarthCoach'
+                                    : note.note_type === 'system' ? 'Systeme' : 'Utilisateur';
+                                const typeColor = note.source === 'earthcoach'
+                                    ? '#047857'
+                                    : note.note_type === 'system' ? '#6b7280' : '#3b82f6';
                                 const created = formatDateTime(note.created_at);
                                 const updated = formatDateTime(note.updated_at);
 
