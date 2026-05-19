@@ -4,7 +4,7 @@ import { CommandContribution, CommandRegistry, MenuContribution, MenuModelRegist
 import { KeybindingContribution, KeybindingRegistry } from '@theia/core/lib/browser/keybinding';
 import { CommonMenus } from '@theia/core/lib/browser';
 
-import { GeoPreferencesWidget } from './geo-preferences-widget';
+import { GeoPreferencesOpenOptions, GeoPreferencesWidget } from './geo-preferences-widget';
 
 export const GeoPreferencesCommands = {
     OPEN: {
@@ -28,7 +28,11 @@ export class GeoPreferencesFrontendContribution extends AbstractViewContribution
 
     registerCommands(registry: CommandRegistry): void {
         registry.registerCommand(GeoPreferencesCommands.OPEN, {
-            execute: () => this.openView({ activate: true, reveal: true })
+            execute: async (options?: GeoPreferencesOpenOptions) => {
+                const widget = await this.openView({ activate: true, reveal: true });
+                widget.revealCategory(options?.category);
+                return widget;
+            }
         });
     }
 

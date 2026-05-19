@@ -7,6 +7,7 @@ import {
 } from '@theia/ai-core';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import {
+    EARTHCOACH_REFERENCES_ALLOWED_SOURCES_PREF,
     EARTHCOACH_REFERENCES_LANGUAGE_PREF,
     EARTHCOACH_REFERENCES_MAX_ARTICLES_PREF,
     EARTHCOACH_REFERENCES_MAX_IMAGES_PREF,
@@ -14,6 +15,9 @@ import {
 } from './earthcoach-preferences';
 
 const PROVIDER_NAME = 'geoapp.earthcoach';
+const REFERENCE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_ALLOWED_SOURCES = 'wikipedia,wikimedia';
+type EarthCoachReferenceSource = 'wikipedia' | 'wikimedia';
 
 function ok(data: unknown): string {
     return JSON.stringify({ success: true, data });
@@ -99,7 +103,14 @@ export interface EarthCoachReferenceSearchResult {
     origin: 'educational_reference';
     articles: EarthCoachReferenceArticle[];
     images: EarthCoachReferenceImage[];
+    allowed_sources: EarthCoachReferenceSource[];
+    from_cache?: boolean;
     usage_rule: string;
+}
+
+interface ReferenceCacheEntry {
+    createdAt: number;
+    result: EarthCoachReferenceSearchResult;
 }
 
 @injectable()
@@ -112,6 +123,8 @@ export class EarthCoachReferenceTools implements FrontendApplicationContribution
 
     @inject(PreferenceService)
     protected readonly preferenceService!: PreferenceService;
+
+    protected readonly referenceCache = new Map<string, ReferenceCacheEntry>();
 
     async onStart(): Promise<void> {
         try {
@@ -129,7 +142,7 @@ export class EarthCoachReferenceTools implements FrontendApplicationContribution
         return {
             id: EarthCoachReferenceTools.SEARCH_REFERENCE_TOOL_ID,
             name: 'earthcoach_search_reference',
-            description: 'Recherche des references pedagogiques externes sur Wikipedia/Wikimedia Commons pour expliquer un terme geologique. Retourne des sources et images educational_reference; ne retourne jamais une observation de terrain.',
+            description: 'Recherche des references pedagogiques externes autorisees par les preferences EarthCoach pour expliquer un terme geologique. Retourne des sources et images educational_reference; ne retourne jamais une observation de terrain.',
             providerName: PROVIDER_NAME,
             parameters: buildParams({
                 query: {
@@ -193,19 +206,36 @@ export class EarthCoachReferenceTools implements FrontendApplicationContribution
         const language = options.language || this.getDefaultLanguage();
         const maxArticles = this.clampNumber(options.maxArticles ?? this.preferenceService.get(EARTHCOACH_REFERENCES_MAX_ARTICLES_PREF, 3), 1, 8);
         const maxImages = this.clampNumber(options.maxImages ?? this.preferenceService.get(EARTHCOACH_REFERENCES_MAX_IMAGES_PREF, 5), 0, 12);
-        const includeImages = options.includeImages !== false && maxImages > 0;
+        const allowedSources = this.getAllowedSources();
+        if (!allowedSources.length) {
+            throw new Error('Aucune source EarthCoach autorisee dans les preferences.');
+        }
+        const includeArticles = allowedSources.includes('wikipedia');
+        const includeImages = options.includeImages !== false && maxImages > 0 && allowedSources.includes('wikimedia');
+        const cacheKey = this.buildCacheKey(query, language, maxArticles, maxImages, includeImages, allowedSources);
+        const cached = this.getCachedResult(cacheKey);
+        if (cached) {
+            return cached;
+        }
         const [articles, images] = await Promise.all([
-            this.searchWikipedia(query, language, maxArticles),
+            includeArticles ? this.searchWikipedia(query, language, maxArticles) : Promise.resolve([]),
             includeImages ? this.searchCommonsImages(query, maxImages) : Promise.resolve([]),
         ]);
-        return {
+        const result: EarthCoachReferenceSearchResult = {
             query,
             language,
             origin: 'educational_reference',
             articles,
             images,
+            allowed_sources: allowedSources,
+            from_cache: false,
             usage_rule: 'Ces resultats sont des references pedagogiques externes. Ne les presente jamais comme une observation utilisateur ni comme une image du listing.',
         };
+        this.referenceCache.set(cacheKey, {
+            createdAt: Date.now(),
+            result: this.cloneResult(result),
+        });
+        return result;
     }
 
     protected async searchWikipedia(query: string, language: 'fr' | 'en', limit: number): Promise<EarthCoachReferenceArticle[]> {
@@ -291,6 +321,57 @@ export class EarthCoachReferenceTools implements FrontendApplicationContribution
 
     protected getDefaultLanguage(): 'fr' | 'en' {
         return String(this.preferenceService.get(EARTHCOACH_REFERENCES_LANGUAGE_PREF, 'fr')) === 'en' ? 'en' : 'fr';
+    }
+
+    protected getAllowedSources(): EarthCoachReferenceSource[] {
+        const raw = String(this.preferenceService.get(EARTHCOACH_REFERENCES_ALLOWED_SOURCES_PREF, DEFAULT_ALLOWED_SOURCES));
+        const values = raw
+            .split(',')
+            .map(value => value.trim().toLowerCase())
+            .filter(Boolean);
+        const allowed = new Set<EarthCoachReferenceSource>();
+        for (const value of values) {
+            if (value === 'wikipedia' || value === 'wikimedia') {
+                allowed.add(value);
+            }
+        }
+        return [...allowed].sort();
+    }
+
+    protected buildCacheKey(
+        query: string,
+        language: 'fr' | 'en',
+        maxArticles: number,
+        maxImages: number,
+        includeImages: boolean,
+        allowedSources: EarthCoachReferenceSource[]
+    ): string {
+        return JSON.stringify({
+            query: query.trim().toLowerCase(),
+            language,
+            maxArticles,
+            maxImages,
+            includeImages,
+            allowedSources: [...allowedSources].sort(),
+        });
+    }
+
+    protected getCachedResult(cacheKey: string): EarthCoachReferenceSearchResult | undefined {
+        const entry = this.referenceCache.get(cacheKey);
+        if (!entry) {
+            return undefined;
+        }
+        if (Date.now() - entry.createdAt > REFERENCE_CACHE_TTL_MS) {
+            this.referenceCache.delete(cacheKey);
+            return undefined;
+        }
+        const result = this.cloneResult(entry.result);
+        result.from_cache = true;
+        return result;
+    }
+
+    protected cloneResult(result: EarthCoachReferenceSearchResult): EarthCoachReferenceSearchResult {
+        return JSON.parse(JSON.stringify(result)) as EarthCoachReferenceSearchResult;
     }
 
     protected toNumber(value: unknown): number | undefined {

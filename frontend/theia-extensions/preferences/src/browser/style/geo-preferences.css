@@ -21,6 +21,11 @@
     background: rgba(255, 255, 255, 0.02);
 }
 
+.geo-preferences-section.highlighted {
+    border-color: var(--theia-focusBorder);
+    box-shadow: 0 0 0 1px var(--theia-focusBorder);
+}
+
 .geo-preferences-section h2 {
     font-size: 12px;
     text-transform: uppercase;

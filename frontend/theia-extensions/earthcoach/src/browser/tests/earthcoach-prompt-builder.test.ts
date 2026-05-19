@@ -3,6 +3,13 @@ import { buildEarthCoachPrompt, toImageContext } from '../earthcoach-prompt-buil
 import { buildEarthCoachSystemPrompt } from '../earthcoach-prompts';
 import { GeoImage, UserObservation } from '../earthcoach-types';
 import { EarthCoachReferenceTools } from '../earthcoach-reference-tools';
+import {
+    EARTHCOACH_REFERENCES_ALLOWED_SOURCES_PREF,
+    EARTHCOACH_REFERENCES_LANGUAGE_PREF,
+    EARTHCOACH_REFERENCES_MAX_ARTICLES_PREF,
+    EARTHCOACH_REFERENCES_MAX_IMAGES_PREF,
+    EARTHCOACH_REFERENCES_WEB_ENABLED_PREF,
+} from '../earthcoach-preferences';
 
 function createImages(): GeoImage[] {
     return [
@@ -58,7 +65,80 @@ function testReferenceToolShape(): void {
     assert.equal(tools.length, 1);
     assert.equal(tools[0].id, EarthCoachReferenceTools.SEARCH_REFERENCE_TOOL_ID);
     assert.equal(tools[0].name, 'earthcoach_search_reference');
-    assert.match(tools[0].description, /Wikipedia\/Wikimedia Commons/);
+    assert.match(tools[0].description, /references pedagogiques externes/);
+}
+
+class TestReferenceTools extends EarthCoachReferenceTools {
+
+    wikipediaCalls = 0;
+    commonsCalls = 0;
+
+    constructor(private readonly preferences: Record<string, unknown> = {}) {
+        super();
+        (this as any).preferenceService = {
+            get: (key: string, fallback: unknown) => key in this.preferences ? this.preferences[key] : fallback,
+        };
+    }
+
+    protected override async searchWikipedia(query: string, language: 'fr' | 'en', limit: number) {
+        this.wikipediaCalls++;
+        return [{
+            title: `${query} ${language}`,
+            summary: `limit ${limit}`,
+            url: 'https://example.test/article',
+            origin: 'educational_reference' as const,
+            source: `Wikipedia ${language}`,
+        }];
+    }
+
+    protected override async searchCommonsImages(query: string, limit: number) {
+        this.commonsCalls++;
+        return [{
+            id: 'img-1',
+            title: `${query} image`,
+            imageUrl: 'https://example.test/image.jpg',
+            thumbnailUrl: 'https://example.test/thumb.jpg',
+            origin: 'educational_reference' as const,
+            source: 'Wikimedia Commons' as const,
+            description: `limit ${limit}`,
+        }];
+    }
+}
+
+async function testReferenceSearchUsesPreferencesAndCache(): Promise<void> {
+    const tools = new TestReferenceTools({
+        [EARTHCOACH_REFERENCES_WEB_ENABLED_PREF]: true,
+        [EARTHCOACH_REFERENCES_LANGUAGE_PREF]: 'en',
+        [EARTHCOACH_REFERENCES_MAX_ARTICLES_PREF]: 2,
+        [EARTHCOACH_REFERENCES_MAX_IMAGES_PREF]: 4,
+        [EARTHCOACH_REFERENCES_ALLOWED_SOURCES_PREF]: 'wikipedia,wikimedia',
+    });
+
+    const first = await tools.searchReference({ query: 'Basalte' });
+    assert.equal(first.language, 'en');
+    assert.deepEqual(first.allowed_sources, ['wikimedia', 'wikipedia']);
+    assert.equal(first.from_cache, false);
+    assert.equal(first.articles.length, 1);
+    assert.equal(first.images.length, 1);
+
+    const second = await tools.searchReference({ query: ' basalte ' });
+    assert.equal(second.from_cache, true);
+    assert.equal(tools.wikipediaCalls, 1);
+    assert.equal(tools.commonsCalls, 1);
+}
+
+async function testReferenceSearchHonorsAllowedSources(): Promise<void> {
+    const tools = new TestReferenceTools({
+        [EARTHCOACH_REFERENCES_WEB_ENABLED_PREF]: true,
+        [EARTHCOACH_REFERENCES_ALLOWED_SOURCES_PREF]: 'wikipedia',
+    });
+
+    const result = await tools.searchReference({ query: 'calcaire coquillier', includeImages: true });
+    assert.deepEqual(result.allowed_sources, ['wikipedia']);
+    assert.equal(result.articles.length, 1);
+    assert.equal(result.images.length, 0);
+    assert.equal(tools.wikipediaCalls, 1);
+    assert.equal(tools.commonsCalls, 0);
 }
 
 function testPromptIncludesImageOriginsAndObservations(): void {
@@ -114,14 +194,16 @@ function testImageContextMapping(): void {
     });
 }
 
-function run(): void {
+async function run(): Promise<void> {
     testSystemPromptModes();
     testReferenceToolShape();
     testPromptIncludesImageOriginsAndObservations();
     testResolverInstructionDoesNotPretendTerrain();
     testImageContextMapping();
+    await testReferenceSearchUsesPreferencesAndCache();
+    await testReferenceSearchHonorsAllowedSources();
     // eslint-disable-next-line no-console
     console.log('earthcoach-prompt-builder tests passed');
 }
 
-run();
+void run();

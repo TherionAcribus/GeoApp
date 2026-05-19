@@ -127,7 +127,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 id: 'aide_list_preferences',
                 name: 'aide_list_preferences',
                 description: 'Liste toutes les préférences GeoApp avec leur valeur courante, type, description et valeurs possibles. ' +
-                    'Catégories disponibles : ai, formulaSolver, chat, ui, map, plugins, ocr, images, updates, backend, logs, search. ' +
+                    'Catégories disponibles : ai, earthcoach, chat, ui, map, plugins, ocr, images, updates, backend, logs, search. ' +
                     'Les valeurs sensibles (clés API) sont masquées.',
                 providerName: DocActionToolsManager.PROVIDER_NAME,
                 parameters: buildParams({
@@ -252,10 +252,13 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 name: 'aide_open_preferences',
                 description: 'Ouvre le panneau des préférences GeoApp.',
                 providerName: DocActionToolsManager.PROVIDER_NAME,
-                parameters: buildParams({}),
-                handler: async () => {
+                parameters: buildParams({
+                    category: { type: 'string', description: 'Catégorie optionnelle à afficher directement (ex: "earthcoach", "chat", "ai", "map").', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
                     try {
-                        await this.commandService.executeCommand('preferences:open');
+                        await this.commandService.executeCommand('geo-preferences:open', { category: args.category });
                         return ok('Préférences ouvertes.');
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },

@@ -1817,6 +1817,21 @@
         "images"
       ]
     },
+    "geoApp.earthCoach.references.allowedSources": {
+      "type": "string",
+      "default": "wikipedia,wikimedia",
+      "title": "EarthCoach - Sources autorisees",
+      "description": "Sources externes autorisees pour les references pedagogiques EarthCoach, separees par des virgules. Valeurs v1: wikipedia, wikimedia.",
+      "x-category": "earthcoach",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "earthcoach",
+        "references",
+        "sources"
+      ]
+    },
     "geoApp.geocache.externalLinks.openMode": {
       "type": "string",
       "enum": [

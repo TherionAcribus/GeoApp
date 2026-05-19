@@ -7,6 +7,10 @@ import { PreferenceScope } from '@theia/core/lib/common/preferences/preference-s
 import { GeoPreferenceStore, GeoPreferenceSnapshot } from './geo-preference-store';
 import { GeoPreferenceDefinition, GeoPreferenceKey } from './geo-preferences-schema';
 
+export interface GeoPreferencesOpenOptions {
+    category?: string;
+}
+
 @injectable()
 export class GeoPreferencesWidget extends ReactWidget {
 
@@ -14,6 +18,7 @@ export class GeoPreferencesWidget extends ReactWidget {
     static readonly LABEL = 'Préférences GeoApp';
 
     protected snapshot: GeoPreferenceSnapshot = {};
+    protected highlightedCategory: string | undefined;
 
     constructor(
         @inject(GeoPreferenceStore) private readonly store: GeoPreferenceStore,
@@ -37,6 +42,23 @@ export class GeoPreferencesWidget extends ReactWidget {
         });
 
         this.update();
+    }
+
+    revealCategory(category?: string): void {
+        if (!category) {
+            this.highlightedCategory = undefined;
+            this.update();
+            return;
+        }
+        if (!this.store.definitionsByCategory.has(category)) {
+            return;
+        }
+        this.highlightedCategory = category;
+        this.update();
+        window.setTimeout(() => {
+            const section = this.node.querySelector<HTMLElement>(`[data-geo-preference-category="${category}"]`);
+            section?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 0);
     }
 
     private openAiConfiguration = async (): Promise<void> => {
@@ -66,7 +88,11 @@ export class GeoPreferencesWidget extends ReactWidget {
                 <span>API Flask : {backendUrl}</span>
             </div>
             {sections.map(([category, entries]) => (
-                <section key={category} className='geo-preferences-section'>
+                <section
+                    key={category}
+                    className={`geo-preferences-section${this.highlightedCategory === category ? ' highlighted' : ''}`}
+                    data-geo-preference-category={category}
+                >
                     <header>
                         <div className='flex items-center justify-between gap-2'>
                             <h2>{this.toCategoryLabel(category)}</h2>

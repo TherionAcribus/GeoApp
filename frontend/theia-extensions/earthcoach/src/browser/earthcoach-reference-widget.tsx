@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { CommandService } from '@theia/core';
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
@@ -15,6 +16,7 @@ interface EarthCoachReferenceViewProps {
     error?: string;
     result?: EarthCoachReferenceSearchResult;
     onSearch: (query: string, language: 'fr' | 'en') => void | Promise<void>;
+    onOpenPreferences: () => void | Promise<void>;
 }
 
 function EarthCoachReferenceView(props: EarthCoachReferenceViewProps): React.ReactElement {
@@ -31,7 +33,7 @@ function EarthCoachReferenceView(props: EarthCoachReferenceViewProps): React.Rea
 
     return (
         <div style={{ padding: 12, display: 'grid', gap: 12 }}>
-            <form onSubmit={submit} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 8 }}>
+            <form onSubmit={submit} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: 8 }}>
                 <input
                     className='theia-input'
                     value={query}
@@ -51,6 +53,14 @@ function EarthCoachReferenceView(props: EarthCoachReferenceViewProps): React.Rea
                 <button className='theia-button' type='submit' disabled={props.isLoading || !query.trim()}>
                     {props.isLoading ? 'Recherche...' : 'Rechercher'}
                 </button>
+                <button
+                    className='theia-button secondary'
+                    type='button'
+                    onClick={() => { void props.onOpenPreferences(); }}
+                    title='Ouvrir les preferences GeoApp, section EarthCoach'
+                >
+                    Preferences
+                </button>
             </form>
 
             {props.error ? (
@@ -61,6 +71,9 @@ function EarthCoachReferenceView(props: EarthCoachReferenceViewProps): React.Rea
                 <div style={{ display: 'grid', gap: 14 }}>
                     <div style={{ opacity: 0.75, fontSize: 12 }}>
                         References pedagogiques externes. Elles ne remplacent pas les observations terrain.
+                        {' '}
+                        Sources: {props.result.allowed_sources.join(', ')}.
+                        {props.result.from_cache ? ' Resultats servis depuis le cache local.' : ''}
                     </div>
 
                     {props.result.articles.length ? (
@@ -170,6 +183,9 @@ export class EarthCoachReferenceWidget extends ReactWidget {
     @inject(PreferenceService)
     protected readonly preferenceService!: PreferenceService;
 
+    @inject(CommandService)
+    protected readonly commandService!: CommandService;
+
     @postConstruct()
     protected init(): void {
         this.id = EarthCoachReferenceWidget.ID;
@@ -216,6 +232,7 @@ export class EarthCoachReferenceWidget extends ReactWidget {
                 error={this.error}
                 result={this.result}
                 onSearch={(query, language) => this.search(query, language)}
+                onOpenPreferences={() => this.commandService.executeCommand('geo-preferences:open', { category: 'earthcoach' })}
             />
         );
     }
