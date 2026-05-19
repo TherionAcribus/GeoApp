@@ -437,7 +437,7 @@ export class GlobalSearchService {
     /**
      * Retourne tous les widgets GeoApp ouverts.
      */
-    private getOpenGeoAppWidgets(): Widget[] {
+    protected getOpenGeoAppWidgets(): Widget[] {
         const allWidgets: Widget[] = [
             ...this.shell.getWidgets('main'),
             ...this.shell.getWidgets('bottom'),
@@ -466,8 +466,8 @@ export class GlobalSearchService {
     /**
      * Extrait des snippets de contexte pour un query dans un texte.
      */
-    private extractSnippets(text: string, query: string, maxSnippets: number = 3): SearchSnippet[] {
-        const regex = buildSearchRegex(query, this.state.options);
+    protected extractSnippets(text: string, query: string, maxSnippets: number = 3, options?: SearchOptions): SearchSnippet[] {
+        const regex = buildSearchRegex(query, options ?? this.state.options);
         if (!regex) {
             return [];
         }
@@ -489,6 +489,90 @@ export class GlobalSearchService {
         }
 
         return snippets;
+    }
+
+    /**
+     * Recherche immédiate sans debounce, pour usage programmatique (outils IA).
+     * Ne modifie pas l'état interne du service.
+     */
+    async searchDirect(
+        query: string,
+        scope: GlobalSearchState['scope'] = 'all'
+    ): Promise<{
+        widgetResults: WidgetSearchResult[];
+        geocacheResults: GeocacheSearchResult[];
+        logResults: LogSearchResult[];
+        noteResults: NoteSearchResult[];
+        pluginResults: PluginSearchResult[];
+        alphabetResults: AlphabetSearchResult[];
+        totalCount: number;
+    }> {
+        const trimmed = query.trim();
+        if (!trimmed) {
+            return { widgetResults: [], geocacheResults: [], logResults: [], noteResults: [], pluginResults: [], alphabetResults: [], totalCount: 0 };
+        }
+
+        const opts: SearchOptions = { ...DEFAULT_SEARCH_OPTIONS };
+        let widgetResults: WidgetSearchResult[] = [];
+
+        if (scope === 'all' || scope === 'open_tabs') {
+            const widgets = this.getOpenGeoAppWidgets();
+            for (const widget of widgets) {
+                try {
+                    const matches = searchInDomNode(widget.node, trimmed, opts);
+                    if (matches.length > 0) {
+                        const clone = widget.node.cloneNode(true) as HTMLElement;
+                        const overlay = clone.querySelector('#geoapp-search-overlay-container');
+                        if (overlay) { overlay.remove(); }
+                        const textContent = clone.textContent || '';
+                        const snippets = this.extractSnippets(textContent, trimmed, 3, opts);
+                        widgetResults.push({
+                            widgetId: widget.id,
+                            widgetTitle: widget.title.label || widget.id,
+                            widgetIconClass: widget.title.iconClass || '',
+                            matchCount: matches.length,
+                            snippets,
+                        });
+                    }
+                } catch {
+                    // ignore individual widget errors
+                }
+            }
+            widgetResults.sort((a, b) => b.matchCount - a.matchCount);
+        }
+
+        let geocacheResults: GeocacheSearchResult[] = [];
+        let logResults: LogSearchResult[] = [];
+        let noteResults: NoteSearchResult[] = [];
+        let pluginResults: PluginSearchResult[] = [];
+        let alphabetResults: AlphabetSearchResult[] = [];
+
+        if (scope !== 'open_tabs') {
+            try {
+                const params = new URLSearchParams({
+                    q: trimmed,
+                    case_sensitive: 'false',
+                    use_regex: 'false',
+                    use_wildcard: 'false',
+                    scope,
+                    limit: '20',
+                });
+                const response = await fetch(`http://localhost:8000/api/search?${params}`);
+                if (response.ok) {
+                    const data = await response.json() as Record<string, unknown>;
+                    geocacheResults = (data['geocaches'] as GeocacheSearchResult[]) || [];
+                    logResults = (data['logs'] as LogSearchResult[]) || [];
+                    noteResults = (data['notes'] as NoteSearchResult[]) || [];
+                    pluginResults = (data['plugins'] as PluginSearchResult[]) || [];
+                    alphabetResults = (data['alphabets'] as AlphabetSearchResult[]) || [];
+                }
+            } catch {
+                // silently fail
+            }
+        }
+
+        const totalCount = widgetResults.length + geocacheResults.length + logResults.length + noteResults.length + pluginResults.length + alphabetResults.length;
+        return { widgetResults, geocacheResults, logResults, noteResults, pluginResults, alphabetResults, totalCount };
     }
 
     private notifyListeners(): void {

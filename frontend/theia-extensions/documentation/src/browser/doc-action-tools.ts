@@ -19,6 +19,7 @@ import { AlphabetsService } from '@mysterai/theia-alphabets/lib/browser/services
 import { AlphabetTabsManager } from '@mysterai/theia-alphabets/lib/browser/alphabet-tabs-manager';
 import { GeoPreferenceStore } from '@mysterai/theia-preferences/lib/browser/geo-preference-store';
 import { GeoPreferenceDefinition } from '@mysterai/theia-preferences/lib/browser/geo-preferences-schema';
+import { GlobalSearchService } from 'theia-ide-search-ext/lib/browser/global-search-service';
 
 export const AIDE_TOOL_PREFIX = 'aide_';
 
@@ -90,6 +91,9 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
     @inject(GeoPreferenceStore)
     protected readonly preferenceStore!: GeoPreferenceStore;
 
+    @inject(GlobalSearchService)
+    protected readonly globalSearchService!: GlobalSearchService;
+
     async onStart(): Promise<void> {
         const tools = this.buildAllTools();
         for (const tool of tools) {
@@ -111,6 +115,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
             ...this.buildPluginTools(),
             ...this.buildAlphabetTools(),
             ...this.buildPreferenceTools(),
+            ...this.buildSearchTools(),
         ];
     }
 
@@ -851,6 +856,96 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                     try {
                         await this.notesService.deleteNote(args.note_id);
                         return ok(`Note ${args.note_id} supprimée.`);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+        ];
+    }
+
+    // ─── Recherche globale ────────────────────────────────────────────────────
+
+    private buildSearchTools(): ToolRequest[] {
+        return [
+            {
+                id: 'aide_open_global_search',
+                name: 'aide_open_global_search',
+                description: 'Ouvre le panneau de recherche globale GeoApp (sidebar gauche). ' +
+                    'Permet de rechercher dans les onglets ouverts et la base de données.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({}),
+                handler: async () => {
+                    try {
+                        await this.commandService.executeCommand('geoapp.globalSearch.open');
+                        return ok('Panneau de recherche globale ouvert.');
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_search',
+                name: 'aide_search',
+                description: 'Recherche un terme dans GeoApp. ' +
+                    'Cherche dans la base de données (géocaches, logs, notes) et dans les onglets ouverts. ' +
+                    'Scopes disponibles : "all" (tout), "open_tabs" (onglets ouverts seulement), ' +
+                    '"database" (toute la BDD), "geocaches", "logs", "notes", "plugins", "alphabets".',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    query: { type: 'string', description: 'Terme à rechercher.', required: true },
+                    scope: {
+                        type: 'string',
+                        description: 'Périmètre de recherche.',
+                        required: false,
+                        enum: ['all', 'open_tabs', 'database', 'geocaches', 'logs', 'notes', 'plugins', 'alphabets'],
+                    },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const scope = args.scope || 'all';
+                        const raw = await this.globalSearchService.searchDirect(args.query, scope);
+
+                        const result = {
+                            query: args.query,
+                            scope,
+                            totalCount: raw.totalCount,
+                            openTabs: raw.widgetResults.slice(0, 10).map(r => ({
+                                widgetTitle: r.widgetTitle,
+                                matchCount: r.matchCount,
+                                snippets: r.snippets.slice(0, 2).map(s => `${s.prefix}[${s.match}]${s.suffix}`),
+                            })),
+                            geocaches: raw.geocacheResults.slice(0, 10).map(r => ({
+                                id: r.id,
+                                gc_code: r.gc_code,
+                                name: r.name,
+                                zone_id: r.zone_id,
+                                total_matches: r.total_matches,
+                                snippets: Object.values(r.matches_in).flatMap(m => m.snippets).slice(0, 2).map(s => `${s.prefix}[${s.match}]${s.suffix}`),
+                            })),
+                            logs: raw.logResults.slice(0, 10).map(r => ({
+                                id: r.id,
+                                geocache_gc_code: r.geocache_gc_code,
+                                geocache_name: r.geocache_name,
+                                author: r.author,
+                                log_type: r.log_type,
+                                date: r.date,
+                                snippets: r.snippets.slice(0, 2).map(s => `${s.prefix}[${s.match}]${s.suffix}`),
+                            })),
+                            notes: raw.noteResults.slice(0, 10).map(r => ({
+                                id: r.id,
+                                note_type: r.note_type,
+                                linked_geocaches: r.linked_geocaches,
+                                snippets: r.snippets.slice(0, 2).map(s => `${s.prefix}[${s.match}]${s.suffix}`),
+                            })),
+                            plugins: raw.pluginResults.slice(0, 5).map(r => ({
+                                name: r.name,
+                                total_matches: r.total_matches,
+                            })),
+                            alphabets: raw.alphabetResults.slice(0, 5).map(r => ({
+                                id: r.id,
+                                name: r.name,
+                                total_matches: r.total_matches,
+                            })),
+                        };
+                        return ok(result);
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
             },

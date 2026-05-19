@@ -24,6 +24,7 @@
     "@mysterai/theia-plugins": "1.0.0",
     "@mysterai/theia-alphabets": "1.0.0",
     "@mysterai/theia-preferences": "1.0.0",
+    "theia-ide-search-ext": "1.70.200",
     "flexsearch": "^0.7.31",
     "react-markdown": "^9.0.1",
     "remark-gfm": "^4.0.0",
