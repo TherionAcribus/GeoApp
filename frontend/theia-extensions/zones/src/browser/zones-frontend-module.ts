@@ -31,6 +31,7 @@ import {
     GeoAppChatWebAgent
 } from './geoapp-chat-agent';
 import { GeoAppOcrAgentContribution } from './geoapp-ocr-agent';
+import { GeoAppCodexLanguageModelsContribution } from './geoapp-codex-language-models';
 import { GeoAppOpenRouterLanguageModelsContribution } from './geoapp-openrouter-language-models';
 import { GeoAppTranslateDescriptionAgentContribution } from './geoapp-translate-description-agent';
 import { GeoAppLogsAnalyzerAgentContribution } from './geoapp-logs-analyzer-agent';
@@ -236,6 +237,9 @@ export default new ContainerModule(bind => {
 
     bind(GeoAppOcrAgentContribution).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(GeoAppOcrAgentContribution);
+
+    bind(GeoAppCodexLanguageModelsContribution).toSelf().inSingletonScope();
+    bind(FrontendApplicationContribution).toService(GeoAppCodexLanguageModelsContribution);
 
     bind(GeoAppOpenRouterLanguageModelsContribution).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(GeoAppOpenRouterLanguageModelsContribution);

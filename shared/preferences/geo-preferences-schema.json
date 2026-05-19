@@ -138,6 +138,80 @@
         "openrouter"
       ]
     },
+    "geoApp.ai.codex.enabled": {
+      "type": "boolean",
+      "default": true,
+      "title": "OpenAI Codex - Activer",
+      "description": "Active l'enregistrement automatique du modele Codex OpenAI dans la configuration IA Theia.",
+      "x-category": "ai",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "codex",
+        "openai",
+        "cloud"
+      ]
+    },
+    "geoApp.ai.codex.apiKey": {
+      "type": "string",
+      "default": "",
+      "title": "OpenAI Codex - Cle API",
+      "description": "Cle API OpenAI specifique a Codex. Si elle est vide, GeoApp utilise la cle OpenAI partagee ou OPENAI_API_KEY.",
+      "x-category": "ai",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "codex",
+        "openai",
+        "secret"
+      ],
+      "x-sensitive": true
+    },
+    "geoApp.ai.codex.model": {
+      "type": "string",
+      "default": "gpt-5.3-codex",
+      "title": "OpenAI Codex - Modele",
+      "description": "Identifiant du modele Codex OpenAI enregistre dans Theia.",
+      "x-category": "ai",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "codex",
+        "openai",
+        "chat"
+      ]
+    },
+    "geoApp.ai.codex.enableStreaming": {
+      "type": "boolean",
+      "default": true,
+      "title": "OpenAI Codex - Streaming",
+      "description": "Active le streaming pour le modele Codex enregistre dans Theia.",
+      "x-category": "ai",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "codex",
+        "openai"
+      ]
+    },
+    "geoApp.ai.codex.useResponseApi": {
+      "type": "boolean",
+      "default": true,
+      "title": "OpenAI Codex - Responses API",
+      "description": "Utilise l'API Responses pour Codex, recommandee pour les modeles GPT-5 et les workflows agentiques.",
+      "x-category": "ai",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "codex",
+        "openai"
+      ]
+    },
     "geoApp.formulaSolver.defaultMethod": {
       "type": "string",
       "enum": [
