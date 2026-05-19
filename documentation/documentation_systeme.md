@@ -841,3 +841,40 @@ private renderToolbar(): React.ReactNode {
 [ ] cd frontend/theia-extensions/documentation && yarn build
 [ ] Vérifier dans l'app : nav tree + search + @Aide
 ```
+
+---
+
+## 13. Notice EarthCoach dans la documentation intégrée
+
+La notice utilisateur EarthCoach est intégrée comme une page Markdown standard de l'extension documentation :
+
+```text
+frontend/theia-extensions/documentation/docs/ia/earthcoach.md
+```
+
+Elle appartient au chapitre `ia` et décrit :
+
+- le rôle de `@EarthCoach` pour les EarthCaches ;
+- les modes `coach` et `resolver` ;
+- les actions rapides, dont **Illustrer un terme** ;
+- la séparation stricte des images `cache_listing`, `user_observation` et `educational_reference` ;
+- les préférences EarthCoach ;
+- les recherches externes Wikipedia/Wikimedia ;
+- le cache local des références ;
+- l'enregistrement de synthèses dans les notes GeoApp avec `earthcoach_save_note` ;
+- les formulations utiles pour `@Aide`.
+
+Cette page est incluse automatiquement dans :
+
+- la navigation du widget **Documentation GeoApp** ;
+- la recherche plein texte ;
+- le prompt système de `@Aide`, car `GeoAppDocAgent` injecte la documentation complète à chaque requête.
+
+Après modification de la page, relancer :
+
+```bash
+cd frontend/theia-extensions/documentation
+yarn build
+```
+
+Le script `generate-docs-manifest.mjs` régénère alors le registre documentaire utilisé par Theia et par `@Aide`.

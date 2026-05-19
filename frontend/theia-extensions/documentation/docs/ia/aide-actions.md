@@ -140,6 +140,9 @@ Vous n'avez pas besoin de confirmer verbalement : la boîte de dialogue apparaî
 | « Change le fournisseur de carte en satellite » | Modifie `geoApp.map.defaultProvider` à `satellite` (enum validé) |
 | « Désactive le mode lazy des plugins » | Modifie `geoApp.plugins.lazyMode` à `false` |
 | « Quelles sont les préférences de l'OCR ? » | Liste les préférences de catégorie `ocr` |
+| « Ouvre les préférences EarthCoach » | Ouvre les préférences GeoApp directement sur la section EarthCoach |
+| « Liste les préférences EarthCoach » | Liste les préférences de catégorie `earthcoach` |
+| « Désactive les recherches externes EarthCoach » | Modifie `geoApp.earthCoach.references.web.enabled` à `false` |
 
 > **Sécurité :** `@Aide` ne peut jamais lire ni modifier la clé API OpenRouter (`geoApp.ai.openRouter.apiKey`) ni aucune autre valeur marquée comme sensible.
 
