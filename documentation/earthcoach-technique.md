@@ -33,6 +33,8 @@ Fichiers principaux :
 | `earthcoach-types.ts` | Types EarthCoach : modes, actions, images, observations. |
 | `earthcoach-field-checklist.ts` | Builder pur du mode terrain compact. |
 | `earthcoach-field-checklist-widget.tsx` | Widget Theia de checklist imprimable/mobile. |
+| `earthcoach-image-gallery.ts` | Regroupement strict des images par origine. |
+| `earthcoach-image-gallery-widget.tsx` | Widget Theia de galerie images separee. |
 | `earthcoach-reference-tools.ts` | Tool `earthcoach_search_reference`, recherches Wikipedia/Wikimedia, cache local. |
 | `earthcoach-reference-widget.tsx` | Vue "References EarthCoach" avec recherche, articles et images pedagogiques. |
 | `earthcoach-note-tools.ts` | Tool `earthcoach_save_note` pour enregistrer une synthese dans les notes GeoApp. |
@@ -112,6 +114,7 @@ export type EarthCoachQuickAction =
   | 'understand'
   | 'prepare_visit'
   | 'field_checklist'
+  | 'image_gallery'
   | 'explain_word'
   | 'illustrate_term'
   | 'analyze_observations'
@@ -129,6 +132,8 @@ EARTHCOACH RESOLUTION - <GC ou nom>
 ```
 
 L'action `field_checklist` ouvre directement le widget `EarthCoachFieldChecklistWidget`. Elle ne lance pas de requete LLM.
+
+L'action `image_gallery` ouvre directement le widget `EarthCoachImageGalleryWidget`. Elle ne lance pas de requete LLM.
 
 ## Mode terrain compact
 
@@ -161,6 +166,37 @@ formatEarthCoachFieldChecklistMarkdown(checklist)
 Le bouton **Copier Markdown** utilise le presse-papiers navigateur avec une sortie en cases a cocher Markdown.
 
 Le bouton **Imprimer** appelle `window.print()`. Le widget inclut une regle CSS `@media print` pour masquer les actions.
+
+## Galerie images stricte
+
+La galerie images EarthCoach est une vue Theia autonome :
+
+```text
+EarthCoachImageGalleryWidget.ID = 'earthcoach.imageGallery'
+```
+
+Elle s'appuie sur un builder pur :
+
+```ts
+buildEarthCoachImageGallery(images)
+```
+
+Le builder retourne toujours trois sections, dans cet ordre :
+
+1. `user_observation`
+2. `cache_listing`
+3. `educational_reference`
+
+Chaque section porte un titre, une description et un rappel de prudence. Le but est d'eviter qu'une image pedagogique ou une image du listing soit traitee comme une preuve terrain.
+
+Le widget affiche :
+
+- les photos utilisateur ;
+- les images du listing ;
+- les references pedagogiques deja presentes dans le contexte ;
+- un bouton vers `earthcoach.references.open` pour chercher des references pedagogiques supplementaires.
+
+La galerie ne modifie pas la galerie image de `zones`. Elle reste dans l'extension EarthCoach pour conserver une separation optionnelle et desactivable.
 
 ## Integration avec `zones`
 

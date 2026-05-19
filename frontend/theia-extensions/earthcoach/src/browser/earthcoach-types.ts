@@ -6,6 +6,7 @@ export type EarthCoachQuickAction =
     | 'understand'
     | 'prepare_visit'
     | 'field_checklist'
+    | 'image_gallery'
     | 'illustrate_term'
     | 'explain_word'
     | 'analyze_observations'

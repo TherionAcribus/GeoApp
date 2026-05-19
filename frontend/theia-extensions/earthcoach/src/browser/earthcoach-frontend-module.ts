@@ -9,6 +9,7 @@ import { EarthCoachAgent, EarthCoachAgentContribution } from './earthcoach-agent
 import { EarthCoachCommandContribution } from './earthcoach-command-contribution';
 import { EarthCoachContextService } from './earthcoach-context-service';
 import { EarthCoachFieldChecklistWidget } from './earthcoach-field-checklist-widget';
+import { EarthCoachImageGalleryWidget } from './earthcoach-image-gallery-widget';
 import { EarthCoachNoteTools } from './earthcoach-note-tools';
 import { EarthCoachReferenceTools } from './earthcoach-reference-tools';
 import { EarthCoachReferenceWidget } from './earthcoach-reference-widget';
@@ -30,6 +31,11 @@ export default new ContainerModule(bind => {
     bind(WidgetFactory).toDynamicValue(ctx => ({
         id: EarthCoachFieldChecklistWidget.ID,
         createWidget: () => ctx.container.get(EarthCoachFieldChecklistWidget),
+    })).inSingletonScope();
+    bind(EarthCoachImageGalleryWidget).toSelf();
+    bind(WidgetFactory).toDynamicValue(ctx => ({
+        id: EarthCoachImageGalleryWidget.ID,
+        createWidget: () => ctx.container.get(EarthCoachImageGalleryWidget),
     })).inSingletonScope();
 
     bind(EarthCoachAgent).toSelf().inSingletonScope();

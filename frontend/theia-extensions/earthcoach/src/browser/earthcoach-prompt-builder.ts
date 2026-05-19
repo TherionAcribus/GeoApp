@@ -102,6 +102,9 @@ function buildActionInstruction(action: EarthCoachQuickAction, mode: EarthCoachM
     if (action === 'field_checklist') {
         return 'Action demandee: mode terrain compact. Fournis une checklist courte et directement utilisable sur mobile ou papier.';
     }
+    if (action === 'image_gallery') {
+        return 'Action demandee: galerie images. Distingue strictement images du listing, photos utilisateur et references pedagogiques.';
+    }
     if (action === 'explain_word') {
         return 'Action demandee: expliquer un mot. Demande le terme a expliquer si aucun terme precis n est fourni, puis explique-le simplement dans le contexte EarthCache.';
     }

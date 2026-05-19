@@ -46,6 +46,7 @@ Quand vous ouvrez EarthCoach depuis une EarthCache, GeoApp propose plusieurs act
 | **Comprendre cette EarthCache** | Resume le but geologique, explique le contexte et les questions utiles. |
 | **Preparer ma visite** | Produit une checklist terrain : observer, mesurer, photographier, noter. |
 | **Mode terrain compact** | Ouvre une checklist imprimable/mobile sans attendre une reponse du chat. |
+| **Galerie images EarthCoach** | Separe visuellement images du listing, photos utilisateur et references pedagogiques. |
 | **Illustrer un terme** | Ouvre les references EarthCoach avec articles et images pedagogiques. |
 | **Expliquer un mot** | Explique un terme geologique dans le contexte de la cache. |
 | **Analyser mes observations** | Classe vos notes entre observation, interpretation et hypothese. |
@@ -62,6 +63,20 @@ EarthCoach distingue strictement trois origines d'images.
 | `educational_reference` | Image pedagogique generique, par exemple quartz, calcaire coquillier, faille ou strate. |
 
 Une image pedagogique ne doit jamais etre presentee comme une photo de terrain. Une image du listing ne remplace pas vos observations personnelles.
+
+## Galerie images EarthCoach
+
+La **Galerie images EarthCoach** est une vue dediee a la separation des images par origine.
+
+Elle affiche trois sections distinctes :
+
+| Section | Contenu | Rappel affiche |
+|---|---|---|
+| **Photos utilisateur** | Photos ajoutees comme observations personnelles. | Elles peuvent aider a analyser vos observations, avec confirmation terrain si necessaire. |
+| **Images du listing** | Images fournies par la description de la cache. | Elles ne prouvent pas ce que vous avez observe sur place. |
+| **References pedagogiques** | Images generiques issues de references externes. | Elles ne doivent jamais etre presentees comme observation terrain. |
+
+Cette vue sert a eviter les confusions. Si vous voulez chercher des exemples pedagogiques supplementaires, utilisez le bouton **References pedagogiques** ou l'action **Illustrer un terme**.
 
 ## References externes
 

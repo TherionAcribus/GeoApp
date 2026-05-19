@@ -1,5 +1,6 @@
 import * as assert from 'assert/strict';
 import { buildEarthCoachFieldChecklist, formatEarthCoachFieldChecklistMarkdown } from '../earthcoach-field-checklist';
+import { buildEarthCoachImageGallery } from '../earthcoach-image-gallery';
 import { buildEarthCoachPrompt, toImageContext } from '../earthcoach-prompt-builder';
 import { buildEarthCoachSystemPrompt } from '../earthcoach-prompts';
 import { GeoImage, UserObservation } from '../earthcoach-types';
@@ -252,6 +253,19 @@ function testFieldChecklistBuilder(): void {
     assert.match(markdown, /- \[ \] /);
 }
 
+function testImageGalleryGroupsByOrigin(): void {
+    const gallery = buildEarthCoachImageGallery(createImages());
+    const listing = gallery.sections.find(section => section.origin === 'cache_listing');
+    const user = gallery.sections.find(section => section.origin === 'user_observation');
+    const refs = gallery.sections.find(section => section.origin === 'educational_reference');
+
+    assert.equal(listing?.images.length, 1);
+    assert.equal(user?.images.length, 1);
+    assert.equal(refs?.images.length, 1);
+    assert.match(user?.warning || '', /observations/);
+    assert.match(refs?.warning || '', /jamais etre presentees comme une observation/);
+}
+
 function testResolverInstructionDoesNotPretendTerrain(): void {
     const prompt = buildEarthCoachPrompt({
         geocache: {
@@ -287,6 +301,7 @@ async function run(): Promise<void> {
     testNoteToolShape();
     testPromptIncludesImageOriginsAndObservations();
     testFieldChecklistBuilder();
+    testImageGalleryGroupsByOrigin();
     testResolverInstructionDoesNotPretendTerrain();
     testImageContextMapping();
     await testReferenceSearchUsesPreferencesAndCache();
