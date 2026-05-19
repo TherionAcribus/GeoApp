@@ -9,7 +9,7 @@
 
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { CommonMenus } from '@theia/core/lib/browser/common-frontend-contribution';
-import { FrontendApplicationContribution } from '@theia/core/lib/browser';
+import { ApplicationShell, FrontendApplicationContribution } from '@theia/core/lib/browser';
 import { Command, CommandContribution, CommandRegistry } from '@theia/core/lib/common/command';
 import { MenuContribution, MenuModelRegistry, MenuPath } from '@theia/core/lib/common/menu';
 import { WindowService } from '@theia/core/lib/browser/window/window-service';
@@ -20,13 +20,28 @@ const MENU_BAR_NODES_TO_REMOVE = [
     '7_terminal',
 ];
 
+const SIDEBAR_WIDGET_IDS_TO_HIDE = new Set([
+    'explorer-view-container',
+    'scm-view-container',
+    'search-view-container',
+    'test-view-container',
+]);
+
 @injectable()
 export class GeoAppMenuCleanupContribution implements FrontendApplicationContribution {
 
     @inject(MenuModelRegistry)
     protected readonly menuRegistry: MenuModelRegistry;
 
+    @inject(ApplicationShell)
+    protected readonly shell: ApplicationShell;
+
     onStart(): void {
+        this.removeMenuBarItems();
+        this.setupSidebarCleanup();
+    }
+
+    protected removeMenuBarItems(): void {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const root = (this.menuRegistry as any).root;
         if (!root?.children) { return; }
@@ -36,6 +51,19 @@ export class GeoAppMenuCleanupContribution implements FrontendApplicationContrib
             const node = menubar.children.find((c: { id: string }) => c.id === id);
             if (node) {
                 menubar.removeNode(node);
+            }
+        }
+    }
+
+    protected setupSidebarCleanup(): void {
+        this.shell.onDidAddWidget(widget => {
+            if (SIDEBAR_WIDGET_IDS_TO_HIDE.has(widget.id)) {
+                setTimeout(() => widget.close(), 0);
+            }
+        });
+        for (const widget of this.shell.getWidgets('left')) {
+            if (SIDEBAR_WIDGET_IDS_TO_HIDE.has(widget.id)) {
+                widget.close();
             }
         }
     }
