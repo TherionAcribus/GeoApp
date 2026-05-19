@@ -7,6 +7,7 @@ import { MapWidget } from './map/map-widget';
 import { GeocachingAuthWidget } from './geocaching-auth-widget';
 import { ArchiveManagerWidget } from './archive-manager-widget';
 import { GeoAppChatPolicyCommandId, GeoAppChatPolicyWidget } from './geoapp-chat-policy-widget';
+import { ServerLogTerminalWidget } from './server-log-terminal-widget';
 
 export const ZonesCommands = {
     OPEN: <Command>{ id: 'zones:open', label: 'Zones: Ouvrir' },
@@ -14,7 +15,8 @@ export const ZonesCommands = {
     OPEN_MAP: <Command>{ id: 'geoapp.map.toggle', label: 'GeoApp: Afficher la carte' },
     OPEN_AUTH: <Command>{ id: 'geoapp.auth.open', label: 'GeoApp: Connexion Geocaching.com' },
     OPEN_ARCHIVE_MANAGER: <Command>{ id: 'geoapp.archive.manager.open', label: 'GeoApp: Gestionnaire d\'archive' },
-    OPEN_CHAT_POLICY: <Command>{ id: GeoAppChatPolicyCommandId, label: 'GeoApp: Policy Chat IA' }
+    OPEN_CHAT_POLICY: <Command>{ id: GeoAppChatPolicyCommandId, label: 'GeoApp: Policy Chat IA' },
+    OPEN_SERVER_LOG_TERMINAL: <Command>{ id: 'geoapp.serverLogs.open', label: 'GeoApp: Terminal serveur' }
 };
 
 @injectable()
@@ -88,6 +90,16 @@ export class ZonesCommandContribution implements CommandContribution {
                 const widget = await this.widgetManager.getOrCreateWidget(GeoAppChatPolicyWidget.ID);
                 if (!widget.isAttached) {
                     this.shell.addWidget(widget, { area: 'main' });
+                }
+                this.shell.activateWidget(widget.id);
+            }
+        });
+
+        commands.registerCommand(ZonesCommands.OPEN_SERVER_LOG_TERMINAL, {
+            execute: async () => {
+                const widget = await this.widgetManager.getOrCreateWidget(ServerLogTerminalWidget.ID);
+                if (!widget.isAttached) {
+                    this.shell.addWidget(widget, { area: 'bottom' });
                 }
                 this.shell.activateWidget(widget.id);
             }

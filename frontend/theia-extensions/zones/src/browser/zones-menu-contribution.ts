@@ -36,5 +36,11 @@ export class ZonesMenuContribution implements MenuContribution {
             label: 'Policy Chat IA GeoApp',
             order: '2.5'
         });
+
+        menus.registerMenuAction(CommonMenus.VIEW_VIEWS, {
+            commandId: ZonesCommands.OPEN_SERVER_LOG_TERMINAL.id,
+            label: 'Terminal serveur',
+            order: '2.6'
+        });
     }
 }

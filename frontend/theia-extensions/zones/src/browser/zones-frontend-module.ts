@@ -50,6 +50,7 @@ import { ZonesMenuContribution } from './zones-menu-contribution';
 import { GeoAppSidebarContribution } from './geoapp-sidebar-contribution';
 import { GeoAppDefaultLeftPanelContribution } from './geoapp-default-left-panel-contribution';
 import { LayoutAutoSaveContribution } from './layout-auto-save-contribution';
+import { ServerLogTerminalWidget } from './server-log-terminal-widget';
 import { BackendApiClient } from './backend-api-client';
 import { ZonesService } from './zones-service';
 import { GeocachesService } from './geocaches-service';
@@ -300,5 +301,11 @@ export default new ContainerModule(bind => {
     bind(WidgetFactory).toDynamicValue(ctx => ({
         id: ArchiveManagerWidget.ID,
         createWidget: () => ctx.container.get(ArchiveManagerWidget)
+    })).inSingletonScope();
+
+    bind(ServerLogTerminalWidget).toSelf().inSingletonScope();
+    bind(WidgetFactory).toDynamicValue(ctx => ({
+        id: ServerLogTerminalWidget.ID,
+        createWidget: () => ctx.container.get(ServerLogTerminalWidget)
     })).inSingletonScope();
 });

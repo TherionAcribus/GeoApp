@@ -1,0 +1,191 @@
+.geoapp-server-log-terminal-widget {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+.geoapp-server-log-terminal {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    background: var(--theia-editor-background);
+    color: var(--theia-editor-foreground);
+}
+
+.geoapp-server-log-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex: 0 0 auto;
+    min-height: 32px;
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    background: var(--theia-editorGroupHeader-tabsBackground);
+}
+
+.geoapp-server-log-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    font-size: 12px;
+    color: var(--theia-descriptionForeground);
+}
+
+.geoapp-server-log-status-dot {
+    width: 8px;
+    height: 8px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    background: var(--theia-descriptionForeground);
+}
+
+.geoapp-server-log-status-connected .geoapp-server-log-status-dot {
+    background: var(--theia-charts-green, #89d185);
+}
+
+.geoapp-server-log-status-connecting .geoapp-server-log-status-dot,
+.geoapp-server-log-status-error .geoapp-server-log-status-dot {
+    background: var(--theia-charts-yellow, #cca700);
+}
+
+.geoapp-server-log-status-paused .geoapp-server-log-status-dot {
+    background: var(--theia-charts-blue, #3794ff);
+}
+
+.geoapp-server-log-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+}
+
+.geoapp-server-log-level {
+    height: 24px;
+    max-width: 92px;
+    font-size: 12px;
+}
+
+.geoapp-server-log-icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    min-width: 24px;
+    padding: 0;
+}
+
+.geoapp-server-log-output {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    padding: 6px 0;
+    font-family: var(--theia-ui-font-family);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.geoapp-server-log-empty {
+    padding: 10px 12px;
+    color: var(--theia-descriptionForeground);
+}
+
+.geoapp-server-log-entry {
+    display: grid;
+    grid-template-columns: 72px 68px minmax(180px, 32%) 1fr;
+    gap: 8px;
+    align-items: baseline;
+    padding: 1px 10px;
+    border-left: 3px solid transparent;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.geoapp-server-log-entry:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.geoapp-server-log-entry-warning {
+    border-left-color: var(--theia-charts-yellow, #cca700);
+}
+
+.geoapp-server-log-entry-error,
+.geoapp-server-log-entry-critical {
+    border-left-color: var(--theia-errorForeground);
+}
+
+.geoapp-server-log-time,
+.geoapp-server-log-source {
+    color: var(--theia-descriptionForeground);
+}
+
+.geoapp-server-log-level-badge {
+    font-weight: 600;
+    color: var(--theia-editor-foreground);
+}
+
+.geoapp-server-log-entry-warning .geoapp-server-log-level-badge {
+    color: var(--theia-charts-yellow, #cca700);
+}
+
+.geoapp-server-log-entry-error .geoapp-server-log-level-badge,
+.geoapp-server-log-entry-critical .geoapp-server-log-level-badge {
+    color: var(--theia-errorForeground);
+}
+
+.geoapp-server-log-message {
+    min-width: 0;
+    font-family: var(--theia-editor-font-family);
+}
+
+.geoapp-server-log-exception,
+.geoapp-server-log-dropped {
+    grid-column: 1 / -1;
+    margin: 2px 0 4px 148px;
+}
+
+.geoapp-server-log-exception {
+    overflow: auto;
+    padding: 6px 8px;
+    border: 1px solid var(--theia-inputValidation-errorBorder);
+    background: var(--theia-inputValidation-errorBackground);
+    color: var(--theia-editor-foreground);
+    font-family: var(--theia-editor-font-family);
+    font-size: 12px;
+}
+
+.geoapp-server-log-dropped {
+    color: var(--theia-inputValidation-warningForeground, var(--theia-charts-yellow, #cca700));
+}
+
+@media (max-width: 720px) {
+    .geoapp-server-log-toolbar {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .geoapp-server-log-entry {
+        grid-template-columns: 58px 56px 1fr;
+    }
+
+    .geoapp-server-log-source {
+        grid-column: 1 / -1;
+        padding-left: 132px;
+    }
+
+    .geoapp-server-log-message {
+        grid-column: 1 / -1;
+        padding-left: 132px;
+    }
+
+    .geoapp-server-log-exception,
+    .geoapp-server-log-dropped {
+        margin-left: 0;
+    }
+}

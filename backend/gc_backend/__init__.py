@@ -86,6 +86,7 @@ def create_app() -> Flask:
     from .blueprints.auth import bp as auth_bp
     from .blueprints.search import bp as search_bp
     from .blueprints.archive import bp as archive_bp
+    from .blueprints.server_logs import bp as server_logs_bp
 
     app.register_blueprint(zones_bp)
     app.register_blueprint(geocaches_bp)
@@ -102,6 +103,7 @@ def create_app() -> Flask:
     app.register_blueprint(auth_bp)
     app.register_blueprint(search_bp)
     app.register_blueprint(archive_bp)
+    app.register_blueprint(server_logs_bp)
 
     from .plugins import PluginManager
 
