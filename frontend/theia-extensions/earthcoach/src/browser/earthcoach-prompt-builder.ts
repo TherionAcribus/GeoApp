@@ -99,6 +99,9 @@ function buildActionInstruction(action: EarthCoachQuickAction, mode: EarthCoachM
     if (action === 'prepare_visit') {
         return 'Action demandee: preparer la visite. Fournis une checklist terrain centree sur ce qu il faut observer, mesurer ou photographier.';
     }
+    if (action === 'field_checklist') {
+        return 'Action demandee: mode terrain compact. Fournis une checklist courte et directement utilisable sur mobile ou papier.';
+    }
     if (action === 'explain_word') {
         return 'Action demandee: expliquer un mot. Demande le terme a expliquer si aucun terme precis n est fourni, puis explique-le simplement dans le contexte EarthCache.';
     }

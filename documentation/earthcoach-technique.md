@@ -31,6 +31,8 @@ Fichiers principaux :
 | `earthcoach-prompt-builder.ts` | Construit le prompt utilisateur envoye au chat a l'ouverture d'une action. |
 | `earthcoach-prompts.ts` | Prompt systeme des modes `coach` et `resolver`. |
 | `earthcoach-types.ts` | Types EarthCoach : modes, actions, images, observations. |
+| `earthcoach-field-checklist.ts` | Builder pur du mode terrain compact. |
+| `earthcoach-field-checklist-widget.tsx` | Widget Theia de checklist imprimable/mobile. |
 | `earthcoach-reference-tools.ts` | Tool `earthcoach_search_reference`, recherches Wikipedia/Wikimedia, cache local. |
 | `earthcoach-reference-widget.tsx` | Vue "References EarthCoach" avec recherche, articles et images pedagogiques. |
 | `earthcoach-note-tools.ts` | Tool `earthcoach_save_note` pour enregistrer une synthese dans les notes GeoApp. |
@@ -109,6 +111,7 @@ Les actions sont definies par :
 export type EarthCoachQuickAction =
   | 'understand'
   | 'prepare_visit'
+  | 'field_checklist'
   | 'explain_word'
   | 'illustrate_term'
   | 'analyze_observations'
@@ -124,6 +127,40 @@ L'action `resolve` ouvre EarthCoach en mode `resolver`, avec un titre de session
 ```text
 EARTHCOACH RESOLUTION - <GC ou nom>
 ```
+
+L'action `field_checklist` ouvre directement le widget `EarthCoachFieldChecklistWidget`. Elle ne lance pas de requete LLM.
+
+## Mode terrain compact
+
+Le mode terrain compact est une vue Theia autonome :
+
+```text
+EarthCoachFieldChecklistWidget.ID = 'earthcoach.fieldChecklist'
+```
+
+Le widget recoit un `EarthCoachContext`, appelle `buildEarthCoachFieldChecklist(context)`, puis affiche une checklist avec cases a cocher.
+
+Sections generees :
+
+- `A observer`
+- `A mesurer ou estimer`
+- `A photographier`
+- `Questions du listing`
+- `Waypoints et reperes`
+- `A ne pas oublier`
+
+La logique est volontairement deterministe et testable. Elle n'appelle pas le LLM et n'effectue pas de requete reseau.
+
+Fonctions exportees :
+
+```ts
+buildEarthCoachFieldChecklist(context)
+formatEarthCoachFieldChecklistMarkdown(checklist)
+```
+
+Le bouton **Copier Markdown** utilise le presse-papiers navigateur avec une sortie en cases a cocher Markdown.
+
+Le bouton **Imprimer** appelle `window.print()`. Le widget inclut une regle CSS `@media print` pour masquer les actions.
 
 ## Integration avec `zones`
 

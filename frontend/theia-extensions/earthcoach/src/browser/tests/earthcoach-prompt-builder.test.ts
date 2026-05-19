@@ -1,4 +1,5 @@
 import * as assert from 'assert/strict';
+import { buildEarthCoachFieldChecklist, formatEarthCoachFieldChecklistMarkdown } from '../earthcoach-field-checklist';
 import { buildEarthCoachPrompt, toImageContext } from '../earthcoach-prompt-builder';
 import { buildEarthCoachSystemPrompt } from '../earthcoach-prompts';
 import { GeoImage, UserObservation } from '../earthcoach-types';
@@ -217,6 +218,40 @@ function testPromptIncludesImageOriginsAndObservations(): void {
     assert.match(prompt, /Mode: coach/);
 }
 
+function testFieldChecklistBuilder(): void {
+    const checklist = buildEarthCoachFieldChecklist({
+        geocacheData: {
+            id: 1,
+            gc_code: 'GC123',
+            name: 'Earth test',
+            type: 'EarthCache',
+            difficulty: 2,
+            terrain: 3,
+            coordinates_raw: 'N 48 00.000 E 002 00.000',
+            description_html: '<p>Quelle couleur observe-t-on sur les strates ? Mesurer l epaisseur ?</p>',
+            waypoints: [{
+                name: 'Point observation',
+                type: 'Reference Point',
+                gc_coords: 'N 48 00.100 E 002 00.100',
+            }],
+        },
+        observations: [createObservation()],
+        gcPersonalNote: null,
+        images: createImages(),
+    });
+
+    assert.equal(checklist.title, 'Earth test');
+    assert.match(checklist.subtitle, /GC123/);
+    assert.ok(checklist.sections.some(section => section.title === 'A observer'));
+    assert.ok(checklist.sections.some(section => section.title === 'Questions du listing' && section.items.some(item => item.includes('?'))));
+    assert.ok(checklist.sections.some(section => section.title === 'Waypoints et reperes' && section.items.some(item => item.includes('Point observation'))));
+
+    const markdown = formatEarthCoachFieldChecklistMarkdown(checklist);
+    assert.match(markdown, /# Earth test/);
+    assert.match(markdown, /## A photographier/);
+    assert.match(markdown, /- \[ \] /);
+}
+
 function testResolverInstructionDoesNotPretendTerrain(): void {
     const prompt = buildEarthCoachPrompt({
         geocache: {
@@ -251,6 +286,7 @@ async function run(): Promise<void> {
     testReferenceToolShape();
     testNoteToolShape();
     testPromptIncludesImageOriginsAndObservations();
+    testFieldChecklistBuilder();
     testResolverInstructionDoesNotPretendTerrain();
     testImageContextMapping();
     await testReferenceSearchUsesPreferencesAndCache();

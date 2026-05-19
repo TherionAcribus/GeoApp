@@ -45,6 +45,7 @@ Quand vous ouvrez EarthCoach depuis une EarthCache, GeoApp propose plusieurs act
 |---|---|
 | **Comprendre cette EarthCache** | Resume le but geologique, explique le contexte et les questions utiles. |
 | **Preparer ma visite** | Produit une checklist terrain : observer, mesurer, photographier, noter. |
+| **Mode terrain compact** | Ouvre une checklist imprimable/mobile sans attendre une reponse du chat. |
 | **Illustrer un terme** | Ouvre les references EarthCoach avec articles et images pedagogiques. |
 | **Expliquer un mot** | Explique un terme geologique dans le contexte de la cache. |
 | **Analyser mes observations** | Classe vos notes entre observation, interpretation et hypothese. |
@@ -72,6 +73,29 @@ En v1, les sources disponibles sont :
 - Wikimedia Commons.
 
 Les resultats sont marques comme `educational_reference`. Ils servent a comprendre un concept, pas a prouver ce que vous avez vu sur place.
+
+## Mode terrain compact
+
+Le **Mode terrain compact** ouvre une vue EarthCoach separee du chat. Elle genere immediatement une checklist pratique pour la visite.
+
+La checklist contient :
+
+- les informations de la cache ;
+- les points a observer ;
+- les mesures ou estimations utiles ;
+- les photos a prendre ;
+- les questions du listing detectees ;
+- les waypoints et reperes ;
+- les rappels de prudence.
+
+La vue propose deux actions :
+
+| Action | Effet |
+|---|---|
+| **Copier Markdown** | Copie la checklist avec cases a cocher dans le presse-papiers. |
+| **Imprimer** | Lance l'impression de la checklist. |
+
+Ce mode ne remplace pas EarthCoach dans le chat. Il sert surtout avant ou pendant la visite, quand vous voulez une fiche courte a garder sous les yeux.
 
 ### Cache local des recherches
 

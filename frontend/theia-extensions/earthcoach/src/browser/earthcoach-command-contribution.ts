@@ -25,6 +25,7 @@ import {
     EarthCoachQuickAction,
 } from './earthcoach-types';
 import { buildEarthCoachPrompt, toImageContext } from './earthcoach-prompt-builder';
+import { EarthCoachFieldChecklistWidget } from './earthcoach-field-checklist-widget';
 import { EarthCoachReferenceWidget } from './earthcoach-reference-widget';
 
 export namespace EarthCoachCommands {
@@ -48,6 +49,11 @@ const QUICK_ACTIONS: Array<QuickPickValue<EarthCoachQuickAction>> = [
         label: 'Preparer ma visite',
         description: 'Checklist terrain et observations a relever',
         value: 'prepare_visit',
+    },
+    {
+        label: 'Mode terrain compact',
+        description: 'Checklist imprimable/mobile sans attendre le chat',
+        value: 'field_checklist',
     },
     {
         label: 'Illustrer un terme',
@@ -150,6 +156,10 @@ export class EarthCoachCommandContribution implements CommandContribution, MenuC
             }
             return;
         }
+        if (action === 'field_checklist') {
+            await this.openFieldChecklistWidget(context);
+            return;
+        }
         const mode = action === 'resolve' ? 'resolver' : 'coach';
         const prompt = buildEarthCoachPrompt({
             geocache: context.geocacheData,
@@ -214,5 +224,17 @@ export class EarthCoachCommandContribution implements CommandContribution, MenuC
         if (query?.trim()) {
             await widget.search(query.trim());
         }
+    }
+
+    protected async openFieldChecklistWidget(context: Awaited<ReturnType<EarthCoachContextService['collectContext']>>): Promise<void> {
+        if (!context) {
+            return;
+        }
+        const widget = await this.widgetManager.getOrCreateWidget<EarthCoachFieldChecklistWidget>(EarthCoachFieldChecklistWidget.ID);
+        widget.setContext(context);
+        if (!widget.isAttached) {
+            this.shell.addWidget(widget, { area: 'right', mode: 'tab-after' });
+        }
+        this.shell.activateWidget(widget.id);
     }
 }
