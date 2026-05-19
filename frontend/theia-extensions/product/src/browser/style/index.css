@@ -75,3 +75,174 @@ ul.theia-aboutExtensions {
     padding: 0;
     margin-left: 10px;
  }
+
+/* ── GeoApp Welcome Page ─────────────────────────────────────── */
+
+.geoapp-welcome {
+    display: flex;
+    flex-direction: column;
+    padding: 40px 56px;
+    max-width: 860px;
+    margin: 0 auto;
+    min-height: 100%;
+    overflow-y: auto;
+    color: var(--theia-foreground);
+    box-sizing: border-box;
+}
+
+/* Hero */
+.geoapp-welcome-hero {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    margin-bottom: 36px;
+    padding-bottom: 28px;
+    border-bottom: 1px solid var(--theia-widget-border);
+}
+
+.geoapp-welcome-logo {
+    width: 72px;
+    height: 72px;
+    flex-shrink: 0;
+    background-image: var(--theia-branding-logo);
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: contain;
+    border-radius: 14px;
+}
+
+.geoapp-welcome-hero-text {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.geoapp-welcome-app-name {
+    font-size: 2rem;
+    font-weight: 700;
+    margin: 0;
+    letter-spacing: -0.5px;
+    color: var(--theia-foreground);
+}
+
+.geoapp-welcome-subtitle {
+    font-size: 0.95rem;
+    margin: 0;
+    color: var(--theia-descriptionForeground);
+}
+
+/* Section label */
+.geoapp-welcome-section-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--theia-descriptionForeground);
+    margin: 0 0 14px 0;
+}
+
+/* Cards grid */
+.geoapp-welcome-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-bottom: 28px;
+}
+
+.geoapp-welcome-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    border-radius: 8px;
+    background: var(--theia-sideBar-background);
+    border: 1px solid var(--theia-widget-border);
+    cursor: pointer;
+    outline: none;
+    transition: background 0.12s ease, border-color 0.12s ease, transform 0.1s ease;
+    user-select: none;
+}
+
+.geoapp-welcome-card:hover {
+    background: var(--theia-list-hoverBackground);
+    border-color: var(--theia-focusBorder);
+    transform: translateY(-1px);
+}
+
+.geoapp-welcome-card:active {
+    transform: translateY(0);
+}
+
+.geoapp-welcome-card:focus-visible {
+    border-color: var(--theia-focusBorder);
+    box-shadow: 0 0 0 2px var(--theia-focusBorder);
+}
+
+.geoapp-welcome-card-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.geoapp-welcome-card-icon .codicon {
+    font-size: 19px;
+    color: #fff;
+}
+
+.geoapp-welcome-card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.geoapp-welcome-card-title {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--theia-foreground);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.geoapp-welcome-card-desc {
+    font-size: 0.76rem;
+    color: var(--theia-descriptionForeground);
+    line-height: 1.35;
+}
+
+/* Tip bar */
+.geoapp-welcome-tip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.82rem;
+    color: var(--theia-descriptionForeground);
+    background: var(--theia-sideBar-background);
+    border: 1px solid var(--theia-widget-border);
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-bottom: 24px;
+}
+
+.geoapp-welcome-tip .codicon {
+    flex-shrink: 0;
+    font-size: 14px;
+    color: var(--theia-notificationsInfoIcon-foreground);
+}
+
+.geoapp-kbd {
+    display: inline-block;
+    padding: 1px 5px;
+    font-size: 0.76rem;
+    font-family: var(--theia-code-font-family, monospace);
+    background: var(--theia-keybindingLabel-background, rgba(128,128,128,0.17));
+    border: 1px solid var(--theia-keybindingLabel-border, rgba(128,128,128,0.4));
+    border-radius: 4px;
+    color: inherit;
+    margin: 0 2px;
+}

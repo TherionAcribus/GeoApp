@@ -10,33 +10,38 @@
 import * as React from 'react';
 
 import { Message } from '@theia/core/lib/browser';
-import { PreferenceService } from '@theia/core/lib/common';
+import { CommandService, PreferenceService } from '@theia/core/lib/common';
 import { inject, injectable } from '@theia/core/shared/inversify';
-import {
-    renderDocumentation, renderDownloads, renderExtendingCustomizing, renderSourceCode, renderSupport, renderTickets, renderWhatIs, renderCollaboration
-} from './branding-util';
-
 import { GettingStartedWidget } from '@theia/getting-started/lib/browser/getting-started-widget';
-import { VSXEnvironment } from '@theia/vsx-registry/lib/common/vsx-environment';
-import { WindowService } from '@theia/core/lib/browser/window/window-service';
+
+interface WelcomeCard {
+    commandId: string;
+    icon: string;
+    title: string;
+    description: string;
+    color: string;
+}
+
+const WELCOME_CARDS: WelcomeCard[] = [
+    { commandId: 'zones:open',                  icon: 'codicon-layers',          title: 'Zones',         description: 'Gérer et organiser vos zones de géocaching',    color: '#3b82f6' },
+    { commandId: 'geoapp.map.toggle',            icon: 'codicon-map',             title: 'Carte',         description: 'Visualiser les géocaches sur la carte',          color: '#22c55e' },
+    { commandId: 'plugins.openBrowser',          icon: 'codicon-tools',           title: 'Plugins',       description: 'Outils de décodage, encodage et analyse',        color: '#f97316' },
+    { commandId: 'alphabets.openList',           icon: 'codicon-symbol-text',     title: 'Alphabets',     description: 'Alphabets et codes secrets (66 disponibles)',    color: '#a855f7' },
+    { commandId: 'geoapp.documentation.open',    icon: 'codicon-book',            title: 'Documentation', description: 'Aide, tutoriels et référence complète',          color: '#06b6d4' },
+    { commandId: 'geoapp.calculator.open',       icon: 'codicon-symbol-operator', title: 'Calculatrice',  description: 'Calculs mathématiques pour coordonnées',         color: '#ec4899' },
+];
 
 @injectable()
 export class TheiaIDEGettingStartedWidget extends GettingStartedWidget {
 
-    @inject(VSXEnvironment)
-    protected readonly environment: VSXEnvironment;
-
-    @inject(WindowService)
-    protected readonly windowService: WindowService;
+    @inject(CommandService)
+    protected readonly commandService: CommandService;
 
     @inject(PreferenceService)
     protected readonly preferenceService: PreferenceService;
 
-    protected vscodeApiVersion: string;
-
     protected async doInit(): Promise<void> {
-        super.doInit();
-        this.vscodeApiVersion = await this.environment.getVscodeApiVersion();
+        await super.doInit();
         await this.preferenceService.ready;
         this.update();
     }
@@ -50,121 +55,57 @@ export class TheiaIDEGettingStartedWidget extends GettingStartedWidget {
     }
 
     protected render(): React.ReactNode {
-        return <div className='gs-container'>
-            <div className='gs-content-container'>
-                <div className='gs-float'>
-                    <div className='gs-logo'>
-                    </div>
-                    {this.renderActions()}
-                </div>
-                {this.renderHeader()}
-                <hr className='gs-hr' />
-                <div className='flex-grid'>
-                    <div className='col'>
-                        {this.renderNews()}
+        return (
+            <div className='geoapp-welcome'>
+                <div className='geoapp-welcome-hero'>
+                    <div className='geoapp-welcome-logo' />
+                    <div className='geoapp-welcome-hero-text'>
+                        <h1 className='geoapp-welcome-app-name'>GeoApp</h1>
+                        <p className='geoapp-welcome-subtitle'>Application de Géocaching assistée par IA</p>
                     </div>
                 </div>
-                <div className='flex-grid'>
-                    <div className='col'>
-                        {renderWhatIs(this.windowService)}
-                    </div>
+
+                <p className='geoapp-welcome-section-label'>Accès rapide</p>
+
+                <div className='geoapp-welcome-grid'>
+                    {WELCOME_CARDS.map(card => this.renderCard(card))}
                 </div>
-                <div className='flex-grid'>
-                    <div className='col'>
-                        {renderExtendingCustomizing(this.windowService)}
-                    </div>
+
+                <div className='geoapp-welcome-tip'>
+                    <span className='codicon codicon-lightbulb' />
+                    <span>Utilisez <kbd className='geoapp-kbd'>Ctrl+Shift+P</kbd> pour accéder à toutes les commandes GeoApp</span>
                 </div>
-                <div className='flex-grid'>
-                    <div className='col'>
-                        {renderSupport(this.windowService)}
-                    </div>
-                </div>
-                <div className='flex-grid'>
-                    <div className='col'>
-                        {renderTickets(this.windowService)}
-                    </div>
-                </div>
-                <div className='flex-grid'>
-                    <div className='col'>
-                        {renderSourceCode(this.windowService)}
-                    </div>
-                </div>
-                <div className='flex-grid'>
-                    <div className='col'>
-                        {renderDocumentation(this.windowService)}
-                    </div>
-                </div>
-                <div className='flex-grid'>
-                    <div className='col'>
-                        {this.renderAIBanner()}
-                    </div>
-                </div>
-                <div className='flex-grid'>
-                    <div className='col'>
-                        {renderCollaboration(this.windowService)}
-                    </div>
-                </div>
-                <div className='flex-grid'>
-                    <div className='col'>
-                        {renderDownloads()}
-                    </div>
+
+                <div className='gs-preference-container'>
+                    {this.renderPreferences()}
                 </div>
             </div>
-            <div className='gs-preference-container'>
-                {this.renderPreferences()}
-            </div>
-        </div>;
+        );
     }
 
-    protected renderActions(): React.ReactNode {
-        return <div className='gs-container'>
-            <div className='flex-grid'>
-                <div className='col'>
-                    {this.renderStart()}
+    protected renderCard(card: WelcomeCard): React.ReactNode {
+        const handleClick = (): void => { this.commandService.executeCommand(card.commandId); };
+        const handleKey = (e: React.KeyboardEvent): void => {
+            if (e.key === 'Enter' || e.key === ' ') { this.commandService.executeCommand(card.commandId); }
+        };
+        return (
+            <div
+                key={card.commandId}
+                className='geoapp-welcome-card'
+                onClick={handleClick}
+                onKeyDown={handleKey}
+                role='button'
+                tabIndex={0}
+                title={card.title}
+            >
+                <div className='geoapp-welcome-card-icon' style={{ background: card.color }}>
+                    <span className={`codicon ${card.icon}`} />
+                </div>
+                <div className='geoapp-welcome-card-body'>
+                    <span className='geoapp-welcome-card-title'>{card.title}</span>
+                    <span className='geoapp-welcome-card-desc'>{card.description}</span>
                 </div>
             </div>
-            <div className='flex-grid'>
-                <div className='col'>
-                    {this.renderRecentWorkspaces()}
-                </div>
-            </div>
-            <div className='flex-grid'>
-                <div className='col'>
-                    {this.renderSettings()}
-                </div>
-            </div>
-            <div className='flex-grid'>
-                <div className='col'>
-                    {this.renderHelp()}
-                </div>
-            </div>
-        </div>;
-    }
-
-    protected renderHeader(): React.ReactNode {
-        return <div className='gs-header'>
-            <h1>Eclipse Theia <span className='gs-blue-header'>IDE</span></h1>
-            {this.renderVersion()}
-        </div>;
-    }
-
-    protected renderVersion(): React.ReactNode {
-        return <div>
-            <p className='gs-sub-header' >
-                {this.applicationInfo ? 'Version ' + this.applicationInfo.version : '-'}
-            </p>
-
-            <p className='gs-sub-header' >
-                {'VS Code API Version: ' + this.vscodeApiVersion}
-            </p>
-        </div>;
-    }
-
-    protected renderAIBanner(): React.ReactNode {
-        const framework = super.renderAIBanner();
-        if (React.isValidElement<React.DetailedHTMLProps<React.HTMLAttributes<HTMLDivElement>, HTMLDivElement>>(framework)) {
-            return React.cloneElement(framework, { className: 'gs-section' });
-        }
-        return framework;
+        );
     }
 }
