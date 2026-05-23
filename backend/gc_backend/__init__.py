@@ -81,6 +81,7 @@ def create_app() -> Flask:
     from .blueprints.preferences import bp as preferences_bp
     from .blueprints.logs import bp as logs_bp
     from .blueprints.notes import bp as notes_bp
+    from .blueprints.observations import bp as observations_bp
     from .blueprints.checkers import bp as checkers_bp
     from .blueprints.geocache_images import bp as geocache_images_bp
     from .blueprints.auth import bp as auth_bp
@@ -98,6 +99,7 @@ def create_app() -> Flask:
     app.register_blueprint(preferences_bp)
     app.register_blueprint(logs_bp)
     app.register_blueprint(notes_bp)
+    app.register_blueprint(observations_bp)
     app.register_blueprint(checkers_bp)
     app.register_blueprint(geocache_images_bp)
     app.register_blueprint(auth_bp)

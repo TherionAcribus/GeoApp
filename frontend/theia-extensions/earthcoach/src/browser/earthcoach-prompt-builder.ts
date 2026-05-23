@@ -84,7 +84,17 @@ function buildObservationsBlock(observations: UserObservation[], gcPersonalNote?
     }
     for (const observation of observations.slice(0, 8)) {
         const source = observation.sourceNoteId ? `note #${observation.sourceNoteId}` : observation.id;
-        lines.push(`- ${source}: ${truncateText(observation.note.replace(/\s+/g, ' '), 800)}`);
+        const details = [
+            observation.source === 'structured' ? `type=${observation.observationType || 'observation'}` : undefined,
+            observation.observedAt ? `date=${observation.observedAt}` : undefined,
+            observation.waypointId ? `waypoint=${observation.waypointId}` : undefined,
+            observation.coordinatesRaw ? `coords=${observation.coordinatesRaw}` : undefined,
+            observation.coordinates && !observation.coordinatesRaw
+                ? `coords=${observation.coordinates.lat.toFixed(5)}, ${observation.coordinates.lon.toFixed(5)}`
+                : undefined,
+            observation.images.length ? `images=${observation.images.map(image => `${image.id}:${image.origin}`).join(', ')}` : undefined,
+        ].filter(Boolean).join('; ');
+        lines.push(`- ${source}${details ? ` (${details})` : ''}: ${truncateText(observation.note.replace(/\s+/g, ' '), 800)}`);
     }
     if (!gcPersonalNote?.trim() && observations.length === 0) {
         lines.push('- Aucune observation personnelle structuree dans GeoApp pour l instant.');

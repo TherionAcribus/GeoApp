@@ -63,6 +63,7 @@ class Geocache(db.Model):
     logs = db.relationship('GeocacheLog', back_populates='geocache', cascade='all, delete-orphan', lazy=True, order_by='desc(GeocacheLog.date)')
     notes = db.relationship('Note', secondary='geocache_note', back_populates='geocaches', lazy=True)
     images_v2 = db.relationship('GeocacheImage', back_populates='geocache', cascade='all, delete-orphan', lazy=True)
+    observations = db.relationship('UserObservation', back_populates='geocache', cascade='all, delete-orphan', lazy=True)
 
     def to_list_item(self) -> dict:
         return {
@@ -228,6 +229,54 @@ class GeocacheWaypoint(db.Model):
             'note': self.note,
             'note_override': self.note_override,
             'note_override_updated_at': self.note_override_updated_at.isoformat() if self.note_override_updated_at else None,
+        }
+
+
+class UserObservationImage(db.Model):
+    __tablename__ = 'user_observation_image'
+
+    observation_id = db.Column(db.Integer, db.ForeignKey('user_observation.id'), primary_key=True)
+    image_id = db.Column(db.Integer, db.ForeignKey('geocache_image.id'), primary_key=True)
+    linked_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class UserObservation(db.Model):
+    __tablename__ = 'user_observation'
+
+    id = db.Column(db.Integer, primary_key=True)
+    geocache_id = db.Column(db.Integer, db.ForeignKey('geocache.id'), nullable=False, index=True)
+    user_id = db.Column(db.String(100), default='local-user')
+    observation_type = db.Column(db.String(20), nullable=False, default='observation')
+    content = db.Column(db.Text, nullable=False)
+    observed_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    waypoint_id = db.Column(db.Integer, db.ForeignKey('geocache_waypoint.id'), nullable=True, index=True)
+    latitude = db.Column(db.Float)
+    longitude = db.Column(db.Float)
+    coordinates_raw = db.Column(db.String(100))
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    geocache = db.relationship('Geocache', back_populates='observations')
+    waypoint = db.relationship('GeocacheWaypoint')
+    images = db.relationship('GeocacheImage', secondary='user_observation_image', lazy=True)
+
+    def to_dict(self) -> dict:
+        return {
+            'id': self.id,
+            'geocache_id': self.geocache_id,
+            'cache_id': str(self.geocache_id),
+            'user_id': self.user_id,
+            'observation_type': self.observation_type,
+            'content': self.content,
+            'note': self.content,
+            'observed_at': self.observed_at.isoformat() if self.observed_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'waypoint_id': self.waypoint_id,
+            'coordinates_raw': self.coordinates_raw,
+            'latitude': self.latitude,
+            'longitude': self.longitude,
+            'images': [image.to_dict() for image in (self.images or [])],
         }
 
 

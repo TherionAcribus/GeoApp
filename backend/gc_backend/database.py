@@ -15,7 +15,17 @@ def init_db(app):
 
     with app.app_context():
         from .models import Zone, AppConfig  # noqa
-        from .geocaches.models import Geocache, GeocacheLog, Note, GeocacheNote, GeocacheImage, GeocacheWaypoint, SolvedGeocacheArchive  # noqa: F401
+        from .geocaches.models import (  # noqa: F401
+            Geocache,
+            GeocacheImage,
+            GeocacheLog,
+            GeocacheNote,
+            GeocacheWaypoint,
+            Note,
+            SolvedGeocacheArchive,
+            UserObservation,
+            UserObservationImage,
+        )
         from .plugins.models import Plugin  # noqa: F401
 
         logger.info('Creating database tables if not exist...')

@@ -37,8 +37,16 @@ export interface UserObservation {
     cacheId: string;
     userId: string;
     waypointId?: string;
+    observationType?: 'observation' | 'hypothesis' | 'interpretation';
     note: string;
+    observedAt?: string;
     createdAt: string;
+    coordinates?: {
+        lat: number;
+        lon: number;
+    };
+    coordinatesRaw?: string;
+    source?: 'structured' | 'note';
     sourceNoteId?: number;
     images: GeoImage[];
 }

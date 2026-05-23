@@ -10,13 +10,13 @@ frontend/theia-extensions/earthcoach
 
 Elle fournit un agent IA `@EarthCoach` specialise dans les EarthCaches. L'objectif est de garder le coeur GeoApp lisible et de pouvoir desactiver EarthCoach en retirant sa dependance de l'application browser.
 
-La v1 repose sur les donnees existantes :
+EarthCoach repose sur :
 
 - listing et fiche de geocache venant de `zones` ;
-- notes GeoApp existantes, mappees en observations textuelles ;
+- observations structurees backend quand elles existent ;
+- notes GeoApp existantes, utilisees comme fallback textuel ;
 - images de listing ou images utilisateur deja disponibles ;
-- chat Theia/GeoApp existant ;
-- aucun schema backend supplementaire.
+- chat Theia/GeoApp existant.
 
 ## Extension et wiring Theia
 
@@ -27,7 +27,7 @@ Fichiers principaux :
 | `earthcoach-frontend-module.ts` | Module InversifyJS, bindings agent, commands, tools, widget references. |
 | `earthcoach-agent.ts` | Agent `@EarthCoach`, prompt systeme et injection des tools EarthCoach. |
 | `earthcoach-command-contribution.ts` | Commandes, menus, bouton EarthCoach sur les fiches EarthCache, QuickPick d'actions. |
-| `earthcoach-context-service.ts` | Collecte le contexte actif : cache, notes, images, derniere fiche ouverte. |
+| `earthcoach-context-service.ts` | Collecte le contexte actif : cache, observations structurees, notes fallback, images, derniere fiche ouverte. |
 | `earthcoach-prompt-builder.ts` | Construit le prompt utilisateur envoye au chat a l'ouverture d'une action. |
 | `earthcoach-prompts.ts` | Prompt systeme des modes `coach` et `resolver`. |
 | `earthcoach-types.ts` | Types EarthCoach : modes, actions, images, observations. |
@@ -260,14 +260,36 @@ interface UserObservation {
   cacheId: string;
   userId: string;
   waypointId?: string;
+  observationType?: 'observation' | 'hypothesis' | 'interpretation';
   note: string;
+  observedAt?: string;
   createdAt: string;
+  coordinates?: { lat: number; lon: number };
+  coordinatesRaw?: string;
+  source?: 'structured' | 'note';
   images: GeoImage[];
   sourceNoteId?: number;
 }
 ```
 
-En v1, `UserObservation` est une vue logique construite depuis les notes existantes. Il n'y a pas encore de table backend dediee.
+Le backend expose maintenant une entite persistante `UserObservation` :
+
+- table `user_observation` ;
+- table de liaison `user_observation_image` ;
+- route `GET /api/geocaches/<id>/observations` ;
+- route `POST /api/geocaches/<id>/observations` ;
+- route `PUT /api/observations/<id>` ;
+- route `DELETE /api/observations/<id>`.
+
+Chaque observation peut porter :
+
+- `observation_type` : `observation`, `hypothesis`, `interpretation` ;
+- `observed_at` ;
+- `waypoint_id` ;
+- `latitude`, `longitude`, `coordinates_raw` ;
+- `image_ids` pour lier des photos `GeocacheImage`.
+
+EarthCoach charge d'abord les observations structurees. S'il n'y en a pas, il conserve le fallback historique : les notes utilisateur sont mappees en observations textuelles.
 
 ## References externes
 
@@ -429,7 +451,8 @@ Ils verifient notamment :
 - presence de `earthcoach_save_note` ;
 - prompt systeme `coach` et `resolver` ;
 - separation des origines d'images ;
-- mapping notes existantes vers observations ;
+- mapping observations structurees vers contexte EarthCoach ;
+- fallback notes existantes vers observations ;
 - respect des preferences references ;
 - cache local des references ;
 - ajout des portails BRGM, InfoTerre, GeoWiki et Planet-Terre ;
@@ -444,17 +467,15 @@ yarn --cwd frontend/theia-extensions/documentation build
 yarn --cwd frontend/theia-extensions/zones build
 ```
 
-## Limites v1
+## Limites actuelles
 
-- Pas de table backend `UserObservation`.
-- Les observations v1 viennent des notes utilisateur et du texte chat.
-- Les photos utilisateur structurees par observation sont reportees.
 - Les sources BRGM, InfoTerre, GeoWiki et Planet-Terre sont exposees comme portails fiables, sans extraction automatique de notices precises.
 - Le cache references est en memoire, non persistant.
 
 ## Evolutions prevues
 
-- Entite backend `UserObservation` avec date, waypoint, coordonnees et photos liees.
+- UI dediee pour creer et editer les observations structurees depuis une fiche EarthCache.
+- Synchronisation optionnelle entre anciennes notes terrain et observations structurees.
 - Recherche avancee de notice de carte geologique a partir d'une position, d'un numero de carte ou d'un nom de commune.
 - Providers dedies pour extraire et normaliser plus finement les resultats BRGM/InfoTerre/Planet-Terre quand une API stable est disponible.
 - Tests plus fins sur l'exposition effective des tools dans les sessions Theia.

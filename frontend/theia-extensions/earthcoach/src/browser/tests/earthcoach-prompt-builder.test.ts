@@ -238,6 +238,39 @@ function testPromptIncludesImageOriginsAndObservations(): void {
     assert.match(prompt, /Mode: coach/);
 }
 
+function testPromptIncludesStructuredObservationMetadata(): void {
+    const prompt = buildEarthCoachPrompt({
+        geocache: {
+            id: 1,
+            gc_code: 'GC123',
+            name: 'Earth test',
+            type: 'EarthCache',
+        },
+        mode: 'resolver',
+        action: 'resolve',
+        observations: [{
+            id: 'observation-3',
+            cacheId: '1',
+            userId: 'local-user',
+            waypointId: '9',
+            observationType: 'interpretation',
+            note: 'Les couches pourraient indiquer un depot sedimentaire.',
+            observedAt: '2026-05-22T10:15:00+00:00',
+            createdAt: '2026-05-22T10:20:00+00:00',
+            coordinatesRaw: 'N 48 00.060 E 002 00.060',
+            source: 'structured',
+            images: [createImages()[1]],
+        }],
+        images: createImages(),
+    });
+
+    assert.match(prompt, /observation-3/);
+    assert.match(prompt, /type=interpretation/);
+    assert.match(prompt, /waypoint=9/);
+    assert.match(prompt, /coords=N 48 00.060 E 002 00.060/);
+    assert.match(prompt, /images=obs-1:user_observation/);
+}
+
 function testFieldChecklistBuilder(): void {
     const checklist = buildEarthCoachFieldChecklist({
         geocacheData: {
@@ -319,6 +352,7 @@ async function run(): Promise<void> {
     testReferenceToolShape();
     testNoteToolShape();
     testPromptIncludesImageOriginsAndObservations();
+    testPromptIncludesStructuredObservationMetadata();
     testFieldChecklistBuilder();
     testImageGalleryGroupsByOrigin();
     testResolverInstructionDoesNotPretendTerrain();

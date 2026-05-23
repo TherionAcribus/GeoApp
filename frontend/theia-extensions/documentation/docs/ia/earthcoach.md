@@ -205,7 +205,7 @@ Le mode `resolver` peut aider a formuler une reponse candidate, mais il doit lai
 
 ## Bonnes pratiques
 
-- Ajoutez vos observations dans les notes de la cache avant de lancer le mode `resolver`.
+- Ajoutez vos observations structurees quand elles sont disponibles, ou au minimum vos observations dans les notes de la cache avant de lancer le mode `resolver`.
 - Demandez toujours a EarthCoach de distinguer observation, interpretation et hypothese.
 - Pour les images, verifiez toujours l'origine : listing, observation utilisateur ou reference pedagogique.
 - Gardez les recherches externes comme aide de comprehension, pas comme preuve terrain.
@@ -213,6 +213,6 @@ Le mode `resolver` peut aider a formuler une reponse candidate, mais il doit lai
 
 ## Limites actuelles
 
-La v1 utilise les notes existantes comme observations textuelles. Les vraies observations structurees avec photos, date, waypoint et coordonnees sont prevues pour une version ulterieure.
+EarthCoach sait lire les observations structurees GeoApp avec type observation / hypothese / interpretation, date, waypoint, coordonnees et photos liees. Si aucune observation structuree n'existe encore, il utilise les notes utilisateur comme fallback textuel.
 
 Les sources BRGM, InfoTerre, GeoWiki et Planet-Terre sont exposees comme portails fiables. Une integration plus profonde, capable de retrouver automatiquement une notice de carte geologique precise depuis une position ou un numero de carte, reste prevue pour une version ulterieure.
