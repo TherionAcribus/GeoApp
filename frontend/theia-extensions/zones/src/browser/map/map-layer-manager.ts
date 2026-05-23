@@ -108,7 +108,7 @@ export class MapLayerManager {
             properties: {
                 name: 'waypoints'
             },
-            zIndex: 20
+            zIndex: 5
         });
         this.map.addLayer(this.waypointLayer);
 
