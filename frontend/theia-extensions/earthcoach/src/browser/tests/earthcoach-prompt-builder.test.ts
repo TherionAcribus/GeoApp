@@ -6,7 +6,7 @@ import {
     createEarthCoachObservationDraftFromDto,
     toggleObservationImageId,
 } from '../earthcoach-observations';
-import { buildEarthCoachPrompt, toImageContext } from '../earthcoach-prompt-builder';
+import { buildEarthCoachPrompt, selectEarthCoachImagesForChat, toImageContext } from '../earthcoach-prompt-builder';
 import { buildEarthCoachSystemPrompt } from '../earthcoach-prompts';
 import { GeoImage, UserObservation } from '../earthcoach-types';
 import { EarthCoachNoteTools } from '../earthcoach-note-tools';
@@ -402,6 +402,20 @@ function testImageContextMapping(): void {
     });
 }
 
+function testSelectImagesForChatPrioritizesUserObservations(): void {
+    const selected = selectEarthCoachImagesForChat([
+        { id: 'listing-1', origin: 'cache_listing', fileUri: 'https://example.test/listing-1.jpg' },
+        { id: 'listing-2', origin: 'cache_listing', fileUri: 'https://example.test/listing-2.jpg' },
+        { id: 'listing-3', origin: 'cache_listing', fileUri: 'https://example.test/listing-3.jpg' },
+        { id: 'listing-4', origin: 'cache_listing', fileUri: 'https://example.test/listing-4.jpg' },
+        { id: 'listing-5', origin: 'cache_listing', fileUri: 'https://example.test/listing-5.jpg' },
+        { id: '1363', origin: 'user_observation', fileUri: 'https://example.test/user-1.jpg' },
+        { id: '1364', origin: 'user_observation', fileUri: 'https://example.test/user-2.jpg' },
+    ]);
+
+    assert.deepEqual(selected.map(image => image.id), ['1363', '1364', 'listing-1', 'listing-2', 'listing-3']);
+}
+
 async function run(): Promise<void> {
     testSystemPromptModes();
     testReferenceToolShape();
@@ -414,6 +428,7 @@ async function run(): Promise<void> {
     testImageGalleryGroupsByOrigin();
     testResolverInstructionDoesNotPretendTerrain();
     testImageContextMapping();
+    testSelectImagesForChatPrioritizesUserObservations();
     await testReferenceSearchUsesPreferencesAndCache();
     await testReferenceSearchHonorsAllowedSources();
     await testReferenceSearchAddsAdvancedGeologySources();

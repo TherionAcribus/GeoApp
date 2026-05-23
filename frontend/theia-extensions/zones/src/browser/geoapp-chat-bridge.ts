@@ -252,7 +252,7 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
         for (const imageContext of imageContexts.slice(0, 5)) {
             const url = imageContext.url;
             try {
-                const response = await fetch(url);
+                const response = await fetch(url, { credentials: 'include' });
                 if (!response.ok) { continue; }
                 const blob = await response.blob();
                 const dataUrl = await this.readBlobAsDataUrl(blob);

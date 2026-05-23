@@ -24,7 +24,7 @@ import {
     EarthCoachOpenRequest,
     EarthCoachQuickAction,
 } from './earthcoach-types';
-import { buildEarthCoachPrompt, toImageContext } from './earthcoach-prompt-builder';
+import { buildEarthCoachPrompt, selectEarthCoachImagesForChat, toImageContext } from './earthcoach-prompt-builder';
 import { EarthCoachFieldChecklistWidget } from './earthcoach-field-checklist-widget';
 import { EarthCoachImageGalleryWidget } from './earthcoach-image-gallery-widget';
 import { EarthCoachObservationsWidget } from './earthcoach-observations-widget';
@@ -210,7 +210,7 @@ export class EarthCoachCommandContribution implements CommandContribution, MenuC
                 preferredAgentId: EarthCoachAgentId,
                 earthcoachMode: mode,
                 sessionKind: 'earthcoach',
-                imageContexts: context.images.slice(0, 5).map(toImageContext),
+                imageContexts: selectEarthCoachImagesForChat(context.images).map(toImageContext),
                 resumeState: {
                     earthcoach: {
                         mode,

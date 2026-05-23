@@ -177,3 +177,28 @@ export function toImageContext(image: GeoImage): { url: string; origin: GeoImage
         description: image.description,
     };
 }
+
+export function selectEarthCoachImagesForChat(images: GeoImage[], limit = 5): GeoImage[] {
+    const priority: Record<GeoImage['origin'], number> = {
+        user_observation: 0,
+        cache_listing: 1,
+        educational_reference: 2,
+    };
+    const seen = new Set<string>();
+    return images
+        .map((image, index) => ({ image, index }))
+        .sort((left, right) => {
+            const priorityDelta = priority[left.image.origin] - priority[right.image.origin];
+            return priorityDelta || left.index - right.index;
+        })
+        .filter(({ image }) => {
+            const key = `${image.origin}:${image.id}:${image.fileUri}`;
+            if (seen.has(key)) {
+                return false;
+            }
+            seen.add(key);
+            return true;
+        })
+        .slice(0, limit)
+        .map(item => item.image);
+}
