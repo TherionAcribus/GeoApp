@@ -3,6 +3,14 @@
  */
 
 import * as React from 'react';
+import { GeocacheFilterBar } from './geocache-filter-bar';
+import {
+    AdvancedFilterClause,
+    DISTANCE_KM_FIELD_DEFINITION,
+    STANDARD_GEOCACHE_FIELD_DEFINITIONS,
+    TokenFilter,
+    parseSearchQuery,
+} from './geocache-filter-shared';
 
 export type ImportAroundCenter =
     | { type: 'point'; lat: number; lon: number }
@@ -13,6 +21,8 @@ export interface ImportAroundRequest {
     center: ImportAroundCenter;
     limit: number;
     radius_km?: number;
+    min_km?: number;
+    filters?: TokenFilter[];
 }
 
 export interface ImportAroundDialogProps {
@@ -72,11 +82,26 @@ export const ImportAroundDialog: React.FC<ImportAroundDialogProps> = ({
     });
 
     const [limit, setLimit] = React.useState<string>('50');
-    const [radiusKm, setRadiusKm] = React.useState<string>('');
+    const [filterQuery, setFilterQuery] = React.useState<string>('');
+    const [filterClauses, setFilterClauses] = React.useState<AdvancedFilterClause[]>([]);
 
     const [progressVisible, setProgressVisible] = React.useState(false);
     const [progressPercentage, setProgressPercentage] = React.useState(0);
     const [progressMessage, setProgressMessage] = React.useState('');
+
+    const filterFieldDefinitions = React.useMemo(
+        () => [DISTANCE_KM_FIELD_DEFINITION, ...STANDARD_GEOCACHE_FIELD_DEFINITIONS],
+        []
+    );
+
+    const filterEnumOptions = React.useMemo(() => {
+        const map = new Map<string, string[]>();
+        map.set('cache_type', ['Traditional', 'Mystery', 'Multi', 'EarthCache', 'Wherigo', 'Virtual', 'Letterbox']);
+        map.set('size', ['Nano', 'Micro', 'Small', 'Regular', 'Large', 'Virtual', 'Other']);
+        map.set('solved', ['not_solved', 'in_progress', 'solved']);
+        map.set('found', ['true', 'false']);
+        return map;
+    }, []);
 
     const handleProgressUpdate = React.useCallback((percentage: number, message: string) => {
         setProgressPercentage(percentage);
@@ -96,9 +121,43 @@ export const ImportAroundDialog: React.FC<ImportAroundDialogProps> = ({
             return null;
         }
 
-        const radiusValue = radiusKm.trim() ? Number(radiusKm) : undefined;
-        if (radiusValue !== undefined && (!Number.isFinite(radiusValue) || radiusValue <= 0)) {
-            return null;
+        const allTokens: TokenFilter[] = [];
+        const { tokenFilters } = parseSearchQuery(filterQuery);
+        for (const t of tokenFilters) {
+            allTokens.push(t);
+        }
+        for (const c of filterClauses) {
+            allTokens.push({ field: c.field, operator: c.operator, value: c.value, value2: c.value2, values: c.values });
+        }
+
+        let radius_km: number | undefined;
+        let min_km: number | undefined;
+        const geocacheFilters: TokenFilter[] = [];
+
+        for (const t of allTokens) {
+            if (t.field === 'distance_km') {
+                const op = t.operator;
+                if (op === 'lte' || op === 'lt' || op === 'eq') {
+                    const v = parseFloat(t.value ?? '');
+                    if (Number.isFinite(v) && v > 0) {
+                        radius_km = v;
+                    }
+                } else if (op === 'gte' || op === 'gt') {
+                    const v = parseFloat(t.value ?? '');
+                    if (Number.isFinite(v) && v >= 0) {
+                        min_km = v;
+                    }
+                } else if (op === 'between') {
+                    const v1 = parseFloat(t.value ?? '');
+                    const v2 = parseFloat(t.value2 ?? '');
+                    if (Number.isFinite(v1) && Number.isFinite(v2)) {
+                        min_km = Math.min(v1, v2);
+                        radius_km = Math.max(v1, v2);
+                    }
+                }
+            } else {
+                geocacheFilters.push(t);
+            }
         }
 
         if (mode === 'point') {
@@ -110,7 +169,9 @@ export const ImportAroundDialog: React.FC<ImportAroundDialogProps> = ({
             return {
                 center: { type: 'point', lat: latValue, lon: lonValue },
                 limit: parsedLimit,
-                ...(radiusValue !== undefined ? { radius_km: radiusValue } : {})
+                ...(radius_km !== undefined ? { radius_km } : {}),
+                ...(min_km !== undefined ? { min_km } : {}),
+                ...(geocacheFilters.length > 0 ? { filters: geocacheFilters } : {}),
             };
         }
 
@@ -126,7 +187,9 @@ export const ImportAroundDialog: React.FC<ImportAroundDialogProps> = ({
                     ...(gcCode.trim() ? { gc_code: gcCode.trim().toUpperCase() } : {})
                 },
                 limit: parsedLimit,
-                ...(radiusValue !== undefined ? { radius_km: radiusValue } : {})
+                ...(radius_km !== undefined ? { radius_km } : {}),
+                ...(min_km !== undefined ? { min_km } : {}),
+                ...(geocacheFilters.length > 0 ? { filters: geocacheFilters } : {}),
             };
         }
 
@@ -137,9 +200,11 @@ export const ImportAroundDialog: React.FC<ImportAroundDialogProps> = ({
         return {
             center: { type: 'gc_code', gc_code: code },
             limit: parsedLimit,
-            ...(radiusValue !== undefined ? { radius_km: radiusValue } : {})
+            ...(radius_km !== undefined ? { radius_km } : {}),
+            ...(min_km !== undefined ? { min_km } : {}),
+            ...(geocacheFilters.length > 0 ? { filters: geocacheFilters } : {}),
         };
-    }, [gcCode, geocacheId, lat, limit, lon, mode, radiusKm]);
+    }, [gcCode, geocacheId, lat, limit, lon, mode, filterQuery, filterClauses]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -267,27 +332,34 @@ export const ImportAroundDialog: React.FC<ImportAroundDialogProps> = ({
                         </div>
                     )}
 
-                    <div className="mb-3 flex gap-3">
-                        <div className="flex-1">
-                            <label className="mb-1.5 block text-[13px] text-[var(--theia-foreground)]">Limite</label>
-                            <input
-                                value={limit}
-                                onChange={(e) => setLimit(e.target.value)}
-                                disabled={isImporting}
-                                placeholder="50"
-                                className="w-full rounded border border-[var(--theia-input-border)] bg-[var(--theia-input-background)] px-2 py-2 text-[var(--theia-input-foreground)]"
-                            />
-                        </div>
-                        <div className="flex-1">
-                            <label className="mb-1.5 block text-[13px] text-[var(--theia-foreground)]">Rayon (km) (optionnel)</label>
-                            <input
-                                value={radiusKm}
-                                onChange={(e) => setRadiusKm(e.target.value)}
-                                disabled={isImporting}
-                                placeholder="5"
-                                className="w-full rounded border border-[var(--theia-input-border)] bg-[var(--theia-input-background)] px-2 py-2 text-[var(--theia-input-foreground)]"
-                            />
-                        </div>
+                    <div className="mb-3">
+                        <label className="mb-1.5 block text-[13px] text-[var(--theia-foreground)]">Limite</label>
+                        <input
+                            value={limit}
+                            onChange={(e) => setLimit(e.target.value)}
+                            disabled={isImporting}
+                            placeholder="50"
+                            className="w-full rounded border border-[var(--theia-input-border)] bg-[var(--theia-input-background)] px-2 py-2 text-[var(--theia-input-foreground)]"
+                        />
+                    </div>
+
+                    <div className="mb-3">
+                        <label className="mb-1.5 block text-[13px] text-[var(--theia-foreground)]">
+                            Filtres <span className="text-[var(--theia-descriptionForeground)]">(distance, type, difficulté…)</span>
+                        </label>
+                        <p className="mb-2 text-[11px] text-[var(--theia-descriptionForeground)]">
+                            Utilisez <code>@distance:&lt;=5</code> pour limiter le rayon en km, ou ajoutez des filtres via "Filtres supplémentaires".
+                        </p>
+                        <GeocacheFilterBar
+                            searchQuery={filterQuery}
+                            advancedClauses={filterClauses}
+                            onSearchQueryChange={setFilterQuery}
+                            onAdvancedClausesChange={setFilterClauses}
+                            fieldDefinitions={filterFieldDefinitions}
+                            enumOptionsByField={filterEnumOptions}
+                            placeholder="@distance:<=5 @type:Traditional…"
+                            disabled={isImporting}
+                        />
                     </div>
 
                     {progressVisible && (

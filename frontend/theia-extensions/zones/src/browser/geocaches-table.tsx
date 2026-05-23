@@ -12,6 +12,13 @@ import {
 import { ContextMenu, ContextMenuItem } from './context-menu';
 import { MoveGeocacheDialog } from './move-geocache-dialog';
 import { GeocacheIcon } from './geocache-icon';
+import { GeocacheFilterBar } from './geocache-filter-bar';
+import {
+    AdvancedFilterClause,
+    TokenFilter,
+    STANDARD_GEOCACHE_FIELD_DEFINITIONS,
+    parseSearchQuery,
+} from './geocache-filter-shared';
 
 export interface GeocacheWaypoint {
     id: number;
@@ -56,54 +63,6 @@ export interface Geocache {
     waypoints?: GeocacheWaypoint[];
 }
 
-type FilterField =
-    | 'gc_code'
-    | 'name'
-    | 'owner'
-    | 'cache_type'
-    | 'difficulty'
-    | 'terrain'
-    | 'size'
-    | 'solved'
-    | 'found'
-    | 'favorites_count';
-
-type AdvancedOperator =
-    | 'contains'
-    | 'not_contains'
-    | 'eq'
-    | 'neq'
-    | 'gt'
-    | 'gte'
-    | 'lt'
-    | 'lte'
-    | 'between'
-    | 'in'
-    | 'not_in'
-    | 'is';
-
-interface AdvancedFilterClause {
-    id: string;
-    field: FilterField;
-    operator: AdvancedOperator;
-    value: string;
-    value2?: string;
-    values?: string[];
-}
-
-interface TokenFilter {
-    field: FilterField;
-    operator: AdvancedOperator;
-    value?: string;
-    value2?: string;
-    values?: string[];
-}
-
-interface AutocompleteSuggestion {
-    id: string;
-    label: string;
-    insertText: string;
-}
 
 interface GeocachesTableProps {
     data: Geocache[];
@@ -206,163 +165,9 @@ export function normalizeGeocachesTableVisibleColumnIds(raw: unknown): Geocaches
     return normalized.length > 0 ? normalized : [...DEFAULT_GEOCACHES_TABLE_VISIBLE_COLUMNS];
 }
 
-function findAutocompleteTokenStart(beforeCaret: string): number | null {
-    const idx = beforeCaret.lastIndexOf('@');
-    if (idx === -1) {
-        return null;
-    }
-    const prev = beforeCaret[idx - 1];
-    if (idx > 0 && prev && !/\s/.test(prev)) {
-        return null;
-    }
-    return idx;
-}
-
-function normalizeFieldAlias(raw: string): FilterField | null {
-    const key = raw.trim().toLowerCase();
-    if (!key) {
-        return null;
-    }
-    const map: Record<string, FilterField> = {
-        gc: 'gc_code',
-        code: 'gc_code',
-        gc_code: 'gc_code',
-        name: 'name',
-        owner: 'owner',
-        type: 'cache_type',
-        cache_type: 'cache_type',
-        difficulty: 'difficulty',
-        diff: 'difficulty',
-        terrain: 'terrain',
-        size: 'size',
-        solved: 'solved',
-        resolution: 'solved',
-        resolved: 'solved',
-        status: 'solved',
-        found: 'found',
-        favorites: 'favorites_count',
-        fav: 'favorites_count',
-        favorites_count: 'favorites_count',
-    };
-    return map[key] ?? null;
-}
-
-function parseSearchQuery(input: string): { freeText: string; tokenFilters: TokenFilter[] } {
-    if (!input) {
-        return { freeText: '', tokenFilters: [] };
-    }
-    const tokenFilters: TokenFilter[] = [];
-    const tokens: Array<{ raw: string; start: number; end: number }> = [];
-    const re = /@([^\s]+)/g;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(input)) !== null) {
-        tokens.push({ raw: m[0], start: m.index, end: m.index + m[0].length });
-    }
-
-    for (const t of tokens) {
-        const token = t.raw.slice(1);
-        const colon = token.indexOf(':');
-        if (colon === -1) {
-            continue;
-        }
-        const fieldRaw = token.slice(0, colon);
-        const expr = token.slice(colon + 1);
-        const field = normalizeFieldAlias(fieldRaw);
-        if (!field) {
-            continue;
-        }
-        const parsed = parseTokenExpression(field, expr);
-        if (parsed) {
-            tokenFilters.push(parsed);
-        }
-    }
-
-    let freeText = input;
-    for (let i = tokens.length - 1; i >= 0; i--) {
-        const t = tokens[i];
-        freeText = freeText.slice(0, t.start) + freeText.slice(t.end);
-    }
-    freeText = freeText.replace(/\s+/g, ' ').trim();
-    return { freeText, tokenFilters };
-}
-
-function parseTokenExpression(field: FilterField, exprRaw: string): TokenFilter | null {
-    const expr = (exprRaw ?? '').trim();
-    if (!expr) {
-        return null;
-    }
-
-    if (field === 'difficulty' || field === 'terrain' || field === 'favorites_count') {
-        const betweenIdx = expr.indexOf('<>');
-        if (betweenIdx !== -1) {
-            const a = parseFloat(expr.slice(0, betweenIdx));
-            const b = parseFloat(expr.slice(betweenIdx + 2));
-            if (Number.isFinite(a) && Number.isFinite(b)) {
-                return { field, operator: 'between', value: String(Math.min(a, b)), value2: String(Math.max(a, b)) };
-            }
-            return null;
-        }
-        if (expr.startsWith('>=')) {
-            const v = parseFloat(expr.slice(2));
-            return Number.isFinite(v) ? { field, operator: 'gte', value: String(v) } : null;
-        }
-        if (expr.startsWith('<=')) {
-            const v = parseFloat(expr.slice(2));
-            return Number.isFinite(v) ? { field, operator: 'lte', value: String(v) } : null;
-        }
-        if (expr.startsWith('>')) {
-            const v = parseFloat(expr.slice(1));
-            return Number.isFinite(v) ? { field, operator: 'gt', value: String(v) } : null;
-        }
-        if (expr.startsWith('<')) {
-            const v = parseFloat(expr.slice(1));
-            return Number.isFinite(v) ? { field, operator: 'lt', value: String(v) } : null;
-        }
-        if (expr.startsWith('!=')) {
-            const v = parseFloat(expr.slice(2));
-            return Number.isFinite(v) ? { field, operator: 'neq', value: String(v) } : null;
-        }
-        if (expr.startsWith('=')) {
-            const v = parseFloat(expr.slice(1));
-            return Number.isFinite(v) ? { field, operator: 'eq', value: String(v) } : null;
-        }
-        const v = parseFloat(expr);
-        return Number.isFinite(v) ? { field, operator: 'eq', value: String(v) } : null;
-    }
-
-    if (field === 'found') {
-        const v = expr.toLowerCase();
-        if (v === 'true' || v === '1' || v === 'yes' || v === 'found') {
-            return { field, operator: 'is', value: 'true' };
-        }
-        if (v === 'false' || v === '0' || v === 'no' || v === 'notfound') {
-            return { field, operator: 'is', value: 'false' };
-        }
-        return null;
-    }
-
-    if (field === 'cache_type' || field === 'size' || field === 'solved') {
-        const list = expr
-            .split(',')
-            .map(s => s.trim())
-            .filter(Boolean);
-        if (list.length > 1) {
-            return { field, operator: 'in', values: list };
-        }
-        return { field, operator: 'eq', value: expr };
-    }
-
-    if (expr.startsWith('!=')) {
-        return { field, operator: 'neq', value: expr.slice(2) };
-    }
-    if (expr.startsWith('=')) {
-        return { field, operator: 'eq', value: expr.slice(1) };
-    }
-    return { field, operator: 'contains', value: expr };
-}
 
 function matchesClause(geocache: Geocache, clause: TokenFilter): boolean {
-    const field = clause.field;
+    const field: string = clause.field;
     const op = clause.operator;
 
     const rawValue = (geocache as any)[field] as any;
@@ -455,49 +260,6 @@ function matchesClause(geocache: Geocache, clause: TokenFilter): boolean {
     return true;
 }
 
-function getOperatorOptionsForKind(kind: 'text' | 'number' | 'enum' | 'boolean' | undefined): Array<{ operator: AdvancedOperator; label: string }> {
-    if (kind === 'number') {
-        return [
-            { operator: 'eq', label: '=' },
-            { operator: 'neq', label: '≠' },
-            { operator: 'gt', label: '>' },
-            { operator: 'gte', label: '>=' },
-            { operator: 'lt', label: '<' },
-            { operator: 'lte', label: '<=' },
-            { operator: 'between', label: 'entre' },
-        ];
-    }
-    if (kind === 'enum') {
-        return [
-            { operator: 'eq', label: '=' },
-            { operator: 'neq', label: '≠' },
-            { operator: 'in', label: 'parmi' },
-            { operator: 'not_in', label: 'sauf' },
-        ];
-    }
-    if (kind === 'boolean') {
-        return [{ operator: 'is', label: 'est' }];
-    }
-    return [
-        { operator: 'contains', label: 'contient' },
-        { operator: 'not_contains', label: 'ne contient pas' },
-        { operator: 'eq', label: '=' },
-        { operator: 'neq', label: '≠' },
-    ];
-}
-
-function getDefaultOperatorForKind(kind: 'text' | 'number' | 'enum' | 'boolean' | undefined): AdvancedOperator {
-    if (kind === 'number') {
-        return 'between';
-    }
-    if (kind === 'enum') {
-        return 'eq';
-    }
-    if (kind === 'boolean') {
-        return 'is';
-    }
-    return 'contains';
-}
 
 export const GeocachesTable: React.FC<GeocachesTableProps> = ({
     data,
@@ -530,13 +292,7 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
     const [draggedColumnId, setDraggedColumnId] = React.useState<GeocachesTableColumnId | null>(null);
     const [columnDragTarget, setColumnDragTarget] = React.useState<{ id: GeocachesTableColumnId; position: 'before' | 'after' } | null>(null);
     const [internalVisibleColumnIds, setInternalVisibleColumnIds] = React.useState<GeocachesTableColumnId[]>(() => [...DEFAULT_GEOCACHES_TABLE_VISIBLE_COLUMNS]);
-    const [advancedFiltersOpen, setAdvancedFiltersOpen] = React.useState(false);
     const [advancedClauses, setAdvancedClauses] = React.useState<AdvancedFilterClause[]>([]);
-    const searchInputRef = React.useRef<HTMLInputElement>(null);
-    const [autocompleteOpen, setAutocompleteOpen] = React.useState(false);
-    const [autocompleteSuggestions, setAutocompleteSuggestions] = React.useState<AutocompleteSuggestion[]>([]);
-    const [autocompleteActiveIndex, setAutocompleteActiveIndex] = React.useState(0);
-    const autocompleteReplaceRangeRef = React.useRef<{ start: number; end: number } | null>(null);
     const activeVisibleColumnIds = React.useMemo(
         () => normalizeGeocachesTableVisibleColumnIds(visibleColumnIds ?? internalVisibleColumnIds),
         [visibleColumnIds, internalVisibleColumnIds]
@@ -806,42 +562,10 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
         return Array.from(set).sort((a, b) => a.localeCompare(b));
     }, [data]);
 
-    const fieldDefinitions = React.useMemo(() => {
-        const defs: Array<{ field: FilterField; label: string; kind: 'text' | 'number' | 'enum' | 'boolean' }> = [
-            { field: 'gc_code', label: 'Code GC', kind: 'text' },
-            { field: 'name', label: 'Nom', kind: 'text' },
-            { field: 'owner', label: 'Propriétaire', kind: 'text' },
-            { field: 'cache_type', label: 'Type', kind: 'enum' },
-            { field: 'difficulty', label: 'Difficulté', kind: 'number' },
-            { field: 'terrain', label: 'Terrain', kind: 'number' },
-            { field: 'size', label: 'Taille', kind: 'enum' },
-            { field: 'solved', label: 'Résolution', kind: 'enum' },
-            { field: 'found', label: 'Trouvée', kind: 'boolean' },
-            { field: 'favorites_count', label: 'Favoris', kind: 'number' },
-        ];
-        return defs;
-    }, []);
-
-    const fieldLabelById = React.useMemo(() => {
-        const map = new Map<FilterField, string>();
-        for (const def of fieldDefinitions) {
-            map.set(def.field, def.label);
-        }
-        return map;
-    }, [fieldDefinitions]);
-
-    const fieldKindById = React.useMemo(() => {
-        const map = new Map<FilterField, 'text' | 'number' | 'enum' | 'boolean'>();
-        for (const def of fieldDefinitions) {
-            map.set(def.field, def.kind);
-        }
-        return map;
-    }, [fieldDefinitions]);
-
     const solvedOptions = React.useMemo(() => ['not_solved', 'in_progress', 'solved'], []);
 
     const enumOptionsByField = React.useMemo(() => {
-        const map = new Map<FilterField, string[]>();
+        const map = new Map<string, string[]>();
         map.set('cache_type', cacheTypes);
         map.set('size', sizes);
         map.set('solved', solvedOptions);
@@ -973,135 +697,6 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
         });
     };
 
-    const addClause = React.useCallback(() => {
-        const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-        setAdvancedClauses(prev => [
-            ...prev,
-            {
-                id,
-                field: 'difficulty',
-                operator: 'between',
-                value: '1',
-                value2: '5'
-            }
-        ]);
-        setAdvancedFiltersOpen(true);
-    }, []);
-
-    const clearAllClauses = React.useCallback(() => {
-        setAdvancedClauses([]);
-    }, []);
-
-    const removeClause = React.useCallback((id: string) => {
-        setAdvancedClauses(prev => prev.filter(c => c.id !== id));
-    }, []);
-
-    const updateClause = React.useCallback((id: string, patch: Partial<AdvancedFilterClause>) => {
-        setAdvancedClauses(prev => prev.map(c => (c.id === id ? { ...c, ...patch } : c)));
-    }, []);
-
-    const refreshAutocomplete = React.useCallback(
-        (value: string) => {
-            const input = searchInputRef.current;
-            if (!input) {
-                setAutocompleteOpen(false);
-                return;
-            }
-            const caret = input.selectionStart ?? value.length;
-            const before = value.slice(0, caret);
-            const tokenStart = findAutocompleteTokenStart(before);
-            if (tokenStart === null) {
-                setAutocompleteOpen(false);
-                return;
-            }
-
-            const fragment = before.slice(tokenStart + 1);
-            if (fragment.includes(' ')) {
-                setAutocompleteOpen(false);
-                return;
-            }
-
-            const colonIndex = fragment.indexOf(':');
-            const suggestions: AutocompleteSuggestion[] = [];
-            if (colonIndex === -1) {
-                const prefix = fragment.trim().toLowerCase();
-                for (const def of fieldDefinitions) {
-                    if (!prefix || def.field.startsWith(prefix) || def.label.toLowerCase().includes(prefix)) {
-                        suggestions.push({
-                            id: def.field,
-                            label: `${def.field} — ${def.label}`,
-                            insertText: `@${def.field}:`
-                        });
-                    }
-                }
-            } else {
-                const fieldPart = fragment.slice(0, colonIndex).trim().toLowerCase();
-                const field = normalizeFieldAlias(fieldPart);
-                if (field) {
-                    const kind = fieldKindById.get(field);
-                    if (kind === 'number') {
-                        suggestions.push(
-                            { id: `${field}-gt`, label: `${field}:>…`, insertText: `@${field}:>` },
-                            { id: `${field}-lt`, label: `${field}:<…`, insertText: `@${field}:<` },
-                            { id: `${field}-gte`, label: `${field}:>=…`, insertText: `@${field}:>=` },
-                            { id: `${field}-lte`, label: `${field}:<=…`, insertText: `@${field}:<=` },
-                            { id: `${field}-between`, label: `${field}:x<>y`, insertText: `@${field}:1<>5` }
-                        );
-                    } else if (kind === 'boolean') {
-                        suggestions.push(
-                            { id: `${field}-true`, label: `${field}:true`, insertText: `@${field}:true` },
-                            { id: `${field}-false`, label: `${field}:false`, insertText: `@${field}:false` }
-                        );
-                    } else if (kind === 'enum') {
-                        const options = enumOptionsByField.get(field) ?? [];
-                        for (const opt of options.slice(0, 12)) {
-                            suggestions.push({
-                                id: `${field}-${opt}`,
-                                label: `${field}:${opt}`,
-                                insertText: `@${field}:${opt}`
-                            });
-                        }
-                    } else {
-                        suggestions.push({
-                            id: `${field}-contains`,
-                            label: `${field}:…`,
-                            insertText: `@${field}:`
-                        });
-                    }
-                }
-            }
-
-            if (suggestions.length === 0) {
-                setAutocompleteOpen(false);
-                return;
-            }
-            autocompleteReplaceRangeRef.current = { start: tokenStart, end: caret };
-            setAutocompleteSuggestions(suggestions);
-            setAutocompleteActiveIndex(0);
-            setAutocompleteOpen(true);
-        },
-        [fieldDefinitions, fieldKindById, enumOptionsByField]
-    );
-
-    const applyAutocompleteSuggestion = React.useCallback(
-        (suggestion: AutocompleteSuggestion) => {
-            const input = searchInputRef.current;
-            const range = autocompleteReplaceRangeRef.current;
-            if (!input || !range) {
-                return;
-            }
-            const current = globalFilter ?? '';
-            const next = current.slice(0, range.start) + suggestion.insertText + current.slice(range.end);
-            setGlobalFilter(next);
-            requestAnimationFrame(() => {
-                const newPos = range.start + suggestion.insertText.length;
-                input.focus();
-                input.setSelectionRange(newPos, newPos);
-            });
-            setAutocompleteOpen(false);
-        },
-        [globalFilter]
-    );
 
     const toggleColumn = React.useCallback(
         (columnId: GeocachesTableColumnId, checked: boolean) => {
@@ -1213,94 +808,16 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 8 }}>
             {/* Toolbar */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '8px 0' }}>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <div style={{ position: 'relative' }}>
-                        <input
-                            ref={searchInputRef}
-                            type="text"
-                            value={globalFilter ?? ''}
-                            onChange={e => {
-                                const v = e.target.value;
-                                setGlobalFilter(v);
-                                refreshAutocomplete(v);
-                            }}
-                            onKeyDown={e => {
-                                if (!autocompleteOpen) {
-                                    return;
-                                }
-                                if (e.key === 'ArrowDown') {
-                                    e.preventDefault();
-                                    setAutocompleteActiveIndex(i => Math.min(i + 1, autocompleteSuggestions.length - 1));
-                                } else if (e.key === 'ArrowUp') {
-                                    e.preventDefault();
-                                    setAutocompleteActiveIndex(i => Math.max(i - 1, 0));
-                                } else if (e.key === 'Enter' || e.key === 'Tab') {
-                                    e.preventDefault();
-                                    const suggestion = autocompleteSuggestions[autocompleteActiveIndex];
-                                    if (suggestion) {
-                                        applyAutocompleteSuggestion(suggestion);
-                                    }
-                                } else if (e.key === 'Escape') {
-                                    e.preventDefault();
-                                    setAutocompleteOpen(false);
-                                }
-                            }}
-                            onBlur={() => {
-                                window.setTimeout(() => setAutocompleteOpen(false), 150);
-                            }}
-                            placeholder="Rechercher..."
-                            style={{
-                                padding: '4px 8px',
-                                border: '1px solid var(--theia-input-border)',
-                                background: 'var(--theia-input-background)',
-                                color: 'var(--theia-input-foreground)',
-                                borderRadius: 3,
-                                width: 260,
-                            }}
-                        />
-
-                        {autocompleteOpen && autocompleteSuggestions.length > 0 && (
-                            <div
-                                style={{
-                                    position: 'absolute',
-                                    top: '100%',
-                                    left: 0,
-                                    marginTop: 4,
-                                    width: 360,
-                                    maxHeight: 220,
-                                    overflowY: 'auto',
-                                    border: '1px solid var(--theia-panel-border)',
-                                    background: 'var(--theia-editor-background)',
-                                    borderRadius: 3,
-                                    zIndex: 10,
-                                    boxShadow: '0 4px 12px rgba(0,0,0,0.35)'
-                                }}
-                                onMouseDown={e => e.preventDefault()}
-                            >
-                                {autocompleteSuggestions.map((s, idx) => (
-                                    <div
-                                        key={s.id}
-                                        style={{
-                                            padding: '6px 8px',
-                                            cursor: 'pointer',
-                                            background:
-                                                idx === autocompleteActiveIndex
-                                                    ? 'var(--theia-list-activeSelectionBackground)'
-                                                    : 'transparent'
-                                        }}
-                                        onMouseEnter={() => setAutocompleteActiveIndex(idx)}
-                                        onClick={() => applyAutocompleteSuggestion(s)}
-                                    >
-                                        <div style={{ fontSize: '0.9em' }}>{s.label}</div>
-                                        <div style={{ fontSize: '0.8em', opacity: 0.7, fontFamily: 'monospace' }}>{s.insertText}</div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                    <span style={{ fontSize: '0.9em', opacity: 0.7 }}>
-                        {filteredData.length} géocache(s)
-                    </span>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <GeocacheFilterBar
+                        searchQuery={globalFilter}
+                        advancedClauses={advancedClauses}
+                        onSearchQueryChange={setGlobalFilter}
+                        onAdvancedClausesChange={setAdvancedClauses}
+                        fieldDefinitions={STANDARD_GEOCACHE_FIELD_DEFINITIONS}
+                        enumOptionsByField={enumOptionsByField}
+                        resultCount={filteredData.length}
+                    />
                     <div style={{ position: 'relative' }}>
                         <button
                             onClick={() => setColumnsMenuOpen(open => !open)}
@@ -1462,13 +979,6 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                             </div>
                         )}
                     </div>
-                    <button
-                        onClick={() => setAdvancedFiltersOpen(o => !o)}
-                        className="theia-button secondary"
-                        title="Afficher / masquer les filtres supplémentaires"
-                    >
-                        {advancedFiltersOpen ? 'Masquer les filtres' : 'Filtres supplémentaires'}
-                    </button>
                 </div>
                 
                 {selectedIds.length > 0 && (
@@ -1543,247 +1053,6 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                     </div>
                 )}
             </div>
-
-            {advancedFiltersOpen && (
-                <div
-                    style={{
-                        border: '1px solid var(--theia-panel-border)',
-                        borderRadius: 3,
-                        padding: 8,
-                        background: 'var(--theia-editor-background)'
-                    }}
-                >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                        <div style={{ fontWeight: 600, opacity: 0.9 }}>Filtres supplémentaires</div>
-                        <div style={{ display: 'flex', gap: 8 }}>
-                            {advancedClauses.length > 0 && (
-                                <button
-                                    onClick={clearAllClauses}
-                                    className="theia-button secondary"
-                                    style={{ color: 'var(--theia-errorForeground)' }}
-                                >
-                                    Supprimer tous les filtres
-                                </button>
-                            )}
-                            <button onClick={addClause} className="theia-button primary">
-                                Ajouter un filtre
-                            </button>
-                        </div>
-                    </div>
-
-                    {advancedClauses.length === 0 ? (
-                        <div style={{ opacity: 0.7, fontSize: '0.9em' }}>Aucun filtre supplémentaire.</div>
-                    ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                            {advancedClauses.map(clause => {
-                                const kind = fieldKindById.get(clause.field);
-                                const enumOptions = enumOptionsByField.get(clause.field) ?? [];
-                                const operatorOptions = getOperatorOptionsForKind(kind);
-
-                                return (
-                                    <div
-                                        key={clause.id}
-                                        style={{
-                                            display: 'grid',
-                                            gridTemplateColumns: '160px 150px 1fr 40px',
-                                            gap: 8,
-                                            alignItems: 'center'
-                                        }}
-                                    >
-                                        <select
-                                            value={clause.field}
-                                            onChange={e => {
-                                                const newField = e.target.value as FilterField;
-                                                const newKind = fieldKindById.get(newField);
-                                                const defaultOp = getDefaultOperatorForKind(newKind);
-                                                const patch: Partial<AdvancedFilterClause> = {
-                                                    field: newField,
-                                                    operator: defaultOp,
-                                                    value: '',
-                                                    value2: undefined,
-                                                    values: undefined
-                                                };
-                                                if (defaultOp === 'between') {
-                                                    patch.value = '1';
-                                                    patch.value2 = '5';
-                                                }
-                                                updateClause(clause.id, patch);
-                                            }}
-                                            style={{
-                                                padding: '4px 6px',
-                                                border: '1px solid var(--theia-input-border)',
-                                                background: 'var(--theia-input-background)',
-                                                color: 'var(--theia-input-foreground)',
-                                                borderRadius: 3
-                                            }}
-                                        >
-                                            {fieldDefinitions.map(def => (
-                                                <option key={def.field} value={def.field}>
-                                                    {def.label}
-                                                </option>
-                                            ))}
-                                        </select>
-
-                                        <select
-                                            value={clause.operator}
-                                            onChange={e => {
-                                                const op = e.target.value as AdvancedOperator;
-                                                const patch: Partial<AdvancedFilterClause> = { operator: op };
-                                                if (op === 'between') {
-                                                    patch.value2 = clause.value2 ?? '';
-                                                } else {
-                                                    patch.value2 = undefined;
-                                                }
-                                                if (op === 'in' || op === 'not_in') {
-                                                    patch.values = clause.values ?? [];
-                                                } else {
-                                                    patch.values = undefined;
-                                                }
-                                                updateClause(clause.id, patch);
-                                            }}
-                                            style={{
-                                                padding: '4px 6px',
-                                                border: '1px solid var(--theia-input-border)',
-                                                background: 'var(--theia-input-background)',
-                                                color: 'var(--theia-input-foreground)',
-                                                borderRadius: 3
-                                            }}
-                                        >
-                                            {operatorOptions.map(o => (
-                                                <option key={o.operator} value={o.operator}>
-                                                    {o.label}
-                                                </option>
-                                            ))}
-                                        </select>
-
-                                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                                            {kind === 'enum' && (clause.operator === 'in' || clause.operator === 'not_in') ? (
-                                                <select
-                                                    multiple
-                                                    value={clause.values ?? []}
-                                                    onChange={e => {
-                                                        const selected = Array.from(e.target.selectedOptions).map(o => o.value);
-                                                        updateClause(clause.id, { values: selected });
-                                                    }}
-                                                    style={{
-                                                        width: '100%',
-                                                        padding: '4px 6px',
-                                                        border: '1px solid var(--theia-input-border)',
-                                                        background: 'var(--theia-input-background)',
-                                                        color: 'var(--theia-input-foreground)',
-                                                        borderRadius: 3,
-                                                        minHeight: 70
-                                                    }}
-                                                >
-                                                    {enumOptions.map(opt => (
-                                                        <option key={opt} value={opt}>
-                                                            {opt}
-                                                        </option>
-                                                    ))}
-                                                </select>
-                                            ) : kind === 'enum' ? (
-                                                <select
-                                                    value={clause.value}
-                                                    onChange={e => updateClause(clause.id, { value: e.target.value })}
-                                                    style={{
-                                                        width: '100%',
-                                                        padding: '4px 6px',
-                                                        border: '1px solid var(--theia-input-border)',
-                                                        background: 'var(--theia-input-background)',
-                                                        color: 'var(--theia-input-foreground)',
-                                                        borderRadius: 3
-                                                    }}
-                                                >
-                                                    <option value="">—</option>
-                                                    {enumOptions.map(opt => (
-                                                        <option key={opt} value={opt}>
-                                                            {opt}
-                                                        </option>
-                                                    ))}
-                                                </select>
-                                            ) : kind === 'boolean' ? (
-                                                <select
-                                                    value={clause.value}
-                                                    onChange={e => updateClause(clause.id, { value: e.target.value })}
-                                                    style={{
-                                                        width: '100%',
-                                                        padding: '4px 6px',
-                                                        border: '1px solid var(--theia-input-border)',
-                                                        background: 'var(--theia-input-background)',
-                                                        color: 'var(--theia-input-foreground)',
-                                                        borderRadius: 3
-                                                    }}
-                                                >
-                                                    <option value="">—</option>
-                                                    <option value="true">true</option>
-                                                    <option value="false">false</option>
-                                                </select>
-                                            ) : clause.operator === 'between' ? (
-                                                <>
-                                                    <input
-                                                        type={kind === 'number' ? 'number' : 'text'}
-                                                        step={clause.field === 'difficulty' || clause.field === 'terrain' ? 0.5 : 1}
-                                                        value={clause.value}
-                                                        onChange={e => updateClause(clause.id, { value: e.target.value })}
-                                                        style={{
-                                                            width: 120,
-                                                            padding: '4px 6px',
-                                                            border: '1px solid var(--theia-input-border)',
-                                                            background: 'var(--theia-input-background)',
-                                                            color: 'var(--theia-input-foreground)',
-                                                            borderRadius: 3
-                                                        }}
-                                                    />
-                                                    <span style={{ opacity: 0.7 }}>et</span>
-                                                    <input
-                                                        type={kind === 'number' ? 'number' : 'text'}
-                                                        step={clause.field === 'difficulty' || clause.field === 'terrain' ? 0.5 : 1}
-                                                        value={clause.value2 ?? ''}
-                                                        onChange={e => updateClause(clause.id, { value2: e.target.value })}
-                                                        style={{
-                                                            width: 120,
-                                                            padding: '4px 6px',
-                                                            border: '1px solid var(--theia-input-border)',
-                                                            background: 'var(--theia-input-background)',
-                                                            color: 'var(--theia-input-foreground)',
-                                                            borderRadius: 3
-                                                        }}
-                                                    />
-                                                </>
-                                            ) : (
-                                                <input
-                                                    type={kind === 'number' ? 'number' : 'text'}
-                                                    step={clause.field === 'difficulty' || clause.field === 'terrain' ? 0.5 : 1}
-                                                    value={clause.value}
-                                                    onChange={e => updateClause(clause.id, { value: e.target.value })}
-                                                    placeholder={fieldLabelById.get(clause.field) ?? ''}
-                                                    style={{
-                                                        width: '100%',
-                                                        padding: '4px 6px',
-                                                        border: '1px solid var(--theia-input-border)',
-                                                        background: 'var(--theia-input-background)',
-                                                        color: 'var(--theia-input-foreground)',
-                                                        borderRadius: 3
-                                                    }}
-                                                />
-                                            )}
-                                        </div>
-
-                                        <button
-                                            onClick={() => removeClause(clause.id)}
-                                            className="theia-button secondary"
-                                            style={{ padding: '2px 6px', color: 'var(--theia-errorForeground)' }}
-                                            title="Supprimer ce filtre"
-                                        >
-                                            ✕
-                                        </button>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
-                </div>
-            )}
 
             {/* Table */}
             <div style={{ flex: 1, overflow: 'auto', border: '1px solid var(--theia-panel-border)', borderRadius: 3 }}>

@@ -38,7 +38,7 @@ export class GeocachesService {
     }
 
     async importAround(
-        request: { zone_id: number; center: unknown; limit: number; radius_km?: number },
+        request: { zone_id: number; center: unknown; limit: number; radius_km?: number; min_km?: number; filters?: unknown[] },
         signal?: AbortSignal
     ): Promise<Response> {
         return this.apiClient.requestResponse(

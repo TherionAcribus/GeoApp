@@ -26,6 +26,7 @@ import { ZonesService } from './zones-service';
 import { GeoAppWidgetEventsService } from './geoapp-widget-events-service';
 import { getErrorMessage } from './backend-api-client';
 import { ZoneGeocachesView } from './zone-geocaches-view';
+import { ImportAroundDialog, ImportAroundRequest } from './import-around-dialog';
 
 interface SerializedZoneGeocachesState {
     zoneId: number;
@@ -62,6 +63,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     protected isImporting = false;
     protected copySelectedDialog: { geocacheIds: number[] } | null = null;
     protected moveSelectedDialog: { geocacheIds: number[] } | null = null;
+    protected importAroundDialogOpen = false;
+    protected importAroundDialogInitialCenter?: ImportAroundCenter;
     protected tableVisibleColumnIds: GeocachesTableColumnId[] = [...DEFAULT_GEOCACHES_TABLE_VISIBLE_COLUMNS];
 
     protected interactionTimerId: number | undefined;
@@ -690,28 +693,25 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         return { center, limit };
     }
 
-    private async runImportAround(request: { center: ImportAroundCenter; limit: number; radius_km?: number }): Promise<void> {
+    private async runImportAroundWithProgress(
+        request: ImportAroundRequest,
+        onProgress?: (percentage: number, message: string) => void
+    ): Promise<void> {
         if (!this.zoneId) {
             this.messages.warn('Zone active manquante');
             return;
         }
 
         const controller = new AbortController();
-        const progress = await this.progressService.showProgress(
-            {
-                text: 'Import autour…',
-                options: { cancelable: true, location: 'notification' },
-            },
-            () => controller.abort()
-        );
-
         try {
-            progress.report({ message: 'Démarrage…', work: { done: 0, total: 100 } });
+            onProgress?.(0, 'Démarrage…');
             const response = await this.geocachesService.importAround({
                 zone_id: this.zoneId,
                 center: request.center,
                 limit: request.limit,
                 ...(request.radius_km !== undefined ? { radius_km: request.radius_km } : {}),
+                ...(request.min_km !== undefined ? { min_km: request.min_km } : {}),
+                ...(request.filters && request.filters.length > 0 ? { filters: request.filters } : {}),
             }, controller.signal);
 
             if (!response.body) {
@@ -743,7 +743,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                         const data = JSON.parse(trimmed);
                         if (data.error) {
                             const msg = data.message || 'Erreur lors de l\'import';
-                            progress.report({ message: msg, work: { done: 0, total: 100 } });
+                            onProgress?.(0, msg);
                             this.messages.error(msg);
                             continue;
                         }
@@ -752,9 +752,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                         const msg = data.message || '';
 
                         if (pct !== undefined) {
-                            progress.report({ message: msg, work: { done: pct, total: 100 } });
-                        } else if (msg) {
-                            progress.report({ message: msg });
+                            onProgress?.(pct, msg);
                         }
 
                         if (data.final_summary) {
@@ -775,22 +773,45 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             await this.refreshZoneData();
         } catch (e) {
             if ((e as any)?.name === 'AbortError') {
-                this.messages.warn('Import annulé');
                 return;
             }
             console.error('Import around error', e);
             this.messages.error('Erreur lors de l\'import autour');
-        } finally {
-            progress.cancel();
+            throw e;
         }
     }
 
-    private async startImportAroundWizard(initialCenter?: ImportAroundCenter): Promise<void> {
-        const request = await this.buildImportAroundRequest(initialCenter);
-        if (!request) {
-            return;
+    private openImportAroundDialog(initialCenter?: ImportAroundCenter): void {
+        this.importAroundDialogInitialCenter = initialCenter;
+        this.importAroundDialogOpen = true;
+        this.update();
+    }
+
+    private closeImportAroundDialog(): void {
+        this.importAroundDialogOpen = false;
+        this.importAroundDialogInitialCenter = undefined;
+        this.update();
+    }
+
+    private async handleImportAroundDialogImport(
+        request: ImportAroundRequest,
+        onProgress?: (percentage: number, message: string) => void
+    ): Promise<void> {
+        this.isImporting = true;
+        this.update();
+        try {
+            await this.runImportAroundWithProgress(request, onProgress);
+            this.closeImportAroundDialog();
+        } catch {
+            // error already shown via messages service
+        } finally {
+            this.isImporting = false;
+            this.update();
         }
-        await this.runImportAround(request);
+    }
+
+    private startImportAroundWizard(initialCenter?: ImportAroundCenter): void {
+        this.openImportAroundDialog(initialCenter);
     }
 
     private async handleOpenZoneGeocaches(zoneId: number, zoneName?: string): Promise<void> {
@@ -1515,7 +1536,11 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 onOpenImportDialog={() => this.openImportDialog()}
                 onOpenBookmarkListDialog={() => this.openBookmarkListDialog()}
                 onOpenPocketQueryDialog={() => this.openPocketQueryDialog()}
-                onStartImportAround={() => { void this.startImportAroundWizard(); }}
+                onStartImportAround={() => this.startImportAroundWizard()}
+                showImportAroundDialog={this.importAroundDialogOpen}
+                importAroundDialogInitialCenter={this.importAroundDialogInitialCenter}
+                onImportAroundDialogImport={(req, onProgress) => this.handleImportAroundDialogImport(req, onProgress)}
+                onCancelImportAroundDialog={() => this.closeImportAroundDialog()}
                 onRowClick={geocache => this.handleRowClick(geocache)}
                 onDeleteSelected={ids => this.handleDeleteSelected(ids)}
                 onRefreshSelected={ids => this.handleRefreshSelected(ids)}
@@ -1534,6 +1559,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                     gc_code: geocache.gc_code,
                     name: geocache.name,
                 })}
+
                 onTableVisibleColumnIdsChange={this.handleTableVisibleColumnIdsChange}
                 onFilteredDataChange={geocaches => this.handleFilteredDataChange(geocaches)}
                 onImportGpx={(file, updateExisting, onProgress) => this.handleImportGpx(file, updateExisting, onProgress)}

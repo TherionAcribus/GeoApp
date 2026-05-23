@@ -626,18 +626,28 @@ def import_around():
 
         limit = data.get('limit', 50)
         radius_km = data.get('radius_km')
+        min_km = data.get('min_km')
+        raw_filters = data.get('filters') or []
         try:
             limit = int(limit)
-        except ValueError:
+        except (ValueError, TypeError):
             return jsonify({'error': 'Invalid limit'}), 400
 
         if radius_km is not None and str(radius_km).strip() != '':
             try:
                 radius_km = float(radius_km)
-            except ValueError:
+            except (ValueError, TypeError):
                 return jsonify({'error': 'Invalid radius_km'}), 400
         else:
             radius_km = None
+
+        if min_km is not None and str(min_km).strip() != '':
+            try:
+                min_km = float(min_km)
+            except (ValueError, TypeError):
+                return jsonify({'error': 'Invalid min_km'}), 400
+        else:
+            min_km = None
 
         if limit <= 0:
             return jsonify({'error': 'limit must be > 0'}), 400
@@ -646,6 +656,76 @@ def import_around():
 
         importer = GeocacheImporter()
         search_client = GeocachingSearchClient(session=importer.scraper.session)
+
+        def _apply_filters(geocache_obj, filters):
+            """Return True if geocache_obj passes all filter clauses."""
+            for clause in filters:
+                field = clause.get('field', '')
+                op = clause.get('operator', '')
+                value = clause.get('value', '')
+                value2 = clause.get('value2')
+                values = clause.get('values') or []
+
+                raw_val = getattr(geocache_obj, field, None)
+                if raw_val is None:
+                    raw_val = ''
+
+                if field in ('difficulty', 'terrain', 'favorites_count'):
+                    try:
+                        actual = float(raw_val)
+                    except (ValueError, TypeError):
+                        return False
+                    try:
+                        v1 = float(value) if value else None
+                        v2 = float(value2) if value2 else None
+                    except (ValueError, TypeError):
+                        v1 = v2 = None
+                    if op == 'between' and v1 is not None and v2 is not None:
+                        if not (min(v1, v2) <= actual <= max(v1, v2)):
+                            return False
+                    elif op in ('eq', '=') and v1 is not None:
+                        if actual != v1:
+                            return False
+                    elif op == 'neq' and v1 is not None:
+                        if actual == v1:
+                            return False
+                    elif op == 'gt' and v1 is not None:
+                        if not actual > v1:
+                            return False
+                    elif op == 'gte' and v1 is not None:
+                        if not actual >= v1:
+                            return False
+                    elif op == 'lt' and v1 is not None:
+                        if not actual < v1:
+                            return False
+                    elif op == 'lte' and v1 is not None:
+                        if not actual <= v1:
+                            return False
+                    continue
+
+                actual_str = str(raw_val).lower()
+                wanted = str(value).lower()
+
+                if op in ('in', 'not_in'):
+                    norm_values = [str(v).lower() for v in values]
+                    ok = actual_str in norm_values
+                    if op == 'not_in' and ok:
+                        return False
+                    if op == 'in' and not ok:
+                        return False
+                elif op == 'contains':
+                    if wanted and wanted not in actual_str:
+                        return False
+                elif op == 'not_contains':
+                    if wanted and wanted in actual_str:
+                        return False
+                elif op in ('eq', '=', 'is'):
+                    if wanted and actual_str != wanted:
+                        return False
+                elif op == 'neq':
+                    if wanted and actual_str == wanted:
+                        return False
+            return True
 
         def generate():
             try:
@@ -656,8 +736,17 @@ def import_around():
                     center_lon=center_lon,
                     limit=limit,
                     radius_km=radius_km,
+                    min_km=min_km,
                 )
                 gc_codes = [r.gc_code for r in results]
+
+                if raw_filters:
+                    filtered_codes = []
+                    for r in results:
+                        if _apply_filters(r, raw_filters):
+                            filtered_codes.append(r.gc_code)
+                    gc_codes = filtered_codes
+
                 total = len(gc_codes)
 
                 if total == 0:
@@ -695,6 +784,7 @@ def import_around():
                     'stats': {'success': success, 'errors': errors, 'total': total},
                     'center': {'lat': center_lat, 'lon': center_lon},
                     **({'radius_km': radius_km} if radius_km is not None else {}),
+                    **({'min_km': min_km} if min_km is not None else {}),
                 }) + '\n'
 
             except Exception as e:

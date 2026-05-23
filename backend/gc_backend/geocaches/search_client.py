@@ -58,6 +58,7 @@ class GeocachingSearchClient:
         center_lon: float,
         limit: int = 50,
         radius_km: Optional[float] = None,
+        min_km: Optional[float] = None,
         per_query: int = 50,
     ) -> list[GeocacheSearchResult]:
         """Search geocaches around a center point.
@@ -66,8 +67,9 @@ class GeocachingSearchClient:
             center_lat: Latitude of center point.
             center_lon: Longitude of center point.
             limit: Max number of geocaches to return.
-            radius_km: Optional radius. When provided, a bounding box is sent to the API
+            radius_km: Optional max radius in km. When provided, a bounding box is sent to the API
                 and results are filtered by haversine distance when coordinates are available.
+            min_km: Optional minimum distance in km. Results closer than this are excluded.
             per_query: Page size.
 
         Returns:
@@ -124,6 +126,11 @@ class GeocachingSearchClient:
             if radius_km is not None:
                 page_results = [
                     r for r in page_results if self._within_radius(center_lat, center_lon, r, float(radius_km))
+                ]
+            if min_km is not None:
+                page_results = [
+                    r for r in page_results
+                    if not self._within_radius(center_lat, center_lon, r, float(min_km))
                 ]
 
             # Dédupliquer tout en gardant l'ordre

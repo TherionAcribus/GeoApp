@@ -4,6 +4,7 @@ import { ImportGpxDialog } from './import-gpx-dialog';
 import { ImportBookmarkListDialog } from './import-bookmark-list-dialog';
 import { ImportPocketQueryDialog } from './import-pocket-query-dialog';
 import { MoveGeocacheDialog } from './move-geocache-dialog';
+import { ImportAroundDialog, ImportAroundCenter, ImportAroundRequest } from './import-around-dialog';
 
 type SelectionDialogState = { geocacheIds: number[] } | null;
 
@@ -51,6 +52,10 @@ export interface ZoneGeocachesViewProps {
     onCancelCopySelected: () => void;
     onConfirmMoveSelected: (targetZoneId: number) => void | Promise<void>;
     onCancelMoveSelected: () => void;
+    showImportAroundDialog: boolean;
+    importAroundDialogInitialCenter?: ImportAroundCenter;
+    onImportAroundDialogImport: (request: ImportAroundRequest, onProgress?: (percentage: number, message: string) => void) => Promise<void>;
+    onCancelImportAroundDialog: () => void;
 }
 
 export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
@@ -190,6 +195,16 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
                 onCancel={props.onCancelMoveSelected}
                 title='Deplacer les geocaches vers une zone'
                 actionLabel='Deplacer'
+            />
+        )}
+
+        {props.showImportAroundDialog && props.zoneId && (
+            <ImportAroundDialog
+                zoneId={props.zoneId}
+                initialCenter={props.importAroundDialogInitialCenter}
+                onImport={props.onImportAroundDialogImport}
+                onCancel={props.onCancelImportAroundDialog}
+                isImporting={props.isImporting}
             />
         )}
     </div>
