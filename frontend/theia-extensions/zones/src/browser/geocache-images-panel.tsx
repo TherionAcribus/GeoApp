@@ -30,6 +30,16 @@ export type GeocacheImageV2Dto = {
 
 export type GalleryThumbnailSize = 'small' | 'medium' | 'large';
 
+export interface GeocacheImageChatSelection {
+    id: number;
+    url: string;
+    source_url: string;
+    origin: 'user_observation' | 'cache_listing';
+    originLabel: string;
+    title?: string | null;
+    note?: string | null;
+}
+
 type ThumbnailContextMenuState = {
     x: number;
     y: number;
@@ -55,6 +65,8 @@ export interface GeocacheImagesPanelProps {
     ocrLmstudioBaseUrl?: string;
     ocrLmstudioModel?: string;
     ocrOpenRouterModel?: string;
+    maxChatImages?: number;
+    onAnalyzeImages?: (images: GeocacheImageChatSelection[]) => Promise<void> | void;
 }
 
 export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
@@ -76,6 +88,8 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     ocrLmstudioBaseUrl = 'http://localhost:1234',
     ocrLmstudioModel = '',
     ocrOpenRouterModel = 'openai/gpt-4o-mini',
+    maxChatImages = 5,
+    onAnalyzeImages,
 }) => {
     const [images, setImages] = React.useState<GeocacheImageV2Dto[]>([]);
     const [isLoading, setIsLoading] = React.useState(false);
@@ -127,6 +141,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     const [, setDetailsMode] = React.useState<'hidden' | 'fields' | 'preview'>('hidden');
 
     const [contextMenu, setContextMenu] = React.useState<ThumbnailContextMenuState | null>(null);
+    const [chatImageIds, setChatImageIds] = React.useState<number[]>([]);
 
     const uploadInputRef = React.useRef<HTMLInputElement | null>(null);
 
@@ -341,6 +356,14 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
         return Boolean((img?.source_url || '').startsWith('geoapp-upload://'));
     }, []);
 
+    const getChatImageOrigin = React.useCallback((img: GeocacheImageV2Dto): 'user_observation' | 'cache_listing' => {
+        return isUploadedImage(img) ? 'user_observation' : 'cache_listing';
+    }, [isUploadedImage]);
+
+    const getChatImageOriginLabel = React.useCallback((img: GeocacheImageV2Dto): string => {
+        return getChatImageOrigin(img) === 'user_observation' ? 'Photo utilisateur locale' : 'Image du listing';
+    }, [getChatImageOrigin]);
+
     const isRemoteOriginalImage = React.useCallback((img: GeocacheImageV2Dto | null | undefined): boolean => {
         if (!img || img.parent_image_id) {
             return false;
@@ -425,9 +448,9 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
         return `HTTP ${res.status}`;
     };
 
-    const uploadNewImage = async (file: File): Promise<void> => {
+    const uploadNewImage = async (file: File, reloadAfterUpload: boolean = true): Promise<GeocacheImageV2Dto | undefined> => {
         if (!file) {
-            return;
+            return undefined;
         }
 
         setIsSaving(true);
@@ -464,11 +487,46 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
 
             setSelectedId(created.id);
             setDetailsMode('fields');
-            await loadImages();
-            messages.info('Image ajoutée');
+            if (reloadAfterUpload) {
+                await loadImages();
+                messages.info('Image ajoutee');
+            }
+            return created;
         } catch (e) {
             console.error('[GeocacheImagesPanel] upload image error', e);
             messages.error(`Impossible d'ajouter l'image (${String(e)})`);
+            return undefined;
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const uploadNewImages = async (files: File[]): Promise<void> => {
+        const validFiles = files.filter(Boolean);
+        if (!validFiles.length) {
+            return;
+        }
+        if (validFiles.length === 1) {
+            await uploadNewImage(validFiles[0]);
+            return;
+        }
+
+        const createdIds: number[] = [];
+        setIsSaving(true);
+        try {
+            for (const file of validFiles) {
+                const created = await uploadNewImage(file, false);
+                if (created?.id) {
+                    createdIds.push(created.id);
+                }
+            }
+            await loadImages();
+            if (createdIds.length) {
+                setSelectedId(createdIds[createdIds.length - 1]);
+                setDetailsMode('fields');
+                setChatImageIds(prev => [...prev, ...createdIds.filter(id => !prev.includes(id))].slice(-maxChatImages));
+            }
+            messages.info(`${createdIds.length} image(s) ajoutee(s)`);
         } finally {
             setIsSaving(false);
         }
@@ -499,6 +557,47 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
 
     const triggerUploadDialog = (): void => {
         uploadInputRef.current?.click();
+    };
+
+    const toggleChatImage = (imageId: number): void => {
+        setChatImageIds(prev => {
+            if (prev.includes(imageId)) {
+                return prev.filter(id => id !== imageId);
+            }
+            if (prev.length >= maxChatImages) {
+                messages.warn(`Le chat accepte ${maxChatImages} image(s) maximum pour cette action.`);
+                return prev;
+            }
+            return [...prev, imageId];
+        });
+    };
+
+    const clearChatImages = (): void => {
+        setChatImageIds([]);
+    };
+
+    const analyzeChatImages = async (): Promise<void> => {
+        if (!onAnalyzeImages || chatImageIds.length === 0) {
+            return;
+        }
+        const selectedImages = chatImageIds
+            .map(id => images.find(image => image.id === id) || visibleImages.find(image => image.id === id))
+            .filter((image): image is GeocacheImageV2Dto => Boolean(image))
+            .map(image => ({
+                id: image.id,
+                url: image.url ? resolveImageUrl(image.url) : '',
+                source_url: image.source_url || '',
+                origin: getChatImageOrigin(image),
+                originLabel: getChatImageOriginLabel(image),
+                title: image.title,
+                note: image.note,
+            }))
+            .filter(image => Boolean(image.url));
+        if (!selectedImages.length) {
+            messages.warn('Aucune image selectionnee ne peut etre envoyee au chat.');
+            return;
+        }
+        await Promise.resolve(onAnalyzeImages(selectedImages));
     };
 
     const duplicateImageById = async (imageId: number): Promise<void> => {
@@ -1243,6 +1342,10 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             badges.push({ label: 'DÉRIVÉE', tone: 'neutral' });
         }
 
+        if (chatImageIds.includes(img.id)) {
+            badges.push({ label: 'CHAT', tone: 'accent' });
+        }
+
         if (!badges.length) {
             return null;
         }
@@ -1356,6 +1459,12 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     const visiblePendingStoreCount = visibleImages.filter(img => canStoreImage(img)).length;
     const derivedCount = images.filter(img => Boolean(img.parent_image_id)).length;
     const analyzedCount = images.filter(img => Boolean((img.ocr_text || '').trim()) || Boolean((img.qr_payload || '').trim())).length;
+    const selectedChatImages = chatImageIds
+        .map(id => images.find(image => image.id === id) || visibleImages.find(image => image.id === id))
+        .filter((image): image is GeocacheImageV2Dto => Boolean(image));
+    const selectedChatUserCount = selectedChatImages.filter(image => getChatImageOrigin(image) === 'user_observation').length;
+    const selectedChatListingCount = selectedChatImages.filter(image => getChatImageOrigin(image) === 'cache_listing').length;
+    const selectedChatNoteCount = selectedChatImages.filter(image => Boolean((image.note || '').trim())).length;
     const selectedCanStore = canStoreImage(selectedImage);
     const selectedCanUnstore = canUnstoreImage(selectedImage);
     const selectedCanDelete = canDeleteImage(selectedImage);
@@ -1371,12 +1480,13 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                 ref={uploadInputRef}
                 type='file'
                 accept='image/png,image/jpeg,image/webp'
+                multiple
                 hidden
                 onChange={(e) => {
-                    const file = e.currentTarget.files?.[0];
+                    const files = Array.from(e.currentTarget.files || []);
                     e.currentTarget.value = '';
-                    if (file) {
-                        void uploadNewImage(file);
+                    if (files.length) {
+                        void uploadNewImages(files);
                     }
                 }}
             />
@@ -1397,6 +1507,33 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                         <span className='codicon codicon-add' />
                         Ajouter
                     </button>
+
+                    {onAnalyzeImages ? (
+                        <>
+                            <button
+                                className='theia-button geoapp-images-icon-button'
+                                onClick={() => { void analyzeChatImages(); }}
+                                disabled={isSaving || chatImageIds.length === 0}
+                                type='button'
+                                title={`Envoyer jusqu'a ${maxChatImages} images au chat`}
+                            >
+                                <span className='codicon codicon-comment-discussion' />
+                                Chat ({chatImageIds.length}/{maxChatImages})
+                            </button>
+                            {chatImageIds.length > 0 ? (
+                                <button
+                                    className='theia-button secondary geoapp-images-icon-button'
+                                    onClick={clearChatImages}
+                                    disabled={isSaving}
+                                    type='button'
+                                    title='Vider la selection chat'
+                                >
+                                    <span className='codicon codicon-clear-all' />
+                                    Vider
+                                </button>
+                            ) : undefined}
+                        </>
+                    ) : undefined}
 
                     <div className='geoapp-images-size-group' aria-label='Taille des vignettes'>
                         <button
@@ -1434,6 +1571,17 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                     </button>
                 </div>
             </header>
+
+            {onAnalyzeImages && selectedChatImages.length > 0 ? (
+                <div className='geoapp-images-hidden-strip'>
+                    <span>
+                        Selection chat: {selectedChatUserCount} photo(s) utilisateur, {selectedChatListingCount} image(s) du listing, {selectedChatNoteCount} note(s) transmise(s).
+                    </span>
+                    <button className='theia-button secondary' type='button' onClick={clearChatImages} disabled={isSaving}>
+                        Vider
+                    </button>
+                </div>
+            ) : undefined}
 
             {hiddenImagesCount > 0 && (
                 <div className='geoapp-images-hidden-strip'>
@@ -1560,7 +1708,30 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
 
                                             <div className='geoapp-images-thumbnail-meta'>
                                                 <span>{getImageTitle(img)}</span>
-                                                <small>{getImageKindLabel(img)}</small>
+                                                <small>{getChatImageOriginLabel(img)} - {getImageKindLabel(img)}</small>
+                                                {onAnalyzeImages ? (
+                                                    <span
+                                                        role='checkbox'
+                                                        aria-checked={chatImageIds.includes(img.id)}
+                                                        tabIndex={0}
+                                                        className='geoapp-images-badge geoapp-images-badge--accent'
+                                                        onClick={(event) => {
+                                                            event.preventDefault();
+                                                            event.stopPropagation();
+                                                            toggleChatImage(img.id);
+                                                        }}
+                                                        onKeyDown={(event) => {
+                                                            if (event.key === 'Enter' || event.key === ' ') {
+                                                                event.preventDefault();
+                                                                event.stopPropagation();
+                                                                toggleChatImage(img.id);
+                                                            }
+                                                        }}
+                                                        title='Ajouter ou retirer cette image de la selection chat'
+                                                    >
+                                                        {chatImageIds.includes(img.id) ? 'Selectionnee chat' : 'Ajouter chat'}
+                                                    </span>
+                                                ) : undefined}
                                             </div>
                                             {renderBadges(img)}
                                         </button>
@@ -1577,7 +1748,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                                     <div>
                                         <div className='geoapp-images-selected-title'>{getImageTitle(selectedImage)}</div>
                                         <div className='geoapp-images-selected-subtitle'>
-                                            {getImageKindLabel(selectedImage)}
+                                            {getChatImageOriginLabel(selectedImage)} - {getImageKindLabel(selectedImage)}
                                             {selectedIsHidden ? ' · domaine masqué' : ''}
                                         </div>
                                     </div>
@@ -1633,6 +1804,17 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                                         <span className='codicon codicon-desktop-download' />
                                         Télécharger
                                     </button>
+                                    {onAnalyzeImages ? (
+                                        <button
+                                            className='theia-button secondary geoapp-images-icon-button'
+                                            type='button'
+                                            onClick={() => toggleChatImage(selectedImage.id)}
+                                            disabled={isSaving}
+                                        >
+                                            <span className={chatImageIds.includes(selectedImage.id) ? 'codicon codicon-check' : 'codicon codicon-add'} />
+                                            {chatImageIds.includes(selectedImage.id) ? 'Retirer chat' : 'Ajouter chat'}
+                                        </button>
+                                    ) : undefined}
                                 </div>
                             </section>
 

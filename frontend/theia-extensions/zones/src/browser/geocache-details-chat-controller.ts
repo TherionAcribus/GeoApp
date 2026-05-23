@@ -8,6 +8,7 @@ import {
 } from './geocache-chat-prompt-shared';
 import {
     buildGeoAppBaseSessionTitle,
+    GeoAppChatImageContext,
     buildGeoAppOpenChatRequestDetail,
     dispatchGeoAppOpenChatRequest,
     GeoAppWorkflowResolutionPreview,
@@ -112,6 +113,47 @@ export class GeocacheDetailsChatController {
                 imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
                 focus: true,
                 workflowKind: 'general',
+                preferredProfile: profileOverride === 'default' ? undefined : profileOverride,
+                sessionKind: 'libre',
+            })
+        );
+    }
+
+    openImagesChat(
+        geocacheData: GeocacheDto,
+        imageContexts: GeoAppChatImageContext[],
+        profileOverride: GeoAppChatWorkflowProfile
+    ): void {
+        const gcCode = geocacheData.gc_code;
+        const baseTitle = buildGeoAppBaseSessionTitle(gcCode, geocacheData.name, `CHAT IMAGES - ${gcCode || geocacheData.name}`);
+        const imageList = imageContexts
+            .map(image => {
+                const label = image.label || image.id || image.url;
+                const note = image.description?.trim() ? `\n  Note utilisateur: ${image.description.trim()}` : '';
+                return `- [${image.origin}] ${image.id || label} - ${label}${note}`;
+            })
+            .join('\n');
+        const prompt = [
+            buildGeocacheFreeChatContext(geocacheData),
+            '',
+            'Analyse les images selectionnees pour cette geocache.',
+            'Separe strictement ce qui est visible sur les images, ce qui est une interpretation, et ce qui reste une hypothese.',
+            '',
+            'Images selectionnees:',
+            imageList,
+        ].join('\n');
+        dispatchGeoAppOpenChatRequest(
+            window,
+            CustomEvent,
+            buildGeoAppOpenChatRequestDetail({
+                geocacheId: geocacheData.id,
+                gcCode,
+                geocacheName: geocacheData.name,
+                sessionTitle: baseTitle,
+                prompt,
+                imageContexts,
+                focus: true,
+                workflowKind: 'image_puzzle',
                 preferredProfile: profileOverride === 'default' ? undefined : profileOverride,
                 sessionKind: 'libre',
             })

@@ -11,6 +11,8 @@ import { FormulaSolverSolveFromGeocacheCommand } from '@mysterai/theia-formula-s
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import URI from '@theia/core/lib/common/uri';
 import { MiniBrowserOpenHandler } from '@theia/mini-browser/lib/browser/mini-browser-open-handler';
+import { GeoAppChatImageContext } from './geoapp-chat-shared';
+import { GeocacheImageChatSelection } from './geocache-images-panel';
 import { BackendApiClient, getErrorMessage } from './backend-api-client';
 import {
     GeocacheArchiveStatus,
@@ -984,6 +986,26 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         this.update();
     };
 
+    private openSelectedImagesChat = async (images: GeocacheImageChatSelection[]): Promise<void> => {
+        if (!this.data) {
+            this.messages.warn('Aucune geocache selectionnee pour analyser les images.');
+            return;
+        }
+        const imageContexts: GeoAppChatImageContext[] = images.slice(0, 5).map(image => ({
+            url: image.url,
+            origin: image.origin,
+            id: String(image.id),
+            label: `${image.originLabel} - ${image.title || `Image ${image.id}`}`,
+            description: image.note || undefined,
+        }));
+        if (!imageContexts.length) {
+            this.messages.warn('Aucune image selectionnee ne peut etre envoyee au chat.');
+            return;
+        }
+        this.chatController.openImagesChat(this.data, imageContexts, this.chatProfileOverride);
+        this.messages.info(`${imageContexts.length} image(s) envoyee(s) au chat.`);
+    };
+
     /**
      * Ouvre le widget des logs pour cette géocache dans le panneau droit
      */
@@ -1244,6 +1266,8 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                     ocrLmstudioBaseUrl: this.preferencesController.getOcrLmstudioBaseUrl(),
                     ocrLmstudioModel: this.preferencesController.getOcrLmstudioModel(),
                     ocrOpenRouterModel: this.preferencesController.getOcrOpenRouterModel(),
+                    maxChatImages: 5,
+                    onAnalyzeImages: this.openSelectedImagesChat,
                     messages: this.messages,
                     languageModelRegistry: this.languageModelRegistry,
                     languageModelService: this.languageModelService,
