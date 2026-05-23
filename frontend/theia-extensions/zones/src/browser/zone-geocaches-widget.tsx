@@ -19,6 +19,7 @@ import { ImportBookmarkListDialog } from './import-bookmark-list-dialog';
 import { ImportPocketQueryDialog } from './import-pocket-query-dialog';
 import { MoveGeocacheDialog } from './move-geocache-dialog';
 import { MapWidgetFactory } from './map/map-widget-factory';
+import type { MapWidget } from './map/map-widget';
 import { GeocacheTabsManager } from './geocache-tabs-manager';
 import { GeocachesService } from './geocaches-service';
 import { ZonesService } from './zones-service';
@@ -887,6 +888,31 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         }
     }
 
+    protected handleFilteredDataChange(geocaches: Geocache[]): void {
+        if (!this.zoneId) { return; }
+        const widgetId = `geoapp-map-zone-${this.zoneId}`;
+        const mapWidget = this.shell.getWidgets('bottom').find(w => w.id === widgetId) as MapWidget | undefined;
+        if (!mapWidget) { return; }
+        const mapGeocaches = geocaches
+            .filter(gc => gc.latitude != null && gc.longitude != null)
+            .map(gc => ({
+                id: gc.id,
+                gc_code: gc.gc_code,
+                name: gc.name,
+                cache_type: gc.cache_type,
+                latitude: gc.latitude!,
+                longitude: gc.longitude!,
+                difficulty: gc.difficulty,
+                terrain: gc.terrain,
+                found: gc.found,
+                is_corrected: gc.is_corrected,
+                original_latitude: gc.original_latitude,
+                original_longitude: gc.original_longitude,
+                waypoints: gc.waypoints || []
+            }));
+        mapWidget.loadGeocaches(mapGeocaches);
+    }
+
     protected async load(): Promise<void> {
         if (!this.zoneId) { return; }
         this.loading = true;
@@ -1509,6 +1535,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                     name: geocache.name,
                 })}
                 onTableVisibleColumnIdsChange={this.handleTableVisibleColumnIdsChange}
+                onFilteredDataChange={geocaches => this.handleFilteredDataChange(geocaches)}
                 onImportGpx={(file, updateExisting, onProgress) => this.handleImportGpx(file, updateExisting, onProgress)}
                 onImportBookmarkList={(bookmarkCode, onProgress) => this.handleImportBookmarkList(bookmarkCode, onProgress)}
                 onImportPocketQuery={(pqCode, onProgress) => this.handleImportPocketQuery(pqCode, onProgress)}

@@ -505,6 +505,7 @@ export class MapLayerManager {
      */
     clearGeocaches(): void {
         this.geocacheVectorSource.clear();
+        this.waypointVectorSource.clear();
     }
 
     /**

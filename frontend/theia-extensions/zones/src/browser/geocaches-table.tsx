@@ -124,6 +124,7 @@ interface GeocachesTableProps {
     currentZoneId?: number;
     visibleColumnIds?: GeocachesTableColumnId[];
     onVisibleColumnIdsChange?: (columnIds: GeocachesTableColumnId[]) => void;
+    onFilteredDataChange?: (geocaches: Geocache[]) => void;
 }
 
 export type GeocachesTableColumnId =
@@ -516,7 +517,8 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
     zones = [],
     currentZoneId,
     visibleColumnIds,
-    onVisibleColumnIdsChange
+    onVisibleColumnIdsChange,
+    onFilteredDataChange
 }) => {
     const [sorting, setSorting] = React.useState<SortingState>([]);
     const [rowSelection, setRowSelection] = React.useState({});
@@ -888,6 +890,11 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
             return true;
         });
     }, [data, globalFilter, advancedClauses]);
+
+    React.useEffect(() => {
+        onFilteredDataChange?.(filteredData);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [filteredData]);
 
     const table = useReactTable({
         data: filteredData,

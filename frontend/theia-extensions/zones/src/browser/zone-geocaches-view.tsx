@@ -40,6 +40,7 @@ export interface ZoneGeocachesViewProps {
     onCopy: (geocache: Geocache, targetZoneId: number) => void | Promise<void>;
     onImportAround: (geocache: Geocache) => void | Promise<void>;
     onTableVisibleColumnIdsChange: (columnIds: GeocachesTableColumnId[]) => void;
+    onFilteredDataChange?: (geocaches: Geocache[]) => void;
     onImportGpx: (file: File, updateExisting: boolean, onProgress?: (percentage: number, message: string) => void) => Promise<void>;
     onImportBookmarkList: (bookmarkCode: string, onProgress?: (percentage: number, message: string) => void) => Promise<void>;
     onImportPocketQuery: (pqCode: string, onProgress?: (percentage: number, message: string) => void) => Promise<void>;
@@ -137,6 +138,7 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
                 currentZoneId={props.currentZoneId}
                 visibleColumnIds={props.tableVisibleColumnIds}
                 onVisibleColumnIdsChange={props.onTableVisibleColumnIdsChange}
+                onFilteredDataChange={props.onFilteredDataChange}
             />
         )}
 
