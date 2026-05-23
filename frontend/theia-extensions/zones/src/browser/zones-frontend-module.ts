@@ -2,6 +2,7 @@ import { ContainerModule } from '@theia/core/shared/inversify';
 import { FrontendApplicationContribution, WidgetFactory } from '@theia/core/lib/browser';
 import { CommandContribution, MenuContribution } from '@theia/core/lib/common';
 import { bindRootContributionProvider } from '@theia/core/lib/common/contribution-provider';
+import { PreferenceContribution } from '@theia/core/lib/common/preferences/preference-schema';
 import { ZonesTreeWidget } from './zones-tree-widget';
 import { ZonesFrontendContribution } from './zones-frontend-contribution';
 import { ZonesCommandContribution } from './zones-command-contribution';
@@ -72,9 +73,15 @@ import {
     GeocacheDetailsHeaderActionContribution,
     GeocacheDetailsHeaderActionRegistry
 } from './geocache-details-header-actions';
+import {
+    GeoAppPreferenceContribution,
+    geoAppPreferenceContribution
+} from './geoapp-preference-contribution';
 
 export default new ContainerModule(bind => {
     bindRootContributionProvider(bind, GeocacheDetailsHeaderActionContribution);
+    bind(GeoAppPreferenceContribution).toConstantValue(geoAppPreferenceContribution);
+    bind(PreferenceContribution).toService(GeoAppPreferenceContribution);
 
     bind(BackendApiClient).toSelf().inSingletonScope();
     bind(ZonesService).toSelf().inSingletonScope();

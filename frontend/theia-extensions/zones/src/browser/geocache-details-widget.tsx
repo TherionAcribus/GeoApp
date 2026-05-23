@@ -991,7 +991,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             this.messages.warn('Aucune geocache selectionnee pour analyser les images.');
             return;
         }
-        const imageContexts: GeoAppChatImageContext[] = images.slice(0, 5).map(image => ({
+        const imageContexts: GeoAppChatImageContext[] = images.map(image => ({
             url: image.url,
             origin: image.origin,
             id: String(image.id),
@@ -1266,7 +1266,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                     ocrLmstudioBaseUrl: this.preferencesController.getOcrLmstudioBaseUrl(),
                     ocrLmstudioModel: this.preferencesController.getOcrLmstudioModel(),
                     ocrOpenRouterModel: this.preferencesController.getOcrOpenRouterModel(),
-                    maxChatImages: 5,
+                    maxChatImages: this.preferencesController.getChatImagesRecommendedLimit(),
                     onAnalyzeImages: this.openSelectedImagesChat,
                     messages: this.messages,
                     languageModelRegistry: this.languageModelRegistry,

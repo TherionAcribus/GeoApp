@@ -249,11 +249,18 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
 
     protected async fetchImagesAsVariables(imageContexts: GeoAppChatImageContext[]): Promise<AIVariableResolutionRequest[]> {
         const variables: AIVariableResolutionRequest[] = [];
-        for (const imageContext of imageContexts.slice(0, 5)) {
-            const url = imageContext.url;
+        for (const imageContext of imageContexts) {
+            let url = imageContext.url;
             try {
-                const response = await fetch(url, { credentials: 'include' });
-                if (!response.ok) { continue; }
+                let response = await this.fetchImageForChat(url);
+                if (!response && imageContext.id) {
+                    const storedUrl = await this.storeImageForChat(imageContext.id);
+                    if (storedUrl) {
+                        url = storedUrl;
+                        response = await this.fetchImageForChat(storedUrl);
+                    }
+                }
+                if (!response) { continue; }
                 const blob = await response.blob();
                 const dataUrl = await this.readBlobAsDataUrl(blob);
                 const base64data = dataUrl.substring(dataUrl.indexOf(',') + 1);
@@ -269,6 +276,44 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
             }
         }
         return variables;
+    }
+
+    protected async fetchImageForChat(url: string): Promise<Response | undefined> {
+        try {
+            const response = await fetch(url, { credentials: 'include' });
+            return response.ok ? response : undefined;
+        } catch {
+            return undefined;
+        }
+    }
+
+    protected async storeImageForChat(imageId: string): Promise<string | undefined> {
+        const id = Number.parseInt(imageId, 10);
+        if (!Number.isFinite(id)) {
+            return undefined;
+        }
+        try {
+            const response = await fetch(`${this.getBackendBaseUrl()}/api/geocache-images/${id}/store`, {
+                method: 'POST',
+                credentials: 'include',
+            });
+            if (!response.ok) {
+                return undefined;
+            }
+            const image = await response.json() as { url?: string };
+            return image.url ? this.resolveBackendUrl(image.url) : undefined;
+        } catch {
+            return undefined;
+        }
+    }
+
+    protected getBackendBaseUrl(): string {
+        const value = String(this.preferenceService.get('geoApp.backend.apiBaseUrl', 'http://localhost:8000') || 'http://localhost:8000');
+        return value.replace(/\/+$/, '');
+    }
+
+    protected resolveBackendUrl(url: string): string {
+        return url.startsWith('/') ? `${this.getBackendBaseUrl()}${url}` : url;
     }
 
     protected readBlobAsDataUrl(blob: Blob): Promise<string> {

@@ -181,13 +181,18 @@ export class EarthCoachCommandContribution implements CommandContribution, MenuC
             return;
         }
         const mode = action === 'resolve' ? 'resolver' : 'coach';
+        const selectedImages = selectEarthCoachImagesForChat(
+            context.images,
+            5,
+            this.readGalleryImageSelection(context.geocacheData.id)
+        );
         const prompt = buildEarthCoachPrompt({
             geocache: context.geocacheData,
             mode,
             action,
             observations: context.observations,
             gcPersonalNote: context.gcPersonalNote,
-            images: context.images,
+            images: selectedImages,
         });
 
         const gcLabel = context.geocacheData.gc_code || context.geocacheData.name;
@@ -210,12 +215,12 @@ export class EarthCoachCommandContribution implements CommandContribution, MenuC
                 preferredAgentId: EarthCoachAgentId,
                 earthcoachMode: mode,
                 sessionKind: 'earthcoach',
-                imageContexts: selectEarthCoachImagesForChat(context.images).map(toImageContext),
+                imageContexts: selectedImages.map(toImageContext),
                 resumeState: {
                     earthcoach: {
                         mode,
                         action,
-                        imageOrigins: context.images.map(image => ({
+                        imageOrigins: selectedImages.map(image => ({
                             id: image.id,
                             origin: image.origin,
                             label: image.label,
@@ -224,6 +229,24 @@ export class EarthCoachCommandContribution implements CommandContribution, MenuC
                 },
             })
         );
+    }
+
+    protected readGalleryImageSelection(geocacheId?: number): string[] {
+        if (geocacheId == null) {
+            return [];
+        }
+        try {
+            const raw = window.localStorage.getItem(`geoapp.earthcoach.chatImageSelection.${geocacheId}`);
+            const parsed = raw ? JSON.parse(raw) : undefined;
+            if (!Array.isArray(parsed)) {
+                return [];
+            }
+            return parsed
+                .map(value => String(value))
+                .filter(value => Boolean(value));
+        } catch {
+            return [];
+        }
     }
 
     protected async pickAction(): Promise<EarthCoachQuickAction | undefined> {

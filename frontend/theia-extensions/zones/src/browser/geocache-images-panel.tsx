@@ -65,6 +65,9 @@ export interface GeocacheImagesPanelProps {
     ocrLmstudioBaseUrl?: string;
     ocrLmstudioModel?: string;
     ocrOpenRouterModel?: string;
+    /**
+     * Recommended image count for chat prompts. Users may exceed it manually.
+     */
     maxChatImages?: number;
     onAnalyzeImages?: (images: GeocacheImageChatSelection[]) => Promise<void> | void;
 }
@@ -144,6 +147,8 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     const [chatImageIds, setChatImageIds] = React.useState<number[]>([]);
 
     const uploadInputRef = React.useRef<HTMLInputElement | null>(null);
+    const initializedChatSelectionForRef = React.useRef<number | null>(null);
+    const didWarnChatImageLimitRef = React.useRef(false);
 
     const [effectiveThumbnailSize, setEffectiveThumbnailSize] = React.useState<GalleryThumbnailSize>(thumbnailSize);
 
@@ -250,6 +255,48 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
         return images.filter(img => !isHiddenByDomain(img.source_url));
     }, [images, isHiddenByDomain, normalizedHiddenDomains.length, showHiddenImages]);
 
+    const selectableChatImageIds = React.useMemo(() => {
+        return new Set(visibleImages.filter(image => Boolean(image.url)).map(image => image.id));
+    }, [visibleImages]);
+
+    const getPersistedChatSelectionKey = React.useCallback((): string => {
+        return `geoapp.earthcoach.chatImageSelection.${geocacheId}`;
+    }, [geocacheId]);
+
+    const persistChatImageIds = React.useCallback((ids: number[]): void => {
+        if (!geocacheId) {
+            return;
+        }
+        try {
+            window.localStorage.setItem(getPersistedChatSelectionKey(), JSON.stringify(ids));
+        } catch {
+            // localStorage may be unavailable in tests or restricted browser contexts.
+        }
+    }, [geocacheId, getPersistedChatSelectionKey]);
+
+    const readPersistedChatImageIds = React.useCallback((): number[] => {
+        try {
+            const raw = window.localStorage.getItem(getPersistedChatSelectionKey());
+            const parsed = raw ? JSON.parse(raw) : undefined;
+            if (!Array.isArray(parsed)) {
+                return [];
+            }
+            return parsed
+                .map(value => Number.parseInt(String(value), 10))
+                .filter(value => Number.isFinite(value));
+        } catch {
+            return [];
+        }
+    }, [getPersistedChatSelectionKey]);
+
+    const warnIfChatSelectionIsHeavy = React.useCallback((count: number): void => {
+        if (count <= maxChatImages || didWarnChatImageLimitRef.current) {
+            return;
+        }
+        didWarnChatImageLimitRef.current = true;
+        messages.info(`Plus de ${maxChatImages} image(s) selectionnees: le prompt sera plus lourd et pourra ralentir l'analyse.`);
+    }, [maxChatImages, messages]);
+
     const selected = React.useMemo(() => visibleImages.find(i => i.id === selectedId) ?? null, [visibleImages, selectedId]);
 
     React.useEffect(() => {
@@ -262,6 +309,19 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             setDetailsMode('hidden');
         }
     }, [selectedId, visibleImages]);
+
+    React.useEffect(() => {
+        setChatImageIds(prev => {
+            const next = prev.filter(id => selectableChatImageIds.has(id));
+            if (next.length <= maxChatImages) {
+                didWarnChatImageLimitRef.current = false;
+            }
+            if (next.length !== prev.length || !next.every((id, index) => id === prev[index])) {
+                persistChatImageIds(next);
+            }
+            return next.length === prev.length && next.every((id, index) => id === prev[index]) ? prev : next;
+        });
+    }, [maxChatImages, persistChatImageIds, selectableChatImageIds]);
 
     const [draftTitle, setDraftTitle] = React.useState('');
     const [draftNote, setDraftNote] = React.useState('');
@@ -303,6 +363,12 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     React.useEffect(() => {
         void loadImages();
     }, [loadImages]);
+
+    React.useEffect(() => {
+        initializedChatSelectionForRef.current = null;
+        didWarnChatImageLimitRef.current = false;
+        setChatImageIds([]);
+    }, [geocacheId]);
 
     React.useEffect(() => {
         const handler = (event: Event): void => {
@@ -363,6 +429,37 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     const getChatImageOriginLabel = React.useCallback((img: GeocacheImageV2Dto): string => {
         return getChatImageOrigin(img) === 'user_observation' ? 'Photo utilisateur locale' : 'Image du listing';
     }, [getChatImageOrigin]);
+
+    React.useEffect(() => {
+        if (!onAnalyzeImages || initializedChatSelectionForRef.current === geocacheId || !visibleImages.length) {
+            return;
+        }
+        initializedChatSelectionForRef.current = geocacheId;
+        const priority: Record<'user_observation' | 'cache_listing', number> = {
+            user_observation: 0,
+            cache_listing: 1,
+        };
+        const persistedImageIds = readPersistedChatImageIds().filter(id => selectableChatImageIds.has(id));
+        if (persistedImageIds.length) {
+            setChatImageIds(persistedImageIds);
+            persistChatImageIds(persistedImageIds);
+            warnIfChatSelectionIsHeavy(persistedImageIds.length);
+            return;
+        }
+        const defaultImageIds = visibleImages
+            .filter(image => Boolean(image.url) && getChatImageOrigin(image) === 'user_observation')
+            .map((image, index) => ({ image, index }))
+            .sort((left, right) => {
+                const priorityDelta = priority[getChatImageOrigin(left.image)] - priority[getChatImageOrigin(right.image)];
+                return priorityDelta || left.index - right.index;
+            })
+            .slice(0, maxChatImages)
+            .map(item => item.image.id);
+        if (defaultImageIds.length) {
+            setChatImageIds(defaultImageIds);
+            persistChatImageIds(defaultImageIds);
+        }
+    }, [geocacheId, getChatImageOrigin, maxChatImages, onAnalyzeImages, persistChatImageIds, readPersistedChatImageIds, selectableChatImageIds, visibleImages, warnIfChatSelectionIsHeavy]);
 
     const isRemoteOriginalImage = React.useCallback((img: GeocacheImageV2Dto | null | undefined): boolean => {
         if (!img || img.parent_image_id) {
@@ -524,7 +621,13 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             if (createdIds.length) {
                 setSelectedId(createdIds[createdIds.length - 1]);
                 setDetailsMode('fields');
-                setChatImageIds(prev => [...prev, ...createdIds.filter(id => !prev.includes(id))].slice(-maxChatImages));
+                setChatImageIds(prev => {
+                    const current = prev.filter(id => selectableChatImageIds.has(id));
+                    const next = [...current, ...createdIds.filter(id => !current.includes(id))];
+                    warnIfChatSelectionIsHeavy(next.length);
+                    persistChatImageIds(next);
+                    return next;
+                });
             }
             messages.info(`${createdIds.length} image(s) ajoutee(s)`);
         } finally {
@@ -561,18 +664,25 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
 
     const toggleChatImage = (imageId: number): void => {
         setChatImageIds(prev => {
-            if (prev.includes(imageId)) {
-                return prev.filter(id => id !== imageId);
+            const current = prev.filter(id => selectableChatImageIds.has(id));
+            if (current.includes(imageId)) {
+                const next = current.filter(id => id !== imageId);
+                if (next.length <= maxChatImages) {
+                    didWarnChatImageLimitRef.current = false;
+                }
+                persistChatImageIds(next);
+                return next;
             }
-            if (prev.length >= maxChatImages) {
-                messages.warn(`Le chat accepte ${maxChatImages} image(s) maximum pour cette action.`);
-                return prev;
-            }
-            return [...prev, imageId];
+            const next = [...current, imageId];
+            warnIfChatSelectionIsHeavy(next.length);
+            persistChatImageIds(next);
+            return next;
         });
     };
 
     const clearChatImages = (): void => {
+        didWarnChatImageLimitRef.current = false;
+        persistChatImageIds([]);
         setChatImageIds([]);
     };
 
@@ -580,24 +690,50 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
         if (!onAnalyzeImages || chatImageIds.length === 0) {
             return;
         }
-        const selectedImages = chatImageIds
-            .map(id => images.find(image => image.id === id) || visibleImages.find(image => image.id === id))
-            .filter((image): image is GeocacheImageV2Dto => Boolean(image))
-            .map(image => ({
-                id: image.id,
-                url: image.url ? resolveImageUrl(image.url) : '',
-                source_url: image.source_url || '',
-                origin: getChatImageOrigin(image),
-                originLabel: getChatImageOriginLabel(image),
-                title: image.title,
-                note: image.note,
-            }))
-            .filter(image => Boolean(image.url));
-        if (!selectedImages.length) {
+        const selectedImageDtos = chatImageIds
+            .filter(id => selectableChatImageIds.has(id))
+            .map(id => visibleImages.find(image => image.id === id))
+            .filter((image): image is GeocacheImageV2Dto => Boolean(image));
+        const selectedImages: GeocacheImageChatSelection[] = [];
+        setIsSaving(true);
+        try {
+            for (const image of selectedImageDtos) {
+                let preparedImage = image;
+                if (canStoreImage(image)) {
+                    try {
+                        const storeRes = await fetch(`${backendBaseUrl}/api/geocache-images/${image.id}/store`, {
+                            method: 'POST',
+                            credentials: 'include',
+                        });
+                        if (storeRes.ok) {
+                            preparedImage = (await storeRes.json()) as GeocacheImageV2Dto;
+                            setImages(prev => prev.map(existing => existing.id === preparedImage.id ? preparedImage : existing));
+                        } else {
+                            messages.warn(`Impossible de stocker l'image ${image.id}; elle sera tentee via son URL distante.`);
+                        }
+                    } catch {
+                        messages.warn(`Impossible de stocker l'image ${image.id}; elle sera tentee via son URL distante.`);
+                    }
+                }
+                selectedImages.push({
+                    id: preparedImage.id,
+                    url: preparedImage.url ? resolveImageUrl(preparedImage.url) : '',
+                    source_url: preparedImage.source_url || '',
+                    origin: getChatImageOrigin(preparedImage),
+                    originLabel: getChatImageOriginLabel(preparedImage),
+                    title: preparedImage.title,
+                    note: preparedImage.note,
+                });
+            }
+        } finally {
+            setIsSaving(false);
+        }
+        const sendableImages = selectedImages.filter(image => Boolean(image.url));
+        if (!sendableImages.length) {
             messages.warn('Aucune image selectionnee ne peut etre envoyee au chat.');
             return;
         }
-        await Promise.resolve(onAnalyzeImages(selectedImages));
+        await Promise.resolve(onAnalyzeImages(sendableImages));
     };
 
     const duplicateImageById = async (imageId: number): Promise<void> => {
@@ -1460,7 +1596,8 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     const derivedCount = images.filter(img => Boolean(img.parent_image_id)).length;
     const analyzedCount = images.filter(img => Boolean((img.ocr_text || '').trim()) || Boolean((img.qr_payload || '').trim())).length;
     const selectedChatImages = chatImageIds
-        .map(id => images.find(image => image.id === id) || visibleImages.find(image => image.id === id))
+        .filter(id => selectableChatImageIds.has(id))
+        .map(id => visibleImages.find(image => image.id === id))
         .filter((image): image is GeocacheImageV2Dto => Boolean(image));
     const selectedChatUserCount = selectedChatImages.filter(image => getChatImageOrigin(image) === 'user_observation').length;
     const selectedChatListingCount = selectedChatImages.filter(image => getChatImageOrigin(image) === 'cache_listing').length;
@@ -1513,14 +1650,14 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                             <button
                                 className='theia-button geoapp-images-icon-button'
                                 onClick={() => { void analyzeChatImages(); }}
-                                disabled={isSaving || chatImageIds.length === 0}
+                                disabled={isSaving || selectedChatImages.length === 0}
                                 type='button'
-                                title={`Envoyer jusqu'a ${maxChatImages} images au chat`}
+                                title={`Envoyer les images selectionnees au chat. Conseil: ${maxChatImages} image(s) pour garder un prompt leger.`}
                             >
                                 <span className='codicon codicon-comment-discussion' />
-                                Chat ({chatImageIds.length}/{maxChatImages})
+                                Chat ({selectedChatImages.length})
                             </button>
-                            {chatImageIds.length > 0 ? (
+                            {selectedChatImages.length > 0 ? (
                                 <button
                                     className='theia-button secondary geoapp-images-icon-button'
                                     onClick={clearChatImages}
@@ -1576,6 +1713,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                 <div className='geoapp-images-hidden-strip'>
                     <span>
                         Selection chat: {selectedChatUserCount} photo(s) utilisateur, {selectedChatListingCount} image(s) du listing, {selectedChatNoteCount} note(s) transmise(s).
+                        {selectedChatImages.length > maxChatImages ? ` Conseil depasse (${maxChatImages}): prompt plus lourd.` : ''}
                     </span>
                     <button className='theia-button secondary' type='button' onClick={clearChatImages} disabled={isSaving}>
                         Vider

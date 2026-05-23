@@ -416,6 +416,17 @@ function testSelectImagesForChatPrioritizesUserObservations(): void {
     assert.deepEqual(selected.map(image => image.id), ['1363', '1364', 'listing-1', 'listing-2', 'listing-3']);
 }
 
+function testSelectImagesForChatHonorsPreferredIds(): void {
+    const selected = selectEarthCoachImagesForChat([
+        { id: '105', origin: 'cache_listing', fileUri: 'https://example.test/listing-1.jpg' },
+        { id: '110', origin: 'cache_listing', fileUri: 'https://example.test/listing-6.jpg' },
+        { id: '1398', origin: 'user_observation', fileUri: 'https://example.test/user-1.jpg' },
+        { id: '1399', origin: 'user_observation', fileUri: 'https://example.test/user-2.jpg' },
+    ], 5, ['1398', '1399', '110']);
+
+    assert.deepEqual(selected.map(image => image.id), ['1398', '1399', '110']);
+}
+
 async function run(): Promise<void> {
     testSystemPromptModes();
     testReferenceToolShape();
@@ -429,6 +440,7 @@ async function run(): Promise<void> {
     testResolverInstructionDoesNotPretendTerrain();
     testImageContextMapping();
     testSelectImagesForChatPrioritizesUserObservations();
+    testSelectImagesForChatHonorsPreferredIds();
     await testReferenceSearchUsesPreferencesAndCache();
     await testReferenceSearchHonorsAllowedSources();
     await testReferenceSearchAddsAdvancedGeologySources();

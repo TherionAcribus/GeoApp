@@ -20,6 +20,7 @@ export class GeocacheDetailsPreferencesController {
     private readonly imagesStorageDefaultModePreferenceKey = 'geoApp.images.storage.defaultMode';
     private readonly imagesGalleryThumbnailSizePreferenceKey = 'geoApp.images.gallery.thumbnailSize';
     private readonly imagesGalleryHiddenDomainsPreferenceKey = 'geoApp.images.gallery.hiddenDomains';
+    private readonly chatImagesRecommendedLimitPreferenceKey = 'geoApp.chat.images.recommendedLimit';
     private readonly ocrDefaultEnginePreferenceKey = 'geoApp.ocr.defaultEngine';
     private readonly ocrDefaultLanguagePreferenceKey = 'geoApp.ocr.defaultLanguage';
     private readonly ocrVisionProviderPreferenceKey = 'geoApp.ocr.visionProvider';
@@ -155,5 +156,14 @@ export class GeocacheDetailsPreferencesController {
             .split(/[\n\r,;]+/g)
             .map(value => value.trim().toLowerCase())
             .filter(value => Boolean(value));
+    }
+
+    getChatImagesRecommendedLimit(): number {
+        const raw = this.preferenceService.get(this.chatImagesRecommendedLimitPreferenceKey, 5) as unknown;
+        const parsed = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10);
+        if (!Number.isFinite(parsed)) {
+            return 5;
+        }
+        return Math.max(1, Math.min(50, Math.floor(parsed)));
     }
 }
