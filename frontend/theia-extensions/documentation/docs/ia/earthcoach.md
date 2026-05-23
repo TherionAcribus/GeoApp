@@ -18,6 +18,7 @@ EarthCoach peut vous aider a :
 - comprendre le texte et les questions d'une EarthCache ;
 - expliquer un terme geologique avec des mots simples ;
 - preparer une visite terrain ;
+- enregistrer des observations structurees avec date, waypoint, coordonnees et photos ;
 - separer observation, interpretation et hypothese ;
 - analyser vos notes personnelles ;
 - chercher des references pedagogiques externes ;
@@ -46,6 +47,7 @@ Quand vous ouvrez EarthCoach depuis une EarthCache, GeoApp propose plusieurs act
 | **Comprendre cette EarthCache** | Resume le but geologique, explique le contexte et les questions utiles. |
 | **Preparer ma visite** | Produit une checklist terrain : observer, mesurer, photographier, noter. |
 | **Mode terrain compact** | Ouvre une checklist imprimable/mobile sans attendre une reponse du chat. |
+| **Observations terrain** | Ouvre la vue de creation, edition et liaison de photos aux observations structurees. |
 | **Galerie images EarthCoach** | Separe visuellement images du listing, photos utilisateur et references pedagogiques. |
 | **Illustrer un terme** | Ouvre les references EarthCoach avec articles et images pedagogiques. |
 | **Expliquer un mot** | Explique un terme geologique dans le contexte de la cache. |
@@ -117,6 +119,22 @@ La vue propose deux actions :
 | **Imprimer** | Lance l'impression de la checklist. |
 
 Ce mode ne remplace pas EarthCoach dans le chat. Il sert surtout avant ou pendant la visite, quand vous voulez une fiche courte a garder sous les yeux.
+
+## Observations terrain
+
+L'action **Observations terrain** ouvre une vue EarthCoach separee du chat pour enregistrer les donnees de terrain de facon structuree.
+
+Chaque observation peut contenir :
+
+- un type : observation, hypothese ou interpretation ;
+- une date terrain ;
+- un waypoint ;
+- des coordonnees texte ou decimales ;
+- une ou plusieurs photos liees.
+
+Vous pouvez aussi importer une photo depuis cette vue. GeoApp l'ajoute aux images de la cache, puis EarthCoach la lie automatiquement au brouillon en cours.
+
+Ces observations sont ensuite reprises par EarthCoach dans les actions **Analyser mes observations** et **Resoudre avec mes observations**. Si aucune observation structuree n'existe encore, EarthCoach garde le fallback historique vers les notes utilisateur.
 
 ### Cache local des recherches
 

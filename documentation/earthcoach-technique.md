@@ -35,6 +35,9 @@ Fichiers principaux :
 | `earthcoach-field-checklist-widget.tsx` | Widget Theia de checklist imprimable/mobile. |
 | `earthcoach-image-gallery.ts` | Regroupement strict des images par origine. |
 | `earthcoach-image-gallery-widget.tsx` | Widget Theia de galerie images separee. |
+| `earthcoach-observations.ts` | Helpers purs des brouillons et payloads d'observations structurees. |
+| `earthcoach-observation-service.ts` | Client frontend des routes observations et upload photo. |
+| `earthcoach-observations-widget.tsx` | Widget Theia de creation, edition, suppression et liaison de photos aux observations. |
 | `earthcoach-reference-tools.ts` | Tool `earthcoach_search_reference`, recherches Wikipedia/Wikimedia, cache local. |
 | `earthcoach-reference-widget.tsx` | Vue "References EarthCoach" avec recherche, articles et images pedagogiques. |
 | `earthcoach-note-tools.ts` | Tool `earthcoach_save_note` pour enregistrer une synthese dans les notes GeoApp. |
@@ -114,6 +117,7 @@ export type EarthCoachQuickAction =
   | 'understand'
   | 'prepare_visit'
   | 'field_checklist'
+  | 'observations'
   | 'image_gallery'
   | 'explain_word'
   | 'illustrate_term'
@@ -132,6 +136,8 @@ EARTHCOACH RESOLUTION - <GC ou nom>
 ```
 
 L'action `field_checklist` ouvre directement le widget `EarthCoachFieldChecklistWidget`. Elle ne lance pas de requete LLM.
+
+L'action `observations` ouvre directement le widget `EarthCoachObservationsWidget`. Elle ne lance pas de requete LLM.
 
 L'action `image_gallery` ouvre directement le widget `EarthCoachImageGalleryWidget`. Elle ne lance pas de requete LLM.
 
@@ -197,6 +203,54 @@ Le widget affiche :
 - un bouton vers `earthcoach.references.open` pour chercher des references pedagogiques supplementaires.
 
 La galerie ne modifie pas la galerie image de `zones`. Elle reste dans l'extension EarthCoach pour conserver une separation optionnelle et desactivable.
+
+## Observations terrain structurees
+
+Le widget observations EarthCoach est une vue Theia autonome :
+
+```text
+EarthCoachObservationsWidget.ID = 'earthcoach.observations'
+```
+
+Il utilise le service frontend :
+
+```text
+EarthCoachObservationService
+```
+
+Fonctions exposees cote UI :
+
+- creation d'une observation ;
+- edition d'une observation existante ;
+- suppression avec confirmation ;
+- type `observation`, `hypothesis` ou `interpretation` ;
+- date terrain `observed_at` ;
+- waypoint lie ;
+- coordonnees texte et coordonnees decimales ;
+- liaison d'images existantes de la cache ;
+- upload direct d'une photo utilisateur, puis liaison automatique au brouillon courant.
+
+Le widget recharge la liste depuis :
+
+```text
+GET /api/geocaches/<id>/observations
+```
+
+Les mutations utilisent :
+
+```text
+POST /api/geocaches/<id>/observations
+PUT /api/observations/<id>
+DELETE /api/observations/<id>
+```
+
+L'upload photo utilise la route images existante :
+
+```text
+POST /api/geocaches/<id>/images/upload
+```
+
+Les photos importees sont ajoutees dans `geocache_image` avec une `source_url` `geoapp-upload://...`, puis EarthCoach les classe comme `user_observation`.
 
 ## Integration avec `zones`
 
@@ -288,6 +342,8 @@ Chaque observation peut porter :
 - `waypoint_id` ;
 - `latitude`, `longitude`, `coordinates_raw` ;
 - `image_ids` pour lier des photos `GeocacheImage`.
+
+L'UI dediee EarthCoach permet maintenant de creer et modifier ces observations sans passer par l'API manuellement.
 
 EarthCoach charge d'abord les observations structurees. S'il n'y en a pas, il conserve le fallback historique : les notes utilisateur sont mappees en observations textuelles.
 
@@ -474,7 +530,6 @@ yarn --cwd frontend/theia-extensions/zones build
 
 ## Evolutions prevues
 
-- UI dediee pour creer et editer les observations structurees depuis une fiche EarthCache.
 - Synchronisation optionnelle entre anciennes notes terrain et observations structurees.
 - Recherche avancee de notice de carte geologique a partir d'une position, d'un numero de carte ou d'un nom de commune.
 - Providers dedies pour extraire et normaliser plus finement les resultats BRGM/InfoTerre/Planet-Terre quand une API stable est disponible.

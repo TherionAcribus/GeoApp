@@ -27,6 +27,7 @@ import {
 import { buildEarthCoachPrompt, toImageContext } from './earthcoach-prompt-builder';
 import { EarthCoachFieldChecklistWidget } from './earthcoach-field-checklist-widget';
 import { EarthCoachImageGalleryWidget } from './earthcoach-image-gallery-widget';
+import { EarthCoachObservationsWidget } from './earthcoach-observations-widget';
 import { EarthCoachReferenceWidget } from './earthcoach-reference-widget';
 
 export namespace EarthCoachCommands {
@@ -55,6 +56,11 @@ const QUICK_ACTIONS: Array<QuickPickValue<EarthCoachQuickAction>> = [
         label: 'Mode terrain compact',
         description: 'Checklist imprimable/mobile sans attendre le chat',
         value: 'field_checklist',
+    },
+    {
+        label: 'Observations terrain',
+        description: 'Creer, editer et lier des photos aux observations structurees',
+        value: 'observations',
     },
     {
         label: 'Galerie images EarthCoach',
@@ -166,6 +172,10 @@ export class EarthCoachCommandContribution implements CommandContribution, MenuC
             await this.openFieldChecklistWidget(context);
             return;
         }
+        if (action === 'observations') {
+            await this.openObservationsWidget(context);
+            return;
+        }
         if (action === 'image_gallery') {
             await this.openImageGalleryWidget(context);
             return;
@@ -253,6 +263,18 @@ export class EarthCoachCommandContribution implements CommandContribution, MenuC
             return;
         }
         const widget = await this.widgetManager.getOrCreateWidget<EarthCoachImageGalleryWidget>(EarthCoachImageGalleryWidget.ID);
+        widget.setContext(context);
+        if (!widget.isAttached) {
+            this.shell.addWidget(widget, { area: 'right', mode: 'tab-after' });
+        }
+        this.shell.activateWidget(widget.id);
+    }
+
+    protected async openObservationsWidget(context: Awaited<ReturnType<EarthCoachContextService['collectContext']>>): Promise<void> {
+        if (!context) {
+            return;
+        }
+        const widget = await this.widgetManager.getOrCreateWidget<EarthCoachObservationsWidget>(EarthCoachObservationsWidget.ID);
         widget.setContext(context);
         if (!widget.isAttached) {
             this.shell.addWidget(widget, { area: 'right', mode: 'tab-after' });

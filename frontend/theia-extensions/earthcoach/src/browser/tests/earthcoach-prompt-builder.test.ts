@@ -1,6 +1,11 @@
 import * as assert from 'assert/strict';
 import { buildEarthCoachFieldChecklist, formatEarthCoachFieldChecklistMarkdown } from '../earthcoach-field-checklist';
 import { buildEarthCoachImageGallery } from '../earthcoach-image-gallery';
+import {
+    buildEarthCoachObservationInput,
+    createEarthCoachObservationDraftFromDto,
+    toggleObservationImageId,
+} from '../earthcoach-observations';
 import { buildEarthCoachPrompt, toImageContext } from '../earthcoach-prompt-builder';
 import { buildEarthCoachSystemPrompt } from '../earthcoach-prompts';
 import { GeoImage, UserObservation } from '../earthcoach-types';
@@ -271,6 +276,56 @@ function testPromptIncludesStructuredObservationMetadata(): void {
     assert.match(prompt, /images=obs-1:user_observation/);
 }
 
+function testObservationActionInstruction(): void {
+    const prompt = buildEarthCoachPrompt({
+        geocache: {
+            id: 1,
+            gc_code: 'GC123',
+            name: 'Earth test',
+            type: 'EarthCache',
+        },
+        mode: 'coach',
+        action: 'observations',
+        observations: [],
+        images: [],
+    });
+
+    assert.match(prompt, /gerer les observations terrain structurees/);
+}
+
+function testObservationInputBuilder(): void {
+    const selectedImageIds = toggleObservationImageId([3], 5);
+    assert.deepEqual(selectedImageIds, [3, 5]);
+    assert.deepEqual(toggleObservationImageId(selectedImageIds, 3), [5]);
+
+    const draft = createEarthCoachObservationDraftFromDto({
+        id: 9,
+        observation_type: 'hypothesis',
+        content: '  Strates plus dures au sommet.  ',
+        observed_at: '2026-05-22T10:15:00+00:00',
+        waypoint_id: 4,
+        coordinates_raw: 'N 48 00.000 E 002 00.000',
+        latitude: 48.1,
+        longitude: 2.2,
+        images: [{ id: 3 }],
+    });
+    const input = buildEarthCoachObservationInput({
+        ...draft,
+        latitude: '48,25',
+        longitude: '2.50',
+        selectedImageIds,
+    });
+
+    assert.equal(input.content, 'Strates plus dures au sommet.');
+    assert.equal(input.observation_type, 'hypothesis');
+    assert.equal(input.waypoint_id, 4);
+    assert.equal(input.latitude, 48.25);
+    assert.equal(input.longitude, 2.5);
+    assert.equal(input.coordinates_raw, 'N 48 00.000 E 002 00.000');
+    assert.deepEqual(input.image_ids, [3, 5]);
+    assert.equal(typeof input.observed_at, 'string');
+}
+
 function testFieldChecklistBuilder(): void {
     const checklist = buildEarthCoachFieldChecklist({
         geocacheData: {
@@ -353,6 +408,8 @@ async function run(): Promise<void> {
     testNoteToolShape();
     testPromptIncludesImageOriginsAndObservations();
     testPromptIncludesStructuredObservationMetadata();
+    testObservationActionInstruction();
+    testObservationInputBuilder();
     testFieldChecklistBuilder();
     testImageGalleryGroupsByOrigin();
     testResolverInstructionDoesNotPretendTerrain();

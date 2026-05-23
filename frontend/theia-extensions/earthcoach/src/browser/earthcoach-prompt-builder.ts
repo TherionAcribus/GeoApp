@@ -112,6 +112,9 @@ function buildActionInstruction(action: EarthCoachQuickAction, mode: EarthCoachM
     if (action === 'field_checklist') {
         return 'Action demandee: mode terrain compact. Fournis une checklist courte et directement utilisable sur mobile ou papier.';
     }
+    if (action === 'observations') {
+        return 'Action demandee: gerer les observations terrain structurees. Separe observation, hypothese et interpretation, et relie les photos sans les confondre avec des references.';
+    }
     if (action === 'image_gallery') {
         return 'Action demandee: galerie images. Distingue strictement images du listing, photos utilisateur et references pedagogiques.';
     }

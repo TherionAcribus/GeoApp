@@ -11,6 +11,8 @@ import { EarthCoachContextService } from './earthcoach-context-service';
 import { EarthCoachFieldChecklistWidget } from './earthcoach-field-checklist-widget';
 import { EarthCoachImageGalleryWidget } from './earthcoach-image-gallery-widget';
 import { EarthCoachNoteTools } from './earthcoach-note-tools';
+import { EarthCoachObservationService } from './earthcoach-observation-service';
+import { EarthCoachObservationsWidget } from './earthcoach-observations-widget';
 import { EarthCoachReferenceTools } from './earthcoach-reference-tools';
 import { EarthCoachReferenceWidget } from './earthcoach-reference-widget';
 
@@ -21,6 +23,7 @@ export default new ContainerModule(bind => {
     bind(FrontendApplicationContribution).toService(EarthCoachReferenceTools);
     bind(EarthCoachNoteTools).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(EarthCoachNoteTools);
+    bind(EarthCoachObservationService).toSelf().inSingletonScope();
 
     bind(EarthCoachReferenceWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(ctx => ({
@@ -36,6 +39,11 @@ export default new ContainerModule(bind => {
     bind(WidgetFactory).toDynamicValue(ctx => ({
         id: EarthCoachImageGalleryWidget.ID,
         createWidget: () => ctx.container.get(EarthCoachImageGalleryWidget),
+    })).inSingletonScope();
+    bind(EarthCoachObservationsWidget).toSelf();
+    bind(WidgetFactory).toDynamicValue(ctx => ({
+        id: EarthCoachObservationsWidget.ID,
+        createWidget: () => ctx.container.get(EarthCoachObservationsWidget),
     })).inSingletonScope();
 
     bind(EarthCoachAgent).toSelf().inSingletonScope();
