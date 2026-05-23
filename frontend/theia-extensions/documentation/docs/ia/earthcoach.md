@@ -82,12 +82,18 @@ Cette vue sert a eviter les confusions. Si vous voulez chercher des exemples ped
 
 L'action **Illustrer un terme** et le tool IA `earthcoach_search_reference` peuvent chercher des references pedagogiques externes.
 
-En v1, les sources disponibles sont :
+Les sources disponibles sont :
 
 - Wikipedia ;
-- Wikimedia Commons.
+- Wikimedia Commons ;
+- BRGM ;
+- InfoTerre BRGM, pour les cartes geologiques, notices explicatives, rapports et donnees de sous-sol ;
+- GeoWiki ;
+- Planet-Terre ENS Lyon.
 
 Les resultats sont marques comme `educational_reference`. Ils servent a comprendre un concept, pas a prouver ce que vous avez vu sur place.
+
+Pour les sources BRGM, InfoTerre, GeoWiki et Planet-Terre, EarthCoach peut afficher un portail de recherche fiable plutot qu'un article unique. C'est volontaire : ces sites sont plus utiles quand vous croisez le terme geologique avec le lieu, la carte ou la notice concernee.
 
 ## Mode terrain compact
 
@@ -124,9 +130,9 @@ Les reglages se trouvent dans **Preferences GeoApp > EarthCoach**.
 |---|---|
 | **EarthCoach - Recherches externes** | Active ou desactive les appels Wikipedia/Wikimedia. |
 | **EarthCoach - Langue des references** | Choisit `fr` ou `en` par defaut. |
-| **EarthCoach - Articles maximum** | Limite le nombre d'articles retournes. |
+| **EarthCoach - Articles maximum** | Limite le nombre d'articles Wikipedia retournes. |
 | **EarthCoach - Images maximum** | Limite le nombre d'images pedagogiques retournees. |
-| **EarthCoach - Sources autorisees** | Liste CSV des sources autorisees. Valeurs v1 : `wikipedia,wikimedia`. |
+| **EarthCoach - Sources autorisees** | Liste CSV des sources autorisees. Valeurs : `wikipedia,wikimedia,brgm,infoterre,geowiki,planet-terre`. |
 
 Depuis la vue **References EarthCoach**, le bouton **Preferences** ouvre directement la section EarthCoach.
 
@@ -209,4 +215,4 @@ Le mode `resolver` peut aider a formuler une reponse candidate, mais il doit lai
 
 La v1 utilise les notes existantes comme observations textuelles. Les vraies observations structurees avec photos, date, waypoint et coordonnees sont prevues pour une version ulterieure.
 
-Les sources externes serieuses comme BRGM, notices de cartes geologiques, universites ou GeoWiki pourront etre ajoutees dans une version suivante.
+Les sources BRGM, InfoTerre, GeoWiki et Planet-Terre sont exposees comme portails fiables. Une integration plus profonde, capable de retrouver automatiquement une notice de carte geologique precise depuis une position ou un numero de carte, reste prevue pour une version ulterieure.

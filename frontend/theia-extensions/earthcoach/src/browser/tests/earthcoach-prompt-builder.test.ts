@@ -170,7 +170,7 @@ async function testReferenceSearchUsesPreferencesAndCache(): Promise<void> {
 
     const first = await tools.searchReference({ query: 'Basalte' });
     assert.equal(first.language, 'en');
-    assert.deepEqual(first.allowed_sources, ['wikimedia', 'wikipedia']);
+    assert.deepEqual(first.allowed_sources, ['wikipedia', 'wikimedia']);
     assert.equal(first.from_cache, false);
     assert.equal(first.articles.length, 1);
     assert.equal(first.images.length, 1);
@@ -192,6 +192,25 @@ async function testReferenceSearchHonorsAllowedSources(): Promise<void> {
     assert.equal(result.articles.length, 1);
     assert.equal(result.images.length, 0);
     assert.equal(tools.wikipediaCalls, 1);
+    assert.equal(tools.commonsCalls, 0);
+}
+
+async function testReferenceSearchAddsAdvancedGeologySources(): Promise<void> {
+    const tools = new TestReferenceTools({
+        [EARTHCOACH_REFERENCES_WEB_ENABLED_PREF]: true,
+        [EARTHCOACH_REFERENCES_ALLOWED_SOURCES_PREF]: 'brgm,infoterre,geowiki,planet-terre',
+    });
+
+    const result = await tools.searchReference({ query: 'basalte' });
+    assert.deepEqual(result.allowed_sources, ['brgm', 'infoterre', 'geowiki', 'planet-terre']);
+    assert.equal(result.images.length, 0);
+    assert.equal(result.articles.length, 4);
+    assert.equal(result.articles.every(article => article.sourceKind === 'source_portal'), true);
+    assert.ok(result.articles.some(article => article.source === 'BRGM' && article.url?.includes('search_api_fulltext=basalte')));
+    assert.ok(result.articles.some(article => article.source === 'InfoTerre BRGM'));
+    assert.ok(result.articles.some(article => article.source === 'GeoWiki' && article.url?.includes('search=basalte')));
+    assert.ok(result.articles.some(article => article.source === 'Planet-Terre ENS Lyon' && article.url?.includes('SearchableText=basalte')));
+    assert.equal(tools.wikipediaCalls, 0);
     assert.equal(tools.commonsCalls, 0);
 }
 
@@ -306,6 +325,7 @@ async function run(): Promise<void> {
     testImageContextMapping();
     await testReferenceSearchUsesPreferencesAndCache();
     await testReferenceSearchHonorsAllowedSources();
+    await testReferenceSearchAddsAdvancedGeologySources();
     await testSaveEarthCoachNote();
     // eslint-disable-next-line no-console
     console.log('earthcoach-prompt-builder tests passed');

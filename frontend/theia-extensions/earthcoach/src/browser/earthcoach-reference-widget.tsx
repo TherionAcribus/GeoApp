@@ -78,7 +78,7 @@ function EarthCoachReferenceView(props: EarthCoachReferenceViewProps): React.Rea
 
                     {props.result.articles.length ? (
                         <section style={{ display: 'grid', gap: 8 }}>
-                            <h3 style={{ margin: 0, fontSize: 14 }}>Articles</h3>
+                            <h3 style={{ margin: 0, fontSize: 14 }}>Articles et portails fiables</h3>
                             {props.result.articles.map(article => (
                                 <article
                                     key={`${article.source}-${article.title}`}
@@ -96,7 +96,10 @@ function EarthCoachReferenceView(props: EarthCoachReferenceViewProps): React.Rea
                                     {article.summary ? (
                                         <div style={{ lineHeight: 1.45 }}>{article.summary}</div>
                                     ) : undefined}
-                                    <div style={{ opacity: 0.65, fontSize: 12 }}>{article.source}</div>
+                                    <div style={{ opacity: 0.65, fontSize: 12 }}>
+                                        {article.source}
+                                        {article.sourceKind === 'source_portal' ? ' - portail de recherche' : ''}
+                                    </div>
                                 </article>
                             ))}
                         </section>

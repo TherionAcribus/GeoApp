@@ -273,10 +273,16 @@ En v1, `UserObservation` est une vue logique construite depuis les notes existan
 
 Le tool `earthcoach_search_reference` cherche des references pedagogiques externes. Les resultats sont toujours marques `educational_reference`.
 
-Sources v1 :
+Sources disponibles :
 
 - Wikipedia ;
-- Wikimedia Commons.
+- Wikimedia Commons ;
+- BRGM ;
+- InfoTerre BRGM ;
+- GeoWiki ;
+- Planet-Terre ENS Lyon.
+
+`wikipedia` et `wikimedia` utilisent des API publiques pour retourner articles et images. Les sources `brgm`, `infoterre`, `geowiki` et `planet-terre` retournent des entrees `source_portal` : ce sont des liens de recherche fiables vers les portails concernes, pas des observations terrain ni des preuves automatiques.
 
 Preferences associees :
 
@@ -286,7 +292,7 @@ Preferences associees :
 | `geoApp.earthCoach.references.language` | `fr` | Langue par defaut : `fr` ou `en`. |
 | `geoApp.earthCoach.references.maxArticles` | `3` | Limite articles Wikipedia. |
 | `geoApp.earthCoach.references.maxImages` | `5` | Limite images Wikimedia. |
-| `geoApp.earthCoach.references.allowedSources` | `wikipedia,wikimedia` | Sources CSV autorisees. |
+| `geoApp.earthCoach.references.allowedSources` | `wikipedia,wikimedia,brgm,infoterre,geowiki,planet-terre` | Sources CSV autorisees. |
 
 Les preferences sont declarees dans le schema partage :
 
@@ -337,7 +343,7 @@ Fonctions :
 
 - champ de recherche ;
 - langue `fr` / `en` ;
-- affichage articles ;
+- affichage articles et portails fiables ;
 - affichage images pedagogiques ;
 - rappel que les references ne remplacent pas les observations terrain ;
 - affichage des sources actives ;
@@ -426,6 +432,7 @@ Ils verifient notamment :
 - mapping notes existantes vers observations ;
 - respect des preferences references ;
 - cache local des references ;
+- ajout des portails BRGM, InfoTerre, GeoWiki et Planet-Terre ;
 - sauvegarde d'une note EarthCoach avec `source: earthcoach`.
 
 Builds utiles :
@@ -442,13 +449,12 @@ yarn --cwd frontend/theia-extensions/zones build
 - Pas de table backend `UserObservation`.
 - Les observations v1 viennent des notes utilisateur et du texte chat.
 - Les photos utilisateur structurees par observation sont reportees.
-- Les sources externes serieuses comme BRGM, notices de cartes geologiques, universites ou GeoWiki ne sont pas encore implementees.
+- Les sources BRGM, InfoTerre, GeoWiki et Planet-Terre sont exposees comme portails fiables, sans extraction automatique de notices precises.
 - Le cache references est en memoire, non persistant.
 
 ## Evolutions prevues
 
-- Mode terrain compact imprimable/mobile.
-- Galerie visuelle stricte : images pedagogiques vs photos utilisateur.
 - Entite backend `UserObservation` avec date, waypoint, coordonnees et photos liees.
-- Sources supplementaires : BRGM, cartes geologiques, universites, GeoWiki.
+- Recherche avancee de notice de carte geologique a partir d'une position, d'un numero de carte ou d'un nom de commune.
+- Providers dedies pour extraire et normaliser plus finement les resultats BRGM/InfoTerre/Planet-Terre quand une API stable est disponible.
 - Tests plus fins sur l'exposition effective des tools dans les sessions Theia.

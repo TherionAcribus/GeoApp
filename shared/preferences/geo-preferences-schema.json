@@ -1754,7 +1754,7 @@
       "type": "boolean",
       "default": true,
       "title": "EarthCoach - Recherches externes",
-      "description": "Autorise EarthCoach a chercher des references pedagogiques externes sur Wikipedia et Wikimedia Commons.",
+      "description": "Autorise EarthCoach a chercher des references pedagogiques externes sur Wikipedia, Wikimedia Commons, BRGM, InfoTerre, GeoWiki et Planet-Terre.",
       "x-category": "earthcoach",
       "x-targets": [
         "frontend"
@@ -1789,7 +1789,7 @@
       "maximum": 8,
       "default": 3,
       "title": "EarthCoach - Articles maximum",
-      "description": "Nombre maximal d'articles Wikipedia retournes par EarthCoach.",
+      "description": "Nombre maximal d'articles Wikipedia retournes par EarthCoach. Les portails geologiques fiables sont ajoutes separement selon les sources autorisees.",
       "x-category": "earthcoach",
       "x-targets": [
         "frontend"
@@ -1819,9 +1819,9 @@
     },
     "geoApp.earthCoach.references.allowedSources": {
       "type": "string",
-      "default": "wikipedia,wikimedia",
+      "default": "wikipedia,wikimedia,brgm,infoterre,geowiki,planet-terre",
       "title": "EarthCoach - Sources autorisees",
-      "description": "Sources externes autorisees pour les references pedagogiques EarthCoach, separees par des virgules. Valeurs v1: wikipedia, wikimedia.",
+      "description": "Sources externes autorisees pour les references pedagogiques EarthCoach, separees par des virgules. Valeurs: wikipedia, wikimedia, brgm, infoterre, geowiki, planet-terre.",
       "x-category": "earthcoach",
       "x-targets": [
         "frontend"

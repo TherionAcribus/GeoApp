@@ -16,8 +16,22 @@ import {
 
 const PROVIDER_NAME = 'geoapp.earthcoach';
 const REFERENCE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const DEFAULT_ALLOWED_SOURCES = 'wikipedia,wikimedia';
-type EarthCoachReferenceSource = 'wikipedia' | 'wikimedia';
+const DEFAULT_ALLOWED_SOURCES = 'wikipedia,wikimedia,brgm,infoterre,geowiki,planet-terre';
+type EarthCoachReferenceSource =
+    | 'wikipedia'
+    | 'wikimedia'
+    | 'brgm'
+    | 'infoterre'
+    | 'geowiki'
+    | 'planet-terre';
+const REFERENCE_SOURCE_ORDER: EarthCoachReferenceSource[] = [
+    'wikipedia',
+    'wikimedia',
+    'brgm',
+    'infoterre',
+    'geowiki',
+    'planet-terre',
+];
 
 function ok(data: unknown): string {
     return JSON.stringify({ success: true, data });
@@ -83,6 +97,7 @@ export interface EarthCoachReferenceArticle {
     thumbnailUrl?: string;
     origin: 'educational_reference';
     source: string;
+    sourceKind?: 'article' | 'source_portal';
 }
 
 export interface EarthCoachReferenceImage {
@@ -142,7 +157,7 @@ export class EarthCoachReferenceTools implements FrontendApplicationContribution
         return {
             id: EarthCoachReferenceTools.SEARCH_REFERENCE_TOOL_ID,
             name: 'earthcoach_search_reference',
-            description: 'Recherche des references pedagogiques externes autorisees par les preferences EarthCoach pour expliquer un terme geologique. Retourne des sources et images educational_reference; ne retourne jamais une observation de terrain.',
+            description: 'Recherche des references pedagogiques externes autorisees par les preferences EarthCoach pour expliquer un terme geologique. Retourne des articles, portails geologiques fiables et images educational_reference; ne retourne jamais une observation de terrain.',
             providerName: PROVIDER_NAME,
             parameters: buildParams({
                 query: {
@@ -221,15 +236,16 @@ export class EarthCoachReferenceTools implements FrontendApplicationContribution
             includeArticles ? this.searchWikipedia(query, language, maxArticles) : Promise.resolve([]),
             includeImages ? this.searchCommonsImages(query, maxImages) : Promise.resolve([]),
         ]);
+        const sourcePortals = this.buildSourcePortalArticles(query, allowedSources);
         const result: EarthCoachReferenceSearchResult = {
             query,
             language,
             origin: 'educational_reference',
-            articles,
+            articles: [...articles, ...sourcePortals],
             images,
             allowed_sources: allowedSources,
             from_cache: false,
-            usage_rule: 'Ces resultats sont des references pedagogiques externes. Ne les presente jamais comme une observation utilisateur ni comme une image du listing.',
+            usage_rule: 'Ces resultats sont des references pedagogiques externes. Les portails BRGM/InfoTerre/GeoWiki/Planet-Terre guident vers des sources a consulter; ne les presente jamais comme une observation utilisateur ni comme une image du listing.',
         };
         this.referenceCache.set(cacheKey, {
             createdAt: Date.now(),
@@ -270,7 +286,64 @@ export class EarthCoachReferenceTools implements FrontendApplicationContribution
                 thumbnailUrl: page.thumbnail?.source,
                 origin: 'educational_reference' as const,
                 source: `Wikipedia ${language}`,
+                sourceKind: 'article' as const,
             }));
+    }
+
+    protected buildSourcePortalArticles(
+        query: string,
+        allowedSources: EarthCoachReferenceSource[]
+    ): EarthCoachReferenceArticle[] {
+        const articles: EarthCoachReferenceArticle[] = [];
+        const normalizedQuery = query.trim();
+        for (const source of allowedSources) {
+            if (source === 'brgm') {
+                articles.push({
+                    title: `BRGM - rechercher "${normalizedQuery}"`,
+                    summary: 'Portail du Bureau de Recherches Geologiques et Minieres: rapports, donnees scientifiques, ressources et actualites geoscientifiques.',
+                    url: this.buildUrl('https://www.brgm.fr/fr/recherche', { search_api_fulltext: normalizedQuery }),
+                    origin: 'educational_reference',
+                    source: 'BRGM',
+                    sourceKind: 'source_portal',
+                });
+            } else if (source === 'infoterre') {
+                articles.push({
+                    title: `InfoTerre BRGM - cartes et notices pour "${normalizedQuery}"`,
+                    summary: 'Point d entree officiel vers les cartes geologiques, notices explicatives, rapports, Banque du Sous-Sol et geoservices BRGM. A utiliser surtout avec le lieu ou la carte concernee.',
+                    url: 'https://infoterre.brgm.fr/rechercher/sources.htm',
+                    origin: 'educational_reference',
+                    source: 'InfoTerre BRGM',
+                    sourceKind: 'source_portal',
+                });
+            } else if (source === 'geowiki') {
+                articles.push({
+                    title: `GeoWiki - rechercher "${normalizedQuery}"`,
+                    summary: 'Encyclopedie collaborative francophone de geologie, mineralogie, paleontologie et autres geosciences. Utile pour definitions et vocabulaire, a croiser avec les sources officielles.',
+                    url: this.buildUrl('https://www.geowiki.fr/index.php', {
+                        search: normalizedQuery,
+                        title: 'Special:Recherche',
+                        fulltext: '1',
+                    }),
+                    origin: 'educational_reference',
+                    source: 'GeoWiki',
+                    sourceKind: 'source_portal',
+                });
+            } else if (source === 'planet-terre') {
+                articles.push({
+                    title: `Planet-Terre ENS Lyon - rechercher "${normalizedQuery}"`,
+                    summary: 'Ressources scientifiques pour l enseignement des sciences de la Terre, hebergees par l ENS de Lyon, utiles pour approfondir les notions geologiques.',
+                    url: this.buildUrl('https://planet-terre.ens-lyon.fr/@@searchFacets', {
+                        SearchableText: normalizedQuery,
+                        facet: 'true',
+                        'facet.field': ['Type', 'Theme'],
+                    }),
+                    origin: 'educational_reference',
+                    source: 'Planet-Terre ENS Lyon',
+                    sourceKind: 'source_portal',
+                });
+            }
+        }
+        return articles;
     }
 
     protected async searchCommonsImages(query: string, limit: number): Promise<EarthCoachReferenceImage[]> {
@@ -319,6 +392,20 @@ export class EarthCoachReferenceTools implements FrontendApplicationContribution
         return text || undefined;
     }
 
+    protected buildUrl(baseUrl: string, params: Record<string, string | string[]>): string {
+        const searchParams = new URLSearchParams();
+        for (const [key, value] of Object.entries(params)) {
+            if (Array.isArray(value)) {
+                for (const item of value) {
+                    searchParams.append(key, item);
+                }
+            } else {
+                searchParams.set(key, value);
+            }
+        }
+        return `${baseUrl}?${searchParams.toString()}`;
+    }
+
     protected getDefaultLanguage(): 'fr' | 'en' {
         return String(this.preferenceService.get(EARTHCOACH_REFERENCES_LANGUAGE_PREF, 'fr')) === 'en' ? 'en' : 'fr';
     }
@@ -331,11 +418,18 @@ export class EarthCoachReferenceTools implements FrontendApplicationContribution
             .filter(Boolean);
         const allowed = new Set<EarthCoachReferenceSource>();
         for (const value of values) {
-            if (value === 'wikipedia' || value === 'wikimedia') {
+            if (
+                value === 'wikipedia'
+                || value === 'wikimedia'
+                || value === 'brgm'
+                || value === 'infoterre'
+                || value === 'geowiki'
+                || value === 'planet-terre'
+            ) {
                 allowed.add(value);
             }
         }
-        return [...allowed].sort();
+        return REFERENCE_SOURCE_ORDER.filter(source => allowed.has(source));
     }
 
     protected buildCacheKey(
