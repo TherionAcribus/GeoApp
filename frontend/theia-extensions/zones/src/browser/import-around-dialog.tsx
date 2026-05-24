@@ -3,6 +3,7 @@
  */
 
 import * as React from 'react';
+import * as ReactDOM from 'react-dom';
 import { GeocacheFilterBar } from './geocache-filter-bar';
 import {
     AdvancedFilterClause,
@@ -218,136 +219,174 @@ export const ImportAroundDialog: React.FC<ImportAroundDialogProps> = ({
 
     const requestValid = Boolean(buildRequest());
 
-    return (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50" onClick={onCancel}>
-            <div
-                className="w-[560px] max-w-[95vw] rounded-lg border border-[var(--theia-panel-border)] bg-[var(--theia-editor-background)] p-6 shadow-lg"
-                onClick={(e) => e.stopPropagation()}
-            >
-                <div className="mb-4 flex items-center justify-between">
-                    <h3 className="m-0 text-[18px] text-[var(--theia-foreground)]">Importer autour…</h3>
+    const overlayStyle: React.CSSProperties = {
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 10000,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'rgba(0, 0, 0, 0.5)',
+    };
+
+    const panelStyle: React.CSSProperties = {
+        width: 560,
+        maxWidth: '95vw',
+        maxHeight: '90vh',
+        overflowY: 'auto',
+        borderRadius: 8,
+        border: '1px solid var(--theia-panel-border)',
+        background: 'var(--theia-editor-background)',
+        padding: 24,
+        boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)',
+    };
+
+    const inputStyle: React.CSSProperties = {
+        width: '100%',
+        borderRadius: 3,
+        border: '1px solid var(--theia-input-border)',
+        background: 'var(--theia-input-background)',
+        color: 'var(--theia-input-foreground)',
+        padding: '6px 8px',
+    };
+
+    const labelStyle: React.CSSProperties = {
+        display: 'block',
+        marginBottom: 4,
+        fontSize: 13,
+        color: 'var(--theia-foreground)',
+    };
+
+    const dialog = (
+        <div style={overlayStyle} onClick={onCancel}>
+            <div style={panelStyle} onClick={(e) => e.stopPropagation()}>
+                <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <h3 style={{ margin: 0, fontSize: 18, color: 'var(--theia-foreground)' }}>Importer autour…</h3>
                     <button
                         onClick={onCancel}
                         disabled={isImporting}
-                        className="p-1 text-[var(--theia-foreground)] disabled:cursor-not-allowed disabled:opacity-50"
+                        style={{ padding: 4, background: 'none', border: 'none', color: 'var(--theia-foreground)', cursor: 'pointer', fontSize: 16 }}
                         type="button"
                     >
                         ✕
                     </button>
                 </div>
 
-                <p className="mb-3 text-[12px] text-[var(--theia-descriptionForeground)]">Zone cible: {zoneId}</p>
+                <p style={{ marginBottom: 12, fontSize: 12, color: 'var(--theia-descriptionForeground)' }}>Zone cible: {zoneId}</p>
 
                 <form onSubmit={handleSubmit}>
-                    <div className="mb-3 flex flex-wrap gap-3">
-                        <label className="flex items-center gap-2 text-[13px]">
+                    <div style={{ marginBottom: 12, display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
                             <input
                                 type="radio"
                                 checked={mode === 'point'}
                                 onChange={() => setMode('point')}
                                 disabled={isImporting}
                             />
-                            <span className="text-[var(--theia-foreground)]">Autour d’un point</span>
+                            <span style={{ color: 'var(--theia-foreground)' }}>Autour d'un point</span>
                         </label>
-                        <label className="flex items-center gap-2 text-[13px]">
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
                             <input
                                 type="radio"
                                 checked={mode === 'gc_code'}
                                 onChange={() => setMode('gc_code')}
                                 disabled={isImporting}
                             />
-                            <span className="text-[var(--theia-foreground)]">Autour d’un GC code</span>
+                            <span style={{ color: 'var(--theia-foreground)' }}>Autour d'un GC code</span>
                         </label>
-                        <label className="flex items-center gap-2 text-[13px]">
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
                             <input
                                 type="radio"
                                 checked={mode === 'geocache_id'}
                                 onChange={() => setMode('geocache_id')}
                                 disabled={isImporting}
                             />
-                            <span className="text-[var(--theia-foreground)]">Autour d’une géocache locale</span>
+                            <span style={{ color: 'var(--theia-foreground)' }}>Autour d'une géocache locale</span>
                         </label>
                     </div>
 
                     {mode === 'point' && (
-                        <div className="mb-3 flex gap-3">
-                            <div className="flex-1">
-                                <label className="mb-1.5 block text-[13px] text-[var(--theia-foreground)]">Latitude</label>
+                        <div style={{ marginBottom: 12, display: 'flex', gap: 12 }}>
+                            <div style={{ flex: 1 }}>
+                                <label style={labelStyle}>Latitude</label>
                                 <input
                                     value={lat}
                                     onChange={(e) => setLat(e.target.value)}
                                     disabled={isImporting}
                                     placeholder="48.8566"
-                                    className="w-full rounded border border-[var(--theia-input-border)] bg-[var(--theia-input-background)] px-2 py-2 text-[var(--theia-input-foreground)]"
+                                    style={inputStyle}
                                 />
                             </div>
-                            <div className="flex-1">
-                                <label className="mb-1.5 block text-[13px] text-[var(--theia-foreground)]">Longitude</label>
+                            <div style={{ flex: 1 }}>
+                                <label style={labelStyle}>Longitude</label>
                                 <input
                                     value={lon}
                                     onChange={(e) => setLon(e.target.value)}
                                     disabled={isImporting}
                                     placeholder="2.3522"
-                                    className="w-full rounded border border-[var(--theia-input-border)] bg-[var(--theia-input-background)] px-2 py-2 text-[var(--theia-input-foreground)]"
+                                    style={inputStyle}
                                 />
                             </div>
                         </div>
                     )}
 
                     {mode === 'gc_code' && (
-                        <div className="mb-3">
-                            <label className="mb-1.5 block text-[13px] text-[var(--theia-foreground)]">GC code</label>
+                        <div style={{ marginBottom: 12 }}>
+                            <label style={labelStyle}>GC code</label>
                             <input
                                 value={gcCode}
                                 onChange={(e) => setGcCode(e.target.value)}
                                 disabled={isImporting}
                                 placeholder="GC12345"
-                                className="w-full rounded border border-[var(--theia-input-border)] bg-[var(--theia-input-background)] px-2 py-2 text-[var(--theia-input-foreground)]"
+                                style={inputStyle}
                             />
                         </div>
                     )}
 
                     {mode === 'geocache_id' && (
-                        <div className="mb-3 flex gap-3">
-                            <div className="flex-1">
-                                <label className="mb-1.5 block text-[13px] text-[var(--theia-foreground)]">Geocache ID</label>
+                        <div style={{ marginBottom: 12, display: 'flex', gap: 12 }}>
+                            <div style={{ flex: 1 }}>
+                                <label style={labelStyle}>Geocache ID</label>
                                 <input
                                     value={geocacheId}
                                     onChange={(e) => setGeocacheId(e.target.value)}
                                     disabled={isImporting}
                                     placeholder="123"
-                                    className="w-full rounded border border-[var(--theia-input-border)] bg-[var(--theia-input-background)] px-2 py-2 text-[var(--theia-input-foreground)]"
+                                    style={inputStyle}
                                 />
                             </div>
-                            <div className="flex-1">
-                                <label className="mb-1.5 block text-[13px] text-[var(--theia-foreground)]">(Optionnel) GC code</label>
+                            <div style={{ flex: 1 }}>
+                                <label style={labelStyle}>(Optionnel) GC code</label>
                                 <input
                                     value={gcCode}
                                     onChange={(e) => setGcCode(e.target.value)}
                                     disabled={isImporting}
                                     placeholder="GC12345"
-                                    className="w-full rounded border border-[var(--theia-input-border)] bg-[var(--theia-input-background)] px-2 py-2 text-[var(--theia-input-foreground)]"
+                                    style={inputStyle}
                                 />
                             </div>
                         </div>
                     )}
 
-                    <div className="mb-3">
-                        <label className="mb-1.5 block text-[13px] text-[var(--theia-foreground)]">Limite</label>
+                    <div style={{ marginBottom: 12 }}>
+                        <label style={labelStyle}>Limite</label>
                         <input
                             value={limit}
                             onChange={(e) => setLimit(e.target.value)}
                             disabled={isImporting}
                             placeholder="50"
-                            className="w-full rounded border border-[var(--theia-input-border)] bg-[var(--theia-input-background)] px-2 py-2 text-[var(--theia-input-foreground)]"
+                            style={inputStyle}
                         />
                     </div>
 
-                    <div className="mb-3">
-                        <label className="mb-1.5 block text-[13px] text-[var(--theia-foreground)]">
-                            Filtres <span className="text-[var(--theia-descriptionForeground)]">(distance, type, difficulté…)</span>
+                    <div style={{ marginBottom: 12 }}>
+                        <label style={labelStyle}>
+                            Filtres <span style={{ color: 'var(--theia-descriptionForeground)' }}>(distance, type, difficulté…)</span>
                         </label>
-                        <p className="mb-2 text-[11px] text-[var(--theia-descriptionForeground)]">
+                        <p style={{ marginBottom: 8, fontSize: 11, color: 'var(--theia-descriptionForeground)' }}>
                             Utilisez <code>@distance:&lt;=5</code> pour limiter le rayon en km, ou ajoutez des filtres via "Filtres supplémentaires".
                         </p>
                         <GeocacheFilterBar
@@ -363,24 +402,23 @@ export const ImportAroundDialog: React.FC<ImportAroundDialogProps> = ({
                     </div>
 
                     {progressVisible && (
-                        <div className="mb-4">
-                            <div className="mb-1 flex justify-between">
-                                <span className="text-[13px] text-[var(--theia-foreground)]">Progression</span>
-                                <span className="text-[13px] text-[var(--theia-descriptionForeground)]">{progressPercentage}%</span>
+                        <div style={{ marginBottom: 16 }}>
+                            <div style={{ marginBottom: 4, display: 'flex', justifyContent: 'space-between' }}>
+                                <span style={{ fontSize: 13, color: 'var(--theia-foreground)' }}>Progression</span>
+                                <span style={{ fontSize: 13, color: 'var(--theia-descriptionForeground)' }}>{progressPercentage}%</span>
                             </div>
-                            <div className="h-2 w-full overflow-hidden rounded bg-[var(--theia-progressBar-background)]">
+                            <div style={{ height: 6, width: '100%', overflow: 'hidden', borderRadius: 3, background: 'var(--theia-progressBar-background)' }}>
                                 <div
-                                    className="h-full bg-[var(--theia-progressBar-foreground)] transition-[width] duration-300"
-                                    style={{ width: `${progressPercentage}%` }}
+                                    style={{ height: '100%', width: `${progressPercentage}%`, background: 'var(--theia-progressBar-foreground)', transition: 'width 0.3s' }}
                                 />
                             </div>
                             {progressMessage && (
-                                <p className="mt-1 text-[12px] text-[var(--theia-descriptionForeground)]">{progressMessage}</p>
+                                <p style={{ marginTop: 4, fontSize: 12, color: 'var(--theia-descriptionForeground)' }}>{progressMessage}</p>
                             )}
                         </div>
                     )}
 
-                    <div className="flex justify-end gap-2">
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
                         <button
                             type="button"
                             onClick={onCancel}
@@ -392,11 +430,12 @@ export const ImportAroundDialog: React.FC<ImportAroundDialogProps> = ({
                         <button
                             type="submit"
                             disabled={!requestValid || isImporting}
-                            className="theia-button flex items-center gap-2"
+                            className="theia-button"
+                            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                         >
                             <span>Importer</span>
                             {isImporting && (
-                                <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                                <div style={{ width: 14, height: 14, border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
                             )}
                         </button>
                     </div>
@@ -404,4 +443,6 @@ export const ImportAroundDialog: React.FC<ImportAroundDialogProps> = ({
             </div>
         </div>
     );
+
+    return ReactDOM.createPortal(dialog, document.body);
 };

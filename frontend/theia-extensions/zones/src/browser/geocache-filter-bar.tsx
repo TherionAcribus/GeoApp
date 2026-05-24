@@ -257,7 +257,7 @@ export const GeocacheFilterBar: React.FC<GeocacheFilterBarProps> = ({
                                 border: '1px solid var(--theia-panel-border)',
                                 background: 'var(--theia-editor-background)',
                                 borderRadius: 3,
-                                zIndex: 100,
+                                zIndex: 10001,
                                 boxShadow: '0 4px 12px rgba(0,0,0,0.35)',
                             }}
                             onMouseDown={e => e.preventDefault()}

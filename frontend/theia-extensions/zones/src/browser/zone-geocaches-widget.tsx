@@ -26,7 +26,7 @@ import { ZonesService } from './zones-service';
 import { GeoAppWidgetEventsService } from './geoapp-widget-events-service';
 import { getErrorMessage } from './backend-api-client';
 import { ZoneGeocachesView } from './zone-geocaches-view';
-import { ImportAroundDialog, ImportAroundRequest } from './import-around-dialog';
+import { ImportAroundCenter, ImportAroundRequest } from './import-around-dialog';
 
 interface SerializedZoneGeocachesState {
     zoneId: number;
@@ -34,10 +34,6 @@ interface SerializedZoneGeocachesState {
     lastAccessTimestamp?: number;
 }
 
-type ImportAroundCenter =
-    | { type: 'point'; lat: number; lon: number }
-    | { type: 'gc_code'; gc_code: string }
-    | { type: 'geocache_id'; geocache_id: number; gc_code?: string; name?: string };
 
 type GeocacheDetailsResponse = Geocache & {
     description_raw?: string;
