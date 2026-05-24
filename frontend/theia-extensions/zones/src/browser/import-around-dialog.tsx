@@ -44,9 +44,12 @@ export const ImportAroundDialog: React.FC<ImportAroundDialogProps> = ({
     onCancel,
     isImporting
 }) => {
-    const [mode, setMode] = React.useState<'point' | 'geocache_id' | 'gc_code'>(() => {
+    const [mode, setMode] = React.useState<'point' | 'gc_code'>(() => {
         if (!initialCenter) {
             return 'point';
+        }
+        if (initialCenter.type === 'geocache_id') {
+            return 'gc_code';
         }
         return initialCenter.type;
     });
@@ -71,13 +74,6 @@ export const ImportAroundDialog: React.FC<ImportAroundDialogProps> = ({
         }
         if (initialCenter?.type === 'geocache_id' && initialCenter.gc_code) {
             return initialCenter.gc_code;
-        }
-        return '';
-    });
-
-    const [geocacheId, setGeocacheId] = React.useState<string>(() => {
-        if (initialCenter?.type === 'geocache_id') {
-            return String(initialCenter.geocache_id);
         }
         return '';
     });
@@ -176,24 +172,6 @@ export const ImportAroundDialog: React.FC<ImportAroundDialogProps> = ({
             };
         }
 
-        if (mode === 'geocache_id') {
-            const idValue = parseInt(geocacheId, 10);
-            if (!Number.isFinite(idValue) || idValue <= 0) {
-                return null;
-            }
-            return {
-                center: {
-                    type: 'geocache_id',
-                    geocache_id: idValue,
-                    ...(gcCode.trim() ? { gc_code: gcCode.trim().toUpperCase() } : {})
-                },
-                limit: parsedLimit,
-                ...(radius_km !== undefined ? { radius_km } : {}),
-                ...(min_km !== undefined ? { min_km } : {}),
-                ...(geocacheFilters.length > 0 ? { filters: geocacheFilters } : {}),
-            };
-        }
-
         const code = gcCode.trim().toUpperCase();
         if (!code) {
             return null;
@@ -205,7 +183,7 @@ export const ImportAroundDialog: React.FC<ImportAroundDialogProps> = ({
             ...(min_km !== undefined ? { min_km } : {}),
             ...(geocacheFilters.length > 0 ? { filters: geocacheFilters } : {}),
         };
-    }, [gcCode, geocacheId, lat, limit, lon, mode, filterQuery, filterClauses]);
+    }, [gcCode, lat, limit, lon, mode, filterQuery, filterClauses]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -299,15 +277,6 @@ export const ImportAroundDialog: React.FC<ImportAroundDialogProps> = ({
                             />
                             <span style={{ color: 'var(--theia-foreground)' }}>Autour d'un GC code</span>
                         </label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-                            <input
-                                type="radio"
-                                checked={mode === 'geocache_id'}
-                                onChange={() => setMode('geocache_id')}
-                                disabled={isImporting}
-                            />
-                            <span style={{ color: 'var(--theia-foreground)' }}>Autour d'une géocache locale</span>
-                        </label>
                     </div>
 
                     {mode === 'point' && (
@@ -345,31 +314,6 @@ export const ImportAroundDialog: React.FC<ImportAroundDialogProps> = ({
                                 placeholder="GC12345"
                                 style={inputStyle}
                             />
-                        </div>
-                    )}
-
-                    {mode === 'geocache_id' && (
-                        <div style={{ marginBottom: 12, display: 'flex', gap: 12 }}>
-                            <div style={{ flex: 1 }}>
-                                <label style={labelStyle}>Geocache ID</label>
-                                <input
-                                    value={geocacheId}
-                                    onChange={(e) => setGeocacheId(e.target.value)}
-                                    disabled={isImporting}
-                                    placeholder="123"
-                                    style={inputStyle}
-                                />
-                            </div>
-                            <div style={{ flex: 1 }}>
-                                <label style={labelStyle}>(Optionnel) GC code</label>
-                                <input
-                                    value={gcCode}
-                                    onChange={(e) => setGcCode(e.target.value)}
-                                    disabled={isImporting}
-                                    placeholder="GC12345"
-                                    style={inputStyle}
-                                />
-                            </div>
                         </div>
                     )}
 
