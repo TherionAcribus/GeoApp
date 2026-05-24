@@ -379,6 +379,54 @@ def refresh_geocache_logs(geocache_id: int):
         return jsonify({'error': str(e)}), 500
 
 
+@bp.get('/api/geocaches/<int:geocache_id>/logs/recent-summary')
+def get_recent_logs_summary(geocache_id: int):
+    """
+    Récupère les N logs les plus récents sous forme de résumé léger (type, date, auteur).
+    Utilisé pour afficher une série d'icônes représentant l'état récent de la géocache.
+
+    Query params:
+        - count: Nombre de logs à retourner (défaut: 5, max: 20)
+
+    Returns:
+        JSON avec la liste des entrées de résumé et le nombre total de logs
+    """
+    try:
+        geocache = Geocache.query.get(geocache_id)
+        if not geocache:
+            return jsonify({'error': 'Geocache not found'}), 404
+
+        count = min(request.args.get('count', 5, type=int), 20)
+
+        logs = GeocacheLog.query.filter_by(geocache_id=geocache_id) \
+                                .order_by(GeocacheLog.date.desc()) \
+                                .limit(count) \
+                                .all()
+
+        total_count = GeocacheLog.query.filter_by(geocache_id=geocache_id).count()
+
+        entries = [
+            {
+                'log_type': log.log_type,
+                'date': log.date.isoformat() if log.date else None,
+                'author': log.author,
+                'is_favorite': log.is_favorite,
+            }
+            for log in logs
+        ]
+
+        return jsonify({
+            'geocache_id': geocache_id,
+            'gc_code': geocache.gc_code,
+            'total_count': total_count,
+            'entries': entries,
+        })
+
+    except Exception as e:
+        logger.error(f"Error fetching recent logs summary for geocache {geocache_id}: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @bp.get('/api/geocaches/<int:geocache_id>/logs/types')
 def get_log_types(geocache_id: int):
     """

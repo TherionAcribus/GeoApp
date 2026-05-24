@@ -8,8 +8,10 @@ import * as React from 'react';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core';
+import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import { LanguageModelRegistry, LanguageModelService, UserRequest, getTextOfResponse, getJsonOfResponse, isLanguageModelParsedResponse } from '@theia/ai-core';
 import { GeoAppLogsAnalyzerAgentId } from './geoapp-logs-analyzer-agent';
+import { LogsRecentSummary, LogSummaryEntry, LogsRecentSummaryApiResponse } from './geocache-logs-summary';
 
 /**
  * Interface représentant un log de géocache
@@ -329,9 +331,13 @@ export class GeocacheLogsWidget extends ReactWidget {
     protected analysisResult?: string;
     protected offset = 0;
     protected limit = 25;
+    protected summaryEntries: LogSummaryEntry[] = [];
+    protected summaryTotalCount = 0;
+    protected isSummaryLoading = false;
 
     constructor(
         @inject(MessageService) protected readonly messages: MessageService,
+        @inject(PreferenceService) protected readonly preferenceService: PreferenceService,
         @inject(LanguageModelRegistry) protected readonly languageModelRegistry: LanguageModelRegistry,
         @inject(LanguageModelService) protected readonly languageModelService: LanguageModelService
     ) {
@@ -389,10 +395,44 @@ export class GeocacheLogsWidget extends ReactWidget {
         this.offset = 0;
         this.totalCount = 0;
         this.analysisResult = undefined;
+        this.summaryEntries = [];
+        this.summaryTotalCount = 0;
         
         this.title.label = params.gcCode ? `Logs - ${params.gcCode}` : 'Logs';
         
+        this.loadSummary();
         this.loadLogs();
+    }
+
+    /**
+     * Charge le résumé des logs récents depuis le backend
+     */
+    protected async loadSummary(): Promise<void> {
+        if (!this.geocacheId) {
+            return;
+        }
+
+        this.isSummaryLoading = true;
+        this.update();
+
+        try {
+            const count = this.preferenceService.get<number>('geoApp.logs.recentSummaryCount', 5);
+            const url = `${this.backendBaseUrl}/api/geocaches/${this.geocacheId}/logs/recent-summary?count=${count}`;
+            const response = await fetch(url);
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data: LogsRecentSummaryApiResponse = await response.json();
+            this.summaryEntries = data.entries;
+            this.summaryTotalCount = data.total_count;
+        } catch (error) {
+            console.error('[GeocacheLogsWidget] Failed to load logs summary:', error);
+        } finally {
+            this.isSummaryLoading = false;
+            this.update();
+        }
     }
 
     /**
@@ -466,8 +506,9 @@ export class GeocacheLogsWidget extends ReactWidget {
             
             this.messages.info(`Logs rafraîchis : ${data.added} ajoutés, ${data.updated} mis à jour`);
             
-            // Recharger les logs depuis le début
+            // Recharger les logs et le résumé depuis le début
             this.offset = 0;
+            await this.loadSummary();
             await this.loadLogs();
             
         } catch (error) {
@@ -768,6 +809,13 @@ ${JSON.stringify(logsToAnalyze, null, 2)}`;
                             </div>
                         )}
                         
+                        {/* Résumé des logs récents */}
+                        <LogsRecentSummary
+                            entries={this.summaryEntries}
+                            totalCount={this.summaryTotalCount}
+                            isLoading={this.isSummaryLoading}
+                        />
+
                         {/* Liste des logs */}
                         <div style={{ flex: 1, overflow: 'auto' }}>
                             <LogsList 

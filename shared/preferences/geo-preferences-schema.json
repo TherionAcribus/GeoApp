@@ -1884,6 +1884,22 @@
         "navigation",
         "checkers"
       ]
+    },
+    "geoApp.logs.recentSummaryCount": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 20,
+      "default": 5,
+      "title": "Résumé des logs récents — nombre d'icônes",
+      "description": "Nombre de logs récents affichés sous forme d'icônes dans le résumé en haut du panneau Logs et dans la fiche détail de la géocache.",
+      "x-category": "ui",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "ui",
+        "logs"
+      ]
     }
   }
 }
