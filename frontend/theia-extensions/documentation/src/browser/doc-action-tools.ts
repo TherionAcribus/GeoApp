@@ -124,10 +124,101 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
     private buildPreferenceTools(): ToolRequest[] {
         return [
             {
+                id: 'aide_list_preference_categories',
+                name: 'aide_list_preference_categories',
+                description: 'Liste les categories reelles des preferences GeoApp avec le nombre de preferences disponibles dans chaque categorie.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({}),
+                handler: async () => {
+                    try {
+                        return ok(Array.from(this.preferenceStore.definitionsByCategory.entries())
+                            .map(([category, entries]) => ({ category, count: entries.length }))
+                            .sort((a, b) => a.category.localeCompare(b.category)));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_search_preferences',
+                name: 'aide_search_preferences',
+                description: 'Recherche une preference GeoApp par mots-cles, titre, description, tag, categorie, valeur possible ou cle technique.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    query: { type: 'string', description: 'Texte a rechercher (ex: "checker fenetre", "profil chat", "colonnes tableau").', required: true },
+                    category: { type: 'string', description: 'Categorie optionnelle pour limiter la recherche.', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const query = String(args.query || '').trim();
+                        if (!query) { return err('Le champ query est requis.'); }
+                        const normalize = (value: string) => value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+                        const normalizedQuery = normalize(query);
+                        const entries = args.category
+                            ? [...(this.preferenceStore.definitionsByCategory.get(args.category) ?? [])]
+                            : this.preferenceStore.definitions;
+                        const snapshot = this.preferenceStore.getSnapshot();
+                        const matches = entries.filter(({ key, definition }) => {
+                            const def = definition as GeoPreferenceDefinition;
+                            const haystack = [
+                                key,
+                                def.title,
+                                def.description,
+                                def['x-category'],
+                                ...(def['x-tags'] ?? []),
+                                ...(def['x-ui']?.keywords ?? []),
+                                ...(def.enum ?? []).map(String),
+                                ...(def.items?.enum ?? []).map(String),
+                            ].filter(Boolean).join(' ');
+                            return normalize(haystack).includes(normalizedQuery);
+                        }).slice(0, 25);
+                        return ok(matches.map(({ key, definition }) => {
+                            const def = definition as GeoPreferenceDefinition;
+                            return {
+                                key,
+                                title: def.title,
+                                category: def['x-category'],
+                                targets: def['x-targets'] ?? ['frontend'],
+                                tags: def['x-tags'] ?? [],
+                                type: def.type,
+                                description: def.description,
+                                default: def.default,
+                                enum: def.enum,
+                                itemEnum: def.items?.enum,
+                                minimum: def.minimum,
+                                maximum: def.maximum,
+                                value: def['x-sensitive'] ? '***' : snapshot[key],
+                                sensitive: def['x-sensitive'] ?? false,
+                            };
+                        }));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_reset_preference',
+                name: 'aide_reset_preference',
+                description: 'Reinitialise une preference GeoApp a sa valeur par defaut declaree dans le schema.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    key: { type: 'string', description: 'Cle de la preference a reinitialiser.', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const def = this.preferenceStore.schema.properties?.[args.key] as GeoPreferenceDefinition | undefined;
+                        if (!def) { return err(`Preference inconnue : "${args.key}".`); }
+                        if (def['x-sensitive']) { return err(`Cette preference est sensible et ne peut pas etre modifiee par @Aide.`); }
+                        if (!('default' in def)) { return err(`La preference "${args.key}" n'a pas de valeur par defaut connue.`); }
+                        const defaultValue = JSON.parse(JSON.stringify(def.default));
+                        await this.preferenceStore.setValue(args.key, defaultValue);
+                        return ok(`Preference "${args.key}" reinitialisee : ${JSON.stringify(defaultValue)}.`);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
                 id: 'aide_list_preferences',
                 name: 'aide_list_preferences',
                 description: 'Liste toutes les préférences GeoApp avec leur valeur courante, type, description et valeurs possibles. ' +
-                    'Catégories disponibles : ai, earthcoach, chat, ui, map, plugins, ocr, images, updates, backend, logs, search. ' +
+                    'Utilise aide_list_preference_categories pour obtenir la liste exacte des catégories. ' +
                     'Les valeurs sensibles (clés API) sont masquées.',
                 providerName: DocActionToolsManager.PROVIDER_NAME,
                 parameters: buildParams({
@@ -144,11 +235,15 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                             const def = definition as GeoPreferenceDefinition;
                             return {
                                 key,
+                                title: def.title,
                                 category: def['x-category'],
+                                targets: def['x-targets'] ?? ['frontend'],
+                                tags: def['x-tags'] ?? [],
                                 type: def.type,
                                 description: def.description,
                                 default: def.default,
                                 enum: def.enum,
+                                itemEnum: def.items?.enum,
                                 minimum: def.minimum,
                                 maximum: def.maximum,
                                 value: def['x-sensitive'] ? '***' : snapshot[key],
@@ -180,9 +275,12 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                             type: def.type,
                             description: def.description,
                             enum: def.enum,
+                            itemEnum: def.items?.enum,
                             minimum: def.minimum,
                             maximum: def.maximum,
                             category: def['x-category'],
+                            targets: def['x-targets'] ?? ['frontend'],
+                            tags: def['x-tags'] ?? [],
                         });
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
@@ -212,9 +310,30 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                         } else if (def.type === 'number') {
                             coerced = parseFloat(String(args.value));
                             if (isNaN(coerced as number)) { return err(`Valeur invalide pour "${args.key}" : attendu un nombre.`); }
+                        } else if (def.type === 'object' || def.type === 'array') {
+                            if (typeof args.value === 'string') {
+                                try {
+                                    coerced = JSON.parse(args.value);
+                                } catch {
+                                    return err(`Valeur invalide pour "${args.key}" : JSON attendu.`);
+                                }
+                            }
+                            if (def.type === 'object' && (!coerced || typeof coerced !== 'object' || Array.isArray(coerced))) {
+                                return err(`Valeur invalide pour "${args.key}" : objet JSON attendu.`);
+                            }
+                            if (def.type === 'array' && !Array.isArray(coerced)) {
+                                return err(`Valeur invalide pour "${args.key}" : tableau JSON attendu.`);
+                            }
                         }
                         if (def.enum && !(def.enum as unknown[]).includes(coerced)) {
                             return err(`Valeur invalide pour "${args.key}". Valeurs acceptées : ${(def.enum as unknown[]).join(', ')}`);
+                        }
+                        const itemEnum = def.items?.enum;
+                        if (def.type === 'array' && Array.isArray(coerced) && itemEnum) {
+                            const invalid = coerced.find(item => !(itemEnum as unknown[]).includes(item));
+                            if (invalid !== undefined) {
+                                return err(`Valeur invalide pour "${args.key}" : entree non autorisee ${JSON.stringify(invalid)}.`);
+                            }
                         }
                         if (def.minimum !== undefined && (coerced as number) < def.minimum) {
                             return err(`Valeur trop petite pour "${args.key}" : minimum ${def.minimum}.`);
@@ -253,12 +372,14 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 description: 'Ouvre le panneau des préférences GeoApp.',
                 providerName: DocActionToolsManager.PROVIDER_NAME,
                 parameters: buildParams({
+                    key: { type: 'string', description: 'Cle optionnelle de preference a afficher directement.', required: false },
+                    query: { type: 'string', description: 'Recherche optionnelle a pre-remplir dans le panneau.', required: false },
                     category: { type: 'string', description: 'Catégorie optionnelle à afficher directement (ex: "earthcoach", "chat", "ai", "map").', required: false },
                 }),
                 handler: async (argString: string) => {
                     const args = parseArgs(argString);
                     try {
-                        await this.commandService.executeCommand('geo-preferences:open', { category: args.category });
+                        await this.commandService.executeCommand('geo-preferences:open', { category: args.category, key: args.key, query: args.query });
                         return ok('Préférences ouvertes.');
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },

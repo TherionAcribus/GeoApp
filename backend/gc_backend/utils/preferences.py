@@ -47,7 +47,7 @@ def get_preference_value(key: str) -> Any:
     return definition.get('default')
 
 
-def get_value_or_default(key: str, fallback: Any) -> Any:
+def get_value_or_default(key: str, fallback: Any = None) -> Any:
     """
     Récupère la valeur d'une préférence ou retourne une valeur de secours.
     """

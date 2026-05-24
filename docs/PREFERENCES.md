@@ -51,6 +51,10 @@ Toutes les clés suivent le préfixe unique `geoApp.<domaine>.<option>` pour év
 - `notes` : synchronisation de notes et affichage.  
 - `archive` : archivage automatique des données de résolution des géocaches.  
 
+La page **Préférences GeoApp** utilise maintenant cette liste comme navigation, avec recherche plein texte, filtres rapides (`Modifiées`, `Theia`, `Flask`), compteurs par catégorie et ouverture directe d'une préférence précise depuis `@Aide`.
+
+Catégories exposées par le schéma actuel : `ai`, `alphabets`, `archive`, `auth`, `backend`, `chat`, `checkers`, `earthcoach`, `images`, `logs`, `map`, `notes`, `ocr`, `plugins`, `search`, `ui`, `updates`.
+
 ## Formula Solver (préférences)
 
 Les préférences du Formula Solver sont définies dans `shared/preferences/geo-preferences-schema.json` et utilisent les clés préfixées `geoApp.formulaSolver.*`.
@@ -134,6 +138,7 @@ Deux préférences permettent de choisir si GeoApp doit laisser la fenêtre Chro
 
 - `geoApp.checkers.certitudes.keepPageOpen` (bool)
 - `geoApp.checkers.geocaching.keepPageOpen` (bool)
+- `geoApp.checkers.geocheck.keepPageOpen` (bool, défaut `true`)
 
 ## Checkers : mode d'ouverture des liens (clic gauche)
 

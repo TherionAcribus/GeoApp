@@ -1663,6 +1663,21 @@
         "anti-bot"
       ]
     },
+    "geoApp.checkers.geocheck.keepPageOpen": {
+      "type": "boolean",
+      "default": true,
+      "title": "Garder la page GeoCheck ouverte",
+      "description": "AprÃ¨s une exÃ©cution interactive GeoCheck, laisse la fenÃªtre Chromium ouverte afin de consulter manuellement la page protÃ©gÃ©e ou le rÃ©sultat.",
+      "x-category": "checkers",
+      "x-targets": [
+        "backend"
+      ],
+      "x-tags": [
+        "geocheck",
+        "manual",
+        "playwright"
+      ]
+    },
     "geoApp.auth.geocaching.method": {
       "type": "string",
       "enum": [

@@ -30,7 +30,14 @@ export class GeoPreferencesFrontendContribution extends AbstractViewContribution
         registry.registerCommand(GeoPreferencesCommands.OPEN, {
             execute: async (options?: GeoPreferencesOpenOptions) => {
                 const widget = await this.openView({ activate: true, reveal: true });
-                widget.revealCategory(options?.category);
+                if (options?.query) {
+                    widget.setSearchQuery(options.query);
+                }
+                if (options?.key) {
+                    widget.revealPreference(options.key);
+                } else {
+                    widget.revealCategory(options?.category);
+                }
                 return widget;
             }
         });

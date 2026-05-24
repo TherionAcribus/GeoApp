@@ -7,7 +7,7 @@ tags: [IA, aide, actions, zones, geocaches, waypoints, notes, navigation, plugin
 
 # Actions avec @Aide
 
-En plus de répondre aux questions documentaires, `@Aide` peut effectuer des actions directement dans GeoApp : ouvrir des panneaux, rechercher et ouvrir des plugins ou des alphabets, créer ou supprimer des zones, ajouter des géocaches, créer des waypoints et des notes, et **effectuer des calculs mathématiques**. **34 actions** sont disponibles.
+En plus de répondre aux questions documentaires, `@Aide` peut effectuer des actions directement dans GeoApp : ouvrir des panneaux, rechercher et ouvrir des plugins ou des alphabets, créer ou supprimer des zones, ajouter des géocaches, créer des waypoints et des notes, gérer les préférences, et **effectuer des calculs mathématiques**.
 
 ## Fonctionnement en mode hybride
 
@@ -134,9 +134,12 @@ Vous n'avez pas besoin de confirmer verbalement : la boîte de dialogue apparaî
 | Demande (exemples) | Action |
 |---|---|
 | « Quelles sont mes préférences IA ? » | Liste les préférences de catégorie `ai` avec valeurs courantes |
+| « Cherche la préférence pour garder GeoCheck ouvert » | Recherche dans les clés, descriptions et tags des préférences |
 | « Quelle est la valeur de geoApp.map.defaultProvider ? » | Lit la préférence et ses valeurs possibles |
+| « Ouvre la préférence geoApp.map.defaultZoom » | Ouvre directement la page de préférences sur cette clé |
 | « Active la recherche web du Formula Solver » | Modifie `geoApp.formulaSolver.ai.webSearchEnabled` à `true` |
 | « Passe le zoom par défaut de la carte à 12 » | Modifie `geoApp.map.defaultZoom` à `12` (validé entre 2 et 18) |
+| « Réinitialise le zoom par défaut de la carte » | Remet la préférence à sa valeur par défaut |
 | « Change le fournisseur de carte en satellite » | Modifie `geoApp.map.defaultProvider` à `satellite` (enum validé) |
 | « Désactive le mode lazy des plugins » | Modifie `geoApp.plugins.lazyMode` à `false` |
 | « Quelles sont les préférences de l'OCR ? » | Liste les préférences de catégorie `ocr` |

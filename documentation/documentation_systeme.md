@@ -29,7 +29,7 @@ Le système d'aide offre aux utilisateurs de GeoApp une documentation consultabl
 - **Navigation par chapitres/pages** dans une sidebar de navigation
 - **Recherche plein texte par section** via FlexSearch
 - **Agent IA `@Aide`** accessible depuis le chat Theia — **mode hybride** : répond aux questions documentaires *et* exécute des actions applicatives (ouvrir des widgets, gérer des zones, géocaches, waypoints, notes)
-- **37 tools d'action** (`aide_*`) fournis par l'extension documentation et injectés au LLM à chaque requête, avec confirmation Theia native pour les actions destructives
+- **40 tools d'action** (`aide_*`) fournis par l'extension documentation et injectés au LLM à chaque requête, avec confirmation Theia native pour les actions destructives
 - **Contexte UI dynamique** : `@Aide` connaît le widget actif, la zone active et les onglets ouverts
 - **Icône 📖** dans la barre d'activité gauche (bas) pour un accès rapide
 - **Raccourci clavier** `Shift+F1` et entrée dans le menu **Aide**
@@ -63,7 +63,7 @@ frontend/theia-extensions/documentation/
 │   ├── doc-agent.ts                  ← ChatAgent @Aide (hybride doc + actions)
 │   ├── doc-action-types.ts           ← interface DocActionUiContext
 │   ├── doc-action-context-service.ts ← collecte widget actif, zone active, onglets
-│   ├── doc-action-tools.ts           ← DocActionToolsManager : 37 tools aide_*
+│   ├── doc-action-tools.ts           ← DocActionToolsManager : 40 tools aide_*
 │   ├── doc-contribution.ts           ← commandes, menus, keybindings, icône sidebar
 │   ├── doc-frontend-module.ts        ← module InversifyJS
 │   ├── types.d.ts                    ← déclarations de modules
@@ -97,7 +97,7 @@ docs/*.md  ──[build]──▶  doc-registry.ts (imports webpack)
                          │
                     GeoAppDocAgent
                     (prompt système = règles + contexte UI + catalogue tools + doc)
-                    (sendLlmRequest → 37 tools aide_* passés au LLM)
+                    (sendLlmRequest → 40 tools aide_* passés au LLM)
                          │
                     DocActionToolsManager
                     (handlers → ZonesService, GeocachesService,
@@ -533,7 +533,7 @@ Règles clés du prompt :
 
 ### `sendLlmRequest` — injection des tools
 
-`GeoAppDocAgent` surcharge `sendLlmRequest` pour injecter les 37 tools `aide_*` de l'extension documentation à chaque requête :
+`GeoAppDocAgent` surcharge `sendLlmRequest` pour injecter les 40 tools `aide_*` de l'extension documentation à chaque requête :
 
 ```typescript
 protected override async sendLlmRequest(
@@ -583,14 +583,14 @@ Permet à `@Aide` de résoudre les références implicites : « cette zone », �
 
 ### `DocActionToolsManager`
 
-`FrontendApplicationContribution` qui enregistre 37 tools et fournit `buildAllTools()` :
+`FrontendApplicationContribution` qui enregistre 40 tools et fournit `buildAllTools()` :
 
 **Navigation (9 tools) :**
 
 | Tool | Action |
 |---|---|
 | `aide_open_documentation` | Commande `geoapp.documentation.open` |
-| `aide_open_preferences` | Commande `preferences:open` |
+| `aide_open_preferences` | Commande `geo-preferences:open` |
 | `aide_open_plugins_panel` | Commande `plugins.openBrowser` |
 | `aide_open_alphabets_panel` | Commande `alphabets.openList` |
 | `aide_open_map` | Commande `geoapp.map.toggle` |
@@ -636,6 +636,17 @@ Permet à `@Aide` de résoudre les références implicites : « cette zone », �
 | `aide_update_note(note_id, content, note_type?)` | non | `GeocacheNotesService.updateNote()` |
 | `aide_delete_note(note_id)` | **⚠ oui** | `GeocacheNotesService.deleteNote()` |
 
+**Preferences GeoApp (6 tools) :**
+
+| Tool | Action |
+|---|---|
+| `aide_list_preference_categories` | Liste les categories reelles du schema |
+| `aide_search_preferences(query, category?)` | Recherche semantique simple dans les preferences |
+| `aide_list_preferences(category?)` | Liste les preferences et valeurs courantes |
+| `aide_get_preference(key)` | Detail d'une preference |
+| `aide_set_preference(key, value)` | Modifie une preference non sensible |
+| `aide_reset_preference(key)` | Remet une preference a sa valeur par defaut |
+
 La confirmation ⚠ est implémentée via `confirmAlwaysAllow` sur le `ToolRequest` — Theia affiche automatiquement un dialog avant l'exécution du handler.
 
 Après chaque mutation réussie (create/rename/duplicate/merge/delete zone, setActive, add/copy/delete geocache), `GeoAppWidgetEventsService.requestZonesRefresh()` est appelé pour rafraîchir la liste des zones.
@@ -660,6 +671,8 @@ bind(FrontendApplicationContribution).toService(GeoAppDocAgentContribution);
 @Aide duplique la zone "Paris" en "Paris copie"
 @Aide fusionne la zone "Import GPX" dans "Bretagne 2025"
 @Aide ouvre le panneau des plugins
+@Aide cherche la préférence pour le zoom de carte
+@Aide réinitialise geoApp.map.defaultZoom
 @Aide liste mes zones
 @Aide ajoute GC12345 à la zone 2
 ```
@@ -682,7 +695,7 @@ export default new ContainerModule(bind => {
     bind(DocActionContextService).toSelf().inSingletonScope();
     bind(DocActionToolsManager).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(DocActionToolsManager);
-    // DocActionToolsManager.onStart() enregistre les 37 tools aide_* dans ToolInvocationRegistry
+    // DocActionToolsManager.onStart() enregistre les 40 tools aide_* dans ToolInvocationRegistry
 
     // Widget
     bind(DocWidget).toSelf().inSingletonScope();
