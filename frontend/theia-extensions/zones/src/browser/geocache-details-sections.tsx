@@ -12,6 +12,7 @@ import {
 } from './geoapp-chat-agent';
 import { ContextMenu, ContextMenuItem } from './context-menu';
 import { GeocacheDetailsHeaderAction } from './geocache-details-header-actions';
+import { LogsRecentSummary, LogSummaryEntry } from './geocache-logs-summary';
 
 type ArchiveStatus = 'synced' | 'needs_sync' | 'none' | 'loading';
 
@@ -286,11 +287,19 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
 interface GeocacheOverviewSectionProps {
     geocacheData: GeocacheDto;
     coordinatesEditor: React.ReactNode;
+    logsSummaryEntries?: LogSummaryEntry[];
+    logsSummaryTotalCount?: number;
+    isLogsSummaryLoading?: boolean;
+    onOpenLogs?: () => void;
 }
 
 export const GeocacheOverviewSection: React.FC<GeocacheOverviewSectionProps> = ({
     geocacheData,
-    coordinatesEditor
+    coordinatesEditor,
+    logsSummaryEntries,
+    logsSummaryTotalCount,
+    isLogsSummaryLoading,
+    onOpenLogs,
 }) => (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <div style={cardStyle}>
@@ -313,6 +322,17 @@ export const GeocacheOverviewSection: React.FC<GeocacheOverviewSectionProps> = (
                     <div style={{ color: '#a78bfa' }}>{geocacheData.favorites_count || 0}</div>
                 </div>
             </div>
+
+            {(logsSummaryEntries && logsSummaryEntries.length > 0) || isLogsSummaryLoading ? (
+                <div style={{ marginTop: 16 }}>
+                    <LogsRecentSummary
+                        entries={logsSummaryEntries ?? []}
+                        totalCount={logsSummaryTotalCount ?? 0}
+                        isLoading={isLogsSummaryLoading ?? false}
+                        onOpenLogs={onOpenLogs}
+                    />
+                </div>
+            ) : undefined}
 
             {geocacheData.attributes && geocacheData.attributes.length > 0 ? (
                 <div style={{ marginTop: 16 }}>

@@ -109,6 +109,9 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
     protected freeChatDialogDraft: string = '';
     protected freeChatDialogImageUrls: string[] = [];
     protected checkerContextMenu: { x: number; y: number; url: string } | null = null;
+    protected logsSummaryEntries: import('./geocache-logs-summary').LogSummaryEntry[] = [];
+    protected logsSummaryTotalCount = 0;
+    protected isLogsSummaryLoading = false;
     private readonly geocacheChangeDisposable: { dispose: () => void };
 
     private readonly handleContentClick = (): void => {
@@ -637,6 +640,8 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         this.notesCount = undefined;
         this.archiveStatus = 'none';
         this.archiveUpdatedAt = undefined;
+        this.logsSummaryEntries = [];
+        this.logsSummaryTotalCount = 0;
         if (context.name) {
             this.title.label = `Géocache - ${context.name}`;
         } else if (this.data?.name) {
@@ -763,12 +768,33 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             });
             void this.loadArchiveStatus();
             void this.refreshChatRoutingPreview();
+            void this.loadLogsSummary();
         } catch (e) {
             // eslint-disable-next-line no-console
             console.error('GeocacheDetailsWidget: load error', e);
             this.messages.error(getErrorMessage(e, 'Impossible de charger la géocache'));
         } finally {
             this.isLoading = false;
+            this.update();
+        }
+    }
+
+    protected async loadLogsSummary(): Promise<void> {
+        if (!this.geocacheId) { return; }
+        this.isLogsSummaryLoading = true;
+        this.update();
+        try {
+            const count = this.preferenceService.get<number>('geoApp.logs.recentSummaryCount', 5);
+            const url = `${this.apiClient.getBaseUrl()}/api/geocaches/${this.geocacheId}/logs/recent-summary?count=${count}`;
+            const response = await fetch(url);
+            if (!response.ok) { return; }
+            const data: import('./geocache-logs-summary').LogsRecentSummaryApiResponse = await response.json();
+            this.logsSummaryEntries = data.entries;
+            this.logsSummaryTotalCount = data.total_count;
+        } catch (e) {
+            console.error('[GeocacheDetailsWidget] loadLogsSummary error', e);
+        } finally {
+            this.isLogsSummaryLoading = false;
             this.update();
         }
     }
@@ -1284,6 +1310,10 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                     onRegisterCallback: (callback) => { this.waypointEditorCallback = callback; },
                 }}
                 onRefresh={this.refreshGeocache}
+                logsSummaryEntries={this.logsSummaryEntries}
+                logsSummaryTotalCount={this.logsSummaryTotalCount}
+                isLogsSummaryLoading={this.isLogsSummaryLoading}
+                onOpenLogs={this.openLogs}
                 checkerLinkOpenMode={this.preferencesController.getCheckerLinkOpenMode()}
                 onOpenCheckerUrl={this.openCheckerUrl}
                 checkerContextMenu={this.checkerContextMenu}

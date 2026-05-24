@@ -30,6 +30,10 @@ interface GeocacheDetailsViewProps {
     imagesPanelProps?: GeocacheImagesPanelProps;
     waypointsEditorProps: WaypointsEditorProps;
     onRefresh?: () => void | Promise<void>;
+    logsSummaryEntries?: import('./geocache-logs-summary').LogSummaryEntry[];
+    logsSummaryTotalCount?: number;
+    isLogsSummaryLoading?: boolean;
+    onOpenLogs?: () => void;
     checkerLinkOpenMode?: 'same-group' | 'new-group' | 'external-window';
     onOpenCheckerUrl?: (url: string, mode: 'same-group' | 'new-group' | 'external-window') => void;
     checkerContextMenu?: { x: number; y: number; url: string } | null;
@@ -49,6 +53,10 @@ export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
     imagesPanelProps,
     waypointsEditorProps,
     onRefresh,
+    logsSummaryEntries,
+    logsSummaryTotalCount,
+    isLogsSummaryLoading,
+    onOpenLogs,
     checkerLinkOpenMode,
     onOpenCheckerUrl,
     checkerContextMenu,
@@ -65,6 +73,10 @@ export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
                 <GeocacheOverviewSection
                     geocacheData={geocacheData}
                     coordinatesEditor={<CoordinatesEditor {...coordinatesEditorProps} />}
+                    logsSummaryEntries={logsSummaryEntries}
+                    logsSummaryTotalCount={logsSummaryTotalCount}
+                    isLogsSummaryLoading={isLogsSummaryLoading}
+                    onOpenLogs={onOpenLogs}
                 />
 
                 <GeocacheDetailedInfoSection geocacheData={geocacheData} />
