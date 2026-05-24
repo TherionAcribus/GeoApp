@@ -104,7 +104,14 @@ export const GeocacheFilterBar: React.FC<GeocacheFilterBarProps> = ({
                 const field = normalizeFieldAlias(fieldPart);
                 if (field) {
                     const kind = fieldKindById.get(field);
+                    const valueAfterColon = fragment.slice(colonIndex + 1);
                     if (kind === 'number') {
+                        // Don't show operator suggestions if the user already typed an operator + value
+                        const hasOperatorWithValue = /^(>=|<=|>|<|!=|=)?\d/.test(valueAfterColon) || /^\d+(<>\d*)?$/.test(valueAfterColon);
+                        if (hasOperatorWithValue) {
+                            setAutocompleteOpen(false);
+                            return;
+                        }
                         suggestions.push(
                             { id: `${field}-gte`, label: `${field}:>=…`, insertText: `@${field}:>=` },
                             { id: `${field}-lte`, label: `${field}:<=…`, insertText: `@${field}:<=` },
@@ -113,13 +120,25 @@ export const GeocacheFilterBar: React.FC<GeocacheFilterBarProps> = ({
                             { id: `${field}-between`, label: `${field}:x<>y`, insertText: `@${field}:1<>5` },
                         );
                     } else if (kind === 'boolean') {
-                        suggestions.push(
-                            { id: `${field}-true`, label: `${field}:true`, insertText: `@${field}:true` },
-                            { id: `${field}-false`, label: `${field}:false`, insertText: `@${field}:false` },
-                        );
+                        const boolPart = valueAfterColon.toLowerCase();
+                        if (!boolPart || 'true'.startsWith(boolPart)) {
+                            suggestions.push(
+                                { id: `${field}-true`, label: `${field}:true`, insertText: `@${field}:true` },
+                            );
+                        }
+                        if (!boolPart || 'false'.startsWith(boolPart)) {
+                            suggestions.push(
+                                { id: `${field}-false`, label: `${field}:false`, insertText: `@${field}:false` },
+                            );
+                        }
                     } else if (kind === 'enum') {
                         const options = enumOptionsByField.get(field) ?? [];
-                        for (const opt of options.slice(0, 12)) {
+                        const valuePart = fragment.slice(colonIndex + 1).toLowerCase();
+                        const filtered = valuePart
+                            ? options.filter(opt => opt.toLowerCase().startsWith(valuePart))
+                            : options;
+                        const toShow = (filtered.length > 0 ? filtered : options).slice(0, 12);
+                        for (const opt of toShow) {
                             suggestions.push({
                                 id: `${field}-${opt}`,
                                 label: `${field}:${opt}`,
@@ -217,6 +236,11 @@ export const GeocacheFilterBar: React.FC<GeocacheFilterBarProps> = ({
                             refreshAutocomplete(v);
                         }}
                         onKeyDown={e => {
+                            if (e.key === 'Enter' && !autocompleteOpen) {
+                                // Prevent form submission when typing in the filter bar
+                                e.preventDefault();
+                                return;
+                            }
                             if (!autocompleteOpen) {
                                 return;
                             }
