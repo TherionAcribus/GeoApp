@@ -667,6 +667,10 @@ def import_around():
                 values = clause.get('values') or []
 
                 raw_val = getattr(geocache_obj, field, None)
+                logger.debug(
+                    "[import-around filter] gc=%s field=%s op=%s value=%r value2=%r raw_val=%r (type=%s)",
+                    geocache_obj.gc_code, field, op, value, value2, raw_val, type(raw_val).__name__
+                )
                 if raw_val is None:
                     raw_val = ''
 
@@ -708,7 +712,7 @@ def import_around():
 
                 if op in ('in', 'not_in'):
                     norm_values = [str(v).lower() for v in values]
-                    ok = actual_str in norm_values
+                    ok = any(nv in actual_str or actual_str in nv for nv in norm_values)
                     if op == 'not_in' and ok:
                         return False
                     if op == 'in' and not ok:
@@ -720,37 +724,113 @@ def import_around():
                     if wanted and wanted in actual_str:
                         return False
                 elif op in ('eq', '=', 'is'):
-                    if wanted and actual_str != wanted:
+                    if wanted and wanted not in actual_str and actual_str not in wanted:
                         return False
                 elif op == 'neq':
-                    if wanted and actual_str == wanted:
+                    if wanted and (wanted in actual_str or actual_str in wanted):
                         return False
             return True
+
+        # When filters are active, we fetch more candidates from the API since many
+        # will be filtered out. We cap the search to a reasonable max radius.
+        DEFAULT_MAX_SEARCH_RADIUS_KM = 50
+        # Fetch up to this many candidates when filters are active (API pages internally).
+        # Keep this moderate to avoid 429 rate-limiting (each 50 = 1 API page).
+        FILTERED_FETCH_LIMIT = 200
 
         def generate():
             try:
                 yield json.dumps({'message': 'Recherche des géocaches autour...', 'progress': 0}) + '\n'
 
-                results = search_client.search(
-                    center_lat=center_lat,
-                    center_lon=center_lon,
-                    limit=limit,
-                    radius_km=radius_km,
-                    min_km=min_km,
-                )
-                gc_codes = [r.gc_code for r in results]
+                effective_max_radius = radius_km if radius_km is not None else DEFAULT_MAX_SEARCH_RADIUS_KM
 
                 if raw_filters:
-                    filtered_codes = []
+                    # Fetch a large pool of candidates, then filter locally.
+                    # Cap to FILTERED_FETCH_LIMIT to avoid 429 rate-limiting.
+                    fetch_limit = min(FILTERED_FETCH_LIMIT, max(limit * 10, 100))
+                    logger.info(
+                        "[import-around] filter search: need %d results, fetching up to %d candidates "
+                        "within %.1f km, filters=%r",
+                        limit, fetch_limit, effective_max_radius, raw_filters,
+                    )
+
+                    yield json.dumps({
+                        'message': f'Recherche de candidats dans un rayon de {effective_max_radius:.0f} km…',
+                        'progress': 2,
+                    }) + '\n'
+
+                    try:
+                        results = search_client.search(
+                            center_lat=center_lat,
+                            center_lon=center_lon,
+                            limit=fetch_limit,
+                            radius_km=effective_max_radius,
+                            min_km=min_km,
+                        )
+                    except Exception as search_err:
+                        logger.warning("[import-around] search interrupted: %s", search_err)
+                        results = []
+
+                    logger.info(
+                        "[import-around] fetched %d candidates from API", len(results),
+                    )
+                    if results:
+                        first = results[0]
+                        logger.info(
+                            "[import-around] first candidate: gc_code=%s name=%r cache_type=%r "
+                            "size=%r difficulty=%s terrain=%s",
+                            first.gc_code, first.name, first.cache_type,
+                            first.size, first.difficulty, first.terrain,
+                        )
+
+                    gc_codes: list[str] = []
                     for r in results:
                         if _apply_filters(r, raw_filters):
-                            filtered_codes.append(r.gc_code)
-                    gc_codes = filtered_codes
+                            gc_codes.append(r.gc_code)
+                            if len(gc_codes) >= limit:
+                                break
+                        else:
+                            logger.debug(
+                                "[import-around] filtered out: %s (name=%r type=%r size=%r D=%s T=%s)",
+                                r.gc_code, r.name, r.cache_type, r.size, r.difficulty, r.terrain,
+                            )
+
+                    logger.info(
+                        "[import-around] filter result: %d candidates -> %d matching (wanted %d)",
+                        len(results), len(gc_codes), limit,
+                    )
+                else:
+                    # No filters: simple search
+                    results = search_client.search(
+                        center_lat=center_lat,
+                        center_lon=center_lon,
+                        limit=limit,
+                        radius_km=radius_km,
+                        min_km=min_km,
+                    )
+                    gc_codes = [r.gc_code for r in results]
+
+                    logger.info(
+                        "[import-around] search returned %d results (limit=%d, radius_km=%s, min_km=%s)",
+                        len(results), limit, radius_km, min_km,
+                    )
+                    if results:
+                        first = results[0]
+                        logger.info(
+                            "[import-around] first result sample: gc_code=%s name=%r cache_type=%r "
+                            "difficulty=%s terrain=%s size=%r fav=%s owner=%r found=%s",
+                            first.gc_code, first.name, first.cache_type,
+                            first.difficulty, first.terrain, first.size,
+                            first.favorites_count, first.owner, first.found,
+                        )
 
                 total = len(gc_codes)
 
                 if total == 0:
-                    yield json.dumps({'error': True, 'message': 'Aucune géocache trouvée'}) + '\n'
+                    yield json.dumps({
+                        'error': True,
+                        'message': f'Aucune géocache trouvée correspondant aux filtres dans un rayon de {effective_max_radius:.0f} km',
+                    }) + '\n'
                     return
 
                 yield json.dumps({'message': f'{total} géocache(s) trouvée(s)', 'progress': 10}) + '\n'

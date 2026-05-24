@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import math
+import time
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -30,6 +31,14 @@ class GeocacheSearchResult:
     gc_code: str
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+    name: Optional[str] = None
+    cache_type: Optional[str] = None
+    difficulty: Optional[float] = None
+    terrain: Optional[float] = None
+    size: Optional[str] = None
+    favorites_count: Optional[int] = None
+    owner: Optional[str] = None
+    found: Optional[bool] = None
 
 
 class GeocachingSearchClient:
@@ -103,13 +112,34 @@ class GeocachingSearchClient:
             params = dict(params_base)
             params.update({"take": take, "skip": offset})
 
-            resp = self.session.get(self.API_URL, params=params, headers=headers, timeout=30)
+            # Rate-limit: add a small delay between pages (except the first)
+            if offset > 0:
+                time.sleep(0.35)
+
+            # Retry on 429 (rate limited)
+            resp = None
+            for attempt in range(3):
+                resp = self.session.get(self.API_URL, params=params, headers=headers, timeout=30)
+                if resp.status_code == 429:
+                    wait = 2 ** attempt  # 1s, 2s, 4s
+                    logger.warning("[search] 429 rate limited at skip=%d, retrying in %ds…", offset, wait)
+                    time.sleep(wait)
+                    continue
+                break
             resp.raise_for_status()
             payload = resp.json() if resp.content else {}
 
             raw_results = payload.get("results") or []
             if not isinstance(raw_results, list) or not raw_results:
                 break
+
+            if offset == 0 and raw_results:
+                first_rec = raw_results[0] if isinstance(raw_results[0], dict) else {}
+                logger.info(
+                    "[search] first raw record keys: %s",
+                    sorted(first_rec.keys()) if first_rec else "(empty)",
+                )
+                logger.debug("[search] first raw record: %r", first_rec)
 
             page_results: list[GeocacheSearchResult] = []
             for record in raw_results:
@@ -121,7 +151,8 @@ class GeocachingSearchClient:
                     continue
 
                 lat, lon = self._extract_lat_lon(record)
-                page_results.append(GeocacheSearchResult(gc_code=code, latitude=lat, longitude=lon))
+                extra = self._extract_extra_fields(record)
+                page_results.append(GeocacheSearchResult(gc_code=code, latitude=lat, longitude=lon, **extra))
 
             if radius_km is not None:
                 page_results = [
@@ -216,6 +247,107 @@ class GeocachingSearchClient:
             return (float(lat), float(lon)) if lat is not None and lon is not None else (None, None)
         except Exception:
             return (None, None)
+
+    # Geocaching.com search API returns numeric IDs for geocacheType and containerType.
+    # Map them to human-readable names used by the frontend filters.
+    GEOCACHE_TYPE_MAP: dict[int, str] = {
+        2: "Traditional",
+        3: "Multi",
+        4: "Virtual",
+        5: "Letterbox",
+        6: "Event",
+        8: "Mystery",
+        9: "APE",
+        11: "Webcam",
+        12: "Locationless",
+        13: "CITO",
+        137: "EarthCache",
+        453: "MegaEvent",
+        1304: "GPS Adventures",
+        1858: "Wherigo",
+        3653: "Community Celebration",
+        3773: "Geocaching HQ",
+        3774: "Geocaching HQ Celebration",
+        4738: "Geocaching HQ Block Party",
+        7005: "GigaEvent",
+    }
+
+    CONTAINER_TYPE_MAP: dict[int, str] = {
+        1: "Not chosen",
+        2: "Micro",
+        3: "Regular",
+        4: "Large",
+        5: "Virtual",
+        6: "Other",
+        8: "Small",
+    }
+
+    @staticmethod
+    def _extract_extra_fields(record: dict[str, Any]) -> dict[str, Any]:
+        """Extract optional metadata fields from a search result record."""
+        extra: dict[str, Any] = {}
+
+        # Name
+        name = record.get("name")
+        if name:
+            extra["name"] = str(name)
+
+        # Difficulty / Terrain
+        for field in ("difficulty", "terrain"):
+            val = record.get(field)
+            if val is not None:
+                try:
+                    extra[field] = float(val)
+                except (ValueError, TypeError):
+                    pass
+
+        # Cache type – can be a dict {id, name}, an int ID, or a plain string
+        gc_type = record.get("geocacheType") or record.get("type")
+        if isinstance(gc_type, dict):
+            type_name = gc_type.get("name") or gc_type.get("type")
+            type_id = gc_type.get("id")
+            if not type_name and isinstance(type_id, int):
+                type_name = GeocachingSearchClient.GEOCACHE_TYPE_MAP.get(type_id)
+            extra["cache_type"] = type_name or str(type_id or gc_type)
+        elif isinstance(gc_type, int):
+            extra["cache_type"] = GeocachingSearchClient.GEOCACHE_TYPE_MAP.get(gc_type, str(gc_type))
+        elif gc_type is not None:
+            extra["cache_type"] = str(gc_type)
+
+        # Container size – can be a dict {id, name}, an int ID, or a plain string
+        container = record.get("containerType") or record.get("container") or record.get("size")
+        if isinstance(container, dict):
+            size_name = container.get("name") or container.get("text")
+            size_id = container.get("id")
+            if not size_name and isinstance(size_id, int):
+                size_name = GeocachingSearchClient.CONTAINER_TYPE_MAP.get(size_id)
+            extra["size"] = size_name or str(size_id or container)
+        elif isinstance(container, int):
+            extra["size"] = GeocachingSearchClient.CONTAINER_TYPE_MAP.get(container, str(container))
+        elif container is not None:
+            extra["size"] = str(container)
+
+        # Favorite points
+        fav = record.get("favoritePoints") or record.get("favorites_count")
+        if fav is not None:
+            try:
+                extra["favorites_count"] = int(fav)
+            except (ValueError, TypeError):
+                pass
+
+        # Owner
+        owner_obj = record.get("owner")
+        if isinstance(owner_obj, dict):
+            extra["owner"] = owner_obj.get("username") or owner_obj.get("code")
+        elif owner_obj is not None:
+            extra["owner"] = str(owner_obj)
+
+        # Found status
+        user_found = record.get("userFound") or record.get("found")
+        if user_found is not None:
+            extra["found"] = bool(user_found)
+
+        return extra
 
     @staticmethod
     def _within_radius(

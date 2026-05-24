@@ -98,7 +98,7 @@ export const ImportAroundDialog: React.FC<ImportAroundDialogProps> = ({
     const filterEnumOptions = React.useMemo(() => {
         const map = new Map<string, string[]>();
         map.set('cache_type', ['Traditional', 'Mystery', 'Multi', 'EarthCache', 'Wherigo', 'Virtual', 'Letterbox']);
-        map.set('size', ['Nano', 'Micro', 'Small', 'Regular', 'Large', 'Virtual', 'Other']);
+        map.set('size', ['Micro', 'Small', 'Regular', 'Large', 'Virtual', 'Not chosen', 'Other']);
         map.set('solved', ['not_solved', 'in_progress', 'solved']);
         map.set('found', ['true', 'false']);
         return map;
@@ -211,8 +211,10 @@ export const ImportAroundDialog: React.FC<ImportAroundDialogProps> = ({
         e.preventDefault();
         const request = buildRequest();
         if (!request) {
+            console.warn('[ImportAroundDialog] buildRequest() returned null — invalid form state');
             return;
         }
+        console.log('[ImportAroundDialog] submitting request:', JSON.stringify(request, null, 2));
         resetProgress();
         await onImport(request, handleProgressUpdate);
     };

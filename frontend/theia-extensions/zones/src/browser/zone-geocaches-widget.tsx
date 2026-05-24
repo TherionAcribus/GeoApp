@@ -701,14 +701,16 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         const controller = new AbortController();
         try {
             onProgress?.(0, 'Démarrage…');
-            const response = await this.geocachesService.importAround({
+            const payload = {
                 zone_id: this.zoneId,
                 center: request.center,
                 limit: request.limit,
                 ...(request.radius_km !== undefined ? { radius_km: request.radius_km } : {}),
                 ...(request.min_km !== undefined ? { min_km: request.min_km } : {}),
                 ...(request.filters && request.filters.length > 0 ? { filters: request.filters } : {}),
-            }, controller.signal);
+            };
+            console.log('[ZoneGeocachesWidget] importAround payload:', JSON.stringify(payload, null, 2));
+            const response = await this.geocachesService.importAround(payload, controller.signal);
 
             if (!response.body) {
                 throw new Error('Réponse streaming non supportée');
