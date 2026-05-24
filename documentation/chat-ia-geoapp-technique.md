@@ -338,10 +338,11 @@ Les tools de zones exposés à `@Aide` sont :
 | `aide_create_zone(name, description?)` | Crée une zone. | `POST /api/zones` |
 | `aide_rename_zone(zone_id, new_name, description?)` | Renomme une zone existante. | `POST /api/zones/<id>/rename` via `ZonesService.update()` |
 | `aide_duplicate_zone(zone_id, name, description?)` | Duplique une zone avec ses géocaches, waypoints et checkers. | `POST /api/zones/<id>/duplicate` via `ZonesService.duplicate()` |
+| `aide_merge_zone(source_zone_id, target_zone_id)` | Fusionne une zone dans une autre, déplace les géocaches uniques, ignore les doublons déjà présents dans la cible, puis supprime la zone source. | `POST /api/zones/<id>/merge` via `ZonesService.merge()` |
 | `aide_set_active_zone(zone_id)` | Définit la zone active. | `POST /api/active-zone` |
 | `aide_delete_zone(zone_id, zone_name)` | Supprime une zone. | `DELETE /api/zones/<id>` avec confirmation Theia |
 
-Pour les demandes par nom ("renomme la zone Paris"), le prompt de `@Aide` demande d'appeler d'abord `aide_list_zones` afin de résoudre l'ID, puis d'enchaîner l'action.
+Pour les demandes par nom ("renomme la zone Paris", "fusionne Import GPX dans Bretagne"), le prompt de `@Aide` demande d'appeler d'abord `aide_list_zones` afin de résoudre les IDs, puis d'enchaîner l'action.
 
 ## 10. Policy effective
 

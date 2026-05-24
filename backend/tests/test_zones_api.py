@@ -101,3 +101,54 @@ def test_duplicate_zone_rejects_existing_name(client, seeded_zone):
     )
 
     assert response.status_code == 409
+
+
+def test_merge_zone_moves_unique_geocaches_and_removes_duplicate_source(client, app, seeded_zone):
+    with app.app_context():
+        source_zone = Zone.query.get(seeded_zone)
+        target_zone = Zone(name='Cible', description='Zone cible')
+        db.session.add(target_zone)
+        db.session.flush()
+
+        db.session.add(Geocache(
+            gc_code='GCZONE1',
+            name='Cache deja cible',
+            type='Traditional Cache',
+            zone_id=target_zone.id,
+        ))
+        db.session.add(Geocache(
+            gc_code='GCZONE2',
+            name='Cache unique source',
+            type='Mystery Cache',
+            zone_id=source_zone.id,
+        ))
+        db.session.commit()
+        target_zone_id = target_zone.id
+
+    response = client.post(
+        f'/api/zones/{seeded_zone}/merge',
+        json={'target_zone_id': target_zone_id},
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload['moved_count'] == 1
+    assert payload['duplicate_count'] == 1
+
+    with app.app_context():
+        assert Zone.query.get(seeded_zone) is None
+        target_codes = {
+            geocache.gc_code
+            for geocache in Geocache.query.filter_by(zone_id=target_zone_id).all()
+        }
+        assert target_codes == {'GCZONE1', 'GCZONE2'}
+        assert Geocache.query.filter_by(zone_id=target_zone_id, gc_code='GCZONE1').one().name == 'Cache deja cible'
+
+
+def test_merge_zone_rejects_same_source_and_target(client, seeded_zone):
+    response = client.post(
+        f'/api/zones/{seeded_zone}/merge',
+        json={'target_zone_id': seeded_zone},
+    )
+
+    assert response.status_code == 400

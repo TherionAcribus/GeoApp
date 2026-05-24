@@ -126,6 +126,59 @@ def duplicate_zone(zone_id: int):
         raise
 
 
+@bp.post('/api/zones/<int:zone_id>/merge')
+def merge_zone(zone_id: int):
+    source_zone = Zone.query.get_or_404(zone_id)
+    data = request.get_json(silent=True) or {}
+    target_zone_id = data.get('target_zone_id')
+
+    if not target_zone_id:
+        return jsonify({'error': 'target_zone_id requis'}), 400
+    try:
+        target_zone_id = int(target_zone_id)
+    except (TypeError, ValueError):
+        return jsonify({'error': 'target_zone_id invalide'}), 400
+    if target_zone_id == zone_id:
+        return jsonify({'error': 'La zone cible doit être différente de la zone source'}), 400
+
+    target_zone = Zone.query.get_or_404(target_zone_id)
+    source_name = source_zone.name
+    moved_count = 0
+    duplicate_count = 0
+
+    try:
+        for geocache in list(source_zone.geocaches):
+            existing = Geocache.query.filter_by(
+                zone_id=target_zone.id,
+                gc_code=geocache.gc_code,
+            ).first()
+            if existing:
+                duplicate_count += 1
+                db.session.delete(geocache)
+            else:
+                geocache.zone_id = target_zone.id
+                moved_count += 1
+
+        active_zone_id = AppConfig.get_value('active_zone_id')
+        if active_zone_id == str(source_zone.id):
+            AppConfig.set_value('active_zone_id', str(target_zone.id))
+
+        db.session.flush()
+        Zone.query.filter_by(id=zone_id).delete(synchronize_session=False)
+        db.session.commit()
+
+        return jsonify({
+            'message': f'Zone "{source_name}" fusionnée dans "{target_zone.name}"',
+            'source_zone_id': zone_id,
+            'target_zone': target_zone.to_dict(),
+            'moved_count': moved_count,
+            'duplicate_count': duplicate_count,
+        }), 200
+    except Exception:
+        db.session.rollback()
+        raise
+
+
 @bp.delete('/api/zones/<int:zone_id>')
 def delete_zone(zone_id: int):
     """Supprime une zone."""

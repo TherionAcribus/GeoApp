@@ -51,6 +51,14 @@ export class ZonesService {
         );
     }
 
+    async merge<T = unknown>(zoneId: number, input: { target_zone_id: number }): Promise<T> {
+        return this.apiClient.requestJson<T>(
+            `/api/zones/${zoneId}/merge`,
+            this.apiClient.createJsonInit('POST', input),
+            'Erreur lors de la fusion de la zone'
+        );
+    }
+
     async delete(zoneId: number): Promise<void> {
         await this.apiClient.requestVoid(
             `/api/zones/${zoneId}`,

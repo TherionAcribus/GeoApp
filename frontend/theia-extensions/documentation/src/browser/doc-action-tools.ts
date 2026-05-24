@@ -617,6 +617,27 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 },
             },
             {
+                id: 'aide_merge_zone',
+                name: 'aide_merge_zone',
+                description: 'Fusionne une zone source dans une zone cible. Les géocaches uniques sont déplacées, les doublons restent dans la cible, puis la zone source est supprimée.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    source_zone_id: { type: 'number', description: 'ID de la zone source à fusionner puis supprimer.', required: true },
+                    target_zone_id: { type: 'number', description: 'ID de la zone cible qui recevra les géocaches.', required: true },
+                }),
+                confirmAlwaysAllow: 'Fusionner ces zones ? Les géocaches uniques seront déplacées vers la cible, puis la zone source sera supprimée.',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const result = await this.zonesService.merge(args.source_zone_id, {
+                            target_zone_id: args.target_zone_id,
+                        });
+                        this.widgetEventsService.requestZonesRefresh();
+                        return ok(result);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
                 id: 'aide_delete_zone',
                 name: 'aide_delete_zone',
                 description: 'Supprime définitivement une zone et toutes ses géocaches. Action irréversible.',

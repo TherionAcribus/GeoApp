@@ -37,6 +37,7 @@ export class ZonesTreeWidget extends ReactWidget {
     protected contextMenu: { items: ContextMenuItem[]; x: number; y: number } | null = null;
     protected moveDialog: { geocache: GeocacheDto; zoneId: number } | null = null;
     protected copyDialog: { geocache: GeocacheDto; zoneId: number } | null = null;
+    protected mergeDialog: { zone: ZoneDto } | null = null;
 
     protected readonly handleGeocacheLogSubmitted = (event: CustomEvent<{ geocacheId: number; found?: boolean }>): void => {
         const detail = event?.detail;
@@ -260,6 +261,39 @@ export class ZonesTreeWidget extends ReactWidget {
         }
     }
 
+    protected async mergeZone(sourceZone: ZoneDto, targetZoneId: number): Promise<void> {
+        const targetZone = this.zones.find(zone => zone.id === targetZoneId);
+        const dialog = new ConfirmDialog({
+            title: 'Fusionner la zone',
+            msg: `Fusionner la zone "${sourceZone.name}" dans "${targetZone?.name || targetZoneId}" ? Les géocaches uniques seront déplacées, les doublons déjà présents dans la cible seront conservés dans la cible, puis la zone source sera supprimée.`,
+            ok: 'Fusionner',
+            cancel: Dialog.CANCEL
+        });
+
+        const confirmed = await dialog.open();
+        if (!confirmed) {
+            return;
+        }
+
+        try {
+            const result = await this.zonesService.merge<{
+                moved_count?: number;
+                duplicate_count?: number;
+            }>(sourceZone.id, { target_zone_id: targetZoneId });
+            this.expandedZones.delete(sourceZone.id);
+            this.zoneGeocaches.delete(sourceZone.id);
+            this.zoneGeocaches.delete(targetZoneId);
+            if (this.activeZoneId === sourceZone.id) {
+                this.activeZoneId = targetZoneId;
+            }
+            await this.refreshExpandedZones();
+            this.messages.info(`Zone "${sourceZone.name}" fusionnée (${result.moved_count ?? 0} déplacée(s), ${result.duplicate_count ?? 0} doublon(s)).`);
+        } catch (e) {
+            console.error('Zones: merge error', e);
+            this.messages.error(getErrorMessage(e, 'Erreur lors de la fusion de la zone'));
+        }
+    }
+
     protected async openZoneNameDialog(options: {
         title: string;
         initialValue: string;
@@ -351,6 +385,15 @@ export class ZonesTreeWidget extends ReactWidget {
                 label: 'Dupliquer',
                 icon: '⧉',
                 action: () => this.duplicateZone(zone)
+            },
+            {
+                label: 'Fusionner vers...',
+                icon: '⇄',
+                action: () => {
+                    this.mergeDialog = { zone };
+                    this.update();
+                },
+                disabled: this.zones.length <= 1
             },
             {
                 separator: true
@@ -457,6 +500,11 @@ export class ZonesTreeWidget extends ReactWidget {
 
     protected closeCopyDialog(): void {
         this.copyDialog = null;
+        this.update();
+    }
+
+    protected closeMergeDialog(): void {
+        this.mergeDialog = null;
         this.update();
     }
 
@@ -583,6 +631,23 @@ export class ZonesTreeWidget extends ReactWidget {
                         onCancel={() => this.closeCopyDialog()}
                         title="Copier vers une zone"
                         actionLabel="Copier"
+                    />
+                )}
+
+                {/* Dialog de fusion de zone */}
+                {this.mergeDialog && (
+                    <MoveGeocacheDialog
+                        geocacheName={`la zone "${this.mergeDialog.zone.name}"`}
+                        currentZoneId={this.mergeDialog.zone.id}
+                        zones={this.zones}
+                        onMove={async (targetZoneId) => {
+                            const sourceZone = this.mergeDialog!.zone;
+                            this.closeMergeDialog();
+                            await this.mergeZone(sourceZone, targetZoneId);
+                        }}
+                        onCancel={() => this.closeMergeDialog()}
+                        title="Fusionner vers une zone"
+                        actionLabel="Fusionner"
                     />
                 )}
             </div>
