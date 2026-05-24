@@ -1,8 +1,9 @@
 import pytest
+from datetime import datetime, timedelta
 
 from gc_backend import create_app
 from gc_backend.database import db
-from gc_backend.geocaches.models import Geocache, GeocacheChecker, GeocacheWaypoint
+from gc_backend.geocaches.models import Geocache, GeocacheChecker, GeocacheWaypoint, SolvedGeocacheArchive
 from gc_backend.models import Zone
 
 
@@ -71,6 +72,53 @@ def test_update_zone_renames_zone(client, app, seeded_zone):
 
     with app.app_context():
         assert Zone.query.get(seeded_zone).name == 'Renommee'
+
+
+def test_list_zones_is_alphabetical_and_includes_sort_metadata(client, app):
+    base_time = datetime(2026, 5, 24, 10, 0)
+
+    with app.app_context():
+        bravo = Zone(name='Bravo', created_at=base_time)
+        alpha = Zone(name='Alpha', created_at=base_time + timedelta(minutes=1))
+        db.session.add_all([bravo, alpha])
+        db.session.flush()
+
+        db.session.add(Geocache(
+            gc_code='GCBRAVO',
+            name='Cache Bravo',
+            type='Traditional Cache',
+            zone_id=bravo.id,
+            created_at=base_time + timedelta(minutes=2),
+        ))
+        db.session.add(Geocache(
+            gc_code='GCALPHA',
+            name='Cache Alpha',
+            type='Unknown Cache',
+            zone_id=alpha.id,
+            created_at=base_time + timedelta(minutes=3),
+        ))
+        db.session.add(SolvedGeocacheArchive(
+            gc_code='GCALPHA',
+            name='Cache Alpha',
+            solved_status='solved',
+            created_at=base_time + timedelta(minutes=4),
+            updated_at=base_time + timedelta(minutes=5),
+        ))
+        db.session.commit()
+
+    response = client.get('/api/zones')
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert [zone['name'] for zone in payload] == ['Alpha', 'Bravo', 'default']
+
+    alpha_payload = next(zone for zone in payload if zone['name'] == 'Alpha')
+    assert alpha_payload['geocaches_count'] == 1
+    assert alpha_payload['latest_geocache_created_at'] == (base_time + timedelta(minutes=3)).isoformat()
+    assert alpha_payload['latest_resolution_updated_at'] == (base_time + timedelta(minutes=5)).isoformat()
+
+    bravo_payload = next(zone for zone in payload if zone['name'] == 'Bravo')
+    assert bravo_payload['latest_resolution_updated_at'] is None
 
 
 def test_duplicate_zone_copies_geocaches_waypoints_and_checkers(client, app, seeded_zone):

@@ -1,8 +1,9 @@
 from flask import Blueprint, jsonify, request
+from sqlalchemy import func, or_
 
 from ..database import db
 from ..models import Zone, AppConfig
-from ..geocaches.models import Geocache, GeocacheChecker, GeocacheWaypoint
+from ..geocaches.models import Geocache, GeocacheChecker, GeocacheWaypoint, SolvedGeocacheArchive
 
 
 bp = Blueprint('zones', __name__)
@@ -35,10 +36,62 @@ def _unique_zone_copy_name(source_name: str) -> str:
         index += 1
 
 
+def _isoformat(value):
+    return value.isoformat() if value else None
+
+
+def _build_zone_list_payload(zones: list[Zone]) -> list[dict]:
+    zone_ids = [zone.id for zone in zones]
+    if not zone_ids:
+        return []
+
+    cache_stats = {
+        zone_id: (count, latest_created_at)
+        for zone_id, count, latest_created_at in db.session.query(
+            Geocache.zone_id,
+            func.count(Geocache.id),
+            func.max(Geocache.created_at),
+        )
+        .filter(Geocache.zone_id.in_(zone_ids))
+        .group_by(Geocache.zone_id)
+        .all()
+    }
+    resolution_stats = {
+        zone_id: latest_resolution_at
+        for zone_id, latest_resolution_at in db.session.query(
+            Geocache.zone_id,
+            func.max(SolvedGeocacheArchive.updated_at),
+        )
+        .join(SolvedGeocacheArchive, SolvedGeocacheArchive.gc_code == Geocache.gc_code)
+        .filter(Geocache.zone_id.in_(zone_ids))
+        .filter(or_(
+            SolvedGeocacheArchive.solved_status.in_(('in_progress', 'solved')),
+            SolvedGeocacheArchive.resolution_method.isnot(None),
+            SolvedGeocacheArchive.solved_coordinates_raw.isnot(None),
+        ))
+        .group_by(Geocache.zone_id)
+        .all()
+    }
+
+    payload = []
+    for zone in zones:
+        count, latest_geocache_created_at = cache_stats.get(zone.id, (0, None))
+        payload.append({
+            'id': zone.id,
+            'name': zone.name,
+            'description': zone.description,
+            'created_at': _isoformat(zone.created_at),
+            'geocaches_count': int(count or 0),
+            'latest_geocache_created_at': _isoformat(latest_geocache_created_at),
+            'latest_resolution_updated_at': _isoformat(resolution_stats.get(zone.id)),
+        })
+    return payload
+
+
 @bp.get('/api/zones')
 def list_zones():
-    zones = Zone.query.order_by(Zone.created_at.desc()).all()
-    return jsonify([z.to_dict() for z in zones])
+    zones = Zone.query.order_by(func.lower(Zone.name).asc()).all()
+    return jsonify(_build_zone_list_payload(zones))
 
 
 @bp.post('/api/zones')

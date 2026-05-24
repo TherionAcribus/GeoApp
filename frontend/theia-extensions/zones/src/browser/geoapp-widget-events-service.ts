@@ -7,6 +7,7 @@ export interface GeocacheChangedEvent {
         | 'waypoint-created'
         | 'waypoint-deleted'
         | 'corrected-coordinates-updated'
+        | 'solved-status-updated'
         | 'note-created';
     source: 'map' | 'details' | 'zones' | 'chat';
 }

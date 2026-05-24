@@ -7,6 +7,8 @@ export type ZoneDto = {
     description?: string;
     created_at?: string;
     geocaches_count?: number;
+    latest_geocache_created_at?: string | null;
+    latest_resolution_updated_at?: string | null;
 };
 
 export interface ActiveZoneDto {

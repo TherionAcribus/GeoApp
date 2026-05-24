@@ -324,7 +324,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         }
     }
 
-    private notifyGeocacheChanged(reason: 'waypoint-created' | 'waypoint-deleted' | 'corrected-coordinates-updated'): void {
+    private notifyGeocacheChanged(reason: 'waypoint-created' | 'waypoint-deleted' | 'corrected-coordinates-updated' | 'solved-status-updated'): void {
         if (!this.geocacheId) {
             return;
         }
@@ -453,6 +453,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             if (this.data) {
                 this.data.solved = newStatus;
             }
+            this.notifyGeocacheChanged('solved-status-updated');
             this.messages.info('Statut mis à jour');
         } catch (error) {
             console.error('[GeocacheDetailsWidget] updateSolvedStatus error', error);

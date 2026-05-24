@@ -3,6 +3,8 @@ import { injectable, inject } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { ConfirmDialog, Dialog, SingleTextInputDialog } from '@theia/core/lib/browser';
 import { MessageService } from '@theia/core';
+import { PreferenceChange, PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
+import { PreferenceScope } from '@theia/core/lib/common/preferences/preference-scope';
 import { ContextMenu, ContextMenuItem } from './context-menu';
 import { MoveGeocacheDialog } from './move-geocache-dialog';
 import { GeocacheIcon } from './geocache-icon';
@@ -25,6 +27,30 @@ type GeocacheDto = {
     found: boolean;
 };
 
+type ZoneSortKey =
+    | 'name'
+    | 'created_at'
+    | 'geocaches_count'
+    | 'latest_geocache_created_at'
+    | 'latest_resolution_updated_at';
+
+type ZoneSortDirection = 'asc' | 'desc';
+
+interface ZoneSortPreference {
+    key: ZoneSortKey;
+    direction: ZoneSortDirection;
+}
+
+const ZONE_SORT_PREFERENCE_KEY = 'geoApp.zones.sort';
+const DEFAULT_ZONE_SORT: ZoneSortPreference = { key: 'name', direction: 'asc' };
+const ZONE_SORT_OPTIONS: Array<{ key: ZoneSortKey; label: string }> = [
+    { key: 'name', label: 'Nom' },
+    { key: 'created_at', label: 'Creation' },
+    { key: 'geocaches_count', label: 'Nombre de caches' },
+    { key: 'latest_geocache_created_at', label: 'Derniere cache ajoutee' },
+    { key: 'latest_resolution_updated_at', label: 'Derniere resolution' },
+];
+
 @injectable()
 export class ZonesTreeWidget extends ReactWidget {
     static readonly ID = 'zones.tree.widget';
@@ -38,6 +64,8 @@ export class ZonesTreeWidget extends ReactWidget {
     protected moveDialog: { geocache: GeocacheDto; zoneId: number } | null = null;
     protected copyDialog: { geocache: GeocacheDto; zoneId: number } | null = null;
     protected mergeDialog: { zone: ZoneDto } | null = null;
+    protected zoneSort: ZoneSortPreference = { ...DEFAULT_ZONE_SORT };
+    protected readonly zoneNameCollator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
 
     protected readonly handleGeocacheLogSubmitted = (event: CustomEvent<{ geocacheId: number; found?: boolean }>): void => {
         const detail = event?.detail;
@@ -74,6 +102,7 @@ export class ZonesTreeWidget extends ReactWidget {
         @inject(GeocacheTabsManager) protected readonly geocacheTabsManager: GeocacheTabsManager,
         @inject(ZoneTabsManager) protected readonly zoneTabsManager: ZoneTabsManager,
         @inject(MessageService) protected readonly messages: MessageService,
+        @inject(PreferenceService) protected readonly preferenceService: PreferenceService,
         @inject(ZonesService) protected readonly zonesService: ZonesService,
         @inject(GeocachesService) protected readonly geocachesService: GeocachesService,
         @inject(GeoAppWidgetEventsService) protected readonly widgetEventsService: GeoAppWidgetEventsService,
@@ -85,10 +114,63 @@ export class ZonesTreeWidget extends ReactWidget {
         this.title.caption = 'Zones';
         this.title.iconClass = 'fa fa-map-marker';
         this.addClass('theia-zones-tree-widget');
-        this.widgetEventsService.onDidRequestZonesRefresh(() => {
+        this.zoneSort = this.readZoneSortPreference();
+        this.toDispose.push(this.preferenceService.onPreferenceChanged(event => this.handlePreferenceChanged(event)));
+        this.toDispose.push(this.widgetEventsService.onDidRequestZonesRefresh(() => {
             void this.refreshExpandedZones();
-        });
+        }));
+        this.toDispose.push(this.widgetEventsService.onDidChangeGeocache(() => {
+            void this.refreshExpandedZones();
+        }));
         console.log('[ZonesTreeWidget] constructed');
+    }
+
+    protected readZoneSortPreference(): ZoneSortPreference {
+        const raw = this.preferenceService.get<unknown>(ZONE_SORT_PREFERENCE_KEY, DEFAULT_ZONE_SORT);
+        return this.normalizeZoneSortPreference(raw);
+    }
+
+    protected normalizeZoneSortPreference(raw: unknown): ZoneSortPreference {
+        if (!raw || typeof raw !== 'object') {
+            return { ...DEFAULT_ZONE_SORT };
+        }
+
+        const candidate = raw as Partial<ZoneSortPreference>;
+        return {
+            key: this.isZoneSortKey(candidate.key) ? candidate.key : DEFAULT_ZONE_SORT.key,
+            direction: candidate.direction === 'desc' ? 'desc' : 'asc',
+        };
+    }
+
+    protected isZoneSortKey(value: unknown): value is ZoneSortKey {
+        return typeof value === 'string' && ZONE_SORT_OPTIONS.some(option => option.key === value);
+    }
+
+    protected handlePreferenceChanged(event: PreferenceChange): void {
+        if (event.preferenceName !== ZONE_SORT_PREFERENCE_KEY) {
+            return;
+        }
+        this.zoneSort = this.readZoneSortPreference();
+        this.update();
+    }
+
+    protected setZoneSort(nextSort: Partial<ZoneSortPreference>): void {
+        const next = this.normalizeZoneSortPreference({
+            ...this.zoneSort,
+            ...nextSort,
+        });
+        if (next.key === this.zoneSort.key && next.direction === this.zoneSort.direction) {
+            return;
+        }
+
+        this.zoneSort = next;
+        this.update();
+        void this.preferenceService.set(ZONE_SORT_PREFERENCE_KEY, next, PreferenceScope.User)
+            .catch(error => console.warn('[ZonesTreeWidget] Failed to persist zone sort preference', error));
+    }
+
+    protected toggleZoneSortDirection(): void {
+        this.setZoneSort({ direction: this.zoneSort.direction === 'asc' ? 'desc' : 'asc' });
     }
 
     onAfterAttach(msg: any): void {
@@ -122,6 +204,61 @@ export class ZonesTreeWidget extends ReactWidget {
             console.error('Zones: fetch error', e);
             this.messages.error(getErrorMessage(e, 'Erreur lors du chargement des zones'));
         }
+    }
+
+    protected getSortedZones(): ZoneDto[] {
+        return [...this.zones].sort((a, b) => this.compareZones(a, b));
+    }
+
+    protected compareZones(a: ZoneDto, b: ZoneDto): number {
+        const direction = this.zoneSort.direction === 'asc' ? 1 : -1;
+        if (this.zoneSort.key === 'name') {
+            return (this.compareZoneNames(a, b) * direction) || (a.id - b.id);
+        }
+
+        const aValue = this.getZoneSortNumber(a, this.zoneSort.key);
+        const bValue = this.getZoneSortNumber(b, this.zoneSort.key);
+
+        if (aValue === undefined && bValue === undefined) {
+            return this.compareZoneNames(a, b) || (a.id - b.id);
+        }
+        if (aValue === undefined) {
+            return 1;
+        }
+        if (bValue === undefined) {
+            return -1;
+        }
+        if (aValue !== bValue) {
+            return (aValue - bValue) * direction;
+        }
+        return this.compareZoneNames(a, b) || (a.id - b.id);
+    }
+
+    protected compareZoneNames(a: ZoneDto, b: ZoneDto): number {
+        return this.zoneNameCollator.compare(a.name || '', b.name || '');
+    }
+
+    protected getZoneSortNumber(zone: ZoneDto, key: ZoneSortKey): number | undefined {
+        switch (key) {
+            case 'created_at':
+                return this.getDateTimestamp(zone.created_at);
+            case 'geocaches_count':
+                return Number(zone.geocaches_count ?? 0);
+            case 'latest_geocache_created_at':
+                return this.getDateTimestamp(zone.latest_geocache_created_at);
+            case 'latest_resolution_updated_at':
+                return this.getDateTimestamp(zone.latest_resolution_updated_at);
+            default:
+                return undefined;
+        }
+    }
+
+    protected getDateTimestamp(value: string | null | undefined): number | undefined {
+        if (!value) {
+            return undefined;
+        }
+        const timestamp = Date.parse(value);
+        return Number.isFinite(timestamp) ? timestamp : undefined;
     }
 
     protected async loadGeocachesForZone(zoneId: number): Promise<void> {
@@ -541,7 +678,46 @@ export class ZonesTreeWidget extends ReactWidget {
         }
     }
 
+    protected renderSortControls(): React.ReactNode {
+        return (
+            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                <select
+                    value={this.zoneSort.key}
+                    onChange={event => this.setZoneSort({ key: event.currentTarget.value as ZoneSortKey })}
+                    title='Critere de tri'
+                    aria-label='Critere de tri des zones'
+                    style={{
+                        flex: 1,
+                        minWidth: 0,
+                        padding: '3px 6px',
+                        border: '1px solid var(--theia-dropdown-border, var(--theia-input-border))',
+                        background: 'var(--theia-dropdown-background, var(--theia-input-background))',
+                        color: 'var(--theia-dropdown-foreground, var(--theia-input-foreground))',
+                        borderRadius: 3,
+                        fontSize: '0.85em',
+                    }}
+                >
+                    {ZONE_SORT_OPTIONS.map(option => (
+                        <option key={option.key} value={option.key}>{option.label}</option>
+                    ))}
+                </select>
+                <button
+                    type='button'
+                    className='theia-button'
+                    onClick={() => this.toggleZoneSortDirection()}
+                    title={this.zoneSort.direction === 'asc' ? 'Tri croissant' : 'Tri decroissant'}
+                    aria-label='Inverser le tri des zones'
+                    style={{ padding: '3px 8px', minWidth: 48 }}
+                >
+                    {this.zoneSort.direction === 'asc' ? 'Asc' : 'Desc'}
+                </button>
+            </div>
+        );
+    }
+
     protected render(): React.ReactNode {
+        const sortedZones = this.getSortedZones();
+
         return (
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '8px' }}>
                 {/* Formulaire d'ajout de zone */}
@@ -580,6 +756,8 @@ export class ZonesTreeWidget extends ReactWidget {
                     </button>
                 </form>
 
+                {this.renderSortControls()}
+
                 {/* Arbre de navigation */}
                 <div style={{ flex: 1, overflow: 'auto' }}>
                     {this.zones.length === 0 ? (
@@ -589,7 +767,7 @@ export class ZonesTreeWidget extends ReactWidget {
                         </div>
                     ) : (
                         <div>
-                            {this.zones.map(zone => this.renderZoneNode(zone))}
+                            {sortedZones.map(zone => this.renderZoneNode(zone))}
                         </div>
                     )}
                 </div>
@@ -609,7 +787,7 @@ export class ZonesTreeWidget extends ReactWidget {
                     <MoveGeocacheDialog
                         geocacheName={`${this.moveDialog.geocache.gc_code} - ${this.moveDialog.geocache.name}`}
                         currentZoneId={this.moveDialog.zoneId}
-                        zones={this.zones}
+                        zones={sortedZones}
                         onMove={async (targetZoneId) => {
                             await this.moveGeocache(this.moveDialog!.geocache, targetZoneId);
                             this.closeMoveDialog();
@@ -623,7 +801,7 @@ export class ZonesTreeWidget extends ReactWidget {
                     <MoveGeocacheDialog
                         geocacheName={`${this.copyDialog.geocache.gc_code} - ${this.copyDialog.geocache.name}`}
                         currentZoneId={this.copyDialog.zoneId}
-                        zones={this.zones}
+                        zones={sortedZones}
                         onMove={async (targetZoneId) => {
                             await this.copyGeocache(this.copyDialog!.geocache, targetZoneId);
                             this.closeCopyDialog();
@@ -639,7 +817,7 @@ export class ZonesTreeWidget extends ReactWidget {
                     <MoveGeocacheDialog
                         geocacheName={`la zone "${this.mergeDialog.zone.name}"`}
                         currentZoneId={this.mergeDialog.zone.id}
-                        zones={this.zones}
+                        zones={sortedZones}
                         onMove={async (targetZoneId) => {
                             const sourceZone = this.mergeDialog!.zone;
                             this.closeMergeDialog();
