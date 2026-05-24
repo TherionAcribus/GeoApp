@@ -263,8 +263,8 @@ export const ImportAroundDialog: React.FC<ImportAroundDialogProps> = ({
     };
 
     const dialog = (
-        <div style={overlayStyle} onClick={onCancel}>
-            <div style={panelStyle} onClick={(e) => e.stopPropagation()}>
+        <div style={overlayStyle} onMouseDown={onCancel}>
+            <div style={panelStyle} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
                 <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <h3 style={{ margin: 0, fontSize: 18, color: 'var(--theia-foreground)' }}>Importer autour…</h3>
                     <button
@@ -374,14 +374,20 @@ export const ImportAroundDialog: React.FC<ImportAroundDialogProps> = ({
                     )}
 
                     <div style={{ marginBottom: 12 }}>
-                        <label style={labelStyle}>Limite</label>
+                        <label style={labelStyle}>Nombre de géocaches à importer</label>
                         <input
+                            type="number"
+                            min="1"
+                            max="200"
                             value={limit}
                             onChange={(e) => setLimit(e.target.value)}
                             disabled={isImporting}
                             placeholder="50"
                             style={inputStyle}
                         />
+                        <p style={{ marginTop: 4, fontSize: 11, color: 'var(--theia-descriptionForeground)' }}>
+                            Avec filtres : recherche parmi ~{Math.min(200, Math.max(parseInt(limit) * 10 || 100, 100))} candidats dans un rayon de 50 km max.
+                        </p>
                     </div>
 
                     <div style={{ marginBottom: 12 }}>
