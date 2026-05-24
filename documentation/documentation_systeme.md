@@ -29,7 +29,7 @@ Le système d'aide offre aux utilisateurs de GeoApp une documentation consultabl
 - **Navigation par chapitres/pages** dans une sidebar de navigation
 - **Recherche plein texte par section** via FlexSearch
 - **Agent IA `@Aide`** accessible depuis le chat Theia — **mode hybride** : répond aux questions documentaires *et* exécute des actions applicatives (ouvrir des widgets, gérer des zones, géocaches, waypoints, notes)
-- **22 tools d'action** (`aide_*`) injectés au LLM à chaque requête, avec confirmation Theia native pour les actions destructives
+- **36 tools d'action** (`aide_*`) fournis par l'extension documentation et injectés au LLM à chaque requête, avec confirmation Theia native pour les actions destructives
 - **Contexte UI dynamique** : `@Aide` connaît le widget actif, la zone active et les onglets ouverts
 - **Icône 📖** dans la barre d'activité gauche (bas) pour un accès rapide
 - **Raccourci clavier** `Shift+F1` et entrée dans le menu **Aide**
@@ -63,7 +63,7 @@ frontend/theia-extensions/documentation/
 │   ├── doc-agent.ts                  ← ChatAgent @Aide (hybride doc + actions)
 │   ├── doc-action-types.ts           ← interface DocActionUiContext
 │   ├── doc-action-context-service.ts ← collecte widget actif, zone active, onglets
-│   ├── doc-action-tools.ts           ← DocActionToolsManager : 22 tools aide_*
+│   ├── doc-action-tools.ts           ← DocActionToolsManager : 36 tools aide_*
 │   ├── doc-contribution.ts           ← commandes, menus, keybindings, icône sidebar
 │   ├── doc-frontend-module.ts        ← module InversifyJS
 │   ├── types.d.ts                    ← déclarations de modules
@@ -97,7 +97,7 @@ docs/*.md  ──[build]──▶  doc-registry.ts (imports webpack)
                          │
                     GeoAppDocAgent
                     (prompt système = règles + contexte UI + catalogue tools + doc)
-                    (sendLlmRequest → 22 tools aide_* passés au LLM)
+                    (sendLlmRequest → 36 tools aide_* passés au LLM)
                          │
                     DocActionToolsManager
                     (handlers → ZonesService, GeocachesService,
@@ -518,6 +518,8 @@ Le LLM décide seul d'appeler (ou non) un tool :
 |---|---|
 | « Comment créer une zone ? » | Répond depuis la documentation |
 | « Crée une zone "Bretagne" » | Appelle `aide_create_zone` |
+| « Renomme la zone "Test" en "Bretagne" » | Appelle `aide_list_zones`, puis `aide_rename_zone` |
+| « Duplique la zone "Paris" en "Paris copie" » | Appelle `aide_list_zones`, puis `aide_duplicate_zone` |
 | « Ouvre le panneau plugins » | Appelle `aide_open_plugins_panel` |
 | « Peux-tu lister mes zones ? » | Appelle `aide_list_zones` |
 | « Supprime la zone "Test" » | Appelle `aide_delete_zone` → dialog Theia |
@@ -530,7 +532,7 @@ Règles clés du prompt :
 
 ### `sendLlmRequest` — injection des tools
 
-`GeoAppDocAgent` surcharge `sendLlmRequest` pour injecter les 22 tools `aide_*` à chaque requête :
+`GeoAppDocAgent` surcharge `sendLlmRequest` pour injecter les 36 tools `aide_*` de l'extension documentation à chaque requête :
 
 ```typescript
 protected override async sendLlmRequest(
@@ -552,7 +554,7 @@ Construit dynamiquement à chaque appel de `getSystemMessageDescription()` :
 
 1. **Rôle et règles générales** : répondre en français, depuis la doc pour les questions
 2. **Règles d'action** : appeler les tools immédiatement, reconnaître les formulations d'action
-3. **Catalogue des tools** : liste structurée des 22 tools avec signatures et ⚠ pour les destructifs
+3. **Catalogue des tools** : liste structurée des tools avec signatures et ⚠ pour les destructifs
 4. **Contexte UI** : widget actif, zone active, onglets ouverts (voir `DocActionContextService`)
 5. **Table des matières** de la documentation
 6. **Documentation complète** (toutes les pages, frontmatter strippé)
@@ -580,7 +582,7 @@ Permet à `@Aide` de résoudre les références implicites : « cette zone », �
 
 ### `DocActionToolsManager`
 
-`FrontendApplicationContribution` qui enregistre 22 tools et fournit `buildAllTools()` :
+`FrontendApplicationContribution` qui enregistre 36 tools et fournit `buildAllTools()` :
 
 **Navigation (9 tools) :**
 
@@ -596,19 +598,22 @@ Permet à `@Aide` de résoudre les références implicites : « cette zone », �
 | `aide_open_zone_tab(zone_id)` | `ZoneTabsManager.openZone()` |
 | `aide_open_geocache(geocache_id)` | `GeocacheTabsManager.openGeocacheDetails()` |
 
-**Zones (4 tools) :**
+**Zones (6 tools) :**
 
 | Tool | Confirme ? | Service |
 |---|---|---|
 | `aide_list_zones` | non | `ZonesService.list()` |
 | `aide_create_zone(name, description?)` | non | `ZonesService.create()` |
+| `aide_rename_zone(zone_id, new_name, description?)` | non | `ZonesService.update()` |
+| `aide_duplicate_zone(zone_id, name, description?)` | non | `ZonesService.duplicate()` |
 | `aide_set_active_zone(zone_id)` | non | `ZonesService.setActiveZone()` |
 | `aide_delete_zone(zone_id, zone_name)` | **⚠ oui** | `ZonesService.delete()` |
 
-**Géocaches (4 tools) :**
+**Géocaches (5 tools) :**
 
 | Tool | Confirme ? | Service |
 |---|---|---|
+| `aide_get_geocache_details(geocache_id)` | non | `GeocachesService.get()` |
 | `aide_list_geocaches_in_zone(zone_id)` | non | `ZonesService.listGeocaches()` |
 | `aide_add_geocache_by_code(zone_id, gc_code)` | **⚠ oui** | `GeocachesService.addToZone()` |
 | `aide_copy_geocache_to_zone(geocache_id, target_zone_id)` | **⚠ oui** | `GeocachesService.copy()` |
@@ -631,7 +636,7 @@ Permet à `@Aide` de résoudre les références implicites : « cette zone », �
 
 La confirmation ⚠ est implémentée via `confirmAlwaysAllow` sur le `ToolRequest` — Theia affiche automatiquement un dialog avant l'exécution du handler.
 
-Après chaque mutation réussie (create/delete zone, setActive, add/copy/delete geocache), `GeoAppWidgetEventsService.requestZonesRefresh()` est appelé pour rafraîchir la liste des zones.
+Après chaque mutation réussie (create/rename/duplicate/delete zone, setActive, add/copy/delete geocache), `GeoAppWidgetEventsService.requestZonesRefresh()` est appelé pour rafraîchir la liste des zones.
 
 ### Enregistrement Theia
 
@@ -649,6 +654,8 @@ bind(FrontendApplicationContribution).toService(GeoAppDocAgentContribution);
 ```
 @Aide comment créer une nouvelle zone ?
 @Aide crée une zone "Bretagne 2025"
+@Aide renomme la zone "Brouillon" en "Bretagne 2025"
+@Aide duplique la zone "Paris" en "Paris copie"
 @Aide ouvre le panneau des plugins
 @Aide liste mes zones
 @Aide ajoute GC12345 à la zone 2
@@ -672,7 +679,7 @@ export default new ContainerModule(bind => {
     bind(DocActionContextService).toSelf().inSingletonScope();
     bind(DocActionToolsManager).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(DocActionToolsManager);
-    // DocActionToolsManager.onStart() enregistre les 22 tools aide_* dans ToolInvocationRegistry
+    // DocActionToolsManager.onStart() enregistre les 36 tools aide_* dans ToolInvocationRegistry
 
     // Widget
     bind(DocWidget).toSelf().inSingletonScope();

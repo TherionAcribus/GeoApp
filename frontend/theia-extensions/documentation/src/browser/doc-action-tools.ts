@@ -569,6 +569,54 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 },
             },
             {
+                id: 'aide_rename_zone',
+                name: 'aide_rename_zone',
+                description: 'Renomme une zone de résolution existante.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    zone_id: { type: 'number', description: 'ID de la zone à renommer.', required: true },
+                    new_name: { type: 'string', description: 'Nouveau nom de la zone.', required: true },
+                    description: { type: 'string', description: 'Description optionnelle à conserver ou modifier.', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const zone = await this.zonesService.update<{ id: number; name: string; description?: string }>(args.zone_id, {
+                            name: args.new_name,
+                            description: args.description,
+                        });
+                        const activeZone = await this.zonesService.getActiveZone<{ id?: number | null }>();
+                        if (activeZone?.id === zone.id) {
+                            await this.zoneTabsManager.openZone({ zoneId: zone.id, zoneName: zone.name });
+                        }
+                        this.widgetEventsService.requestZonesRefresh();
+                        return ok(zone);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_duplicate_zone',
+                name: 'aide_duplicate_zone',
+                description: 'Duplique une zone de résolution avec ses géocaches, waypoints et checkers.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    zone_id: { type: 'number', description: 'ID de la zone source à dupliquer.', required: true },
+                    name: { type: 'string', description: 'Nom de la nouvelle zone dupliquée.', required: true },
+                    description: { type: 'string', description: 'Description optionnelle de la nouvelle zone.', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const zone = await this.zonesService.duplicate<{ id: number; name: string; description?: string; geocaches_count?: number }>(args.zone_id, {
+                            name: args.name,
+                            description: args.description,
+                        });
+                        this.widgetEventsService.requestZonesRefresh();
+                        return ok(zone);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
                 id: 'aide_delete_zone',
                 name: 'aide_delete_zone',
                 description: 'Supprime définitivement une zone et toutes ses géocaches. Action irréversible.',

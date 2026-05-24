@@ -2,9 +2,37 @@ from flask import Blueprint, jsonify, request
 
 from ..database import db
 from ..models import Zone, AppConfig
+from ..geocaches.models import Geocache, GeocacheChecker, GeocacheWaypoint
 
 
 bp = Blueprint('zones', __name__)
+
+
+def _copy_model_columns(model, source, **overrides):
+    values = {}
+    for column in model.__table__.columns:
+        if column.primary_key:
+            continue
+        if column.name in overrides:
+            values[column.name] = overrides[column.name]
+            continue
+        if column.name in ('created_at', 'updated_at') or column.onupdate is not None:
+            continue
+        values[column.name] = getattr(source, column.name)
+    return model(**values)
+
+
+def _unique_zone_copy_name(source_name: str) -> str:
+    base_name = f'{source_name} (copie)'
+    if Zone.query.filter_by(name=base_name).first() is None:
+        return base_name
+
+    index = 2
+    while True:
+        candidate = f'{source_name} (copie {index})'
+        if Zone.query.filter_by(name=candidate).first() is None:
+            return candidate
+        index += 1
 
 
 @bp.get('/api/zones')
@@ -26,6 +54,76 @@ def create_zone():
     db.session.commit()
 
     return jsonify(z.to_dict()), 201
+
+
+@bp.patch('/api/zones/<int:zone_id>')
+@bp.post('/api/zones/<int:zone_id>/rename')
+def update_zone(zone_id: int):
+    zone = Zone.query.get_or_404(zone_id)
+    data = request.get_json(silent=True) or {}
+    name = (data.get('name') or '').strip()
+    description = data.get('description')
+    if not name:
+        return jsonify({'error': 'name requis'}), 400
+
+    existing = Zone.query.filter(Zone.id != zone_id, Zone.name == name).first()
+    if existing:
+        return jsonify({'error': f'Une zone nommée "{name}" existe déjà'}), 409
+
+    zone.name = name
+    if description is not None:
+        zone.description = description or ''
+    db.session.commit()
+
+    return jsonify(zone.to_dict()), 200
+
+
+@bp.post('/api/zones/<int:zone_id>/duplicate')
+def duplicate_zone(zone_id: int):
+    source_zone = Zone.query.get_or_404(zone_id)
+    data = request.get_json(silent=True) or {}
+    name = (data.get('name') or '').strip() or _unique_zone_copy_name(source_zone.name)
+    description = data.get('description')
+
+    if Zone.query.filter_by(name=name).first():
+        return jsonify({'error': f'Une zone nommée "{name}" existe déjà'}), 409
+
+    try:
+        new_zone = Zone(
+            name=name,
+            description=source_zone.description if description is None else description or '',
+        )
+        db.session.add(new_zone)
+        db.session.flush()
+
+        for source_geocache in source_zone.geocaches:
+            new_geocache = _copy_model_columns(
+                Geocache,
+                source_geocache,
+                zone_id=new_zone.id,
+            )
+            db.session.add(new_geocache)
+            db.session.flush()
+
+            for waypoint in source_geocache.waypoints:
+                db.session.add(_copy_model_columns(
+                    GeocacheWaypoint,
+                    waypoint,
+                    geocache_id=new_geocache.id,
+                ))
+
+            for checker in source_geocache.checkers:
+                db.session.add(_copy_model_columns(
+                    GeocacheChecker,
+                    checker,
+                    geocache_id=new_geocache.id,
+                ))
+
+        db.session.commit()
+        return jsonify(new_zone.to_dict()), 201
+    except Exception:
+        db.session.rollback()
+        raise
 
 
 @bp.delete('/api/zones/<int:zone_id>')

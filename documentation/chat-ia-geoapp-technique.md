@@ -34,6 +34,8 @@ Le système a été conçu pour rester compatible avec Theia. GeoApp ne remplace
 | `frontend/theia-extensions/zones/src/browser/geoapp-chat-policy-widget.tsx` | Interface de diagnostic et de configuration avancée. |
 | `frontend/theia-extensions/zones/src/browser/geoapp-chat-bridge.ts` | Ouvre/reprend les sessions Chat IA depuis les widgets GeoApp. |
 | `frontend/theia-extensions/zones/src/browser/zones-frontend-module.ts` | Wiring Inversify/Theia des services, widgets et agents. |
+| `frontend/theia-extensions/documentation/src/browser/doc-action-tools.ts` | Tools `aide_*` propres à l'agent documentaire `@Aide`, dont les actions de gestion des zones. |
+| `frontend/theia-extensions/documentation/src/browser/doc-agent.ts` | Agent `@Aide`, prompt documentaire et injection directe des tools `aide_*`. |
 | `frontend/theia-extensions/documentation/docs/ia/chat-geoapp.md` | Documentation utilisateur finale. |
 
 ## 3. Architecture générale
@@ -323,6 +325,23 @@ Le catalogue infère sa catégorie :
 - sinon -> `plugins`.
 
 Par défaut, un plugin dynamique n'est pas activé automatiquement.
+
+### Tools `@Aide` de gestion des zones
+
+L'agent documentaire `@Aide` n'utilise pas exactement la même policy que les agents `GeoApp` : il injecte directement ses tools `aide_*` via `DocActionToolsManager.buildAllTools()`, tout en les enregistrant aussi dans `ToolInvocationRegistry` pour rester visibles côté Theia.
+
+Les tools de zones exposés à `@Aide` sont :
+
+| Tool | Effet | Backend/service |
+|---|---|---|
+| `aide_list_zones` | Liste les zones disponibles. | `ZonesService.list()` |
+| `aide_create_zone(name, description?)` | Crée une zone. | `POST /api/zones` |
+| `aide_rename_zone(zone_id, new_name, description?)` | Renomme une zone existante. | `POST /api/zones/<id>/rename` via `ZonesService.update()` |
+| `aide_duplicate_zone(zone_id, name, description?)` | Duplique une zone avec ses géocaches, waypoints et checkers. | `POST /api/zones/<id>/duplicate` via `ZonesService.duplicate()` |
+| `aide_set_active_zone(zone_id)` | Définit la zone active. | `POST /api/active-zone` |
+| `aide_delete_zone(zone_id, zone_name)` | Supprime une zone. | `DELETE /api/zones/<id>` avec confirmation Theia |
+
+Pour les demandes par nom ("renomme la zone Paris"), le prompt de `@Aide` demande d'appeler d'abord `aide_list_zones` afin de résoudre l'ID, puis d'enchaîner l'action.
 
 ## 10. Policy effective
 

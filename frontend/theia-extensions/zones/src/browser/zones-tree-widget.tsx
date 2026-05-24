@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
-import { ConfirmDialog, Dialog } from '@theia/core/lib/browser';
+import { ConfirmDialog, Dialog, SingleTextInputDialog } from '@theia/core/lib/browser';
 import { MessageService } from '@theia/core';
 import { ContextMenu, ContextMenuItem } from './context-menu';
 import { MoveGeocacheDialog } from './move-geocache-dialog';
@@ -209,6 +209,87 @@ export class ZonesTreeWidget extends ReactWidget {
         }
     }
 
+    protected async renameZone(zone: ZoneDto): Promise<void> {
+        const nextName = await this.openZoneNameDialog({
+            title: 'Renommer la zone',
+            initialValue: zone.name,
+            confirmButtonLabel: 'Renommer',
+            currentZoneId: zone.id
+        });
+        if (!nextName || nextName === zone.name) {
+            return;
+        }
+
+        try {
+            const updated = await this.zonesService.update(zone.id, {
+                name: nextName,
+                description: zone.description || ''
+            });
+            if (this.activeZoneId === zone.id) {
+                await this.zoneTabsManager.openZone({ zoneId: updated.id, zoneName: updated.name });
+            }
+            await this.refresh();
+            this.messages.info(`Zone "${zone.name}" renommée en "${updated.name}"`);
+        } catch (e) {
+            console.error('Zones: rename error', e);
+            this.messages.error(getErrorMessage(e, 'Erreur lors du renommage de la zone'));
+        }
+    }
+
+    protected async duplicateZone(zone: ZoneDto): Promise<void> {
+        const defaultName = `${zone.name} (copie)`;
+        const name = await this.openZoneNameDialog({
+            title: 'Dupliquer la zone',
+            initialValue: defaultName,
+            confirmButtonLabel: 'Dupliquer'
+        });
+        if (!name) {
+            return;
+        }
+
+        try {
+            const duplicated = await this.zonesService.duplicate(zone.id, {
+                name,
+                description: zone.description || ''
+            });
+            await this.refresh();
+            this.messages.info(`Zone "${zone.name}" dupliquée en "${duplicated.name}"`);
+        } catch (e) {
+            console.error('Zones: duplicate error', e);
+            this.messages.error(getErrorMessage(e, 'Erreur lors de la duplication de la zone'));
+        }
+    }
+
+    protected async openZoneNameDialog(options: {
+        title: string;
+        initialValue: string;
+        confirmButtonLabel: string;
+        currentZoneId?: number;
+    }): Promise<string | undefined> {
+        const dialog = new SingleTextInputDialog({
+            title: options.title,
+            initialValue: options.initialValue,
+            placeholder: 'Nom de la zone',
+            confirmButtonLabel: options.confirmButtonLabel,
+            validate: input => {
+                const name = input.trim();
+                if (!name) {
+                    return 'Le nom de la zone est requis';
+                }
+                const duplicate = this.zones.find(z =>
+                    z.id !== options.currentZoneId
+                    && z.name.trim().toLocaleLowerCase() === name.toLocaleLowerCase()
+                );
+                if (duplicate) {
+                    return `Une zone nommée "${name}" existe déjà`;
+                }
+                return '';
+            }
+        });
+
+        return (await dialog.open())?.trim();
+    }
+
     protected async moveGeocache(geocache: GeocacheDto, targetZoneId: number): Promise<void> {
         try {
             await this.geocachesService.move(geocache.id, targetZoneId);
@@ -260,6 +341,16 @@ export class ZonesTreeWidget extends ReactWidget {
                 label: 'Ouvrir',
                 icon: '📂',
                 action: () => this.openZoneTable(zone)
+            },
+            {
+                label: 'Renommer',
+                icon: '✎',
+                action: () => this.renameZone(zone)
+            },
+            {
+                label: 'Dupliquer',
+                icon: '⧉',
+                action: () => this.duplicateZone(zone)
             },
             {
                 separator: true

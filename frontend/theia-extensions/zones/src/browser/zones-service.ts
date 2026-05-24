@@ -35,6 +35,22 @@ export class ZonesService {
         );
     }
 
+    async update<T extends ZoneDto = ZoneDto>(zoneId: number, input: { name: string; description?: string }): Promise<T> {
+        return this.apiClient.requestJson<T>(
+            `/api/zones/${zoneId}/rename`,
+            this.apiClient.createJsonInit('POST', input),
+            'Erreur lors de la mise à jour de la zone'
+        );
+    }
+
+    async duplicate<T extends ZoneDto = ZoneDto>(zoneId: number, input: { name: string; description?: string }): Promise<T> {
+        return this.apiClient.requestJson<T>(
+            `/api/zones/${zoneId}/duplicate`,
+            this.apiClient.createJsonInit('POST', input),
+            'Erreur lors de la duplication de la zone'
+        );
+    }
+
     async delete(zoneId: number): Promise<void> {
         await this.apiClient.requestVoid(
             `/api/zones/${zoneId}`,

@@ -130,6 +130,8 @@ export class GeoAppDocAgent extends AbstractStreamParsingChatAgent {
             '**Zones :**',
             '- aide_list_zones — Liste toutes les zones',
             '- aide_create_zone(name, description?) — Crée une zone',
+            '- aide_rename_zone(zone_id, new_name, description?) — Renomme une zone',
+            '- aide_duplicate_zone(zone_id, name, description?) — Duplique une zone avec ses géocaches, waypoints et checkers',
             '- aide_set_active_zone(zone_id) — Définit la zone active',
             '- aide_delete_zone(zone_id, zone_name) ⚠ — Supprime une zone (irréversible)',
             '',
