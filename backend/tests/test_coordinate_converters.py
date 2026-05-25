@@ -8,6 +8,7 @@ from gc_backend.utils.coordinate_converters import (
     convert_to_code,
     convert_to_format,
     convert_to_grid,
+    find_coordinate_candidates,
     parse_coordinate,
 )
 
@@ -35,6 +36,12 @@ def test_parse_and_format_dd_ddm_dms():
     parsed_dms = parse_coordinate(dms, "dms")
     assert_close(parsed_dms.latitude, 48.85837, 0.00002)
     assert_close(parsed_dms.longitude, 2.294481, 0.00002)
+
+
+def test_parse_ddm_with_replacement_question_mark_degree_symbol():
+    parsed = parse_coordinate("N 48? 51.502 E 002? 17.669", "ddm")
+    assert_close(parsed.latitude, 48.85837, 0.00002)
+    assert_close(parsed.longitude, 2.294481, 0.00002)
 
 
 def test_grid_utm_mgrs_webmercator_roundtrips():
@@ -103,6 +110,19 @@ def test_code_converter_can_output_geocaching_format():
     assert result["text_output"].startswith("N 48")
     assert result["coordinates"]["formatted"].startswith("N 48")
     assert result["coordinates"]["source_formatted"] == "FRA 4J.Q3"
+
+
+def test_find_coordinate_candidates_extracts_multiple_formats():
+    text = (
+        "Start N 48° 51.502 E 002° 17.669. "
+        "Backup geohash u09tunqu5 and mapcode FRA 4J.Q3."
+    )
+    candidates = find_coordinate_candidates(text)
+    formats = [candidate.source_format for candidate in candidates]
+    assert "ddm" in formats
+    assert "geohash" in formats
+    assert "mapcode" in formats
+    assert len(candidates) >= 3
 
 
 def test_plus_code_short_requires_reference_and_mapcode_roundtrip():

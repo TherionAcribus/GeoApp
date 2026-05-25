@@ -1,104 +1,140 @@
-from typing import Dict, Any
-from loguru import logger
-import re
+from typing import Any, Dict, List, Optional, Tuple
 
-# Tente d'importer la fonction de détection depuis le backend
+from loguru import logger
+
+
 try:
     from gc_backend.blueprints.coordinates import detect_gps_coordinates
 except ImportError:
-    # Fallback si l'import échoue (ex: structure différente)
-    logger.warning("Import direct de detect_gps_coordinates a échoué, tentative via app context ou mock")
+    logger.warning("Import direct de detect_gps_coordinates impossible")
     detect_gps_coordinates = None
 
 try:
-    from gc_backend.utils.coordinate_converters import CoordinateConversionError, parse_coordinate
+    from gc_backend.utils.coordinate_converters import (
+        CanonicalCoordinate,
+        CoordinateConversionError,
+        find_coordinate_candidates,
+    )
 except Exception:
+    CanonicalCoordinate = None
     CoordinateConversionError = Exception
-    parse_coordinate = None
+    find_coordinate_candidates = None
+
 
 class CoordinatesFinderPlugin:
     def __init__(self):
         self.name = "coordinates_finder"
-        self.description = "Recherche de coordonnées GPS dans le texte"
+        self.description = "Recherche de coordonnees GPS dans le texte"
 
     def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        text = inputs.get('text', '')
-        
+        text = inputs.get("text", "")
+        max_results = self._safe_int(inputs.get("max_results"), default=20)
+
         if not text:
             return {
-                "status": "success", 
+                "status": "success",
                 "summary": "Aucun texte fourni",
-                "results": []
+                "results": [],
+                "primary_coordinates": None,
             }
-        
-        # Nettoyage basique du HTML pour la détection pure
-        # (On garde le texte visible seulement pour éviter de matcher des styles css etc)
-        from bs4 import BeautifulSoup
-        try:
-            soup = BeautifulSoup(text, 'html.parser')
-            clean_text = soup.get_text(separator=' ', strip=True)
-        except Exception:
-            clean_text = text
 
-        results = []
-        
+        clean_text = self._clean_text(str(text))
+        results: List[Dict[str, Any]] = []
+        seen: set[Tuple[Optional[str], Optional[float], Optional[float]]] = set()
+
         if detect_gps_coordinates:
-            # On utilise la fonction centralisée
-            # Elle retourne un dict {exist: bool, ddm_lat: ..., ddm_lon: ..., decimal_latitude: ...}
-            # On peut l'appeler plusieurs fois ou elle gère tout le texte ?
-            # detect_gps_coordinates analyse tout le texte et retourne la PREMIÈRE occurrence trouvée.
-            # Pour une analyse de page complète, on voudrait peut-être toutes les occurrences.
-            # Mais detect_gps_coordinates ne renvoie qu'un résultat unique.
-            
-            # TODO: Améliorer detect_gps_coordinates pour retourner toutes les occurrences ?
-            # Pour l'instant on l'utilise telle quelle.
-            
             detection = detect_gps_coordinates(clean_text)
-            
-            if detection and detection.get('exist'):
-                # On formate le résultat pour l'interface d'analyse
-                res = {
-                    "id": "coord_1",
-                    "text_output": f"Coordonnées détectées : {detection.get('ddm')}",
-                    "confidence": detection.get('confidence', 0.8),
-                    "coordinates": detection, # Structure complète
-                    "decimal_latitude": detection.get('decimal_latitude'),
-                    "decimal_longitude": detection.get('decimal_longitude')
-                }
-                results.append(res)
+            if detection and detection.get("exist"):
+                self._append_result(results, seen, detection, len(results) + 1, "legacy")
 
-        if not results and parse_coordinate is not None:
+        if find_coordinate_candidates is not None:
             try:
-                converted = parse_coordinate(clean_text, "auto")
-                coordinates = converted.to_coordinates_dict()
-                res = {
-                    "id": "coord_1",
-                    "text_output": f"CoordonnÃ©es dÃ©tectÃ©es : {coordinates.get('formatted') or coordinates.get('ddm')}",
-                    "confidence": coordinates.get("confidence", 0.85),
-                    "coordinates": coordinates,
-                    "decimal_latitude": converted.latitude,
-                    "decimal_longitude": converted.longitude,
-                    "metadata": {
-                        "source_format": converted.source_format,
-                        "bbox": converted.bbox,
-                    },
-                }
-                results.append(res)
+                candidates = find_coordinate_candidates(clean_text, max_results=max_results)
+                for candidate in candidates:
+                    coordinates = candidate.to_coordinates_dict()
+                    metadata = {
+                        "source_format": candidate.source_format,
+                        "bbox": candidate.bbox,
+                        "source_formatted": coordinates.get("source_formatted"),
+                    }
+                    self._append_result(results, seen, coordinates, len(results) + 1, "converter", metadata)
+                    if len(results) >= max_results:
+                        break
             except CoordinateConversionError:
                 pass
             except Exception as exc:
-                logger.debug(f"DÃ©tection coordinate_converters ignorÃ©e: {exc}")
-        
+                logger.debug(f"Detection coordinate_converters ignoree: {exc}")
+
         return {
             "status": "success",
-            "summary": f"{len(results)} coordonnées trouvées",
+            "summary": f"{len(results)} coordonnee(s) trouvee(s)",
             "results": results,
-            "primary_coordinates": results[0]["coordinates"] if results else None
+            "primary_coordinates": results[0]["coordinates"] if results else None,
         }
+
+    def _append_result(
+        self,
+        results: List[Dict[str, Any]],
+        seen: set,
+        coordinates: Dict[str, Any],
+        index: int,
+        source: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        key = self._coord_key(coordinates)
+        if key in seen:
+            return
+        seen.add(key)
+
+        formatted = coordinates.get("formatted") or coordinates.get("ddm") or coordinates.get("coordinates_raw") or ""
+        result = {
+            "id": f"coord_{index}",
+            "text_output": f"Coordonnees detectees : {formatted}",
+            "confidence": coordinates.get("confidence", 0.85),
+            "coordinates": coordinates,
+            "decimal_latitude": coordinates.get("decimal_latitude"),
+            "decimal_longitude": coordinates.get("decimal_longitude"),
+            "metadata": {
+                "detector": source,
+                **(metadata or {}),
+            },
+        }
+        results.append(result)
+
+    def _coord_key(self, coordinates: Dict[str, Any]) -> Tuple[Optional[str], Optional[float], Optional[float]]:
+        lat = coordinates.get("decimal_latitude")
+        lon = coordinates.get("decimal_longitude")
+        if lat is None or lon is None:
+            decimal = coordinates.get("decimal") or {}
+            lat = decimal.get("lat") or decimal.get("latitude")
+            lon = decimal.get("lon") or decimal.get("longitude")
+        try:
+            lat = round(float(lat), 5)
+            lon = round(float(lon), 5)
+        except (TypeError, ValueError):
+            lat = None
+            lon = None
+        return ("coordinate", lat, lon)
+
+    def _clean_text(self, text: str) -> str:
+        try:
+            from bs4 import BeautifulSoup
+
+            soup = BeautifulSoup(text, "html.parser")
+            return soup.get_text(separator=" ", strip=True)
+        except Exception:
+            return text
+
+    def _safe_int(self, value: Any, default: int) -> int:
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            return default
+        return max(1, min(100, parsed))
+
 
 plugin = CoordinatesFinderPlugin()
 
+
 def execute(inputs):
     return plugin.execute(inputs)
-
-

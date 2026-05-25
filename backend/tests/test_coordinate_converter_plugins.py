@@ -110,3 +110,22 @@ def test_coordinate_converter_plugin_error_is_clean():
     )
     assert result["status"] == "error"
     assert result["summary"]
+
+
+def test_coordinates_finder_returns_multiple_coordinate_results():
+    result = run_plugin(
+        "coordinates_finder",
+        {
+            "text": (
+                "Coordonnees: N 48° 51.502 E 002° 17.669. "
+                "Autres indices: geohash u09tunqu5 et mapcode FRA 4J.Q3."
+            ),
+            "max_results": 10,
+        },
+    )
+    assert result["status"] == "success"
+    assert result["primary_coordinates"]
+    assert len(result["results"]) >= 3
+    formats = {item["coordinates"].get("source_format") for item in result["results"]}
+    assert "geohash" in formats
+    assert "mapcode" in formats

@@ -19,6 +19,33 @@ SUPPORTED_GRID_FORMATS = {"utm", "mgrs", "osgb", "osgr", "web_mercator"}
 SUPPORTED_CODE_FORMATS = {"geohash", "plus_code", "mapcode"}
 
 
+_DD_PAIR_RE = re.compile(
+    r"(?<![\w.])(?P<lat>[+-]?\d{1,2}\.\d+)\s*[,;]\s*(?P<lon>[+-]?\d{1,3}\.\d+)(?![\w.])"
+)
+_DDM_PAIR_RE = re.compile(
+    r"[NS]\s*\d{1,2}\s*(?:[°º˚'`´’′?]|deg|degrees)?\s*[0-5]?\d(?:[\.,]\d+)?"
+    r".{0,8}?"
+    r"[EWOL]\s*\d{1,3}\s*(?:[°º˚'`´’′?]|deg|degrees)?\s*[0-5]?\d(?:[\.,]\d+)?",
+    re.IGNORECASE,
+)
+_DMS_PAIR_RE = re.compile(
+    r"[NS]\s*\d{1,2}\s*(?:[°º˚?]|deg|degrees)?\s*[0-5]?\d(?:\s*(?:['’′m]|min|minutes)\s*|\s+)"
+    r"[0-5]?\d(?:[\.,]\d+)?\s*(?:[\"”″s]|sec|seconds)?"
+    r".{0,8}?"
+    r"[EWOL]\s*\d{1,3}\s*(?:[°º˚?]|deg|degrees)?\s*[0-5]?\d(?:\s*(?:['’′m]|min|minutes)\s*|\s+)"
+    r"[0-5]?\d(?:[\.,]\d+)?\s*(?:[\"”″s]|sec|seconds)?",
+    re.IGNORECASE,
+)
+_PLUS_CODE_RE = re.compile(r"\b[23456789CFGHJMPQRVWX]{4,8}\+[23456789CFGHJMPQRVWX]{2,}\b", re.IGNORECASE)
+_MGRS_COMPACT_RE = re.compile(r"\b\d{1,2}[C-HJ-NP-X][A-Z]{2}\d{2,}\b", re.IGNORECASE)
+_MGRS_SPACED_RE = re.compile(r"\b\d{1,2}[C-HJ-NP-X]\s+[A-Z]{2}\s+\d{2,10}\b", re.IGNORECASE)
+_UTM_RE = re.compile(r"\b\d{1,2}\s*[C-HJ-NP-X]?\s+\d{3,7}(?:\.\d+)?\s+\d{3,7}(?:\.\d+)?\b", re.IGNORECASE)
+_OSGB_RE = re.compile(r"\b[A-Z]{2}\s*\d{4,10}\b", re.IGNORECASE)
+_MAPCODE_RE = re.compile(r"\b[A-Z]{3}\s+[A-Z0-9]{2,}\.[A-Z0-9]{2,}\b", re.IGNORECASE)
+_GEOHASH_RE = re.compile(r"\b[0123456789bcdefghjkmnpqrstuvwxyz]{5,12}\b")
+_GEOHASH_UPPER_RE = re.compile(r"\b(?=[0123456789BCDEFGHJKMNPQRSTUVWXYZ]*\d)[0123456789BCDEFGHJKMNPQRSTUVWXYZ]{5,12}\b")
+
+
 class CoordinateConversionError(ValueError):
     """Raised when an input cannot be parsed or converted."""
 
@@ -155,6 +182,68 @@ def parse_coordinate(
     raise CoordinateConversionError(f"Format de coordonnée non reconnu{': ' + detail if detail else ''}")
 
 
+def find_coordinate_candidates(text: str, max_results: int = 20) -> List[CanonicalCoordinate]:
+    """Extract multiple supported coordinate candidates from free text.
+
+    This intentionally favors explicit coordinate signatures over loose numeric
+    parsing to avoid treating puzzle numbers as coordinates.
+    """
+
+    source = str(text or "")
+    candidates: List[CanonicalCoordinate] = []
+    seen: set[Tuple[str, float, float, str]] = set()
+
+    def add(raw: str, fmt: str) -> None:
+        if len(candidates) >= max_results:
+            return
+        try:
+            coord = parse_coordinate(raw, fmt)
+        except CoordinateConversionError:
+            return
+        except Exception:
+            return
+        key = (
+            coord.source_format,
+            round(coord.latitude, 5),
+            round(coord.longitude, 5),
+            re.sub(r"\s+", "", raw).upper(),
+        )
+        if key in seen:
+            return
+        seen.add(key)
+        candidates.append(coord)
+
+    extractors = [
+        ("dms", _DMS_PAIR_RE),
+        ("ddm", _DDM_PAIR_RE),
+        ("dd", _DD_PAIR_RE),
+        ("plus_code", _PLUS_CODE_RE),
+        ("mgrs", _MGRS_COMPACT_RE),
+        ("mgrs", _MGRS_SPACED_RE),
+        ("utm", _UTM_RE),
+        ("osgb", _OSGB_RE),
+        ("mapcode", _MAPCODE_RE),
+        ("geohash", _GEOHASH_RE),
+        ("geohash", _GEOHASH_UPPER_RE),
+    ]
+
+    for fmt, pattern in extractors:
+        for match in pattern.finditer(source):
+            add(match.group(0), fmt)
+            if len(candidates) >= max_results:
+                break
+        if len(candidates) >= max_results:
+            break
+
+    if not candidates:
+        try:
+            candidates.append(parse_coordinate(source, "auto"))
+        except Exception:
+            pass
+
+    return candidates
+
+
 def _candidate_formats(text: str) -> List[str]:
     upper = text.strip().upper()
     compact = upper.replace(" ", "")
@@ -215,7 +304,7 @@ def _parse_dd(text: str) -> Tuple[float, float]:
 
 def _parse_ddm(text: str) -> Tuple[float, float]:
     pattern = re.compile(
-        r"(?P<dir>[NSWEOL])\s*(?P<deg>\d{1,3})\s*(?:[°º˚'`´’′]|deg|degrees)?\s*"
+        r"(?P<dir>[NSWEOL])\s*(?P<deg>\d{1,3})\s*(?:[°º˚'`´’′?]|deg|degrees)?\s*"
         r"(?P<min>[0-5]?\d(?:[\.,]\d+)?)",
         re.IGNORECASE,
     )
@@ -234,8 +323,8 @@ def _parse_ddm(text: str) -> Tuple[float, float]:
 
 def _parse_dms(text: str) -> Tuple[float, float]:
     pattern = re.compile(
-        r"(?P<dir>[NSWEOL])\s*(?P<deg>\d{1,3})\s*(?:[°º˚]|deg|degrees)?\s*"
-        r"(?P<min>[0-5]?\d)\s*(?:['’′m]|min|minutes)?\s*"
+        r"(?P<dir>[NSWEOL])\s*(?P<deg>\d{1,3})\s*(?:[°º˚?]|deg|degrees)?\s*"
+        r"(?P<min>[0-5]?\d)(?:\s*(?:['’′m]|min|minutes)\s*|\s+)"
         r"(?P<sec>[0-5]?\d(?:[\.,]\d+)?)\s*(?:[\"”″s]|sec|seconds)?",
         re.IGNORECASE,
     )
