@@ -1,0 +1,82 @@
+{
+  "name": "coordinate_special_converter",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Convertit des formats de coordonnées confidentiels: GARS, QTH/Maidenhead, Slippy Map Tiles, Quadkey, NAC, RD et Lambert.",
+  "author": "MysterAI Team",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": ["pyproj"],
+  "categories": ["Coordinates", "Conversion", "Codes"],
+  "kinds": ["geo", "calculator"],
+  "brute_force": false,
+  "enable_scoring": false,
+  "accept_accents": true,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "input_text": {
+      "type": "string",
+      "label": "Coordonnée ou code",
+      "placeholder": "Ex: 48.85837, 2.294481, JN18DU, 360MV37, 15/16594/11272",
+      "required": true
+    },
+    "source_format": {
+      "type": "select",
+      "label": "Format source",
+      "options": ["auto", "dd", "ddm", "dms", "gars", "qth", "slippy", "quadkey", "nac", "rd", "lambert_93", "lambert_72"],
+      "default": "auto"
+    },
+    "target_format": {
+      "type": "select",
+      "label": "Format cible",
+      "options": ["all", "geocaching", "dd", "ddm", "dms", "gars", "qth", "slippy", "quadkey", "nac", "rd", "lambert_93", "lambert_72"],
+      "default": "all"
+    },
+    "precision": {
+      "type": "number",
+      "label": "Précision NAC",
+      "default": 10,
+      "min": 1,
+      "max": 12,
+      "step": 1
+    },
+    "zoom": {
+      "type": "number",
+      "label": "Zoom Slippy/Quadkey",
+      "default": 15,
+      "min": 0,
+      "max": 30,
+      "step": 1
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Résultat"
+    },
+    "decimal_latitude": {
+      "type": "number",
+      "label": "Latitude décimale"
+    },
+    "decimal_longitude": {
+      "type": "number",
+      "label": "Longitude décimale"
+    },
+    "formats": {
+      "type": "object",
+      "label": "Formats"
+    }
+  }
+}

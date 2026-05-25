@@ -129,3 +129,32 @@ def test_coordinates_finder_returns_multiple_coordinate_results():
     formats = {item["coordinates"].get("source_format") for item in result["results"]}
     assert "geohash" in formats
     assert "mapcode" in formats
+
+
+def test_coordinate_special_converter_plugin():
+    result = run_plugin(
+        "coordinate_special_converter",
+        {
+            "input_text": "48.85837, 2.294481",
+            "source_format": "dd",
+            "target_format": "all",
+            "precision": 10,
+            "zoom": 15,
+        },
+    )
+    assert_plugin_coordinate_result(result)
+    formats = result["results"][0]["formats"]
+    assert {"gars", "qth", "slippy", "quadkey", "nac", "rd", "lambert_93", "lambert_72"}.issubset(formats)
+
+
+def test_coordinate_special_converter_decodes_qth_to_geocaching():
+    result = run_plugin(
+        "coordinate_special_converter",
+        {
+            "input_text": "JN18DU",
+            "source_format": "qth",
+            "target_format": "geocaching",
+        },
+    )
+    assert_plugin_coordinate_result(result)
+    assert result["results"][0]["text_output"].startswith("N ")

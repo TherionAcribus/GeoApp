@@ -8,6 +8,7 @@ from gc_backend.utils.coordinate_converters import (
     convert_to_code,
     convert_to_format,
     convert_to_grid,
+    convert_to_special,
     find_coordinate_candidates,
     parse_coordinate,
 )
@@ -123,6 +124,55 @@ def test_find_coordinate_candidates_extracts_multiple_formats():
     assert "geohash" in formats
     assert "mapcode" in formats
     assert len(candidates) >= 3
+
+
+def test_find_coordinate_candidates_extracts_special_formats():
+    text = "Use GARS 365MP24, locator JN18DU, and tile 15/16592/11272."
+    candidates = find_coordinate_candidates(text)
+    formats = [candidate.source_format for candidate in candidates]
+    assert "gars" in formats
+    assert "qth" in formats
+    assert "slippy" in formats
+
+
+def test_special_formats_gars_qth_nac_roundtrip():
+    special = convert_to_special(EIFFEL_DD, source_format="dd", target_format="all", precision=10, zoom=15)
+    assert special["formats"]["gars"]
+    assert special["formats"]["qth"]
+    assert special["formats"]["nac"]
+
+    for fmt in ["gars", "qth", "nac"]:
+        parsed = parse_coordinate(special["formats"][fmt], fmt)
+        assert_close(parsed.latitude, 48.85837, 0.1)
+        assert_close(parsed.longitude, 2.294481, 0.1)
+
+
+def test_special_formats_slippy_and_quadkey_roundtrip():
+    special = convert_to_special(EIFFEL_DD, source_format="dd", target_format="all", zoom=15)
+    slippy = parse_coordinate(special["formats"]["slippy"], "slippy")
+    quadkey = parse_coordinate(special["formats"]["quadkey"], "quadkey")
+    assert_close(slippy.latitude, 48.85837, 0.01)
+    assert_close(slippy.longitude, 2.294481, 0.01)
+    assert_close(quadkey.latitude, slippy.latitude, 0.000001)
+    assert_close(quadkey.longitude, slippy.longitude, 0.000001)
+
+
+def test_special_formats_rd_and_lambert_roundtrip():
+    amsterdam = "52.37308, 4.89245"
+    rd = convert_to_special(amsterdam, source_format="dd", target_format="rd")
+    parsed_rd = parse_coordinate(rd["text_output"], "rd")
+    assert_close(parsed_rd.latitude, 52.37308, 0.0001)
+    assert_close(parsed_rd.longitude, 4.89245, 0.0001)
+
+    lambert_93 = convert_to_special("48.8566, 2.3522", source_format="dd", target_format="lambert_93")
+    parsed_l93 = parse_coordinate(lambert_93["text_output"], "lambert_93")
+    assert_close(parsed_l93.latitude, 48.8566, 0.0001)
+    assert_close(parsed_l93.longitude, 2.3522, 0.0001)
+
+    lambert_72 = convert_to_special("50.8466, 4.3528", source_format="dd", target_format="lambert_72")
+    parsed_l72 = parse_coordinate(lambert_72["text_output"], "lambert_72")
+    assert_close(parsed_l72.latitude, 50.8466, 0.0001)
+    assert_close(parsed_l72.longitude, 4.3528, 0.0001)
 
 
 def test_plus_code_short_requires_reference_and_mapcode_roundtrip():
