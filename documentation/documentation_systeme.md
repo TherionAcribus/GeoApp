@@ -636,14 +636,15 @@ Permet à `@Aide` de résoudre les références implicites : « cette zone », �
 | `aide_update_note(note_id, content, note_type?)` | non | `GeocacheNotesService.updateNote()` |
 | `aide_delete_note(note_id)` | **⚠ oui** | `GeocacheNotesService.deleteNote()` |
 
-**Preferences GeoApp (6 tools) :**
+**Preferences GeoApp (7 tools) :**
 
 | Tool | Action |
 |---|---|
-| `aide_list_preference_categories` | Liste les categories reelles du schema |
-| `aide_search_preferences(query, category?)` | Recherche semantique simple dans les preferences |
-| `aide_list_preferences(category?)` | Liste les preferences et valeurs courantes |
-| `aide_get_preference(key)` | Detail d'une preference |
+| `aide_list_preference_categories` | Liste les categories reelles du schema avec leurs sous-sections `x-ui` |
+| `aide_list_preference_guides` | Liste les guides par usage visibles dans la page Preferences |
+| `aide_search_preferences(query, category?)` | Recherche dans les preferences, libelles, sous-sections, tags et mots-cles `x-ui` |
+| `aide_list_preferences(category?)` | Liste les preferences, valeurs courantes et metadonnees d'affichage |
+| `aide_get_preference(key)` | Detail d'une preference avec section, libelle et indicateur avance |
 | `aide_set_preference(key, value)` | Modifie une preference non sensible |
 | `aide_reset_preference(key)` | Remet une preference a sa valeur par defaut |
 

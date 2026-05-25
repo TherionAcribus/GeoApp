@@ -15,9 +15,12 @@ export type GeoPreferenceDefinition = (typeof schemaJson.properties)[GeoPreferen
     'x-ui'?: {
         group?: string;
         section?: string;
+        label?: string;
+        shortDescription?: string;
         order?: number;
         advanced?: boolean;
         keywords?: string[];
+        enumLabels?: Record<string, string>;
     };
     title?: string;
     enum?: string[] | number[];

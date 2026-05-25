@@ -15,12 +15,31 @@ export interface GeoPreferencesOpenOptions {
 
 type GeoPreferenceTargetFilter = 'all' | 'frontend' | 'backend';
 type GeoPreferenceValueFilter = 'all' | 'modified';
+type GeoPreferenceComplexityFilter = 'all' | 'simple' | 'advanced';
+
+interface GeoPreferenceGuide {
+    id: string;
+    label: string;
+    description: string;
+    categories?: string[];
+    sections?: string[];
+    keyPrefixes?: string[];
+    keyIncludes?: string[];
+    tags?: string[];
+}
 
 interface GeoPreferenceSection {
     category: string;
     label: string;
     entries: Array<{ key: GeoPreferenceKey; definition: GeoPreferenceDefinition }>;
     filteredEntries: Array<{ key: GeoPreferenceKey; definition: GeoPreferenceDefinition }>;
+    subsections: GeoPreferenceSubsection[];
+}
+
+interface GeoPreferenceSubsection {
+    id: string;
+    label: string;
+    entries: Array<{ key: GeoPreferenceKey; definition: GeoPreferenceDefinition }>;
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -64,6 +83,82 @@ const CATEGORY_ORDER = [
     'search',
     'logs',
     'generic'
+];
+
+const PREFERENCE_GUIDES: GeoPreferenceGuide[] = [
+    {
+        id: 'aide',
+        label: '@Aide et Chat IA',
+        description: 'Modèles, comportements, skills, tools et sauvegarde des coordonnées trouvées.',
+        categories: ['ai', 'chat'],
+        sections: ['Activation', 'Profils', 'Profils par workflow', 'Comportement', 'Policy tools et skills', 'Coordonnées trouvées', 'OpenRouter', 'OpenAI Codex'],
+        keyPrefixes: ['geoApp.ai.', 'geoApp.chat.'],
+        tags: ['chat', 'geoapp', 'prompt', 'skills', 'tools', 'policy']
+    },
+    {
+        id: 'map',
+        label: 'Carte et coordonnées',
+        description: 'Fond de carte, affichage, waypoints, coordonnées détectées et overlay Formula Solver.',
+        categories: ['map'],
+        sections: ['Carte', 'Affichage', 'Fournisseurs', 'Coordonnées trouvées', 'Formula Solver'],
+        keyPrefixes: ['geoApp.map.'],
+        keyIncludes: ['formulaSolver.preview.mapOverlayEnabled', 'ai.mapHints'],
+        tags: ['map']
+    },
+    {
+        id: 'checkers',
+        label: 'Checkers',
+        description: 'Automatisation, Playwright, GeoCheck, Certitude, Geocaching.com et ouverture des liens.',
+        categories: ['checkers', 'auth'],
+        sections: ['Général', 'Playwright', 'Sécurité', 'Navigation', 'Geocaching.com'],
+        keyPrefixes: ['geoApp.checkers.', 'geoApp.auth.geocaching.'],
+        tags: ['checkers', 'geocheck', 'authentication']
+    },
+    {
+        id: 'tabs-ui',
+        label: 'Interface et onglets',
+        description: 'Page de démarrage, stratégie d’onglets, fiches géocaches, liens et tableaux.',
+        categories: ['ui', 'alphabets', 'logs'],
+        sections: ['Général', 'Onglets', 'Tableaux', 'Navigation', 'Fiche géocache', 'Affichage'],
+        keyPrefixes: ['geoApp.ui.', 'geoApp.geocache.', 'geoApp.geocaches.table.', 'geoApp.logs.', 'geoApp.alphabets.'],
+        tags: ['ui', 'navigation', 'table']
+    },
+    {
+        id: 'plugins',
+        label: 'Plugins et MetaSolver',
+        description: 'Chargement des plugins, limites d’exécution et pipelines MetaSolver.',
+        categories: ['plugins'],
+        sections: ['Général', 'Exécution', 'MetaSolver'],
+        keyPrefixes: ['geoApp.plugins.', 'geoApp.metasolver.'],
+        tags: ['metasolver']
+    },
+    {
+        id: 'images-ocr',
+        label: 'Images et OCR',
+        description: 'Galerie d’images, stockage local, moteurs OCR et fournisseurs vision.',
+        categories: ['images', 'ocr'],
+        sections: ['Galerie', 'Stockage', 'Général', 'Fournisseurs', 'LM Studio', 'OpenRouter'],
+        keyPrefixes: ['geoApp.images.', 'geoApp.ocr.'],
+        tags: ['vision', 'openrouter', 'storage']
+    },
+    {
+        id: 'notes-gpx',
+        label: 'Notes et GPX',
+        description: 'Synchronisation des notes personnelles, export GPX et logs Geocaching.com.',
+        categories: ['notes'],
+        sections: ['Geocaching.com', 'GPX'],
+        keyPrefixes: ['geoApp.notes.', 'geoApp.gpxExport.'],
+        tags: ['notes', 'gpx', 'export']
+    },
+    {
+        id: 'system',
+        label: 'Système',
+        description: 'Backend, archive, mises à jour, recherche et réglages de fonctionnement.',
+        categories: ['backend', 'archive', 'updates', 'search', 'earthcoach'],
+        sections: ['Système', 'Général', 'Références'],
+        keyPrefixes: ['geoApp.backend.', 'geoApp.tasks.', 'geoApp.archive.', 'geoApp.updates.', 'geoApp.search.', 'geoApp.earthCoach.'],
+        tags: ['network', 'safety', 'data-preservation', 'earthcoach']
+    }
 ];
 
 const ENUM_VALUE_LABELS: Record<string, string> = {
@@ -129,6 +224,8 @@ export class GeoPreferencesWidget extends ReactWidget {
     protected searchQuery = '';
     protected targetFilter: GeoPreferenceTargetFilter = 'all';
     protected valueFilter: GeoPreferenceValueFilter = 'all';
+    protected complexityFilter: GeoPreferenceComplexityFilter = 'all';
+    protected selectedGuideId = 'all';
 
     constructor(
         @inject(GeoPreferenceStore) private readonly store: GeoPreferenceStore,
@@ -216,6 +313,7 @@ export class GeoPreferencesWidget extends ReactWidget {
         const backendUrl = String(this.snapshot['geoApp.backend.apiBaseUrl'] ?? 'http://localhost:8000');
         const totalCount = sections.reduce((sum, section) => sum + section.entries.length, 0);
         const visibleCount = visibleSections.reduce((sum, section) => sum + section.filteredEntries.length, 0);
+        const guideCounts = this.buildGuideCounts();
         const modifiedCount = this.store.definitions
             .filter(({ key, definition }) => this.isModified(key, definition))
             .length;
@@ -249,6 +347,8 @@ export class GeoPreferencesWidget extends ReactWidget {
                     {this.renderFilterButton('Toutes', this.valueFilter === 'all' && this.targetFilter === 'all', () => {
                         this.valueFilter = 'all';
                         this.targetFilter = 'all';
+                        this.complexityFilter = 'all';
+                        this.selectedGuideId = 'all';
                         this.update();
                     })}
                     {this.renderFilterButton('Modifiées', this.valueFilter === 'modified', () => {
@@ -263,6 +363,31 @@ export class GeoPreferencesWidget extends ReactWidget {
                         this.targetFilter = this.targetFilter === 'backend' ? 'all' : 'backend';
                         this.update();
                     })}
+                    {this.renderFilterButton('Simples', this.complexityFilter === 'simple', () => {
+                        this.complexityFilter = this.complexityFilter === 'simple' ? 'all' : 'simple';
+                        this.update();
+                    })}
+                    {this.renderFilterButton('Avancées', this.complexityFilter === 'advanced', () => {
+                        this.complexityFilter = this.complexityFilter === 'advanced' ? 'all' : 'advanced';
+                        this.update();
+                    })}
+                </div>
+                <div className='geo-preferences-guide-row'>
+                    {this.renderGuideButton('Tous les usages', undefined, this.selectedGuideId === 'all', () => {
+                        this.selectedGuideId = 'all';
+                        this.update();
+                    })}
+                    {PREFERENCE_GUIDES.map(guide => this.renderGuideButton(
+                        guide.label,
+                        guideCounts.get(guide.id) ?? 0,
+                        this.selectedGuideId === guide.id,
+                        () => {
+                            this.selectedGuideId = this.selectedGuideId === guide.id ? 'all' : guide.id;
+                            this.highlightedPreferenceKey = undefined;
+                            this.update();
+                        },
+                        guide.description
+                    ))}
                 </div>
             </div>
 
@@ -290,6 +415,26 @@ export class GeoPreferencesWidget extends ReactWidget {
                 onClick={onClick}
             >
                 {label}
+            </button>
+        );
+    }
+
+    private renderGuideButton(
+        label: string,
+        count: number | undefined,
+        active: boolean,
+        onClick: () => void,
+        title?: string
+    ): React.ReactNode {
+        return (
+            <button
+                className={`theia-button secondary geo-preferences-guide-button${active ? ' active' : ''}`}
+                type='button'
+                onClick={onClick}
+                title={title ?? label}
+            >
+                <span>{label}</span>
+                {count !== undefined && <span>{count}</span>}
             </button>
         );
     }
@@ -337,10 +482,27 @@ export class GeoPreferencesWidget extends ReactWidget {
                 </header>
                 {expanded && (
                     <div className='geo-preferences-items'>
-                        {section.filteredEntries.map(({ key, definition }) => this.renderPreference(key, definition))}
+                        {section.subsections.map(subsection => this.renderSubsection(section, subsection))}
                     </div>
                 )}
             </section>
+        );
+    }
+
+    private renderSubsection(section: GeoPreferenceSection, subsection: GeoPreferenceSubsection): React.ReactNode {
+        const showHeading = section.subsections.length > 1 || subsection.label !== section.label;
+        return (
+            <div key={subsection.id} className='geo-preferences-subsection'>
+                {showHeading && (
+                    <h3>
+                        <span>{subsection.label}</span>
+                        <span>{subsection.entries.length}</span>
+                    </h3>
+                )}
+                <div className='geo-preferences-subsection-items'>
+                    {subsection.entries.map(({ key, definition }) => this.renderPreference(key, definition))}
+                </div>
+            </div>
         );
     }
 
@@ -399,13 +561,14 @@ export class GeoPreferencesWidget extends ReactWidget {
 
     private renderPreference(key: GeoPreferenceKey, definition: GeoPreferenceDefinition): React.ReactNode {
         const currentValue = this.snapshot[key];
-        const description = definition.description;
-        const label = definition.title ?? this.toPreferenceLabel(key);
+        const description = definition['x-ui']?.shortDescription ?? definition.description;
+        const label = definition['x-ui']?.label ?? definition.title ?? this.toPreferenceLabel(key);
         const targets = definition['x-targets'] ?? ['frontend'];
         const backend = targets.includes('backend');
         const modified = this.isModified(key, definition);
         const tags = definition['x-tags'] ?? [];
         const highlighted = this.highlightedPreferenceKey === key;
+        const advanced = this.isAdvancedPreference(key, definition);
 
         return (
             <div
@@ -440,6 +603,7 @@ export class GeoPreferencesWidget extends ReactWidget {
                             : <span className='geo-preference-tag default'>Défaut</span>}
                         {backend && <span className='geo-preference-tag backend'>Flask</span>}
                         {targets.includes('frontend') && <span className='geo-preference-tag frontend'>Theia</span>}
+                        {advanced && <span className='geo-preference-tag advanced'>Avancé</span>}
                         {definition['x-sensitive'] && <span className='geo-preference-tag sensitive'>Sensible</span>}
                         {tags.slice(0, 4).map(tag => (
                             <span key={tag} className='geo-preference-tag muted'>{tag}</span>
@@ -471,7 +635,7 @@ export class GeoPreferencesWidget extends ReactWidget {
                 >
                     {definition.enum.map((option: string | number) => (
                         <option key={option} value={option}>
-                            {this.toEnumOptionLabel(option)}
+                            {this.toEnumOptionLabel(option, definition)}
                         </option>
                     ))}
                 </select>
@@ -507,7 +671,7 @@ export class GeoPreferencesWidget extends ReactWidget {
                                         checked={selected}
                                         onChange={event => this.handleArrayToggle(key, option, event.currentTarget.checked, definition)}
                                     />
-                                    <span>{this.toEnumOptionLabel(option)}</span>
+                                    <span>{this.toEnumOptionLabel(option, definition)}</span>
                                 </label>
                             );
                         })}
@@ -657,12 +821,45 @@ export class GeoPreferencesWidget extends ReactWidget {
     private buildSections(): GeoPreferenceSection[] {
         return Array.from(this.store.definitionsByCategory.entries())
             .sort(([a], [b]) => this.compareCategories(a, b))
-            .map(([category, entries]) => ({
-                category,
-                label: this.toCategoryLabel(category),
-                entries,
-                filteredEntries: entries.filter(({ key, definition }) => this.shouldShowPreference(key, definition))
-            }));
+            .map(([category, entries]) => {
+                const filteredEntries = entries
+                    .filter(({ key, definition }) => this.shouldShowPreference(key, definition))
+                    .sort((left, right) => this.comparePreferences(left.key, left.definition, right.key, right.definition));
+                return {
+                    category,
+                    label: this.toCategoryLabel(category),
+                    entries,
+                    filteredEntries,
+                    subsections: this.buildSubsections(category, filteredEntries)
+                };
+            });
+    }
+
+    private buildGuideCounts(): Map<string, number> {
+        const counts = new Map<string, number>();
+        for (const guide of PREFERENCE_GUIDES) {
+            const count = this.store.definitions.filter(({ key, definition }) =>
+                this.matchesGuide(key, definition, guide) && this.matchesBaseFilters(key, definition)
+            ).length;
+            counts.set(guide.id, count);
+        }
+        return counts;
+    }
+
+    private buildSubsections(
+        category: string,
+        entries: Array<{ key: GeoPreferenceKey; definition: GeoPreferenceDefinition }>
+    ): GeoPreferenceSubsection[] {
+        const map = new Map<string, GeoPreferenceSubsection>();
+        for (const entry of entries) {
+            const label = this.toPreferenceSectionLabel(category, entry.key, entry.definition);
+            const id = this.toSubsectionId(label);
+            if (!map.has(id)) {
+                map.set(id, { id, label, entries: [] });
+            }
+            map.get(id)?.entries.push(entry);
+        }
+        return Array.from(map.values()).sort((left, right) => this.compareSubsections(left.label, right.label));
     }
 
     private initializeExpandedCategories(categories: string[]): void {
@@ -674,7 +871,28 @@ export class GeoPreferencesWidget extends ReactWidget {
     }
 
     private shouldShowPreference(key: GeoPreferenceKey, definition: GeoPreferenceDefinition): boolean {
+        if (!this.matchesBaseFilters(key, definition)) {
+            return false;
+        }
+
+        const guide = this.getSelectedGuide();
+        if (guide && !this.matchesGuide(key, definition, guide)) {
+            return false;
+        }
+
+        return this.matchesSearchQuery(key, definition);
+    }
+
+    private matchesBaseFilters(key: GeoPreferenceKey, definition: GeoPreferenceDefinition): boolean {
         if (this.valueFilter === 'modified' && !this.isModified(key, definition)) {
+            return false;
+        }
+
+        const advanced = this.isAdvancedPreference(key, definition);
+        if (this.complexityFilter === 'simple' && advanced) {
+            return false;
+        }
+        if (this.complexityFilter === 'advanced' && !advanced) {
             return false;
         }
 
@@ -683,6 +901,10 @@ export class GeoPreferencesWidget extends ReactWidget {
             return false;
         }
 
+        return true;
+    }
+
+    private matchesSearchQuery(key: GeoPreferenceKey, definition: GeoPreferenceDefinition): boolean {
         const query = this.normalizeSearchText(this.searchQuery);
         if (!query) {
             return true;
@@ -696,6 +918,9 @@ export class GeoPreferencesWidget extends ReactWidget {
             definition.description,
             definition['x-category'],
             this.toCategoryLabel(definition['x-category'] || 'generic'),
+            definition['x-ui']?.label,
+            definition['x-ui']?.section,
+            definition['x-ui']?.shortDescription,
             ...(definition['x-tags'] ?? []),
             ...(definition['x-ui']?.keywords ?? []),
             ...(definition.enum ?? []).map(String),
@@ -706,6 +931,28 @@ export class GeoPreferencesWidget extends ReactWidget {
             .join(' ');
 
         return this.normalizeSearchText(haystack).includes(query);
+    }
+
+    private getSelectedGuide(): GeoPreferenceGuide | undefined {
+        if (this.selectedGuideId === 'all') {
+            return undefined;
+        }
+        return PREFERENCE_GUIDES.find(guide => guide.id === this.selectedGuideId);
+    }
+
+    private matchesGuide(key: GeoPreferenceKey, definition: GeoPreferenceDefinition, guide: GeoPreferenceGuide): boolean {
+        const keyText = String(key);
+        const category = definition['x-category'] || 'generic';
+        const section = definition['x-ui']?.section ?? this.toPreferenceSectionLabel(category, key, definition);
+        const tags = definition['x-tags'] ?? [];
+
+        return Boolean(
+            guide.categories?.includes(category)
+            || guide.sections?.includes(section)
+            || guide.keyPrefixes?.some(prefix => keyText.startsWith(prefix))
+            || guide.keyIncludes?.some(fragment => keyText.includes(fragment))
+            || guide.tags?.some(tag => tags.includes(tag))
+        );
     }
 
     private isModified(key: GeoPreferenceKey | string, definition: GeoPreferenceDefinition): boolean {
@@ -787,6 +1034,168 @@ export class GeoPreferencesWidget extends ReactWidget {
         return a.localeCompare(b);
     }
 
+    private comparePreferences(
+        leftKey: GeoPreferenceKey,
+        leftDefinition: GeoPreferenceDefinition,
+        rightKey: GeoPreferenceKey,
+        rightDefinition: GeoPreferenceDefinition
+    ): number {
+        const leftOrder = leftDefinition['x-ui']?.order;
+        const rightOrder = rightDefinition['x-ui']?.order;
+        if (leftOrder !== undefined || rightOrder !== undefined) {
+            return (leftOrder ?? Number.MAX_SAFE_INTEGER) - (rightOrder ?? Number.MAX_SAFE_INTEGER);
+        }
+        return String(leftKey).localeCompare(String(rightKey));
+    }
+
+    private compareSubsections(left: string, right: string): number {
+        const order = [
+            'Général',
+            'Activation',
+            'Profils',
+            'Profils par workflow',
+            'Comportement',
+            'Policy tools et skills',
+            'Coordonnées trouvées',
+            'Carte',
+            'Affichage',
+            'Onglets',
+            'Tableaux',
+            'Navigation',
+            'Fiche géocache',
+            'Exécution',
+            'MetaSolver',
+            'Fournisseurs',
+            'OpenRouter',
+            'OpenAI Codex',
+            'LM Studio',
+            'Playwright',
+            'Sécurité',
+            'Références',
+            'Stockage',
+            'Galerie',
+            'GPX',
+            'Geocaching.com',
+            'Système'
+        ];
+        const leftIndex = order.indexOf(left);
+        const rightIndex = order.indexOf(right);
+        if (leftIndex !== -1 || rightIndex !== -1) {
+            return (leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex)
+                - (rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex);
+        }
+        return left.localeCompare(right);
+    }
+
+    private toPreferenceSectionLabel(category: string, key: string, definition: GeoPreferenceDefinition): string {
+        if (definition['x-ui']?.section) {
+            return definition['x-ui'].section;
+        }
+        if (key.includes('.openRouter.')) {
+            return 'OpenRouter';
+        }
+        if (key.includes('.codex.')) {
+            return 'OpenAI Codex';
+        }
+        if (key.includes('.lmstudio.')) {
+            return 'LM Studio';
+        }
+        if (key.includes('.workflowProfile.')) {
+            return 'Profils par workflow';
+        }
+        if (key.includes('.behaviorProfile.')) {
+            return 'Comportement';
+        }
+        if (key.includes('.promptPack') || key.includes('.skillPack') || key.includes('.toolPolicy.') || key.includes('.skillPolicy.')) {
+            return 'Policy tools et skills';
+        }
+        if (key.includes('.foundCoordinates.')) {
+            return 'Coordonnées trouvées';
+        }
+        if (key.includes('.formulaSolver.')) {
+            return 'Formula Solver';
+        }
+        if (key.includes('.tabs.')) {
+            return 'Onglets';
+        }
+        if (key.includes('.geocaches.table.')) {
+            return 'Tableaux';
+        }
+        if (key.includes('.geocache.externalLinks.') || key.includes('.linkOpenMode')) {
+            return 'Navigation';
+        }
+        if (key.includes('.geocache.')) {
+            return 'Fiche géocache';
+        }
+        if (key.includes('.executor.')) {
+            return 'Exécution';
+        }
+        if (key.includes('.metasolver.')) {
+            return 'MetaSolver';
+        }
+        if (key.includes('.playwright.') || key.includes('profileDir')) {
+            return 'Playwright';
+        }
+        if (key.includes('allowedDomains')) {
+            return 'Sécurité';
+        }
+        if (key.includes('.gpxExport.')) {
+            return 'GPX';
+        }
+        if (key.includes('.geocaching.')) {
+            return 'Geocaching.com';
+        }
+        if (key.includes('.references.')) {
+            return 'Références';
+        }
+        if (key.includes('.gallery.')) {
+            return 'Galerie';
+        }
+        if (key.includes('.storage.')) {
+            return 'Stockage';
+        }
+        if (category === 'backend') {
+            return 'Système';
+        }
+        if (category === 'map') {
+            return 'Carte';
+        }
+        if (category === 'checkers') {
+            return 'Général';
+        }
+        return 'Général';
+    }
+
+    private toSubsectionId(label: string): string {
+        return this.normalizeSearchText(label).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'general';
+    }
+
+    private isAdvancedPreference(key: GeoPreferenceKey | string, definition: GeoPreferenceDefinition): boolean {
+        if (definition['x-ui']?.advanced !== undefined) {
+            return Boolean(definition['x-ui'].advanced);
+        }
+        const keyText = String(key);
+        const tags = definition['x-tags'] ?? [];
+        if (definition.type === 'object' || definition['x-sensitive'] || tags.includes('secret') || tags.includes('safety')) {
+            return true;
+        }
+        return [
+            '.openRouter.',
+            '.codex.',
+            '.lmstudio.',
+            '.executor.',
+            '.tasks.',
+            '.metasolver.profiles.',
+            '.toolPolicy.',
+            '.skillPolicy.',
+            'allowedDomains',
+            'profileDir',
+            'apiBaseUrl',
+            'archive.autoSync',
+            'autoDiscoverOnStart'
+        ].some(fragment => keyText.includes(fragment));
+    }
+
     private toCategoryLabel(category: string): string {
         return CATEGORY_LABELS[category] ?? category;
     }
@@ -809,8 +1218,12 @@ export class GeoPreferencesWidget extends ReactWidget {
             .replace(/^\w/, char => char.toUpperCase());
     }
 
-    private toEnumOptionLabel(option: string | number): string {
+    private toEnumOptionLabel(option: string | number, definition?: GeoPreferenceDefinition): string {
         const raw = String(option);
+        const contextualLabel = definition?.['x-ui']?.enumLabels?.[raw];
+        if (contextualLabel) {
+            return `${contextualLabel} (${raw})`;
+        }
         const label = ENUM_VALUE_LABELS[raw] ?? this.toHumanSegment(raw);
         return label === raw ? raw : `${label} (${raw})`;
     }

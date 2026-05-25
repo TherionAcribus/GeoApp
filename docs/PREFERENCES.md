@@ -10,6 +10,7 @@ Ce document décrit la stratégie de gestion des préférences GeoApp commune à
   - `x-targets` : `frontend`, `backend` ou les deux.  
   - `x-backendKey` : clé persistée dans `AppConfig` lorsqu'une synchronisation Flask est nécessaire.  
   - `x-tags` : métadonnées libres (diagnostic, UI hints, etc.).
+  - `x-ui` : métadonnées d'affichage et d'assistance (`section`, `label`, `shortDescription`, `order`, `advanced`, `enumLabels`, `keywords`).
 - Le champ `default` sert à la fois pour Theia et pour l'API Flask.
 
 ## Nommage des clés
@@ -51,7 +52,11 @@ Toutes les clés suivent le préfixe unique `geoApp.<domaine>.<option>` pour év
 - `notes` : synchronisation de notes et affichage.  
 - `archive` : archivage automatique des données de résolution des géocaches.  
 
-La page **Préférences GeoApp** utilise maintenant cette liste comme navigation, avec recherche plein texte, filtres rapides (`Modifiées`, `Theia`, `Flask`), compteurs par catégorie et ouverture directe d'une préférence précise depuis `@Aide`.
+La page **Préférences GeoApp** utilise maintenant cette liste comme navigation, avec recherche plein texte, filtres rapides (`Modifiées`, `Theia`, `Flask`, `Simples`, `Avancées`), guides par usage (`@Aide et Chat IA`, `Carte et coordonnées`, `Checkers`, etc.), sous-sections issues de `x-ui.section`, compteurs par catégorie et ouverture directe d'une préférence précise depuis `@Aide`.
+
+Les préférences courantes doivent avoir un libellé utilisateur (`x-ui.label`) et des options lisibles (`x-ui.enumLabels`) quand les valeurs techniques ne sont pas évidentes. Les préférences de diagnostic, de sécurité, de secret, de profil navigateur, de timeout ou de pipeline doivent être marquées avec `x-ui.advanced: true` pour rester accessibles sans encombrer la vue simple.
+
+Toutes les préférences du schéma doivent conserver au minimum un `title` et un bloc `x-ui`. C'est ce qui alimente à la fois la hiérarchie de la page, la recherche plein texte et les réponses de `@Aide` quand l'utilisateur demande où se trouve un réglage ou ce qu'il modifie.
 
 Catégories exposées par le schéma actuel : `ai`, `alphabets`, `archive`, `auth`, `backend`, `chat`, `checkers`, `earthcoach`, `images`, `logs`, `map`, `notes`, `ocr`, `plugins`, `search`, `ui`, `updates`.
 

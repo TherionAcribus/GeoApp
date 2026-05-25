@@ -131,10 +131,15 @@ Vous n'avez pas besoin de confirmer verbalement : la boîte de dialogue apparaî
 
 `@Aide` peut lire et modifier toutes les préférences GeoApp (IA, carte, plugins, interface, OCR, mises à jour...). Les clés API et valeurs sensibles sont **protégées** : elles ne peuvent pas être lues ni modifiées.
 
+Les outils de préférences retournent aussi les métadonnées `x-ui` du schéma : sous-section affichée dans le menu, libellé utilisateur, mots-clés, options lisibles et indicateur `advanced`. Cela permet à `@Aide` d'expliquer où se trouve un réglage, s'il est plutôt courant ou technique, et d'ouvrir directement la page sur une clé ou une recherche.
+
+`@Aide` connaît aussi les guides par usage de la page Préférences : `@Aide et Chat IA`, `Carte et coordonnées`, `Checkers`, `Interface et onglets`, `Plugins et MetaSolver`, `Images et OCR`, `Notes et GPX`, `Système`.
+
 | Demande (exemples) | Action |
 |---|---|
 | « Quelles sont mes préférences IA ? » | Liste les préférences de catégorie `ai` avec valeurs courantes |
-| « Cherche la préférence pour garder GeoCheck ouvert » | Recherche dans les clés, descriptions et tags des préférences |
+| « Quels guides existent pour les préférences ? » | Liste les groupes d'usage disponibles dans la page Préférences |
+| « Cherche la préférence pour garder GeoCheck ouvert » | Recherche dans les clés, descriptions, sous-sections, libellés et tags des préférences |
 | « Quelle est la valeur de geoApp.map.defaultProvider ? » | Lit la préférence et ses valeurs possibles |
 | « Ouvre la préférence geoApp.map.defaultZoom » | Ouvre directement la page de préférences sur cette clé |
 | « Active la recherche web du Formula Solver » | Modifie `geoApp.formulaSolver.ai.webSearchEnabled` à `true` |

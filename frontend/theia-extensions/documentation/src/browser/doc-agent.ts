@@ -169,6 +169,7 @@ export class GeoAppDocAgent extends AbstractStreamParsingChatAgent {
             '- aide_get_preference(key) — Valeur courante + métadonnées d\'une préférence spécifique.',
             '- aide_set_preference(key, value) — Modifie une préférence (validation type/enum/plage automatique). Clés API protégées.',
             '- aide_list_preference_categories - Liste les categories reelles du schema de preferences.',
+            '- aide_list_preference_guides - Liste les guides par usage visibles dans la page Preferences.',
             '- aide_search_preferences(query, category?) - Recherche une preference quand l utilisateur decrit un reglage en langage naturel.',
             '- aide_reset_preference(key) - Reinitialise une preference a sa valeur par defaut.',
             '- aide_open_preferences accepte aussi key et query pour ouvrir directement une preference ou une recherche.',

@@ -26,6 +26,65 @@ export const AIDE_TOOL_PREFIX = 'aide_';
 const ok = (data: unknown): string => JSON.stringify({ success: true, data });
 const err = (message: string): string => JSON.stringify({ success: false, error: message });
 
+const PREFERENCE_GUIDES = [
+    {
+        id: 'aide',
+        label: '@Aide et Chat IA',
+        description: 'Modèles, comportements, skills, tools et sauvegarde des coordonnées trouvées.',
+        categories: ['ai', 'chat'],
+        suggested_queries: ['profil chat', 'policy tools', 'coordonnées trouvées', 'OpenRouter', 'Codex'],
+    },
+    {
+        id: 'map',
+        label: 'Carte et coordonnées',
+        description: 'Fond de carte, affichage, waypoints, coordonnées détectées et overlay Formula Solver.',
+        categories: ['map', 'ai'],
+        suggested_queries: ['fond de carte', 'coordonnées', 'waypoint automatique', 'overlay Formula Solver'],
+    },
+    {
+        id: 'checkers',
+        label: 'Checkers',
+        description: 'Automatisation, Playwright, GeoCheck, Certitude, Geocaching.com et ouverture des liens.',
+        categories: ['checkers', 'auth'],
+        suggested_queries: ['GeoCheck', 'Playwright', 'garder page ouverte', 'connexion Geocaching'],
+    },
+    {
+        id: 'tabs-ui',
+        label: 'Interface et onglets',
+        description: 'Page de démarrage, stratégie d’onglets, fiches géocaches, liens et tableaux.',
+        categories: ['ui', 'alphabets', 'logs'],
+        suggested_queries: ['onglets', 'description géocache', 'colonnes tableau', 'liens externes'],
+    },
+    {
+        id: 'plugins',
+        label: 'Plugins et MetaSolver',
+        description: 'Chargement des plugins, limites d’exécution et pipelines MetaSolver.',
+        categories: ['plugins'],
+        suggested_queries: ['lazy plugins', 'timeout plugin', 'metasolver', 'pipeline'],
+    },
+    {
+        id: 'images-ocr',
+        label: 'Images et OCR',
+        description: 'Galerie d’images, stockage local, moteurs OCR et fournisseurs vision.',
+        categories: ['images', 'ocr'],
+        suggested_queries: ['OCR', 'galerie images', 'LM Studio', 'vision OpenRouter'],
+    },
+    {
+        id: 'notes-gpx',
+        label: 'Notes et GPX',
+        description: 'Synchronisation des notes personnelles, export GPX et logs Geocaching.com.',
+        categories: ['notes'],
+        suggested_queries: ['notes personnelles', 'export GPX', 'logs Geocaching'],
+    },
+    {
+        id: 'system',
+        label: 'Système',
+        description: 'Backend, archive, mises à jour, recherche et réglages de fonctionnement.',
+        categories: ['backend', 'archive', 'updates', 'search', 'earthcoach'],
+        suggested_queries: ['backend', 'archive automatique', 'mises à jour', 'EarthCoach'],
+    },
+];
+
 function buildParams(
     props: Record<string, { type: string; description: string; required?: boolean; enum?: string[] }>
 ): ToolRequestParameters {
@@ -132,8 +191,34 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 handler: async () => {
                     try {
                         return ok(Array.from(this.preferenceStore.definitionsByCategory.entries())
-                            .map(([category, entries]) => ({ category, count: entries.length }))
+                            .map(([category, entries]) => {
+                                const sections = new Map<string, number>();
+                                for (const { definition } of entries) {
+                                    const def = definition as GeoPreferenceDefinition;
+                                    const section = def['x-ui']?.section ?? 'Général';
+                                    sections.set(section, (sections.get(section) ?? 0) + 1);
+                                }
+                                return {
+                                    category,
+                                    count: entries.length,
+                                    sections: Array.from(sections.entries())
+                                        .map(([section, count]) => ({ section, count }))
+                                        .sort((a, b) => a.section.localeCompare(b.section)),
+                                };
+                            })
                             .sort((a, b) => a.category.localeCompare(b.category)));
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_list_preference_guides',
+                name: 'aide_list_preference_guides',
+                description: 'Liste les guides par usage de la page Preferences GeoApp avec categories et recherches suggerees.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({}),
+                handler: async () => {
+                    try {
+                        return ok(PREFERENCE_GUIDES);
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
             },
@@ -164,6 +249,9 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                                 def.title,
                                 def.description,
                                 def['x-category'],
+                                def['x-ui']?.label,
+                                def['x-ui']?.section,
+                                def['x-ui']?.shortDescription,
                                 ...(def['x-tags'] ?? []),
                                 ...(def['x-ui']?.keywords ?? []),
                                 ...(def.enum ?? []).map(String),
@@ -179,6 +267,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                                 category: def['x-category'],
                                 targets: def['x-targets'] ?? ['frontend'],
                                 tags: def['x-tags'] ?? [],
+                                ui: def['x-ui'] ?? undefined,
                                 type: def.type,
                                 description: def.description,
                                 default: def.default,
@@ -239,6 +328,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                                 category: def['x-category'],
                                 targets: def['x-targets'] ?? ['frontend'],
                                 tags: def['x-tags'] ?? [],
+                                ui: def['x-ui'] ?? undefined,
                                 type: def.type,
                                 description: def.description,
                                 default: def.default,
@@ -281,6 +371,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                             category: def['x-category'],
                             targets: def['x-targets'] ?? ['frontend'],
                             tags: def['x-tags'] ?? [],
+                            ui: def['x-ui'] ?? undefined,
                         });
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },

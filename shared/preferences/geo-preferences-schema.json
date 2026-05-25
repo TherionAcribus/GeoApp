@@ -9,7 +9,18 @@
     "geoApp.ai.enabled": {
       "type": "boolean",
       "default": true,
+      "title": "IA GeoApp active",
       "description": "Active ou désactive globalement les fonctionnalités IA dans GeoApp.",
+      "x-ui": {
+        "section": "Activation",
+        "label": "Activer les fonctions IA",
+        "order": 10,
+        "keywords": [
+          "assistant",
+          "aide",
+          "ia globale"
+        ]
+      },
       "x-category": "ai",
       "x-targets": [
         "frontend",
@@ -24,7 +35,18 @@
     "geoApp.ai.formulaSolverAssist": {
       "type": "boolean",
       "default": true,
+      "title": "Assistance IA du Formula Solver",
       "description": "Autorise les suggestions IA dans le Formula Solver.",
+      "x-ui": {
+        "section": "Formula Solver",
+        "label": "Autoriser les suggestions IA",
+        "order": 20,
+        "keywords": [
+          "formule",
+          "coordonnees",
+          "solver"
+        ]
+      },
       "x-category": "ai",
       "x-targets": [
         "frontend",
@@ -39,6 +61,17 @@
       "default": true,
       "title": "OpenRouter - Activer",
       "description": "Active l'enregistrement automatique des modeles OpenRouter dans la configuration IA Theia.",
+      "x-ui": {
+        "section": "OpenRouter",
+        "label": "Activer OpenRouter",
+        "advanced": true,
+        "order": 300,
+        "keywords": [
+          "modele cloud",
+          "llm",
+          "provider"
+        ]
+      },
       "x-category": "ai",
       "x-targets": [
         "frontend",
@@ -54,6 +87,17 @@
       "default": "",
       "title": "OpenRouter - Cle API",
       "description": "Cle API OpenRouter. Elle est stockee dans les preferences GeoApp; garde cette installation locale et privee.",
+      "x-ui": {
+        "section": "OpenRouter",
+        "label": "Clé API",
+        "advanced": true,
+        "order": 310,
+        "keywords": [
+          "secret",
+          "token",
+          "authentification"
+        ]
+      },
       "x-category": "ai",
       "x-targets": [
         "frontend",
@@ -70,6 +114,17 @@
       "default": "https://openrouter.ai/api/v1",
       "title": "OpenRouter - URL API",
       "description": "URL de base OpenRouter compatible OpenAI.",
+      "x-ui": {
+        "section": "OpenRouter",
+        "label": "URL de l'API",
+        "advanced": true,
+        "order": 320,
+        "keywords": [
+          "endpoint",
+          "base url",
+          "reseau"
+        ]
+      },
       "x-category": "ai",
       "x-targets": [
         "frontend",
@@ -85,6 +140,17 @@
       "default": "openai/gpt-4o-mini",
       "title": "OpenRouter - Modele Fast",
       "description": "Modele OpenRouter utilise pour le profil GeoApp Fast.",
+      "x-ui": {
+        "section": "OpenRouter",
+        "label": "Modèle rapide",
+        "advanced": true,
+        "order": 330,
+        "keywords": [
+          "fast",
+          "rapide",
+          "modele"
+        ]
+      },
       "x-category": "ai",
       "x-targets": [
         "frontend",
@@ -100,6 +166,17 @@
       "default": "openai/gpt-4o",
       "title": "OpenRouter - Modele Strong",
       "description": "Modele OpenRouter utilise pour le profil GeoApp Strong.",
+      "x-ui": {
+        "section": "OpenRouter",
+        "label": "Modèle qualité",
+        "advanced": true,
+        "order": 340,
+        "keywords": [
+          "strong",
+          "qualite",
+          "modele"
+        ]
+      },
       "x-category": "ai",
       "x-targets": [
         "frontend",
@@ -115,6 +192,17 @@
       "default": "openai/gpt-4o",
       "title": "OpenRouter - Modele Web",
       "description": "Modele OpenRouter utilise pour le profil GeoApp Web.",
+      "x-ui": {
+        "section": "OpenRouter",
+        "label": "Modèle web",
+        "advanced": true,
+        "order": 350,
+        "keywords": [
+          "web",
+          "internet",
+          "modele"
+        ]
+      },
       "x-category": "ai",
       "x-targets": [
         "frontend",
@@ -130,6 +218,12 @@
       "default": true,
       "title": "OpenRouter - Streaming",
       "description": "Active le streaming pour les modeles OpenRouter enregistres dans Theia.",
+      "x-ui": {
+        "section": "OpenRouter",
+        "label": "Réponses en streaming",
+        "advanced": true,
+        "order": 360
+      },
       "x-category": "ai",
       "x-targets": [
         "frontend"
@@ -143,6 +237,17 @@
       "default": true,
       "title": "OpenAI Codex - Activer",
       "description": "Active l'enregistrement automatique du modele Codex OpenAI dans la configuration IA Theia.",
+      "x-ui": {
+        "section": "OpenAI Codex",
+        "label": "Activer Codex",
+        "advanced": true,
+        "order": 400,
+        "keywords": [
+          "openai",
+          "agent",
+          "code"
+        ]
+      },
       "x-category": "ai",
       "x-targets": [
         "frontend"
@@ -158,6 +263,17 @@
       "default": "",
       "title": "OpenAI Codex - Cle API",
       "description": "Cle API OpenAI specifique a Codex. Si elle est vide, GeoApp utilise la cle OpenAI partagee ou OPENAI_API_KEY.",
+      "x-ui": {
+        "section": "OpenAI Codex",
+        "label": "Clé API Codex",
+        "advanced": true,
+        "order": 410,
+        "keywords": [
+          "secret",
+          "token",
+          "openai"
+        ]
+      },
       "x-category": "ai",
       "x-targets": [
         "frontend"
@@ -174,6 +290,12 @@
       "default": "gpt-5.3-codex",
       "title": "OpenAI Codex - Modele",
       "description": "Identifiant du modele Codex OpenAI enregistre dans Theia.",
+      "x-ui": {
+        "section": "OpenAI Codex",
+        "label": "Modèle Codex",
+        "advanced": true,
+        "order": 420
+      },
       "x-category": "ai",
       "x-targets": [
         "frontend"
@@ -189,6 +311,12 @@
       "default": true,
       "title": "OpenAI Codex - Streaming",
       "description": "Active le streaming pour le modele Codex enregistre dans Theia.",
+      "x-ui": {
+        "section": "OpenAI Codex",
+        "label": "Réponses en streaming",
+        "advanced": true,
+        "order": 430
+      },
       "x-category": "ai",
       "x-targets": [
         "frontend"
@@ -203,6 +331,17 @@
       "default": true,
       "title": "OpenAI Codex - Responses API",
       "description": "Utilise l'API Responses pour Codex, recommandee pour les modeles GPT-5 et les workflows agentiques.",
+      "x-ui": {
+        "section": "OpenAI Codex",
+        "label": "Utiliser Responses API",
+        "advanced": true,
+        "order": 440,
+        "keywords": [
+          "responses",
+          "api",
+          "agentique"
+        ]
+      },
       "x-category": "ai",
       "x-targets": [
         "frontend"
@@ -219,7 +358,23 @@
         "ai"
       ],
       "default": "algorithm",
+      "title": "Formula Solver - méthode historique",
       "description": "Méthode par défaut pour la détection de formules (algorithme ou IA).",
+      "x-ui": {
+        "section": "Formula Solver",
+        "label": "Méthode par défaut historique",
+        "shortDescription": "Ancienne préférence conservée comme fallback pour la détection de formule.",
+        "advanced": true,
+        "order": 100,
+        "enumLabels": {
+          "algorithm": "Algorithme",
+          "ai": "IA"
+        },
+        "keywords": [
+          "legacy",
+          "compatibilite"
+        ]
+      },
       "x-category": "ai",
       "x-targets": [
         "frontend"
@@ -236,7 +391,23 @@
         "manual"
       ],
       "default": "algorithm",
+      "title": "Formula Solver - détection de formule",
       "description": "Méthode par défaut pour l'étape 'Formule' (détection par algorithme, IA, ou saisie manuelle).",
+      "x-ui": {
+        "section": "Formula Solver",
+        "label": "Détection de formule",
+        "order": 110,
+        "enumLabels": {
+          "algorithm": "Algorithme",
+          "ai": "IA",
+          "manual": "Manuel"
+        },
+        "keywords": [
+          "formule",
+          "detection",
+          "ocr"
+        ]
+      },
       "x-category": "ai",
       "x-targets": [
         "frontend"
@@ -253,7 +424,23 @@
         "ai"
       ],
       "default": "algorithm",
+      "title": "Formula Solver - extraction des questions",
       "description": "Méthode par défaut pour l'étape 'Questions' (aucune, algorithme, ou IA).",
+      "x-ui": {
+        "section": "Formula Solver",
+        "label": "Extraction des questions",
+        "order": 120,
+        "enumLabels": {
+          "none": "Aucune",
+          "algorithm": "Algorithme",
+          "ai": "IA"
+        },
+        "keywords": [
+          "questions",
+          "variables",
+          "waypoints"
+        ]
+      },
       "x-category": "ai",
       "x-targets": [
         "frontend"
@@ -270,7 +457,23 @@
         "ai-per-question"
       ],
       "default": "manual",
+      "title": "Formula Solver - réponses aux questions",
       "description": "Mode par défaut pour l'étape 'Réponses' (manuel, IA en masse, ou IA question par question).",
+      "x-ui": {
+        "section": "Formula Solver",
+        "label": "Mode de réponse",
+        "order": 130,
+        "enumLabels": {
+          "manual": "Manuel",
+          "ai-bulk": "IA en masse",
+          "ai-per-question": "IA question par question"
+        },
+        "keywords": [
+          "reponses",
+          "question par question",
+          "bulk"
+        ]
+      },
       "x-category": "ai",
       "x-targets": [
         "frontend"
@@ -288,7 +491,19 @@
         "web"
       ],
       "default": "fast",
+      "title": "Formula Solver - profil IA formule",
       "description": "Profil IA par défaut pour l'étape 'Formule' (local=LLM local LMStudio/Ollama, fast=petit modèle, strong=qualité, web=modèle avec accès Internet).",
+      "x-ui": {
+        "section": "Formula Solver",
+        "label": "Profil IA pour les formules",
+        "order": 140,
+        "enumLabels": {
+          "local": "Local",
+          "fast": "Rapide",
+          "strong": "Qualité",
+          "web": "Web"
+        }
+      },
       "x-category": "ai",
       "x-targets": [
         "frontend"
@@ -306,7 +521,19 @@
         "web"
       ],
       "default": "fast",
+      "title": "Formula Solver - profil IA questions",
       "description": "Profil IA par défaut pour l'étape 'Questions' (local=LLM local LMStudio/Ollama, fast=petit modèle, strong=qualité, web=modèle avec accès Internet).",
+      "x-ui": {
+        "section": "Formula Solver",
+        "label": "Profil IA pour les questions",
+        "order": 150,
+        "enumLabels": {
+          "local": "Local",
+          "fast": "Rapide",
+          "strong": "Qualité",
+          "web": "Web"
+        }
+      },
       "x-category": "ai",
       "x-targets": [
         "frontend"
@@ -324,7 +551,19 @@
         "web"
       ],
       "default": "fast",
+      "title": "Formula Solver - profil IA réponses",
       "description": "Profil IA par défaut pour l'étape 'Réponses' (local=LLM local LMStudio/Ollama, fast=petit modèle, strong=qualité, web=modèle avec accès Internet).",
+      "x-ui": {
+        "section": "Formula Solver",
+        "label": "Profil IA pour les réponses",
+        "order": 160,
+        "enumLabels": {
+          "local": "Local",
+          "fast": "Rapide",
+          "strong": "Qualité",
+          "web": "Web"
+        }
+      },
       "x-category": "ai",
       "x-targets": [
         "frontend"
@@ -342,7 +581,24 @@
         "web"
       ],
       "default": "fast",
+      "title": "Chat IA - profil modèle par défaut",
       "description": "Profil IA par defaut pour les conversations GeoApp (local=LLM local, fast=petit modele, strong=qualite, web=modele potentiellement connecte).",
+      "x-ui": {
+        "section": "Profils",
+        "label": "Profil modèle par défaut",
+        "order": 10,
+        "enumLabels": {
+          "local": "Local",
+          "fast": "Rapide",
+          "strong": "Qualité",
+          "web": "Web"
+        },
+        "keywords": [
+          "aide",
+          "modele",
+          "conversation"
+        ]
+      },
       "x-category": "chat",
       "x-targets": [
         "frontend"
@@ -362,7 +618,25 @@
         "web"
       ],
       "default": "fast",
+      "title": "Chat IA - profil codes secrets",
       "description": "Profil IA prefere pour les workflows GeoApp centres sur les codes secrets. Utiliser 'default' pour reutiliser geoApp.chat.defaultProfile.",
+      "x-ui": {
+        "section": "Profils par workflow",
+        "label": "Codes secrets",
+        "order": 100,
+        "enumLabels": {
+          "default": "Profil par défaut",
+          "local": "Local",
+          "fast": "Rapide",
+          "strong": "Qualité",
+          "web": "Web"
+        },
+        "keywords": [
+          "metasolver",
+          "chiffrement",
+          "decode"
+        ]
+      },
       "x-category": "chat",
       "x-targets": [
         "frontend"
@@ -383,7 +657,25 @@
         "web"
       ],
       "default": "strong",
+      "title": "Chat IA - profil formules",
       "description": "Profil IA prefere pour les workflows GeoApp de type formule. Utiliser 'default' pour reutiliser geoApp.chat.defaultProfile.",
+      "x-ui": {
+        "section": "Profils par workflow",
+        "label": "Formules",
+        "order": 110,
+        "enumLabels": {
+          "default": "Profil par défaut",
+          "local": "Local",
+          "fast": "Rapide",
+          "strong": "Qualité",
+          "web": "Web"
+        },
+        "keywords": [
+          "formula solver",
+          "coordonnees",
+          "calcul"
+        ]
+      },
       "x-category": "chat",
       "x-targets": [
         "frontend"
@@ -404,7 +696,25 @@
         "web"
       ],
       "default": "web",
+      "title": "Chat IA - profil checkers",
       "description": "Profil IA prefere pour les workflows GeoApp impliquant des checkers. Utiliser 'default' pour reutiliser geoApp.chat.defaultProfile.",
+      "x-ui": {
+        "section": "Profils par workflow",
+        "label": "Checkers",
+        "order": 120,
+        "enumLabels": {
+          "default": "Profil par défaut",
+          "local": "Local",
+          "fast": "Rapide",
+          "strong": "Qualité",
+          "web": "Web"
+        },
+        "keywords": [
+          "geocheck",
+          "certitude",
+          "verification"
+        ]
+      },
       "x-category": "chat",
       "x-targets": [
         "frontend"
@@ -425,7 +735,25 @@
         "web"
       ],
       "default": "strong",
+      "title": "Chat IA - profil contenu caché",
       "description": "Profil IA prefere pour les workflows GeoApp centres sur le contenu cache HTML, CSS ou texte. Utiliser 'default' pour reutiliser geoApp.chat.defaultProfile.",
+      "x-ui": {
+        "section": "Profils par workflow",
+        "label": "Contenu caché",
+        "order": 130,
+        "enumLabels": {
+          "default": "Profil par défaut",
+          "local": "Local",
+          "fast": "Rapide",
+          "strong": "Qualité",
+          "web": "Web"
+        },
+        "keywords": [
+          "html",
+          "css",
+          "hidden content"
+        ]
+      },
       "x-category": "chat",
       "x-targets": [
         "frontend"
@@ -446,7 +774,25 @@
         "web"
       ],
       "default": "strong",
+      "title": "Chat IA - profil énigmes image",
       "description": "Profil IA prefere pour les workflows GeoApp lies aux enigmes image, OCR et analyse visuelle. Utiliser 'default' pour reutiliser geoApp.chat.defaultProfile.",
+      "x-ui": {
+        "section": "Profils par workflow",
+        "label": "Images et OCR",
+        "order": 140,
+        "enumLabels": {
+          "default": "Profil par défaut",
+          "local": "Local",
+          "fast": "Rapide",
+          "strong": "Qualité",
+          "web": "Web"
+        },
+        "keywords": [
+          "image",
+          "ocr",
+          "vision"
+        ]
+      },
       "x-category": "chat",
       "x-targets": [
         "frontend"
@@ -469,6 +815,23 @@
       ],
       "default": "guided",
       "description": "Profil comportemental GeoApp applique aux conversations IA. Les profils modele local/fast/strong/web restent separes.",
+      "x-ui": {
+        "section": "Comportement",
+        "label": "Comportement par défaut",
+        "order": 200,
+        "enumLabels": {
+          "guided": "Guidé",
+          "safe": "Prudent",
+          "offline": "Hors ligne",
+          "automation": "Automatisation",
+          "debug": "Débogage"
+        },
+        "keywords": [
+          "policy",
+          "comportement",
+          "agent"
+        ]
+      },
       "x-category": "chat",
       "x-targets": [
         "frontend"
@@ -492,6 +855,20 @@
       ],
       "default": "default",
       "description": "Profil comportemental pour les workflows codes secrets. 'default' reutilise le profil comportement par defaut.",
+      "x-ui": {
+        "section": "Comportement",
+        "label": "Comportement codes secrets",
+        "advanced": true,
+        "order": 210,
+        "enumLabels": {
+          "default": "Comportement par défaut",
+          "guided": "Guidé",
+          "safe": "Prudent",
+          "offline": "Hors ligne",
+          "automation": "Automatisation",
+          "debug": "Débogage"
+        }
+      },
       "x-category": "chat",
       "x-targets": [
         "frontend"
@@ -515,6 +892,20 @@
       ],
       "default": "default",
       "description": "Profil comportemental pour les workflows formule. 'default' reutilise le profil comportement par defaut.",
+      "x-ui": {
+        "section": "Comportement",
+        "label": "Comportement formules",
+        "advanced": true,
+        "order": 220,
+        "enumLabels": {
+          "default": "Comportement par défaut",
+          "guided": "Guidé",
+          "safe": "Prudent",
+          "offline": "Hors ligne",
+          "automation": "Automatisation",
+          "debug": "Débogage"
+        }
+      },
       "x-category": "chat",
       "x-targets": [
         "frontend"
@@ -538,6 +929,20 @@
       ],
       "default": "default",
       "description": "Profil comportemental pour les workflows checkers. 'default' reutilise le profil comportement par defaut.",
+      "x-ui": {
+        "section": "Comportement",
+        "label": "Comportement checkers",
+        "advanced": true,
+        "order": 230,
+        "enumLabels": {
+          "default": "Comportement par défaut",
+          "guided": "Guidé",
+          "safe": "Prudent",
+          "offline": "Hors ligne",
+          "automation": "Automatisation",
+          "debug": "Débogage"
+        }
+      },
       "x-category": "chat",
       "x-targets": [
         "frontend"
@@ -561,6 +966,20 @@
       ],
       "default": "default",
       "description": "Profil comportemental pour les workflows contenu cache. 'default' reutilise le profil comportement par defaut.",
+      "x-ui": {
+        "section": "Comportement",
+        "label": "Comportement contenu caché",
+        "advanced": true,
+        "order": 240,
+        "enumLabels": {
+          "default": "Comportement par défaut",
+          "guided": "Guidé",
+          "safe": "Prudent",
+          "offline": "Hors ligne",
+          "automation": "Automatisation",
+          "debug": "Débogage"
+        }
+      },
       "x-category": "chat",
       "x-targets": [
         "frontend"
@@ -584,6 +1003,20 @@
       ],
       "default": "default",
       "description": "Profil comportemental pour les workflows image/OCR. 'default' reutilise le profil comportement par defaut.",
+      "x-ui": {
+        "section": "Comportement",
+        "label": "Comportement images et OCR",
+        "advanced": true,
+        "order": 250,
+        "enumLabels": {
+          "default": "Comportement par défaut",
+          "guided": "Guidé",
+          "safe": "Prudent",
+          "offline": "Hors ligne",
+          "automation": "Automatisation",
+          "debug": "Débogage"
+        }
+      },
       "x-category": "chat",
       "x-targets": [
         "frontend"
@@ -606,6 +1039,24 @@
       ],
       "default": "guided",
       "description": "Pack de prompt systeme GeoApp utilise par l'agent. Les variantes sont resolues via PromptService Theia.",
+      "x-ui": {
+        "section": "Policy tools et skills",
+        "label": "Pack de prompt",
+        "advanced": true,
+        "order": 300,
+        "enumLabels": {
+          "guided": "Guidé",
+          "safe": "Prudent",
+          "offline": "Hors ligne",
+          "automation": "Automatisation",
+          "debug": "Débogage"
+        },
+        "keywords": [
+          "prompt",
+          "system",
+          "agent"
+        ]
+      },
       "x-category": "chat",
       "x-targets": [
         "frontend"
@@ -627,6 +1078,23 @@
       ],
       "default": "workflow",
       "description": "Pack de skills GeoApp actif. 'workflow' choisit les skills selon le workflow courant, 'minimal' limite au strict necessaire, 'full' expose tous les skills, 'disabled' les coupe sauf override explicite.",
+      "x-ui": {
+        "section": "Policy tools et skills",
+        "label": "Pack de skills",
+        "advanced": true,
+        "order": 310,
+        "enumLabels": {
+          "workflow": "Selon le workflow",
+          "minimal": "Minimal",
+          "full": "Complet",
+          "disabled": "Désactivé"
+        },
+        "keywords": [
+          "skills",
+          "outils",
+          "workflow"
+        ]
+      },
       "x-category": "chat",
       "x-targets": [
         "frontend"
@@ -643,6 +1111,17 @@
       "title": "Chat IA - Overrides skills",
       "default": {},
       "description": "Overrides par nom de skill GeoApp. Valeurs supportees: \"enabled\", \"disabled\" ou \"default\".",
+      "x-ui": {
+        "section": "Policy tools et skills",
+        "label": "Overrides des skills",
+        "advanced": true,
+        "order": 320,
+        "keywords": [
+          "skills",
+          "override",
+          "policy"
+        ]
+      },
       "x-category": "chat",
       "x-targets": [
         "frontend"
@@ -659,6 +1138,17 @@
       "title": "Chat IA - Overrides tools",
       "default": {},
       "description": "Overrides par registryId de tool GeoApp. Valeurs supportees: \"enabled\", \"disabled\", \"confirm\" ou \"default\".",
+      "x-ui": {
+        "section": "Policy tools et skills",
+        "label": "Overrides des tools",
+        "advanced": true,
+        "order": 330,
+        "keywords": [
+          "tools",
+          "outils",
+          "confirmation"
+        ]
+      },
       "x-category": "chat",
       "x-targets": [
         "frontend"
@@ -679,6 +1169,20 @@
       ],
       "default": "manual",
       "description": "Determine si le chat IA doit enregistrer automatiquement une coordonnee trouvee quand le resultat est suffisamment confiant. 'manual' n'enregistre rien sans demande explicite.",
+      "x-ui": {
+        "section": "Coordonnées trouvées",
+        "label": "Sauvegarde automatique",
+        "order": 400,
+        "enumLabels": {
+          "manual": "Manuelle",
+          "confident": "Si confiance suffisante"
+        },
+        "keywords": [
+          "coordonnees",
+          "autosave",
+          "waypoint"
+        ]
+      },
       "x-category": "chat",
       "x-targets": [
         "frontend"
@@ -699,6 +1203,16 @@
       ],
       "default": "waypoint",
       "description": "Destination utilisee par defaut quand le chat enregistre une coordonnee trouvee.",
+      "x-ui": {
+        "section": "Coordonnées trouvées",
+        "label": "Destination par défaut",
+        "order": 410,
+        "enumLabels": {
+          "corrected_coordinates": "Coordonnées corrigées",
+          "waypoint": "Waypoint",
+          "note": "Note"
+        }
+      },
       "x-category": "chat",
       "x-targets": [
         "frontend"
@@ -716,6 +1230,17 @@
       "maximum": 1,
       "default": 0.85,
       "description": "Confiance minimale requise pour la sauvegarde automatique des coordonnees trouvees.",
+      "x-ui": {
+        "section": "Coordonnées trouvées",
+        "label": "Seuil de confiance",
+        "advanced": true,
+        "order": 420,
+        "keywords": [
+          "confiance",
+          "coordonnees",
+          "autosave"
+        ]
+      },
       "x-category": "chat",
       "x-targets": [
         "frontend"
@@ -729,7 +1254,18 @@
     "geoApp.formulaSolver.ai.webSearchEnabled": {
       "type": "boolean",
       "default": true,
+      "title": "Formula Solver - recherche web",
       "description": "Autorise la recherche web pour trouver les réponses aux questions.",
+      "x-ui": {
+        "section": "Formula Solver",
+        "label": "Autoriser la recherche web",
+        "order": 170,
+        "keywords": [
+          "internet",
+          "web",
+          "reponses"
+        ]
+      },
       "x-category": "ai",
       "x-targets": [
         "frontend",
@@ -745,7 +1281,18 @@
       "minimum": 1,
       "maximum": 10,
       "default": 5,
+      "title": "Formula Solver - nombre de résultats web",
       "description": "Nombre maximum de résultats web à rechercher.",
+      "x-ui": {
+        "section": "Formula Solver",
+        "label": "Nombre de résultats web",
+        "order": 180,
+        "keywords": [
+          "internet",
+          "web",
+          "limite"
+        ]
+      },
       "x-category": "ai",
       "x-targets": [
         "frontend",
@@ -758,7 +1305,18 @@
     "geoApp.formulaSolver.preview.mapOverlayEnabled": {
       "type": "boolean",
       "default": true,
+      "title": "Formula Solver - aperçu sur la carte",
       "description": "Affiche sur la carte une zone estimée en temps réel pendant la résolution des coordonnées (Formula Solver).",
+      "x-ui": {
+        "section": "Formula Solver",
+        "label": "Afficher l'overlay de résolution",
+        "order": 30,
+        "keywords": [
+          "zone estimee",
+          "coordonnees",
+          "overlay"
+        ]
+      },
       "x-category": "map",
       "x-targets": [
         "frontend"
@@ -771,7 +1329,18 @@
     "geoApp.ai.mapHints": {
       "type": "boolean",
       "default": false,
+      "title": "Annotations IA sur la carte",
       "description": "Affiche les annotations IA directement sur la carte.",
+      "x-ui": {
+        "section": "Carte",
+        "label": "Afficher les annotations IA",
+        "order": 190,
+        "keywords": [
+          "indices",
+          "hints",
+          "carte"
+        ]
+      },
       "x-category": "ai",
       "x-targets": [
         "frontend",
@@ -790,7 +1359,24 @@
         "formulaSolver"
       ],
       "default": "dashboard",
+      "title": "Vue de démarrage",
       "description": "Vue affichée au démarrage de GeoApp.",
+      "x-ui": {
+        "section": "Général",
+        "label": "Page ouverte au démarrage",
+        "order": 10,
+        "enumLabels": {
+          "dashboard": "Tableau de bord",
+          "map": "Carte",
+          "plugins": "Plugins",
+          "formulaSolver": "Formula Solver"
+        },
+        "keywords": [
+          "accueil",
+          "demarrage",
+          "page par defaut"
+        ]
+      },
       "x-category": "ui",
       "x-targets": [
         "frontend",
@@ -805,7 +1391,19 @@
         "always-new"
       ],
       "default": "keep-open",
+      "title": "Restauration des onglets",
       "description": "Règle la restauration des onglets lors du changement de zone.",
+      "x-ui": {
+        "section": "Onglets",
+        "label": "Restauration au changement de zone",
+        "advanced": true,
+        "order": 100,
+        "enumLabels": {
+          "keep-open": "Garder ouverts",
+          "remember-per-zone": "Mémoriser par zone",
+          "always-new": "Toujours nouveaux"
+        }
+      },
       "x-category": "ui",
       "x-targets": [
         "frontend",
@@ -817,7 +1415,14 @@
       "minimum": 1,
       "maximum": 20,
       "default": 8,
+      "title": "Nombre maximal d'onglets Geo",
       "description": "Limite du nombre d'onglets Geo ouverts simultanément.",
+      "x-ui": {
+        "section": "Onglets",
+        "label": "Limite d'onglets ouverts",
+        "advanced": true,
+        "order": 110
+      },
       "x-category": "ui",
       "x-targets": [
         "frontend",
@@ -862,7 +1467,38 @@
         ]
       },
       "uniqueItems": true,
+      "title": "Colonnes du tableau de géocaches",
       "description": "Colonnes visibles dans le tableau des géocaches d'une zone, dans leur ordre d'affichage.",
+      "x-ui": {
+        "section": "Tableaux",
+        "label": "Colonnes visibles",
+        "order": 10,
+        "enumLabels": {
+          "gc_code": "Code GC",
+          "name": "Nom",
+          "cache_type": "Type",
+          "difficulty": "Difficulté",
+          "terrain": "Terrain",
+          "size": "Taille",
+          "solved": "Résolue",
+          "found": "Trouvée",
+          "placed_at": "Date de pose",
+          "has_notes": "Notes",
+          "created_at": "Date d'import",
+          "found_date": "Date de trouvaille",
+          "coordinates": "Coordonnées",
+          "is_corrected": "Coordonnées corrigées",
+          "waypoints_count": "Waypoints",
+          "favorites_count": "Favoris",
+          "owner": "Owner",
+          "logs_count": "Logs"
+        },
+        "keywords": [
+          "tableau",
+          "colonnes",
+          "zones"
+        ]
+      },
       "x-category": "ui",
       "x-targets": [
         "frontend"
@@ -883,7 +1519,26 @@
         "humanitarian"
       ],
       "default": "osm",
+      "title": "Fournisseur de carte",
       "description": "Jeu de tuiles utilisé par défaut dans la carte.",
+      "x-ui": {
+        "section": "Fournisseurs",
+        "label": "Fond de carte par défaut",
+        "order": 10,
+        "enumLabels": {
+          "osm": "OpenStreetMap",
+          "osm-fr": "OpenStreetMap France",
+          "topo": "Topographique",
+          "satellite": "Satellite",
+          "cycle": "Vélo",
+          "humanitarian": "Humanitaire"
+        },
+        "keywords": [
+          "tuiles",
+          "fond de carte",
+          "satellite"
+        ]
+      },
       "x-category": "map",
       "x-targets": [
         "frontend",
@@ -898,7 +1553,13 @@
       "minimum": 2,
       "maximum": 18,
       "default": 8,
+      "title": "Zoom par défaut",
       "description": "Niveau de zoom appliqué à l’ouverture de la carte.",
+      "x-ui": {
+        "section": "Affichage",
+        "label": "Zoom initial",
+        "order": 20
+      },
       "x-category": "map",
       "x-targets": [
         "frontend",
@@ -910,7 +1571,18 @@
       "minimum": 0.4,
       "maximum": 1.4,
       "default": 0.75,
+      "title": "Taille des icônes de géocaches",
       "description": "Facteur de taille applique aux icones de geocaches sur la carte.",
+      "x-ui": {
+        "section": "Affichage",
+        "label": "Taille des icônes",
+        "order": 30,
+        "keywords": [
+          "icone",
+          "taille",
+          "marqueur"
+        ]
+      },
       "x-category": "map",
       "x-targets": [
         "frontend"
@@ -927,7 +1599,23 @@
         "found-icon"
       ],
       "default": "found-icon",
+      "title": "Caches déjà trouvées",
       "description": "Mode d'affichage des geocaches deja trouvees sur la carte.",
+      "x-ui": {
+        "section": "Affichage",
+        "label": "Affichage des caches trouvées",
+        "order": 40,
+        "enumLabels": {
+          "transparent": "Transparentes",
+          "hidden": "Masquées",
+          "found-icon": "Icône trouvée"
+        },
+        "keywords": [
+          "trouvees",
+          "found",
+          "masquer"
+        ]
+      },
       "x-category": "map",
       "x-targets": [
         "frontend"
@@ -939,7 +1627,13 @@
     "geoApp.map.showExclusionZones": {
       "type": "boolean",
       "default": true,
+      "title": "Zones d'exclusion",
       "description": "Affiche les zones d’exclusion sur la carte par défaut.",
+      "x-ui": {
+        "section": "Affichage",
+        "label": "Afficher les zones d'exclusion",
+        "order": 50
+      },
       "x-category": "map",
       "x-targets": [
         "frontend",
@@ -949,7 +1643,18 @@
     "geoApp.map.showNearbyGeocaches": {
       "type": "boolean",
       "default": false,
+      "title": "Géocaches proches",
       "description": "Affiche automatiquement les géocaches proches de la sélection courante.",
+      "x-ui": {
+        "section": "Affichage",
+        "label": "Afficher les géocaches proches",
+        "order": 60,
+        "keywords": [
+          "proches",
+          "nearby",
+          "selection"
+        ]
+      },
       "x-category": "map",
       "x-targets": [
         "frontend",
@@ -959,7 +1664,18 @@
     "geoApp.map.autoAddWaypoints": {
       "type": "boolean",
       "default": true,
+      "title": "Waypoints automatiques",
       "description": "Crée automatiquement un waypoint lors de l’ajout de coordonnées détectées.",
+      "x-ui": {
+        "section": "Coordonnées trouvées",
+        "label": "Créer un waypoint automatiquement",
+        "order": 70,
+        "keywords": [
+          "coordonnees",
+          "waypoint",
+          "detection"
+        ]
+      },
       "x-category": "map",
       "x-targets": [
         "frontend",
@@ -969,7 +1685,19 @@
     "geoApp.map.clipboardWatcher": {
       "type": "boolean",
       "default": false,
+      "title": "Surveillance du presse-papiers",
       "description": "Surveille le presse-papiers pour détecter des coordonnées à injecter sur la carte.",
+      "x-ui": {
+        "section": "Coordonnées trouvées",
+        "label": "Détecter les coordonnées copiées",
+        "advanced": true,
+        "order": 80,
+        "keywords": [
+          "clipboard",
+          "presse-papiers",
+          "coordonnees"
+        ]
+      },
       "x-category": "map",
       "x-targets": [
         "frontend",
@@ -979,7 +1707,18 @@
     "geoApp.updates.autoCheck": {
       "type": "boolean",
       "default": true,
+      "title": "Recherche automatique de mises à jour",
       "description": "Recherche automatiquement les mises à jour GeoApp au démarrage.",
+      "x-ui": {
+        "section": "Général",
+        "label": "Vérifier au démarrage",
+        "order": 10,
+        "keywords": [
+          "update",
+          "version",
+          "demarrage"
+        ]
+      },
       "x-category": "updates",
       "x-targets": [
         "frontend",
@@ -993,7 +1732,17 @@
         "preview"
       ],
       "default": "stable",
+      "title": "Canal de mise à jour",
       "description": "Canal utilisé pour les mises à jour.",
+      "x-ui": {
+        "section": "Général",
+        "label": "Canal",
+        "order": 20,
+        "enumLabels": {
+          "stable": "Stable",
+          "preview": "Préversion"
+        }
+      },
       "x-category": "updates",
       "x-targets": [
         "frontend",
@@ -1004,7 +1753,19 @@
       "type": "string",
       "format": "uri",
       "default": "http://localhost:8000",
+      "title": "URL API Flask",
       "description": "URL de base des API Flask.",
+      "x-ui": {
+        "section": "Système",
+        "label": "URL du backend",
+        "advanced": true,
+        "order": 10,
+        "keywords": [
+          "flask",
+          "api",
+          "backend"
+        ]
+      },
       "x-category": "backend",
       "x-targets": [
         "frontend"
@@ -1018,7 +1779,18 @@
       "minimum": 1,
       "maximum": 50,
       "default": 10,
+      "title": "Historique de l'éditeur de logs",
       "description": "Nombre maximum de logs mémorisés dans l’historique de l’éditeur de logs.",
+      "x-ui": {
+        "section": "Général",
+        "label": "Nombre de logs mémorisés",
+        "order": 10,
+        "keywords": [
+          "historique",
+          "editeur",
+          "logs"
+        ]
+      },
       "x-category": "logs",
       "x-targets": [
         "frontend"
@@ -1032,7 +1804,23 @@
         "always"
       ],
       "default": "prompt",
+      "title": "Stockage local des images",
       "description": "Comportement par défaut pour le stockage local des images de géocache.",
+      "x-ui": {
+        "section": "Stockage",
+        "label": "Mode de stockage",
+        "order": 10,
+        "enumLabels": {
+          "never": "Jamais",
+          "prompt": "Demander",
+          "always": "Toujours"
+        },
+        "keywords": [
+          "images",
+          "cache",
+          "local"
+        ]
+      },
       "x-category": "images",
       "x-targets": [
         "frontend",
@@ -1050,7 +1838,18 @@
         "large"
       ],
       "default": "small",
+      "title": "Taille des vignettes",
       "description": "Taille par défaut des vignettes dans la galerie d’images.",
+      "x-ui": {
+        "section": "Galerie",
+        "label": "Taille des vignettes",
+        "order": 20,
+        "enumLabels": {
+          "small": "Petites",
+          "medium": "Moyennes",
+          "large": "Grandes"
+        }
+      },
       "x-category": "images",
       "x-targets": [
         "frontend"
@@ -1062,7 +1861,19 @@
     "geoApp.images.gallery.hiddenDomains": {
       "type": "string",
       "default": "",
+      "title": "Domaines masqués dans la galerie",
       "description": "Liste de domaines (séparés par des virgules ou des retours à la ligne) dont les images ne doivent pas être affichées dans la galerie (ex: geocheck.org, certitude.com).",
+      "x-ui": {
+        "section": "Galerie",
+        "label": "Domaines d'images à masquer",
+        "advanced": true,
+        "order": 30,
+        "keywords": [
+          "filtre",
+          "domaines",
+          "gallery"
+        ]
+      },
       "x-category": "images",
       "x-targets": [
         "frontend"
@@ -1078,7 +1889,22 @@
         "vision_ocr"
       ],
       "default": "easyocr_ocr",
+      "title": "Moteur OCR par défaut",
       "description": "Moteur OCR par défaut utilisé dans la galerie d'images.",
+      "x-ui": {
+        "section": "Général",
+        "label": "Moteur OCR",
+        "order": 10,
+        "enumLabels": {
+          "easyocr_ocr": "EasyOCR",
+          "vision_ocr": "OCR IA / vision"
+        },
+        "keywords": [
+          "texte image",
+          "lecture image",
+          "ocr"
+        ]
+      },
       "x-category": "ocr",
       "x-targets": [
         "frontend"
@@ -1097,7 +1923,23 @@
         "pt"
       ],
       "default": "auto",
+      "title": "Langue OCR par défaut",
       "description": "Langue OCR par défaut (indicative).",
+      "x-ui": {
+        "section": "Général",
+        "label": "Langue",
+        "order": 20,
+        "enumLabels": {
+          "auto": "Automatique",
+          "fr": "Français",
+          "en": "Anglais",
+          "de": "Allemand",
+          "es": "Espagnol",
+          "it": "Italien",
+          "nl": "Néerlandais",
+          "pt": "Portugais"
+        }
+      },
       "x-category": "ocr",
       "x-targets": [
         "frontend"
@@ -1112,6 +1954,15 @@
       "default": "lmstudio",
       "title": "OCR IA - Fournisseur vision",
       "description": "Fournisseur utilise par le plugin OCR IA/vision.",
+      "x-ui": {
+        "section": "Fournisseurs",
+        "label": "Fournisseur vision",
+        "order": 100,
+        "enumLabels": {
+          "lmstudio": "LM Studio local",
+          "openrouter": "OpenRouter"
+        }
+      },
       "x-category": "ocr",
       "x-targets": [
         "frontend",
@@ -1125,7 +1976,19 @@
     "geoApp.ocr.lmstudio.baseUrl": {
       "type": "string",
       "default": "http://localhost:1234",
+      "title": "OCR LM Studio - URL API",
       "description": "URL de base LMStudio (OpenAI-compatible). Ex: http://localhost:1234",
+      "x-ui": {
+        "section": "LM Studio",
+        "label": "URL LM Studio",
+        "advanced": true,
+        "order": 110,
+        "keywords": [
+          "local",
+          "vision",
+          "openai compatible"
+        ]
+      },
       "x-category": "ocr",
       "x-targets": [
         "frontend",
@@ -1138,7 +2001,14 @@
     "geoApp.ocr.lmstudio.model": {
       "type": "string",
       "default": "",
+      "title": "OCR LM Studio - modèle vision",
       "description": "Identifiant du modèle vision utilisé pour OCR via LMStudio.",
+      "x-ui": {
+        "section": "LM Studio",
+        "label": "Modèle vision local",
+        "advanced": true,
+        "order": 120
+      },
       "x-category": "ocr",
       "x-targets": [
         "frontend",
@@ -1150,6 +2020,12 @@
       "default": "openai/gpt-4o-mini",
       "title": "OCR IA OpenRouter - Modele vision",
       "description": "Identifiant du modele vision OpenRouter utilise par le plugin OCR IA.",
+      "x-ui": {
+        "section": "OpenRouter",
+        "label": "Modèle vision OpenRouter",
+        "advanced": true,
+        "order": 130
+      },
       "x-category": "ocr",
       "x-targets": [
         "frontend",
@@ -1165,7 +2041,18 @@
       "minimum": 5,
       "maximum": 120,
       "default": 15,
+      "title": "Rafraîchissement automatique des recherches",
       "description": "Intervalle (en secondes) entre deux rafraîchissements automatiques des recherches.",
+      "x-ui": {
+        "section": "Général",
+        "label": "Délai de rafraîchissement",
+        "order": 10,
+        "keywords": [
+          "recherche",
+          "refresh",
+          "intervalle"
+        ]
+      },
       "x-category": "search",
       "x-targets": [
         "frontend",
@@ -1175,7 +2062,18 @@
     "geoApp.plugins.lazyMode": {
       "type": "boolean",
       "default": true,
+      "title": "Chargement différé des plugins",
       "description": "Charge les plugins uniquement lors de leur première utilisation.",
+      "x-ui": {
+        "section": "Général",
+        "label": "Charger les plugins à la demande",
+        "order": 10,
+        "keywords": [
+          "lazy",
+          "demarrage",
+          "performance"
+        ]
+      },
       "x-category": "plugins",
       "x-targets": [
         "frontend",
@@ -1186,7 +2084,19 @@
     "geoApp.plugins.autoDiscoverOnStart": {
       "type": "boolean",
       "default": true,
+      "title": "Découverte des plugins au démarrage",
       "description": "Force la redécouverte des plugins à chaque démarrage du backend.",
+      "x-ui": {
+        "section": "Général",
+        "label": "Redécouvrir au démarrage",
+        "advanced": true,
+        "order": 20,
+        "keywords": [
+          "scan",
+          "plugin",
+          "developpement"
+        ]
+      },
       "x-category": "plugins",
       "x-targets": [
         "backend"
@@ -1198,7 +2108,14 @@
       "minimum": 1,
       "maximum": 10,
       "default": 2,
+      "title": "Exécutions parallèles de plugins",
       "description": "Nombre maximum de plugins exécutés simultanément côté backend.",
+      "x-ui": {
+        "section": "Exécution",
+        "label": "Nombre d'exécutions simultanées",
+        "advanced": true,
+        "order": 100
+      },
       "x-category": "plugins",
       "x-targets": [
         "backend"
@@ -1210,7 +2127,19 @@
       "minimum": 10,
       "maximum": 600,
       "default": 60,
+      "title": "Timeout d'exécution des plugins",
       "description": "Durée maximale (en secondes) d’un plugin avant interruption.",
+      "x-ui": {
+        "section": "Exécution",
+        "label": "Temps maximal d'exécution",
+        "advanced": true,
+        "order": 110,
+        "keywords": [
+          "timeout",
+          "plugin lent",
+          "interruption"
+        ]
+      },
       "x-category": "plugins",
       "x-targets": [
         "backend"
@@ -1220,7 +2149,19 @@
     "geoApp.plugins.executor.allowLongRunning": {
       "type": "boolean",
       "default": false,
+      "title": "Plugins longue durée",
       "description": "Autorise certains plugins à dépasser le timeout (mode superviseur).",
+      "x-ui": {
+        "section": "Exécution",
+        "label": "Autoriser les plugins longs",
+        "advanced": true,
+        "order": 120,
+        "keywords": [
+          "long running",
+          "timeout",
+          "superviseur"
+        ]
+      },
       "x-category": "plugins",
       "x-targets": [
         "backend"
@@ -1237,7 +2178,25 @@
         "symbols_only"
       ],
       "default": "auto",
+      "title": "Profil MetaSolver par défaut",
       "description": "Profil par défaut utilisé par le plugin metasolver si aucun profil n'est fourni en entrée.",
+      "x-ui": {
+        "section": "MetaSolver",
+        "label": "Profil par défaut",
+        "order": 200,
+        "enumLabels": {
+          "auto": "Automatique",
+          "common": "Commun",
+          "alpha_only": "Texte uniquement",
+          "numeric_only": "Numérique uniquement",
+          "symbols_only": "Symboles uniquement"
+        },
+        "keywords": [
+          "metasolver",
+          "pipeline",
+          "decode"
+        ]
+      },
       "x-category": "plugins",
       "x-targets": [
         "frontend",
@@ -1247,7 +2206,14 @@
     "geoApp.metasolver.profiles.common.decode": {
       "type": "string",
       "default": "caesar,atbash,bacon_code,morse_code,fox_code",
+      "title": "MetaSolver common - décodage",
       "description": "Pipeline (CSV) du profil 'common' en mode decode. Vide = filtrage par tags meta_plugins.",
+      "x-ui": {
+        "section": "MetaSolver",
+        "label": "Pipeline commun en décodage",
+        "advanced": true,
+        "order": 210
+      },
       "x-category": "plugins",
       "x-targets": [
         "frontend",
@@ -1257,7 +2223,14 @@
     "geoApp.metasolver.profiles.common.detect": {
       "type": "string",
       "default": "caesar,atbash,bacon_code,morse_code,fox_code",
+      "title": "MetaSolver common - détection",
       "description": "Pipeline (CSV) du profil 'common' en mode detect. Vide = filtrage par tags meta_plugins.",
+      "x-ui": {
+        "section": "MetaSolver",
+        "label": "Pipeline commun en détection",
+        "advanced": true,
+        "order": 220
+      },
       "x-category": "plugins",
       "x-targets": [
         "frontend",
@@ -1267,7 +2240,14 @@
     "geoApp.metasolver.profiles.alpha_only.decode": {
       "type": "string",
       "default": "",
+      "title": "MetaSolver texte - décodage",
       "description": "Pipeline (CSV) du profil 'alpha_only' en mode decode. Vide = filtrage par tags meta_plugins.",
+      "x-ui": {
+        "section": "MetaSolver",
+        "label": "Pipeline texte en décodage",
+        "advanced": true,
+        "order": 230
+      },
       "x-category": "plugins",
       "x-targets": [
         "frontend",
@@ -1277,7 +2257,14 @@
     "geoApp.metasolver.profiles.alpha_only.detect": {
       "type": "string",
       "default": "",
+      "title": "MetaSolver texte - détection",
       "description": "Pipeline (CSV) du profil 'alpha_only' en mode detect. Vide = filtrage par tags meta_plugins.",
+      "x-ui": {
+        "section": "MetaSolver",
+        "label": "Pipeline texte en détection",
+        "advanced": true,
+        "order": 240
+      },
       "x-category": "plugins",
       "x-targets": [
         "frontend",
@@ -1287,7 +2274,14 @@
     "geoApp.metasolver.profiles.numeric_only.decode": {
       "type": "string",
       "default": "",
+      "title": "MetaSolver numérique - décodage",
       "description": "Pipeline (CSV) du profil 'numeric_only' en mode decode. Vide = filtrage par tags meta_plugins.",
+      "x-ui": {
+        "section": "MetaSolver",
+        "label": "Pipeline numérique en décodage",
+        "advanced": true,
+        "order": 250
+      },
       "x-category": "plugins",
       "x-targets": [
         "frontend",
@@ -1297,7 +2291,14 @@
     "geoApp.metasolver.profiles.numeric_only.detect": {
       "type": "string",
       "default": "",
+      "title": "MetaSolver numérique - détection",
       "description": "Pipeline (CSV) du profil 'numeric_only' en mode detect. Vide = filtrage par tags meta_plugins.",
+      "x-ui": {
+        "section": "MetaSolver",
+        "label": "Pipeline numérique en détection",
+        "advanced": true,
+        "order": 260
+      },
       "x-category": "plugins",
       "x-targets": [
         "frontend",
@@ -1307,7 +2308,14 @@
     "geoApp.metasolver.profiles.symbols_only.decode": {
       "type": "string",
       "default": "",
+      "title": "MetaSolver symboles - décodage",
       "description": "Pipeline (CSV) du profil 'symbols_only' en mode decode. Vide = filtrage par tags meta_plugins.",
+      "x-ui": {
+        "section": "MetaSolver",
+        "label": "Pipeline symboles en décodage",
+        "advanced": true,
+        "order": 270
+      },
       "x-category": "plugins",
       "x-targets": [
         "frontend",
@@ -1317,7 +2325,14 @@
     "geoApp.metasolver.profiles.symbols_only.detect": {
       "type": "string",
       "default": "",
+      "title": "MetaSolver symboles - détection",
       "description": "Pipeline (CSV) du profil 'symbols_only' en mode detect. Vide = filtrage par tags meta_plugins.",
+      "x-ui": {
+        "section": "MetaSolver",
+        "label": "Pipeline symboles en détection",
+        "advanced": true,
+        "order": 280
+      },
       "x-category": "plugins",
       "x-targets": [
         "frontend",
@@ -1327,7 +2342,19 @@
     "geoApp.tasks.autoStartBackground": {
       "type": "boolean",
       "default": true,
+      "title": "TaskManager au démarrage",
       "description": "Lance automatiquement le TaskManager au boot du backend.",
+      "x-ui": {
+        "section": "Système",
+        "label": "Démarrer le gestionnaire de tâches",
+        "advanced": true,
+        "order": 20,
+        "keywords": [
+          "taskmanager",
+          "backend",
+          "boot"
+        ]
+      },
       "x-category": "backend",
       "x-targets": [
         "backend"
@@ -1339,7 +2366,19 @@
       "minimum": 1,
       "maximum": 16,
       "default": 4,
+      "title": "Workers des tâches longues",
       "description": "Nombre de workers concurrents utilisés pour les tâches longues.",
+      "x-ui": {
+        "section": "Système",
+        "label": "Nombre de workers",
+        "advanced": true,
+        "order": 30,
+        "keywords": [
+          "concurrence",
+          "workers",
+          "taches"
+        ]
+      },
       "x-category": "backend",
       "x-targets": [
         "backend"
@@ -1354,7 +2393,18 @@
         "always-replace"
       ],
       "default": "smart-replace",
+      "title": "Onglets de géocaches",
       "description": "Comportement pour les onglets de géocaches.",
+      "x-ui": {
+        "section": "Onglets",
+        "label": "Fiches géocaches",
+        "order": 120,
+        "enumLabels": {
+          "smart-replace": "Remplacement intelligent",
+          "always-new-tab": "Toujours nouvel onglet",
+          "always-replace": "Toujours remplacer"
+        }
+      },
       "x-category": "ui",
       "x-targets": [
         "frontend"
@@ -1368,7 +2418,18 @@
         "always-replace"
       ],
       "default": "always-replace",
+      "title": "Onglets de zones",
       "description": "Comportement pour les onglets de zones.",
+      "x-ui": {
+        "section": "Onglets",
+        "label": "Tableaux de zones",
+        "order": 130,
+        "enumLabels": {
+          "smart-replace": "Remplacement intelligent",
+          "always-new-tab": "Toujours nouvel onglet",
+          "always-replace": "Toujours remplacer"
+        }
+      },
       "x-category": "ui",
       "x-targets": [
         "frontend"
@@ -1382,7 +2443,18 @@
         "always-replace"
       ],
       "default": "always-new-tab",
+      "title": "Onglets de plugins",
       "description": "Comportement pour les onglets de plugins.",
+      "x-ui": {
+        "section": "Onglets",
+        "label": "Plugins",
+        "order": 140,
+        "enumLabels": {
+          "smart-replace": "Remplacement intelligent",
+          "always-new-tab": "Toujours nouvel onglet",
+          "always-replace": "Toujours remplacer"
+        }
+      },
       "x-category": "ui",
       "x-targets": [
         "frontend"
@@ -1396,7 +2468,18 @@
         "always-replace"
       ],
       "default": "always-replace",
+      "title": "Onglets d'alphabets",
       "description": "Comportement pour les onglets d'alphabets.",
+      "x-ui": {
+        "section": "Onglets",
+        "label": "Alphabets",
+        "order": 150,
+        "enumLabels": {
+          "smart-replace": "Remplacement intelligent",
+          "always-new-tab": "Toujours nouvel onglet",
+          "always-replace": "Toujours remplacer"
+        }
+      },
       "x-category": "ui",
       "x-targets": [
         "frontend"
@@ -1410,7 +2493,18 @@
         "always-replace"
       ],
       "default": "always-new-tab",
+      "title": "Onglets de cartes",
       "description": "Comportement pour les onglets de cartes.",
+      "x-ui": {
+        "section": "Onglets",
+        "label": "Cartes",
+        "order": 160,
+        "enumLabels": {
+          "smart-replace": "Remplacement intelligent",
+          "always-new-tab": "Toujours nouvel onglet",
+          "always-replace": "Toujours remplacer"
+        }
+      },
       "x-category": "ui",
       "x-targets": [
         "frontend"
@@ -1421,7 +2515,14 @@
       "minimum": 5,
       "maximum": 300,
       "default": 30,
+      "title": "Délai du remplacement intelligent",
       "description": "Délai en secondes pour considérer qu'un onglet a été 'interagi' en mode smart-replace.",
+      "x-ui": {
+        "section": "Onglets",
+        "label": "Délai avant conservation",
+        "advanced": true,
+        "order": 170
+      },
       "x-category": "ui",
       "x-targets": [
         "frontend"
@@ -1430,7 +2531,14 @@
     "geoApp.ui.tabs.smartReplace.interaction.clickInContent": {
       "type": "boolean",
       "default": true,
+      "title": "Interaction par clic dans l'onglet",
       "description": "Considère un clic dans le contenu de l'onglet comme une interaction en mode smart-replace.",
+      "x-ui": {
+        "section": "Onglets",
+        "label": "Un clic conserve l'onglet",
+        "advanced": true,
+        "order": 180
+      },
       "x-category": "ui",
       "x-targets": [
         "frontend"
@@ -1439,7 +2547,14 @@
     "geoApp.ui.tabs.smartReplace.interaction.scroll": {
       "type": "boolean",
       "default": true,
+      "title": "Interaction par défilement",
       "description": "Considère un défilement (scroll) dans le contenu de l'onglet comme une interaction en mode smart-replace.",
+      "x-ui": {
+        "section": "Onglets",
+        "label": "Un scroll conserve l'onglet",
+        "advanced": true,
+        "order": 190
+      },
       "x-category": "ui",
       "x-targets": [
         "frontend"
@@ -1448,7 +2563,14 @@
     "geoApp.ui.tabs.smartReplace.interaction.minOpenTimeEnabled": {
       "type": "boolean",
       "default": true,
+      "title": "Interaction par temps d'ouverture",
       "description": "Active la promotion automatique d'un onglet en interaction après un temps d'ouverture minimum (smartReplaceTimeout).",
+      "x-ui": {
+        "section": "Onglets",
+        "label": "Le temps d'ouverture conserve l'onglet",
+        "advanced": true,
+        "order": 200
+      },
       "x-category": "ui",
       "x-targets": [
         "frontend"
@@ -1459,6 +2581,16 @@
       "default": false,
       "title": "Afficher la valeur sous les symboles",
       "description": "Dans l’onglet Alphabets, affiche la valeur (ex: a, b, 1…) sous chaque symbole dans la liste des symboles disponibles.",
+      "x-ui": {
+        "section": "Affichage",
+        "label": "Afficher les valeurs des symboles",
+        "order": 10,
+        "keywords": [
+          "alphabet",
+          "symboles",
+          "lettres"
+        ]
+      },
       "x-category": "alphabets",
       "x-targets": [
         "frontend"
@@ -1470,7 +2602,18 @@
     "geoApp.geocache.hints.displayDecoded": {
       "type": "boolean",
       "default": false,
+      "title": "Indices ROT13 décodés",
       "description": "Affiche les indices (hints) décodés (ROT13) dans le panneau de détails de la géocache.",
+      "x-ui": {
+        "section": "Fiche géocache",
+        "label": "Afficher les indices décodés",
+        "order": 300,
+        "keywords": [
+          "hint",
+          "indice",
+          "rot13"
+        ]
+      },
       "x-category": "ui",
       "x-targets": [
         "frontend"
@@ -1484,7 +2627,23 @@
         "modified"
       ],
       "default": "auto",
+      "title": "Description de géocache par défaut",
       "description": "Contrôle la version de la description affichée par défaut dans le panneau de détails (auto = modifiée si présente, sinon originale).",
+      "x-ui": {
+        "section": "Fiche géocache",
+        "label": "Version de description affichée",
+        "order": 310,
+        "enumLabels": {
+          "auto": "Automatique",
+          "original": "Originale",
+          "modified": "Modifiée"
+        },
+        "keywords": [
+          "listing",
+          "description",
+          "html"
+        ]
+      },
       "x-category": "ui",
       "x-targets": [
         "frontend"
@@ -1498,7 +2657,23 @@
         "onDetailsOpen"
       ],
       "default": "manual",
+      "title": "Synchronisation des notes personnelles",
       "description": "Contrôle quand la note personnelle Geocaching.com est synchronisée automatiquement (manuelle uniquement, à l'ouverture de l'onglet Notes, ou à l'ouverture de la page de détails de la géocache).",
+      "x-ui": {
+        "section": "Geocaching.com",
+        "label": "Synchroniser les notes personnelles",
+        "order": 10,
+        "enumLabels": {
+          "manual": "Manuel",
+          "onNotesOpen": "À l'ouverture des notes",
+          "onDetailsOpen": "À l'ouverture de la fiche"
+        },
+        "keywords": [
+          "personal note",
+          "notes",
+          "sync"
+        ]
+      },
       "x-category": "notes",
       "x-targets": [
         "frontend",
@@ -1517,7 +2692,23 @@
         "none"
       ],
       "default": "logs",
+      "title": "Export GPX des notes GeoApp",
       "description": "Contrôle l'export des Notes GeoApp dans le GPX (en tête des logs, intégrées au listing, ou désactivées).",
+      "x-ui": {
+        "section": "GPX",
+        "label": "Position des notes GeoApp",
+        "order": 100,
+        "enumLabels": {
+          "logs": "Dans les logs",
+          "listing": "Dans le listing",
+          "none": "Ne pas exporter"
+        },
+        "keywords": [
+          "export",
+          "gpx",
+          "notes"
+        ]
+      },
       "x-category": "notes",
       "x-targets": [
         "frontend",
@@ -1532,7 +2723,13 @@
     "geoApp.gpxExport.includeGeocachingLogs": {
       "type": "boolean",
       "default": true,
+      "title": "Logs Geocaching.com dans le GPX",
       "description": "Inclut les logs Geocaching.com (GeocacheLog) dans l'export GPX (groundspeak:logs).",
+      "x-ui": {
+        "section": "GPX",
+        "label": "Inclure les logs Geocaching.com",
+        "order": 110
+      },
       "x-category": "notes",
       "x-targets": [
         "frontend",
@@ -1549,7 +2746,13 @@
       "minimum": 0,
       "maximum": 50,
       "default": 5,
+      "title": "Nombre de logs Geocaching.com exportés",
       "description": "Nombre maximum de logs Geocaching.com à inclure par géocache dans l'export GPX (0 = aucun).",
+      "x-ui": {
+        "section": "GPX",
+        "label": "Nombre de logs par cache",
+        "order": 120
+      },
       "x-category": "notes",
       "x-targets": [
         "frontend",
@@ -1564,7 +2767,18 @@
     "geoApp.checkers.enabled": {
       "type": "boolean",
       "default": true,
+      "title": "Checkers automatiques actifs",
       "description": "Active ou désactive l'exécution automatisée des checkers (Certitude, Geocaching, etc.).",
+      "x-ui": {
+        "section": "Général",
+        "label": "Activer les checkers",
+        "order": 10,
+        "keywords": [
+          "certitude",
+          "geocheck",
+          "solution checker"
+        ]
+      },
       "x-category": "checkers",
       "x-targets": [
         "frontend",
@@ -1579,7 +2793,14 @@
       "minimum": 1000,
       "maximum": 120000,
       "default": 20000,
+      "title": "Timeout des checkers",
       "description": "Timeout (en millisecondes) pour l'exécution d'un checker.",
+      "x-ui": {
+        "section": "Général",
+        "label": "Temps maximal d'exécution",
+        "advanced": true,
+        "order": 20
+      },
       "x-category": "checkers",
       "x-targets": [
         "frontend",
@@ -1591,7 +2812,14 @@
       "minimum": 1,
       "maximum": 5,
       "default": 2,
+      "title": "Tentatives des checkers",
       "description": "Nombre maximum de tentatives pour un checker avant d'abandonner.",
+      "x-ui": {
+        "section": "Général",
+        "label": "Nombre de tentatives",
+        "advanced": true,
+        "order": 30
+      },
       "x-category": "checkers",
       "x-targets": [
         "frontend",
@@ -1601,7 +2829,19 @@
     "geoApp.checkers.playwright.headless": {
       "type": "boolean",
       "default": true,
+      "title": "Playwright sans fenêtre",
       "description": "Exécute Playwright en mode headless (sans fenêtre).",
+      "x-ui": {
+        "section": "Playwright",
+        "label": "Exécuter sans fenêtre",
+        "advanced": true,
+        "order": 100,
+        "keywords": [
+          "chromium",
+          "browser",
+          "headless"
+        ]
+      },
       "x-category": "checkers",
       "x-targets": [
         "backend"
@@ -1610,7 +2850,19 @@
     "geoApp.checkers.profileDir": {
       "type": "string",
       "default": "",
+      "title": "Profil Playwright",
       "description": "Chemin optionnel du profil Playwright GeoApp (vide = emplacement par défaut).",
+      "x-ui": {
+        "section": "Playwright",
+        "label": "Dossier de profil",
+        "advanced": true,
+        "order": 110,
+        "keywords": [
+          "chromium",
+          "session",
+          "cookies"
+        ]
+      },
       "x-category": "checkers",
       "x-targets": [
         "backend"
@@ -1619,7 +2871,19 @@
     "geoApp.checkers.allowedDomains": {
       "type": "string",
       "default": "",
+      "title": "Domaines autorisés pour les checkers",
       "description": "Liste optionnelle de domaines autorisés (séparés par des virgules) pour l'exécution des checkers.",
+      "x-ui": {
+        "section": "Sécurité",
+        "label": "Limiter les domaines autorisés",
+        "advanced": true,
+        "order": 200,
+        "keywords": [
+          "securite",
+          "domaines",
+          "allowlist"
+        ]
+      },
       "x-category": "checkers",
       "x-targets": [
         "backend"
@@ -1633,6 +2897,12 @@
       "default": false,
       "title": "Garder la page Certitude ouverte",
       "description": "Après une exécution interactive Certitude, laisse la fenêtre Chromium ouverte afin de consulter la page (attention: tant que la fenêtre reste ouverte, les exécutions suivantes peuvent être bloquées).",
+      "x-ui": {
+        "section": "Playwright",
+        "label": "Garder Certitude ouvert",
+        "advanced": true,
+        "order": 120
+      },
       "x-category": "checkers",
       "x-targets": [
         "backend"
@@ -1643,6 +2913,12 @@
       "default": false,
       "title": "Garder la page Geocaching ouverte",
       "description": "Après une exécution interactive Geocaching.com (Solution Checker), laisse la fenêtre Chromium ouverte afin de consulter le résultat/les coordonnées (attention: tant que la fenêtre reste ouverte, les exécutions suivantes peuvent être bloquées).",
+      "x-ui": {
+        "section": "Playwright",
+        "label": "Garder Geocaching.com ouvert",
+        "advanced": true,
+        "order": 130
+      },
       "x-category": "checkers",
       "x-targets": [
         "backend"
@@ -1653,6 +2929,16 @@
       "default": true,
       "title": "GeoCheck : fallback manuel",
       "description": "Lorsque GeoCheck est protégé par un système anti-bot (Anubis), affiche un lien pour vérifier manuellement les coordonnées dans le navigateur au lieu de tenter un contournement automatique.",
+      "x-ui": {
+        "section": "Général",
+        "label": "Utiliser le fallback manuel GeoCheck",
+        "order": 40,
+        "keywords": [
+          "geocheck",
+          "anti-bot",
+          "anubis"
+        ]
+      },
       "x-category": "checkers",
       "x-targets": [
         "frontend",
@@ -1667,7 +2953,13 @@
       "type": "boolean",
       "default": true,
       "title": "Garder la page GeoCheck ouverte",
-      "description": "AprÃ¨s une exÃ©cution interactive GeoCheck, laisse la fenÃªtre Chromium ouverte afin de consulter manuellement la page protÃ©gÃ©e ou le rÃ©sultat.",
+      "description": "Après une exécution interactive GeoCheck, laisse la fenêtre Chromium ouverte afin de consulter manuellement la page protégée ou le résultat.",
+      "x-ui": {
+        "section": "Playwright",
+        "label": "Garder GeoCheck ouvert",
+        "advanced": true,
+        "order": 140
+      },
       "x-category": "checkers",
       "x-targets": [
         "backend"
@@ -1688,6 +2980,21 @@
       "default": "none",
       "title": "Méthode d'authentification Geocaching.com",
       "description": "Méthode utilisée pour s'authentifier sur Geocaching.com. 'credentials' utilise le login/mot de passe (recommandé), 'browser_cookies' extrait les cookies de votre navigateur.",
+      "x-ui": {
+        "section": "Geocaching.com",
+        "label": "Méthode de connexion",
+        "order": 10,
+        "enumLabels": {
+          "none": "Aucune",
+          "credentials": "Identifiants",
+          "browser_cookies": "Cookies du navigateur"
+        },
+        "keywords": [
+          "login",
+          "connexion",
+          "cookies"
+        ]
+      },
       "x-category": "auth",
       "x-targets": [
         "frontend",
@@ -1709,6 +3016,23 @@
       "default": "auto",
       "title": "Navigateur source pour les cookies",
       "description": "Navigateur dont les cookies seront extraits (uniquement si la méthode 'browser_cookies' est sélectionnée). 'auto' essaie Firefox, puis Chrome, puis Edge.",
+      "x-ui": {
+        "section": "Geocaching.com",
+        "label": "Navigateur source",
+        "advanced": true,
+        "order": 20,
+        "enumLabels": {
+          "auto": "Automatique",
+          "firefox": "Firefox",
+          "chrome": "Chrome",
+          "edge": "Edge"
+        },
+        "keywords": [
+          "cookies",
+          "navigateur",
+          "session"
+        ]
+      },
       "x-category": "auth",
       "x-targets": [
         "frontend",
@@ -1724,6 +3048,16 @@
       "default": true,
       "title": "Mémoriser les identifiants",
       "description": "Sauvegarde les identifiants de connexion pour les sessions futures (stockés localement de manière sécurisée).",
+      "x-ui": {
+        "section": "Geocaching.com",
+        "label": "Mémoriser les identifiants",
+        "order": 30,
+        "keywords": [
+          "login",
+          "mot de passe",
+          "stockage"
+        ]
+      },
       "x-category": "auth",
       "x-targets": [
         "frontend",
@@ -1740,6 +3074,16 @@
       "default": true,
       "title": "Connexion automatique au démarrage",
       "description": "Tente de se reconnecter automatiquement au démarrage de l'application si des identifiants sont sauvegardés.",
+      "x-ui": {
+        "section": "Geocaching.com",
+        "label": "Connexion automatique",
+        "order": 40,
+        "keywords": [
+          "login",
+          "demarrage",
+          "session"
+        ]
+      },
       "x-category": "auth",
       "x-targets": [
         "frontend",
@@ -1755,6 +3099,17 @@
       "default": true,
       "title": "Archivage automatique des résolutions",
       "description": "⚠️ NON RECOMMANDÉ à désactiver. Active la synchronisation automatique de l'archive de résolution lors des changements d'état (statut résolu, coordonnées corrigées, notes, waypoints). Si désactivé, les données de résolution ne seront plus sauvegardées automatiquement et seront perdues en cas de suppression. Le snapshot avant suppression reste actif même si cette option est désactivée.",
+      "x-ui": {
+        "section": "Général",
+        "label": "Archiver automatiquement",
+        "advanced": true,
+        "order": 10,
+        "keywords": [
+          "sauvegarde",
+          "resolution",
+          "archive"
+        ]
+      },
       "x-category": "archive",
       "x-targets": [
         "backend"
@@ -1770,6 +3125,16 @@
       "default": true,
       "title": "EarthCoach - Recherches externes",
       "description": "Autorise EarthCoach a chercher des references pedagogiques externes sur Wikipedia, Wikimedia Commons, BRGM, InfoTerre, GeoWiki et Planet-Terre.",
+      "x-ui": {
+        "section": "Références",
+        "label": "Autoriser les recherches externes",
+        "order": 10,
+        "keywords": [
+          "wikipedia",
+          "brgm",
+          "geologie"
+        ]
+      },
       "x-category": "earthcoach",
       "x-targets": [
         "frontend"
@@ -1789,6 +3154,15 @@
       "default": "fr",
       "title": "EarthCoach - Langue des references",
       "description": "Langue par defaut des recherches pedagogiques EarthCoach.",
+      "x-ui": {
+        "section": "Références",
+        "label": "Langue des références",
+        "order": 20,
+        "enumLabels": {
+          "fr": "Français",
+          "en": "Anglais"
+        }
+      },
       "x-category": "earthcoach",
       "x-targets": [
         "frontend"
@@ -1805,6 +3179,11 @@
       "default": 3,
       "title": "EarthCoach - Articles maximum",
       "description": "Nombre maximal d'articles Wikipedia retournes par EarthCoach. Les portails geologiques fiables sont ajoutes separement selon les sources autorisees.",
+      "x-ui": {
+        "section": "Références",
+        "label": "Nombre d'articles",
+        "order": 30
+      },
       "x-category": "earthcoach",
       "x-targets": [
         "frontend"
@@ -1822,6 +3201,11 @@
       "default": 5,
       "title": "EarthCoach - Images maximum",
       "description": "Nombre maximal d'images pedagogiques Wikimedia Commons retournees par EarthCoach.",
+      "x-ui": {
+        "section": "Références",
+        "label": "Nombre d'images",
+        "order": 40
+      },
       "x-category": "earthcoach",
       "x-targets": [
         "frontend"
@@ -1837,6 +3221,17 @@
       "default": "wikipedia,wikimedia,brgm,infoterre,geowiki,planet-terre",
       "title": "EarthCoach - Sources autorisees",
       "description": "Sources externes autorisees pour les references pedagogiques EarthCoach, separees par des virgules. Valeurs: wikipedia, wikimedia, brgm, infoterre, geowiki, planet-terre.",
+      "x-ui": {
+        "section": "Références",
+        "label": "Sources autorisées",
+        "advanced": true,
+        "order": 50,
+        "keywords": [
+          "sources",
+          "allowlist",
+          "wikipedia"
+        ]
+      },
       "x-category": "earthcoach",
       "x-targets": [
         "frontend"
@@ -1856,6 +3251,20 @@
       "default": "new-tab",
       "title": "Mode d'ouverture des liens externes",
       "description": "Contrôle comment les liens externes dans les détails de géocache sont ouverts (nouvel onglet du navigateur ou nouvelle fenêtre).",
+      "x-ui": {
+        "section": "Navigation",
+        "label": "Liens externes des fiches",
+        "order": 320,
+        "enumLabels": {
+          "new-tab": "Nouvel onglet",
+          "new-window": "Nouvelle fenêtre"
+        },
+        "keywords": [
+          "liens",
+          "navigateur",
+          "fiche geocache"
+        ]
+      },
       "x-category": "ui",
       "x-targets": [
         "frontend"
@@ -1875,6 +3284,21 @@
       "default": "same-group",
       "title": "Mode d'ouverture des liens checker (clic gauche)",
       "description": "Comportement par défaut lors d'un clic gauche sur un lien checker : 'same-group' ouvre dans un onglet Theia du même groupe, 'new-group' ouvre dans un nouveau groupe d'onglets (split), 'external-window' ouvre dans une fenêtre externe au navigateur.",
+      "x-ui": {
+        "section": "Navigation",
+        "label": "Ouverture des liens checker",
+        "order": 300,
+        "enumLabels": {
+          "same-group": "Même groupe d'onglets",
+          "new-group": "Nouveau groupe d'onglets",
+          "external-window": "Fenêtre externe"
+        },
+        "keywords": [
+          "clic gauche",
+          "split",
+          "onglet checker"
+        ]
+      },
       "x-category": "checkers",
       "x-targets": [
         "frontend"
@@ -1892,6 +3316,16 @@
       "default": 5,
       "title": "Résumé des logs récents — nombre d'icônes",
       "description": "Nombre de logs récents affichés sous forme d'icônes dans le résumé en haut du panneau Logs et dans la fiche détail de la géocache.",
+      "x-ui": {
+        "section": "Fiche géocache",
+        "label": "Nombre d'icônes de logs récents",
+        "order": 330,
+        "keywords": [
+          "logs",
+          "resume",
+          "icones"
+        ]
+      },
       "x-category": "ui",
       "x-targets": [
         "frontend"
