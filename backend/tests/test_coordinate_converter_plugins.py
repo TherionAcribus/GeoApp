@@ -158,3 +158,41 @@ def test_coordinate_special_converter_decodes_qth_to_geocaching():
     )
     assert_plugin_coordinate_result(result)
     assert result["results"][0]["text_output"].startswith("N ")
+
+
+def test_coordinate_all_converter_returns_all_families():
+    result = run_plugin(
+        "coordinate_all_converter",
+        {
+            "input_text": "u09tunqu5",
+            "source_format": "auto",
+            "target_format": "all",
+            "precision": 6,
+            "geohash_precision": 9,
+            "special_precision": 10,
+            "zoom": 15,
+        },
+    )
+
+    assert_plugin_coordinate_result(result)
+    first = result["results"][0]
+    assert first["parameters"]["source_format"] == "geohash"
+    assert {"latlon", "grid", "code", "special"}.issubset(first["sections"])
+    assert "geocaching" in first["formats"]
+    assert "mgrs" in first["formats"]
+    assert "plus_code" in first["formats"]
+    assert "qth" in first["formats"]
+
+
+def test_coordinate_all_converter_selects_geocaching_output():
+    result = run_plugin(
+        "coordinate_all_converter",
+        {
+            "input_text": "JN18DU",
+            "source_format": "auto",
+            "target_format": "geocaching",
+        },
+    )
+
+    assert_plugin_coordinate_result(result)
+    assert result["results"][0]["text_output"].startswith("N ")

@@ -116,6 +116,76 @@ export const PluginResultDisplay: React.FC<{
         return `${pluginName || 'result'}_${index}_${text}`;
     };
 
+    const stringifyFormatValue = (value: any): string => {
+        if (Array.isArray(value)) {
+            if (value.length === 0) {
+                return '';
+            }
+            const first = value[0];
+            if (first && typeof first === 'object' && first.formatted !== undefined) {
+                return String(first.formatted);
+            }
+            return value.map(entry => stringifyFormatValue(entry)).filter(Boolean).join(', ');
+        }
+        if (value && typeof value === 'object') {
+            if (value.formatted !== undefined) {
+                return String(value.formatted);
+            }
+            return JSON.stringify(value);
+        }
+        return value === undefined || value === null ? '' : String(value);
+    };
+
+    const renderFormatSections = (sections: any) => {
+        if (!sections || typeof sections !== 'object') {
+            return null;
+        }
+
+        const sectionLabels: Record<string, string> = {
+            latlon: 'Lat/Lon',
+            grid: 'Grilles',
+            code: 'Codes',
+            special: 'Formats speciaux',
+        };
+
+        const entries = Object.entries(sections)
+            .filter(([, values]) => values && typeof values === 'object' && Object.keys(values as Record<string, unknown>).length > 0);
+
+        if (entries.length === 0) {
+            return null;
+        }
+
+        return (
+            <div className='result-format-sections'>
+                {entries.map(([sectionName, values]) => (
+                    <div key={sectionName} className='result-format-section'>
+                        <div className='result-format-section-title'>{sectionLabels[sectionName] || sectionName}</div>
+                        <div className='result-format-grid'>
+                            {Object.entries(values as Record<string, any>).map(([name, value]) => {
+                                const text = stringifyFormatValue(value);
+                                return (
+                                    <div key={`${sectionName}-${name}`} className='result-format-row'>
+                                        <span className='result-format-name'>{name}</span>
+                                        <code className='result-format-value'>{text}</code>
+                                        {text ? (
+                                            <button
+                                                className='theia-button secondary result-format-copy'
+                                                onClick={() => copyToClipboard(text)}
+                                                title='Copier'
+                                            >
+                                                Copier
+                                            </button>
+                                        ) : undefined}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                ))}
+            </div>
+        );
+    };
+
     const buildOriginCoords = (): { ddm_lat: string; ddm_lon: string } | undefined => {
         if (!geocacheContext?.coordinates?.latitude || !geocacheContext?.coordinates?.longitude) {
             return undefined;
@@ -449,6 +519,8 @@ export const PluginResultDisplay: React.FC<{
                                     ) : (
                                         <div style={{ color: 'orange' }}>No text_output for result {index}</div>
                                     )}
+
+                                    {renderFormatSections(item.sections)}
 
                                     {resolvedCoordinates && (
                                         <div className='result-coordinates' style={{ 

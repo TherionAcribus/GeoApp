@@ -237,6 +237,67 @@
     padding: 3px 0;
 }
 
+.result-format-sections {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.result-format-section {
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    background: var(--theia-editor-background);
+    overflow: hidden;
+}
+
+.result-format-section-title {
+    padding: 6px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    border-bottom: 1px solid var(--theia-panel-border);
+    background: var(--theia-input-background);
+}
+
+.result-format-grid {
+    display: flex;
+    flex-direction: column;
+}
+
+.result-format-row {
+    display: grid;
+    grid-template-columns: minmax(64px, 90px) minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    min-height: 32px;
+}
+
+.result-format-row:last-child {
+    border-bottom: 0;
+}
+
+.result-format-name {
+    font-size: 11px;
+    opacity: 0.75;
+    text-transform: uppercase;
+}
+
+.result-format-value {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    font-size: 12px;
+    color: var(--theia-editor-foreground);
+    background: transparent;
+}
+
+.result-format-copy {
+    padding: 2px 6px;
+    font-size: 11px;
+}
+
 .result-time {
     color: var(--theia-descriptionForeground);
     font-size: 12px;

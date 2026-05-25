@@ -1,0 +1,116 @@
+{
+  "name": "coordinate_all_converter",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Convertit une coordonnee ou un code vers l'ensemble des formats disponibles: DD, DDM, DMS, grilles, codes et formats confidentiels.",
+  "author": "MysterAI Team",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": ["pygeodesy", "openlocationcode", "mapcode", "pyproj"],
+  "categories": ["Coordinates", "Conversion", "Codes"],
+  "kinds": ["geo", "calculator"],
+  "brute_force": false,
+  "enable_scoring": false,
+  "accept_accents": true,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "input_text": {
+      "type": "string",
+      "label": "Coordonnee ou code",
+      "placeholder": "Ex: N 48° 51.502 E 002° 17.669, u09tunqu5, JN18DU, 31UDQ4825184674",
+      "required": true
+    },
+    "source_format": {
+      "type": "select",
+      "label": "Format source",
+      "options": ["auto", "dd", "ddm", "dms", "utm", "mgrs", "osgb", "web_mercator", "geohash", "plus_code", "mapcode", "gars", "qth", "slippy", "quadkey", "nac", "rd", "lambert_93", "lambert_72"],
+      "default": "auto"
+    },
+    "target_format": {
+      "type": "select",
+      "label": "Format cible",
+      "options": ["all", "geocaching", "dd", "ddm", "dms", "utm", "mgrs", "osgb", "web_mercator", "geohash", "plus_code", "mapcode", "gars", "qth", "slippy", "quadkey", "nac", "rd", "lambert_93", "lambert_72"],
+      "default": "all"
+    },
+    "precision": {
+      "type": "number",
+      "label": "Precision DD",
+      "default": 6,
+      "min": 0,
+      "max": 10,
+      "step": 1
+    },
+    "geohash_precision": {
+      "type": "number",
+      "label": "Precision Geohash",
+      "default": 9,
+      "min": 1,
+      "max": 12,
+      "step": 1
+    },
+    "special_precision": {
+      "type": "number",
+      "label": "Precision NAC",
+      "default": 10,
+      "min": 1,
+      "max": 12,
+      "step": 1
+    },
+    "zoom": {
+      "type": "number",
+      "label": "Zoom Slippy/Quadkey",
+      "default": 15,
+      "min": 0,
+      "max": 30,
+      "step": 1
+    },
+    "reference_latitude": {
+      "type": "float",
+      "label": "Latitude de reference (Plus Code court)"
+    },
+    "reference_longitude": {
+      "type": "float",
+      "label": "Longitude de reference (Plus Code court)"
+    },
+    "mapcode_territory": {
+      "type": "string",
+      "label": "Territoire Mapcode optionnel",
+      "placeholder": "Ex: FRA",
+      "default": ""
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Conversions"
+    },
+    "decimal_latitude": {
+      "type": "number",
+      "label": "Latitude decimale"
+    },
+    "decimal_longitude": {
+      "type": "number",
+      "label": "Longitude decimale"
+    },
+    "formats": {
+      "type": "object",
+      "label": "Formats"
+    },
+    "sections": {
+      "type": "object",
+      "label": "Formats par famille"
+    }
+  }
+}

@@ -22,6 +22,19 @@ except Exception:
     detect_gps_coordinates = None
     convert_ddm_to_decimal = None
 
+try:
+    from gc_backend.utils.coordinate_converters import (
+        CoordinateConversionError,
+        find_coordinate_candidates,
+        format_ddm,
+        parse_coordinate,
+    )
+except Exception:
+    CoordinateConversionError = ValueError
+    find_coordinate_candidates = None
+    format_ddm = None
+    parse_coordinate = None
+
 
 class CoordinateIntersectionPlugin:
     """Plugin that computes circle-circle intersection on Earth's surface."""
@@ -283,6 +296,26 @@ class CoordinateIntersectionPlugin:
                 except Exception:
                     pass
 
+        if find_coordinate_candidates is not None:
+            try:
+                candidates = find_coordinate_candidates(value, max_results=1)
+            except Exception:
+                candidates = []
+            if candidates:
+                coord = candidates[0]
+                ddm = self._decimal_to_gc_coordinates(coord.latitude, coord.longitude)
+                return ddm, coord.latitude, coord.longitude
+
+        if parse_coordinate is not None:
+            try:
+                coord = parse_coordinate(value, "auto")
+                ddm = self._decimal_to_gc_coordinates(coord.latitude, coord.longitude)
+                return ddm, coord.latitude, coord.longitude
+            except CoordinateConversionError:
+                pass
+            except Exception:
+                pass
+
         lat, lon = self._parse_gc_ddm(value)
         if lat is None or lon is None:
             return None
@@ -343,15 +376,16 @@ class CoordinateIntersectionPlugin:
         if not text:
             return None
 
-        normalized = text.replace(",", ".")
+        normalized = text
 
         unit_pat = r"(km|k(?:ilo)?m(?:(?:è|e)tres?|eters?)?|miles?|m(?:(?:è|e)tres?|eters?)?)"
+        number_pat = r"\d+(?:[\.,]\d+)?"
 
         results: List[Tuple[float, float, float, str]] = []
 
         # Pass 1 – distance/unit then coords in parentheses
         pattern_paren = (
-            r"(\d+(?:\.\d+)?)\s*" + unit_pat +
+            r"(" + number_pat + r")\s*" + unit_pat +
             r"(?:\s+(?:from|de|away from|à|a)(?:\s+[A-Z]{2}\w+)?)?\s*\(([^)]+)\)"
         )
         for match in re.finditer(pattern_paren, normalized, re.IGNORECASE):
@@ -360,7 +394,7 @@ class CoordinateIntersectionPlugin:
             if parsed is None:
                 continue
             ddm, lat, lon = parsed
-            dist_m = self._convert_to_meters(float(dist_s), self._normalize_unit(unit_s))
+            dist_m = self._convert_to_meters(float(dist_s.replace(",", ".")), self._normalize_unit(unit_s))
             results.append((lat, lon, dist_m, ddm))
             if len(results) == 2:
                 return results
@@ -381,11 +415,11 @@ class CoordinateIntersectionPlugin:
             ddm, lat, lon = parsed
             window = normalized[max(0, m.start() - 120): m.start()]
             dist_m_match = re.search(
-                r"(\d+(?:\.\d+)?)\s*" + unit_pat + r"\s*$", window, re.IGNORECASE
+                r"(" + number_pat + r")\s*" + unit_pat + r"\s*$", window, re.IGNORECASE
             )
             if dist_m_match:
                 dist_s, unit_s = dist_m_match.groups()
-                dist_m = self._convert_to_meters(float(dist_s), self._normalize_unit(unit_s))
+                dist_m = self._convert_to_meters(float(dist_s.replace(",", ".")), self._normalize_unit(unit_s))
                 results.append((lat, lon, dist_m, ddm))
             if len(results) == 2:
                 return results
@@ -415,6 +449,9 @@ class CoordinateIntersectionPlugin:
     # ------------------------------------------------------------------
 
     def _decimal_to_gc_coordinates(self, lat: float, lon: float) -> str:
+        if format_ddm is not None:
+            return format_ddm(lat, lon)
+
         lat_dir = "N" if lat >= 0 else "S"
         lon_dir = "E" if lon >= 0 else "W"
         lat_abs = abs(float(lat))

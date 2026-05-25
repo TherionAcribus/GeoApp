@@ -215,3 +215,80 @@ def test_coordinate_projection_smooth_mode_fallbacks_to_strict_inputs_when_no_te
     assert first.get("decimal_latitude") is not None
     assert first.get("decimal_longitude") is not None
     assert first["decimal_longitude"] > 2.35
+
+
+def test_coordinate_projection_strict_mode_accepts_geohash_origin():
+    """Strict mode should accept coordinates parsed by the shared converter."""
+
+    plugin_dir = (
+        Path(__file__).parent.parent.parent
+        / "plugins"
+        / "official"
+        / "coordinate_projection"
+    )
+
+    metadata = PluginMetadata(
+        name="coordinate_projection",
+        version="1.0.0",
+        plugin_type=PluginType.PYTHON,
+        entry_point="main.py",
+        path=str(plugin_dir),
+        timeout_seconds=30,
+    )
+
+    wrapper = PythonPluginWrapper(metadata)
+    assert wrapper.initialize() is True
+
+    result = wrapper.execute(
+        {
+            "mode": "decode",
+            "strict": "strict",
+            "origin_coords": "u09tunqu5",
+            "distance": 100,
+            "distance_unit": "m",
+            "bearing_deg": 90,
+            "enable_gps_detection": False,
+        }
+    )
+
+    assert result["status"] == "ok"
+    first = result["results"][0]
+    assert first["decimal_latitude"] > 48.85
+    assert first["decimal_longitude"] > 2.294576
+
+
+def test_coordinate_projection_smooth_mode_finds_geohash_in_text():
+    """Smooth mode should find a converter-supported coordinate in free text."""
+
+    plugin_dir = (
+        Path(__file__).parent.parent.parent
+        / "plugins"
+        / "official"
+        / "coordinate_projection"
+    )
+
+    metadata = PluginMetadata(
+        name="coordinate_projection",
+        version="1.0.0",
+        plugin_type=PluginType.PYTHON,
+        entry_point="main.py",
+        path=str(plugin_dir),
+        timeout_seconds=30,
+    )
+
+    wrapper = PythonPluginWrapper(metadata)
+    assert wrapper.initialize() is True
+
+    result = wrapper.execute(
+        {
+            "mode": "decode",
+            "strict": "smooth",
+            "text": "Depuis u09tunqu5, projetez vous de 100 m a 90 degres",
+            "enable_gps_detection": False,
+        }
+    )
+
+    assert result["status"] == "ok"
+    first = result["results"][0]
+    assert first["decimal_latitude"] > 48.85
+    assert first["decimal_longitude"] > 2.294576

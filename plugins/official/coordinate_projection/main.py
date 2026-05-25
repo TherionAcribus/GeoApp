@@ -20,6 +20,19 @@ except Exception:
     detect_gps_coordinates = None
     convert_ddm_to_decimal = None
 
+try:
+    from gc_backend.utils.coordinate_converters import (
+        CoordinateConversionError,
+        find_coordinate_candidates,
+        format_ddm,
+        parse_coordinate,
+    )
+except Exception:
+    CoordinateConversionError = ValueError
+    find_coordinate_candidates = None
+    format_ddm = None
+    parse_coordinate = None
+
 
 class CoordinateProjectionPlugin:
     """Plugin that projects a point based on distance and azimuth."""
@@ -295,6 +308,26 @@ class CoordinateProjectionPlugin:
                 except Exception:
                     return None, None, None
 
+        if find_coordinate_candidates is not None:
+            try:
+                candidates = find_coordinate_candidates(value, max_results=1)
+            except Exception:
+                candidates = []
+            if candidates:
+                coord = candidates[0]
+                ddm = self._decimal_to_gc_coordinates(coord.latitude, coord.longitude)
+                return ddm, coord.latitude, coord.longitude
+
+        if parse_coordinate is not None:
+            try:
+                coord = parse_coordinate(value, "auto")
+                ddm = self._decimal_to_gc_coordinates(coord.latitude, coord.longitude)
+                return ddm, coord.latitude, coord.longitude
+            except CoordinateConversionError:
+                pass
+            except Exception:
+                pass
+
         lat, lon = self._parse_gc_ddm(value)
         if lat is None or lon is None:
             return None, None, None
@@ -370,6 +403,9 @@ class CoordinateProjectionPlugin:
         raise ValueError(f"Unité de distance inconnue: '{unit}'")
 
     def _decimal_to_gc_coordinates(self, lat: float, lon: float) -> str:
+        if format_ddm is not None:
+            return format_ddm(lat, lon)
+
         lat_dir = "N" if lat >= 0 else "S"
         lon_dir = "E" if lon >= 0 else "W"
 
