@@ -1,0 +1,74 @@
+{
+  "name": "coordinate_format_converter",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Convertit des coordonnées WGS84 entre les formats DD, DDM et DMS.",
+  "author": "MysterAI Team",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": ["Coordinates", "Conversion"],
+  "kinds": ["geo", "calculator"],
+  "brute_force": false,
+  "enable_scoring": false,
+  "accept_accents": true,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "input_text": {
+      "type": "string",
+      "label": "Coordonnée",
+      "placeholder": "Ex: N 48° 51.502 E 002° 17.669 ou 48.85837, 2.294481",
+      "required": true
+    },
+    "source_format": {
+      "type": "select",
+      "label": "Format source",
+      "options": ["auto", "dd", "ddm", "dms"],
+      "default": "auto"
+    },
+    "target_format": {
+      "type": "select",
+      "label": "Format cible",
+      "options": ["all", "dd", "ddm", "dms"],
+      "default": "all"
+    },
+    "precision": {
+      "type": "number",
+      "label": "Précision décimale",
+      "default": 6,
+      "min": 0,
+      "max": 10,
+      "step": 1
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Coordonnée convertie"
+    },
+    "decimal_latitude": {
+      "type": "number",
+      "label": "Latitude décimale"
+    },
+    "decimal_longitude": {
+      "type": "number",
+      "label": "Longitude décimale"
+    },
+    "formats": {
+      "type": "object",
+      "label": "Formats"
+    }
+  }
+}

@@ -1,0 +1,112 @@
+"""Tests for the official coordinate converter plugins."""
+
+from pathlib import Path
+
+from gc_backend.plugins.wrappers import PluginMetadata, PluginType, PythonPluginWrapper
+
+
+PLUGIN_ROOT = Path(__file__).parent.parent.parent / "plugins" / "official"
+
+
+def run_plugin(name: str, inputs: dict) -> dict:
+    plugin_dir = PLUGIN_ROOT / name
+    metadata = PluginMetadata(
+        name=name,
+        version="1.0.0",
+        plugin_type=PluginType.PYTHON,
+        entry_point="main.py",
+        path=str(plugin_dir),
+        timeout_seconds=30,
+    )
+    wrapper = PythonPluginWrapper(metadata)
+    assert wrapper.initialize() is True
+    return wrapper.execute(inputs)
+
+
+def assert_plugin_coordinate_result(result):
+    assert result["status"] == "ok"
+    assert result["results"]
+    first = result["results"][0]
+    assert first["decimal_latitude"] is not None
+    assert first["decimal_longitude"] is not None
+    assert first["coordinates"]["exist"] is True
+
+
+def test_coordinate_format_converter_plugin():
+    result = run_plugin(
+        "coordinate_format_converter",
+        {
+            "input_text": "48.85837, 2.294481",
+            "source_format": "dd",
+            "target_format": "all",
+        },
+    )
+    assert_plugin_coordinate_result(result)
+    assert "ddm" in result["results"][0]["formats"]
+
+
+def test_coordinate_grid_converter_plugin():
+    result = run_plugin(
+        "coordinate_grid_converter",
+        {
+            "input_text": "48.85837, 2.294481",
+            "source_format": "dd",
+            "target_format": "mgrs",
+        },
+    )
+    assert_plugin_coordinate_result(result)
+    assert "mgrs" in result["results"][0]["formats"]
+
+
+def test_coordinate_grid_converter_accepts_long_compact_mgrs():
+    result = run_plugin(
+        "coordinate_grid_converter",
+        {
+            "input_text": "31UDQ48251846741193823573",
+            "source_format": "auto",
+            "target_format": "all",
+        },
+    )
+    assert_plugin_coordinate_result(result)
+    assert result["results"][0]["parameters"]["source_format"] == "mgrs"
+
+
+def test_coordinate_code_converter_plugin():
+    result = run_plugin(
+        "coordinate_code_converter",
+        {
+            "input_text": "48.85837, 2.294481",
+            "source_format": "dd",
+            "target_format": "geohash",
+        },
+    )
+    assert_plugin_coordinate_result(result)
+    assert result["results"][0]["formats"]["geohash"].startswith("u09tun")
+
+
+def test_coordinate_code_converter_accepts_geohash_input_and_geocaching_output():
+    result = run_plugin(
+        "coordinate_code_converter",
+        {
+            "input_text": "u09tunqu5",
+            "source_format": "auto",
+            "target_format": "geocaching",
+        },
+    )
+    assert_plugin_coordinate_result(result)
+    first = result["results"][0]
+    assert first["parameters"]["source_format"] == "geohash"
+    assert first["text_output"].startswith("N 48")
+
+
+def test_coordinate_converter_plugin_error_is_clean():
+    result = run_plugin(
+        "coordinate_format_converter",
+        {
+            "input_text": "not coordinates",
+            "source_format": "auto",
+            "target_format": "all",
+        },
+    )
+    assert result["status"] == "error"
+    assert result["summary"]

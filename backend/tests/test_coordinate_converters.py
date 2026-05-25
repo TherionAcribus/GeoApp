@@ -1,0 +1,125 @@
+"""Tests for shared coordinate conversion helpers."""
+
+import math
+
+import pytest
+
+from gc_backend.utils.coordinate_converters import (
+    convert_to_code,
+    convert_to_format,
+    convert_to_grid,
+    parse_coordinate,
+)
+
+
+EIFFEL_DD = "48.85837, 2.294481"
+
+
+def assert_close(value, expected, tolerance=0.0002):
+    assert abs(value - expected) < tolerance
+
+
+def test_parse_and_format_dd_ddm_dms():
+    dd_result = convert_to_format(EIFFEL_DD, source_format="dd", target_format="all")
+    assert_close(dd_result["decimal_latitude"], 48.85837)
+    assert_close(dd_result["decimal_longitude"], 2.294481)
+    assert "ddm" in dd_result["formats"]
+    assert "dms" in dd_result["formats"]
+
+    ddm = dd_result["formats"]["ddm"]
+    parsed_ddm = parse_coordinate(ddm, "ddm")
+    assert_close(parsed_ddm.latitude, 48.85837, 0.00002)
+    assert_close(parsed_ddm.longitude, 2.294481, 0.00002)
+
+    dms = dd_result["formats"]["dms"]
+    parsed_dms = parse_coordinate(dms, "dms")
+    assert_close(parsed_dms.latitude, 48.85837, 0.00002)
+    assert_close(parsed_dms.longitude, 2.294481, 0.00002)
+
+
+def test_grid_utm_mgrs_webmercator_roundtrips():
+    grid = convert_to_grid(EIFFEL_DD, source_format="dd", target_format="all")
+    assert "utm" in grid["formats"]
+    assert "mgrs" in grid["formats"]
+    assert "web_mercator" in grid["formats"]
+
+    utm_result = parse_coordinate(grid["formats"]["utm"], "utm")
+    assert_close(utm_result.latitude, 48.85837, 0.0001)
+    assert_close(utm_result.longitude, 2.294481, 0.0001)
+
+    mgrs_result = parse_coordinate(grid["formats"]["mgrs"], "mgrs")
+    assert_close(mgrs_result.latitude, 48.85837, 0.0002)
+    assert_close(mgrs_result.longitude, 2.294481, 0.0002)
+
+    wm_result = parse_coordinate(grid["formats"]["web_mercator"], "web_mercator")
+    assert_close(wm_result.latitude, 48.85837, 0.0001)
+    assert_close(wm_result.longitude, 2.294481, 0.0001)
+
+
+def test_long_compact_mgrs_is_detected_before_webmercator():
+    parsed = parse_coordinate("31UDQ48251846741193823573", "auto")
+    assert parsed.source_format == "mgrs"
+    assert_close(parsed.latitude, 48.85837, 0.01)
+    assert_close(parsed.longitude, 2.294481, 0.01)
+
+
+def test_osgb_known_london_point():
+    grid = convert_to_grid("51.5074, -0.1278", source_format="dd", target_format="osgb")
+    assert grid["formats"]["osgb"]
+
+    parsed = parse_coordinate(grid["formats"]["osgb"], "osgb")
+    assert_close(parsed.latitude, 51.5074, 0.0002)
+    assert_close(parsed.longitude, -0.1278, 0.0002)
+
+
+def test_geohash_and_plus_code_area_decode():
+    codes = convert_to_code(EIFFEL_DD, source_format="dd", target_format="all")
+    assert codes["formats"]["geohash"].startswith("u09tun")
+    assert "+" in codes["formats"]["plus_code"]
+    assert codes["formats"]["mapcode"]
+
+    geohash_result = parse_coordinate(codes["formats"]["geohash"], "geohash")
+    assert geohash_result.bbox
+    assert_close(geohash_result.latitude, 48.85837, 0.0001)
+    assert_close(geohash_result.longitude, 2.294481, 0.0001)
+
+    plus_result = parse_coordinate(codes["formats"]["plus_code"], "plus_code")
+    assert plus_result.bbox
+    assert_close(plus_result.latitude, 48.85837, 0.0002)
+    assert_close(plus_result.longitude, 2.294481, 0.0002)
+
+
+def test_geohash_auto_is_not_parsed_as_decimal_degrees():
+    codes = convert_to_code("u09tunqu5", source_format="auto", target_format="all")
+    assert codes["source_format"] == "geohash"
+    assert_close(codes["decimal_latitude"], 48.85829, 0.0002)
+    assert "geocaching" in codes["formats"]
+    assert codes["coordinates"]["formatted"].startswith("N 48")
+
+
+def test_code_converter_can_output_geocaching_format():
+    result = convert_to_code("FRA 4J.Q3", source_format="auto", target_format="geocaching")
+    assert result["target_format"] == "ddm"
+    assert result["text_output"].startswith("N 48")
+    assert result["coordinates"]["formatted"].startswith("N 48")
+    assert result["coordinates"]["source_formatted"] == "FRA 4J.Q3"
+
+
+def test_plus_code_short_requires_reference_and_mapcode_roundtrip():
+    with pytest.raises(Exception):
+        parse_coordinate("V75V+8Q", "plus_code")
+
+    plus_result = parse_coordinate(
+        "V75V+8Q",
+        "plus_code",
+        reference_latitude=48.85837,
+        reference_longitude=2.294481,
+    )
+    assert_close(plus_result.latitude, 48.85837, 0.0003)
+    assert_close(plus_result.longitude, 2.294481, 0.0003)
+
+    codes = convert_to_code(EIFFEL_DD, source_format="dd", target_format="mapcode", mapcode_territory="FRA")
+    first = codes["formats"]["mapcode"][0]["formatted"]
+    mapcode_result = parse_coordinate(first, "mapcode")
+    assert math.isfinite(mapcode_result.latitude)
+    assert math.isfinite(mapcode_result.longitude)

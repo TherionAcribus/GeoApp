@@ -1,0 +1,66 @@
+{
+  "name": "coordinate_grid_converter",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Convertit des coordonnées WGS84 vers/depuis UTM, MGRS, OSGB/OSGR et Web Mercator.",
+  "author": "MysterAI Team",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": ["pygeodesy"],
+  "categories": ["Coordinates", "Conversion", "Projection"],
+  "kinds": ["geo", "calculator"],
+  "brute_force": false,
+  "enable_scoring": false,
+  "accept_accents": true,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "input_text": {
+      "type": "string",
+      "label": "Coordonnée",
+      "placeholder": "Ex: 31U DQ 48250 11951 ou N 48° 51.502 E 002° 17.669",
+      "required": true
+    },
+    "source_format": {
+      "type": "select",
+      "label": "Format source",
+      "options": ["auto", "dd", "ddm", "dms", "utm", "mgrs", "osgb", "web_mercator"],
+      "default": "auto"
+    },
+    "target_format": {
+      "type": "select",
+      "label": "Format cible",
+      "options": ["all", "utm", "mgrs", "osgb", "web_mercator"],
+      "default": "all"
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Coordonnée convertie"
+    },
+    "decimal_latitude": {
+      "type": "number",
+      "label": "Latitude décimale"
+    },
+    "decimal_longitude": {
+      "type": "number",
+      "label": "Longitude décimale"
+    },
+    "formats": {
+      "type": "object",
+      "label": "Formats grille"
+    }
+  }
+}

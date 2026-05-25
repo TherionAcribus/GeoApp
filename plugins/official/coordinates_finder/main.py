@@ -10,6 +10,12 @@ except ImportError:
     logger.warning("Import direct de detect_gps_coordinates a échoué, tentative via app context ou mock")
     detect_gps_coordinates = None
 
+try:
+    from gc_backend.utils.coordinate_converters import CoordinateConversionError, parse_coordinate
+except Exception:
+    CoordinateConversionError = Exception
+    parse_coordinate = None
+
 class CoordinatesFinderPlugin:
     def __init__(self):
         self.name = "coordinates_finder"
@@ -60,6 +66,28 @@ class CoordinatesFinderPlugin:
                     "decimal_longitude": detection.get('decimal_longitude')
                 }
                 results.append(res)
+
+        if not results and parse_coordinate is not None:
+            try:
+                converted = parse_coordinate(clean_text, "auto")
+                coordinates = converted.to_coordinates_dict()
+                res = {
+                    "id": "coord_1",
+                    "text_output": f"CoordonnÃ©es dÃ©tectÃ©es : {coordinates.get('formatted') or coordinates.get('ddm')}",
+                    "confidence": coordinates.get("confidence", 0.85),
+                    "coordinates": coordinates,
+                    "decimal_latitude": converted.latitude,
+                    "decimal_longitude": converted.longitude,
+                    "metadata": {
+                        "source_format": converted.source_format,
+                        "bbox": converted.bbox,
+                    },
+                }
+                results.append(res)
+            except CoordinateConversionError:
+                pass
+            except Exception as exc:
+                logger.debug(f"DÃ©tection coordinate_converters ignorÃ©e: {exc}")
         
         return {
             "status": "success",

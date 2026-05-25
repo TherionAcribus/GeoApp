@@ -6,6 +6,10 @@ beautifulsoup4==4.12.3
 requests==2.32.3
 loguru==0.7.2
 jsonschema==4.20.0
+mapcode==2.5.5.0
+openlocationcode==1.0.1
 playwright==1.48.0
+pygeodesy==26.5.9
+pyproj==3.7.2
 pytest==7.4.3
 pytest-flask==1.3.0

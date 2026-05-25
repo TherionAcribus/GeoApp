@@ -1,0 +1,88 @@
+{
+  "name": "coordinate_code_converter",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Convertit des coordonnées WGS84 vers/depuis Geohash, Plus Codes et Mapcode.",
+  "author": "MysterAI Team",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": ["pygeodesy", "openlocationcode", "mapcode"],
+  "categories": ["Coordinates", "Conversion", "Codes"],
+  "kinds": ["geo", "calculator"],
+  "brute_force": false,
+  "enable_scoring": false,
+  "accept_accents": true,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "input_text": {
+      "type": "string",
+      "label": "Coordonnée ou code",
+      "placeholder": "Ex: u09tunqu9, 8FW4V75V+8Q, FRA 4J.P2 ou 48.85837, 2.294481",
+      "required": true
+    },
+    "source_format": {
+      "type": "select",
+      "label": "Format source",
+      "options": ["auto", "dd", "ddm", "dms", "geohash", "plus_code", "mapcode"],
+      "default": "auto"
+    },
+    "target_format": {
+      "type": "select",
+      "label": "Format cible",
+      "options": ["all", "geocaching", "dd", "ddm", "dms", "geohash", "plus_code", "mapcode"],
+      "default": "all"
+    },
+    "reference_latitude": {
+      "type": "float",
+      "label": "Latitude de référence (Plus Code court)"
+    },
+    "reference_longitude": {
+      "type": "float",
+      "label": "Longitude de référence (Plus Code court)"
+    },
+    "precision": {
+      "type": "number",
+      "label": "Précision Geohash",
+      "default": 9,
+      "min": 1,
+      "max": 12,
+      "step": 1
+    },
+    "mapcode_territory": {
+      "type": "string",
+      "label": "Territoire Mapcode (optionnel)",
+      "placeholder": "Ex: FRA",
+      "default": ""
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Code converti"
+    },
+    "decimal_latitude": {
+      "type": "number",
+      "label": "Latitude décimale"
+    },
+    "decimal_longitude": {
+      "type": "number",
+      "label": "Longitude décimale"
+    },
+    "formats": {
+      "type": "object",
+      "label": "Codes"
+    }
+  }
+}
