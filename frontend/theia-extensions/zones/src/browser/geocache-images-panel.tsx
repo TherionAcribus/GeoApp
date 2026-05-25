@@ -46,6 +46,11 @@ type ThumbnailContextMenuState = {
     imageId: number;
 };
 
+type ExifReadOptions = {
+    silent?: boolean;
+    preserveSelection?: boolean;
+};
+
 export interface GeocacheImagesPanelProps {
     backendBaseUrl: string;
     geocacheId: number;
@@ -149,6 +154,8 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     const uploadInputRef = React.useRef<HTMLInputElement | null>(null);
     const initializedChatSelectionForRef = React.useRef<number | null>(null);
     const didWarnChatImageLimitRef = React.useRef(false);
+    const autoExifImageIdsRef = React.useRef<Set<number>>(new Set());
+    const autoExifInProgressRef = React.useRef(false);
 
     const [effectiveThumbnailSize, setEffectiveThumbnailSize] = React.useState<GalleryThumbnailSize>(thumbnailSize);
 
@@ -367,6 +374,8 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     React.useEffect(() => {
         initializedChatSelectionForRef.current = null;
         didWarnChatImageLimitRef.current = false;
+        autoExifImageIdsRef.current = new Set();
+        autoExifInProgressRef.current = false;
         setChatImageIds([]);
     }, [geocacheId]);
 
@@ -801,6 +810,62 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             .trim();
     };
 
+    const getExifFeature = React.useCallback((img: GeocacheImageV2Dto | null | undefined): any => {
+        const features = img?.detected_features;
+        if (!features || typeof features !== 'object') {
+            return null;
+        }
+        return (features as Record<string, unknown>).exif_reader ?? null;
+    }, []);
+
+    const formatExifFeatureForDisplay = React.useCallback((feature: any): string => {
+        if (!feature || typeof feature !== 'object') {
+            return '';
+        }
+        const lines: string[] = [];
+        const summary = (feature.summary ?? '').toString().trim();
+        if (summary) {
+            lines.push(summary);
+        }
+        const gpsItems = Array.isArray(feature.gps_coordinates) ? feature.gps_coordinates : [];
+        for (const gps of gpsItems) {
+            const formatted = (gps?.formatted ?? gps?.decimal ?? '').toString().trim();
+            if (formatted) {
+                lines.push(`GPS: ${formatted}`);
+            }
+        }
+        const exifItems = Array.isArray(feature.exif) ? feature.exif : [];
+        for (const item of exifItems) {
+            const tags = item?.interesting_tags && typeof item.interesting_tags === 'object'
+                ? item.interesting_tags as Record<string, unknown>
+                : {};
+            for (const [key, value] of Object.entries(tags)) {
+                if (key === 'GPSInfo') {
+                    continue;
+                }
+                const rendered = typeof value === 'string' ? value : JSON.stringify(value);
+                if (rendered && rendered !== 'null' && rendered !== 'undefined') {
+                    lines.push(`${key}: ${rendered}`);
+                }
+            }
+        }
+        return lines.length ? lines.join('\n') : JSON.stringify(feature, null, 2);
+    }, []);
+
+    const hasUsefulExifFeature = React.useCallback((img: GeocacheImageV2Dto | null | undefined): boolean => {
+        const feature = getExifFeature(img);
+        if (!feature || typeof feature !== 'object') {
+            return false;
+        }
+        const exifItems = Array.isArray(feature.exif) ? feature.exif : [];
+        const gpsItems = Array.isArray(feature.gps_coordinates) ? feature.gps_coordinates : [];
+        const hasExifTags = exifItems.some((item: any) => {
+            const tags = item?.tags && typeof item.tags === 'object' ? item.tags : {};
+            return Object.keys(tags).length > 0;
+        });
+        return hasExifTags || gpsItems.length > 0;
+    }, [getExifFeature]);
+
     const blobToBase64 = async (blob: Blob): Promise<string> => {
         return await new Promise((resolve, reject) => {
             const reader = new FileReader();
@@ -1032,7 +1097,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
         await runOcrPluginForImage(imageId, engine);
     };
 
-    const patchImage = async (imageId: number, payload: Partial<GeocacheImageV2Dto>): Promise<GeocacheImageV2Dto | null> => {
+    const patchImage = async (imageId: number, payload: Partial<GeocacheImageV2Dto>, options: { silent?: boolean } = {}): Promise<GeocacheImageV2Dto | null> => {
         try {
             const res = await fetch(`${backendBaseUrl}/api/geocache-images/${imageId}`, {
                 method: 'PATCH',
@@ -1048,7 +1113,9 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             return updated;
         } catch (e) {
             console.error('[GeocacheImagesPanel] patch image error', e);
-            messages.error(`Impossible d'enregistrer l'image : ${String(e)}`);
+            if (!options.silent) {
+                messages.error(`Impossible d'enregistrer l'image : ${String(e)}`);
+            }
             return null;
         }
     };
@@ -1154,6 +1221,145 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             setIsSaving(false);
         }
     };
+
+    const readExifFromImage = async (imageId: number, options: ExifReadOptions = {}): Promise<void> => {
+        const img = images.find(i => i.id === imageId) ?? visibleImages.find(i => i.id === imageId);
+        if (!img) {
+            console.warn('[GeocacheImagesPanel] readExifFromImage: image not found', imageId);
+            return;
+        }
+
+        const silent = Boolean(options.silent);
+        const preserveSelection = Boolean(options.preserveSelection);
+        if (!silent) {
+            setIsSaving(true);
+        }
+        const progress = silent
+            ? null
+            : await messages.showProgress(
+                { text: 'Lecture Exif...', options: { cancelable: false, location: 'notification' } }
+            );
+        try {
+            progress?.report({ message: 'Preparation de l\'image...' });
+            let imageUrlForPlugin = resolveImageUrl(img.url || img.source_url);
+            if (!imageUrlForPlugin && !img.stored) {
+                if (!canStoreImage(img)) {
+                    if (!silent) {
+                        messages.error('Cette image n\'a pas de fichier local exploitable.');
+                        setSelectedId(imageId);
+                        setDetailsMode('fields');
+                    }
+                    return;
+                }
+                const storeRes = await fetch(`${backendBaseUrl}/api/geocache-images/${imageId}/store`, {
+                    method: 'POST',
+                    credentials: 'include',
+                });
+                if (!storeRes.ok) {
+                    throw new Error(await readResponseError(storeRes));
+                }
+                const storedImage = (await storeRes.json()) as GeocacheImageV2Dto;
+                imageUrlForPlugin = resolveImageUrl(storedImage.url);
+                setImages(prev => prev.map(i => (i.id === storedImage.id ? storedImage : i)));
+            }
+
+            progress?.report({ message: 'Lecture des metadonnees...' });
+            const res = await fetch(`${backendBaseUrl}/api/plugins/exif_reader/execute`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                    inputs: {
+                        geocache_id: geocacheId,
+                        images: [{ url: imageUrlForPlugin }],
+                    }
+                }),
+            });
+            if (!res.ok) {
+                throw new Error(await readResponseError(res));
+            }
+
+            const result = await res.json() as any;
+            if (result?.status === 'error') {
+                throw new Error((result?.summary || result?.error || 'Erreur inconnue du plugin Exif').toString());
+            }
+
+            const exifFeature = {
+                summary: result?.summary ?? '',
+                exif: Array.isArray(result?.exif) ? result.exif : [],
+                gps_coordinates: Array.isArray(result?.gps_coordinates) ? result.gps_coordinates : [],
+                image_details: Array.isArray(result?.image_details) ? result.image_details : [],
+                results: Array.isArray(result?.results) ? result.results : [],
+                plugin_info: result?.plugin_info ?? null,
+                analyzed_at: new Date().toISOString(),
+            };
+            const nextDetectedFeatures = {
+                ...((img.detected_features && typeof img.detected_features === 'object') ? img.detected_features : {}),
+                exif_reader: exifFeature,
+            };
+
+            if (!preserveSelection) {
+                setSelectedId(imageId);
+                setDetailsMode('fields');
+            }
+            const updated = await patchImage(imageId, { detected_features: nextDetectedFeatures }, { silent });
+            if (updated && !silent) {
+                if (exifFeature.gps_coordinates.length > 0) {
+                    messages.info(`Exif lu: ${exifFeature.gps_coordinates.length} coordonnee(s) GPS detectee(s)`);
+                } else if (exifFeature.exif.length > 0) {
+                    messages.info('Exif lu: donnees trouvees, sans coordonnees GPS');
+                } else {
+                    messages.info('Aucune donnee Exif trouvee dans cette image');
+                }
+            }
+        } catch (e) {
+            console.error('[GeocacheImagesPanel] exif error', e);
+            if (!silent) {
+                messages.error(`Erreur lecture Exif: ${String(e)}`);
+            }
+        } finally {
+            progress?.cancel();
+            if (!silent) {
+                setIsSaving(false);
+            }
+        }
+    };
+
+    React.useEffect(() => {
+        if (isLoading || autoExifInProgressRef.current || !images.length) {
+            return;
+        }
+
+        const candidates = images.filter(image => {
+            if (autoExifImageIdsRef.current.has(image.id) || getExifFeature(image)) {
+                return false;
+            }
+            if (!image.url && !image.source_url) {
+                return false;
+            }
+            if (isMissingLocalImage(image)) {
+                return false;
+            }
+            return true;
+        });
+
+        if (!candidates.length) {
+            return;
+        }
+
+        candidates.forEach(image => autoExifImageIdsRef.current.add(image.id));
+        autoExifInProgressRef.current = true;
+
+        void (async () => {
+            try {
+                for (const image of candidates) {
+                    await readExifFromImage(image.id, { silent: true, preserveSelection: true });
+                }
+            } finally {
+                autoExifInProgressRef.current = false;
+            }
+        })();
+    }, [getExifFeature, images, isLoading, isMissingLocalImage]);
 
     const copyQrPayload = async (imageId: number): Promise<void> => {
         const img = visibleImages.find(i => i.id === imageId);
@@ -1450,6 +1656,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
         const hasNote = Boolean((img.note || '').trim());
         const hasQr = Boolean((img.qr_payload || '').trim());
         const hasOcr = Boolean((img.ocr_text || '').trim());
+        const hasExif = hasUsefulExifFeature(img);
         const isDerived = Boolean(img.parent_image_id);
         const isMissing = isMissingLocalImage(img);
 
@@ -1473,6 +1680,9 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
         }
         if (hasOcr) {
             badges.push({ label: 'OCR', tone: 'warning' });
+        }
+        if (hasExif) {
+            badges.push({ label: 'EXIF', tone: 'info' });
         }
         if (isDerived) {
             badges.push({ label: 'DÉRIVÉE', tone: 'neutral' });
@@ -1537,6 +1747,11 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
         {
             label: 'Décoder QR (plugin)',
             action: () => { void decodeQrFromImage(contextMenu.imageId); },
+            disabled: isSaving,
+        },
+        {
+            label: 'Lire Exif (plugin)',
+            action: () => { void readExifFromImage(contextMenu.imageId); },
             disabled: isSaving,
         },
         {
@@ -1610,6 +1825,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     const selectedIsHidden = Boolean(selectedImage && isHiddenByDomain(selectedImage.source_url));
     const selectedIsMissing = isMissingLocalImage(selectedImage);
     const selectedPreviewUrl = selectedImage && selectedImage.url ? resolveImageUrl(selectedImage.url) : '';
+    const selectedExifText = formatExifFeatureForDisplay(getExifFeature(selectedImage));
 
     return (
         <div className='geoapp-images-panel'>
@@ -1930,6 +2146,10 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                                         <span className='codicon codicon-key' />
                                         QR
                                     </button>
+                                    <button className='theia-button secondary geoapp-images-icon-button' type='button' onClick={() => { void readExifFromImage(selectedImage.id); }} disabled={isSaving || selectedIsMissing}>
+                                        <span className='codicon codicon-info' />
+                                        Exif
+                                    </button>
                                     <button className='theia-button secondary geoapp-images-icon-button' type='button' onClick={() => { void searchImageOnGoogleById(selectedImage.id); }} disabled={isSaving || !selectedCanGoogle}>
                                         <span className='codicon codicon-search' />
                                         Lens
@@ -2004,6 +2224,18 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                                             placeholder='Texte détecté ou transcription manuelle'
                                         />
                                     </div>
+
+                                    {selectedExifText ? (
+                                        <div className='geoapp-images-field'>
+                                            <label>Exif</label>
+                                            <textarea
+                                                className='theia-input geoapp-images-textarea'
+                                                rows={5}
+                                                value={selectedExifText}
+                                                readOnly={true}
+                                            />
+                                        </div>
+                                    ) : undefined}
 
                                     <div className='geoapp-images-form-actions'>
                                         {Boolean((draftQr || '').trim()) && (

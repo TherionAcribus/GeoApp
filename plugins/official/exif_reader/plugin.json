@@ -1,0 +1,42 @@
+{
+  "name": "exif_reader",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Lit les metadonnees Exif des images d'une geocache, avec extraction GPS quand disponible.",
+  "author": "GeoApp",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": ["Pillow", "requests"],
+  "categories": ["Analysis", "Image", "Metadata"],
+  "kinds": ["image", "analyze"],
+  "brute_force": false,
+  "heavy_cpu": false,
+  "needs_network": true,
+  "needs_filesystem": false,
+  "input_types": {
+    "geocache_id": {
+      "type": "string",
+      "label": "ID de la geocache",
+      "required": false,
+      "default_value_source": "geocache_id"
+    }
+  },
+  "output_types": {
+    "results": {
+      "type": "object",
+      "label": "Resultats standardises"
+    },
+    "exif": {
+      "type": "array",
+      "label": "Metadonnees Exif"
+    },
+    "gps_coordinates": {
+      "type": "array",
+      "label": "Coordonnees GPS Exif"
+    },
+    "images_analyzed": {
+      "type": "integer",
+      "label": "Nombre d'images analysees"
+    }
+  }
+}

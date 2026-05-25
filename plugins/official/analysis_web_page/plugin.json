@@ -81,6 +81,10 @@
       "description": "Plugin pour détecter et décoder les QR codes dans les images de la cache."
     },
     {
+      "plugin_name": "exif_reader",
+      "description": "Plugin pour lire les métadonnées Exif des images de la cache."
+    },
+    {
       "plugin_name": "additional_waypoints_analyzer",
       "description": "Plugin pour analyser les points de passage additionnels d'une cache."
     }

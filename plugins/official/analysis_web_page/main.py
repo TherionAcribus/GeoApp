@@ -81,7 +81,8 @@ class AnalysisWebPagePlugin:
                 logger.warning(f"Impossible de récupérer la géocache {geocache_id_raw}: {e}")
                 # On continue avec text_content si disponible
         
-        if not page_content:
+        has_image_context = bool(inputs.get("images") or geocache_id_raw)
+        if not page_content and not has_image_context:
             return {
                 "status": "error",
                 "summary": "Aucun contenu à analyser",
@@ -129,8 +130,8 @@ class AnalysisWebPagePlugin:
             if plugin_name == "additional_waypoints_analyzer" and inputs.get("waypoints"):
                 plugin_inputs["waypoints"] = inputs.get("waypoints")
 
-            # Passer explicitement les images si disponibles pour le plugin de détection de QR codes
-            if plugin_name == "qr_code_detector" and inputs.get("images"):
+            # Passer explicitement les images aux plugins d'analyse d'images.
+            if plugin_name in {"qr_code_detector", "exif_reader"} and inputs.get("images"):
                 plugin_inputs["images"] = inputs.get("images")
             
             logger.info(f"Lancement sous-plugin: {plugin_name}")
@@ -217,6 +218,7 @@ class AnalysisWebPagePlugin:
             'coordinate_projection',
             'written_coords_converter',
             'qr_code_detector',  # Coordonnées détectées via QR codes
+            'exif_reader',  # Coordonnées GPS issues des métadonnées Exif
             'image_alt_text_extractor',
             'color_text_detector',
         ]
