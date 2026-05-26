@@ -175,6 +175,55 @@ def test_special_formats_rd_and_lambert_roundtrip():
     assert_close(parsed_l72.longitude, 4.3528, 0.0001)
 
 
+def test_special_formats_projected_and_grid_roundtrip():
+    special = convert_to_special(EIFFEL_DD, source_format="dd", target_format="all", precision=10, zoom=15)
+    for fmt in ["xyz", "swissgrid", "swissgrid_plus", "gauss_kruger"]:
+        parsed = parse_coordinate(special["formats"][fmt], fmt)
+        assert_close(parsed.latitude, 48.85837, 0.0002)
+        assert_close(parsed.longitude, 2.294481, 0.0002)
+
+    parsed_dfci = parse_coordinate(special["formats"]["dfci_grid"], "dfci_grid")
+    assert_close(parsed_dfci.latitude, 48.85837, 0.002)
+    assert_close(parsed_dfci.longitude, 2.294481, 0.002)
+
+
+def test_special_formats_exotic_code_roundtrip():
+    special = convert_to_special(EIFFEL_DD, source_format="dd", target_format="all", precision=12, zoom=15)
+    tolerances = {
+        "geo3x3": 0.0015,
+        "makaney": 0.0002,
+        "bosch": 0.00001,
+        "geohex": 0.0005,
+        "s2cell": 0.00001,
+        "reverse_wherigo": 0.00002,
+        "reverse_wherigo_10y": 0.00002,
+        "reverse_wherigo_day1976": 0.0002,
+    }
+    for fmt, tolerance in tolerances.items():
+        parsed = parse_coordinate(special["formats"][fmt], fmt)
+        assert_close(parsed.latitude, 48.85837, tolerance)
+        assert_close(parsed.longitude, 2.294481, tolerance)
+
+
+def test_parse_gcwizard_examples_for_new_formats():
+    qth = parse_coordinate("CN85TG09JU", "qth")
+    assert_close(qth.latitude, 45.29100, 0.0001)
+    assert_close(qth.longitude, -122.41333, 0.0001)
+
+    for raw, fmt in [
+        ("M97F-BBOOI", "makaney"),
+        ("RU568425483853568", "geohex"),
+        ("W7392967941169", "geo3x3"),
+        ("5KFFA65ISFHTI85X", "bosch"),
+        ("47a8f7ef6060b111", "s2cell"),
+        ("GL02C3.1", "dfci_grid"),
+        ("3f8f1, z4ee4", "reverse_wherigo_day1976"),
+    ]:
+        parsed = parse_coordinate(raw, fmt)
+        assert math.isfinite(parsed.latitude)
+        assert math.isfinite(parsed.longitude)
+
+
 def test_plus_code_short_requires_reference_and_mapcode_roundtrip():
     with pytest.raises(Exception):
         parse_coordinate("V75V+8Q", "plus_code")

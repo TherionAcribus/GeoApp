@@ -23,16 +23,37 @@ from gc_backend.utils.coordinate_formatting import (
 )
 from gc_backend.utils.coordinate_special_formats import (
     NAC_ALPHABET,
+    decode_bosch,
+    decode_dfci,
     decode_gars,
+    decode_geo3x3,
+    decode_geohex,
+    decode_makaney,
     decode_nac,
     decode_qth,
     decode_quadkey,
+    decode_reverse_wherigo_day1976,
+    decode_reverse_wherigo_10y,
+    decode_reverse_wherigo_waldmeister,
+    decode_s2cell,
     decode_slippy,
+    decode_xyz,
+    encode_bosch,
+    encode_dfci,
     encode_gars,
+    encode_geo3x3,
+    encode_geohex,
+    encode_makaney,
     encode_nac,
     encode_qth,
     encode_quadkey,
+    encode_reverse_wherigo_day1976,
+    encode_reverse_wherigo_10y,
+    encode_reverse_wherigo_waldmeister,
+    encode_s2cell,
     encode_slippy,
+    encode_xy_labelled,
+    encode_xyz,
     transform_wgs84_to_xy,
     transform_xy_to_wgs84,
 )
@@ -41,7 +62,71 @@ from gc_backend.utils.coordinate_special_formats import (
 SUPPORTED_FORMATS = {"dd", "ddm", "dms"}
 SUPPORTED_GRID_FORMATS = {"utm", "mgrs", "osgb", "osgr", "web_mercator"}
 SUPPORTED_CODE_FORMATS = {"geohash", "plus_code", "mapcode"}
-SUPPORTED_SPECIAL_FORMATS = {"gars", "qth", "maidenhead", "slippy", "quadkey", "quadtree", "nac", "rd", "lambert_93", "lambert_72"}
+SUPPORTED_SPECIAL_FORMATS = {
+    "gars",
+    "qth",
+    "maidenhead",
+    "slippy",
+    "quadkey",
+    "quadtree",
+    "nac",
+    "rd",
+    "lambert_93",
+    "lambert_72",
+    "lambert_2008",
+    "etrs89_lcc",
+    "lambert_cc42",
+    "lambert_cc43",
+    "lambert_cc44",
+    "lambert_cc45",
+    "lambert_cc46",
+    "lambert_cc47",
+    "lambert_cc48",
+    "lambert_cc49",
+    "lambert_cc50",
+    "lambert_ntf",
+    "xyz",
+    "ecef",
+    "swissgrid",
+    "swissgrid_plus",
+    "gauss_kruger",
+    "gauss_kruger_2",
+    "gauss_kruger_3",
+    "gauss_kruger_4",
+    "gauss_kruger_5",
+    "geo3x3",
+    "makaney",
+    "bosch",
+    "geohex",
+    "dfci_grid",
+    "s2cell",
+    "reverse_wherigo",
+    "reverse_wherigo_10y",
+    "reverse_wherigo_day1976",
+}
+LAMBERT_CRS = {
+    "lambert_93": ("EPSG:2154", "Lambert 93"),
+    "lambert_72": ("EPSG:31370", "Belgian Lambert 72"),
+    "lambert_2008": ("EPSG:3812", "Belgian Lambert 2008"),
+    "etrs89_lcc": ("EPSG:3034", "ETRS89 LCC"),
+    "lambert_cc42": ("EPSG:3942", "Lambert CC42"),
+    "lambert_cc43": ("EPSG:3943", "Lambert CC43"),
+    "lambert_cc44": ("EPSG:3944", "Lambert CC44"),
+    "lambert_cc45": ("EPSG:3945", "Lambert CC45"),
+    "lambert_cc46": ("EPSG:3946", "Lambert CC46"),
+    "lambert_cc47": ("EPSG:3947", "Lambert CC47"),
+    "lambert_cc48": ("EPSG:3948", "Lambert CC48"),
+    "lambert_cc49": ("EPSG:3949", "Lambert CC49"),
+    "lambert_cc50": ("EPSG:3950", "Lambert CC50"),
+    "lambert_ntf": ("EPSG:27572", "Lambert NTF II"),
+}
+GAUSS_KRUGER_CRS = {
+    "gauss_kruger": ("EPSG:31467", "Gauss-Kruger zone 3"),
+    "gauss_kruger_2": ("EPSG:31466", "Gauss-Kruger zone 2"),
+    "gauss_kruger_3": ("EPSG:31467", "Gauss-Kruger zone 3"),
+    "gauss_kruger_4": ("EPSG:31468", "Gauss-Kruger zone 4"),
+    "gauss_kruger_5": ("EPSG:31469", "Gauss-Kruger zone 5"),
+}
 
 _DD_PAIR_RE = re.compile(
     r"(?<![\w.])(?P<lat>[+-]?\d{1,2}\.\d+)\s*[,;]\s*(?P<lon>[+-]?\d{1,3}\.\d+)(?![\w.])"
@@ -69,9 +154,16 @@ _MAPCODE_RE = re.compile(r"\b[A-Z]{3}\s+[A-Z0-9]{2,}\.[A-Z0-9]{2,}\b", re.IGNORE
 _GEOHASH_RE = re.compile(r"\b[0123456789bcdefghjkmnpqrstuvwxyz]{5,12}\b")
 _GEOHASH_UPPER_RE = re.compile(r"\b(?=[0123456789BCDEFGHJKMNPQRSTUVWXYZ]*\d)[0123456789BCDEFGHJKMNPQRSTUVWXYZ]{5,12}\b")
 _GARS_RE = re.compile(r"\b\d{3}[A-HJ-NP-Z]{2}[1-4]?[1-9]?\b", re.IGNORECASE)
-_QTH_RE = re.compile(r"\b[A-R]{2}\d{2}([A-X]{2})?\b", re.IGNORECASE)
+_QTH_RE = re.compile(r"\b[A-R]{2}\d{2}([A-X]{2}(\d{2}([A-X]{2})?)?)?\b", re.IGNORECASE)
 _SLIPPY_RE = re.compile(r"\b\d{1,2}/\d{1,10}/\d{1,10}\b")
 _NAC_RE = re.compile(rf"\b[{NAC_ALPHABET}]{{6,12}}\s+[{NAC_ALPHABET}]{{6,12}}\b", re.IGNORECASE)
+_XYZ_RE = re.compile(r"\bX\s*:?\s*[-+]?\d+(?:[\.,]\d+)?\s*,?\s*Y\s*:?\s*[-+]?\d+(?:[\.,]\d+)?\s*,?\s*Z\s*:?\s*[-+]?\d+(?:[\.,]\d+)?\b", re.IGNORECASE)
+_GEO3X3_RE = re.compile(r"\b[EW][1-9]{6,30}\b", re.IGNORECASE)
+_MAKANEY_RE = re.compile(r"\b-?[A-Z0-9]{1,5}[+-][A-Z0-9]{1,6}\b", re.IGNORECASE)
+_DFCI_RE = re.compile(r"\b[A-HK-N][B-HK-N](?:[02468][02468](?:[A-HK-L]\d(?:\.[1-5])?)?)?\b", re.IGNORECASE)
+_S2CELL_RE = re.compile(r"\b[0-5][0-9a-f]{8,16}\b", re.IGNORECASE)
+_REVERSE_WHERIGO_RE = re.compile(r"\b\d{6}\s*[,; ]\s*\d{6}\s*[,; ]\s*\d{6}\b")
+_DAY1976_RE = re.compile(r"\b[0-9a-z]{5}\s*[,; ]\s*[0-9a-z]{5}\b", re.IGNORECASE)
 
 
 class CoordinateConversionError(ValueError):
@@ -187,7 +279,55 @@ def normalize_format(fmt: str) -> str:
         "lambert_93": "lambert_93",
         "lambert72": "lambert_72",
         "lambert_72": "lambert_72",
+        "lambert2008": "lambert_2008",
+        "lambert_2008": "lambert_2008",
+        "etrs89lcc": "etrs89_lcc",
+        "etrs89_lcc": "etrs89_lcc",
+        "lambert_ntf_ii": "lambert_ntf",
+        "lambert_ntf": "lambert_ntf",
+        "lambert_rgf": "lambert_93",
+        "rgf": "lambert_93",
+        "xyz": "xyz",
+        "ecef": "xyz",
+        "swiss_grid": "swissgrid",
+        "ch1903": "swissgrid",
+        "lv03": "swissgrid",
+        "swissgridplus": "swissgrid_plus",
+        "swiss_grid_plus": "swissgrid_plus",
+        "ch1903+": "swissgrid_plus",
+        "ch1903_plus": "swissgrid_plus",
+        "lv95": "swissgrid_plus",
+        "gauss_krüger": "gauss_kruger",
+        "gauss_krueger": "gauss_kruger",
+        "gausskrueger": "gauss_kruger",
+        "gausskruger": "gauss_kruger",
+        "gk": "gauss_kruger",
+        "gk2": "gauss_kruger_2",
+        "gk3": "gauss_kruger_3",
+        "gk4": "gauss_kruger_4",
+        "gk5": "gauss_kruger_5",
+        "geo3*3": "geo3x3",
+        "geo3_3": "geo3x3",
+        "mkc": "makaney",
+        "makaney_code": "makaney",
+        "dfci": "dfci_grid",
+        "dfci_grid": "dfci_grid",
+        "s2": "s2cell",
+        "s2cells": "s2cell",
+        "s2cells_hilbert": "s2cell",
+        "s2_cell": "s2cell",
+        "s2_cell_hilbert": "s2cell",
+        "waldmeister": "reverse_wherigo",
+        "reverse_wherigo": "reverse_wherigo",
+        "reverse_wherigo_waldmeister": "reverse_wherigo",
+        "10y": "reverse_wherigo_10y",
+        "reverse_wherigo_10y": "reverse_wherigo_10y",
+        "reverse_wherigo_10y_waldmeister": "reverse_wherigo_10y",
+        "day1976": "reverse_wherigo_day1976",
+        "reverse_wherigo_day1976": "reverse_wherigo_day1976",
     }
+    if re.fullmatch(r"lambert_cc\d{2}", value):
+        return value
     return aliases.get(value, value)
 
 
@@ -273,6 +413,13 @@ def find_coordinate_candidates(text: str, max_results: int = 20) -> List[Canonic
         ("qth", _QTH_RE),
         ("slippy", _SLIPPY_RE),
         ("nac", _NAC_RE),
+        ("xyz", _XYZ_RE),
+        ("dfci_grid", _DFCI_RE),
+        ("geo3x3", _GEO3X3_RE),
+        ("makaney", _MAKANEY_RE),
+        ("s2cell", _S2CELL_RE),
+        ("reverse_wherigo", _REVERSE_WHERIGO_RE),
+        ("reverse_wherigo_day1976", _DAY1976_RE),
         ("geohash", _GEOHASH_RE),
         ("geohash", _GEOHASH_UPPER_RE),
     ]
@@ -310,12 +457,26 @@ def _candidate_formats(text: str) -> List[str]:
         candidates.append("mapcode")
     if re.fullmatch(r"\d{3}[A-HJ-NP-Z]{2}[1-4]?[1-9]?", upper):
         candidates.append("gars")
-    if re.fullmatch(r"[A-R]{2}\d{2}([A-X]{2})?", upper):
+    if re.fullmatch(r"[A-R]{2}\d{2}([A-X]{2}(\d{2}([A-X]{2})?)?)?", upper):
         candidates.append("qth")
     if re.fullmatch(r"\d{1,2}[/,;:\s]+\d+[/,;:\s]+\d+", upper):
         candidates.append("slippy")
     if re.fullmatch(rf"[{NAC_ALPHABET}\s]{{8,25}}", upper) and any(char in upper for char in "BCDFGHJKLMNPQRSTUVWXYZ"):
         candidates.append("nac")
+    if re.search(r"\bX\s*:.*\bY\s*:.*\bZ\s*:", upper):
+        candidates.append("xyz")
+    if re.fullmatch(r"[A-HK-N][B-HK-N]([02468][02468]([A-HK-L]\d(\.[1-5])?)?)?", upper):
+        candidates.append("dfci_grid")
+    if re.fullmatch(r"[EW][1-9]+", upper):
+        candidates.append("geo3x3")
+    if re.fullmatch(r"-?[A-Z0-9]{1,5}[+-][A-Z0-9]{1,6}", upper):
+        candidates.append("makaney")
+    if re.fullmatch(r"[0-5][0-9A-F]{8,16}", upper):
+        candidates.append("s2cell")
+    if re.fullmatch(r"\d{6}\s*[,; ]\s*\d{6}\s*[,; ]\s*\d{6}", upper):
+        candidates.append("reverse_wherigo")
+    if re.fullmatch(r"[0-9A-Z]{5}\s*[,; ]\s*[0-9A-Z]{5}", upper):
+        candidates.append("reverse_wherigo_day1976")
     if re.fullmatch(r"[0123456789BCDEFGHJKMNPQRSTUVWXYZ]{5,12}", upper):
         candidates.append("geohash")
     if re.search(r"[NS].*[EW]|[EW].*[NS]", upper):
@@ -527,15 +688,53 @@ def parse_special_text(input_text: str, source_format: str) -> CanonicalCoordina
     if fmt == "nac":
         lat, lon, bbox = decode_nac(text)
         return CanonicalCoordinate(lat, lon, fmt, raw=input_text, formatted=text.upper(), bbox=bbox)
+    if fmt == "xyz":
+        lat, lon, metadata = decode_xyz(text)
+        return CanonicalCoordinate(lat, lon, fmt, raw=input_text, formatted=text, precision=metadata)
     if fmt == "rd":
         lat, lon = transform_xy_to_wgs84(text, "EPSG:28992", "RD/NAP")
         return CanonicalCoordinate(lat, lon, fmt, raw=input_text, formatted=text)
-    if fmt == "lambert_93":
-        lat, lon = transform_xy_to_wgs84(text, "EPSG:2154", "Lambert 93")
+    if fmt == "swissgrid":
+        lat, lon = transform_xy_to_wgs84(text, "EPSG:21781", "SwissGrid CH1903/LV03")
         return CanonicalCoordinate(lat, lon, fmt, raw=input_text, formatted=text)
-    if fmt == "lambert_72":
-        lat, lon = transform_xy_to_wgs84(text, "EPSG:31370", "Belgian Lambert 72")
+    if fmt == "swissgrid_plus":
+        lat, lon = transform_xy_to_wgs84(text, "EPSG:2056", "SwissGrid CH1903+/LV95")
         return CanonicalCoordinate(lat, lon, fmt, raw=input_text, formatted=text)
+    if fmt in GAUSS_KRUGER_CRS:
+        crs, feature = GAUSS_KRUGER_CRS[fmt]
+        lat, lon = transform_xy_to_wgs84(text, crs, feature)
+        return CanonicalCoordinate(lat, lon, fmt, raw=input_text, formatted=text)
+    if fmt in LAMBERT_CRS:
+        crs, feature = LAMBERT_CRS[fmt]
+        lat, lon = transform_xy_to_wgs84(text, crs, feature)
+        return CanonicalCoordinate(lat, lon, fmt, raw=input_text, formatted=text)
+    if fmt == "geo3x3":
+        lat, lon, metadata = decode_geo3x3(text)
+        return CanonicalCoordinate(lat, lon, fmt, raw=input_text, formatted=text.upper(), precision=metadata, bbox=metadata.get("bbox"))
+    if fmt == "makaney":
+        lat, lon = decode_makaney(text)
+        return CanonicalCoordinate(lat, lon, fmt, raw=input_text, formatted=text.upper())
+    if fmt == "bosch":
+        lat, lon, metadata = decode_bosch(text)
+        return CanonicalCoordinate(lat, lon, fmt, raw=input_text, formatted=text.upper(), precision=metadata, bbox=metadata.get("bbox"))
+    if fmt == "geohex":
+        lat, lon, metadata = decode_geohex(text)
+        return CanonicalCoordinate(lat, lon, fmt, raw=input_text, formatted=metadata.get("code", text), precision=metadata)
+    if fmt == "dfci_grid":
+        lat, lon, metadata = decode_dfci(text)
+        return CanonicalCoordinate(lat, lon, fmt, raw=input_text, formatted=text.upper(), precision=metadata)
+    if fmt == "s2cell":
+        lat, lon, metadata = decode_s2cell(text)
+        return CanonicalCoordinate(lat, lon, fmt, raw=input_text, formatted=text.lower(), precision=metadata)
+    if fmt == "reverse_wherigo":
+        lat, lon = decode_reverse_wherigo_waldmeister(text)
+        return CanonicalCoordinate(lat, lon, fmt, raw=input_text, formatted=text)
+    if fmt == "reverse_wherigo_10y":
+        lat, lon = decode_reverse_wherigo_10y(text)
+        return CanonicalCoordinate(lat, lon, fmt, raw=input_text, formatted=text)
+    if fmt == "reverse_wherigo_day1976":
+        lat, lon = decode_reverse_wherigo_day1976(text)
+        return CanonicalCoordinate(lat, lon, fmt, raw=input_text, formatted=text.lower())
     raise CoordinateConversionError(f"Format confidentiel non supportÃ©: {source_format}")
 
 
@@ -590,6 +789,35 @@ def build_special_formats(latitude: float, longitude: float, precision: int = 10
         "rd": transform_wgs84_to_xy(latitude, longitude, "EPSG:28992", "RD/NAP"),
         "lambert_93": transform_wgs84_to_xy(latitude, longitude, "EPSG:2154", "Lambert 93"),
         "lambert_72": transform_wgs84_to_xy(latitude, longitude, "EPSG:31370", "Belgian Lambert 72"),
+        "lambert_2008": transform_wgs84_to_xy(latitude, longitude, "EPSG:3812", "Belgian Lambert 2008"),
+        "etrs89_lcc": transform_wgs84_to_xy(latitude, longitude, "EPSG:3034", "ETRS89 LCC"),
+        "lambert_cc42": transform_wgs84_to_xy(latitude, longitude, "EPSG:3942", "Lambert CC42"),
+        "lambert_cc43": transform_wgs84_to_xy(latitude, longitude, "EPSG:3943", "Lambert CC43"),
+        "lambert_cc44": transform_wgs84_to_xy(latitude, longitude, "EPSG:3944", "Lambert CC44"),
+        "lambert_cc45": transform_wgs84_to_xy(latitude, longitude, "EPSG:3945", "Lambert CC45"),
+        "lambert_cc46": transform_wgs84_to_xy(latitude, longitude, "EPSG:3946", "Lambert CC46"),
+        "lambert_cc47": transform_wgs84_to_xy(latitude, longitude, "EPSG:3947", "Lambert CC47"),
+        "lambert_cc48": transform_wgs84_to_xy(latitude, longitude, "EPSG:3948", "Lambert CC48"),
+        "lambert_cc49": transform_wgs84_to_xy(latitude, longitude, "EPSG:3949", "Lambert CC49"),
+        "lambert_cc50": transform_wgs84_to_xy(latitude, longitude, "EPSG:3950", "Lambert CC50"),
+        "lambert_ntf": transform_wgs84_to_xy(latitude, longitude, "EPSG:27572", "Lambert NTF II"),
+        "xyz": encode_xyz(latitude, longitude),
+        "swissgrid": encode_xy_labelled(latitude, longitude, "EPSG:21781", "SwissGrid CH1903/LV03", "Y", "X"),
+        "swissgrid_plus": encode_xy_labelled(latitude, longitude, "EPSG:2056", "SwissGrid CH1903+/LV95", "Y", "X"),
+        "gauss_kruger": encode_xy_labelled(latitude, longitude, "EPSG:31467", "Gauss-Kruger zone 3", "R", "H"),
+        "gauss_kruger_2": encode_xy_labelled(latitude, longitude, "EPSG:31466", "Gauss-Kruger zone 2", "R", "H"),
+        "gauss_kruger_3": encode_xy_labelled(latitude, longitude, "EPSG:31467", "Gauss-Kruger zone 3", "R", "H"),
+        "gauss_kruger_4": encode_xy_labelled(latitude, longitude, "EPSG:31468", "Gauss-Kruger zone 4", "R", "H"),
+        "gauss_kruger_5": encode_xy_labelled(latitude, longitude, "EPSG:31469", "Gauss-Kruger zone 5", "R", "H"),
+        "geo3x3": encode_geo3x3(latitude, longitude, max(1, min(20, precision))),
+        "makaney": encode_makaney(latitude, longitude),
+        "bosch": encode_bosch(latitude, longitude, 15),
+        "geohex": encode_geohex(latitude, longitude, max(0, min(35, precision))),
+        "dfci_grid": encode_dfci(latitude, longitude, 3),
+        "s2cell": encode_s2cell(latitude, longitude, 30),
+        "reverse_wherigo": encode_reverse_wherigo_waldmeister(latitude, longitude),
+        "reverse_wherigo_10y": encode_reverse_wherigo_10y(latitude, longitude),
+        "reverse_wherigo_day1976": encode_reverse_wherigo_day1976(latitude, longitude),
     }
 
 

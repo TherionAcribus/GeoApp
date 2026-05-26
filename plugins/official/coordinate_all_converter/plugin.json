@@ -6,7 +6,7 @@
   "author": "MysterAI Team",
   "plugin_type": "python",
   "entry_point": "main.py",
-  "dependencies": ["pygeodesy", "openlocationcode", "mapcode", "pyproj"],
+  "dependencies": ["pygeodesy", "openlocationcode", "mapcode", "pyproj", "s2sphere"],
   "categories": ["Coordinates", "Conversion", "Codes"],
   "kinds": ["geo", "calculator"],
   "brute_force": false,
@@ -35,13 +35,13 @@
     "source_format": {
       "type": "select",
       "label": "Format source",
-      "options": ["auto", "dd", "ddm", "dms", "utm", "mgrs", "osgb", "web_mercator", "geohash", "plus_code", "mapcode", "gars", "qth", "slippy", "quadkey", "nac", "rd", "lambert_93", "lambert_72"],
+      "options": ["auto", "dd", "ddm", "dms", "utm", "mgrs", "osgb", "web_mercator", "geohash", "plus_code", "mapcode", "gars", "qth", "slippy", "quadkey", "nac", "rd", "lambert_93", "lambert_72", "lambert_2008", "etrs89_lcc", "lambert_ntf", "xyz", "swissgrid", "swissgrid_plus", "gauss_kruger", "geo3x3", "makaney", "bosch", "geohex", "dfci_grid", "s2cell", "reverse_wherigo", "reverse_wherigo_10y", "reverse_wherigo_day1976"],
       "default": "auto"
     },
     "target_format": {
       "type": "select",
       "label": "Format cible",
-      "options": ["all", "geocaching", "dd", "ddm", "dms", "utm", "mgrs", "osgb", "web_mercator", "geohash", "plus_code", "mapcode", "gars", "qth", "slippy", "quadkey", "nac", "rd", "lambert_93", "lambert_72"],
+      "options": ["all", "geocaching", "dd", "ddm", "dms", "utm", "mgrs", "osgb", "web_mercator", "geohash", "plus_code", "mapcode", "gars", "qth", "slippy", "quadkey", "nac", "rd", "lambert_93", "lambert_72", "lambert_2008", "etrs89_lcc", "lambert_ntf", "xyz", "swissgrid", "swissgrid_plus", "gauss_kruger", "geo3x3", "makaney", "bosch", "geohex", "dfci_grid", "s2cell", "reverse_wherigo", "reverse_wherigo_10y", "reverse_wherigo_day1976"],
       "default": "all"
     },
     "precision": {
