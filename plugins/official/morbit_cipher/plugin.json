@@ -1,0 +1,105 @@
+{
+  "name": "morbit_cipher",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Chiffre Morbit : Morse international puis substitution numerique par paires avec une cle de 9 positions.",
+  "author": "MysterAI Team",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": ["SymbolsDecryption", "Substitution"],
+  "kinds": ["code"],
+  "brute_force": false,
+  "enable_scoring": true,
+  "accept_accents": false,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "text": {
+      "type": "textarea",
+      "label": "Texte a traiter",
+      "placeholder": "Texte clair ou chiffres Morbit...",
+      "required": true
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": ["decode", "encode", "detect"],
+      "default": "decode",
+      "required": true
+    },
+    "key": {
+      "type": "string",
+      "label": "Cle Morbit",
+      "placeholder": "Ex: SECRETKEY ou 721638549",
+      "required": false,
+      "description": "mot clé de neuf lettres, ou permutation des chiffres 1-9. Requis pour encoder/decoder."
+    },
+    "strict": {
+      "type": "select",
+      "label": "Mode strict",
+      "options": ["strict", "smooth"],
+      "default": "smooth"
+    },
+    "embedded": {
+      "type": "boolean",
+      "label": "Code integre dans un texte",
+      "default": false
+    },
+    "allowed_chars": {
+      "type": "string",
+      "label": "Separateurs autorises",
+      "placeholder": "Ex: espace, tabulation, retour ligne",
+      "default": " \t\r\n"
+    },
+    "group_output": {
+      "type": "boolean",
+      "label": "Grouper la sortie par 5",
+      "default": true
+    },
+    "enable_scoring": {
+      "type": "boolean",
+      "label": "Scoring (legacy)",
+      "default": true,
+      "hidden": true
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Resultat"
+    }
+  },
+  "text_handling": {
+    "fields": ["text", "key"],
+    "allowed_ranges": ["0031-0039", "0041-005A"],
+    "allowed_characters": " \t\r\n",
+    "unknown_char_policy": "warn_keep",
+    "normalize": {
+      "remove_diacritics": true,
+      "case": "upper",
+      "map_characters": {}
+    }
+  },
+  "metasolver": {
+    "eligible": true,
+    "input_charset": "digits",
+    "tags": ["classic", "substitution"],
+    "priority": 45,
+    "family": "morse_cipher",
+    "preferred_when": ["digits_only", "grouped_input"],
+    "requires_key": true,
+    "supports_grouped_input": true
+  }
+}
