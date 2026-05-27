@@ -92,150 +92,214 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
     const archiveLabel = getArchiveLabel(archiveStatus);
     const archiveIcon = getArchiveIcon(archiveStatus);
 
+    const [isAnalyzeMenuOpen, setIsAnalyzeMenuOpen] = React.useState(false);
+    const analyzeMenuRef = React.useRef<HTMLDivElement>(null);
+
+    React.useEffect(() => {
+        if (!isAnalyzeMenuOpen) { return; }
+        const handleClickOutside = (event: MouseEvent): void => {
+            if (analyzeMenuRef.current && !analyzeMenuRef.current.contains(event.target as Node)) {
+                setIsAnalyzeMenuOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => { document.removeEventListener('mousedown', handleClickOutside); };
+    }, [isAnalyzeMenuOpen]);
+
+    const analyzeActions: { label: string; icon: string; title: string; action: () => void; disabled?: boolean }[] = [
+        { label: 'Resoudre formules', icon: '🧮', title: 'Ouvrir le Formula Solver', action: () => { void onSolveFormula(); } },
+        { label: 'Analyse page', icon: '📄', title: 'Lancer l\'analyse complete de la page', action: () => { void onAnalyzePage(); } },
+        { label: 'Analyse code', icon: '🔍', title: 'Analyser le texte avec Metasolver', action: () => { void onAnalyzeCode(); } },
+        { label: 'Analyse plugins', icon: '🧩', title: 'Analyser cette geocache avec les plugins', action: () => { void onAnalyzeWithPlugins(); } },
+        ...extraActions.map(action => ({
+            label: action.label,
+            icon: '⚡',
+            title: action.title || action.label,
+            action: () => { void action.execute({ geocacheData }); },
+            disabled: action.isEnabled ? !action.isEnabled({ geocacheData }) : false,
+        })),
+    ];
+
+    const toolbarBtnStyle: React.CSSProperties = { fontSize: 12, padding: '4px 10px', whiteSpace: 'nowrap' };
+    const pillBtnStyle: React.CSSProperties = { ...toolbarBtnStyle, borderRadius: 0, border: '1px solid var(--theia-panel-border)', marginLeft: -1 };
+    const pillFirstStyle: React.CSSProperties = { ...pillBtnStyle, borderTopLeftRadius: 4, borderBottomLeftRadius: 4, marginLeft: 0 };
+    const pillLastStyle: React.CSSProperties = { ...pillBtnStyle, borderTopRightRadius: 4, borderBottomRightRadius: 4 };
+
     return (
         <div style={{ marginBottom: 8 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                <h3 style={{ margin: 0 }}>{geocacheData.name}</h3>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                        <button
+                <h3 style={{ margin: 0, flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{geocacheData.name}</h3>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                {/* Analyze dropdown */}
+                <div ref={analyzeMenuRef} style={{ position: 'relative' }}>
+                    <button
                         className='theia-button secondary'
-                        onClick={() => { void onSolveFormula(); }}
-                        style={{ fontSize: 12, padding: '4px 12px' }}
-                        title='Ouvrir le Formula Solver'
+                        onClick={() => setIsAnalyzeMenuOpen(!isAnalyzeMenuOpen)}
+                        style={{ ...toolbarBtnStyle, display: 'flex', alignItems: 'center', gap: 4 }}
+                        title={"Outils d'analyse"}
                     >
-                        Resoudre formules
+                        <span>🔬</span>
+                        <span>Analyser</span>
+                        <span style={{ fontSize: 10, marginLeft: 2 }}>▾</span>
+                    </button>
+                    {isAnalyzeMenuOpen && (
+                        <div
+                            style={{
+                                position: 'absolute',
+                                top: '100%',
+                                left: 0,
+                                marginTop: 4,
+                                minWidth: 200,
+                                background: 'var(--theia-menu-background)',
+                                border: '1px solid var(--theia-menu-border)',
+                                borderRadius: 4,
+                                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+                                zIndex: 100,
+                                padding: '4px 0',
+                            }}
+                        >
+                            {analyzeActions.map((item, index) => (
+                                <div
+                                    key={index}
+                                    onClick={() => { if (!item.disabled) { item.action(); setIsAnalyzeMenuOpen(false); } }}
+                                    title={item.title}
+                                    style={{
+                                        padding: '7px 12px',
+                                        cursor: item.disabled ? 'not-allowed' : 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 8,
+                                        fontSize: 12,
+                                        color: 'var(--theia-menu-foreground)',
+                                        opacity: item.disabled ? 0.5 : 1,
+                                    }}
+                                    onMouseEnter={(e) => { if (!item.disabled) { (e.currentTarget as HTMLElement).style.background = 'var(--theia-menu-selectionBackground)'; } }}
+                                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                                >
+                                    <span>{item.icon}</span>
+                                    <span>{item.label}</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                {/* Separator */}
+                <div style={{ width: 1, height: 20, background: 'var(--theia-panel-border)', margin: '0 2px' }} />
+
+                {/* Chat IA split button */}
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'stretch' }}>
+                    <button
+                        className='theia-button'
+                        onClick={() => { void onOpenAiChat(); }}
+                        style={{ ...toolbarBtnStyle, borderTopRightRadius: 0, borderBottomRightRadius: 0 }}
+                        title={`Ouvrir un chat IA dedie a cette geocache${isChatRoutingPreviewLoading ? ' (analyse du profil en cours)' : ` - profil effectif ${effectiveChatProfile}, workflow ${chatWorkflowPreview}, selection ${chatProfileOverrideLabel}`}`}
+                    >
+                        {`💬 Chat IA [${isChatRoutingPreviewLoading ? '...' : effectiveChatProfile}]`}
                     </button>
                     <button
                         className='theia-button secondary'
-                        onClick={() => { void onAnalyzePage(); }}
-                        style={{ fontSize: 12, padding: '4px 12px' }}
-                        title='Lancer l analyse complete de la page'
+                        onClick={onToggleChatProfileMenu}
+                        style={{ ...toolbarBtnStyle, padding: '4px 6px', borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }}
+                        title={`Choisir le profil de chat IA (actuel: ${chatProfileOverrideLabel})`}
                     >
-                        Analyse page
+                        ▾
+                    </button>
+                    {isChatProfileMenuOpen ? (
+                        <div
+                            style={{
+                                position: 'absolute',
+                                top: '100%',
+                                right: 0,
+                                marginTop: 4,
+                                minWidth: 150,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                background: 'var(--theia-menu-background)',
+                                border: '1px solid var(--theia-menu-border)',
+                                borderRadius: 4,
+                                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+                                zIndex: 100,
+                                padding: '4px 0',
+                            }}
+                        >
+                            {chatProfileOptions.map(option => {
+                                const isSelected = chatProfileOverride === option.value;
+                                const autoSuffix = option.value === 'default' ? ` → ${chatProfilePreview}` : '';
+                                return (
+                                    <div
+                                        key={option.value}
+                                        onClick={() => onSelectChatProfileOverride(option.value)}
+                                        style={{
+                                            fontSize: 12,
+                                            padding: '7px 12px',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 6,
+                                            background: isSelected ? 'var(--theia-list-activeSelectionBackground)' : 'transparent',
+                                            color: isSelected ? 'var(--theia-list-activeSelectionForeground)' : 'var(--theia-menu-foreground)',
+                                        }}
+                                        title={option.value === 'default'
+                                            ? `Utiliser le profil determine automatiquement par le workflow (${chatProfilePreview})`
+                                            : `Forcer le profil ${option.label}`}
+                                        onMouseEnter={(e) => {
+                                            if (!isSelected) { (e.currentTarget as HTMLElement).style.background = 'var(--theia-menu-selectionBackground)'; }
+                                        }}
+                                        onMouseLeave={(e) => {
+                                            if (!isSelected) { (e.currentTarget as HTMLElement).style.background = 'transparent'; }
+                                        }}
+                                    >
+                                        <span style={{ width: 12, textAlign: 'center' }}>{isSelected ? '●' : ''}</span>
+                                        <span>{`${option.label}${autoSuffix}`}</span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    ) : undefined}
+                </div>
+
+                {/* Chat Libre */}
+                <button
+                    className='theia-button secondary'
+                    onClick={() => { void onOpenFreeChat(); }}
+                    style={toolbarBtnStyle}
+                    title='Ouvrir un chat libre lie a cette geocache (message modifiable avant envoi, possibilite d ajouter des images)'
+                >
+                    ✏️ Chat Libre
+                </button>
+
+                {/* Separator */}
+                <div style={{ width: 1, height: 20, background: 'var(--theia-panel-border)', margin: '0 2px' }} />
+
+                {/* Pill group: Logs / Loguer / Notes */}
+                <div style={{ display: 'flex', alignItems: 'stretch' }}>
+                    <button
+                        className='theia-button secondary'
+                        onClick={onOpenLogs}
+                        style={pillFirstStyle}
+                        title='Voir les logs de cette geocache'
+                    >
+                        📋 Logs
                     </button>
                     <button
                         className='theia-button secondary'
-                        onClick={() => { void onAnalyzeCode(); }}
-                        style={{ fontSize: 12, padding: '4px 12px' }}
-                        title='Analyser le texte avec Metasolver'
+                        onClick={onOpenLogEditor}
+                        style={pillBtnStyle}
+                        title='Loguer cette geocache'
                     >
-                        Analyse code
+                        ✍️ Loguer
                     </button>
                     <button
                         className='theia-button secondary'
-                        onClick={() => { void onAnalyzeWithPlugins(); }}
-                        style={{ fontSize: 12, padding: '4px 12px' }}
-                        title='Analyser cette geocache avec les plugins'
+                        onClick={onOpenNotes}
+                        style={pillLastStyle}
+                        title='Voir les notes de cette geocache'
                     >
-                        Analyse plugins
+                        {`📝 Notes${typeof notesCount === 'number' && notesCount > 0 ? ` (${notesCount})` : ''}`}
                     </button>
-                    {extraActions.map(action => (
-                        <button
-                            key={action.id}
-                            className={action.className || 'theia-button secondary'}
-                            onClick={() => { void action.execute({ geocacheData }); }}
-                            disabled={action.isEnabled ? !action.isEnabled({ geocacheData }) : false}
-                            style={{ fontSize: 12, padding: '4px 12px' }}
-                            title={action.title}
-                        >
-                            {action.label}
-                        </button>
-                    ))}
-                    <button
-                        className='theia-button secondary'
-                        onClick={() => { void onOpenFreeChat(); }}
-                        style={{ fontSize: 12, padding: '4px 12px' }}
-                        title='Ouvrir un chat libre lie a cette geocache (message modifiable avant envoi, possibilite d ajouter des images)'
-                    >
-                        Chat Libre
-                    </button>
-                    <div style={{ position: 'relative', display: 'flex', alignItems: 'stretch' }}>
-                        <button
-                            className='theia-button'
-                            onClick={() => { void onOpenAiChat(); }}
-                            style={{ fontSize: 12, padding: '4px 12px', borderTopRightRadius: 0, borderBottomRightRadius: 0 }}
-                            title={`Ouvrir un chat IA dedie a cette geocache${isChatRoutingPreviewLoading ? ' (analyse du profil en cours)' : ` - profil effectif ${effectiveChatProfile}, workflow ${chatWorkflowPreview}, selection ${chatProfileOverrideLabel}`}`}
-                        >
-                            {`Chat IA [${isChatRoutingPreviewLoading ? '...' : effectiveChatProfile}]`}
-                        </button>
-                        <button
-                            className='theia-button secondary'
-                            onClick={onToggleChatProfileMenu}
-                            style={{ fontSize: 12, padding: '4px 8px', borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }}
-                            title={`Choisir le profil de chat IA (actuel: ${chatProfileOverrideLabel})`}
-                        >
-                            v
-                        </button>
-                        {isChatProfileMenuOpen ? (
-                            <div
-                                style={{
-                                    position: 'absolute',
-                                    top: '100%',
-                                    right: 0,
-                                    marginTop: 4,
-                                    minWidth: 150,
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    background: 'var(--theia-editorWidget-background)',
-                                    border: '1px solid var(--theia-panel-border)',
-                                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.25)',
-                                    zIndex: 20,
-                                }}
-                            >
-                                {chatProfileOptions.map(option => {
-                                    const isSelected = chatProfileOverride === option.value;
-                                    const autoSuffix = option.value === 'default' ? ` -> ${chatProfilePreview}` : '';
-                                    return (
-                                        <button
-                                            key={option.value}
-                                            className='theia-button secondary'
-                                            onClick={() => onSelectChatProfileOverride(option.value)}
-                                            style={{
-                                                fontSize: 12,
-                                                padding: '6px 10px',
-                                                textAlign: 'left',
-                                                border: 0,
-                                                borderRadius: 0,
-                                                background: isSelected ? 'var(--theia-list-activeSelectionBackground)' : 'transparent',
-                                                color: isSelected ? 'var(--theia-list-activeSelectionForeground)' : 'inherit',
-                                            }}
-                                            title={option.value === 'default'
-                                                ? `Utiliser le profil determine automatiquement par le workflow (${chatProfilePreview})`
-                                                : `Forcer le profil ${option.label}`}
-                                        >
-                                            {`${isSelected ? '* ' : ''}${option.label}${autoSuffix}`}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        ) : undefined}
-                    </div>
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        <button
-                            className='theia-button secondary'
-                            onClick={onOpenLogs}
-                            style={{ fontSize: 12, padding: '4px 12px' }}
-                            title='Voir les logs de cette geocache'
-                        >
-                            Logs
-                        </button>
-                        <button
-                            className='theia-button secondary'
-                            onClick={onOpenLogEditor}
-                            style={{ fontSize: 12, padding: '4px 12px' }}
-                            title='Loguer cette geocache'
-                        >
-                            Loguer
-                        </button>
-                        <button
-                            className='theia-button secondary'
-                            onClick={onOpenNotes}
-                            style={{ fontSize: 12, padding: '4px 12px' }}
-                            title='Voir les notes de cette geocache'
-                        >
-                            {`Notes${typeof notesCount === 'number' && notesCount > 0 ? ` (${notesCount})` : ''}`}
-                        </button>
-                    </div>
                 </div>
             </div>
 
