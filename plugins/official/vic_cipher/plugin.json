@@ -1,0 +1,162 @@
+{
+  "name": "vic_cipher",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Chiffre VIC : mode simple type dCode/CacheSleuth (checkerboard + cle numerique) et mode historique optionnel.",
+  "author": "MysterAI Team",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": ["Substitution", "Transposition", "Military"],
+  "kinds": ["code"],
+  "brute_force": false,
+  "enable_scoring": true,
+  "accept_accents": false,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "text": {
+      "type": "textarea",
+      "label": "Texte a traiter",
+      "placeholder": "Texte clair ou groupes de chiffres VIC...",
+      "required": true
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": ["decode", "encode", "detect"],
+      "default": "decode",
+      "required": true
+    },
+    "cipher_variant": {
+      "type": "select",
+      "label": "Variante",
+      "options": ["simple", "historic_schedule"],
+      "default": "simple",
+      "description": "simple = grille VIC + cle numerique optionnelle; historic_schedule = generation de cles VIC type Wikipedia."
+    },
+    "alphabet_key": {
+      "type": "string",
+      "label": "Cle alphabet",
+      "placeholder": "Mot-cle, phrase ou alphabet personnalise",
+      "default": ""
+    },
+    "alphabet_order": {
+      "type": "string",
+      "label": "Alphabet complet",
+      "placeholder": "28 caracteres uniques A-Z plus . et /",
+      "default": ""
+    },
+    "spare_positions": {
+      "type": "string",
+      "label": "Positions libres",
+      "placeholder": "Ex: 26",
+      "default": "26"
+    },
+    "numeric_key": {
+      "type": "string",
+      "label": "Cle numerique",
+      "placeholder": "Optionnel, ex: 0248",
+      "default": ""
+    },
+    "output_format": {
+      "type": "select",
+      "label": "Format de sortie",
+      "options": ["digits", "letters"],
+      "default": "digits"
+    },
+    "phrase": {
+      "type": "string",
+      "label": "Phrase secrete",
+      "placeholder": "Au moins 20 lettres, ex: Twas the night before Christmas",
+      "required": false
+    },
+    "date": {
+      "type": "string",
+      "label": "Date secrete",
+      "placeholder": "Au moins 6 chiffres, ex: 139195",
+      "required": false
+    },
+    "keygroup": {
+      "type": "string",
+      "label": "Keygroup",
+      "placeholder": "5 chiffres, ex: 72401",
+      "required": false
+    },
+    "personal_number": {
+      "type": "number",
+      "label": "Numero personnel",
+      "min": 0,
+      "max": 99,
+      "step": 1,
+      "default": 6
+    },
+    "checkerboard_mnemonic": {
+      "type": "string",
+      "label": "Mnemonic checkerboard",
+      "placeholder": "10 caracteres dont 2 espaces",
+      "default": "AT ONE SIR"
+    },
+    "transposition_mode": {
+      "type": "select",
+      "label": "Mode de transposition",
+      "options": ["double", "checkerboard_only"],
+      "default": "double",
+      "description": "Utilise seulement avec la variante historic_schedule."
+    },
+    "insert_keygroup": {
+      "type": "boolean",
+      "label": "Inserer/retirer le keygroup",
+      "default": true
+    },
+    "group_output": {
+      "type": "boolean",
+      "label": "Grouper la sortie par 5",
+      "default": true
+    },
+    "enable_scoring": {
+      "type": "boolean",
+      "label": "Scoring (legacy)",
+      "default": true,
+      "hidden": true
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Resultat"
+    }
+  },
+  "text_handling": {
+    "fields": ["text", "phrase", "checkerboard_mnemonic", "alphabet_key", "alphabet_order"],
+    "allowed_ranges": ["0030-0039", "0041-005A"],
+    "allowed_characters": " .,/\\t\\r\\n",
+    "unknown_char_policy": "warn_keep",
+    "normalize": {
+      "remove_diacritics": true,
+      "case": "upper",
+      "map_characters": {}
+    }
+  },
+  "metasolver": {
+    "eligible": true,
+    "input_charset": "digits",
+    "tags": ["classic", "substitution", "transposition"],
+    "priority": 25,
+    "family": "vic",
+    "preferred_when": ["digits_only", "grouped_input"],
+    "requires_key": true,
+    "supports_grouped_input": true
+  }
+}
