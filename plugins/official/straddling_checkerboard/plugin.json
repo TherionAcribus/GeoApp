@@ -1,0 +1,141 @@
+{
+  "name": "straddling_checkerboard",
+  "version": "1.0.1",
+  "plugin_api_version": "2.0",
+  "description": "Chiffre Straddling Checkerboard : encode un texte en chiffres avec une grille 0-9 a deux lignes decalees; decode des groupes de chiffres vers du texte.",
+  "author": "MysterAI Team",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": ["ClassicCiphers", "Substitution", "Numeral"],
+  "kinds": ["code", "calculator"],
+  "brute_force": false,
+  "enable_scoring": true,
+  "accept_accents": true,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "text": {
+      "type": "textarea",
+      "label": "Entree",
+      "placeholder": "Encodage: ATTACK AT DAWN | Decodage: 3113212731223655",
+      "required": true,
+      "description": "En mode encode, saisir le texte clair. En mode decode, saisir uniquement les chiffres du message, espaces autorises."
+    },
+    "mode": {
+      "type": "select",
+      "label": "Action",
+      "options": ["decode", "encode", "detect"],
+      "default": "decode",
+      "required": true,
+      "description": "encode = texte vers chiffres; decode = chiffres vers texte; detect = estime si l'entree ressemble a ce code."
+    },
+    "headers": {
+      "type": "string",
+      "label": "Ligne des chiffres",
+      "placeholder": "0123456789",
+      "default": "0123456789",
+      "description": "Les 10 colonnes de la grille. Laisser 0123456789 pour l'exemple standard, ou saisir une permutation comme 9012345678."
+    },
+    "top_row": {
+      "type": "string",
+      "label": "Premiere ligne de la grille",
+      "placeholder": "ET AON RIS",
+      "default": "ET AON RIS",
+      "description": "Exactement 10 positions. Les 2 espaces marquent les colonnes qui deviennent les lignes a deux chiffres. Exemple standard: ET AON RIS."
+    },
+    "alphabet_key": {
+      "type": "string",
+      "label": "Cle alphabetique optionnelle",
+      "placeholder": "Ex: SECRET ou MYSTERY",
+      "default": "",
+      "description": "Optionnel. Si renseigne, place d'abord les lettres uniques de la cle dans les deux lignes inferieures, puis complete l'alphabet."
+    },
+    "fill_order": {
+      "type": "string",
+      "label": "Remplissage complet optionnel",
+      "placeholder": "Ex: BCDFGHJKLMPQ/UVWXYZ.",
+      "default": "",
+      "description": "Avance. Permet d'imposer directement les 20 symboles des deux lignes inferieures. Laisser vide dans la plupart des cas."
+    },
+    "numeric_mode": {
+      "type": "select",
+      "label": "Traitement des chiffres dans le texte clair",
+      "options": ["single_escape", "triple_escape", "skip"],
+      "default": "single_escape",
+      "description": "single_escape encode un chiffre avec le symbole / puis le chiffre; triple_escape utilise le mode VIC; skip ignore les chiffres."
+    },
+    "numeric_key": {
+      "type": "string",
+      "label": "Cle numerique modulo 10 optionnelle",
+      "placeholder": "Ex: 0452",
+      "default": "",
+      "description": "Optionnel. Ajoute la cle repetee aux chiffres en encodage, et la soustrait en decodage. Laisser vide s'il n'y a pas de surchiffrement."
+    },
+    "output_format": {
+      "type": "select",
+      "label": "Format de sortie",
+      "options": ["digits", "letters"],
+      "default": "digits",
+      "description": "digits sort les chiffres de la grille. letters reconvertit ces chiffres en lettres avec la meme grille, utile pour certaines variantes."
+    },
+    "group_output": {
+      "type": "boolean",
+      "label": "Grouper la sortie chiffree",
+      "default": false,
+      "description": "Ajoute des espaces dans la sortie numerique pour faciliter la lecture."
+    },
+    "group_size": {
+      "type": "number",
+      "label": "Taille des groupes",
+      "default": 5,
+      "min": 1,
+      "max": 20,
+      "step": 1,
+      "description": "Nombre de chiffres par groupe si le groupement est active."
+    },
+    "enable_scoring": {
+      "type": "boolean",
+      "label": "Scoring (legacy)",
+      "default": true,
+      "hidden": true
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Resultat"
+    }
+  },
+  "text_handling": {
+    "fields": ["text", "top_row", "alphabet_key", "fill_order"],
+    "allowed_ranges": ["0030-0039", "0041-005A", "0061-007A"],
+    "allowed_characters": " \t\r\n./.:;,_-'\"!?",
+    "unknown_char_policy": "warn_keep",
+    "normalize": {
+      "remove_diacritics": true,
+      "case": "upper",
+      "map_characters": {}
+    }
+  },
+  "metasolver": {
+    "eligible": true,
+    "input_charset": "digits",
+    "tags": ["classic", "substitution", "numeral"],
+    "priority": 45,
+    "family": "straddling_checkerboard",
+    "preferred_when": ["digits_only", "grouped_input"],
+    "supports_grouped_input": true
+  }
+}
