@@ -6719,7 +6719,24 @@ def execute_plugin(plugin_name: str):
                         fast_reject_threshold=0.01,
                         context={},
                     )
-                    result['results'] = ranked
+                    if ranked:
+                        result['results'] = ranked
+                    else:
+                        # Do not erase deterministic plugin output just because
+                        # the global language scorer considers it implausible.
+                        # Some ciphers need a missing/unknown key and still
+                        # must display the raw decoded candidate to the user.
+                        for item in items:
+                            item_metadata = item.get('metadata')
+                            if not isinstance(item_metadata, dict):
+                                item_metadata = {}
+                                item['metadata'] = item_metadata
+                            item_metadata['scoring_filtered'] = True
+                            item_metadata['scoring_warning'] = (
+                                "Le scoring global a juge ce resultat peu plausible; "
+                                "le resultat brut du plugin est conserve."
+                            )
+                        result['results'] = items
         except Exception as e:
             logger.warning(f"Scoring integration error for {plugin_name}: {e}")
          

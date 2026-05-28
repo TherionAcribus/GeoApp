@@ -1,0 +1,122 @@
+{
+  "name": "playfair_cipher",
+  "version": "1.0.1",
+  "plugin_api_version": "2.0",
+  "description": "Chiffre de Playfair/Wheatstone : substitution par digrammes dans une grille 5x5.",
+  "author": "MysterAI Team",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": ["AlphabetsDecryption", "Substitution", "Military"],
+  "kinds": ["code"],
+  "brute_force": false,
+  "enable_scoring": true,
+  "accept_accents": false,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "text": {
+      "type": "textarea",
+      "label": "Texte a traiter",
+      "placeholder": "Texte clair ou chiffre Playfair...",
+      "required": true
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": ["decode", "encode", "detect"],
+      "default": "decode",
+      "required": true
+    },
+    "key": {
+      "type": "string",
+      "label": "Mot-cle",
+      "placeholder": "Ex: playfair example",
+      "default": ""
+    },
+    "alphabet_mode": {
+      "type": "select",
+      "label": "Mode alphabet",
+      "options": ["I=J", "Q_OMITTED"],
+      "default": "I=J"
+    },
+    "filler": {
+      "type": "string",
+      "label": "Lettre de remplissage",
+      "placeholder": "Ex: X",
+      "default": "X"
+    },
+    "alternate_filler": {
+      "type": "string",
+      "label": "Remplissage alternatif",
+      "placeholder": "Ex: Q",
+      "default": "Q"
+    },
+    "cleanup_fillers": {
+      "type": "boolean",
+      "label": "Nettoyer les lettres de remplissage au decodage",
+      "default": true
+    },
+    "group_output": {
+      "type": "boolean",
+      "label": "Grouper la sortie par digrammes",
+      "default": true
+    },
+    "strict": {
+      "type": "select",
+      "label": "Mode strict",
+      "options": ["strict", "smooth"],
+      "default": "smooth"
+    },
+    "allowed_chars": {
+      "type": "string",
+      "label": "Caracteres de separation autorises",
+      "placeholder": "Ex: espace, ponctuation...",
+      "default": " \t\r\n.:;,_-'\"!?"
+    },
+    "enable_scoring": {
+      "type": "boolean",
+      "label": "Scoring (legacy)",
+      "default": true,
+      "hidden": true
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Resultat"
+    }
+  },
+  "text_handling": {
+    "fields": ["text", "key"],
+    "allowed_ranges": ["0041-005A"],
+    "allowed_characters": " \t\r\n.:;,_-'\"!?",
+    "unknown_char_policy": "warn_keep",
+    "normalize": {
+      "remove_diacritics": true,
+      "case": "upper",
+      "map_characters": {}
+    }
+  },
+  "metasolver": {
+    "eligible": true,
+    "input_charset": "letters",
+    "tags": ["classic", "substitution"],
+    "priority": 55,
+    "family": "digram_substitution",
+    "preferred_when": ["letters_only", "grouped_input"],
+    "requires_key": true,
+    "supports_grouped_input": true
+  }
+}
