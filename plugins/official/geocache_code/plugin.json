@@ -1,0 +1,109 @@
+{
+  "name": "geocache_code",
+  "version": "1.1.0",
+  "plugin_api_version": "2.0",
+  "description": "Conversion GeoCache-Code geocaching.com : anciens codes hexadecimaux puis base 31 officielle avec offset.",
+  "author": "MysterAI Team",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": ["Coordinates", "Conversion", "Codes", "Numeral"],
+  "kinds": ["code", "calculator", "geo"],
+  "brute_force": false,
+  "enable_scoring": false,
+  "accept_accents": false,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "text": {
+      "type": "textarea",
+      "label": "Valeur a traiter",
+      "placeholder": "Ex: GCA72DG ou 123456",
+      "required": true
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": ["decode", "encode", "detect"],
+      "default": "decode",
+      "required": true
+    },
+    "output_format": {
+      "type": "select",
+      "label": "Format de sortie",
+      "options": ["decimal", "gc_code", "base31", "both"],
+      "default": "decimal"
+    },
+    "scheme": {
+      "type": "select",
+      "label": "Schema de conversion",
+      "options": ["auto", "legacy_hex", "gc_base31", "raw_base31"],
+      "default": "auto",
+      "description": "auto = geocaching.com: hex jusqu'a GCFFFF, puis base31 officielle."
+    },
+    "include_prefix": {
+      "type": "boolean",
+      "label": "Ajouter le prefixe GC a l'encodage",
+      "default": true
+    },
+    "uppercase": {
+      "type": "boolean",
+      "label": "Sortie en majuscules",
+      "default": true
+    },
+    "strict": {
+      "type": "select",
+      "label": "Mode strict",
+      "options": ["strict", "smooth"],
+      "default": "smooth"
+    },
+    "embedded": {
+      "type": "boolean",
+      "label": "Extraire les codes GC integres",
+      "default": false
+    },
+    "enable_scoring": {
+      "type": "boolean",
+      "label": "Scoring (legacy)",
+      "default": false,
+      "hidden": true
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Resultat"
+    }
+  },
+  "text_handling": {
+    "fields": ["text"],
+    "allowed_ranges": ["0030-0039", "0041-005A", "0061-007A"],
+    "allowed_characters": " \t\r\n.:;,_-'\"!?",
+    "unknown_char_policy": "warn_keep",
+    "normalize": {
+      "remove_diacritics": true,
+      "case": "upper",
+      "map_characters": {}
+    }
+  },
+  "metasolver": {
+    "eligible": true,
+    "input_charset": "mixed",
+    "tags": ["numeral", "geo", "no_key"],
+    "priority": 50,
+    "family": "geocaching",
+    "preferred_when": ["gc_code_like", "digits_only"],
+    "supports_grouped_input": true
+  }
+}
