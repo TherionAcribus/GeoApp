@@ -1,0 +1,126 @@
+{
+  "name": "chaocipher",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Chaocipher de John F. Byrne : chiffrement polyalphabetique a deux alphabets mobiles.",
+  "author": "MysterAI Team",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": ["AlphabetsDecryption", "ClassicCiphers", "Polyalphabetic"],
+  "kinds": ["code"],
+  "brute_force": false,
+  "enable_scoring": true,
+  "accept_accents": false,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "text": {
+      "type": "textarea",
+      "label": "Texte a traiter",
+      "placeholder": "Texte clair ou chiffre Chaocipher...",
+      "required": true
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": ["decode", "encode", "detect"],
+      "default": "decode",
+      "required": true
+    },
+    "left_alphabet": {
+      "type": "string",
+      "label": "Alphabet gauche",
+      "placeholder": "Permutation des 26 lettres",
+      "default": "HXUCZVAMDSLKPEFJRIGTWOBNYQ"
+    },
+    "right_alphabet": {
+      "type": "string",
+      "label": "Alphabet droit",
+      "placeholder": "Permutation des 26 lettres",
+      "default": "PTLNBQDEOYSFAVZKGJRIHWXUMC"
+    },
+    "left_key": {
+      "type": "string",
+      "label": "Mot-cle gauche (optionnel)",
+      "placeholder": "Utilise si l'alphabet gauche est vide",
+      "default": ""
+    },
+    "right_key": {
+      "type": "string",
+      "label": "Mot-cle droit (optionnel)",
+      "placeholder": "Utilise si l'alphabet droit est vide",
+      "default": ""
+    },
+    "preserve_case": {
+      "type": "boolean",
+      "label": "Conserver la casse",
+      "default": true
+    },
+    "advance_on_nonletters": {
+      "type": "boolean",
+      "label": "Faire avancer les alphabets sur les non-lettres",
+      "default": false
+    },
+    "strict": {
+      "type": "select",
+      "label": "Mode strict",
+      "options": ["strict", "smooth"],
+      "default": "smooth"
+    },
+    "embedded": {
+      "type": "boolean",
+      "label": "Code integre dans un texte",
+      "default": false
+    },
+    "allowed_chars": {
+      "type": "string",
+      "label": "Caracteres autorises",
+      "placeholder": "Ex: espaces, ponctuation...",
+      "default": " \t\r\n.:;,_-'\"!?"
+    },
+    "enable_scoring": {
+      "type": "boolean",
+      "label": "Scoring (legacy)",
+      "default": true,
+      "hidden": true
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Resultat"
+    }
+  },
+  "text_handling": {
+    "fields": ["text", "left_alphabet", "right_alphabet", "left_key", "right_key"],
+    "allowed_ranges": ["0041-005A", "0061-007A"],
+    "allowed_characters": " \t\r\n.:;,_-'\"!?",
+    "unknown_char_policy": "warn_keep",
+    "normalize": {
+      "remove_diacritics": true,
+      "case": "preserve",
+      "map_characters": {}
+    }
+  },
+  "metasolver": {
+    "eligible": true,
+    "input_charset": "letters",
+    "tags": ["classic", "substitution", "polyalphabetic"],
+    "priority": 35,
+    "family": "dynamic_substitution",
+    "preferred_when": ["letters_only", "long_input"],
+    "requires_key": true
+  }
+}
