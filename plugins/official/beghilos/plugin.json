@@ -1,0 +1,104 @@
+{
+  "name": "beghilos",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Ecriture calculette BEGHILOS/BEGHILOSZ : chiffres lus a l'envers sur afficheur 7 segments.",
+  "author": "MysterAI Team",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": ["Numeral", "Fun"],
+  "kinds": ["code", "calculator", "text"],
+  "brute_force": false,
+  "enable_scoring": true,
+  "accept_accents": false,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "text": {
+      "type": "textarea",
+      "label": "Texte a traiter",
+      "placeholder": "Ex: SOLEIL BEGHILOS ou 50714638 713705",
+      "required": true
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": ["decode", "encode", "detect"],
+      "default": "decode",
+      "required": true
+    },
+    "letter_style": {
+      "type": "select",
+      "label": "Style des lettres au decodage",
+      "options": ["upper", "display"],
+      "default": "upper",
+      "description": "upper = BEGHILOSZ; display = b/g/h minuscules comme sur afficheur."
+    },
+    "case_sensitive_b": {
+      "type": "boolean",
+      "label": "Distinguer B=8 et b=9 a l'encodage",
+      "default": false
+    },
+    "strict": {
+      "type": "select",
+      "label": "Mode strict",
+      "options": ["strict", "smooth"],
+      "default": "smooth"
+    },
+    "embedded": {
+      "type": "boolean",
+      "label": "Code integre dans un texte",
+      "default": false
+    },
+    "allowed_chars": {
+      "type": "string",
+      "label": "Caracteres autorises",
+      "placeholder": "Ex: espaces, ponctuation...",
+      "default": " \t\r\n.:;,_-'\"!?"
+    },
+    "enable_scoring": {
+      "type": "boolean",
+      "label": "Scoring (legacy)",
+      "default": true,
+      "hidden": true
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Resultat"
+    }
+  },
+  "text_handling": {
+    "fields": ["text"],
+    "allowed_ranges": ["0030-0039", "0041-005A", "0061-007A"],
+    "allowed_characters": " \t\r\n.:;,_-'\"!?",
+    "unknown_char_policy": "warn_keep",
+    "normalize": {
+      "remove_diacritics": true,
+      "case": "preserve",
+      "map_characters": {}
+    }
+  },
+  "metasolver": {
+    "eligible": true,
+    "input_charset": "digits",
+    "tags": ["frequent", "numeral", "no_key"],
+    "priority": 70,
+    "family": "calculator_writing",
+    "preferred_when": ["digits_only", "grouped_input"],
+    "supports_grouped_input": true
+  }
+}

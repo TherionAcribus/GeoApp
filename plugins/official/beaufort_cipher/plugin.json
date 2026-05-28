@@ -1,19 +1,15 @@
 {
   "name": "beaufort_cipher",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "plugin_api_version": "2.0",
-  "description": "Plugin de chiffrement et déchiffrement utilisant le chiffre de Beaufort (symétrique).",
-  "author": "MysterAI",
+  "description": "Chiffre de Beaufort classique (cle-texte) et variante allemande (texte-cle), variantes de Vigenere.",
+  "author": "MysterAI Team",
   "plugin_type": "python",
   "entry_point": "main.py",
   "dependencies": [],
-  "categories": [
-    "AlphabetsDecryption"
-  ],
-  "kinds": [
-    "code"
-  ],
-  "brute_force": false,
+  "categories": ["AlphabetsDecryption", "ClassicCiphers"],
+  "kinds": ["code"],
+  "brute_force": true,
   "enable_scoring": true,
   "accept_accents": false,
   "heavy_cpu": false,
@@ -31,48 +27,69 @@
   },
   "input_types": {
     "text": {
-      "type": "string",
-      "label": "Texte à traiter",
-      "placeholder": "Entrez le texte ici...",
+      "type": "textarea",
+      "label": "Texte a traiter",
+      "placeholder": "Entrez le texte clair ou chiffre Beaufort...",
       "required": true
     },
     "mode": {
       "type": "select",
       "label": "Mode",
-      "options": [
-        "decode",
-        "encode",
-        "detect"
-      ],
+      "options": ["decode", "encode", "detect", "bruteforce"],
       "default": "decode",
       "required": true
     },
     "key": {
       "type": "string",
-      "label": "Clé de chiffrement",
-      "placeholder": "Entrez la clé (lettres sans espaces)",
-      "default": "",
-      "required": true
+      "label": "Cle de chiffrement",
+      "placeholder": "Ex: CLE",
+      "default": ""
+    },
+    "variant": {
+      "type": "select",
+      "label": "Variante",
+      "options": ["classic", "german"],
+      "default": "classic",
+      "description": "classic = Beaufort classique cle-texte; german = variante allemande texte-cle."
+    },
+    "candidate_keys": {
+      "type": "string",
+      "label": "Cles candidates (bruteforce)",
+      "placeholder": "Ex: CLE,SECRET,BEAUFORT"
+    },
+    "max_results": {
+      "type": "number",
+      "label": "Nombre max de resultats",
+      "min": 1,
+      "max": 50,
+      "default": 10
+    },
+    "bruteforce": {
+      "type": "boolean",
+      "label": "Forcer le mode bruteforce",
+      "default": false
+    },
+    "preserve_case": {
+      "type": "boolean",
+      "label": "Conserver la casse",
+      "default": true
     },
     "strict": {
       "type": "select",
       "label": "Mode strict",
-      "options": [
-        "strict",
-        "smooth"
-      ],
+      "options": ["strict", "smooth"],
       "default": "smooth"
     },
     "embedded": {
       "type": "boolean",
-      "label": "Code Beaufort intégré dans un texte",
+      "label": "Code Beaufort integre dans un texte",
       "default": false
     },
     "allowed_chars": {
       "type": "string",
-      "label": "Caractères autorisés (optionnel)",
-      "placeholder": "Ex: .:;,_-°",
-      "default": " \t\r\n.:;,_-°"
+      "label": "Caracteres autorises",
+      "placeholder": "Ex: ponctuation, espaces...",
+      "default": " \t\r\n.:;,_-'\"!?"
     },
     "enable_scoring": {
       "type": "boolean",
@@ -84,31 +101,26 @@
   "output_types": {
     "text_output": {
       "type": "string",
-      "label": "Texte transformé"
+      "label": "Texte transforme"
     }
   },
   "text_handling": {
-    "fields": [
-      "text",
-      "key"
-    ],
-    "allowed_ranges": [
-      "0041-005A"
-    ],
-    "allowed_characters": " \t\r\n.:;,_-°",
+    "fields": ["text", "key", "candidate_keys"],
+    "allowed_ranges": ["0041-005A", "0061-007A"],
+    "allowed_characters": " \t\r\n.:;,_-'\"!?",
     "unknown_char_policy": "warn_keep",
     "normalize": {
       "remove_diacritics": true,
-      "case": "upper",
+      "case": "preserve",
       "map_characters": {}
     }
   },
   "metasolver": {
     "eligible": true,
     "input_charset": "letters",
-    "tags": ["classic", "substitution"],
-    "priority": 50,
-    "family": "substitution",
+    "tags": ["classic", "substitution", "polyalphabetic"],
+    "priority": 60,
+    "family": "vigenere_variant",
     "preferred_when": ["letters_only", "long_input"],
     "requires_key": true
   }
