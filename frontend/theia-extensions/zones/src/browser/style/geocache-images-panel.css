@@ -484,3 +484,103 @@
         max-height: 360px;
     }
 }
+
+/* Styles pour le visualiseur de GIF frame par frame */
+.geoapp-gif-frame-viewer-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 20px;
+}
+
+.geoapp-gif-frame-viewer-modal {
+    background: var(--theia-editor-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+    max-width: 90vw;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.geoapp-gif-frame-viewer-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    background: var(--theia-titleBar-activeBackground);
+}
+
+.geoapp-gif-frame-viewer-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.geoapp-gif-frame-viewer-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    overflow: auto;
+    min-height: 300px;
+}
+
+.geoapp-gif-frame-viewer-image-container {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    max-width: 100%;
+    max-height: 60vh;
+    margin-bottom: 20px;
+}
+
+.geoapp-gif-frame-viewer-image {
+    max-width: 100%;
+    max-height: 60vh;
+    object-fit: contain;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+}
+
+.geoapp-gif-frame-viewer-controls {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 10px 0;
+}
+
+.geoapp-gif-frame-viewer-counter {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--theia-foreground);
+    min-width: 120px;
+    text-align: center;
+}
+
+.geoapp-gif-frame-viewer-loading,
+.geoapp-gif-frame-viewer-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 40px;
+    color: var(--theia-descriptionForeground);
+}
+
+.geoapp-gif-frame-viewer-loading .codicon {
+    font-size: 24px;
+}

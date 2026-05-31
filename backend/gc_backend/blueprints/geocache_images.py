@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 import uuid
@@ -9,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from flask import Blueprint, jsonify, request, send_file
+from PIL import Image
 from werkzeug.utils import secure_filename
 
 from ..database import db
@@ -802,3 +804,228 @@ def cleanup_geocache_images(geocache_id: int):
     except Exception as exc:
         logger.error('Cleanup failed for geocache %s: %s', geocache_id, exc, exc_info=True)
         return jsonify({'error': 'cleanup_failed'}), 500
+
+
+@bp.post('/api/geocache-images/<int:image_id>/split-gif')
+def split_animated_gif(image_id: int):
+    """Découpe un GIF animé en frames et crée des images dérivées."""
+    source = GeocacheImage.query.get(image_id)
+    if not source:
+        return jsonify({'error': 'Image not found'}), 404
+
+    # Vérifier que c'est bien un GIF (par mime_type ou par extension)
+    mime_type = (source.mime_type or '').lower()
+    is_gif_by_mime = mime_type == 'image/gif'
+    is_gif_by_url = (source.source_url or '').lower().endswith('.gif')
+    if not is_gif_by_mime and not is_gif_by_url:
+        return jsonify({'error': 'Image is not a GIF'}), 400
+
+    try:
+        gif_content: bytes
+
+        # Si l'image est stockée localement, utiliser le fichier local
+        if source.stored and source.stored_path:
+            file_path = _safe_resolve_stored_file(source.stored_path)
+            if file_path.exists():
+                gif_content = file_path.read_bytes()
+            else:
+                # Fichier manquant, essayer de télécharger
+                if not _can_download_source(source):
+                    return jsonify({'error': 'Stored GIF file missing and cannot be re-downloaded'}), 404
+                gif_content, _, status_code = download_image(source.source_url)
+                if status_code >= 400:
+                    return jsonify({'error': f'Failed to download GIF (HTTP {status_code})'}), 502
+        elif _can_download_source(source):
+            # Télécharger le GIF depuis l'URL source
+            gif_content, _, status_code = download_image(source.source_url)
+            if status_code >= 400:
+                return jsonify({'error': f'Failed to download GIF (HTTP {status_code})'}), 502
+        else:
+            return jsonify({'error': 'GIF must be stored locally or be downloadable before splitting'}), 400
+
+        # Ouvrir le GIF avec Pillow depuis les bytes
+        with Image.open(io.BytesIO(gif_content)) as gif:
+            # Vérifier que c'est bien un GIF
+            if gif.format != 'GIF':
+                return jsonify({'error': 'File is not a valid GIF'}), 400
+
+            # Extraire les frames
+            frames = []
+            frame_count = 0
+
+            try:
+                while True:
+                    # Copier le frame actuel
+                    frame = gif.copy()
+                    frames.append(frame)
+                    frame_count += 1
+                    gif.seek(gif.tell() + 1)
+            except EOFError:
+                # Fin du GIF atteinte
+                pass
+
+            if len(frames) <= 1:
+                return jsonify({'error': 'GIF does not contain multiple frames', 'frames': len(frames)}), 400
+
+            created_ids: list[int] = []
+
+            # Créer une image dérivée pour chaque frame
+            for idx, frame in enumerate(frames):
+                # Convertir en RGB si nécessaire (pour les GIFs avec transparence)
+                if frame.mode in ('RGBA', 'LA', 'P'):
+                    # Convertir en RGB pour le stockage
+                    background = Image.new('RGB', frame.size, (255, 255, 255))
+                    if frame.mode == 'P':
+                        frame = frame.convert('RGBA')
+                    if frame.mode in ('RGBA', 'LA'):
+                        background.paste(frame, mask=frame.split()[-1] if frame.mode in ('RGBA', 'LA') else None)
+                        frame = background
+                    else:
+                        frame = frame.convert('RGB')
+
+                # Sauvegarder le frame en PNG
+                buffer = io.BytesIO()
+                frame.save(buffer, format='PNG')
+                frame_bytes = buffer.getvalue()
+                buffer.close()
+
+                # Créer l'entrée en base de données
+                derivation_type = _next_derivation_type(source, source.id, f'gif_frame_{idx+1:03d}')
+                derived = GeocacheImage(
+                    geocache_id=source.geocache_id,
+                    source_url=source.source_url,
+                    parent_image_id=source.id,
+                    derivation_type=derivation_type,
+                    title=f"{source.title or 'GIF'} - Frame {idx + 1}/{len(frames)}" if source.title else f"Frame {idx + 1}/{len(frames)}",
+                    note=f"Frame {idx + 1} of {len(frames)} extracted from animated GIF",
+                    stored=False,
+                )
+
+                db.session.add(derived)
+                db.session.flush()
+
+                # Sauvegarder le fichier
+                stored_path, mime_type_out, byte_size, sha256 = write_image_file(
+                    geocache_id=derived.geocache_id,
+                    image_id=derived.id,
+                    content=frame_bytes,
+                    content_type='image/png',
+                    source_url=source.source_url,
+                )
+
+                derived.stored = True
+                derived.stored_path = stored_path
+                derived.mime_type = mime_type_out
+                derived.byte_size = byte_size
+                derived.sha256 = sha256
+
+                created_ids.append(derived.id)
+
+            db.session.commit()
+
+            return jsonify({
+                'frames': len(frames),
+                'created_ids': created_ids,
+                'source_image_id': source.id,
+            }), 201
+
+    except ValueError as exc:
+        db.session.rollback()
+        return jsonify({'error': str(exc)}), 400
+    except Exception as exc:
+        logger.error('Failed to split GIF %s: %s', image_id, exc, exc_info=True)
+        db.session.rollback()
+        return jsonify({'error': 'Failed to split GIF', 'details': str(exc)}), 500
+
+
+@bp.post('/api/geocache-images/<int:image_id>/extract-frames')
+def extract_gif_frames(image_id: int):
+    """Extrait les frames d'un GIF animé et les retourne en base64 (sans créer d'images)."""
+    import base64
+
+    source = GeocacheImage.query.get(image_id)
+    if not source:
+        return jsonify({'error': 'Image not found'}), 404
+
+    # Vérifier que c'est bien un GIF (par mime_type ou par extension)
+    mime_type = (source.mime_type or '').lower()
+    is_gif_by_mime = mime_type == 'image/gif'
+    is_gif_by_url = (source.source_url or '').lower().endswith('.gif')
+    if not is_gif_by_mime and not is_gif_by_url:
+        return jsonify({'error': 'Image is not a GIF'}), 400
+
+    try:
+        gif_content: bytes
+
+        # Si l'image est stockée localement, utiliser le fichier local
+        if source.stored and source.stored_path:
+            file_path = _safe_resolve_stored_file(source.stored_path)
+            if file_path.exists():
+                gif_content = file_path.read_bytes()
+            else:
+                # Fichier manquant, essayer de télécharger
+                if not _can_download_source(source):
+                    return jsonify({'error': 'Stored GIF file missing and cannot be re-downloaded'}), 404
+                gif_content, _, status_code = download_image(source.source_url)
+                if status_code >= 400:
+                    return jsonify({'error': f'Failed to download GIF (HTTP {status_code})'}), 502
+        elif _can_download_source(source):
+            # Télécharger le GIF depuis l'URL source
+            gif_content, _, status_code = download_image(source.source_url)
+            if status_code >= 400:
+                return jsonify({'error': f'Failed to download GIF (HTTP {status_code})'}), 502
+        else:
+            return jsonify({'error': 'GIF must be stored locally or be downloadable'}), 400
+
+        # Ouvrir le GIF avec Pillow depuis les bytes
+        with Image.open(io.BytesIO(gif_content)) as gif:
+            # Vérifier que c'est bien un GIF
+            if gif.format != 'GIF':
+                return jsonify({'error': 'File is not a valid GIF'}), 400
+
+            # Extraire les frames
+            frames: list[str] = []
+
+            try:
+                while True:
+                    # Copier le frame actuel
+                    frame = gif.copy()
+
+                    # Convertir en RGB si nécessaire
+                    if frame.mode in ('RGBA', 'LA', 'P'):
+                        background = Image.new('RGB', frame.size, (255, 255, 255))
+                        if frame.mode == 'P':
+                            frame = frame.convert('RGBA')
+                        if frame.mode in ('RGBA', 'LA'):
+                            background.paste(frame, mask=frame.split()[-1])
+                            frame = background
+                        else:
+                            frame = frame.convert('RGB')
+
+                    # Sauvegarder en PNG dans un buffer
+                    buffer = io.BytesIO()
+                    frame.save(buffer, format='PNG')
+                    frame_bytes = buffer.getvalue()
+                    buffer.close()
+
+                    # Encoder en base64
+                    frame_b64 = base64.b64encode(frame_bytes).decode('utf-8')
+                    frames.append(f'data:image/png;base64,{frame_b64}')
+
+                    gif.seek(gif.tell() + 1)
+            except EOFError:
+                # Fin du GIF atteinte
+                pass
+
+            if len(frames) == 0:
+                return jsonify({'error': 'GIF does not contain any frames'}), 400
+
+            return jsonify({
+                'frames': frames,
+                'count': len(frames),
+                'source_image_id': source.id,
+            }), 200
+
+    except Exception as exc:
+        logger.error('Failed to extract GIF frames %s: %s', image_id, exc, exc_info=True)
+        return jsonify({'error': 'Failed to extract GIF frames', 'details': str(exc)}), 500

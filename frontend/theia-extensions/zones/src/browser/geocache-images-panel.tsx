@@ -159,6 +159,13 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
 
     const [effectiveThumbnailSize, setEffectiveThumbnailSize] = React.useState<GalleryThumbnailSize>(thumbnailSize);
 
+    // États pour le visualiseur de GIF frame par frame
+    const [gifFrameViewerOpen, setGifFrameViewerOpen] = React.useState(false);
+    const [gifFrameViewerImage, setGifFrameViewerImage] = React.useState<GeocacheImageV2Dto | null>(null);
+    const [gifFrameViewerFrames, setGifFrameViewerFrames] = React.useState<string[]>([]);
+    const [gifFrameViewerCurrentFrame, setGifFrameViewerCurrentFrame] = React.useState(0);
+    const [gifFrameViewerLoading, setGifFrameViewerLoading] = React.useState(false);
+
     const didApplyDefaultStorageRef = React.useRef<Record<number, boolean>>({});
 
     React.useEffect(() => {
@@ -492,6 +499,148 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     const isMissingLocalImage = React.useCallback((img: GeocacheImageV2Dto | null | undefined): boolean => {
         return Boolean(img && !img.stored && (Boolean(img.parent_image_id) || isUploadedImage(img)));
     }, [isUploadedImage]);
+
+    const isAnimatedGifImage = React.useCallback((img: GeocacheImageV2Dto | null | undefined): boolean => {
+        // Vérifier d'abord le mime_type si disponible
+        if (img?.mime_type) {
+            const mime = img.mime_type.toLowerCase();
+            if (mime === 'image/gif') {
+                return true;
+            }
+        }
+        // Fallback: détection par extension de fichier dans l'URL
+        const url = (img?.source_url || img?.url || '').toLowerCase();
+        if (url) {
+            // Extraire l'extension avant les paramètres de requête
+            const urlWithoutParams = url.split('?')[0];
+            if (urlWithoutParams.endsWith('.gif')) {
+                return true;
+            }
+        }
+        return false;
+    }, []);
+
+    const splitAnimatedGif = React.useCallback(async (imageId: number): Promise<void> => {
+        const img = visibleImages.find(i => i.id === imageId);
+        if (!img) {
+            messages.error('Image introuvable');
+            return;
+        }
+
+        if (!isAnimatedGifImage(img)) {
+            messages.error('Cette image n\'est pas un GIF');
+            return;
+        }
+
+        setIsSaving(true);
+        messages.info('Découpage du GIF en cours...');
+
+        try {
+            const splitRes = await fetch(`${backendBaseUrl}/api/geocache-images/${imageId}/split-gif`, {
+                method: 'POST',
+                credentials: 'include',
+            });
+
+            if (!splitRes.ok) {
+                const errorData = await splitRes.json().catch(() => ({ error: 'Erreur inconnue' })) as { error?: string; frames?: number };
+                if (errorData.frames !== undefined && errorData.frames <= 1) {
+                    messages.info('Ce GIF ne contient pas d\'animation multiple');
+                    return;
+                }
+                throw new Error(errorData.error || `HTTP ${splitRes.status}`);
+            }
+
+            const result = await splitRes.json() as { frames?: number; created_ids?: number[] };
+
+            await loadImages();
+            messages.info(`${result.frames || 0} frames extraites (${result.created_ids?.length || 0} images créées)`);
+        } catch (e) {
+            console.error('[GeocacheImagesPanel] split GIF error', e);
+            messages.error(`Impossible de découper le GIF: ${String(e)}`);
+        } finally {
+            setIsSaving(false);
+        }
+    }, [backendBaseUrl, messages, isAnimatedGifImage, visibleImages, loadImages]);
+
+    // Fonctions pour le visualiseur de GIF frame par frame
+    const openGifFrameViewer = React.useCallback(async (imageId: number): Promise<void> => {
+        const img = visibleImages.find(i => i.id === imageId);
+        if (!img) {
+            messages.error('Image introuvable');
+            return;
+        }
+
+        if (!isAnimatedGifImage(img)) {
+            messages.error('Cette image n\'est pas un GIF');
+            return;
+        }
+
+        setGifFrameViewerLoading(true);
+        setGifFrameViewerImage(img);
+        setGifFrameViewerOpen(true);
+        setGifFrameViewerCurrentFrame(0);
+        setGifFrameViewerFrames([]);
+
+        try {
+            // Appeler le backend pour extraire les frames
+            const response = await fetch(`${backendBaseUrl}/api/geocache-images/${imageId}/extract-frames`, {
+                method: 'POST',
+                credentials: 'include',
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ error: 'Erreur inconnue' })) as { error?: string };
+                throw new Error(errorData.error || `HTTP ${response.status}`);
+            }
+
+            const result = await response.json() as { frames: string[]; count: number };
+            setGifFrameViewerFrames(result.frames);
+            messages.info(`${result.count} frames chargées`);
+        } catch (e) {
+            console.error('[GeocacheImagesPanel] GIF frame viewer error', e);
+            messages.error(`Impossible de charger les frames: ${String(e)}`);
+            setGifFrameViewerOpen(false);
+        } finally {
+            setGifFrameViewerLoading(false);
+        }
+    }, [backendBaseUrl, messages, isAnimatedGifImage, visibleImages]);
+
+    const closeGifFrameViewer = React.useCallback((): void => {
+        setGifFrameViewerOpen(false);
+        setGifFrameViewerImage(null);
+        setGifFrameViewerFrames([]);
+        setGifFrameViewerCurrentFrame(0);
+    }, []);
+
+    const goToNextFrame = React.useCallback((): void => {
+        setGifFrameViewerCurrentFrame(prev =>
+            prev < gifFrameViewerFrames.length - 1 ? prev + 1 : prev
+        );
+    }, [gifFrameViewerFrames.length]);
+
+    const goToPrevFrame = React.useCallback((): void => {
+        setGifFrameViewerCurrentFrame(prev => prev > 0 ? prev - 1 : prev);
+    }, []);
+
+    // Navigation au clavier pour le visualiseur de GIF
+    React.useEffect(() => {
+        if (!gifFrameViewerOpen) {
+            return;
+        }
+
+        const handleKeyDown = (e: KeyboardEvent): void => {
+            if (e.key === 'ArrowLeft') {
+                goToPrevFrame();
+            } else if (e.key === 'ArrowRight') {
+                goToNextFrame();
+            } else if (e.key === 'Escape') {
+                closeGifFrameViewer();
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [gifFrameViewerOpen, goToPrevFrame, goToNextFrame, closeGifFrameViewer]);
 
     const getImageKindLabel = React.useCallback((img: GeocacheImageV2Dto): string => {
         if (isUploadedImage(img)) {
@@ -1719,6 +1868,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     const isContextMenuStoreEnabled = canStoreImage(contextMenuImage);
     const isContextMenuUnstoreEnabled = canUnstoreImage(contextMenuImage);
     const isContextMenuDeleteEnabled = canDeleteImage(contextMenuImage);
+    const isContextMenuGifEnabled = isAnimatedGifImage(contextMenuImage);
 
     const contextMenuItems: ContextMenuItem[] = contextMenu ? [
         {
@@ -1794,6 +1944,15 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             disabled: isSaving,
             danger: true,
         }] : []),
+        ...(isContextMenuGifEnabled ? [{
+            label: 'Découper GIF animé',
+            action: () => { void splitAnimatedGif(contextMenu.imageId); },
+            disabled: isSaving,
+        }, {
+            label: 'Voir frame par frame',
+            action: () => { void openGifFrameViewer(contextMenu.imageId); },
+            disabled: isSaving,
+        }] : []),
         {
             separator: true,
         },
@@ -1824,6 +1983,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     const selectedIsOcrBusy = selectedImage ? Boolean(ocrInProgressById[selectedImage.id]) : false;
     const selectedIsHidden = Boolean(selectedImage && isHiddenByDomain(selectedImage.source_url));
     const selectedIsMissing = isMissingLocalImage(selectedImage);
+    const selectedIsAnimatedGif = isAnimatedGifImage(selectedImage);
     const selectedPreviewUrl = selectedImage && selectedImage.url ? resolveImageUrl(selectedImage.url) : '';
     const selectedExifText = formatExifFeatureForDisplay(getExifFeature(selectedImage));
 
@@ -2154,6 +2314,18 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                                         <span className='codicon codicon-search' />
                                         Lens
                                     </button>
+                                    {selectedIsAnimatedGif && (
+                                        <button className='theia-button secondary geoapp-images-icon-button' type='button' onClick={() => { void splitAnimatedGif(selectedImage.id); }} disabled={isSaving || selectedIsMissing}>
+                                            <span className='codicon codicon-split-horizontal' />
+                                            Découper GIF
+                                        </button>
+                                    )}
+                                    {selectedIsAnimatedGif && (
+                                        <button className='theia-button secondary geoapp-images-icon-button' type='button' onClick={() => { void openGifFrameViewer(selectedImage.id); }} disabled={isSaving}>
+                                            <span className='codicon codicon-play-circle' />
+                                            Frames
+                                        </button>
+                                    )}
                                     <button className='theia-button secondary geoapp-images-icon-button' type='button' onClick={() => { void duplicateImageById(selectedImage.id); }} disabled={isSaving || selectedIsMissing}>
                                         <span className='codicon codicon-copy' />
                                         Dupliquer
@@ -2266,6 +2438,70 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                             </aside>
                         </>
                     )}
+                </div>
+            )}
+
+            {/* Modal pour le visualiseur de GIF frame par frame */}
+            {gifFrameViewerOpen && (
+                <div className='geoapp-gif-frame-viewer-overlay' onClick={closeGifFrameViewer}>
+                    <div className='geoapp-gif-frame-viewer-modal' onClick={e => e.stopPropagation()}>
+                        <div className='geoapp-gif-frame-viewer-header'>
+                            <h3>Visualiseur de GIF - Frame par frame</h3>
+                            <button className='theia-button secondary' onClick={closeGifFrameViewer} type='button'>
+                                <span className='codicon codicon-close' />
+                                Fermer
+                            </button>
+                        </div>
+
+                        <div className='geoapp-gif-frame-viewer-content'>
+                            {gifFrameViewerLoading ? (
+                                <div className='geoapp-gif-frame-viewer-loading'>
+                                    <span className='codicon codicon-loading codicon-modifier-spin' />
+                                    Chargement des frames...
+                                </div>
+                            ) : gifFrameViewerFrames.length > 0 ? (
+                                <>
+                                    <div className='geoapp-gif-frame-viewer-image-container'>
+                                        <img
+                                            src={gifFrameViewerFrames[gifFrameViewerCurrentFrame]}
+                                            alt={`Frame ${gifFrameViewerCurrentFrame + 1}`}
+                                            className='geoapp-gif-frame-viewer-image'
+                                        />
+                                    </div>
+
+                                    <div className='geoapp-gif-frame-viewer-controls'>
+                                        <button
+                                            className='theia-button secondary'
+                                            onClick={goToPrevFrame}
+                                            disabled={gifFrameViewerCurrentFrame === 0}
+                                            type='button'
+                                        >
+                                            <span className='codicon codicon-chevron-left' />
+                                            Précédent
+                                        </button>
+
+                                        <span className='geoapp-gif-frame-viewer-counter'>
+                                            Frame {gifFrameViewerCurrentFrame + 1} / {gifFrameViewerFrames.length}
+                                        </span>
+
+                                        <button
+                                            className='theia-button secondary'
+                                            onClick={goToNextFrame}
+                                            disabled={gifFrameViewerCurrentFrame >= gifFrameViewerFrames.length - 1}
+                                            type='button'
+                                        >
+                                            Suivant
+                                            <span className='codicon codicon-chevron-right' />
+                                        </button>
+                                    </div>
+                                </>
+                            ) : (
+                                <div className='geoapp-gif-frame-viewer-error'>
+                                    Aucune frame à afficher
+                                </div>
+                            )}
+                        </div>
+                    </div>
                 </div>
             )}
         </div>
