@@ -1,0 +1,72 @@
+{
+  "name": "equation_solver",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "RÃ©sout et simplifie des chaÃ®nes ou systÃ¨mes d'Ã©quations avec SymPy.",
+  "author": "MysterAI",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": ["sympy"],
+  "categories": ["Solver", "Calculator", "Mystery"],
+  "kinds": ["solver", "calculator", "analyze"],
+  "brute_force": false,
+  "enable_scoring": false,
+  "accept_accents": true,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 20,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": false
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "equations": {
+      "type": "textarea",
+      "label": "Equations",
+      "placeholder": "Ex:\nw1 - w2 = x\nx * 6 = y\nw3 + y = z\nz + 0.212 = ?",
+      "required": true,
+      "description": "ChaÃ®ne d'Ã©quations, systÃ¨me Ã  rÃ©soudre ou texte contenant plusieurs Ã©quations."
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": [
+        {"value": "auto", "label": "Auto"},
+        {"value": "simplify", "label": "Simplifier / Ã©valuer une chaÃ®ne"},
+        {"value": "solve", "label": "RÃ©soudre un systÃ¨me"}
+      ],
+      "default": "auto",
+      "description": "Auto choisit la simplification si des rÃ©sultats ? sont prÃ©sents, sinon tente une rÃ©solution de systÃ¨me."
+    },
+    "known_values": {
+      "type": "textarea",
+      "label": "Valeurs connues",
+      "placeholder": "{\"w1\": 10, \"w2\": 3, \"w3\": 1}\nou\nw1 = 10\nw2 = 3",
+      "default": "",
+      "description": "Valeurs optionnelles en JSON ou sous forme d'affectations ligne par ligne."
+    },
+    "solve_for": {
+      "type": "string",
+      "label": "Variables Ã  rÃ©soudre",
+      "placeholder": "x, y",
+      "default": "",
+      "description": "Optionnel. Liste de variables Ã  rÃ©soudre, sÃ©parÃ©es par des virgules ou espaces."
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "RÃ©sultat"
+    },
+    "results": {
+      "type": "object",
+      "label": "DÃ©tails"
+    }
+  }
+}
