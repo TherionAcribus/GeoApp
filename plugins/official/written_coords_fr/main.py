@@ -253,13 +253,7 @@ def _parse_decimal_digits(tokens: List[str], i: int, max_len: int = 6) -> Tuple[
     j = i
     digits: List[str] = []
     while j < len(tokens) and sum(len(x) for x in digits) < max_len:
-        remaining = max_len - sum(len(x) for x in digits)
-        seq, j2 = _parse_digit_sequence(tokens, j, remaining)
-        if len(seq) >= 1:  # Accepter les séquences même d'un seul chiffre
-            digits.append(seq)
-            j = j2
-            continue
-
+        # Priorité 1: Essayer les nombres complexes d'abord
         v, j2 = _parse_fr_int(tokens, j)
         if v is not None and 0 <= v <= 999:
             s = str(v)
@@ -269,6 +263,15 @@ def _parse_decimal_digits(tokens: List[str], i: int, max_len: int = 6) -> Tuple[
             j = j2
             continue
 
+        # Priorité 2: Essayer les séquences de chiffres individuels
+        remaining = max_len - sum(len(x) for x in digits)
+        seq, j2 = _parse_digit_sequence(tokens, j, remaining)
+        if len(seq) >= 1:  # Accepter les séquences même d'un seul chiffre
+            digits.append(seq)
+            j = j2
+            continue
+
+        # Priorité 3: Chiffres individuels simples
         t = tokens[j]
         if t in _DIGIT_WORDS and sum(len(x) for x in digits) + 1 <= max_len:
             digits.append(_DIGIT_WORDS[t])
