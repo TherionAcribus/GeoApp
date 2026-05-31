@@ -155,9 +155,10 @@ def _parse_fr_int(tokens: List[str], i: int) -> Tuple[Optional[int], int]:
         except Exception:
             return None, i
 
+    # Nouvelle gestion : séquence de chiffres épelés individuellement
     j = i
     digits: List[str] = []
-    while j < len(tokens) and len(digits) < 6:
+    while j < len(tokens) and len(digits) < 10:  # Augmenté pour gérer les longues séquences
         t2 = tokens[j]
         if t2 in _DIGIT_WORDS:
             digits.append(_DIGIT_WORDS[t2])
@@ -169,6 +170,7 @@ def _parse_fr_int(tokens: List[str], i: int) -> Tuple[Optional[int], int]:
             continue
         break
 
+    # Si on a trouvé une séquence de chiffres épelés (au moins 2 chiffres)
     if len(digits) >= 2:
         try:
             return int("".join(digits)), j
@@ -253,7 +255,7 @@ def _parse_decimal_digits(tokens: List[str], i: int, max_len: int = 6) -> Tuple[
     while j < len(tokens) and sum(len(x) for x in digits) < max_len:
         remaining = max_len - sum(len(x) for x in digits)
         seq, j2 = _parse_digit_sequence(tokens, j, remaining)
-        if len(seq) >= 2:
+        if len(seq) >= 1:  # Accepter les séquences même d'un seul chiffre
             digits.append(seq)
             j = j2
             continue
@@ -330,6 +332,7 @@ def _find_candidates(tokens: List[str], max_candidates: int) -> List[Dict[str, A
         lat_dir = _DIRECTION_LAT[t]
         j = _skip_connectors(tokens, i + 1)
 
+        # Essayer d'abord le format standard
         lat_deg, j2 = _parse_fr_int(tokens, j)
         if lat_deg is None:
             continue
@@ -339,6 +342,49 @@ def _find_candidates(tokens: List[str], max_candidates: int) -> List[Dict[str, A
             j = _skip_connectors(tokens, j + 1)
 
         lat_min, j2, lat_min_meta = _parse_minutes(tokens, j)
+        
+        # Si pas de minutes trouvées, essayer le format simplifié :
+        if lat_min is None and lat_deg >= 100:  # Seulement si lat_deg a plus de 2 chiffres
+            # ex: "nord quatre six un quatre neuf deux sept" -> N 46° 14.927'
+            # Ici, "quatre six" = 46 (degrés), "un quatre neuf deux sept" = 14927 (minutes)
+            # On utilise directement lat_deg qui contient toute la séquence de chiffres
+            lat_deg_str = str(lat_deg)
+            if len(lat_deg_str) >= 5:
+                # Prendre les 2 premiers chiffres comme degrés
+                try:
+                    new_lat_deg = int(lat_deg_str[:2])
+                    # Le reste forme les minutes
+                    minute_str = lat_deg_str[2:]
+                    if len(minute_str) >= 5:
+                        whole_part = minute_str[:2]
+                        decimal_part = minute_str[2:5]
+                        lat_min = float(f"{whole_part}.{decimal_part}")
+                        # Trouver où s'arrête la séquence de chiffres
+                        temp_j = j
+                        while temp_j < len(tokens) and (
+                            tokens[temp_j] in _DIGIT_WORDS or 
+                            (tokens[temp_j].isdigit() and len(tokens[temp_j]) == 1)
+                        ):
+                            temp_j += 1
+                        j2 = temp_j
+                        lat_min_meta = {"format": "simplified_sequence"}
+                    elif len(minute_str) >= 2:
+                        lat_min = float(minute_str[:2])
+                        # Trouver où s'arrête la séquence de chiffres
+                        temp_j = j
+                        while temp_j < len(tokens) and (
+                            tokens[temp_j] in _DIGIT_WORDS or 
+                            (tokens[temp_j].isdigit() and len(tokens[temp_j]) == 1)
+                        ):
+                            temp_j += 1
+                        j2 = temp_j
+                        lat_min_meta = {"format": "simplified_whole"}
+                    
+                    if lat_min is not None:
+                        lat_deg = new_lat_deg
+                except ValueError:
+                    lat_min = None
+        
         if lat_min is None:
             continue
         j = _skip_connectors(tokens, j2)
@@ -349,7 +395,7 @@ def _find_candidates(tokens: List[str], max_candidates: int) -> List[Dict[str, A
         lon_dir = None
         lon_dir_token = None
         lon_pos = None
-        for k in range(j, min(len(tokens), j + 10)):
+        for k in range(j, min(len(tokens), j + 15)):  # Augmenté pour les longues séquences
             if tokens[k] in _DIRECTION_LON:
                 lon_dir = _DIRECTION_LON[tokens[k]]
                 lon_dir_token = tokens[k]
@@ -369,6 +415,49 @@ def _find_candidates(tokens: List[str], max_candidates: int) -> List[Dict[str, A
             j = _skip_connectors(tokens, j + 1)
 
         lon_min, j2, lon_min_meta = _parse_minutes(tokens, j)
+        if lon_min is None:
+            # Même logique que pour la latitude
+            if lon_deg >= 100:  # Seulement si lon_deg a plus de 3 chiffres (longitude)
+                lon_deg_str = str(lon_deg)
+                if len(lon_deg_str) >= 5:  # Au moins 5 chiffres pour longitude (3 degrés + minutes)
+                    try:
+                        # Gérer les deux formats : XXXYYY (6 chiffres) et XXYYY (5 chiffres)
+                        if len(lon_deg_str) >= 6:
+                            new_lon_deg = int(lon_deg_str[:3])  # 3 chiffres pour longitude
+                            minute_str = lon_deg_str[3:]
+                        else:  # 5 chiffres : format 0XXYYY
+                            new_lon_deg = int(lon_deg_str[:2])  # 2 chiffres pour longitude 
+                            minute_str = lon_deg_str[2:]
+                        
+                        if len(minute_str) >= 5:
+                            whole_part = minute_str[:2]
+                            decimal_part = minute_str[2:5]
+                            lon_min = float(f"{whole_part}.{decimal_part}")
+                            # Trouver où s'arrête la séquence de chiffres
+                            temp_j = j
+                            while temp_j < len(tokens) and (
+                                tokens[temp_j] in _DIGIT_WORDS or 
+                                (tokens[temp_j].isdigit() and len(tokens[temp_j]) == 1)
+                            ):
+                                temp_j += 1
+                            j2 = temp_j
+                            lon_min_meta = {"format": "simplified_sequence"}
+                        elif len(minute_str) >= 2:
+                            lon_min = float(minute_str[:2])
+                            temp_j = j
+                            while temp_j < len(tokens) and (
+                                tokens[temp_j] in _DIGIT_WORDS or 
+                                (tokens[temp_j].isdigit() and len(tokens[temp_j]) == 1)
+                            ):
+                                temp_j += 1
+                            j2 = temp_j
+                            lon_min_meta = {"format": "simplified_whole"}
+                        
+                        if lon_min is not None:
+                            lon_deg = new_lon_deg
+                    except ValueError:
+                        lon_min = None
+        
         if lon_min is None:
             continue
 

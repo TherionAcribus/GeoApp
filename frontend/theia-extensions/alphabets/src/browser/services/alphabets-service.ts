@@ -126,7 +126,8 @@ export class AlphabetsService {
         try {
             const payload: any = {
                 text,
-                include_numeric_only: true
+                include_numeric_only: true,
+                include_written: true
             };
             
             if (originCoords) {
