@@ -195,3 +195,242 @@
     }
 }
 
+/* ============================================
+   Chiffres cisterciens
+   ============================================ */
+
+.cistercian-widget {
+    min-height: 100%;
+    padding: 18px;
+    box-sizing: border-box;
+    background-color: var(--theia-editor-background);
+    color: var(--theia-editor-foreground);
+    font-family: var(--theia-ui-font-family);
+}
+
+.cistercian-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 18px;
+}
+
+.cistercian-header h2 {
+    margin: 0 0 4px 0;
+    font-size: 20px;
+    font-weight: 600;
+}
+
+.cistercian-subtitle,
+.cistercian-help {
+    color: var(--theia-descriptionForeground);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.cistercian-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 3px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background-color: var(--theia-input-background);
+}
+
+.cistercian-tabs button,
+.cistercian-digit-buttons button {
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--theia-foreground);
+    cursor: pointer;
+}
+
+.cistercian-tabs button {
+    padding: 6px 10px;
+    font-size: 12px;
+}
+
+.cistercian-tabs button.active,
+.cistercian-digit-buttons button.selected {
+    background-color: var(--theia-button-background);
+    color: var(--theia-button-foreground);
+}
+
+.cistercian-layout {
+    display: grid;
+    grid-template-columns: minmax(260px, 360px) minmax(320px, 1fr);
+    gap: 16px;
+    align-items: start;
+}
+
+.cistercian-panel {
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 8px;
+    padding: 14px;
+    background-color: var(--theia-sideBar-background);
+}
+
+.cistercian-preview-panel {
+    text-align: center;
+}
+
+.cistercian-symbol-frame {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 280px;
+    border-radius: 6px;
+    background-color: var(--theia-editor-background);
+}
+
+.cistercian-preview-svg {
+    width: min(210px, 70%);
+    height: auto;
+    color: var(--theia-foreground);
+}
+
+.cistercian-preview-svg.compact {
+    width: 34px;
+    height: 52px;
+}
+
+.cistercian-value-readout {
+    margin-top: 12px;
+    font-size: 32px;
+    font-weight: 700;
+    letter-spacing: 0;
+}
+
+.cistercian-breakdown {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--theia-descriptionForeground);
+}
+
+.cistercian-actions {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 14px;
+}
+
+.cistercian-editor h3 {
+    margin: 0 0 14px 0;
+    font-size: 15px;
+}
+
+.cistercian-composer-help {
+    margin: -6px 0 14px 0;
+}
+
+.cistercian-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 12px;
+    font-size: 12px;
+}
+
+.cistercian-field input,
+.cistercian-editor input[type="range"] {
+    width: 100%;
+}
+
+.cistercian-field input {
+    box-sizing: border-box;
+    padding: 8px;
+    border: 1px solid var(--theia-input-border);
+    border-radius: 4px;
+    background-color: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+}
+
+.cistercian-digit-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(180px, 1fr));
+    gap: 12px;
+}
+
+.cistercian-digit-card {
+    padding: 10px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background-color: var(--theia-editor-background);
+}
+
+.cistercian-digit-title {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.cistercian-digit-title small {
+    color: var(--theia-descriptionForeground);
+    font-weight: 400;
+}
+
+.cistercian-digit-buttons {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(48px, 1fr));
+    gap: 7px;
+}
+
+.cistercian-digit-buttons button {
+    min-height: 78px;
+    background-color: var(--theia-input-background);
+}
+
+.cistercian-digit-option {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 6px 4px;
+}
+
+.cistercian-digit-option-symbol {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 52px;
+    color: var(--theia-foreground);
+}
+
+.cistercian-digit-option-label {
+    font-size: 11px;
+    line-height: 1;
+    color: var(--theia-descriptionForeground);
+}
+
+.cistercian-digit-option.selected .cistercian-digit-option-label {
+    color: var(--theia-button-foreground);
+    font-weight: 700;
+}
+
+.cistercian-digit-buttons button:hover,
+.cistercian-tabs button:hover {
+    border-color: var(--theia-focusBorder);
+}
+
+@media (max-width: 820px) {
+    .cistercian-header,
+    .cistercian-layout {
+        grid-template-columns: 1fr;
+        flex-direction: column;
+    }
+
+    .cistercian-digit-grid {
+        grid-template-columns: 1fr;
+    }
+}
+

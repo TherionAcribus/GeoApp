@@ -19,6 +19,25 @@ const PRESET_EXAMPLE_OPTIONS: Array<{ label: string; value: string }> = [
 const MAX_FONT_PREVIEW_LENGTH = 40;
 const IMAGE_PREVIEW_LENGTH = 10;
 const FONT_FAMILY_PREFIX = 'alphabet-font-';
+const CISTERCIAN_TOOL_ID = '__geoapp_cistercian_numerals_tool__';
+
+const CISTERCIAN_TOOL_ALPHABET: Alphabet = {
+    id: CISTERCIAN_TOOL_ID,
+    name: 'Chiffres cisterciens',
+    description: 'Convertir une valeur en symbole, ou composer un symbole pour retrouver sa valeur.',
+    type: 'numeral-tool',
+    tags: ['numeral', 'cistercien', 'geocaching'],
+    alphabetConfig: {
+        type: 'images',
+        hasUpperCase: false,
+        characters: {
+            letters: [],
+            numbers: [],
+            special: {}
+        }
+    },
+    source: 'official'
+};
 
 const sanitizeAlphabetId = (alphabetId: string): string =>
     alphabetId.replace(/[^a-zA-Z0-9_-]/g, '-');
@@ -668,7 +687,7 @@ export class AlphabetsListWidget extends ReactWidget {
                 </div>
 
                 <div style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)' }}>
-                    {this.alphabets.length} alphabet(s) disponible(s)
+                    {this.getDisplayedAlphabets().length} alphabet(s) disponible(s)
                 </div>
             </div>
         );
@@ -825,7 +844,9 @@ export class AlphabetsListWidget extends ReactWidget {
             );
         }
 
-        if (this.alphabets.length === 0) {
+        const displayedAlphabets = this.getDisplayedAlphabets();
+
+        if (displayedAlphabets.length === 0) {
             return (
                 <div style={{ textAlign: 'center', padding: '20px', color: 'var(--theia-descriptionForeground)' }}>
                     {this.searchQuery ? 'Aucun alphabet trouvé pour cette recherche' : 'Aucun alphabet disponible'}
@@ -838,7 +859,7 @@ export class AlphabetsListWidget extends ReactWidget {
 
         return (
             <div>
-                {this.alphabets.map(alphabet =>
+                {displayedAlphabets.map(alphabet =>
                     this.renderAlphabetItem(alphabet, shouldRenderPreview ? previewText : '')
                 )}
             </div>
@@ -849,6 +870,7 @@ export class AlphabetsListWidget extends ReactWidget {
      * Rendu d'un item d'alphabet.
      */
     private renderAlphabetItem(alphabet: Alphabet, previewText: string): React.ReactNode {
+        const isCistercianTool = alphabet.id === CISTERCIAN_TOOL_ID;
         const hasSearchMatches = Boolean(
             this.searchQuery &&
             alphabet.search_matches &&
@@ -876,6 +898,7 @@ export class AlphabetsListWidget extends ReactWidget {
                 }}
             >
                 <div style={{ marginBottom: '4px' }}>
+                    {isCistercianTool && <i className='fa fa-calculator' style={{ marginRight: '8px' }} />}
                     <span style={{
                         fontWeight: 'bold',
                         color: 'var(--theia-foreground)'
@@ -931,7 +954,7 @@ export class AlphabetsListWidget extends ReactWidget {
                         ))}
                     </div>
                 )}
-                {previewText && (
+                {previewText && !isCistercianTool && (
                     <AlphabetPreview
                         alphabet={alphabet}
                         previewText={previewText}
@@ -947,6 +970,11 @@ export class AlphabetsListWidget extends ReactWidget {
      * Ouvre un alphabet en exécutant la commande OPEN_VIEWER.
      */
     private openAlphabet(alphabet: Alphabet): void {
+        if (alphabet.id === CISTERCIAN_TOOL_ID) {
+            this.openCistercianTool();
+            return;
+        }
+
         console.log('AlphabetsListWidget: Opening alphabet:', alphabet.id);
         try {
             this.commandService.executeCommand(AlphabetsCommands.OPEN_VIEWER.id, alphabet.id)
@@ -955,6 +983,40 @@ export class AlphabetsListWidget extends ReactWidget {
         } catch (error) {
             console.error('AlphabetsListWidget: Error calling executeCommand:', error);
         }
+    }
+
+    private openCistercianTool(): void {
+        try {
+            this.commandService.executeCommand(AlphabetsCommands.OPEN_CISTERCIAN.id)
+                .catch(err => console.error('AlphabetsListWidget: Error opening cistercian tool:', err));
+        } catch (error) {
+            console.error('AlphabetsListWidget: Error calling cistercian command:', error);
+        }
+    }
+
+    private getDisplayedAlphabets(): Alphabet[] {
+        const entries = [...this.alphabets, CISTERCIAN_TOOL_ALPHABET];
+        const query = this.searchQuery.trim().toLowerCase();
+        const filtered = query
+            ? entries.filter(alphabet => this.matchesLocalSearch(alphabet, query))
+            : entries;
+
+        return filtered.sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }));
+    }
+
+    private matchesLocalSearch(alphabet: Alphabet, query: string): boolean {
+        const haystacks: string[] = [];
+        if (this.searchInName) {
+            haystacks.push(alphabet.name, alphabet.description);
+        }
+        if (this.searchInTags && alphabet.tags) {
+            haystacks.push(...alphabet.tags);
+        }
+        if (alphabet.search_matches?.length) {
+            haystacks.push(...alphabet.search_matches);
+        }
+
+        return haystacks.some(value => (value || '').toLowerCase().includes(query));
     }
 }
 

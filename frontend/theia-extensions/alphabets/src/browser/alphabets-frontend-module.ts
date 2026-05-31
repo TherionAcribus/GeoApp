@@ -8,6 +8,7 @@ import { AlphabetsListContribution } from './alphabets-contribution';
 import { WidgetFactory, bindViewContribution, FrontendApplicationContribution } from '@theia/core/lib/browser';
 import { AlphabetsListWidget } from './alphabets-list-widget';
 import { AlphabetViewerWidget } from './alphabet-viewer-widget';
+import { CistercianNumeralsWidget } from './cistercian-numerals-widget';
 import { CommandContribution, MenuContribution } from '@theia/core';
 import { AlphabetTabsManager } from './alphabet-tabs-manager';
 
@@ -42,6 +43,12 @@ export default new ContainerModule(bind => {
             }
             return widget;
         }
+    })).inSingletonScope();
+
+    bind(CistercianNumeralsWidget).toSelf();
+    bind(WidgetFactory).toDynamicValue(ctx => ({
+        id: CistercianNumeralsWidget.ID,
+        createWidget: () => ctx.container.get<CistercianNumeralsWidget>(CistercianNumeralsWidget)
     })).inSingletonScope();
     
     // Gestionnaire centralisé des onglets d'alphabets

@@ -1,0 +1,102 @@
+{
+  "name": "cistercian_numerals",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Encode et decode les chiffres cisterciens de 0 a 9999 sous forme de symbole compose.",
+  "author": "MysterAI",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": [
+    "Conversion",
+    "Encoder",
+    "Decoder",
+    "Numeral"
+  ],
+  "kinds": [
+    "code",
+    "calculator"
+  ],
+  "brute_force": false,
+  "enable_scoring": false,
+  "accept_accents": false,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 10,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "text": {
+      "type": "string",
+      "label": "Nombre(s)",
+      "placeholder": "Ex: 1492 ou 12 345 6789",
+      "description": "En mode encode/detect, entrez un ou plusieurs nombres entre 0 et 9999."
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": [
+        "encode",
+        "decode",
+        "detect"
+      ],
+      "default": "encode",
+      "required": true
+    },
+    "thousands": {
+      "type": "select",
+      "label": "Milliers",
+      "options": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
+      "default": "0",
+      "description": "Quadrant bas gauche du symbole."
+    },
+    "hundreds": {
+      "type": "select",
+      "label": "Centaines",
+      "options": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
+      "default": "0",
+      "description": "Quadrant bas droit du symbole."
+    },
+    "tens": {
+      "type": "select",
+      "label": "Dizaines",
+      "options": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
+      "default": "0",
+      "description": "Quadrant haut gauche du symbole."
+    },
+    "units": {
+      "type": "select",
+      "label": "Unites",
+      "options": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
+      "default": "0",
+      "description": "Quadrant haut droit du symbole."
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Valeur"
+    },
+    "svg": {
+      "type": "string",
+      "label": "Symbole SVG"
+    }
+  },
+  "metasolver": {
+    "eligible": true,
+    "input_charset": "digits",
+    "tags": ["numeral", "classic", "no_key"],
+    "priority": 25,
+    "family": "numeral_system",
+    "preferred_when": ["digits_only", "short_numeric"],
+    "supports_grouped_input": true
+  }
+}

@@ -6,11 +6,14 @@ import { injectable, inject } from '@theia/core/shared/inversify';
 import { CommandContribution, CommandRegistry, MenuContribution, MenuModelRegistry } from '@theia/core/lib/common';
 import {
     AbstractViewContribution,
+    ApplicationShell,
     FrontendApplicationContribution,
     FrontendApplication
 } from '@theia/core/lib/browser';
+import { WidgetManager } from '@theia/core/lib/browser/widget-manager';
 import { AlphabetsListWidget } from './alphabets-list-widget';
 import { AlphabetViewerWidget } from './alphabet-viewer-widget';
+import { CistercianNumeralsWidget } from './cistercian-numerals-widget';
 import { CommonMenus } from '@theia/core/lib/browser';
 import { AlphabetsCommands } from '../common/alphabet-protocol';
 import { AlphabetTabsManager } from './alphabet-tabs-manager';
@@ -24,7 +27,9 @@ export class AlphabetsListContribution
     implements FrontendApplicationContribution {
 
     constructor(
-        @inject(AlphabetTabsManager) protected readonly alphabetTabsManager: AlphabetTabsManager
+        @inject(AlphabetTabsManager) protected readonly alphabetTabsManager: AlphabetTabsManager,
+        @inject(WidgetManager) protected readonly widgetManager: WidgetManager,
+        @inject(ApplicationShell) protected readonly shell: ApplicationShell
     ) {
         super({
             widgetId: AlphabetsListWidget.ID,
@@ -53,6 +58,15 @@ export class AlphabetsListContribution
     async openAlphabetViewer(alphabetId: string): Promise<AlphabetViewerWidget> {
         console.log('AlphabetsListContribution: openAlphabetViewer called with:', alphabetId);
         return this.alphabetTabsManager.openAlphabet({ alphabetId });
+    }
+
+    async openCistercianTool(): Promise<CistercianNumeralsWidget> {
+        const widget = await this.widgetManager.getOrCreateWidget<CistercianNumeralsWidget>(CistercianNumeralsWidget.ID);
+        if (!widget.isAttached) {
+            this.shell.addWidget(widget, { area: 'main' });
+        }
+        this.shell.activateWidget(widget.id);
+        return widget;
     }
     
     /**
@@ -107,6 +121,10 @@ export class AlphabetsListContribution
                 }
             }
         });
+
+        registry.registerCommand(AlphabetsCommands.OPEN_CISTERCIAN, {
+            execute: async () => this.openCistercianTool()
+        });
     }
     
     /**
@@ -120,6 +138,11 @@ export class AlphabetsListContribution
             commandId: AlphabetsCommands.OPEN_LIST.id,
             label: 'Alphabets',
             order: '5'
+        });
+        menus.registerMenuAction(CommonMenus.VIEW_VIEWS, {
+            commandId: AlphabetsCommands.OPEN_CISTERCIAN.id,
+            label: 'Chiffres cisterciens',
+            order: '5.1'
         });
     }
 }

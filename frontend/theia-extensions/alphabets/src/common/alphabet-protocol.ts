@@ -158,6 +158,11 @@ export namespace AlphabetsCommands {
         label: 'Alphabets: Ouvrir un alphabet'
     };
     
+    export const OPEN_CISTERCIAN = {
+        id: 'alphabets.openCistercian',
+        label: 'Alphabets: Chiffres cisterciens'
+    };
+
     export const DISCOVER = {
         id: 'alphabets.discover',
         label: 'Alphabets: Redécouvrir les alphabets'
