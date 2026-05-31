@@ -1,0 +1,153 @@
+{
+  "name": "pikalang",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Interpreteur Pikalang/Pikachu pour geocaching : traduit les syllabes Pikalang en Brainfuck puis execute le programme.",
+  "author": "MysterAI Team",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": ["EsotericLanguages", "Programming", "Decoder"],
+  "kinds": ["code", "solver", "text"],
+  "brute_force": false,
+  "enable_scoring": true,
+  "accept_accents": false,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "text": {
+      "type": "textarea",
+      "label": "Code Pikalang ou texte",
+      "placeholder": "Decode: pi pi pi pikachu | Encode: texte clair ou programme Brainfuck",
+      "required": true,
+      "description": "En decode, collez un programme Pikalang. Les mots reconnus sont pi, ka, pipi, pichu, pika, chu, pikachu et pikapi."
+    },
+    "mode": {
+      "type": "select",
+      "label": "Action",
+      "options": ["decode", "encode", "detect"],
+      "default": "decode",
+      "required": true,
+      "description": "decode execute le Pikalang; encode genere du Pikalang; detect estime si l'entree ressemble a du Pikalang."
+    },
+    "encode_source": {
+      "type": "select",
+      "label": "Source de l'encodage",
+      "options": ["text", "brainfuck"],
+      "default": "text",
+      "description": "text genere un programme Pikalang qui affiche le texte; brainfuck traduit un programme Brainfuck existant en Pikalang."
+    },
+    "input_stream": {
+      "type": "textarea",
+      "label": "Entree stdin optionnelle",
+      "placeholder": "Texte lu par les instructions pikapi",
+      "default": "",
+      "description": "Utilise seulement en decode quand le programme contient pikapi."
+    },
+    "cell_mode": {
+      "type": "select",
+      "label": "Mode des cellules",
+      "options": ["8bit", "16bit", "unbounded"],
+      "default": "8bit"
+    },
+    "eof_behavior": {
+      "type": "select",
+      "label": "Fin de l'entree stdin",
+      "options": ["zero", "minus_one", "no_change"],
+      "default": "zero"
+    },
+    "output_format": {
+      "type": "select",
+      "label": "Format de sortie en decode",
+      "options": ["text", "ascii_codes", "both", "brainfuck"],
+      "default": "text",
+      "description": "brainfuck traduit seulement le Pikalang sans l'executer."
+    },
+    "token_separator": {
+      "type": "select",
+      "label": "Separateur des tokens en encode",
+      "options": ["space", "none", "newline"],
+      "default": "space",
+      "description": "space est recommande. Sans separateur, certains enchainements sont ambigus, par exemple pipi peut signifier pipi ou pi pi."
+    },
+    "tape_size": {
+      "type": "number",
+      "label": "Taille du ruban",
+      "default": 30000,
+      "min": 1,
+      "max": 1000000,
+      "step": 1
+    },
+    "max_steps": {
+      "type": "number",
+      "label": "Limite d'instructions",
+      "default": 1000000,
+      "min": 1,
+      "max": 10000000,
+      "step": 1
+    },
+    "output_limit": {
+      "type": "number",
+      "label": "Limite de sortie",
+      "default": 10000,
+      "min": 1,
+      "max": 100000,
+      "step": 1
+    },
+    "allow_tape_growth": {
+      "type": "boolean",
+      "label": "Autoriser l'extension du ruban",
+      "default": false
+    },
+    "strict": {
+      "type": "select",
+      "label": "Mode strict",
+      "options": ["strict", "smooth"],
+      "default": "smooth",
+      "description": "smooth ignore les espaces et les caracteres non reconnus; strict refuse tout token inconnu."
+    },
+    "enable_scoring": {
+      "type": "boolean",
+      "label": "Scoring (legacy)",
+      "default": true,
+      "hidden": true
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Resultat"
+    }
+  },
+  "text_handling": {
+    "fields": ["text", "input_stream"],
+    "allowed_ranges": ["0009-000D", "0020-007E", "00A0-00FF"],
+    "allowed_characters": "",
+    "unknown_char_policy": "warn_keep",
+    "normalize": {
+      "remove_diacritics": false,
+      "case": "preserve",
+      "map_characters": {}
+    }
+  },
+  "metasolver": {
+    "eligible": true,
+    "input_charset": "words",
+    "tags": ["esoteric", "programming", "no_key"],
+    "priority": 58,
+    "family": "esolang",
+    "preferred_when": ["words", "long_input"],
+    "supports_grouped_input": true
+  }
+}
