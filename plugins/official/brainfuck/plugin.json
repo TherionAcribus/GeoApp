@@ -1,0 +1,143 @@
+{
+  "name": "brainfuck",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Interpreteur Brainfuck pour enigmes de geocaching : execute le code vers du texte, avec garde-fous anti-boucle infinie.",
+  "author": "MysterAI Team",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": ["EsotericLanguages", "Programming", "Decoder"],
+  "kinds": ["code", "solver", "text"],
+  "brute_force": false,
+  "enable_scoring": true,
+  "accept_accents": true,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "text": {
+      "type": "textarea",
+      "label": "Programme Brainfuck ou texte",
+      "placeholder": "Decode: +++++[>+++++<-]>+. | Encode: texte clair a transformer en Brainfuck",
+      "required": true,
+      "description": "En decode, collez le programme Brainfuck. Les caracteres hors +-<>.,[] sont ignores en mode smooth. En encode, saisissez le texte clair."
+    },
+    "mode": {
+      "type": "select",
+      "label": "Action",
+      "options": ["decode", "encode", "detect"],
+      "default": "decode",
+      "required": true,
+      "description": "decode = execute le programme; encode = genere un programme Brainfuck simple; detect = estime si l'entree ressemble a du Brainfuck."
+    },
+    "input_stream": {
+      "type": "textarea",
+      "label": "Entree stdin optionnelle",
+      "placeholder": "Texte lu par les commandes , du programme",
+      "default": "",
+      "description": "Utilise seulement en decode quand le programme contient des virgules."
+    },
+    "cell_mode": {
+      "type": "select",
+      "label": "Mode des cellules",
+      "options": ["8bit", "16bit", "unbounded"],
+      "default": "8bit",
+      "description": "8bit est le comportement le plus courant pour les enigmes: les cellules bouclent de 0 a 255."
+    },
+    "eof_behavior": {
+      "type": "select",
+      "label": "Fin de l'entree stdin",
+      "options": ["zero", "minus_one", "no_change"],
+      "default": "zero",
+      "description": "Valeur appliquee sur une commande , quand il n'y a plus d'entree. zero convient a la plupart des programmes."
+    },
+    "output_format": {
+      "type": "select",
+      "label": "Format de sortie",
+      "options": ["text", "ascii_codes", "both"],
+      "default": "text",
+      "description": "text affiche la sortie du programme; ascii_codes aide si la sortie contient des caracteres invisibles."
+    },
+    "tape_size": {
+      "type": "number",
+      "label": "Taille du ruban",
+      "default": 30000,
+      "min": 1,
+      "max": 1000000,
+      "step": 1
+    },
+    "max_steps": {
+      "type": "number",
+      "label": "Limite d'instructions",
+      "default": 1000000,
+      "min": 1,
+      "max": 10000000,
+      "step": 1,
+      "description": "Stoppe l'execution si le programme boucle trop longtemps."
+    },
+    "output_limit": {
+      "type": "number",
+      "label": "Limite de sortie",
+      "default": 10000,
+      "min": 1,
+      "max": 100000,
+      "step": 1,
+      "description": "Stoppe l'execution si le programme produit trop de caracteres."
+    },
+    "allow_tape_growth": {
+      "type": "boolean",
+      "label": "Autoriser l'extension du ruban",
+      "default": false
+    },
+    "strict": {
+      "type": "select",
+      "label": "Mode strict",
+      "options": ["strict", "smooth"],
+      "default": "smooth",
+      "description": "smooth ignore les commentaires et autres caracteres; strict les refuse."
+    },
+    "enable_scoring": {
+      "type": "boolean",
+      "label": "Scoring (legacy)",
+      "default": true,
+      "hidden": true
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Resultat"
+    }
+  },
+  "text_handling": {
+    "fields": ["text", "input_stream"],
+    "allowed_ranges": ["0009-000D", "0020-007E", "00A0-00FF"],
+    "allowed_characters": "",
+    "unknown_char_policy": "warn_keep",
+    "normalize": {
+      "remove_diacritics": false,
+      "case": "preserve",
+      "map_characters": {}
+    }
+  },
+  "metasolver": {
+    "eligible": true,
+    "input_charset": "symbols",
+    "tags": ["esoteric", "programming", "no_key"],
+    "priority": 60,
+    "family": "esolang",
+    "preferred_when": ["symbols_only", "long_input"],
+    "supports_grouped_input": false
+  }
+}
