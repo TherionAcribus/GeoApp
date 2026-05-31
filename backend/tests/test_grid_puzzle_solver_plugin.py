@@ -55,6 +55,59 @@ def test_invalid_sudoku_reports_clear_error():
     assert "81 cases" in result["summary"]
 
 
+def test_sudoku_x_accepts_diagonal_solution():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "sudoku_x",
+            "grid": """
+                153872694
+                982164357
+                647953218
+                764219583
+                529738461
+                318645729
+                431586972
+                276391845
+                895427136
+            """,
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["unique"] is True
+    assert result["metadata"]["variant"] == "sudoku_x"
+    assert result["metadata"]["constraint_count"] == 29
+
+
+def test_sudoku_x_rejects_classic_grid_with_repeated_diagonal_values():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "sudoku_x",
+            "grid": """
+                534678912
+                672195348
+                198342567
+                859761423
+                426853791
+                713924856
+                961537284
+                287419635
+                345286179
+            """,
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+    assert result["summary"] == "Aucune solution compatible avec les contraintes"
+
+
 def test_watched_cells_are_extracted_in_requested_order():
     plugin = load_plugin()
 

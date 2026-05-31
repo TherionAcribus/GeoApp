@@ -9,6 +9,7 @@ import './style/grid-puzzle-workbench.css';
 
 type Grid = string[][];
 type WorkMode = 'edit' | 'watch';
+type SudokuVariant = 'sudoku_classic' | 'sudoku_x';
 
 const SIZE = 9;
 const EMPTY_GRID: Grid = Array.from({ length: SIZE }, () => Array(SIZE).fill(''));
@@ -147,6 +148,7 @@ function GridPuzzleWorkbenchApp({
 }: GridPuzzleWorkbenchAppProps): React.ReactElement {
     const [grid, setGrid] = React.useState<Grid>(() => emptyGrid());
     const [quickText, setQuickText] = React.useState('');
+    const [puzzleType, setPuzzleType] = React.useState<SudokuVariant>('sudoku_classic');
     const [watchCells, setWatchCells] = React.useState<string[]>([]);
     const [mode, setMode] = React.useState<WorkMode>('edit');
     const [maxSolutions, setMaxSolutions] = React.useState(2);
@@ -165,6 +167,7 @@ function GridPuzzleWorkbenchApp({
     const watchedValues = (solveState.result as any)?.watched_values as Record<string, string> | undefined;
     const watchedText = String((solveState.result as any)?.watched_text || '');
     const geocacheId = context?.geocacheId;
+    const variantLabel = puzzleType === 'sudoku_x' ? 'Sudoku X' : 'Sudoku classique';
     const contextLabel = context ? `${context.gcCode} - ${context.name}` : 'Mode libre';
 
     const markDirty = React.useCallback(() => {
@@ -211,7 +214,7 @@ function GridPuzzleWorkbenchApp({
 
         setPersistence(previous => ({ ...previous, loading: true, error: undefined }));
         try {
-            const response = await pluginsService.getPuzzleState(geocacheId, 'sudoku_classic', 'default');
+            const response = await pluginsService.getPuzzleState(geocacheId, puzzleType, 'default');
             if (response.state) {
                 applyStateSnapshot(response.state.state);
                 setPersistence({
@@ -237,7 +240,7 @@ function GridPuzzleWorkbenchApp({
                 error: error instanceof Error ? error.message : String(error),
             }));
         }
-    }, [applyStateSnapshot, geocacheId, pluginsService]);
+    }, [applyStateSnapshot, geocacheId, pluginsService, puzzleType]);
 
     React.useEffect(() => {
         void loadPersistedState();
@@ -252,11 +255,12 @@ function GridPuzzleWorkbenchApp({
         setPersistence(previous => ({ ...previous, saving: true, error: undefined }));
         try {
             const response = await pluginsService.savePuzzleState(geocacheId, {
-                puzzle_type: 'sudoku_classic',
+                puzzle_type: puzzleType,
                 state_key: 'default',
-                title: context?.gcCode ? `Sudoku ${context.gcCode}` : 'Sudoku',
+                title: context?.gcCode ? `${variantLabel} ${context.gcCode}` : variantLabel,
                 state: {
                     grid,
+                    puzzleType,
                     quickText,
                     watchCells,
                     maxSolutions,
@@ -286,9 +290,11 @@ function GridPuzzleWorkbenchApp({
         maxSolutions,
         messageService,
         pluginsService,
+        puzzleType,
         quickText,
         solveState.result,
         timeoutMs,
+        variantLabel,
         watchCells,
     ]);
 
@@ -374,6 +380,12 @@ function GridPuzzleWorkbenchApp({
         markDirty();
     }, [markDirty]);
 
+    const handlePuzzleTypeChange = React.useCallback((value: string) => {
+        setPuzzleType(value === 'sudoku_x' ? 'sudoku_x' : 'sudoku_classic');
+        setSolveState({ running: false });
+        markDirty();
+    }, [markDirty]);
+
     const clearGrid = React.useCallback(() => {
         setGridAndQuickText(emptyGrid());
         setWatchCells([]);
@@ -385,7 +397,7 @@ function GridPuzzleWorkbenchApp({
         setSolveState({ running: true });
         try {
             const result = await pluginsService.executePlugin('grid_puzzle_solver', {
-                puzzle_type: 'sudoku_classic',
+                puzzle_type: puzzleType,
                 grid: gridToText(grid),
                 watched_cells: watchCells.join(' '),
                 max_solutions: maxSolutions,
@@ -405,7 +417,7 @@ function GridPuzzleWorkbenchApp({
                 error: error instanceof Error ? error.message : String(error),
             });
         }
-    }, [geocacheId, grid, maxSolutions, pluginsService, saveState, timeoutMs, watchCells]);
+    }, [geocacheId, grid, maxSolutions, pluginsService, puzzleType, saveState, timeoutMs, watchCells]);
 
     const useSolvedGrid = React.useCallback(() => {
         if (solvedGrid) {
@@ -420,7 +432,7 @@ function GridPuzzleWorkbenchApp({
             <div className='grid-puzzle-toolbar'>
                 <div className='grid-puzzle-title'>
                     <h3>Atelier de grille</h3>
-                    <span>{contextLabel} - Sudoku classique, moteur Z3</span>
+                    <span>{contextLabel} - {variantLabel}, moteur Z3</span>
                 </div>
                 <div className='grid-puzzle-actions'>
                     <button className={mode === 'edit' ? 'active' : ''} onClick={() => setMode('edit')}>
@@ -429,6 +441,14 @@ function GridPuzzleWorkbenchApp({
                     <button className={mode === 'watch' ? 'active' : ''} onClick={() => setMode('watch')}>
                         Surveiller
                     </button>
+                    <select
+                        className='grid-puzzle-variant-select'
+                        value={puzzleType}
+                        onChange={event => handlePuzzleTypeChange(event.currentTarget.value)}
+                    >
+                        <option value='sudoku_classic'>Classique</option>
+                        <option value='sudoku_x'>Sudoku X</option>
+                    </select>
                     <button onClick={solve} disabled={solveState.running}>
                         {solveState.running ? 'Resolution...' : 'Resoudre'}
                     </button>
@@ -455,6 +475,7 @@ function GridPuzzleWorkbenchApp({
                                             'sudoku-cell',
                                             value ? 'given' : '',
                                             isWatched ? 'watched' : '',
+                                            puzzleType === 'sudoku_x' && (rowIndex === colIndex || rowIndex + colIndex === SIZE - 1) ? 'diagonal' : '',
                                             colIndex === 2 || colIndex === 5 ? 'block-right' : '',
                                             rowIndex === 2 || rowIndex === 5 ? 'block-bottom' : '',
                                         ].filter(Boolean).join(' ')}
@@ -496,6 +517,7 @@ function GridPuzzleWorkbenchApp({
                                                     'readonly',
                                                     grid[rowIndex][colIndex] ? 'given' : '',
                                                     watchCells.includes(ref) ? 'watched' : '',
+                                                    puzzleType === 'sudoku_x' && (rowIndex === colIndex || rowIndex + colIndex === SIZE - 1) ? 'diagonal' : '',
                                                     colIndex === 2 || colIndex === 5 ? 'block-right' : '',
                                                     rowIndex === 2 || rowIndex === 5 ? 'block-bottom' : '',
                                                 ].filter(Boolean).join(' ')}

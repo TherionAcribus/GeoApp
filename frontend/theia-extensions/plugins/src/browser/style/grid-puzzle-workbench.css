@@ -67,6 +67,15 @@
     outline-offset: 1px;
 }
 
+.grid-puzzle-variant-select {
+    min-height: 28px;
+    color: var(--theia-dropdown-foreground, var(--theia-input-foreground));
+    background: var(--theia-dropdown-background, var(--theia-input-background));
+    border: 1px solid var(--theia-dropdown-border, var(--theia-input-border, var(--theia-panel-border)));
+    border-radius: 4px;
+    padding: 4px 8px;
+}
+
 .grid-puzzle-layout {
     display: grid;
     grid-template-columns: minmax(320px, max-content) minmax(260px, 360px);
@@ -111,6 +120,14 @@
     color: var(--theia-editor-foreground);
     background: var(--theia-sideBar-background);
     font-weight: 700;
+}
+
+.sudoku-cell.diagonal {
+    background: color-mix(in srgb, var(--theia-input-background) 72%, #f59e0b);
+}
+
+.sudoku-cell.given.diagonal {
+    background: color-mix(in srgb, var(--theia-sideBar-background) 58%, #f59e0b);
 }
 
 .sudoku-cell.watched {

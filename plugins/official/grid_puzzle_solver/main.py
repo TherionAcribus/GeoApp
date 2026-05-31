@@ -79,7 +79,14 @@ class GridpuzzlesolverPlugin:
                     inputs.get("puzzle"),
                     inputs.get("text"),
                 )
-                problem = self._build_classic_sudoku_problem(puzzle_text)
+                problem = self._build_sudoku_problem(puzzle_text, include_diagonals=False)
+            elif puzzle_type in {"sudoku_x", "x_sudoku", "diagonal_sudoku"}:
+                puzzle_text = self._first_non_empty(
+                    inputs.get("grid"),
+                    inputs.get("puzzle"),
+                    inputs.get("text"),
+                )
+                problem = self._build_sudoku_problem(puzzle_text, include_diagonals=True)
             elif puzzle_type in {"custom", "custom_spec", "json_spec"}:
                 problem = self._build_custom_problem(inputs.get("spec"))
             else:
@@ -107,7 +114,7 @@ class GridpuzzlesolverPlugin:
     # Problem builders
     # ------------------------------------------------------------------
 
-    def _build_classic_sudoku_problem(self, puzzle_text: str) -> GridCspProblem:
+    def _build_sudoku_problem(self, puzzle_text: str, include_diagonals: bool) -> GridCspProblem:
         symbols = [str(value) for value in range(1, 10)]
         tokens = self._parse_sudoku_tokens(puzzle_text, symbols)
 
@@ -139,6 +146,14 @@ class GridpuzzlesolverPlugin:
                     )
                 )
 
+        if include_diagonals:
+            constraints.append(
+                GridConstraint("all_different", tuple((index, index) for index in range(9)))
+            )
+            constraints.append(
+                GridConstraint("all_different", tuple((index, 8 - index) for index in range(9)))
+            )
+
         return GridCspProblem(
             rows=9,
             cols=9,
@@ -147,7 +162,7 @@ class GridpuzzlesolverPlugin:
             givens=givens,
             constraints=constraints,
             numeric_values={symbol: int(symbol) for symbol in symbols},
-            variant="sudoku_classic",
+            variant="sudoku_x" if include_diagonals else "sudoku_classic",
         )
 
     def _build_custom_problem(self, raw_spec: Any) -> GridCspProblem:
