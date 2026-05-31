@@ -14,11 +14,14 @@ import { PluginExecutorWidget, GeocacheContext } from './plugin-executor-widget'
 import { CommonMenus } from '@theia/core/lib/browser';
 import { PluginToolsManager } from './plugin-tools-manager';
 import { PluginTabsManager } from './plugin-tabs-manager';
+import { GridPuzzleWorkbenchContribution } from './grid-puzzle-workbench-contribution';
 
 /**
  * Commandes disponibles pour l'extension Plugins.
  */
 export namespace PluginsCommands {
+    export const GRID_PUZZLE_SOLVER_PLUGIN = 'grid_puzzle_solver';
+
     export const OPEN_PLUGINS_BROWSER = {
         id: 'plugins.openBrowser',
         label: 'Plugins: Ouvrir le navigateur de plugins'
@@ -135,7 +138,8 @@ export class PluginsBrowserContribution extends AbstractViewContribution<Plugins
 export class PluginExecutorContribution extends AbstractViewContribution<PluginExecutorWidget> {
     
     constructor(
-        @inject(PluginTabsManager) protected readonly pluginTabsManager: PluginTabsManager
+        @inject(PluginTabsManager) protected readonly pluginTabsManager: PluginTabsManager,
+        @inject(GridPuzzleWorkbenchContribution) protected readonly gridPuzzleWorkbenchContribution: GridPuzzleWorkbenchContribution
     ) {
         super({
             widgetId: PluginExecutorWidget.ID,
@@ -168,6 +172,11 @@ export class PluginExecutorContribution extends AbstractViewContribution<PluginE
         forceDuplicate: boolean = false
     ): Promise<void> {
         console.log('[PluginExecutorContribution] openWithContext called', context, 'pluginName:', pluginName, 'autoExecute:', autoExecute, 'forceDuplicate:', forceDuplicate);
+        if (pluginName === PluginsCommands.GRID_PUZZLE_SOLVER_PLUGIN) {
+            await this.gridPuzzleWorkbenchContribution.openWithContext(context);
+            return;
+        }
+
         await this.pluginTabsManager.openForGeocache({
             context,
             pluginName,
@@ -181,6 +190,11 @@ export class PluginExecutorContribution extends AbstractViewContribution<PluginE
      * Utilisé quand l'utilisateur clique sur un plugin dans le PluginsBrowserWidget.
      */
     async openWithPlugin(pluginName: string): Promise<void> {
+        if (pluginName === PluginsCommands.GRID_PUZZLE_SOLVER_PLUGIN) {
+            await this.gridPuzzleWorkbenchContribution.openView({ activate: true });
+            return;
+        }
+
         await this.pluginTabsManager.openPlugin({ pluginName });
     }
 }

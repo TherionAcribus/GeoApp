@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import codecs
+import json
 from datetime import datetime, timezone
 
 from ..database import db
@@ -64,6 +65,7 @@ class Geocache(db.Model):
     notes = db.relationship('Note', secondary='geocache_note', back_populates='geocaches', lazy=True)
     images_v2 = db.relationship('GeocacheImage', back_populates='geocache', cascade='all, delete-orphan', lazy=True)
     observations = db.relationship('UserObservation', back_populates='geocache', cascade='all, delete-orphan', lazy=True)
+    puzzle_states = db.relationship('GeocachePuzzleState', back_populates='geocache', cascade='all, delete-orphan', lazy=True)
 
     def to_list_item(self) -> dict:
         return {
@@ -122,6 +124,47 @@ class Geocache(db.Model):
             'gc_personal_note': self.gc_personal_note,
             'gc_personal_note_synced_at': self.gc_personal_note_synced_at.isoformat() if self.gc_personal_note_synced_at else None,
             'gc_personal_note_last_pushed_at': self.gc_personal_note_last_pushed_at.isoformat() if self.gc_personal_note_last_pushed_at else None,
+        }
+
+
+class GeocachePuzzleState(db.Model):
+    __tablename__ = 'geocache_puzzle_state'
+
+    id = db.Column(db.Integer, primary_key=True)
+    geocache_id = db.Column(db.Integer, db.ForeignKey('geocache.id'), nullable=False, index=True)
+    puzzle_type = db.Column(db.String(80), nullable=False, default='sudoku_classic')
+    state_key = db.Column(db.String(120), nullable=False, default='default')
+    title = db.Column(db.String(255))
+    state_json = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    geocache = db.relationship('Geocache', back_populates='puzzle_states')
+
+    __table_args__ = (
+        db.UniqueConstraint('geocache_id', 'puzzle_type', 'state_key', name='unique_geocache_puzzle_state'),
+    )
+
+    def to_dict(self) -> dict:
+        try:
+            state = json.loads(self.state_json) if self.state_json else {}
+        except json.JSONDecodeError:
+            state = {}
+
+        return {
+            'id': self.id,
+            'geocache_id': self.geocache_id,
+            'puzzle_type': self.puzzle_type,
+            'state_key': self.state_key,
+            'title': self.title,
+            'state': state,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
 
 

@@ -16,6 +16,11 @@ import {
     PluginResult,
     PluginsStatus,
     PluginsService as IPluginsService,
+    PuzzleStateDeleteResponse,
+    PuzzleStateGetResponse,
+    PuzzleStateListResponse,
+    PuzzleStateSaveRequest,
+    PuzzleStateSaveResponse,
     MetasolverEligiblePluginsResponse,
     MetasolverRecommendationRequest,
     MetasolverRecommendationResponse,
@@ -124,6 +129,64 @@ export class PluginsServiceImpl implements IPluginsService {
     /**
      * Récupère le statut de tous les plugins.
      */
+    async listPuzzleStates(geocacheId: number): Promise<PuzzleStateListResponse> {
+        try {
+            const response = await this.client.get(`/api/geocaches/${geocacheId}/puzzle-states`);
+            return response.data;
+        } catch (error) {
+            console.error('Erreur lors de la recuperation des etats de grille:', error);
+            throw new Error(`Impossible de recuperer les etats de grille: ${this.getErrorMessage(error)}`);
+        }
+    }
+
+    async getPuzzleState(
+        geocacheId: number,
+        puzzleType: string = 'sudoku_classic',
+        stateKey: string = 'default'
+    ): Promise<PuzzleStateGetResponse> {
+        try {
+            const response = await this.client.get(`/api/geocaches/${geocacheId}/puzzle-states/current`, {
+                params: {
+                    puzzle_type: puzzleType,
+                    state_key: stateKey,
+                },
+            });
+            return response.data;
+        } catch (error) {
+            console.error('Erreur lors de la recuperation de l etat de grille:', error);
+            throw new Error(`Impossible de recuperer l etat de grille: ${this.getErrorMessage(error)}`);
+        }
+    }
+
+    async savePuzzleState(geocacheId: number, request: PuzzleStateSaveRequest): Promise<PuzzleStateSaveResponse> {
+        try {
+            const response = await this.client.put(`/api/geocaches/${geocacheId}/puzzle-states/current`, request);
+            return response.data;
+        } catch (error) {
+            console.error('Erreur lors de la sauvegarde de l etat de grille:', error);
+            throw new Error(`Impossible de sauvegarder l etat de grille: ${this.getErrorMessage(error)}`);
+        }
+    }
+
+    async deletePuzzleState(
+        geocacheId: number,
+        puzzleType: string = 'sudoku_classic',
+        stateKey: string = 'default'
+    ): Promise<PuzzleStateDeleteResponse> {
+        try {
+            const response = await this.client.delete(`/api/geocaches/${geocacheId}/puzzle-states/current`, {
+                params: {
+                    puzzle_type: puzzleType,
+                    state_key: stateKey,
+                },
+            });
+            return response.data;
+        } catch (error) {
+            console.error('Erreur lors de la suppression de l etat de grille:', error);
+            throw new Error(`Impossible de supprimer l etat de grille: ${this.getErrorMessage(error)}`);
+        }
+    }
+
     async getPluginsStatus(): Promise<PluginsStatus> {
         try {
             const response = await this.client.get('/api/plugins/status');

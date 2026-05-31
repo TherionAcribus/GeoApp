@@ -6,6 +6,7 @@ import { ApplicationShell, ConfirmDialog, StatefulWidget } from '@theia/core/lib
 import { CommandService } from '@theia/core';
 import { LanguageModelRegistry, LanguageModelService } from '@theia/ai-core';
 import { PluginExecutorContribution } from '@mysterai/theia-plugins/lib/browser/plugins-contribution';
+import { GridPuzzleWorkbenchContribution } from '@mysterai/theia-plugins/lib/browser/grid-puzzle-workbench-contribution';
 import { GeocacheContext } from '@mysterai/theia-plugins/lib/browser/plugin-executor-widget';
 import { FormulaSolverSolveFromGeocacheCommand } from '@mysterai/theia-formula-solver/lib/browser/formula-solver-contribution';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
@@ -127,6 +128,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         @inject(MessageService) protected readonly messages: MessageService,
         @inject(ApplicationShell) protected readonly shell: ApplicationShell,
         @inject(PluginExecutorContribution) protected readonly pluginExecutorContribution: PluginExecutorContribution,
+        @inject(GridPuzzleWorkbenchContribution) protected readonly gridPuzzleWorkbenchContribution: GridPuzzleWorkbenchContribution,
         @inject(CommandService) protected readonly commandService: CommandService,
         @inject(PreferenceService) protected readonly preferenceService: PreferenceService,
         @inject(LanguageModelRegistry) protected readonly languageModelRegistry: LanguageModelRegistry,
@@ -582,6 +584,15 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         }
 
         void this.pluginExecutorContribution.openWithContext(context, 'metasolver', false);
+    };
+
+    protected openGridPuzzleWorkbench = (): void => {
+        const context = this.buildPluginExecutorContext();
+        if (!context) {
+            return;
+        }
+
+        void this.gridPuzzleWorkbenchContribution.openWithContext(context);
     };
 
     private buildPluginExecutorContext(): GeocacheContext | undefined {
@@ -1233,6 +1244,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                     onAnalyzePage: this.analyzePage,
                     onAnalyzeCode: this.analyzeCode,
                     onAnalyzeWithPlugins: this.analyzeWithPlugins,
+                    onOpenGridPuzzle: this.openGridPuzzleWorkbench,
                     onOpenAiChat: this.openGeocacheAIChat,
                     onOpenFreeChat: this.openFreeChatDialog,
                     onToggleChatProfileMenu: this.toggleChatProfileMenu,

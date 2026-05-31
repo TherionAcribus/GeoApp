@@ -46,6 +46,7 @@ interface GeocacheDetailsHeaderProps {
     onAnalyzePage: () => void | Promise<void>;
     onAnalyzeCode: () => void | Promise<void>;
     onAnalyzeWithPlugins: () => void | Promise<void>;
+    onOpenGridPuzzle: () => void | Promise<void>;
     onOpenAiChat: () => void | Promise<void>;
     onOpenFreeChat: () => void | Promise<void>;
     onToggleChatProfileMenu: (event: React.MouseEvent<HTMLButtonElement>) => void;
@@ -76,6 +77,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
     onAnalyzePage,
     onAnalyzeCode,
     onAnalyzeWithPlugins,
+    onOpenGridPuzzle,
     onOpenAiChat,
     onOpenFreeChat,
     onToggleChatProfileMenu,
@@ -111,6 +113,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
         { label: 'Analyse page', icon: '📄', title: 'Lancer l\'analyse complete de la page', action: () => { void onAnalyzePage(); } },
         { label: 'Analyse code', icon: '🔍', title: 'Analyser le texte avec Metasolver', action: () => { void onAnalyzeCode(); } },
         { label: 'Analyse plugins', icon: '🧩', title: 'Analyser cette geocache avec les plugins', action: () => { void onAnalyzeWithPlugins(); } },
+        { label: 'Grilles', icon: '#', title: 'Ouvrir l atelier de grilles pour cette geocache', action: () => { void onOpenGridPuzzle(); } },
         ...extraActions.map(action => ({
             label: action.label,
             icon: '⚡',
@@ -185,6 +188,15 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                         </div>
                     )}
                 </div>
+
+                <button
+                    className='theia-button secondary'
+                    onClick={() => { void onOpenGridPuzzle(); }}
+                    style={toolbarBtnStyle}
+                    title='Ouvrir l atelier de grilles pour cette geocache'
+                >
+                    # Grilles
+                </button>
 
                 {/* Separator */}
                 <div style={{ width: 1, height: 20, background: 'var(--theia-panel-border)', margin: '0 2px' }} />

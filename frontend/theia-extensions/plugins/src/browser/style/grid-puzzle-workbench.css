@@ -1,0 +1,254 @@
+.grid-puzzle-workbench {
+    box-sizing: border-box;
+    height: 100%;
+    overflow: auto;
+    padding: 14px;
+    color: var(--theia-foreground);
+    background: var(--theia-editor-background);
+}
+
+.grid-puzzle-workbench * {
+    box-sizing: border-box;
+}
+
+.grid-puzzle-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.grid-puzzle-title h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.grid-puzzle-title span,
+.grid-puzzle-hint,
+.empty-state {
+    color: var(--theia-descriptionForeground);
+    font-size: 12px;
+}
+
+.grid-puzzle-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.grid-puzzle-actions.inline {
+    margin-top: 8px;
+}
+
+.grid-puzzle-workbench button {
+    min-height: 28px;
+    padding: 4px 10px;
+    color: var(--theia-button-foreground);
+    background: var(--theia-button-background);
+    border: 1px solid var(--theia-button-border, transparent);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.grid-puzzle-workbench button:hover {
+    background: var(--theia-button-hoverBackground);
+}
+
+.grid-puzzle-workbench button:disabled {
+    cursor: default;
+    opacity: 0.55;
+}
+
+.grid-puzzle-workbench button.active {
+    outline: 2px solid var(--theia-focusBorder);
+    outline-offset: 1px;
+}
+
+.grid-puzzle-layout {
+    display: grid;
+    grid-template-columns: minmax(320px, max-content) minmax(260px, 360px);
+    gap: 18px;
+    align-items: start;
+}
+
+.grid-puzzle-main {
+    min-width: 0;
+}
+
+.sudoku-board {
+    display: grid;
+    grid-template-columns: repeat(9, 44px);
+    grid-template-rows: repeat(9, 44px);
+    width: max-content;
+    border: 2px solid var(--theia-foreground);
+    background: var(--theia-panel-border);
+}
+
+.sudoku-cell {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    text-align: center;
+    color: var(--theia-input-foreground);
+    background: var(--theia-input-background);
+    border: 1px solid var(--theia-panel-border);
+    font-size: 19px;
+    font-weight: 500;
+}
+
+.sudoku-cell.block-right {
+    border-right: 3px solid var(--theia-foreground);
+}
+
+.sudoku-cell.block-bottom {
+    border-bottom: 3px solid var(--theia-foreground);
+}
+
+.sudoku-cell.given {
+    color: var(--theia-editor-foreground);
+    background: var(--theia-sideBar-background);
+    font-weight: 700;
+}
+
+.sudoku-cell.watched {
+    box-shadow: inset 0 0 0 3px var(--theia-focusBorder);
+}
+
+.sudoku-cell.readonly {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.sudoku-board.solved {
+    margin-top: 8px;
+}
+
+.grid-puzzle-hint {
+    max-width: 420px;
+    margin-top: 8px;
+}
+
+.grid-puzzle-side {
+    display: grid;
+    gap: 14px;
+    min-width: 0;
+}
+
+.grid-puzzle-side section,
+.grid-puzzle-solution {
+    display: grid;
+    gap: 8px;
+    padding: 10px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editorWidget-background, var(--theia-editor-background));
+}
+
+.grid-puzzle-section-title {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    align-items: center;
+}
+
+.grid-puzzle-side textarea {
+    width: 100%;
+    min-height: 140px;
+    resize: vertical;
+    color: var(--theia-input-foreground);
+    background: var(--theia-input-background);
+    border: 1px solid var(--theia-input-border, var(--theia-panel-border));
+    border-radius: 4px;
+    padding: 8px;
+    font-family: var(--theia-code-font-family);
+}
+
+.grid-puzzle-side label {
+    display: grid;
+    gap: 4px;
+    font-size: 12px;
+}
+
+.grid-puzzle-side input[type='number'] {
+    width: 100%;
+    color: var(--theia-input-foreground);
+    background: var(--theia-input-background);
+    border: 1px solid var(--theia-input-border, var(--theia-panel-border));
+    border-radius: 4px;
+    padding: 5px 7px;
+}
+
+.watch-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.watch-list button {
+    color: var(--theia-foreground);
+    background: var(--theia-input-background);
+    border-color: var(--theia-focusBorder);
+}
+
+.watched-output {
+    display: grid;
+    gap: 4px;
+    padding-top: 6px;
+    border-top: 1px solid var(--theia-panel-border);
+}
+
+.watched-output span {
+    color: var(--theia-descriptionForeground);
+    font-size: 12px;
+}
+
+.watched-output code {
+    width: 100%;
+    overflow-wrap: anywhere;
+    color: var(--theia-textPreformat-foreground, var(--theia-foreground));
+    background: var(--theia-textCodeBlock-background, var(--theia-input-background));
+    border-radius: 4px;
+    padding: 6px;
+}
+
+.grid-puzzle-error {
+    color: var(--theia-errorForeground);
+    white-space: pre-wrap;
+}
+
+.grid-puzzle-status {
+    color: var(--theia-descriptionForeground);
+}
+
+.grid-puzzle-muted {
+    color: var(--theia-descriptionForeground);
+    font-size: 11px;
+}
+
+@media (max-width: 820px) {
+    .grid-puzzle-toolbar,
+    .grid-puzzle-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .grid-puzzle-toolbar {
+        display: grid;
+    }
+
+    .sudoku-board {
+        grid-template-columns: repeat(9, minmax(30px, 1fr));
+        grid-template-rows: repeat(9, minmax(30px, 1fr));
+        width: 100%;
+        max-width: 420px;
+    }
+
+    .sudoku-cell {
+        width: 100%;
+        height: auto;
+        aspect-ratio: 1;
+    }
+}

@@ -20,9 +20,12 @@ import { BatchPluginExecutorWidget } from './batch-plugin-executor-widget';
 import { PluginsBrowserContribution, PluginExecutorContribution, PluginsFrontendApplicationContribution } from './plugins-contribution';
 import { PluginToolsManager } from './plugin-tools-manager';
 import { PluginTabsManager } from './plugin-tabs-manager';
+import { GridPuzzleWorkbenchWidget } from './grid-puzzle-workbench-widget';
+import { GridPuzzleWorkbenchContribution } from './grid-puzzle-workbench-contribution';
 
 import './style/plugins-browser.css';
 import './style/plugin-executor.css';
+import './style/grid-puzzle-workbench.css';
 
 console.log('[MYSTERAI] Loading plugins-frontend-module...');
 
@@ -61,6 +64,13 @@ export default new ContainerModule(bind => {
         id: BatchPluginExecutorWidget.ID,
         createWidget: () => ctx.container.get<BatchPluginExecutorWidget>(BatchPluginExecutorWidget)
     })).inSingletonScope();
+
+    // Widget atelier de grilles
+    bind(GridPuzzleWorkbenchWidget).toSelf();
+    bind(WidgetFactory).toDynamicValue(ctx => ({
+        id: GridPuzzleWorkbenchWidget.ID,
+        createWidget: () => ctx.container.get<GridPuzzleWorkbenchWidget>(GridPuzzleWorkbenchWidget)
+    })).inSingletonScope();
     
     // Gestionnaire centralisé des onglets de Plugin Executor
     bind(PluginTabsManager).toSelf().inSingletonScope().onActivation((context, manager) => {
@@ -76,6 +86,8 @@ export default new ContainerModule(bind => {
     bindViewContribution(bind, PluginsBrowserContribution);
     
     bindViewContribution(bind, PluginExecutorContribution);
+
+    bindViewContribution(bind, GridPuzzleWorkbenchContribution);
     
     bind(FrontendApplicationContribution).to(PluginsFrontendApplicationContribution).inSingletonScope();
     bind(PluginToolsManager).toSelf().inSingletonScope();

@@ -675,6 +675,47 @@ export interface PluginInputs {
     [key: string]: any;
 }
 
+export interface PuzzleStateRecord {
+    id: number;
+    geocache_id: number;
+    puzzle_type: string;
+    state_key: string;
+    title?: string | null;
+    state: Record<string, any>;
+    created_at?: string | null;
+    updated_at?: string | null;
+}
+
+export interface PuzzleStateListResponse {
+    geocache_id: number;
+    states: PuzzleStateRecord[];
+}
+
+export interface PuzzleStateGetResponse {
+    geocache_id: number;
+    puzzle_type: string;
+    state_key: string;
+    state: PuzzleStateRecord | null;
+}
+
+export interface PuzzleStateSaveRequest {
+    puzzle_type?: string;
+    state_key?: string;
+    title?: string;
+    state: Record<string, any>;
+}
+
+export interface PuzzleStateSaveResponse {
+    geocache_id: number;
+    created: boolean;
+    state: PuzzleStateRecord;
+}
+
+export interface PuzzleStateDeleteResponse {
+    geocache_id: number;
+    deleted: boolean;
+}
+
 /**
  * Statut des plugins (retourné par /api/plugins/status).
  */
@@ -719,6 +760,11 @@ export interface PluginsService {
      * Exécute un plugin de manière synchrone.
      */
     executePlugin(name: string, inputs: PluginInputs, signal?: AbortSignal): Promise<PluginResult>;
+
+    listPuzzleStates(geocacheId: number): Promise<PuzzleStateListResponse>;
+    getPuzzleState(geocacheId: number, puzzleType?: string, stateKey?: string): Promise<PuzzleStateGetResponse>;
+    savePuzzleState(geocacheId: number, request: PuzzleStateSaveRequest): Promise<PuzzleStateSaveResponse>;
+    deletePuzzleState(geocacheId: number, puzzleType?: string, stateKey?: string): Promise<PuzzleStateDeleteResponse>;
     
     /**
      * Récupère le statut de tous les plugins.

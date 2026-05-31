@@ -1,0 +1,101 @@
+{
+  "name": "grid_puzzle_solver",
+  "version": "0.1.0",
+  "plugin_api_version": "2.0",
+  "description": "Solveur Z3 pour grilles de logique. Premiere variante: Sudoku classique.",
+  "author": "MysterAI",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": ["z3-solver"],
+  "categories": ["Solver", "Mystery"],
+  "kinds": ["solver", "analyze"],
+  "brute_force": false,
+  "enable_scoring": false,
+  "accept_accents": false,
+  "heavy_cpu": true,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": false
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "puzzle_type": {
+      "type": "select",
+      "label": "Type de grille",
+      "options": [
+        {"value": "sudoku_classic", "label": "Sudoku classique"},
+        {"value": "custom_spec", "label": "Spec JSON generique"}
+      ],
+      "default": "sudoku_classic",
+      "description": "Sudoku classique utilise une grille 9x9. Spec JSON permet de decrire une grille CSP finie."
+    },
+    "grid": {
+      "type": "textarea",
+      "label": "Grille",
+      "placeholder": "530070000\n600195000\n098000060\n800060003\n400803001\n700020006\n060000280\n000419005\n000080079",
+      "required": false,
+      "description": "Pour Sudoku: 81 cases avec 0, ., _ pour les cases vides. Les espaces, pipes et separateurs de lignes sont ignores."
+    },
+    "spec": {
+      "type": "textarea",
+      "label": "Spec JSON",
+      "placeholder": "{\"rows\":9,\"cols\":9,\"symbols\":[\"1\",\"2\",\"3\",\"4\",\"5\",\"6\",\"7\",\"8\",\"9\"],\"givens\":{\"r1c1\":\"5\"},\"constraints\":[]}",
+      "required": false,
+      "description": "Spec optionnelle pour de futures variantes: dimensions, symboles, cellules actives, valeurs donnees, regions et contraintes."
+    },
+    "max_solutions": {
+      "type": "number",
+      "label": "Solutions max",
+      "default": 2,
+      "min": 1,
+      "max": 25,
+      "step": 1,
+      "description": "2 permet de verifier l'unicite du Sudoku sans enumerer trop de solutions."
+    },
+    "solver_timeout_ms": {
+      "type": "number",
+      "label": "Timeout Z3 (ms)",
+      "default": 10000,
+      "min": 1000,
+      "max": 30000,
+      "step": 1000,
+      "description": "Limite interne du solveur Z3 pour eviter les grilles trop ouvertes."
+    },
+    "watched_cells": {
+      "type": "textarea",
+      "label": "Cellules surveillees",
+      "default": "",
+      "required": false,
+      "description": "References de cellules a extraire apres resolution, separees par espaces, virgules ou retours ligne. Exemple: r1c1 r1c2 r9c9."
+    },
+    "text": {
+      "type": "textarea",
+      "label": "Texte source",
+      "required": false,
+      "hidden": true,
+      "default_value_source": "geocache_description",
+      "description": "Champ cache utilise pour pre-remplir depuis une geocache si aucune grille explicite n'est fournie."
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Solution"
+    },
+    "grid": {
+      "type": "object",
+      "label": "Grille resolue"
+    },
+    "metadata": {
+      "type": "object",
+      "label": "Details de resolution"
+    }
+  }
+}
