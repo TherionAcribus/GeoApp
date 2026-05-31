@@ -1,14 +1,14 @@
 {
   "name": "wherigo_reverse_decoder",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "plugin_api_version": "2.0",
-  "description": "Décodage des codes Wherigo Reverse (trois nombres de 6 chiffres) et conversion en coordonnées GPS au format Geocaching.",
+  "description": "Decodage des codes Wherigo Reverse (trois nombres de 6 chiffres) et conversion en coordonnees GPS au format Geocaching.",
   "author": "MysterAI Team",
   "plugin_type": "python",
   "entry_point": "main.py",
   "dependencies": [],
   "categories": ["Geolocation", "Mystery", "Coordinates"],
-  "kinds": ["decode", "coordinates"],
+  "kinds": ["geo", "solver", "code"],
   "brute_force": false,
   "enable_scoring": true,
   "accept_accents": false,
@@ -29,27 +29,56 @@
     "text": {
       "type": "textarea",
       "label": "Texte contenant les nombres",
-      "placeholder": "Collez les trois nombres de 6 chiffres (e.g. 123456 654321 987654)",
+      "placeholder": "Collez les trois nombres de 6 chiffres, ex: 123456 654321 987654",
       "required": true,
-      "default_value_source": "geocache_description"
+      "default_value_source": "geocache_description",
+      "description": "Le Wherigo Reverse fournit trois nombres de 6 chiffres. Ils peuvent etre seuls ou integres dans le listing."
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": ["decode", "detect"],
+      "default": "decode",
+      "required": true,
+      "description": "decode convertit les trois nombres en coordonnees; detect verifie seulement si le texte contient un code compatible."
     },
     "strict": {
       "type": "checkbox",
-      "label": "Mode strict (exactement 6 chiffres)",
+      "label": "Mode strict",
       "default": true,
-      "description": "Active la détection stricte des nombres (exactement 6 chiffres séparés par des espaces)."
+      "description": "Cherche des nombres exactement longs de 6 chiffres. En mode non strict, les sequences de 6 chiffres peuvent etre collees au reste du texte."
     },
     "embedded": {
       "type": "checkbox",
-      "label": "Code intégré dans du texte",
+      "label": "Code integre dans du texte",
       "default": true,
-      "description": "Permet de détecter les codes Wherigo Reverse enfouis dans un texte plus long."
+      "description": "Permet de detecter les trois nombres meme s'ils sont enfouis dans une description de cache."
     }
   },
   "output_types": {
     "text_output": {
       "type": "string",
-      "label": "Coordonnées décodées"
+      "label": "Coordonnees decodees"
     }
+  },
+  "text_handling": {
+    "fields": ["text"],
+    "allowed_ranges": ["0030-0039"],
+    "allowed_characters": " \t\r\n.,;:-_",
+    "unknown_char_policy": "warn_keep",
+    "normalize": {
+      "remove_diacritics": false,
+      "case": "preserve",
+      "map_characters": {}
+    }
+  },
+  "metasolver": {
+    "eligible": true,
+    "input_charset": "digits",
+    "tags": ["geo", "coordinates", "no_key"],
+    "priority": 80,
+    "family": "wherigo_reverse",
+    "preferred_when": ["digits_only", "grouped_input"],
+    "supports_grouped_input": true
   }
 }
