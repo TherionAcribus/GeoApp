@@ -7,6 +7,9 @@ Generic finite-domain grid solver powered by Z3.
 - `sudoku_classic`: classic 9x9 Sudoku.
 - `sudoku_x`: classic 9x9 Sudoku plus both main diagonals as all-different
   regions. The interactive UI highlights those diagonals in orange.
+- `sudoku_center_dot`: classic 9x9 Sudoku plus the nine center cells of the
+  3x3 boxes as an extra all-different region. The interactive UI marks those
+  cells with a green dot.
 - Empty cells can be written as `0`, `.`, or `_`.
 - Separators such as spaces, pipes, and row divider lines are ignored.
 
@@ -49,7 +52,7 @@ the Theia "Grilles" workbench:
 
 - cell-by-cell entry for givens;
 - quick paste textarea for fast Sudoku import;
-- variant selector for classic Sudoku and Sudoku X;
+- variant selector for classic Sudoku, Sudoku X and Center Dot;
 - watch mode to mark answer cells;
 - solve action calling this plugin;
 - extracted watched values returned as `watched_values` and `watched_text`.

@@ -79,14 +79,36 @@ class GridpuzzlesolverPlugin:
                     inputs.get("puzzle"),
                     inputs.get("text"),
                 )
-                problem = self._build_sudoku_problem(puzzle_text, include_diagonals=False)
+                problem = self._build_sudoku_problem(
+                    puzzle_text,
+                    include_diagonals=False,
+                    include_center_dot=False,
+                    variant="sudoku_classic",
+                )
             elif puzzle_type in {"sudoku_x", "x_sudoku", "diagonal_sudoku"}:
                 puzzle_text = self._first_non_empty(
                     inputs.get("grid"),
                     inputs.get("puzzle"),
                     inputs.get("text"),
                 )
-                problem = self._build_sudoku_problem(puzzle_text, include_diagonals=True)
+                problem = self._build_sudoku_problem(
+                    puzzle_text,
+                    include_diagonals=True,
+                    include_center_dot=False,
+                    variant="sudoku_x",
+                )
+            elif puzzle_type in {"sudoku_center_dot", "center_dot", "centerdot_sudoku"}:
+                puzzle_text = self._first_non_empty(
+                    inputs.get("grid"),
+                    inputs.get("puzzle"),
+                    inputs.get("text"),
+                )
+                problem = self._build_sudoku_problem(
+                    puzzle_text,
+                    include_diagonals=False,
+                    include_center_dot=True,
+                    variant="sudoku_center_dot",
+                )
             elif puzzle_type in {"custom", "custom_spec", "json_spec"}:
                 problem = self._build_custom_problem(inputs.get("spec"))
             else:
@@ -114,7 +136,13 @@ class GridpuzzlesolverPlugin:
     # Problem builders
     # ------------------------------------------------------------------
 
-    def _build_sudoku_problem(self, puzzle_text: str, include_diagonals: bool) -> GridCspProblem:
+    def _build_sudoku_problem(
+        self,
+        puzzle_text: str,
+        include_diagonals: bool,
+        include_center_dot: bool,
+        variant: str,
+    ) -> GridCspProblem:
         symbols = [str(value) for value in range(1, 10)]
         tokens = self._parse_sudoku_tokens(puzzle_text, symbols)
 
@@ -154,6 +182,14 @@ class GridpuzzlesolverPlugin:
                 GridConstraint("all_different", tuple((index, 8 - index) for index in range(9)))
             )
 
+        if include_center_dot:
+            constraints.append(
+                GridConstraint(
+                    "all_different",
+                    tuple((row, col) for row in (1, 4, 7) for col in (1, 4, 7)),
+                )
+            )
+
         return GridCspProblem(
             rows=9,
             cols=9,
@@ -162,7 +198,7 @@ class GridpuzzlesolverPlugin:
             givens=givens,
             constraints=constraints,
             numeric_values={symbol: int(symbol) for symbol in symbols},
-            variant="sudoku_x" if include_diagonals else "sudoku_classic",
+            variant=variant,
         )
 
     def _build_custom_problem(self, raw_spec: Any) -> GridCspProblem:

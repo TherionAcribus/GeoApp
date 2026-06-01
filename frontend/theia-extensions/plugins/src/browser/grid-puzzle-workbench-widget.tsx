@@ -9,7 +9,7 @@ import './style/grid-puzzle-workbench.css';
 
 type Grid = string[][];
 type WorkMode = 'edit' | 'watch';
-type SudokuVariant = 'sudoku_classic' | 'sudoku_x';
+type SudokuVariant = 'sudoku_classic' | 'sudoku_x' | 'sudoku_center_dot';
 
 const SIZE = 9;
 const EMPTY_GRID: Grid = Array.from({ length: SIZE }, () => Array(SIZE).fill(''));
@@ -42,6 +42,20 @@ function cloneGrid(grid: Grid): Grid {
 
 function cellRef(row: number, col: number): string {
     return `r${row + 1}c${col + 1}`;
+}
+
+function getVariantLabel(puzzleType: SudokuVariant): string {
+    if (puzzleType === 'sudoku_x') {
+        return 'Sudoku X';
+    }
+    if (puzzleType === 'sudoku_center_dot') {
+        return 'Center Dot';
+    }
+    return 'Sudoku classique';
+}
+
+function isCenterDotCell(row: number, col: number): boolean {
+    return row % 3 === 1 && col % 3 === 1;
 }
 
 function emptyGrid(): Grid {
@@ -167,7 +181,7 @@ function GridPuzzleWorkbenchApp({
     const watchedValues = (solveState.result as any)?.watched_values as Record<string, string> | undefined;
     const watchedText = String((solveState.result as any)?.watched_text || '');
     const geocacheId = context?.geocacheId;
-    const variantLabel = puzzleType === 'sudoku_x' ? 'Sudoku X' : 'Sudoku classique';
+    const variantLabel = getVariantLabel(puzzleType);
     const contextLabel = context ? `${context.gcCode} - ${context.name}` : 'Mode libre';
 
     const markDirty = React.useCallback(() => {
@@ -381,7 +395,10 @@ function GridPuzzleWorkbenchApp({
     }, [markDirty]);
 
     const handlePuzzleTypeChange = React.useCallback((value: string) => {
-        setPuzzleType(value === 'sudoku_x' ? 'sudoku_x' : 'sudoku_classic');
+        const nextPuzzleType = value === 'sudoku_x' || value === 'sudoku_center_dot'
+            ? value
+            : 'sudoku_classic';
+        setPuzzleType(nextPuzzleType);
         setSolveState({ running: false });
         markDirty();
     }, [markDirty]);
@@ -448,6 +465,7 @@ function GridPuzzleWorkbenchApp({
                     >
                         <option value='sudoku_classic'>Classique</option>
                         <option value='sudoku_x'>Sudoku X</option>
+                        <option value='sudoku_center_dot'>Center Dot</option>
                     </select>
                     <button onClick={solve} disabled={solveState.running}>
                         {solveState.running ? 'Resolution...' : 'Resoudre'}
@@ -476,6 +494,7 @@ function GridPuzzleWorkbenchApp({
                                             value ? 'given' : '',
                                             isWatched ? 'watched' : '',
                                             puzzleType === 'sudoku_x' && (rowIndex === colIndex || rowIndex + colIndex === SIZE - 1) ? 'diagonal' : '',
+                                            puzzleType === 'sudoku_center_dot' && isCenterDotCell(rowIndex, colIndex) ? 'center-dot' : '',
                                             colIndex === 2 || colIndex === 5 ? 'block-right' : '',
                                             rowIndex === 2 || rowIndex === 5 ? 'block-bottom' : '',
                                         ].filter(Boolean).join(' ')}
@@ -518,6 +537,7 @@ function GridPuzzleWorkbenchApp({
                                                     grid[rowIndex][colIndex] ? 'given' : '',
                                                     watchCells.includes(ref) ? 'watched' : '',
                                                     puzzleType === 'sudoku_x' && (rowIndex === colIndex || rowIndex + colIndex === SIZE - 1) ? 'diagonal' : '',
+                                                    puzzleType === 'sudoku_center_dot' && isCenterDotCell(rowIndex, colIndex) ? 'center-dot' : '',
                                                     colIndex === 2 || colIndex === 5 ? 'block-right' : '',
                                                     rowIndex === 2 || rowIndex === 5 ? 'block-bottom' : '',
                                                 ].filter(Boolean).join(' ')}

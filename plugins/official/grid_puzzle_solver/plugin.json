@@ -2,7 +2,7 @@
   "name": "grid_puzzle_solver",
   "version": "0.1.0",
   "plugin_api_version": "2.0",
-  "description": "Solveur Z3 pour grilles de logique. Variantes actuelles: Sudoku classique et Sudoku X.",
+  "description": "Solveur Z3 pour grilles de logique. Variantes actuelles: Sudoku classique, Sudoku X et Center Dot.",
   "author": "MysterAI",
   "plugin_type": "python",
   "entry_point": "main.py",
@@ -32,10 +32,11 @@
       "options": [
         {"value": "sudoku_classic", "label": "Sudoku classique"},
         {"value": "sudoku_x", "label": "Sudoku X"},
+        {"value": "sudoku_center_dot", "label": "Center Dot"},
         {"value": "custom_spec", "label": "Spec JSON generique"}
       ],
       "default": "sudoku_classic",
-      "description": "Sudoku classique utilise une grille 9x9. Sudoku X ajoute les deux diagonales principales sans doublons. Spec JSON permet de decrire une grille CSP finie."
+      "description": "Sudoku classique utilise une grille 9x9. Sudoku X ajoute les deux diagonales principales sans doublons. Center Dot ajoute la region des centres de blocs 3x3. Spec JSON permet de decrire une grille CSP finie."
     },
     "grid": {
       "type": "textarea",
