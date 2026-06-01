@@ -15,6 +15,7 @@ Les objectifs actuels sont :
 - resoudre un Sudoku X avec contraintes sur les deux diagonales principales ;
 - resoudre un Sudoku Center Dot avec une extra-region formee par les centres
   des 9 blocs 3x3 ;
+- resoudre un Windoku avec quatre extra-regions 3x3 ;
 - permettre une saisie interactive dans une grille Theia ;
 - synchroniser une saisie rapide textuelle avec la grille ;
 - extraire des cellules surveillees pour aider a construire une reponse
@@ -120,6 +121,7 @@ Valeurs supportees pour `puzzle_type` :
 | `sudoku_classic` | `sudoku`, `classic_sudoku` | Sudoku 9x9 standard. |
 | `sudoku_x` | `x_sudoku`, `diagonal_sudoku` | Sudoku standard + diagonales principales sans doublons. |
 | `sudoku_center_dot` | `center_dot`, `centerdot_sudoku` | Sudoku standard + extra-region des centres de blocs 3x3. |
+| `sudoku_windoku` | `windoku`, `hyper_sudoku`, `four_box_sudoku` | Sudoku standard + quatre extra-regions 3x3. |
 | `custom_spec` | `custom`, `json_spec` | Probleme CSP decrit en JSON. |
 
 Format de grille Sudoku :
@@ -417,6 +419,41 @@ Total :
 Dans l'atelier Theia, les cases Center Dot sont marquees par un point vert
 quand la variante `Center Dot` est selectionnee.
 
+### Windoku
+
+`puzzle_type = sudoku_windoku`
+
+Alias :
+
+```text
+windoku
+hyper_sudoku
+four_box_sudoku
+```
+
+Contraintes :
+
+- toutes les contraintes du Sudoku classique ;
+- quatre regions supplementaires 3x3 en `all_different`.
+
+Extra-regions 1-based :
+
+```text
+r2c2 -> r4c4
+r2c6 -> r4c8
+r6c2 -> r8c4
+r6c6 -> r8c8
+```
+
+Total :
+
+```text
+31 contraintes
+```
+
+Dans l'atelier Theia, les quatre regions Windoku sont teintees et encadrees
+en violet quand la variante `Windoku` est selectionnee.
+
 ## Specification generique `custom_spec`
 
 Le mode `custom_spec` accepte une specification JSON.
@@ -532,9 +569,10 @@ Fonctionnalites actuelles :
 - mode `Saisie` ;
 - mode `Surveiller` ;
 - `Ctrl+clic` pour surveiller une cellule en mode saisie ;
-- choix de variante `Classique` / `Sudoku X` / `Center Dot` ;
+- choix de variante `Classique` / `Sudoku X` / `Center Dot` / `Windoku` ;
 - diagonales orange en mode Sudoku X ;
 - points verts sur les centres de blocs en mode Center Dot ;
+- regions violettes en mode Windoku ;
 - affichage de la premiere solution ;
 - reprise de la solution dans la grille ;
 - extraction des cellules surveillees ;
@@ -546,7 +584,7 @@ Fonctionnalites actuelles :
 |---|---|---|
 | `grid` | `string[][]` | Valeurs courantes de la grille. |
 | `quickText` | `string` | Representation texte de la grille. |
-| `puzzleType` | `sudoku_classic`, `sudoku_x` ou `sudoku_center_dot` | Variante active. |
+| `puzzleType` | `sudoku_classic`, `sudoku_x`, `sudoku_center_dot` ou `sudoku_windoku` | Variante active. |
 | `watchCells` | `string[]` | Cellules surveillees au format `r1c1`. |
 | `mode` | `edit` ou `watch` | Mode d'interaction. |
 | `maxSolutions` | number | Limite d'enumeration. |
@@ -784,6 +822,8 @@ Couverture actuelle :
 - grille classique complete refusee en Sudoku X ;
 - Center Dot valide ;
 - grille classique complete refusee en Center Dot ;
+- Windoku valide ;
+- grille classique complete refusee en Windoku ;
 - extraction des cellules surveillees ;
 - spec generique type Latin square.
 

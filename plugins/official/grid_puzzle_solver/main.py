@@ -83,6 +83,7 @@ class GridpuzzlesolverPlugin:
                     puzzle_text,
                     include_diagonals=False,
                     include_center_dot=False,
+                    include_windoku=False,
                     variant="sudoku_classic",
                 )
             elif puzzle_type in {"sudoku_x", "x_sudoku", "diagonal_sudoku"}:
@@ -95,6 +96,7 @@ class GridpuzzlesolverPlugin:
                     puzzle_text,
                     include_diagonals=True,
                     include_center_dot=False,
+                    include_windoku=False,
                     variant="sudoku_x",
                 )
             elif puzzle_type in {"sudoku_center_dot", "center_dot", "centerdot_sudoku"}:
@@ -107,7 +109,21 @@ class GridpuzzlesolverPlugin:
                     puzzle_text,
                     include_diagonals=False,
                     include_center_dot=True,
+                    include_windoku=False,
                     variant="sudoku_center_dot",
+                )
+            elif puzzle_type in {"sudoku_windoku", "windoku", "hyper_sudoku", "four_box_sudoku"}:
+                puzzle_text = self._first_non_empty(
+                    inputs.get("grid"),
+                    inputs.get("puzzle"),
+                    inputs.get("text"),
+                )
+                problem = self._build_sudoku_problem(
+                    puzzle_text,
+                    include_diagonals=False,
+                    include_center_dot=False,
+                    include_windoku=True,
+                    variant="sudoku_windoku",
                 )
             elif puzzle_type in {"custom", "custom_spec", "json_spec"}:
                 problem = self._build_custom_problem(inputs.get("spec"))
@@ -141,6 +157,7 @@ class GridpuzzlesolverPlugin:
         puzzle_text: str,
         include_diagonals: bool,
         include_center_dot: bool,
+        include_windoku: bool,
         variant: str,
     ) -> GridCspProblem:
         symbols = [str(value) for value in range(1, 10)]
@@ -189,6 +206,20 @@ class GridpuzzlesolverPlugin:
                     tuple((row, col) for row in (1, 4, 7) for col in (1, 4, 7)),
                 )
             )
+
+        if include_windoku:
+            for region_row in (1, 5):
+                for region_col in (1, 5):
+                    constraints.append(
+                        GridConstraint(
+                            "all_different",
+                            tuple(
+                                (row, col)
+                                for row in range(region_row, region_row + 3)
+                                for col in range(region_col, region_col + 3)
+                            ),
+                        )
+                    )
 
         return GridCspProblem(
             rows=9,

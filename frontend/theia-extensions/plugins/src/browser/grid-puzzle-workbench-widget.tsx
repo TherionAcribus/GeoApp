@@ -9,7 +9,7 @@ import './style/grid-puzzle-workbench.css';
 
 type Grid = string[][];
 type WorkMode = 'edit' | 'watch';
-type SudokuVariant = 'sudoku_classic' | 'sudoku_x' | 'sudoku_center_dot';
+type SudokuVariant = 'sudoku_classic' | 'sudoku_x' | 'sudoku_center_dot' | 'sudoku_windoku';
 
 const SIZE = 9;
 const EMPTY_GRID: Grid = Array.from({ length: SIZE }, () => Array(SIZE).fill(''));
@@ -51,11 +51,31 @@ function getVariantLabel(puzzleType: SudokuVariant): string {
     if (puzzleType === 'sudoku_center_dot') {
         return 'Center Dot';
     }
+    if (puzzleType === 'sudoku_windoku') {
+        return 'Windoku';
+    }
     return 'Sudoku classique';
 }
 
 function isCenterDotCell(row: number, col: number): boolean {
     return row % 3 === 1 && col % 3 === 1;
+}
+
+function isWindokuCell(row: number, col: number): boolean {
+    return ((row >= 1 && row <= 3) || (row >= 5 && row <= 7))
+        && ((col >= 1 && col <= 3) || (col >= 5 && col <= 7));
+}
+
+function getWindokuBoundaryClasses(row: number, col: number): string[] {
+    if (!isWindokuCell(row, col)) {
+        return [];
+    }
+    return [
+        row === 1 || row === 5 ? 'windoku-top' : '',
+        row === 3 || row === 7 ? 'windoku-bottom' : '',
+        col === 1 || col === 5 ? 'windoku-left' : '',
+        col === 3 || col === 7 ? 'windoku-right' : '',
+    ].filter(Boolean);
 }
 
 function emptyGrid(): Grid {
@@ -395,7 +415,9 @@ function GridPuzzleWorkbenchApp({
     }, [markDirty]);
 
     const handlePuzzleTypeChange = React.useCallback((value: string) => {
-        const nextPuzzleType = value === 'sudoku_x' || value === 'sudoku_center_dot'
+        const nextPuzzleType = value === 'sudoku_x'
+            || value === 'sudoku_center_dot'
+            || value === 'sudoku_windoku'
             ? value
             : 'sudoku_classic';
         setPuzzleType(nextPuzzleType);
@@ -466,6 +488,7 @@ function GridPuzzleWorkbenchApp({
                         <option value='sudoku_classic'>Classique</option>
                         <option value='sudoku_x'>Sudoku X</option>
                         <option value='sudoku_center_dot'>Center Dot</option>
+                        <option value='sudoku_windoku'>Windoku</option>
                     </select>
                     <button onClick={solve} disabled={solveState.running}>
                         {solveState.running ? 'Resolution...' : 'Resoudre'}
@@ -495,6 +518,8 @@ function GridPuzzleWorkbenchApp({
                                             isWatched ? 'watched' : '',
                                             puzzleType === 'sudoku_x' && (rowIndex === colIndex || rowIndex + colIndex === SIZE - 1) ? 'diagonal' : '',
                                             puzzleType === 'sudoku_center_dot' && isCenterDotCell(rowIndex, colIndex) ? 'center-dot' : '',
+                                            puzzleType === 'sudoku_windoku' && isWindokuCell(rowIndex, colIndex) ? 'windoku' : '',
+                                            ...(puzzleType === 'sudoku_windoku' ? getWindokuBoundaryClasses(rowIndex, colIndex) : []),
                                             colIndex === 2 || colIndex === 5 ? 'block-right' : '',
                                             rowIndex === 2 || rowIndex === 5 ? 'block-bottom' : '',
                                         ].filter(Boolean).join(' ')}
@@ -538,6 +563,8 @@ function GridPuzzleWorkbenchApp({
                                                     watchCells.includes(ref) ? 'watched' : '',
                                                     puzzleType === 'sudoku_x' && (rowIndex === colIndex || rowIndex + colIndex === SIZE - 1) ? 'diagonal' : '',
                                                     puzzleType === 'sudoku_center_dot' && isCenterDotCell(rowIndex, colIndex) ? 'center-dot' : '',
+                                                    puzzleType === 'sudoku_windoku' && isWindokuCell(rowIndex, colIndex) ? 'windoku' : '',
+                                                    ...(puzzleType === 'sudoku_windoku' ? getWindokuBoundaryClasses(rowIndex, colIndex) : []),
                                                     colIndex === 2 || colIndex === 5 ? 'block-right' : '',
                                                     rowIndex === 2 || rowIndex === 5 ? 'block-bottom' : '',
                                                 ].filter(Boolean).join(' ')}

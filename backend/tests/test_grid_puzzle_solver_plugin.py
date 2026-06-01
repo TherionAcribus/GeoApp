@@ -161,6 +161,59 @@ def test_center_dot_rejects_grid_with_repeated_box_center_values():
     assert result["summary"] == "Aucune solution compatible avec les contraintes"
 
 
+def test_windoku_accepts_solution_with_unique_extra_boxes():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "sudoku_windoku",
+            "grid": """
+                325476981
+                146398275
+                789521643
+                472165398
+                961783524
+                853249167
+                214637859
+                597812436
+                638954712
+            """,
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["unique"] is True
+    assert result["metadata"]["variant"] == "sudoku_windoku"
+    assert result["metadata"]["constraint_count"] == 31
+
+
+def test_windoku_rejects_grid_with_repeated_extra_box_values():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "sudoku_windoku",
+            "grid": """
+                534678912
+                672195348
+                198342567
+                859761423
+                426853791
+                713924856
+                961537284
+                287419635
+                345286179
+            """,
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+    assert result["summary"] == "Aucune solution compatible avec les contraintes"
+
+
 def test_watched_cells_are_extracted_in_requested_order():
     plugin = load_plugin()
 

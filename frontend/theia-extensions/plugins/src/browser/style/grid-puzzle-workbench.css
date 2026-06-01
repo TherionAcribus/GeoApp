@@ -142,6 +142,30 @@
         color-mix(in srgb, var(--theia-sideBar-background) 72%, #22c55e);
 }
 
+.sudoku-cell.windoku {
+    background: color-mix(in srgb, var(--theia-input-background) 78%, #8b5cf6);
+}
+
+.sudoku-cell.given.windoku {
+    background: color-mix(in srgb, var(--theia-sideBar-background) 64%, #8b5cf6);
+}
+
+.sudoku-cell.windoku-top {
+    border-top: 3px solid #8b5cf6;
+}
+
+.sudoku-cell.windoku-bottom {
+    border-bottom: 3px solid #8b5cf6;
+}
+
+.sudoku-cell.windoku-left {
+    border-left: 3px solid #8b5cf6;
+}
+
+.sudoku-cell.windoku-right {
+    border-right: 3px solid #8b5cf6;
+}
+
 .sudoku-cell.watched {
     box-shadow: inset 0 0 0 3px var(--theia-focusBorder);
 }
