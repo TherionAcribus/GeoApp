@@ -100,6 +100,9 @@ export class FormulaSolverWidget extends ReactWidget {
     protected answerDetails: Map<string, AnswerDetail> = new Map();
     protected expandedDetailLetters: Set<string> = new Set();
 
+    // Global answering loading state (for bulk operations)
+    protected isAnsweringLoading: boolean = false;
+
     // Type de calcul global pour les valeurs
     protected globalValueType: 'value' | 'checksum' | 'reduced' | 'length' | 'custom' = 'value';
 
@@ -952,6 +955,25 @@ export class FormulaSolverWidget extends ReactWidget {
                 currentStep: 'values'
             });
 
+            // Auto-lancer les réponses IA si le mode est configuré pour IA et moteur = IA
+            const shouldAutoAnswer = this.answersEngine === 'ai' &&
+                (this.stepConfig.answersMode === 'ai-bulk' || this.stepConfig.answersMode === 'ai-per-question');
+            console.log('[FORMULA-SOLVER] Auto-answer check:', {
+                answersEngine: this.answersEngine,
+                answersMode: this.stepConfig.answersMode,
+                shouldAutoAnswer,
+                questionsCount: allQuestions.length
+            });
+            if (shouldAutoAnswer && allQuestions.length > 0) {
+                console.log('[FORMULA-SOLVER] Auto-lancement des réponses IA après extraction des questions');
+                // Petit délai pour laisser l'UI se mettre à jour
+                setTimeout(() => {
+                    void this.answerAllQuestions({ overwrite: false });
+                }, 100);
+            } else {
+                console.log('[FORMULA-SOLVER] Auto-answer skipped: engine=' + this.answersEngine + ', mode=' + this.stepConfig.answersMode);
+            }
+
             // Recalculer automatiquement si toutes les valeurs sont présentes
             this.tryAutoCalculateOrBruteForce();
         } catch (error) {
@@ -984,6 +1006,8 @@ export class FormulaSolverWidget extends ReactWidget {
         console.log('[FORMULA-SOLVER] runQuestionsStep start', {
             requestId,
             method,
+            answersEngine: this.answersEngine,
+            answersMode: this.stepConfig.answersMode,
             geocacheId: this.state.geocacheId,
             gcCode: this.state.gcCode
         });
@@ -1042,6 +1066,22 @@ export class FormulaSolverWidget extends ReactWidget {
                 values,
                 currentStep: 'values'
             });
+
+            // Auto-lancer les réponses IA si le mode est configuré pour IA et moteur = IA
+            const shouldAutoAnswer = this.answersEngine === 'ai' &&
+                (this.stepConfig.answersMode === 'ai-bulk' || this.stepConfig.answersMode === 'ai-per-question');
+            console.log('[FORMULA-SOLVER] Auto-answer check (runQuestionsStep):', {
+                answersEngine: this.answersEngine,
+                answersMode: this.stepConfig.answersMode,
+                shouldAutoAnswer,
+                questionsCount: questions.length
+            });
+            if (shouldAutoAnswer && questions.length > 0) {
+                console.log('[FORMULA-SOLVER] Auto-lancement des réponses IA après extraction des questions');
+                setTimeout(() => {
+                    void this.answerAllQuestions({ overwrite: false });
+                }, 100);
+            }
         } catch (error) {
             if (requestId !== this.questionsRequestId) {
                 return;
@@ -1138,9 +1178,26 @@ export class FormulaSolverWidget extends ReactWidget {
         // Si le mode est 'manual', utiliser 'ai-per-question' par défaut pour le bulk
         const effectiveMode = this.stepConfig.answersMode === 'manual' ? 'ai-per-question' : this.stepConfig.answersMode;
 
+        this.isAnsweringLoading = true;
         this.updateState({ loading: true, error: undefined });
         try {
             const allQuestionsByLetter = this.getQuestionsByLetter();
+
+            // Callback pour mise à jour progressive (streaming)
+            const onAnswer = effectiveMode === 'ai-per-question' ? (letter: string, answer: string, detail: AnswerDetail) => {
+                // Mettre à jour le détail
+                this.answerDetails.set(letter, detail);
+
+                // Mettre à jour la valeur si on doit la remplir
+                const existing = this.state.values.get(letter);
+                const shouldFill = overwrite || !existing || !existing.rawValue || existing.rawValue.trim() === '';
+                if (shouldFill && answer && answer.trim()) {
+                    const aiValueType = detail.valueType;
+                    const type = aiValueType || existing?.type || this.globalValueType;
+                    this.updateValue(letter, answer, type);
+                }
+            } : undefined;
+
             const result = await this.pipeline.answerQuestions({
                 text: this.state.text || '',
                 questionsByLetter,
@@ -1156,30 +1213,34 @@ export class FormulaSolverWidget extends ReactWidget {
                 aiProfile: this.stepConfig.aiProfileForAnswers,
                 perQuestionProfile: this.perQuestionProfiles,
                 webMaxResults: this.webMaxResults,
-                webContext: (this.state.text || '').substring(0, 200)
+                webContext: (this.state.text || '').substring(0, 200),
+                onAnswer
             });
 
-            // Store answer details first so we can use valueType
-            if (result.detailsByLetter) {
+            // Store answer details (pour les modes non-streaming)
+            if (result.detailsByLetter && effectiveMode !== 'ai-per-question') {
                 result.detailsByLetter.forEach((detail, letter) => {
                     this.answerDetails.set(letter, detail);
                 });
             }
 
-            result.answersByLetter.forEach((answer, letter) => {
-                const existing = this.state.values.get(letter);
-                const shouldFill = overwrite || !existing || !existing.rawValue || existing.rawValue.trim() === '';
-                if (!shouldFill) {
-                    return;
-                }
+            // Mettre à jour les valeurs (pour les modes non-streaming, car en streaming c'est déjà fait)
+            if (effectiveMode !== 'ai-per-question') {
+                result.answersByLetter.forEach((answer, letter) => {
+                    const existing = this.state.values.get(letter);
+                    const shouldFill = overwrite || !existing || !existing.rawValue || existing.rawValue.trim() === '';
+                    if (!shouldFill) {
+                        return;
+                    }
 
-                if (answer && answer.trim()) {
-                    // Use valueType from AI if available
-                    const aiValueType = result.detailsByLetter?.get(letter)?.valueType;
-                    const type = aiValueType || existing?.type || this.globalValueType;
-                    this.updateValue(letter, answer, type);
-                }
-            });
+                    if (answer && answer.trim()) {
+                        // Use valueType from AI if available
+                        const aiValueType = result.detailsByLetter?.get(letter)?.valueType;
+                        const type = aiValueType || existing?.type || this.globalValueType;
+                        this.updateValue(letter, answer, type);
+                    }
+                });
+            }
 
             const filled = Array.from(result.answersByLetter.values()).filter(v => v && v.trim()).length;
             this.messageService.info(`Réponses obtenues: ${filled}/${questionsByLetter.size}`);
@@ -1189,6 +1250,7 @@ export class FormulaSolverWidget extends ReactWidget {
             this.messageService.error(`Erreur réponses: ${message}`);
             this.updateState({ error: message });
         } finally {
+            this.isAnsweringLoading = false;
             this.updateState({ loading: false });
         }
     }
@@ -2356,12 +2418,16 @@ export class FormulaSolverWidget extends ReactWidget {
                                 border: 'none',
                                 borderRadius: '4px',
                                 cursor: 'pointer',
-                                fontSize: '12px'
+                                fontSize: '12px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px'
                             }}
                             onClick={() => void this.answerAllQuestions({ overwrite: false })}
                             disabled={this.state.loading}
                             title="Remplit automatiquement les champs vides via IA ou recherche web"
                         >
+                            {this.isAnsweringLoading ? <span className="formula-solver-spinner" style={{ width: '12px', height: '12px', margin: 0 }} /> : null}
                             Répondre (auto)
                         </button>
                         <button
@@ -2372,13 +2438,86 @@ export class FormulaSolverWidget extends ReactWidget {
                                 border: 'none',
                                 borderRadius: '4px',
                                 cursor: 'pointer',
-                                fontSize: '12px'
+                                fontSize: '12px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px'
                             }}
                             onClick={() => void this.answerAllQuestions({ overwrite: true })}
                             disabled={this.state.loading}
                             title="Écrase les champs existants via IA ou recherche web"
                         >
+                            {this.isAnsweringLoading ? <span className="formula-solver-spinner" style={{ width: '12px', height: '12px', margin: 0 }} /> : null}
                             Répondre (écraser)
+                        </button>
+
+                        <button
+                            style={{
+                                padding: '6px 10px',
+                                backgroundColor: 'var(--theia-button-secondaryBackground)',
+                                color: 'var(--theia-button-secondaryForeground)',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                                fontSize: '12px'
+                            }}
+                            onClick={() => void this.answerAllQuestions({ overwrite: false })}
+                            disabled={this.state.loading}
+                            title="Relance l'étape Réponses avec le mode et moteur sélectionnés (ne remplit que les champs vides)"
+                        >
+                            Rejouer réponses
+                        </button>
+
+                        <button
+                            style={{
+                                padding: '6px 10px',
+                                backgroundColor: 'var(--theia-button-secondaryBackground)',
+                                color: 'var(--theia-button-secondaryForeground)',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                                fontSize: '12px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px'
+                            }}
+                            onClick={() => {
+                                this.answersEngine = 'ai';
+                                void this.answerAllQuestions({ overwrite: true });
+                            }}
+                            disabled={this.state.loading}
+                            title="Force le mode IA pour répondre (écrase tout)"
+                        >
+                            {this.isAnsweringLoading && this.answersEngine === 'ai' ? (
+                                <span className="formula-solver-spinner" style={{ width: '12px', height: '12px', margin: 0 }} />
+                            ) : null}
+                            Réponses (IA)
+                        </button>
+
+                        <button
+                            style={{
+                                padding: '6px 10px',
+                                backgroundColor: 'var(--theia-button-secondaryBackground)',
+                                color: 'var(--theia-button-secondaryForeground)',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                                fontSize: '12px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px'
+                            }}
+                            onClick={() => {
+                                this.answersEngine = 'backend-web-search';
+                                void this.answerAllQuestions({ overwrite: true });
+                            }}
+                            disabled={this.state.loading}
+                            title="Force la recherche web backend pour répondre (écrase tout)"
+                        >
+                            {this.isAnsweringLoading && this.answersEngine === 'backend-web-search' ? (
+                                <span className="formula-solver-spinner" style={{ width: '12px', height: '12px', margin: 0 }} />
+                            ) : null}
+                            Réponses (Web)
                         </button>
                     </div>
 

@@ -49,6 +49,10 @@ export class AiPerQuestionAnswering implements AnsweringStrategy {
                 const webResult = await this._answerWithWebSearch(letter, question, context, preparedContext);
                 answersByLetter.set(letter, webResult.answer);
                 detailsByLetter.set(letter, webResult.detail);
+                // Appeler le callback de progression si fourni
+                if (context.onAnswer) {
+                    context.onAnswer(letter, webResult.answer, webResult.detail);
+                }
                 continue;
             }
 
@@ -66,14 +70,20 @@ export class AiPerQuestionAnswering implements AnsweringStrategy {
             }, profile);
             answersByLetter.set(letter, result.answer);
 
-            detailsByLetter.set(letter, {
+            const detail: AnswerDetail = {
                 answer: result.answer,
                 source: 'ai',
                 profile,
                 explanation: result.explanation || undefined,
                 valueType: (result.valueType as ValueType) || undefined,
                 timestampMs: Date.now()
-            });
+            };
+            detailsByLetter.set(letter, detail);
+
+            // Appeler le callback de progression si fourni
+            if (context.onAnswer) {
+                context.onAnswer(letter, result.answer, detail);
+            }
         }
 
         return {

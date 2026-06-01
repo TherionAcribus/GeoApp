@@ -46,6 +46,11 @@ export interface AnswerQuestionsParams {
     perQuestionProfile?: Map<string, FormulaSolverAiProfile>;
     webMaxResults?: number;
     webContext?: string;
+    /**
+     * Callback appelé pour chaque réponse au fur et à mesure (mode streaming/progressif).
+     * Seulement pour le mode 'ai-per-question'.
+     */
+    onAnswer?: (letter: string, answer: string, detail: import('./strategies/types').AnswerDetail) => void;
 }
 
 @injectable()
@@ -142,7 +147,8 @@ export class FormulaSolverPipeline {
                 perQuestionProfile: params.perQuestionProfile,
                 preparedContextOverride: params.preparedContextOverride,
                 additionalInstructions: params.additionalInstructions,
-                perLetterExtraInfo: params.perLetterExtraInfo
+                perLetterExtraInfo: params.perLetterExtraInfo,
+                onAnswer: params.onAnswer
             });
         }
 

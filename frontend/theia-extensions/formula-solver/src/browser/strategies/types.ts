@@ -53,6 +53,11 @@ export interface AnsweringContext {
     preparedContextOverride?: PreparedAnsweringContext;
     additionalInstructions?: string;
     perLetterExtraInfo?: Record<string, string>;
+
+    /**
+     * Callback appelé pour chaque réponse au fur et à mesure (mode streaming/progressif).
+     */
+    onAnswer?: (letter: string, answer: string, detail: AnswerDetail) => void;
 }
 
 export type ValueType = 'value' | 'checksum' | 'reduced' | 'length' | 'custom';
