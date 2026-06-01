@@ -55,11 +55,14 @@ export interface AnsweringContext {
     perLetterExtraInfo?: Record<string, string>;
 }
 
+export type ValueType = 'value' | 'checksum' | 'reduced' | 'length' | 'custom';
+
 export interface AnswerDetail {
     answer: string;
     source: 'ai' | 'web' | 'manual';
     profile?: FormulaSolverAiProfile;
     explanation?: string;
+    valueType?: ValueType;
     webResults?: Array<{
         text?: string;
         source?: string;

@@ -359,7 +359,7 @@ INSTRUCTIONS:
             per_letter_rules: Record<string, string>;
         };
         extraUserInfo?: string;
-    }, profile: FormulaSolverAiProfile = 'fast'): Promise<{ answer: string; explanation: string }> {
+    }, profile: FormulaSolverAiProfile = 'fast'): Promise<{ answer: string; explanation: string; valueType: string }> {
         const rule = params.context.per_letter_rules?.[params.letter] || '';
         const rulesText = [
             ...(params.context.global_rules || []),
@@ -382,16 +382,31 @@ ${extraBlock}
 Question:
 ${params.letter}: ${params.question}
 
-INSTRUCTIONS:
+INSTRUCTIONS IMPORTANTES:
 - Réponds uniquement pour la lettre ${params.letter}.
+- TRÈS IMPORTANT: NE FAIS PAS de calcul toi-même (checksum, nombre de lettres, etc.). Le calcul sera fait automatiquement par le logiciel.
+- Tu dois retourner la RÉPONSE BRUTE (le mot, le nom, le texte, l'année, le nombre...) et indiquer quel type de calcul doit être appliqué.
+- Types de calcul possibles pour "valueType":
+  - "value" : la réponse est directement un nombre ou une valeur numérique (année, quantité, etc.). Pas de calcul à faire.
+  - "checksum" : la question demande un checksum (somme des chiffres, ou somme des positions alphabétiques A=1..Z=26).
+  - "reduced" : la question demande un checksum réduit (somme itérative jusqu'à un seul chiffre).
+  - "length" : la question demande le nombre de lettres / la longueur du mot.
+- Exemples:
+  - Question "Capitale de la France en checksum ?" → réponse "Paris", valueType "checksum"
+  - Question "Nombre de lettres du prénom de Voltaire ?" → réponse "François-Marie", valueType "length"
+  - Question "En quelle année est née Marie Curie ?" → réponse "1867", valueType "value"
+  - Question "Checksum réduit du nom de l'inventeur de la radio ?" → réponse "Marconi", valueType "reduced"
 - Retourne UNIQUEMENT un JSON strict sans texte autour, avec cette forme:
-{ "${params.letter}": "<réponse>", "explanation": "<explication courte de ton raisonnement et de la source de ta réponse>" }`;
+{ "${params.letter}": "<réponse brute>", "valueType": "<value|checksum|reduced|length>", "explanation": "<explication courte de ton raisonnement et de la source de ta réponse>" }`;
 
         const response = await this.callLLM(prompt, `reponse-${params.letter}`, profile);
         const parsed = (this.extractJsonObject(response) as any) || {};
+        const rawValueType = String(parsed?.valueType || 'value').toLowerCase().trim();
+        const validTypes = ['value', 'checksum', 'reduced', 'length'];
         return {
             answer: String(parsed?.[params.letter] || ''),
-            explanation: String(parsed?.explanation || '')
+            explanation: String(parsed?.explanation || ''),
+            valueType: validTypes.includes(rawValueType) ? rawValueType : 'value'
         };
     }
 

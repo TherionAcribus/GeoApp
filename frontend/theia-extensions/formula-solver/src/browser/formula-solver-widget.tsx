@@ -1179,6 +1179,13 @@ export class FormulaSolverWidget extends ReactWidget {
                 webContext: (this.state.text || '').substring(0, 200)
             });
 
+            // Store answer details first so we can use valueType
+            if (result.detailsByLetter) {
+                result.detailsByLetter.forEach((detail, letter) => {
+                    this.answerDetails.set(letter, detail);
+                });
+            }
+
             result.answersByLetter.forEach((answer, letter) => {
                 const existing = this.state.values.get(letter);
                 const shouldFill = overwrite || !existing || !existing.rawValue || existing.rawValue.trim() === '';
@@ -1187,17 +1194,12 @@ export class FormulaSolverWidget extends ReactWidget {
                 }
 
                 if (answer && answer.trim()) {
-                    const type = existing?.type || this.globalValueType;
+                    // Use valueType from AI if available
+                    const aiValueType = result.detailsByLetter?.get(letter)?.valueType;
+                    const type = aiValueType || existing?.type || this.globalValueType;
                     this.updateValue(letter, answer, type);
                 }
             });
-
-            // Store answer details
-            if (result.detailsByLetter) {
-                result.detailsByLetter.forEach((detail, letter) => {
-                    this.answerDetails.set(letter, detail);
-                });
-            }
 
             const filled = Array.from(result.answersByLetter.values()).filter(v => v && v.trim()).length;
             this.messageService.info(`Réponses obtenues: ${filled}/${questionsByLetter.size}`);
@@ -1251,15 +1253,18 @@ export class FormulaSolverWidget extends ReactWidget {
             const answer = result.answersByLetter.get(letter) || '';
             const existing = this.state.values.get(letter);
             const shouldFill = overwrite || !existing || !existing.rawValue || existing.rawValue.trim() === '';
-            if (shouldFill && answer.trim()) {
-                const type = existing?.type || this.globalValueType;
-                this.updateValue(letter, answer, type);
-            }
 
             // Store answer detail
             const detail = result.detailsByLetter?.get(letter);
             if (detail) {
                 this.answerDetails.set(letter, detail);
+            }
+
+            if (shouldFill && answer.trim()) {
+                // Use valueType from AI if available, otherwise keep existing type
+                const aiValueType = detail?.valueType;
+                const type = aiValueType || existing?.type || this.globalValueType;
+                this.updateValue(letter, answer, type);
             }
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Erreur inconnue';
@@ -2732,6 +2737,19 @@ export class FormulaSolverWidget extends ReactWidget {
                                                         }}>
                                                             {detail.source === 'ai' ? `IA (${detail.profile || '?'})` : 'Internet'}
                                                         </span>
+                                                        {detail.valueType && detail.valueType !== 'value' && (
+                                                            <span style={{
+                                                                padding: '2px 6px',
+                                                                borderRadius: '3px',
+                                                                fontSize: '11px',
+                                                                backgroundColor: 'var(--theia-editor-background)',
+                                                                border: '1px solid var(--theia-panel-border)'
+                                                            }}>
+                                                                {detail.valueType === 'checksum' ? 'Checksum' :
+                                                                 detail.valueType === 'reduced' ? 'Checksum réduit' :
+                                                                 detail.valueType === 'length' ? 'Longueur' : detail.valueType}
+                                                            </span>
+                                                        )}
                                                         <span style={{ color: 'var(--theia-descriptionForeground)' }}>
                                                             {new Date(detail.timestampMs).toLocaleTimeString()}
                                                         </span>

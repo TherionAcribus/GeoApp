@@ -2,7 +2,7 @@ import { injectable, inject } from '@theia/core/shared/inversify';
 import { FormulaSolverLLMService } from '../formula-solver-llm-service';
 import { AnsweringContextCache } from '../answering-context-cache';
 import { AnsweringStrategy } from './answering-strategy';
-import { AnsweringContext, AnsweringResult, AnswerDetail } from './types';
+import { AnsweringContext, AnsweringResult, AnswerDetail, ValueType } from './types';
 
 @injectable()
 export class AiPerQuestionAnswering implements AnsweringStrategy {
@@ -57,6 +57,7 @@ export class AiPerQuestionAnswering implements AnsweringStrategy {
                 source: 'ai',
                 profile,
                 explanation: result.explanation || undefined,
+                valueType: (result.valueType as ValueType) || undefined,
                 timestampMs: Date.now()
             });
         }
