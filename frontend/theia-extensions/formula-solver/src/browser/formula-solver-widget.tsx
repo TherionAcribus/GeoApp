@@ -2771,8 +2771,22 @@ export class FormulaSolverWidget extends ReactWidget {
                                                                 }}>
                                                                     {wr.text && <div>{wr.text}</div>}
                                                                     {wr.source && (
-                                                                        <div style={{ fontSize: '11px', color: 'var(--theia-textLink-foreground)', wordBreak: 'break-all' }}>
-                                                                            {wr.source}
+                                                                        <div style={{ fontSize: '11px', wordBreak: 'break-all' }}>
+                                                                            <a
+                                                                                href={wr.source}
+                                                                                style={{
+                                                                                    color: 'var(--theia-textLink-foreground)',
+                                                                                    textDecoration: 'underline',
+                                                                                    cursor: 'pointer'
+                                                                                }}
+                                                                                title={wr.source}
+                                                                                onClick={(e) => {
+                                                                                    e.preventDefault();
+                                                                                    window.open(wr.source, '_blank');
+                                                                                }}
+                                                                            >
+                                                                                {wr.source!.length > 60 ? wr.source!.substring(0, 60) + '…' : wr.source}
+                                                                            </a>
                                                                         </div>
                                                                     )}
                                                                     {wr.score !== undefined && (
