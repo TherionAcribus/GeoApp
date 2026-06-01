@@ -3,9 +3,9 @@
  * Enregistre les commandes, menus et bindings
  */
 
-import { injectable } from '@theia/core/shared/inversify';
+import { injectable, inject } from '@theia/core/shared/inversify';
 import { Command, CommandContribution, CommandRegistry, MenuContribution, MenuModelRegistry } from '@theia/core/lib/common';
-import { AbstractViewContribution, FrontendApplicationContribution, FrontendApplication } from '@theia/core/lib/browser';
+import { AbstractViewContribution, ApplicationShell, FrontendApplicationContribution, FrontendApplication, WidgetManager } from '@theia/core/lib/browser';
 import { FormulaSolverWidget } from './formula-solver-widget';
 import { TabBarToolbarContribution, TabBarToolbarRegistry } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
 import { CommonMenus } from '@theia/core/lib/browser/common-frontend-contribution';
@@ -30,12 +30,18 @@ export class FormulaSolverContribution
     extends AbstractViewContribution<FormulaSolverWidget>
     implements FrontendApplicationContribution, CommandContribution, MenuContribution, TabBarToolbarContribution {
 
+    @inject(ApplicationShell)
+    protected readonly shell!: ApplicationShell;
+
+    @inject(WidgetManager)
+    protected readonly widgetManager!: WidgetManager;
+
     constructor() {
         super({
             widgetId: FormulaSolverWidget.ID,
             widgetName: FormulaSolverWidget.LABEL,
             defaultWidgetOptions: {
-                area: 'left',
+                area: 'right',
                 rank: 500
             },
             toggleCommandId: FormulaSolverToggleCommand.id
@@ -44,6 +50,31 @@ export class FormulaSolverContribution
 
     async onStart(app: FrontendApplication): Promise<void> {
         console.log('[FORMULA-SOLVER] Contribution started');
+        // Migration: déplacer le widget vers le panel droit s'il est à gauche
+        setTimeout(() => this.migrateToRightPanel(), 2000);
+    }
+
+    protected async migrateToRightPanel(): Promise<void> {
+        try {
+            const widget = this.widgetManager.tryGetWidget(FormulaSolverWidget.ID);
+            if (widget && widget.isAttached) {
+                const currentArea = this.shell.getAreaFor(widget);
+                if (currentArea === 'left') {
+                    console.log('[FORMULA-SOLVER] Migration: déplacement du widget de left vers right');
+                    this.shell.addWidget(widget, { area: 'right', rank: 500 });
+                    this.shell.activateWidget(FormulaSolverWidget.ID);
+                }
+            } else {
+                // Widget pas encore attaché — l'ouvrir dans le bon panel
+                const w = await this.widgetManager.getOrCreateWidget(FormulaSolverWidget.ID);
+                if (!w.isAttached) {
+                    this.shell.addWidget(w, { area: 'right', rank: 500 });
+                }
+                this.shell.activateWidget(FormulaSolverWidget.ID);
+            }
+        } catch (e) {
+            console.error('[FORMULA-SOLVER] Migration error:', e);
+        }
     }
 
     registerCommands(commands: CommandRegistry): void {

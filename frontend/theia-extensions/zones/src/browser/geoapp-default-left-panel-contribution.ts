@@ -20,8 +20,7 @@ const DEFAULT_LEFT_PANEL_WIDGETS: ReadonlyArray<DefaultLeftPanelWidgetDescriptor
     { id: 'geoapp-map-manager', label: 'Gestion des cartes', rank: 200, rememberDismissal: false },
     { id: 'geoapp-global-search-widget', label: 'Recherche Globale', rank: 300, rememberDismissal: true },
     { id: 'mysterai-plugins-browser', label: 'Plugins', rank: 400, rememberDismissal: true },
-    { id: 'alphabets-list', label: 'Alphabets', rank: 450, rememberDismissal: true },
-    { id: 'formula-solver:widget', label: 'Formula Solver', rank: 500, rememberDismissal: true }
+    { id: 'alphabets-list', label: 'Alphabets', rank: 450, rememberDismissal: true }
 ];
 
 @injectable()

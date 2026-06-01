@@ -64,7 +64,7 @@ export class FormulaSolverWidget extends ReactWidget {
     protected stepConfig: FormulaSolverStepConfig = {
         formulaDetectionMethod: 'algorithm',
         questionsMethod: 'algorithm',
-        answersMode: 'manual',
+        answersMode: 'ai-per-question',
         aiProfileForFormula: 'fast',
         aiProfileForQuestions: 'fast',
         aiProfileForAnswers: 'fast'
@@ -257,8 +257,8 @@ export class FormulaSolverWidget extends ReactWidget {
 
         const answersMode = (this.preferenceService.get(
             'geoApp.formulaSolver.answers.defaultMode',
-            'manual'
-        ) as AnswersMode) || 'manual';
+            'ai-per-question'
+        ) as AnswersMode) || 'ai-per-question';
 
         const aiProfileForFormula = (this.preferenceService.get(
             'geoApp.formulaSolver.ai.defaultProfile.formulaDetection',
