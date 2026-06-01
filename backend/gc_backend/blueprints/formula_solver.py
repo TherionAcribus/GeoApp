@@ -15,6 +15,47 @@ from sqlalchemy import text
 
 formula_solver_bp = Blueprint('formula_solver', __name__, url_prefix='/api/formula-solver')
 
+
+def _get_geocache_text(geocache, include_waypoints: bool = True) -> str:
+    """
+    Extrait le texte exploitable d'une géocache (description + waypoints).
+    Utilise description_raw en priorité, fallback sur description_html (nettoyé), puis description.
+    
+    Args:
+        geocache: Instance du modèle Geocache
+        include_waypoints: Si True, inclut les notes des waypoints additionnels
+        
+    Returns:
+        Le texte complet de la géocache
+    """
+    text_parts = []
+
+    # Priorité 1 : description_raw (texte déjà nettoyé du HTML)
+    description = getattr(geocache, 'description_raw', None)
+
+    # Priorité 2 : description_html nettoyé via BeautifulSoup
+    if not description:
+        description = getattr(geocache, 'description_html', None)
+        if description:
+            description = BeautifulSoup(description, 'html.parser').get_text(strip=True)
+
+    # Priorité 3 : champ description brut
+    if not description:
+        description = getattr(geocache, 'description', '') or ''
+
+    if description:
+        text_parts.append(description)
+
+    # Ajouter les notes des waypoints additionnels
+    if include_waypoints:
+        additional_waypoints = getattr(geocache, 'additional_waypoints', None)
+        if additional_waypoints:
+            for wp in additional_waypoints:
+                if wp.note:
+                    text_parts.append(wp.note)
+
+    return "\n\n".join(text_parts)
+
 @formula_solver_bp.post('/detect-formulas')
 def detect_formulas():
     """
@@ -63,36 +104,7 @@ def detect_formulas():
                     'error': f'Géocache {geocache_id} introuvable'
                 }), 404
             
-            # Préparer le texte : description + waypoints
-            text_parts = []
-
-            # Utiliser description_raw (texte déjà nettoyé du HTML)
-            description = getattr(geocache, 'description_raw', None)
-
-            # Fallback vers description_html si description_raw n'existe pas
-            if not description:
-                description = getattr(geocache, 'description_html', None)
-                # Nettoyer le HTML si nécessaire
-                if description:
-                    from bs4 import BeautifulSoup
-                    description = BeautifulSoup(description, 'html.parser').get_text()
-
-            # Fallback final vers description si rien d'autre
-            if not description:
-                description = getattr(geocache, 'description', '') or ''
-
-            if description:
-                text_parts.append(description)
-
-            # Vérifier si additional_waypoints existe
-            additional_waypoints = getattr(geocache, 'additional_waypoints', None)
-            if additional_waypoints:
-                for wp in additional_waypoints:
-                    if wp.note:
-                        text_parts.append(wp.note)
-            
-            text = "\n\n".join(text_parts)
-            
+            text = _get_geocache_text(geocache)
             logger.info(f"Détection de formules pour geocache {geocache.gc_code} (id={geocache_id})")
         
         # Appeler le plugin formula_parser
@@ -354,20 +366,7 @@ def get_geocache_for_solver(geocache_id: int):
         
         logger.info(f"Geocache {geocache_id} ({geocache.gc_code}) récupérée pour Formula Solver")
 
-        # Utiliser description_raw (texte déjà nettoyé du HTML)
-        description = getattr(geocache, 'description_raw', None)
-
-        # Fallback vers description_html si description_raw n'existe pas
-        if not description:
-            description = getattr(geocache, 'description_html', None)
-            # Nettoyer le HTML si nécessaire
-            if description:
-                soup = BeautifulSoup(description, 'html.parser')
-                description = soup.get_text(strip=True)
-
-        # Fallback final vers description si rien d'autre
-        if not description:
-            description = getattr(geocache, 'description', '') or ''
+        description = _get_geocache_text(geocache, include_waypoints=False)
 
         return jsonify({
             'status': 'success',
@@ -581,35 +580,7 @@ def ai_detect_formula():
                     'error': f'Géocache {geocache_id} introuvable'
                 }), 404
             
-            # Préparer le texte : description + waypoints
-            text_parts = []
-
-            # Utiliser description_raw (texte déjà nettoyé du HTML)
-            description = getattr(geocache, 'description_raw', None)
-
-            # Fallback vers description_html si description_raw n'existe pas
-            if not description:
-                description = getattr(geocache, 'description_html', None)
-                # Nettoyer le HTML si nécessaire
-                if description:
-                    from bs4 import BeautifulSoup
-                    description = BeautifulSoup(description, 'html.parser').get_text()
-
-            # Fallback final vers description si rien d'autre
-            if not description:
-                description = getattr(geocache, 'description', '') or ''
-
-            if description:
-                text_parts.append(description)
-
-            # Vérifier si additional_waypoints existe
-            additional_waypoints = getattr(geocache, 'additional_waypoints', None)
-            if additional_waypoints:
-                for wp in additional_waypoints:
-                    if wp.note:
-                        text_parts.append(wp.note)
-
-            text = "\n\n".join(text_parts)
+            text = _get_geocache_text(geocache)
         
         # Appeler le plugin formula_parser
         plugin_manager = current_app.plugin_manager

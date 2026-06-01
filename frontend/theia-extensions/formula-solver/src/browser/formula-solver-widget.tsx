@@ -4,13 +4,12 @@
  */
 
 import * as React from '@theia/core/shared/react';
-import { injectable, inject, postConstruct, optional } from '@theia/core/shared/inversify';
+import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import { PreferenceScope } from '@theia/core/lib/common/preferences/preference-scope';
 import { FormulaSolverService } from './formula-solver-service';
-import { FormulaSolverAIService } from './formula-solver-ai-service';
 import { FormulaSolverPipeline, AnswersEngine } from './formula-solver-pipeline';
 import { AnswersMode, FormulaDetectionMethod, FormulaSolverStepConfig, QuestionsMethod } from './formula-solver-config';
 import { FormulaSolverAiProfile } from './geoapp-formula-solver-agents';
@@ -22,7 +21,7 @@ import { ensureFormulaFragments } from './utils/formula-fragments';
 import { CoordinatePreviewEngine } from './preview/coordinate-preview-engine';
 import {
     DetectedFormulasComponent,
-    // QuestionFieldsComponent,
+    QuestionFieldCard,
     ResultDisplayComponent,
     FormulaPreviewComponent,
     BruteForceComponent
@@ -49,8 +48,6 @@ export class FormulaSolverWidget extends ReactWidget {
     @inject(AnsweringContextCache)
     protected readonly answeringContextCache!: AnsweringContextCache;
 
-    @inject(FormulaSolverAIService) @optional()
-    protected readonly formulaSolverAIService?: FormulaSolverAIService;
 
     // État du widget
     protected state: FormulaSolverState = {
@@ -765,188 +762,6 @@ export class FormulaSolverWidget extends ReactWidget {
         }
     }
 
-    /**
-     * Détecte les formules avec l'algorithme (méthode par défaut)
-     */
-    protected async detectFormulasWithAlgorithm(text: string, requestId: number): Promise<void> {
-        this.updateState({
-            loading: true,
-            error: undefined,
-            formulas: [],
-            selectedFormula: undefined,
-            questions: [],
-            values: new Map<string, LetterValue>(),
-            result: undefined
-        });
-
-        try {
-            const formulas = await this.formulaSolverService.detectFormulas({ text });
-
-            if (requestId !== this.detectionRequestId) {
-                return;
-            }
-            
-            if (formulas.length === 0) {
-                this.messageService.info('Aucune formule détectée dans le texte');
-                this.updateState({
-                    loading: false,
-                    formulas: [],
-                    selectedFormula: undefined,
-                    currentStep: 'detect',
-                    questions: [],
-                    values: new Map<string, LetterValue>(),
-                    result: undefined
-                });
-            } else {
-                const enrichedFormulas = this.annotateFormulas(formulas);
-                this.messageService.info(`${formulas.length} formule(s) détectée(s)`);
-                this.updateState({
-                    loading: false,
-                    formulas: enrichedFormulas,
-                    selectedFormula: enrichedFormulas[0],
-                    currentStep: 'questions',
-                    questions: [],
-                    values: new Map<string, LetterValue>(),
-                    result: undefined
-                });
-
-                console.log('[FORMULA-SOLVER] Extraction automatique des questions (algorithm)');
-                await this.extractQuestions(enrichedFormulas[0]);
-            }
-        } catch (error) {
-            if (requestId !== this.detectionRequestId) {
-                return;
-            }
-            const message = error instanceof Error ? error.message : 'Erreur inconnue';
-            this.messageService.error(`Erreur : ${message}`);
-            this.updateState({ loading: false, error: message });
-        }
-    }
-
-    /**
-     * Résout une formule avec l'IA
-     */
-    protected async solveWithAI(text: string, requestId: number): Promise<void> {
-        if (!this.formulaSolverAIService) {
-            this.messageService.error('Service IA non disponible. Vérifiez la configuration.');
-            return;
-        }
-
-        this.updateState({
-            loading: true,
-            error: undefined,
-            formulas: [],
-            selectedFormula: undefined,
-            questions: [],
-            values: new Map<string, LetterValue>(),
-            result: undefined
-        });
-        this.messageService.info('🤖 Résolution par IA en cours...');
-
-        try {
-            // Vérifier que l'IA est disponible
-            const available = await this.formulaSolverAIService.isAIAvailable();
-            if (!available) {
-                throw new Error('L\'agent Formula Solver n\'est pas disponible. Vérifiez la configuration de l\'IA dans les paramètres.');
-            }
-
-            // Appeler l'agent IA
-            const result = await this.formulaSolverAIService.solveWithAI(text, this.state.geocacheId);
-
-            if (requestId !== this.detectionRequestId) {
-                return;
-            }
-
-            console.log('[FORMULA-SOLVER] Résultat IA:', result);
-
-            if (result.status === 'error') {
-                throw new Error(result.error || 'Erreur inconnue lors de la résolution IA');
-            }
-
-            // Traiter les résultats
-            if (result.formulas && result.formulas.length > 0) {
-                const enrichedFormulas = this.annotateFormulas(result.formulas);
-                result.formulas = enrichedFormulas;
-                this.updateState({
-                    formulas: enrichedFormulas,
-                    selectedFormula: enrichedFormulas[0],
-                    currentStep: 'questions',
-                    questions: [],
-                    values: new Map<string, LetterValue>(),
-                    result: undefined
-                });
-            }
-
-            if (result.questions && result.questions.size > 0) {
-                const letters = Array.from(result.questions.keys());
-                const questions: Question[] = letters.map(letter => ({
-                    letter,
-                    question: result.questions!.get(letter) || ''
-                }));
-                this.updateState({ questions });
-            }
-
-            // Traiter les réponses trouvées par l'IA et les convertir en valeurs automatiquement
-            if (result.answers && result.answers.size > 0) {
-                console.log('[FORMULA-SOLVER] 🤖 Réponses IA détectées, remplissage automatique des champs...');
-
-                // Pour chaque réponse IA, utiliser le type global actuel
-                result.answers.forEach((answer, letter) => {
-                    // Utiliser le type global pour appliquer le bon calcul
-                    this.updateValue(letter, answer.toString(), this.globalValueType);
-                });
-
-                console.log('[FORMULA-SOLVER] ✅ Réponses IA automatiquement remplies dans les champs avec calcul selon type');
-
-                // Après avoir rempli les champs IA, déclencher un recalcul pour s'assurer
-                // que les valeurs suivent bien les types sélectionnés
-                setTimeout(() => {
-                    this.tryAutoCalculateOrBruteForce();
-                }, 100);
-            }
-
-            if (result.values && result.values.size > 0) {
-                const values = new Map<string, LetterValue>();
-                result.values.forEach((value: number, letter: string) => {
-                    values.set(letter, {
-                        letter,
-                        rawValue: value.toString(),
-                        value,
-                        type: 'value'
-                    });
-                });
-                this.updateState({ values });
-            }
-
-            if (result.coordinates) {
-                this.updateState({
-                    result: {
-                        status: 'success',
-                        coordinates: result.coordinates
-                    }
-                });
-            }
-
-            const stepsMessage = result.steps ? `\n\nÉtapes:\n${result.steps.join('\n')}` : '';
-
-            // Message spécial si des réponses ont été automatiquement remplies
-            const answersCount = result.answers ? result.answers.size : 0;
-            const answersMessage = answersCount > 0 ? `\n\n💡 ${answersCount} réponse(s) automatiquement remplie(s) dans les champs !` : '';
-
-            this.messageService.info(`✅ Résolution IA terminée !${answersMessage}${stepsMessage}`);
-            
-            this.updateState({ loading: false });
-
-        } catch (error) {
-            if (requestId !== this.detectionRequestId) {
-                return;
-            }
-            const message = error instanceof Error ? error.message : 'Erreur inconnue';
-            console.error('[FORMULA-SOLVER] Erreur résolution IA:', error);
-            this.messageService.error(`Erreur IA : ${message}`);
-            this.updateState({ loading: false, error: message });
-        }
-    }
 
     /**
      * Modifie manuellement une formule détectée
@@ -2591,316 +2406,49 @@ export class FormulaSolverWidget extends ReactWidget {
                                     const isDetailExpanded = this.expandedDetailLetters.has(question.letter);
 
                                     return (
-                                        <div key={question.letter} style={{
-                                            padding: '12px',
-                                            backgroundColor: isSuspect
-                                                ? 'var(--theia-inputValidation-errorBackground)'
-                                                : (hasValue ? 'var(--theia-list-hoverBackground)' : 'var(--theia-input-background)'),
-                                            border: isSuspect
-                                                ? '1px solid var(--theia-errorText)'
-                                                : (hasValue ? '1px solid var(--theia-focusBorder)' : '1px solid var(--theia-input-border)'),
-                                            borderRadius: '4px'
-                                        }} title={isSuspect ? 'Valeur suspecte (incohérence détectée par la preview)' : undefined}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-                                                <div style={{
-                                                    width: '30px',
-                                                    height: '30px',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    backgroundColor: isSuspect
-                                                        ? 'var(--theia-errorText)'
-                                                        : (hasValue ? 'var(--theia-button-background)' : 'var(--theia-input-background)'),
-                                                    color: isSuspect
-                                                        ? 'var(--theia-button-foreground)'
-                                                        : (hasValue ? 'var(--theia-button-foreground)' : 'var(--theia-foreground)'),
-                                                    borderRadius: '4px',
-                                                    fontWeight: 'bold',
-                                                    fontSize: '16px'
-                                                }}>
-                                                    {question.letter}
-                                                </div>
-                                                <div style={{ flex: 1 }}>
-                                                    <input
-                                                        type="text"
-                                                        defaultValue={question.question || ''}
-                                                        key={`q-${question.letter}`}
-                                                        onChange={e => {
-                                                            const newQuestion = e.target.value;
-                                                            const idx = this.state.questions.findIndex(q => q.letter === question.letter);
-                                                            if (idx >= 0) {
-                                                                this.state.questions[idx].question = newQuestion;
-                                                            }
-                                                        }}
-                                                        placeholder="Question inconnue"
-                                                        title="Modifier la question (pour affiner la recherche Internet ou IA). Ctrl+Z pour annuler."
-                                                        style={{
-                                                            width: '100%',
-                                                            padding: '4px 6px',
-                                                            fontSize: '13px',
-                                                            fontWeight: 'bold',
-                                                            border: '1px solid transparent',
-                                                            borderRadius: '3px',
-                                                            backgroundColor: 'transparent',
-                                                            color: 'var(--theia-foreground)',
-                                                            outline: 'none',
-                                                            transition: 'border-color 0.2s, background-color 0.2s'
-                                                        }}
-                                                        onFocus={e => {
-                                                            e.currentTarget.style.borderColor = 'var(--theia-focusBorder)';
-                                                            e.currentTarget.style.backgroundColor = 'var(--theia-input-background)';
-                                                        }}
-                                                        onBlur={e => {
-                                                            e.currentTarget.style.borderColor = 'transparent';
-                                                            e.currentTarget.style.backgroundColor = 'transparent';
-                                                        }}
-                                                    />
-                                                </div>
-
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                    <select
-                                                        value={perQuestionProfile}
-                                                        onChange={e => {
-                                                            this.perQuestionProfiles.set(question.letter, e.target.value as FormulaSolverAiProfile);
-                                                            this.update();
-                                                        }}
-                                                        disabled={isLetterLoading}
-                                                        title="Profil IA pour cette question (Local/Fast/Strong/Web)"
-                                                        style={{
-                                                            padding: '6px 8px',
-                                                            border: '1px solid var(--theia-dropdown-border)',
-                                                            borderRadius: '3px',
-                                                            backgroundColor: 'var(--theia-dropdown-background)',
-                                                            color: 'var(--theia-dropdown-foreground)',
-                                                            fontSize: '12px'
-                                                        }}
-                                                    >
-                                                        <option value="local">Local</option>
-                                                        <option value="fast">Fast</option>
-                                                        <option value="strong">Strong</option>
-                                                        <option value="web">Web</option>
-                                                    </select>
-                                                    {isLetterLoading ? (
-                                                        <span
-                                                            className="formula-solver-spinner"
-                                                            title="Recherche en cours..."
-                                                        />
-                                                    ) : (
-                                                        <>
-                                                            <button
-                                                                style={{
-                                                                    padding: '6px 10px',
-                                                                    backgroundColor: 'var(--theia-button-background)',
-                                                                    color: 'var(--theia-button-foreground)',
-                                                                    border: 'none',
-                                                                    borderRadius: '4px',
-                                                                    cursor: 'pointer',
-                                                                    fontSize: '12px'
-                                                                }}
-                                                                onClick={() => void this.answerSingleQuestion(question.letter, { overwrite: true })}
-                                                                disabled={this.state.loading}
-                                                                title="Résout cette question via IA"
-                                                            >
-                                                                IA
-                                                            </button>
-                                                            <button
-                                                                style={{
-                                                                    padding: '6px 10px',
-                                                                    backgroundColor: 'var(--theia-button-secondaryBackground)',
-                                                                    color: 'var(--theia-button-secondaryForeground)',
-                                                                    border: 'none',
-                                                                    borderRadius: '4px',
-                                                                    cursor: 'pointer',
-                                                                    fontSize: '12px'
-                                                                }}
-                                                                onClick={() => void this.answerSingleQuestion(question.letter, { overwrite: true, engine: 'backend-web-search' })}
-                                                                disabled={this.state.loading}
-                                                                title="Recherche la réponse sur Internet"
-                                                            >
-                                                                Internet
-                                                            </button>
-                                                        </>
-                                                    )}
-                                                    {detail && !isLetterLoading && (
-                                                        <button
-                                                            style={{
-                                                                padding: '4px 8px',
-                                                                backgroundColor: 'transparent',
-                                                                color: 'var(--theia-descriptionForeground)',
-                                                                border: '1px solid var(--theia-panel-border)',
-                                                                borderRadius: '4px',
-                                                                cursor: 'pointer',
-                                                                fontSize: '11px'
-                                                            }}
-                                                            onClick={() => {
-                                                                if (isDetailExpanded) {
-                                                                    this.expandedDetailLetters.delete(question.letter);
-                                                                } else {
-                                                                    this.expandedDetailLetters.add(question.letter);
-                                                                }
-                                                                this.update();
-                                                            }}
-                                                            title={isDetailExpanded ? 'Masquer les détails' : 'Voir les détails de la réponse'}
-                                                        >
-                                                            <span className={`codicon ${isDetailExpanded ? 'codicon-chevron-up' : 'codicon-info'}`} />
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            </div>
-
-                                            {/* Expandable answer detail bubble */}
-                                            {detail && isDetailExpanded && (
-                                                <div style={{
-                                                    marginBottom: '8px',
-                                                    padding: '8px 10px',
-                                                    backgroundColor: 'var(--theia-editor-background)',
-                                                    border: '1px solid var(--theia-panel-border)',
-                                                    borderRadius: '4px',
-                                                    fontSize: '12px',
-                                                    lineHeight: '1.5'
-                                                }}>
-                                                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '4px' }}>
-                                                        <span style={{
-                                                            padding: '2px 6px',
-                                                            borderRadius: '3px',
-                                                            fontSize: '11px',
-                                                            fontWeight: 'bold',
-                                                            backgroundColor: detail.source === 'ai' ? 'var(--theia-button-background)' : 'var(--theia-button-secondaryBackground)',
-                                                            color: detail.source === 'ai' ? 'var(--theia-button-foreground)' : 'var(--theia-button-secondaryForeground)'
-                                                        }}>
-                                                            {detail.source === 'ai' ? `IA (${detail.profile || '?'})` : 'Internet'}
-                                                        </span>
-                                                        {detail.valueType && detail.valueType !== 'value' && (
-                                                            <span style={{
-                                                                padding: '2px 6px',
-                                                                borderRadius: '3px',
-                                                                fontSize: '11px',
-                                                                backgroundColor: 'var(--theia-editor-background)',
-                                                                border: '1px solid var(--theia-panel-border)'
-                                                            }}>
-                                                                {detail.valueType === 'checksum' ? 'Checksum' :
-                                                                 detail.valueType === 'reduced' ? 'Checksum réduit' :
-                                                                 detail.valueType === 'length' ? 'Longueur' : detail.valueType}
-                                                            </span>
-                                                        )}
-                                                        <span style={{ color: 'var(--theia-descriptionForeground)' }}>
-                                                            {new Date(detail.timestampMs).toLocaleTimeString()}
-                                                        </span>
-                                                    </div>
-                                                    {detail.explanation && (
-                                                        <div style={{ color: 'var(--theia-foreground)', whiteSpace: 'pre-wrap', marginBottom: '4px' }}>
-                                                            {detail.explanation}
-                                                        </div>
-                                                    )}
-                                                    {detail.webResults && detail.webResults.length > 0 && (
-                                                        <div style={{ marginTop: '4px' }}>
-                                                            <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Sources web :</div>
-                                                            {detail.webResults.map((wr, idx) => (
-                                                                <div key={idx} style={{
-                                                                    padding: '4px 6px',
-                                                                    marginBottom: '3px',
-                                                                    backgroundColor: 'var(--theia-input-background)',
-                                                                    borderRadius: '3px'
-                                                                }}>
-                                                                    {wr.text && <div>{wr.text}</div>}
-                                                                    {wr.source && (
-                                                                        <div style={{ fontSize: '11px', wordBreak: 'break-all' }}>
-                                                                            <a
-                                                                                href={wr.source}
-                                                                                style={{
-                                                                                    color: 'var(--theia-textLink-foreground)',
-                                                                                    textDecoration: 'underline',
-                                                                                    cursor: 'pointer'
-                                                                                }}
-                                                                                title={wr.source}
-                                                                                onClick={(e) => {
-                                                                                    e.preventDefault();
-                                                                                    window.open(wr.source, '_blank');
-                                                                                }}
-                                                                            >
-                                                                                {wr.source!.length > 60 ? wr.source!.substring(0, 60) + '…' : wr.source}
-                                                                            </a>
-                                                                        </div>
-                                                                    )}
-                                                                    {wr.score !== undefined && (
-                                                                        <div style={{ fontSize: '10px', color: 'var(--theia-descriptionForeground)' }}>
-                                                                            Score: {(wr.score * 100).toFixed(0)}%
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            )}
-
-                                            {this.showAdvancedAnswerFields && (
-                                                <div style={{ marginBottom: '8px' }}>
-                                                    <textarea
-                                                        value={this.perLetterExtraInfo.get(question.letter) || ''}
-                                                        onChange={e => {
-                                                            const value = e.target.value;
-                                                            if (!value.trim()) {
-                                                                this.perLetterExtraInfo.delete(question.letter);
-                                                            } else {
-                                                                this.perLetterExtraInfo.set(question.letter, value);
-                                                            }
-                                                            this.update();
-                                                        }}
-                                                        placeholder="Info complémentaire (optionnel) pour aider l'IA à répondre à cette lettre (ex: consignes, détails, observation sur place...)"
-                                                        style={{
-                                                            width: '100%',
-                                                            minHeight: '44px',
-                                                            padding: '6px 8px',
-                                                            fontFamily: 'var(--theia-code-font-family)',
-                                                            fontSize: '12px',
-                                                            backgroundColor: 'var(--theia-input-background)',
-                                                            color: 'var(--theia-input-foreground)',
-                                                            border: '1px solid var(--theia-input-border)',
-                                                            borderRadius: '4px'
-                                                        }}
-                                                    />
-                                                </div>
-                                            )}
-
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                                <input
-                                                    type="text"
-                                                    placeholder="Valeur"
-                                                    value={value?.rawValue || ''}
-                                                    onChange={e => this.updateValue(question.letter, e.target.value, value?.type || 'value')}
-                                                    style={{
-                                                        flex: 1,
-                                                        padding: '6px 10px',
-                                                        border: '1px solid var(--theia-input-border)',
-                                                        borderRadius: '3px',
-                                                        backgroundColor: 'var(--theia-input-background)',
-                                                        color: 'var(--theia-input-foreground)'
-                                                    }}
-                                                />
-
-                                                <select
-                                                    value={value?.type || 'value'}
-                                                    onChange={e => this.updateValue(question.letter, value?.rawValue || '', e.target.value as any)}
-                                                    style={{
-                                                        padding: '6px 8px',
-                                                        border: '1px solid var(--theia-dropdown-border)',
-                                                        borderRadius: '3px',
-                                                        backgroundColor: 'var(--theia-dropdown-background)',
-                                                        color: 'var(--theia-dropdown-foreground)'
-                                                    }}
-                                                >
-                                                    <option value="value">Valeur</option>
-                                                    <option value="checksum">Checksum</option>
-                                                    <option value="reduced">Checksum réduit</option>
-                                                    <option value="length">Longueur</option>
-                                                </select>
-
-                                                <div style={{ minWidth: '60px', textAlign: 'right', fontWeight: 'bold' }}>
-                                                    = {value?.value || '-'}
-                                                </div>
-                                            </div>
-                                        </div>
+                                        <QuestionFieldCard
+                                            key={question.letter}
+                                            question={question}
+                                            value={value}
+                                            hasValue={!!hasValue}
+                                            isSuspect={isSuspect}
+                                            isLetterLoading={isLetterLoading}
+                                            perQuestionProfile={perQuestionProfile}
+                                            detail={detail}
+                                            isDetailExpanded={isDetailExpanded}
+                                            showAdvancedAnswerFields={this.showAdvancedAnswerFields}
+                                            perLetterExtraInfo={this.perLetterExtraInfo.get(question.letter) || ''}
+                                            loading={this.state.loading}
+                                            onProfileChange={(letter, profile) => {
+                                                this.perQuestionProfiles.set(letter, profile);
+                                                this.update();
+                                            }}
+                                            onAnswerIA={(letter) => void this.answerSingleQuestion(letter, { overwrite: true })}
+                                            onAnswerInternet={(letter) => void this.answerSingleQuestion(letter, { overwrite: true, engine: 'backend-web-search' })}
+                                            onToggleDetail={(letter) => {
+                                                if (this.expandedDetailLetters.has(letter)) {
+                                                    this.expandedDetailLetters.delete(letter);
+                                                } else {
+                                                    this.expandedDetailLetters.add(letter);
+                                                }
+                                                this.update();
+                                            }}
+                                            onValueChange={(letter, rawValue, type) => this.updateValue(letter, rawValue, type as any)}
+                                            onQuestionChange={(letter, newQuestion) => {
+                                                const idx = this.state.questions.findIndex(q => q.letter === letter);
+                                                if (idx >= 0) {
+                                                    this.state.questions[idx].question = newQuestion;
+                                                }
+                                            }}
+                                            onExtraInfoChange={(letter, val) => {
+                                                if (!val.trim()) {
+                                                    this.perLetterExtraInfo.delete(letter);
+                                                } else {
+                                                    this.perLetterExtraInfo.set(letter, val);
+                                                }
+                                                this.update();
+                                            }}
+                                        />
                                     );
                                 })}
                             </div>

@@ -3,7 +3,7 @@
  */
 
 export * from './DetectedFormulasComponent';
-// export * from './QuestionFieldsComponent'; // Temporairement désactivé
+export * from './QuestionFieldsComponent';
 export * from './ResultDisplayComponent';
 export * from './FormulaPreviewComponent';
 export * from './BruteForceComponent';
