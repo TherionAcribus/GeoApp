@@ -125,6 +125,20 @@ class GridpuzzlesolverPlugin:
                     include_windoku=True,
                     variant="sudoku_windoku",
                 )
+            elif puzzle_type in {"sudoku_greater_than", "greater_than", "compdoku", "inequality_sudoku"}:
+                puzzle_text = self._first_non_empty(
+                    inputs.get("grid"),
+                    inputs.get("puzzle"),
+                    inputs.get("text"),
+                )
+                problem = self._build_sudoku_problem(
+                    puzzle_text,
+                    include_diagonals=False,
+                    include_center_dot=False,
+                    include_windoku=False,
+                    variant="sudoku_greater_than",
+                    inequalities=inputs.get("inequalities") or inputs.get("comparisons"),
+                )
             elif puzzle_type in {"custom", "custom_spec", "json_spec"}:
                 problem = self._build_custom_problem(inputs.get("spec"))
             else:
@@ -159,6 +173,7 @@ class GridpuzzlesolverPlugin:
         include_center_dot: bool,
         include_windoku: bool,
         variant: str,
+        inequalities: Any = None,
     ) -> GridCspProblem:
         symbols = [str(value) for value in range(1, 10)]
         tokens = self._parse_sudoku_tokens(puzzle_text, symbols)
@@ -220,6 +235,8 @@ class GridpuzzlesolverPlugin:
                             ),
                         )
                     )
+
+        constraints.extend(self._parse_sudoku_inequalities(inequalities))
 
         return GridCspProblem(
             rows=9,
@@ -375,6 +392,24 @@ class GridpuzzlesolverPlugin:
             )
             return
 
+        if kind in {"greater_than", "gt"}:
+            if len(cells) != 2:
+                raise ValueError("La contrainte greater_than attend deux cellules")
+            solver.add(
+                self._numeric_value_expr(variables[cells[0]], problem.symbols, problem.numeric_values)
+                > self._numeric_value_expr(variables[cells[1]], problem.symbols, problem.numeric_values)
+            )
+            return
+
+        if kind in {"less_than", "lt"}:
+            if len(cells) != 2:
+                raise ValueError("La contrainte less_than attend deux cellules")
+            solver.add(
+                self._numeric_value_expr(variables[cells[0]], problem.symbols, problem.numeric_values)
+                < self._numeric_value_expr(variables[cells[1]], problem.symbols, problem.numeric_values)
+            )
+            return
+
         raise ValueError(f"Contrainte non supportee: {constraint.kind}")
 
     def _numeric_value_expr(
@@ -405,6 +440,155 @@ class GridpuzzlesolverPlugin:
     # ------------------------------------------------------------------
     # Input parsing
     # ------------------------------------------------------------------
+
+    def _parse_sudoku_inequalities(self, raw_inequalities: Any) -> List[GridConstraint]:
+        if raw_inequalities in (None, "", [], {}):
+            return []
+
+        if isinstance(raw_inequalities, str):
+            text = raw_inequalities.strip()
+            if not text:
+                return []
+            try:
+                raw_inequalities = json.loads(text)
+            except json.JSONDecodeError:
+                return self._parse_inequality_lines(text)
+
+        if isinstance(raw_inequalities, dict):
+            constraints: List[GridConstraint] = []
+            constraints.extend(
+                self._parse_inequality_matrix(
+                    raw_inequalities.get("horizontal") or raw_inequalities.get("h"),
+                    rows=9,
+                    cols=8,
+                    first_cell=lambda row, col: (row, col),
+                    second_cell=lambda row, col: (row, col + 1),
+                    label="horizontal",
+                )
+            )
+            constraints.extend(
+                self._parse_inequality_matrix(
+                    raw_inequalities.get("vertical") or raw_inequalities.get("v"),
+                    rows=8,
+                    cols=9,
+                    first_cell=lambda row, col: (row, col),
+                    second_cell=lambda row, col: (row + 1, col),
+                    label="vertical",
+                )
+            )
+            if "constraints" in raw_inequalities:
+                constraints.extend(self._parse_inequality_entries(raw_inequalities["constraints"]))
+            return constraints
+
+        if isinstance(raw_inequalities, list):
+            return self._parse_inequality_entries(raw_inequalities)
+
+        raise ValueError("Format inequalities non supporte")
+
+    def _parse_inequality_matrix(
+        self,
+        raw_matrix: Any,
+        rows: int,
+        cols: int,
+        first_cell: Any,
+        second_cell: Any,
+        label: str,
+    ) -> List[GridConstraint]:
+        if raw_matrix in (None, "", []):
+            return []
+        if not isinstance(raw_matrix, list) or len(raw_matrix) != rows:
+            raise ValueError(f"inequalities.{label} doit contenir {rows} lignes")
+
+        constraints: List[GridConstraint] = []
+        for row_index, raw_row in enumerate(raw_matrix):
+            if isinstance(raw_row, str):
+                values = [char for char in raw_row if char in {"<", ">", ".", "0", "_", "-"}]
+            elif isinstance(raw_row, list):
+                values = [str(value or "") for value in raw_row]
+            else:
+                raise ValueError(f"inequalities.{label}[{row_index}] doit etre une liste ou une chaine")
+
+            if len(values) != cols:
+                raise ValueError(f"inequalities.{label}[{row_index}] doit contenir {cols} valeurs")
+
+            for col_index, relation in enumerate(values):
+                relation = relation.strip()
+                if relation in {"", ".", "0", "_", "-"}:
+                    continue
+                constraints.append(
+                    self._build_inequality_constraint(
+                        first_cell(row_index, col_index),
+                        second_cell(row_index, col_index),
+                        relation,
+                    )
+                )
+        return constraints
+
+    def _parse_inequality_entries(self, raw_entries: Any) -> List[GridConstraint]:
+        if raw_entries in (None, "", []):
+            return []
+        if not isinstance(raw_entries, list):
+            raise ValueError("Les inequalities en liste doivent etre une liste d'objets")
+
+        constraints: List[GridConstraint] = []
+        for entry in raw_entries:
+            if not isinstance(entry, dict):
+                raise ValueError("Chaque inequality doit etre un objet")
+
+            relation = str(
+                entry.get("relation")
+                or entry.get("operator")
+                or entry.get("op")
+                or entry.get("symbol")
+                or ""
+            ).strip()
+            raw_cells = entry.get("cells")
+            if raw_cells is None:
+                raw_cells = [entry.get("from") or entry.get("cell_a") or entry.get("a"), entry.get("to") or entry.get("cell_b") or entry.get("b")]
+            if not isinstance(raw_cells, list) or len(raw_cells) != 2:
+                raise ValueError("Chaque inequality doit definir deux cellules")
+
+            constraints.append(
+                self._build_inequality_constraint(
+                    self._parse_cell_ref(raw_cells[0], 9, 9),
+                    self._parse_cell_ref(raw_cells[1], 9, 9),
+                    relation,
+                )
+            )
+        return constraints
+
+    def _parse_inequality_lines(self, text: str) -> List[GridConstraint]:
+        constraints: List[GridConstraint] = []
+        for line in text.splitlines():
+            normalized = line.strip().replace(" ", "")
+            if not normalized:
+                continue
+            match = re.fullmatch(r"(r\d+c\d+)([<>])(r\d+c\d+)", normalized, re.IGNORECASE)
+            if not match:
+                raise ValueError(f"Inegalite invalide: {line}")
+            constraints.append(
+                self._build_inequality_constraint(
+                    self._parse_cell_ref(match.group(1), 9, 9),
+                    self._parse_cell_ref(match.group(3), 9, 9),
+                    match.group(2),
+                )
+            )
+        return constraints
+
+    def _build_inequality_constraint(self, first_cell: Cell, second_cell: Cell, relation: str) -> GridConstraint:
+        self._validate_adjacent_cells(first_cell, second_cell)
+        if relation == ">":
+            return GridConstraint("greater_than", (first_cell, second_cell))
+        if relation == "<":
+            return GridConstraint("less_than", (first_cell, second_cell))
+        raise ValueError(f"Symbole d'inegalite non supporte: {relation}")
+
+    def _validate_adjacent_cells(self, first_cell: Cell, second_cell: Cell) -> None:
+        distance = abs(first_cell[0] - second_cell[0]) + abs(first_cell[1] - second_cell[1])
+        if distance != 1:
+            raise ValueError(
+                "Les contraintes d'inegalite Sudoku doivent relier deux cellules adjacentes"
+            )
 
     def _parse_sudoku_tokens(self, text: str, symbols: Sequence[str]) -> List[str]:
         if not text or not str(text).strip():

@@ -13,6 +13,9 @@ Generic finite-domain grid solver powered by Z3.
 - `sudoku_windoku`: classic 9x9 Sudoku plus four extra 3x3 all-different
   regions at rows/cols 2-4 and 6-8. The interactive UI highlights those
   regions in purple.
+- `sudoku_greater_than`: classic 9x9 Sudoku plus adjacent `>` / `<`
+  inequalities. The interactive UI lets users toggle border symbols between
+  cells.
 - Empty cells can be written as `0`, `.`, or `_`.
 - Separators such as spaces, pipes, and row divider lines are ignored.
 
@@ -40,6 +43,8 @@ Sudoku is just the first builder on top of a generic CSP model:
 - givens;
 - all-different regions;
 - declarative constraints (`all_different`, `equals`, `not_equal`, `sum`);
+- comparison constraints (`greater_than`, `less_than`) for adjacent-cell
+  variants such as Compdoku;
 - solution enumeration with uniqueness detection.
 - an internal Z3 timeout (`solver_timeout_ms`) for highly open grids.
 - watched cells (`watched_cells`) so an interactive UI can extract answer
@@ -55,7 +60,9 @@ the Theia "Grilles" workbench:
 
 - cell-by-cell entry for givens;
 - quick paste textarea for fast Sudoku import;
-- variant selector for classic Sudoku, Sudoku X, Center Dot and Windoku;
+- variant selector for classic Sudoku, Sudoku X, Center Dot, Windoku and
+  Greater Than;
+- editable `>` / `<` borders for Greater Than / Compdoku;
 - watch mode to mark answer cells;
 - solve action calling this plugin;
 - extracted watched values returned as `watched_values` and `watched_text`.

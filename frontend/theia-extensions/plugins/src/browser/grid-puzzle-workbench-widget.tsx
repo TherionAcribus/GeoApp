@@ -9,10 +9,14 @@ import './style/grid-puzzle-workbench.css';
 
 type Grid = string[][];
 type WorkMode = 'edit' | 'watch';
-type SudokuVariant = 'sudoku_classic' | 'sudoku_x' | 'sudoku_center_dot' | 'sudoku_windoku';
+type SudokuVariant = 'sudoku_classic' | 'sudoku_x' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_greater_than';
+type InequalitySymbol = '' | '>' | '<';
+type InequalityGrid = InequalitySymbol[][];
 
 const SIZE = 9;
 const EMPTY_GRID: Grid = Array.from({ length: SIZE }, () => Array(SIZE).fill(''));
+const EMPTY_HORIZONTAL_INEQUALITIES: InequalityGrid = Array.from({ length: SIZE }, () => Array(SIZE - 1).fill(''));
+const EMPTY_VERTICAL_INEQUALITIES: InequalityGrid = Array.from({ length: SIZE - 1 }, () => Array(SIZE).fill(''));
 const QUICK_TEXT_PLACEHOLDER = '0'.repeat(SIZE).concat('\n').repeat(SIZE).trim();
 
 interface GridPuzzleWorkbenchAppProps {
@@ -40,6 +44,10 @@ function cloneGrid(grid: Grid): Grid {
     return grid.map(row => [...row]);
 }
 
+function cloneInequalityGrid(grid: InequalityGrid): InequalityGrid {
+    return grid.map(row => [...row]);
+}
+
 function cellRef(row: number, col: number): string {
     return `r${row + 1}c${col + 1}`;
 }
@@ -53,6 +61,9 @@ function getVariantLabel(puzzleType: SudokuVariant): string {
     }
     if (puzzleType === 'sudoku_windoku') {
         return 'Windoku';
+    }
+    if (puzzleType === 'sudoku_greater_than') {
+        return 'Greater Than';
     }
     return 'Sudoku classique';
 }
@@ -80,6 +91,39 @@ function getWindokuBoundaryClasses(row: number, col: number): string[] {
 
 function emptyGrid(): Grid {
     return cloneGrid(EMPTY_GRID);
+}
+
+function emptyHorizontalInequalities(): InequalityGrid {
+    return cloneInequalityGrid(EMPTY_HORIZONTAL_INEQUALITIES);
+}
+
+function emptyVerticalInequalities(): InequalityGrid {
+    return cloneInequalityGrid(EMPTY_VERTICAL_INEQUALITIES);
+}
+
+function normalizeInequalitySymbol(value: unknown): InequalitySymbol {
+    return value === '>' || value === '<' ? value : '';
+}
+
+function normalizeInequalityGrid(value: unknown, rows: number, cols: number): InequalityGrid {
+    if (!Array.isArray(value) || value.length !== rows) {
+        return Array.from({ length: rows }, () => Array<InequalitySymbol>(cols).fill(''));
+    }
+
+    return value.map(row => {
+        const cells = typeof row === 'string' ? row.split('') : Array.isArray(row) ? row : [];
+        return Array.from({ length: cols }, (_unused, index) => normalizeInequalitySymbol(cells[index]));
+    });
+}
+
+function cycleInequality(value: InequalitySymbol): InequalitySymbol {
+    if (value === '') {
+        return '>';
+    }
+    if (value === '>') {
+        return '<';
+    }
+    return '';
 }
 
 function gridToText(grid: Grid): string {
@@ -183,6 +227,8 @@ function GridPuzzleWorkbenchApp({
     const [grid, setGrid] = React.useState<Grid>(() => emptyGrid());
     const [quickText, setQuickText] = React.useState('');
     const [puzzleType, setPuzzleType] = React.useState<SudokuVariant>('sudoku_classic');
+    const [horizontalInequalities, setHorizontalInequalities] = React.useState<InequalityGrid>(() => emptyHorizontalInequalities());
+    const [verticalInequalities, setVerticalInequalities] = React.useState<InequalityGrid>(() => emptyVerticalInequalities());
     const [watchCells, setWatchCells] = React.useState<string[]>([]);
     const [mode, setMode] = React.useState<WorkMode>('edit');
     const [maxSolutions, setMaxSolutions] = React.useState(2);
@@ -203,6 +249,7 @@ function GridPuzzleWorkbenchApp({
     const geocacheId = context?.geocacheId;
     const variantLabel = getVariantLabel(puzzleType);
     const contextLabel = context ? `${context.gcCode} - ${context.name}` : 'Mode libre';
+    const isGreaterThan = puzzleType === 'sudoku_greater_than';
 
     const markDirty = React.useCallback(() => {
         if (!geocacheId) {
@@ -236,6 +283,8 @@ function GridPuzzleWorkbenchApp({
 
         setGridAndQuickText(restoredGrid);
         setWatchCells(normalizeWatchCells(snapshot?.watchCells ?? snapshot?.watchedCells));
+        setHorizontalInequalities(normalizeInequalityGrid(snapshot?.inequalities?.horizontal, SIZE, SIZE - 1));
+        setVerticalInequalities(normalizeInequalityGrid(snapshot?.inequalities?.vertical, SIZE - 1, SIZE));
         setMaxSolutions(normalizeNumber(snapshot?.maxSolutions, 2, 1, 25));
         setTimeoutMs(normalizeNumber(snapshot?.solverTimeoutMs ?? snapshot?.timeoutMs, 10000, 1000, 30000));
         setSolveState({ running: false, result: restoredResult });
@@ -296,6 +345,10 @@ function GridPuzzleWorkbenchApp({
                     grid,
                     puzzleType,
                     quickText,
+                    inequalities: {
+                        horizontal: horizontalInequalities,
+                        vertical: verticalInequalities,
+                    },
                     watchCells,
                     maxSolutions,
                     solverTimeoutMs: timeoutMs,
@@ -321,6 +374,7 @@ function GridPuzzleWorkbenchApp({
         context?.gcCode,
         geocacheId,
         grid,
+        horizontalInequalities,
         maxSolutions,
         messageService,
         pluginsService,
@@ -329,6 +383,7 @@ function GridPuzzleWorkbenchApp({
         solveState.result,
         timeoutMs,
         variantLabel,
+        verticalInequalities,
         watchCells,
     ]);
 
@@ -338,6 +393,26 @@ function GridPuzzleWorkbenchApp({
             const next = cloneGrid(previous);
             next[row][col] = value;
             setQuickText(gridToText(next));
+            return next;
+        });
+        setSolveState({ running: false });
+        markDirty();
+    }, [markDirty]);
+
+    const toggleHorizontalInequality = React.useCallback((row: number, col: number) => {
+        setHorizontalInequalities(previous => {
+            const next = cloneInequalityGrid(previous);
+            next[row][col] = cycleInequality(next[row][col]);
+            return next;
+        });
+        setSolveState({ running: false });
+        markDirty();
+    }, [markDirty]);
+
+    const toggleVerticalInequality = React.useCallback((row: number, col: number) => {
+        setVerticalInequalities(previous => {
+            const next = cloneInequalityGrid(previous);
+            next[row][col] = cycleInequality(next[row][col]);
             return next;
         });
         setSolveState({ running: false });
@@ -418,6 +493,7 @@ function GridPuzzleWorkbenchApp({
         const nextPuzzleType = value === 'sudoku_x'
             || value === 'sudoku_center_dot'
             || value === 'sudoku_windoku'
+            || value === 'sudoku_greater_than'
             ? value
             : 'sudoku_classic';
         setPuzzleType(nextPuzzleType);
@@ -427,6 +503,8 @@ function GridPuzzleWorkbenchApp({
 
     const clearGrid = React.useCallback(() => {
         setGridAndQuickText(emptyGrid());
+        setHorizontalInequalities(emptyHorizontalInequalities());
+        setVerticalInequalities(emptyVerticalInequalities());
         setWatchCells([]);
         setSolveState({ running: false });
         markDirty();
@@ -439,6 +517,10 @@ function GridPuzzleWorkbenchApp({
                 puzzle_type: puzzleType,
                 grid: gridToText(grid),
                 watched_cells: watchCells.join(' '),
+                inequalities: {
+                    horizontal: horizontalInequalities,
+                    vertical: verticalInequalities,
+                },
                 max_solutions: maxSolutions,
                 solver_timeout_ms: timeoutMs,
             });
@@ -456,7 +538,7 @@ function GridPuzzleWorkbenchApp({
                 error: error instanceof Error ? error.message : String(error),
             });
         }
-    }, [geocacheId, grid, maxSolutions, pluginsService, puzzleType, saveState, timeoutMs, watchCells]);
+    }, [geocacheId, grid, horizontalInequalities, maxSolutions, pluginsService, puzzleType, saveState, timeoutMs, verticalInequalities, watchCells]);
 
     const useSolvedGrid = React.useCallback(() => {
         if (solvedGrid) {
@@ -465,6 +547,100 @@ function GridPuzzleWorkbenchApp({
             markDirty();
         }
     }, [markDirty, setGridAndQuickText, solvedGrid]);
+
+    const cellStyle = (rowIndex: number, colIndex: number): React.CSSProperties | undefined => (
+        isGreaterThan
+            ? {
+                gridColumn: String(colIndex * 2 + 1),
+                gridRow: String(rowIndex * 2 + 1),
+            }
+            : undefined
+    );
+
+    const cellClassName = (rowIndex: number, colIndex: number, value: string, readonly = false): string => {
+        const ref = cellRef(rowIndex, colIndex);
+        return [
+            'sudoku-cell',
+            readonly ? 'readonly' : '',
+            value ? 'given' : '',
+            watchCells.includes(ref) ? 'watched' : '',
+            puzzleType === 'sudoku_x' && (rowIndex === colIndex || rowIndex + colIndex === SIZE - 1) ? 'diagonal' : '',
+            puzzleType === 'sudoku_center_dot' && isCenterDotCell(rowIndex, colIndex) ? 'center-dot' : '',
+            puzzleType === 'sudoku_windoku' && isWindokuCell(rowIndex, colIndex) ? 'windoku' : '',
+            ...(puzzleType === 'sudoku_windoku' ? getWindokuBoundaryClasses(rowIndex, colIndex) : []),
+            colIndex === 2 || colIndex === 5 ? 'block-right' : '',
+            rowIndex === 2 || rowIndex === 5 ? 'block-bottom' : '',
+        ].filter(Boolean).join(' ');
+    };
+
+    const renderInequalityControls = (readonly = false): React.ReactNode => {
+        if (!isGreaterThan) {
+            return null;
+        }
+
+        return (
+            <>
+                {horizontalInequalities.map((row, rowIndex) => (
+                    row.map((value, colIndex) => (
+                        <button
+                            key={`h-${rowIndex}-${colIndex}`}
+                            type='button'
+                            className={[
+                                'inequality-control',
+                                'horizontal',
+                                value ? 'active' : '',
+                            ].filter(Boolean).join(' ')}
+                            style={{
+                                gridColumn: String(colIndex * 2 + 2),
+                                gridRow: String(rowIndex * 2 + 1),
+                            }}
+                            title={`Contrainte entre ${cellRef(rowIndex, colIndex)} et ${cellRef(rowIndex, colIndex + 1)}`}
+                            aria-label={`Contrainte entre ${cellRef(rowIndex, colIndex)} et ${cellRef(rowIndex, colIndex + 1)}`}
+                            disabled={readonly}
+                            onClick={() => toggleHorizontalInequality(rowIndex, colIndex)}
+                        >
+                            {value}
+                        </button>
+                    ))
+                ))}
+                {verticalInequalities.map((row, rowIndex) => (
+                    row.map((value, colIndex) => (
+                        <button
+                            key={`v-${rowIndex}-${colIndex}`}
+                            type='button'
+                            className={[
+                                'inequality-control',
+                                'vertical',
+                                value ? 'active' : '',
+                            ].filter(Boolean).join(' ')}
+                            style={{
+                                gridColumn: String(colIndex * 2 + 1),
+                                gridRow: String(rowIndex * 2 + 2),
+                            }}
+                            title={`Contrainte entre ${cellRef(rowIndex, colIndex)} et ${cellRef(rowIndex + 1, colIndex)}`}
+                            aria-label={`Contrainte entre ${cellRef(rowIndex, colIndex)} et ${cellRef(rowIndex + 1, colIndex)}`}
+                            disabled={readonly}
+                            onClick={() => toggleVerticalInequality(rowIndex, colIndex)}
+                        >
+                            {value}
+                        </button>
+                    ))
+                ))}
+                {Array.from({ length: SIZE - 1 }, (_row, rowIndex) => (
+                    Array.from({ length: SIZE - 1 }, (_col, colIndex) => (
+                        <span
+                            key={`corner-${rowIndex}-${colIndex}`}
+                            className='inequality-corner'
+                            style={{
+                                gridColumn: String(colIndex * 2 + 2),
+                                gridRow: String(rowIndex * 2 + 2),
+                            }}
+                        />
+                    ))
+                ))}
+            </>
+        );
+    };
 
     return (
         <div className='grid-puzzle-workbench'>
@@ -489,6 +665,7 @@ function GridPuzzleWorkbenchApp({
                         <option value='sudoku_x'>Sudoku X</option>
                         <option value='sudoku_center_dot'>Center Dot</option>
                         <option value='sudoku_windoku'>Windoku</option>
+                        <option value='sudoku_greater_than'>Greater Than</option>
                     </select>
                     <button onClick={solve} disabled={solveState.running}>
                         {solveState.running ? 'Resolution...' : 'Resoudre'}
@@ -504,25 +681,18 @@ function GridPuzzleWorkbenchApp({
 
             <div className='grid-puzzle-layout'>
                 <section className='grid-puzzle-main'>
-                    <div className='sudoku-board' aria-label='Grille Sudoku interactive'>
+                    <div
+                        className={['sudoku-board', isGreaterThan ? 'greater-than-board' : ''].filter(Boolean).join(' ')}
+                        aria-label='Grille Sudoku interactive'
+                    >
                         {grid.map((row, rowIndex) => (
                             row.map((value, colIndex) => {
                                 const ref = cellRef(rowIndex, colIndex);
-                                const isWatched = watchCells.includes(ref);
                                 return (
                                     <input
                                         key={ref}
-                                        className={[
-                                            'sudoku-cell',
-                                            value ? 'given' : '',
-                                            isWatched ? 'watched' : '',
-                                            puzzleType === 'sudoku_x' && (rowIndex === colIndex || rowIndex + colIndex === SIZE - 1) ? 'diagonal' : '',
-                                            puzzleType === 'sudoku_center_dot' && isCenterDotCell(rowIndex, colIndex) ? 'center-dot' : '',
-                                            puzzleType === 'sudoku_windoku' && isWindokuCell(rowIndex, colIndex) ? 'windoku' : '',
-                                            ...(puzzleType === 'sudoku_windoku' ? getWindokuBoundaryClasses(rowIndex, colIndex) : []),
-                                            colIndex === 2 || colIndex === 5 ? 'block-right' : '',
-                                            rowIndex === 2 || rowIndex === 5 ? 'block-bottom' : '',
-                                        ].filter(Boolean).join(' ')}
+                                        className={cellClassName(rowIndex, colIndex, value)}
+                                        style={cellStyle(rowIndex, colIndex)}
                                         ref={element => {
                                             cellRefs.current[rowIndex][colIndex] = element;
                                         }}
@@ -537,10 +707,12 @@ function GridPuzzleWorkbenchApp({
                                 );
                             })
                         ))}
+                        {renderInequalityControls()}
                     </div>
 
                     <div className='grid-puzzle-hint'>
                         En mode Surveiller, cliquez les cases a extraire pour la reponse. En mode Saisie, Ctrl+clic fonctionne aussi.
+                        {isGreaterThan ? ' Cliquez les bords pour alterner entre >, < et vide.' : ''}
                     </div>
 
                     {solvedGrid && (
@@ -549,31 +721,29 @@ function GridPuzzleWorkbenchApp({
                                 <strong>Solution</strong>
                                 <button onClick={useSolvedGrid}>Reprendre dans la grille</button>
                             </div>
-                            <div className='sudoku-board solved' aria-label='Solution Sudoku'>
+                            <div
+                                className={[
+                                    'sudoku-board',
+                                    'solved',
+                                    isGreaterThan ? 'greater-than-board' : '',
+                                ].filter(Boolean).join(' ')}
+                                aria-label='Solution Sudoku'
+                            >
                                 {solvedGrid.map((row, rowIndex) => (
                                     row.map((value, colIndex) => {
                                         const ref = cellRef(rowIndex, colIndex);
                                         return (
                                             <div
                                                 key={`solved-${ref}`}
-                                                className={[
-                                                    'sudoku-cell',
-                                                    'readonly',
-                                                    grid[rowIndex][colIndex] ? 'given' : '',
-                                                    watchCells.includes(ref) ? 'watched' : '',
-                                                    puzzleType === 'sudoku_x' && (rowIndex === colIndex || rowIndex + colIndex === SIZE - 1) ? 'diagonal' : '',
-                                                    puzzleType === 'sudoku_center_dot' && isCenterDotCell(rowIndex, colIndex) ? 'center-dot' : '',
-                                                    puzzleType === 'sudoku_windoku' && isWindokuCell(rowIndex, colIndex) ? 'windoku' : '',
-                                                    ...(puzzleType === 'sudoku_windoku' ? getWindokuBoundaryClasses(rowIndex, colIndex) : []),
-                                                    colIndex === 2 || colIndex === 5 ? 'block-right' : '',
-                                                    rowIndex === 2 || rowIndex === 5 ? 'block-bottom' : '',
-                                                ].filter(Boolean).join(' ')}
+                                                className={cellClassName(rowIndex, colIndex, grid[rowIndex][colIndex], true)}
+                                                style={cellStyle(rowIndex, colIndex)}
                                             >
                                                 {value}
                                             </div>
                                         );
                                     })
                                 ))}
+                                {renderInequalityControls(true)}
                             </div>
                         </div>
                     )}

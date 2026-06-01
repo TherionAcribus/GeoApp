@@ -214,6 +214,83 @@ def test_windoku_rejects_grid_with_repeated_extra_box_values():
     assert result["summary"] == "Aucune solution compatible avec les contraintes"
 
 
+def test_greater_than_accepts_matching_adjacent_relation():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "sudoku_greater_than",
+            "grid": """
+                534678912
+                672195348
+                198342567
+                859761423
+                426853791
+                713924856
+                961537284
+                287419635
+                345286179
+            """,
+            "inequalities": {
+                "horizontal": [
+                    ">.......",
+                    "........",
+                    "........",
+                    "........",
+                    "........",
+                    "........",
+                    "........",
+                    "........",
+                    "........",
+                ],
+                "vertical": [
+                    ".........",
+                    ".........",
+                    ".........",
+                    ".........",
+                    ".........",
+                    ".........",
+                    ".........",
+                    ".........",
+                ],
+            },
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["unique"] is True
+    assert result["metadata"]["variant"] == "sudoku_greater_than"
+    assert result["metadata"]["constraint_count"] == 28
+
+
+def test_greater_than_rejects_contradictory_adjacent_relation():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "compdoku",
+            "grid": """
+                534678912
+                672195348
+                198342567
+                859761423
+                426853791
+                713924856
+                961537284
+                287419635
+                345286179
+            """,
+            "inequalities": [{"cells": ["r1c1", "r1c2"], "relation": "<"}],
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+    assert result["summary"] == "Aucune solution compatible avec les contraintes"
+
+
 def test_watched_cells_are_extracted_in_requested_order():
     plugin = load_plugin()
 

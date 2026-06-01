@@ -16,7 +16,10 @@ Les objectifs actuels sont :
 - resoudre un Sudoku Center Dot avec une extra-region formee par les centres
   des 9 blocs 3x3 ;
 - resoudre un Windoku avec quatre extra-regions 3x3 ;
+- resoudre un Greater Than Sudoku / Compdoku avec contraintes `>` et `<`
+  entre cases adjacentes ;
 - permettre une saisie interactive dans une grille Theia ;
+- permettre l'edition visuelle des bords d'inegalite pour Compdoku ;
 - synchroniser une saisie rapide textuelle avec la grille ;
 - extraire des cellules surveillees pour aider a construire une reponse
   d'enigme ;
@@ -111,6 +114,8 @@ Entrées principales :
 | `spec` | string JSON | vide | Specification generique pour `custom_spec`. |
 | `max_solutions` | number | `2` | Nombre maximum de solutions a enumerer. |
 | `solver_timeout_ms` | number | `10000` | Timeout interne Z3. |
+| `inequalities` | object/list/string | vide | Contraintes `>` / `<` pour Greater Than / Compdoku. |
+| `comparisons` | object/list/string | vide | Alias de `inequalities`. |
 | `watched_cells` | string/list | vide | Cellules a extraire apres resolution. |
 | `watch_cells` | string/list | vide | Alias de `watched_cells`. |
 
@@ -122,6 +127,7 @@ Valeurs supportees pour `puzzle_type` :
 | `sudoku_x` | `x_sudoku`, `diagonal_sudoku` | Sudoku standard + diagonales principales sans doublons. |
 | `sudoku_center_dot` | `center_dot`, `centerdot_sudoku` | Sudoku standard + extra-region des centres de blocs 3x3. |
 | `sudoku_windoku` | `windoku`, `hyper_sudoku`, `four_box_sudoku` | Sudoku standard + quatre extra-regions 3x3. |
+| `sudoku_greater_than` | `greater_than`, `compdoku`, `inequality_sudoku` | Sudoku standard + comparaisons `>` / `<` entre cases adjacentes. |
 | `custom_spec` | `custom`, `json_spec` | Probleme CSP decrit en JSON. |
 
 Format de grille Sudoku :
@@ -257,6 +263,8 @@ Contraintes supportees :
 | `equals` | `cells`, `value` | Une cellule vaut une valeur precise. |
 | `not_equal` | `cells` | Equivalent a `all_different` sur au moins deux cellules. |
 | `sum` | `cells`, `total` | Somme numerique des cellules egale au total. |
+| `greater_than` | `cells` | La premiere cellule est strictement superieure a la seconde. |
+| `less_than` | `cells` | La premiere cellule est strictement inferieure a la seconde. |
 
 ### `GridCspProblem`
 
@@ -454,6 +462,80 @@ Total :
 Dans l'atelier Theia, les quatre regions Windoku sont teintees et encadrees
 en violet quand la variante `Windoku` est selectionnee.
 
+### Greater Than / Compdoku
+
+`puzzle_type = sudoku_greater_than`
+
+Alias :
+
+```text
+greater_than
+compdoku
+inequality_sudoku
+```
+
+Contraintes :
+
+- toutes les contraintes du Sudoku classique ;
+- une contrainte `greater_than` ou `less_than` pour chaque symbole `>` / `<`
+  place entre deux cases adjacentes.
+
+Le format principal envoye par l'atelier est :
+
+```json
+{
+  "horizontal": [
+    ">.......",
+    "........",
+    "........",
+    "........",
+    "........",
+    "........",
+    "........",
+    "........",
+    "........"
+  ],
+  "vertical": [
+    ".........",
+    ".........",
+    ".........",
+    ".........",
+    ".........",
+    ".........",
+    ".........",
+    "........."
+  ]
+}
+```
+
+`horizontal` contient 9 lignes de 8 symboles. Chaque symbole compare la case
+de gauche a la case de droite.
+
+`vertical` contient 8 lignes de 9 symboles. Chaque symbole compare la case du
+haut a la case du bas.
+
+Formats alternatifs acceptes par le moteur :
+
+```json
+[
+  {"cells": ["r1c1", "r1c2"], "relation": ">"},
+  {"from": "r2c3", "to": "r3c3", "op": "<"}
+]
+```
+
+ou des lignes texte :
+
+```text
+r1c1>r1c2
+r2c3<r3c3
+```
+
+Les deux cellules d'une inegalite doivent etre adjacentes orthogonalement.
+
+Dans l'atelier Theia, la variante `Greater Than` affiche des emplacements entre
+les cases. Un clic alterne entre vide, `>` et `<`. Les bords sont sauvegardes
+avec l'etat de la grille.
+
 ## Specification generique `custom_spec`
 
 Le mode `custom_spec` accepte une specification JSON.
@@ -569,10 +651,12 @@ Fonctionnalites actuelles :
 - mode `Saisie` ;
 - mode `Surveiller` ;
 - `Ctrl+clic` pour surveiller une cellule en mode saisie ;
-- choix de variante `Classique` / `Sudoku X` / `Center Dot` / `Windoku` ;
+- choix de variante `Classique` / `Sudoku X` / `Center Dot` / `Windoku` /
+  `Greater Than` ;
 - diagonales orange en mode Sudoku X ;
 - points verts sur les centres de blocs en mode Center Dot ;
 - regions violettes en mode Windoku ;
+- bords cliquables `>` / `<` en mode Greater Than / Compdoku ;
 - affichage de la premiere solution ;
 - reprise de la solution dans la grille ;
 - extraction des cellules surveillees ;
@@ -584,7 +668,9 @@ Fonctionnalites actuelles :
 |---|---|---|
 | `grid` | `string[][]` | Valeurs courantes de la grille. |
 | `quickText` | `string` | Representation texte de la grille. |
-| `puzzleType` | `sudoku_classic`, `sudoku_x`, `sudoku_center_dot` ou `sudoku_windoku` | Variante active. |
+| `puzzleType` | `sudoku_classic`, `sudoku_x`, `sudoku_center_dot`, `sudoku_windoku` ou `sudoku_greater_than` | Variante active. |
+| `horizontalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme ligne. |
+| `verticalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme colonne. |
 | `watchCells` | `string[]` | Cellules surveillees au format `r1c1`. |
 | `mode` | `edit` ou `watch` | Mode d'interaction. |
 | `maxSolutions` | number | Limite d'enumeration. |
@@ -749,6 +835,10 @@ Payload de sauvegarde :
     "grid": [["", "", ""], "..."],
     "puzzleType": "sudoku_x",
     "quickText": "000000000\n...",
+    "inequalities": {
+      "horizontal": [["", ">", ""], "..."],
+      "vertical": [["", "<", ""], "..."]
+    },
     "watchCells": ["r1c1", "r9c9"],
     "maxSolutions": 2,
     "solverTimeoutMs": 10000,
@@ -824,6 +914,8 @@ Couverture actuelle :
 - grille classique complete refusee en Center Dot ;
 - Windoku valide ;
 - grille classique complete refusee en Windoku ;
+- Greater Than valide avec une relation adjacente compatible ;
+- Greater Than refuse une relation adjacente contradictoire ;
 - extraction des cellules surveillees ;
 - spec generique type Latin square.
 
@@ -876,8 +968,8 @@ Etapes recommandees :
 3. Ajouter les contraintes propres a la variante.
 4. Mettre a jour `plugin.json`.
 5. Ajouter l'option dans `GridPuzzleWorkbenchWidget`.
-6. Ajouter les classes CSS de visualisation si la variante a des zones
-   visibles.
+6. Ajouter les classes CSS de visualisation ou les controles d'edition si la
+   variante a des zones ou des bords visibles.
 7. Ajouter au moins deux tests :
    - une grille valide ;
    - une grille invalide ou un cas qui prouve la contrainte supplementaire.
