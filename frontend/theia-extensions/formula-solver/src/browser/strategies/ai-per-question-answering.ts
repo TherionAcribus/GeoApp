@@ -1,5 +1,7 @@
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { FormulaSolverLLMService } from '../formula-solver-llm-service';
+import { FormulaSolverService } from '../formula-solver-service';
+import type { FormulaSolverService as IFormulaSolverService } from '../formula-solver-service';
 import { AnsweringContextCache } from '../answering-context-cache';
 import { AnsweringStrategy } from './answering-strategy';
 import { AnsweringContext, AnsweringResult, AnswerDetail, ValueType } from './types';
@@ -8,6 +10,9 @@ import { AnsweringContext, AnsweringResult, AnswerDetail, ValueType } from './ty
 export class AiPerQuestionAnswering implements AnsweringStrategy {
     @inject(FormulaSolverLLMService)
     protected readonly llmService!: FormulaSolverLLMService;
+
+    @inject(FormulaSolverService)
+    protected readonly formulaSolverService!: IFormulaSolverService;
 
     @inject(AnsweringContextCache)
     protected readonly answeringContextCache!: AnsweringContextCache;
@@ -38,6 +43,15 @@ export class AiPerQuestionAnswering implements AnsweringStrategy {
             }
 
             const profile = context.perQuestionProfile?.get(letter) ?? defaultProfile;
+
+            // Si le profil est "web", faire d'abord une recherche web puis passer les résultats au LLM
+            if (profile === 'web') {
+                const webResult = await this._answerWithWebSearch(letter, question, context, preparedContext);
+                answersByLetter.set(letter, webResult.answer);
+                detailsByLetter.set(letter, webResult.detail);
+                continue;
+            }
+
             const extraUserInfo = [
                 (context.additionalInstructions || '').trim(),
                 (context.perLetterExtraInfo?.[letter] || '').trim()
@@ -68,6 +82,64 @@ export class AiPerQuestionAnswering implements AnsweringStrategy {
             meta: {
                 source: 'ai',
                 profile: defaultProfile,
+                timestampMs: Date.now()
+            }
+        };
+    }
+
+    /**
+     * Mode "Web + IA" : recherche web puis extraction intelligente par LLM.
+     */
+    protected async _answerWithWebSearch(
+        letter: string,
+        question: string,
+        context: AnsweringContext,
+        preparedContext: any
+    ): Promise<{ answer: string; detail: AnswerDetail }> {
+        // 1. Faire la recherche web via le backend
+        const webContext = context.webContext ?? context.text.substring(0, 200);
+        const maxResults = context.webMaxResults ?? 5;
+        const webSearchResult = await this.formulaSolverService.searchAnswerWeb({
+            question,
+            context: webContext,
+            maxResults
+        });
+
+        const webSnippets = (webSearchResult.results || [])
+            .filter((r: any) => r.type !== 'no_result')
+            .map((r: any, i: number) => `[${i + 1}] ${r.text} (source: ${r.source || '?'})`)
+            .join('\n');
+
+        // 2. Passer les résultats au LLM pour extraction intelligente
+        const webInfoBlock = webSnippets
+            ? `\nRésultats de recherche Internet pour cette question:\n${webSnippets}\n`
+            : '\nAucun résultat trouvé sur Internet pour cette question.\n';
+
+        const extraUserInfo = [
+            (context.additionalInstructions || '').trim(),
+            (context.perLetterExtraInfo?.[letter] || '').trim(),
+            webInfoBlock
+        ].filter(Boolean).join('\n\n');
+
+        // Utiliser le profil "fast" pour l'extraction (le web a déjà fourni l'info)
+        const result = await this.llmService.answerSingleQuestionWithContext({
+            letter,
+            question,
+            geocacheTitle: context.geocacheTitle,
+            geocacheCode: context.geocacheCode,
+            context: preparedContext,
+            extraUserInfo
+        }, 'fast');
+
+        return {
+            answer: result.answer,
+            detail: {
+                answer: result.answer,
+                source: 'web',
+                profile: 'web',
+                explanation: result.explanation || undefined,
+                valueType: (result.valueType as ValueType) || undefined,
+                webResults: webSearchResult.results,
                 timestampMs: Date.now()
             }
         };
