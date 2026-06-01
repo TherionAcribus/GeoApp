@@ -2621,7 +2621,40 @@ export class FormulaSolverWidget extends ReactWidget {
                                                     {question.letter}
                                                 </div>
                                                 <div style={{ flex: 1 }}>
-                                                    <strong>{question.question || 'Question inconnue'}</strong>
+                                                    <input
+                                                        type="text"
+                                                        value={question.question || ''}
+                                                        onChange={e => {
+                                                            const newQuestion = e.target.value;
+                                                            const idx = this.state.questions.findIndex(q => q.letter === question.letter);
+                                                            if (idx >= 0) {
+                                                                this.state.questions[idx].question = newQuestion;
+                                                                this.update();
+                                                            }
+                                                        }}
+                                                        placeholder="Question inconnue"
+                                                        title="Modifier la question (pour affiner la recherche Internet ou IA)"
+                                                        style={{
+                                                            width: '100%',
+                                                            padding: '4px 6px',
+                                                            fontSize: '13px',
+                                                            fontWeight: 'bold',
+                                                            border: '1px solid transparent',
+                                                            borderRadius: '3px',
+                                                            backgroundColor: 'transparent',
+                                                            color: 'var(--theia-foreground)',
+                                                            outline: 'none',
+                                                            transition: 'border-color 0.2s, background-color 0.2s'
+                                                        }}
+                                                        onFocus={e => {
+                                                            e.currentTarget.style.borderColor = 'var(--theia-focusBorder)';
+                                                            e.currentTarget.style.backgroundColor = 'var(--theia-input-background)';
+                                                        }}
+                                                        onBlur={e => {
+                                                            e.currentTarget.style.borderColor = 'transparent';
+                                                            e.currentTarget.style.backgroundColor = 'transparent';
+                                                        }}
+                                                    />
                                                 </div>
 
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
