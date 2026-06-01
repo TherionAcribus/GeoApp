@@ -30,6 +30,16 @@ export interface QuestionFieldProps {
     onExtraInfoChange: (letter: string, value: string) => void;
 }
 
+/** Construit une URL Google Search en retirant les instructions de calcul de la question. */
+const buildGoogleSearchUrl = (questionText: string): string => {
+    const q = questionText
+        .replace(/[?!]?\s*(?:nombre\s+de\s+lettres?|checksum\s*r[e\u00e9]duit|checksum|valeur\s+d[eu]\s+\S+\s+lettre?|de\s+ce\s+(?:nom|groupe|mot|r[e\u00e9]sultat)|son\s+pr[e\u00e9]nom(?:\s+et\s+\w+)?|son\s+nom|le\s+jour|le\s+mois|l.ann[e\u00e9]e|en\s+km|en\s+m[e\u00e8]tres?)\s*\.?$/gi, '')
+        .replace(/[!?;.,\s]+$/, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    return `https://www.google.com/search?q=${encodeURIComponent(q)}`;
+};
+
 export const QuestionFieldCard: React.FC<QuestionFieldProps> = (props) => {
     const {
         question, value, hasValue, isSuspect, isLetterLoading,
@@ -156,9 +166,24 @@ export const QuestionFieldCard: React.FC<QuestionFieldProps> = (props) => {
                                 }}
                                 onClick={() => onAnswerInternet(question.letter)}
                                 disabled={loading}
-                                title="Recherche la réponse sur Internet"
+                                title="Recherche la réponse sur Internet (automatique)"
                             >
                                 Internet
+                            </button>
+                            <button
+                                style={{
+                                    padding: '6px 8px',
+                                    backgroundColor: 'transparent',
+                                    color: 'var(--theia-descriptionForeground)',
+                                    border: '1px solid var(--theia-panel-border)',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer',
+                                    fontSize: '12px'
+                                }}
+                                onClick={() => window.open(buildGoogleSearchUrl(question.question), '_blank')}
+                                title="Ouvrir dans Google (navigateur externe)"
+                            >
+                                <span className="codicon codicon-link-external" />
                             </button>
                         </>
                     )}

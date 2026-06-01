@@ -36,11 +36,72 @@ _STRIP_SEGMENTS = [
     r'\bnombre\s+de\s+lettres?\b',
     r'\bchecksum\s*r[eé]duit\b',
     r'\bchecksum\b',
+    # Instructions de format de réponse ("le jour", "le mois", "l'année", "en jours", etc.)
+    # Ces segments indiquent quel MORCEAU de la réponse on veut, pas le sujet de la recherche.
+    r',?\s+le\s+jour\b',
+    r',?\s+le\s+mois\b',
+    r',?\s+l\'?ann[eé]e\b',
+    r',?\s+en\s+jours?\b',
+    r',?\s+en\s+mois\b',
+    r',?\s+en\s+ann[eé]es?\b',
+    r',?\s+en\s+mètres?\b',
+    r',?\s+en\s+km\b',
+    r',?\s+en\s+kilom[eè]tres?\b',
+    # Instructions indiquant QUEL MORCEAU de la réponse retourner (prénom, nom, etc.)
+    # Ces instructions viennent typiquement après le sujet de la question.
+    # "son prénom", "son nom" : seulement quand c'est une instruction de format
+    # (après virgule ou ?) pour ne pas supprimer le contexte ("a donné son nom à...")
+    r',\s*son\s+pr[eé]nom\s+et\s+(?:son\s+)?nom\b[^,.?!]*',
+    r'(?<=\?)\s+son\s+pr[eé]nom\s+et\s+(?:son\s+)?nom\b[^,.?!]*',
+    r',\s*son\s+(?:pr[eé]nom|nom(?:\s+de\s+famille)?)\b[^,.?!]*',
+    r'(?<=\?)\s+son\s+(?:pr[eé]nom|nom(?:\s+de\s+famille)?)\b[^,.?!]*',
+    r',?\s*ses\s+initiales?\b[^,.?!]*',
+    r',?\s*son\s+initiale\b[^,.?!]*',
+    r',?\s*sa\s+date\s+de\s+naissance\b[^,.?!]*',
+    r',?\s*sa\s+date\s+de\s+mort\b[^,.?!]*',
+    # "de ce nom", "de ce groupe", etc.
+    r'\bde\s+c(?:e|et)\s+(?:nom|pr[eé]nom|mot|chiffre|code|r[eé]sultat|groupe|auteur|inventeur|personnage)\b[^,.?!]*',
+    r'\bde\s+son\s+(?:nom|pr[eé]nom|surnom|sigle|code)\b[^,.?!]*',
+    # "valeur de la 3ème lettre", "valeur du 1er chiffre", etc.
+    r',?\s*valeur\s+d[eu]\s+(?:la\s+|l\'|son\s+)?(?:\d+[eè]me?|premi[eè]re?|derni[eè]re?|\d+e?r?)\s+(?:lettre?|chiffre?|caract[eè]re?)\b[^,.?!]*',
+    r',?\s*valeur\s+de\s+(?:la\s+)?lettre?\b[^,.?!]*',
 ]
 
 # Mots interrogatifs de début à retirer
 _LEADING_QUESTION_RE = re.compile(
-    r'^(?:quel(?:le)?(?:s)?)\s+(?:est|[eé]tait|sont|[eé]taient)\s+',
+    r'^(?:'
+    # "Quel est", "Quelle était", "Quels sont"...
+    r'quel(?:le)?(?:s)?\s+(?:est|[eé]tait|sont|[eé]taient)'
+    # "Quelle matière fabriquait-on", "Quel animal appelait-on"... (inversion verbale)
+    r'|quel(?:le)?(?:s)?\s+\w+\s+\S+-(?:t-)?on'
+    # "Qui a dit", "Qui est", "Qui a écrit"...
+    r'|qui\s+(?:a\s+dit|est|[eé]tait|a\s+[eé]t[eé]|a|sont|ont|fut|[eé]crit)'
+    # "Où est", "Où se trouve"...
+    r'|o[u\u00f9]\s+(?:est|se\s+trouve|[eé]tait|se\s+trouvait|a\s+[eé]t[eé])'
+    # "Quand est", "Quand a eu lieu"...
+    r'|quand\s+(?:est|a|[eé]tait|ont|fut|a\s+eu\s+lieu)'
+    # "Comment s'appelle"...
+    r'|comment\s+s\'appelle'
+    r')\s+',
+    re.IGNORECASE
+)
+
+# Prépositions/articles en tête après nettoyage de la question
+# Supprimer pour isoler le sujet recherché (ex: "avec du phénol" → "phénol")
+_LEADING_PREP_RE = re.compile(
+    r'^(?:'
+    r'avec\s+(?:du\s+|de\s+la\s+|des\s+|de\s+l\'|le\s+|la\s+|l\')'
+    r'|dans\s+(?:le\s+|la\s+|les\s+|l\')'
+    r'|sur\s+(?:le\s+|la\s+|les\s+|l\')'
+    r'|par\s+(?:le\s+|la\s+|les\s+|l\')'
+    r'|(?:le|la|les|l\')\s+'
+    r')',
+    re.IGNORECASE
+)
+
+# "Date de X" en début de question → reformuler en "X date" pour que le sujet domine la recherche
+_DATE_DE_RE = re.compile(
+    r'^date\s+(?:de\s+|d\'|du\s+|de la\s+|des\s+)',
     re.IGNORECASE
 )
 
@@ -77,20 +138,32 @@ class WebSearchService:
         """
         q = raw_question
         
-        # 1. Retirer les segments d'instructions de calcul (du plus long au plus court)
+        # 1. Retirer les instructions de calcul/format qui parasitent la recherche.
         for pattern in _STRIP_SEGMENTS:
             q = re.sub(pattern, ' ', q, flags=re.IGNORECASE)
         
-        # 2. Retirer les mots interrogatifs de début ("Quel est", "Quelle était", etc.)
+        # 2. Retirer les mots interrogatifs de début.
+        #    NÉCESSAIRE : Bing (backend DDGS 8.x) interprète "Qui"/"Quel" comme des requêtes
+        #    de définition grammaticale et "Date de" comme une requête calendrier.
         q = _LEADING_QUESTION_RE.sub('', q)
         
-        # 3. Retirer les parenthèses vides et la ponctuation parasite
+        # 3. "Date de X" → "X date" pour que le sujet domine sur Bing
+        m = _DATE_DE_RE.match(q)
+        if m:
+            q = q[m.end():].strip() + ' date'
+        
+        # 4. Retirer les prépositions/articles en tête qui n'apportent rien
+        m = _LEADING_PREP_RE.match(q)
+        if m:
+            q = q[m.end():].strip()
+        
+        # 5. Retirer les parenthèses vides et la ponctuation parasite
         q = _CLEANUP_RE.sub(' ', q)
         
-        # 4. Retirer les points/virgules isolés en fin de texte
+        # 6. Retirer les points/virgules isolés en fin de texte
         q = q.strip(' .,;:-–—')
         
-        # 5. Normaliser les espaces
+        # 7. Normaliser les espaces
         q = _MULTI_SPACE_RE.sub(' ', q).strip()
         
         # Si après nettoyage il ne reste presque rien, garder la question nettoyée minimalement
@@ -183,22 +256,7 @@ class WebSearchService:
         results = []
         
         with DDGS() as ddgs:
-            # Essayer d'abord les réponses instantanées
-            try:
-                answers = list(ddgs.answers(query))
-                for i, answer in enumerate(answers[:2]):
-                    text = answer.get('text', '')
-                    if text:
-                        results.append({
-                            "text": text,
-                            "source": answer.get('url', 'DuckDuckGo'),
-                            "score": 0.95 - (i * 0.05),
-                            "type": "instant_answer"
-                        })
-            except Exception as e:
-                logger.debug(f"Pas de réponse instantanée DDG: {e}")
-            
-            # Recherche textuelle classique
+            # Recherche textuelle classique (answers() supprimé dans DDGS v8)
             try:
                 text_results = list(ddgs.text(query, max_results=max_results, region='fr-fr'))
                 for i, r in enumerate(text_results):
@@ -270,7 +328,7 @@ class WebSearchService:
                     "https://html.duckduckgo.com/html/",
                     params={'q': query},
                     timeout=10,
-                    headers={'User-Agent': 'GeoApp/1.0'}
+                    headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'}
                 )
                 if resp.status_code == 200:
                     soup = BeautifulSoup(resp.text, 'html.parser')
