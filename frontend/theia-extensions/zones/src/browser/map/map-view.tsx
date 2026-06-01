@@ -4,6 +4,8 @@ import View from 'ol/View';
 import { defaults as defaultControls, ScaleLine, FullScreen } from 'ol/control';
 import { defaults as defaultInteractions } from 'ol/interaction';
 import Overlay from 'ol/Overlay';
+import Feature from 'ol/Feature';
+import { Geometry } from 'ol/geom';
 import 'ol/ol.css';
 import { MapLayerManager, MapGeocache, MapLabelMode } from './map-layer-manager';
 import { MapService, DetectedCoordinateHighlight, FormulaSolverPreviewOverlay } from './map-service';
@@ -178,8 +180,14 @@ export const MapView: React.FC<MapViewProps> = ({
 
         // Ajouter le gestionnaire de clic gauche
         map.on('click', (evt) => {
-            const feature = map.forEachFeatureAtPixel(evt.pixel, (f) => f);
-            if (!feature) {
+            // Collecter toutes les features au pixel cliqué
+            const features: Feature<Geometry>[] = [];
+            map.forEachFeatureAtPixel(evt.pixel, (f) => {
+                features.push(f as Feature<Geometry>);
+                return false; // Continue pour collecter toutes les features
+            });
+
+            if (features.length === 0) {
                 setPopupData(null);
                 if (overlayRef.current) {
                     overlayRef.current.setPosition(undefined);
@@ -187,7 +195,27 @@ export const MapView: React.FC<MapViewProps> = ({
                 return;
             }
 
-            const props = feature.getProperties() as GeocacheFeatureProperties & {
+            // Trouver la meilleure feature à afficher
+            // Priorité : géocache normale > waypoint > point détecté (brute force)
+            let selectedFeature = features[0];
+            let selectedProps = selectedFeature.getProperties();
+
+            for (const f of features) {
+                const props = f.getProperties();
+                // Si on trouve une géocache avec un ID valide (pas juste un point détecté), on la prend
+                if (props.id !== undefined && !props.isDetectedCoordinate) {
+                    selectedFeature = f;
+                    selectedProps = props;
+                    break;
+                }
+                // Sinon, si on trouve un waypoint, on le garde en second choix
+                if (props.isWaypoint && selectedProps.isDetectedCoordinate) {
+                    selectedFeature = f;
+                    selectedProps = props;
+                }
+            }
+
+            const props = selectedProps as GeocacheFeatureProperties & {
                 isDetectedCoordinate?: boolean;
                 formatted?: string;
                 pluginName?: string;
@@ -254,16 +282,37 @@ export const MapView: React.FC<MapViewProps> = ({
         const mapElement = mapRef.current;
         const handleContextMenu = (event: MouseEvent) => {
             event.preventDefault();
-            
+
             // Obtenir les coordonnées du clic sur la carte
             const pixel = map.getEventPixel(event);
             const coordinate = map.getCoordinateFromPixel(pixel);
-            
-            // Vérifier si on a cliqué sur une feature (géocache ou waypoint)
-            const feature = map.forEachFeatureAtPixel(pixel, (f) => f);
-            
-            if (feature) {
-                const props = feature.getProperties() as GeocacheFeatureProperties & {
+
+            // Collecter toutes les features au pixel cliqué
+            const features: Feature<Geometry>[] = [];
+            map.forEachFeatureAtPixel(pixel, (f) => {
+                features.push(f as Feature<Geometry>);
+                return false; // Continue pour collecter toutes les features
+            });
+
+            if (features.length > 0) {
+                // Trouver la meilleure feature pour le menu contextuel
+                // Priorité : waypoint > géocache normale > point détecté
+                let selectedProps = features[0].getProperties();
+
+                for (const f of features) {
+                    const props = f.getProperties();
+                    // Priorité aux waypoints pour le menu contextuel
+                    if (props.isWaypoint) {
+                        selectedProps = props;
+                        break;
+                    }
+                    // Ensuite les géocaches normales
+                    if (props.id !== undefined && !props.isDetectedCoordinate && !selectedProps.isWaypoint) {
+                        selectedProps = props;
+                    }
+                }
+
+                const props = selectedProps as GeocacheFeatureProperties & {
                     isDetectedCoordinate?: boolean;
                     formatted?: string;
                     pluginName?: string;
@@ -1180,6 +1229,31 @@ export const MapView: React.FC<MapViewProps> = ({
                 >
                     {popupData && (
                         <div style={{ color: 'var(--theia-foreground)' }}>
+                            {/* Bouton fermer */}
+                            <button
+                                onClick={() => {
+                                    setPopupData(null);
+                                    if (overlayRef.current) {
+                                        overlayRef.current.setPosition(undefined);
+                                    }
+                                }}
+                                style={{
+                                    position: 'absolute',
+                                    top: '4px',
+                                    right: '4px',
+                                    background: 'transparent',
+                                    border: 'none',
+                                    color: 'var(--theia-descriptionForeground)',
+                                    fontSize: '16px',
+                                    cursor: 'pointer',
+                                    padding: '4px 8px',
+                                    lineHeight: '1'
+                                }}
+                                title="Fermer"
+                            >
+                                ×
+                            </button>
+
                             {/* Titre : GC + nom */}
                             {canOpenPopupGeocache ? (
                                 <button
