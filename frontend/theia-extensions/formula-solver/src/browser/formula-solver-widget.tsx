@@ -1785,6 +1785,22 @@ export class FormulaSolverWidget extends ReactWidget {
     protected render(): React.ReactNode {
         return (
             <div className='formula-solver-container' style={{ padding: '20px', height: '100%', overflow: 'auto' }}>
+                <style>{`
+                    @keyframes formula-solver-spin {
+                        from { transform: rotate(0deg); }
+                        to { transform: rotate(360deg); }
+                    }
+                    .formula-solver-spinner {
+                        display: inline-block;
+                        width: 16px;
+                        height: 16px;
+                        border: 2px solid var(--theia-foreground);
+                        border-top-color: transparent;
+                        border-radius: 50%;
+                        animation: formula-solver-spin 0.8s linear infinite;
+                        margin: 0 6px;
+                    }
+                `}</style>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                     <h2 style={{ marginTop: 0, marginBottom: 0 }}>Formula Solver</h2>
                     
