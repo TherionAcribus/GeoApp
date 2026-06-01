@@ -2,7 +2,7 @@ import { injectable, inject } from '@theia/core/shared/inversify';
 import { FormulaSolverLLMService } from '../formula-solver-llm-service';
 import { AnsweringContextCache } from '../answering-context-cache';
 import { AnsweringStrategy } from './answering-strategy';
-import { AnsweringContext, AnsweringResult } from './types';
+import { AnsweringContext, AnsweringResult, AnswerDetail } from './types';
 
 @injectable()
 export class AiPerQuestionAnswering implements AnsweringStrategy {
@@ -15,6 +15,7 @@ export class AiPerQuestionAnswering implements AnsweringStrategy {
     async answer(context: AnsweringContext): Promise<AnsweringResult> {
         const defaultProfile = context.aiProfile ?? 'fast';
         const answersByLetter = new Map<string, string>();
+        const detailsByLetter = new Map<string, AnswerDetail>();
 
         const allQuestions = context.allQuestionsByLetter ?? context.questionsByLetter;
         const questionsObj: Record<string, string> = {};
@@ -41,7 +42,7 @@ export class AiPerQuestionAnswering implements AnsweringStrategy {
                 (context.additionalInstructions || '').trim(),
                 (context.perLetterExtraInfo?.[letter] || '').trim()
             ].filter(Boolean).join('\n\n');
-            const answer = await this.llmService.answerSingleQuestionWithContext({
+            const result = await this.llmService.answerSingleQuestionWithContext({
                 letter,
                 question,
                 geocacheTitle: context.geocacheTitle,
@@ -49,11 +50,20 @@ export class AiPerQuestionAnswering implements AnsweringStrategy {
                 context: preparedContext,
                 extraUserInfo
             }, profile);
-            answersByLetter.set(letter, answer);
+            answersByLetter.set(letter, result.answer);
+
+            detailsByLetter.set(letter, {
+                answer: result.answer,
+                source: 'ai',
+                profile,
+                explanation: result.explanation || undefined,
+                timestampMs: Date.now()
+            });
         }
 
         return {
             answersByLetter,
+            detailsByLetter,
             meta: {
                 source: 'ai',
                 profile: defaultProfile,

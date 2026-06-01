@@ -65,6 +65,27 @@
     }
 }
 
+/* Spinner de chargement par question */
+.formula-solver-spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--theia-foreground);
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: formula-solver-spin 0.8s linear infinite;
+    margin: 0 6px;
+}
+
+@keyframes formula-solver-spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 /* Styles pour les étapes */
 .detection-step,
 .questions-step,

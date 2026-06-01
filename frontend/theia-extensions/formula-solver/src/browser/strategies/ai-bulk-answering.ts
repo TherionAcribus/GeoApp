@@ -2,7 +2,7 @@ import { injectable, inject } from '@theia/core/shared/inversify';
 import { FormulaSolverLLMService } from '../formula-solver-llm-service';
 import { AnsweringContextCache } from '../answering-context-cache';
 import { AnsweringStrategy } from './answering-strategy';
-import { AnsweringContext, AnsweringResult } from './types';
+import { AnsweringContext, AnsweringResult, AnswerDetail } from './types';
 
 @injectable()
 export class AiBulkAnswering implements AnsweringStrategy {
@@ -54,13 +54,28 @@ export class AiBulkAnswering implements AnsweringStrategy {
             profile
         );
         const answersByLetter = new Map<string, string>();
+        const detailsByLetter = new Map<string, AnswerDetail>();
 
         for (const letter of Object.keys(Object.fromEntries(Array.from(context.questionsByLetter.entries())))) {
-            answersByLetter.set(letter, String((answersObj as any)?.[letter] || ''));
+            const answer = String((answersObj as any)?.[letter] || '');
+            answersByLetter.set(letter, answer);
+            const perLetterRule = preparedContext.per_letter_rules?.[letter] || '';
+            const explanationParts = [
+                preparedContext.geocache_summary ? `Résumé: ${preparedContext.geocache_summary}` : '',
+                perLetterRule ? `Règle ${letter}: ${perLetterRule}` : ''
+            ].filter(Boolean);
+            detailsByLetter.set(letter, {
+                answer,
+                source: 'ai',
+                profile,
+                explanation: explanationParts.length > 0 ? explanationParts.join('\n') : undefined,
+                timestampMs: Date.now()
+            });
         }
 
         return {
             answersByLetter,
+            detailsByLetter,
             meta: {
                 source: 'ai',
                 profile,

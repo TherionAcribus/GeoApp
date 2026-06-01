@@ -359,7 +359,7 @@ INSTRUCTIONS:
             per_letter_rules: Record<string, string>;
         };
         extraUserInfo?: string;
-    }, profile: FormulaSolverAiProfile = 'fast'): Promise<string> {
+    }, profile: FormulaSolverAiProfile = 'fast'): Promise<{ answer: string; explanation: string }> {
         const rule = params.context.per_letter_rules?.[params.letter] || '';
         const rulesText = [
             ...(params.context.global_rules || []),
@@ -384,12 +384,15 @@ ${params.letter}: ${params.question}
 
 INSTRUCTIONS:
 - Réponds uniquement pour la lettre ${params.letter}.
-- Retourne UNIQUEMENT un JSON strict sans texte autour:
-{ "${params.letter}": "<réponse>" }`;
+- Retourne UNIQUEMENT un JSON strict sans texte autour, avec cette forme:
+{ "${params.letter}": "<réponse>", "explanation": "<explication courte de ton raisonnement et de la source de ta réponse>" }`;
 
         const response = await this.callLLM(prompt, `reponse-${params.letter}`, profile);
         const parsed = (this.extractJsonObject(response) as any) || {};
-        return String(parsed?.[params.letter] || '');
+        return {
+            answer: String(parsed?.[params.letter] || ''),
+            explanation: String(parsed?.explanation || '')
+        };
     }
 
 }

@@ -55,8 +55,23 @@ export interface AnsweringContext {
     perLetterExtraInfo?: Record<string, string>;
 }
 
+export interface AnswerDetail {
+    answer: string;
+    source: 'ai' | 'web' | 'manual';
+    profile?: FormulaSolverAiProfile;
+    explanation?: string;
+    webResults?: Array<{
+        text?: string;
+        source?: string;
+        score?: number;
+        type?: string;
+    }>;
+    timestampMs: number;
+}
+
 export interface AnsweringResult {
     answersByLetter: Map<string, string>;
+    detailsByLetter?: Map<string, AnswerDetail>;
     meta: StepMeta;
 }
 

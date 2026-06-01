@@ -1,7 +1,7 @@
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { FormulaSolverService } from '../formula-solver-service';
 import { AnsweringStrategy } from './answering-strategy';
-import { AnsweringContext, AnsweringResult } from './types';
+import { AnsweringContext, AnsweringResult, AnswerDetail } from './types';
 
 @injectable()
 export class BackendWebSearchAnswering implements AnsweringStrategy {
@@ -24,13 +24,22 @@ export class BackendWebSearchAnswering implements AnsweringStrategy {
         });
 
         const answersByLetter = new Map<string, string>();
+        const detailsByLetter = new Map<string, AnswerDetail>();
         Object.keys(questionsObj).forEach(letter => {
             const item = batch.get(letter);
-            answersByLetter.set(letter, item?.bestAnswer || '');
+            const bestAnswer = item?.bestAnswer || '';
+            answersByLetter.set(letter, bestAnswer);
+            detailsByLetter.set(letter, {
+                answer: bestAnswer,
+                source: 'web',
+                webResults: item?.results,
+                timestampMs: Date.now()
+            });
         });
 
         return {
             answersByLetter,
+            detailsByLetter,
             meta: {
                 source: 'algorithm',
                 timestampMs: Date.now()
