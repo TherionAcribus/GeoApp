@@ -565,6 +565,33 @@ export class FormulaSolverWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Définit les coordonnées calculées comme coordonnées corrigées de la géocache
+     */
+    protected async setCorrectedCoords(): Promise<void> {
+        if (!this.state.geocacheId || !this.state.result?.coordinates) {
+            this.messageService.error('Aucune géocache ou coordonnées disponibles');
+            return;
+        }
+
+        const coords = this.state.result.coordinates;
+        // Format: "N 48° 51.123 E 002° 17.456"
+        const gcCoords = coords.ddm || `${coords.decimal}`;
+
+        try {
+            await this.formulaSolverService.setCorrectedCoordinates(this.state.geocacheId, gcCoords);
+            this.messageService.info('Coordonnées corrigées mises à jour');
+
+            // Dispatch event to refresh geocache details widget if open
+            window.dispatchEvent(new CustomEvent('geoapp-geocache-coordinates-updated', {
+                detail: { geocacheId: this.state.geocacheId }
+            }));
+        } catch (error) {
+            console.error('[Formula Solver] Erreur lors de la correction des coordonnées:', error);
+            this.messageService.error('Erreur lors de la mise à jour des coordonnées corrigées');
+        }
+    }
+
     protected createWaypointFromBrute(resultId: string, autoSave: boolean = false): void {
         if (!this.state.geocacheId) {
             this.messageService.error('Aucune géocache chargée, impossible de créer le waypoint');
@@ -765,8 +792,9 @@ export class FormulaSolverWidget extends ReactWidget {
 
     /**
      * Modifie manuellement une formule détectée
+     * Préserve les questions et valeurs existantes pour les lettres communes
      */
-    protected handleEditFormula(formula: Formula, updatedNorth: string, updatedEast: string): void {
+    protected async handleEditFormula(formula: Formula, updatedNorth: string, updatedEast: string): Promise<void> {
         // Mise à jour de la formule dans la liste
         const updatedFormulasRaw = this.state.formulas.map((f: Formula) => {
             if (f.id === formula.id) {
@@ -790,13 +818,150 @@ export class FormulaSolverWidget extends ReactWidget {
 
         this.updateState({
             formulas: updatedFormulas,
-            selectedFormula: updatedSelectedFormula,
-            // Réinitialiser les questions car la formule a changé
-            questions: [],
-            values: new Map()
+            selectedFormula: updatedSelectedFormula
         });
 
+        // Si la formule sélectionnée a changé, préserver les questions/valeurs existantes
+        if (updatedSelectedFormula && this.state.selectedFormula?.id === formula.id) {
+            // Extraire les lettres de la nouvelle formule
+            const newLetters = this.extractVariablesFromFormula(updatedNorth, updatedEast);
+            const previousQuestions = new Map(this.state.questions.map(q => [q.letter, q]));
+            const previousValues = new Map(this.state.values);
+
+            // Identifier les nouvelles lettres (pas dans les questions précédentes)
+            const newLetterIds = newLetters.filter(l => !previousQuestions.has(l));
+
+            // Conserver les questions et valeurs pour les lettres existantes
+            const preservedQuestions = newLetters
+                .filter(l => previousQuestions.has(l))
+                .map(l => previousQuestions.get(l)!);
+            const preservedValues = new Map<string, LetterValue>();
+            for (const letter of newLetters) {
+                const existing = previousValues.get(letter);
+                if (existing) {
+                    preservedValues.set(letter, existing);
+                }
+            }
+
+            if (newLetterIds.length > 0) {
+                // Il y a de nouvelles lettres, extraire les questions pour celles-ci
+                this.messageService.info(`Nouvelles variables détectées : ${newLetterIds.join(', ')}. Extraction des questions...`);
+
+                // Créer une formule temporaire avec seulement les nouvelles lettres pour l'extraction
+                const tempFormula: Formula = {
+                    ...updatedSelectedFormula,
+                    north: updatedNorth,
+                    east: updatedEast,
+                    text_output: `${updatedNorth} ${updatedEast}`
+                };
+
+                // Extraire les questions pour les nouvelles lettres
+                await this.extractQuestionsForNewLetters(
+                    tempFormula,
+                    preservedQuestions,
+                    preservedValues,
+                    new Set(newLetterIds)
+                );
+            } else {
+                // Pas de nouvelles lettres, juste mettre à jour l'état et recalculer si possible
+                this.updateState({
+                    questions: preservedQuestions,
+                    values: preservedValues
+                });
+
+                // Recalculer automatiquement si toutes les valeurs sont présentes
+                this.tryAutoCalculateOrBruteForce();
+            }
+        }
+
         this.messageService.info('Formule modifiée avec succès');
+    }
+
+    /**
+     * Extrait les variables (lettres) d'une formule
+     */
+    protected extractVariablesFromFormula(north: string, east: string): string[] {
+        const allText = `${north} ${east}`;
+        const matches = allText.match(/[A-Z]/g) || [];
+        return [...new Set(matches)].sort();
+    }
+
+    /**
+     * Extrait les questions uniquement pour les nouvelles lettres
+     * et fusionne avec les questions/valeurs préservées
+     */
+    protected async extractQuestionsForNewLetters(
+        formula: Formula,
+        preservedQuestions: Question[],
+        preservedValues: Map<string, LetterValue>,
+        newLetters: Set<string>
+    ): Promise<void> {
+        const requestId = ++this.questionsRequestId;
+        const method = this.stepConfig.questionsMethod;
+        const aiProfile = this.stepConfig.aiProfileForQuestions;
+
+        this.updateState({
+            loading: true,
+            error: undefined
+        });
+
+        try {
+            const discovery = await this.pipeline.discoverQuestions({
+                text: this.state.text || '',
+                formula,
+                method,
+                aiProfile,
+                userHint: method === 'ai' ? this.questionsAiUserHint : undefined
+            });
+
+            if (requestId !== this.questionsRequestId) {
+                return;
+            }
+
+            const discoveredLetters = Array.from(discovery.questionsByLetter.keys());
+
+            // Construire la liste complète des questions
+            const allQuestions: Question[] = [...preservedQuestions];
+            const allValues = new Map<string, LetterValue>(preservedValues);
+
+            // Ajouter les questions pour les nouvelles lettres
+            for (const letter of discoveredLetters) {
+                if (newLetters.has(letter) && !allValues.has(letter)) {
+                    allQuestions.push({
+                        letter,
+                        question: discovery.questionsByLetter.get(letter) || ''
+                    });
+                }
+            }
+
+            // S'assurer que toutes les lettres de la formule ont une entrée
+            const formulaLetters = this.extractVariablesFromFormula(formula.north, formula.east);
+            for (const letter of formulaLetters) {
+                if (!allValues.has(letter)) {
+                    const existingQuestion = discovery.questionsByLetter.get(letter);
+                    if (existingQuestion && !allQuestions.find(q => q.letter === letter)) {
+                        allQuestions.push({ letter, question: existingQuestion });
+                    }
+                }
+            }
+
+            this.updateState({
+                loading: false,
+                questions: allQuestions,
+                values: allValues,
+                currentStep: 'values'
+            });
+
+            // Recalculer automatiquement si toutes les valeurs sont présentes
+            this.tryAutoCalculateOrBruteForce();
+        } catch (error) {
+            if (requestId !== this.questionsRequestId) {
+                return;
+            }
+            const message = error instanceof Error ? error.message : 'Erreur inconnue';
+            this.messageService.error(`Erreur lors de l'extraction : ${message}`);
+            this.updateState({ loading: false, error: message });
+        }
     }
 
     /**
@@ -2511,6 +2676,7 @@ export class FormulaSolverWidget extends ReactWidget {
                         onCreateWaypoint={this.state.geocacheId ? () => this.createWaypoint(false) : undefined}
                         onAutoSaveWaypoint={this.state.geocacheId ? () => this.createWaypoint(true) : undefined}
                         onProjectOnMap={() => this.showOnMap()}
+                        onSetCorrectedCoords={this.state.geocacheId ? () => this.setCorrectedCoords() : undefined}
                     />
                 )}
                 

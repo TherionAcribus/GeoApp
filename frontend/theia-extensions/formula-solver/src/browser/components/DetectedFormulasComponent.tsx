@@ -9,7 +9,7 @@ export interface DetectedFormulasComponentProps {
     formulas: Formula[];
     selectedFormula?: Formula;
     onSelect: (formula: Formula) => void;
-    onEditFormula?: (formula: Formula, updatedNorth: string, updatedEast: string) => void;
+    onEditFormula?: (formula: Formula, updatedNorth: string, updatedEast: string) => void | Promise<void>;
     loading?: boolean;
 }
 
@@ -30,9 +30,9 @@ export const DetectedFormulasComponent: React.FC<DetectedFormulasComponentProps>
         setEditedEast(formula.east);
     };
 
-    const handleSaveEdit = (formula: Formula) => {
+    const handleSaveEdit = async (formula: Formula) => {
         if (onEditFormula) {
-            onEditFormula(formula, editedNorth, editedEast);
+            await onEditFormula(formula, editedNorth, editedEast);
         }
         setEditingId(null);
     };
@@ -236,7 +236,7 @@ export const DetectedFormulasComponent: React.FC<DetectedFormulasComponentProps>
                                             Annuler
                                         </button>
                                         <button
-                                            onClick={() => handleSaveEdit(formula)}
+                                            onClick={() => { void handleSaveEdit(formula); }}
                                             style={{
                                                 padding: '5px 12px',
                                                 fontSize: '12px',

@@ -11,6 +11,7 @@ export interface ResultDisplayComponentProps {
     onCreateWaypoint?: () => void;
     onAutoSaveWaypoint?: () => void;
     onProjectOnMap?: () => void;
+    onSetCorrectedCoords?: () => void;
 }
 
 export const ResultDisplayComponent: React.FC<ResultDisplayComponentProps> = ({
@@ -18,7 +19,8 @@ export const ResultDisplayComponent: React.FC<ResultDisplayComponentProps> = ({
     onCopy,
     onCreateWaypoint,
     onAutoSaveWaypoint,
-    onProjectOnMap
+    onProjectOnMap,
+    onSetCorrectedCoords
 }) => {
     if (!result || result.status !== 'success' || !result.coordinates) {
         return null;
@@ -487,6 +489,30 @@ export const ResultDisplayComponent: React.FC<ResultDisplayComponentProps> = ({
                     >
                         <span className='codicon codicon-pass-filled'></span>
                         Ajouter et valider
+                    </button>
+                )}
+
+                {onSetCorrectedCoords && (
+                    <button
+                        style={{
+                            padding: '10px 14px',
+                            backgroundColor: 'var(--theia-button-secondaryBackground)',
+                            color: 'var(--theia-button-secondaryForeground)',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontSize: '13px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '6px',
+                            fontWeight: '500'
+                        }}
+                        onClick={onSetCorrectedCoords}
+                        title="Définir comme coordonnées corrigées de la géocache"
+                    >
+                        <span className='codicon codicon-target'></span>
+                        Coordonnées corrigées
                     </button>
                 )}
             </div>

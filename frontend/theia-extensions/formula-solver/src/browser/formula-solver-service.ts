@@ -70,6 +70,7 @@ export interface FormulaSolverService {
     calculateChecksum(value: string | number): number;
     calculateReducedChecksum(value: string | number): number;
     calculateLength(value: string | number): number;
+    setCorrectedCoordinates(geocacheId: number, coordinatesRaw: string): Promise<void>;
 }
 
 @injectable()
@@ -204,6 +205,28 @@ export class FormulaSolverServiceImpl implements FormulaSolverService {
 
     calculateLength(value: string | number): number {
         return value.toString().replace(/\s+/g, '').length;
+    }
+
+    async setCorrectedCoordinates(geocacheId: number, coordinatesRaw: string): Promise<void> {
+        // Sanitize coordinates format: "N 48° 31.914 E 003° 24.304"
+        const sanitized = coordinatesRaw
+            .replace(/[''ʼ′']/g, '')  // Remove apostrophe variants
+            .replace(/,/g, '')        // Remove commas
+            .replace(/\s+/g, ' ')     // Normalize spaces
+            .trim();
+
+        const response = await axios.put(
+            `${this.baseUrl}/api/geocaches/${geocacheId}/coordinates`,
+            { coordinates_raw: sanitized },
+            {
+                headers: { 'Content-Type': 'application/json' },
+                withCredentials: true
+            }
+        );
+
+        if (response.status !== 200) {
+            throw new Error(`HTTP ${response.status}`);
+        }
     }
 
     protected createClient(baseURL: string): AxiosInstance {
