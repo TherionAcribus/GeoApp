@@ -84,6 +84,7 @@ class GridpuzzlesolverPlugin:
                     include_diagonals=False,
                     include_center_dot=False,
                     include_windoku=False,
+                    include_girandola=False,
                     variant="sudoku_classic",
                 )
             elif puzzle_type in {"sudoku_x", "x_sudoku", "diagonal_sudoku"}:
@@ -97,6 +98,7 @@ class GridpuzzlesolverPlugin:
                     include_diagonals=True,
                     include_center_dot=False,
                     include_windoku=False,
+                    include_girandola=False,
                     variant="sudoku_x",
                 )
             elif puzzle_type in {"sudoku_center_dot", "center_dot", "centerdot_sudoku"}:
@@ -110,6 +112,7 @@ class GridpuzzlesolverPlugin:
                     include_diagonals=False,
                     include_center_dot=True,
                     include_windoku=False,
+                    include_girandola=False,
                     variant="sudoku_center_dot",
                 )
             elif puzzle_type in {"sudoku_windoku", "windoku", "hyper_sudoku", "four_box_sudoku"}:
@@ -123,7 +126,22 @@ class GridpuzzlesolverPlugin:
                     include_diagonals=False,
                     include_center_dot=False,
                     include_windoku=True,
+                    include_girandola=False,
                     variant="sudoku_windoku",
+                )
+            elif puzzle_type in {"sudoku_girandola", "girandola", "girandole_sudoku"}:
+                puzzle_text = self._first_non_empty(
+                    inputs.get("grid"),
+                    inputs.get("puzzle"),
+                    inputs.get("text"),
+                )
+                problem = self._build_sudoku_problem(
+                    puzzle_text,
+                    include_diagonals=False,
+                    include_center_dot=False,
+                    include_windoku=False,
+                    include_girandola=True,
+                    variant="sudoku_girandola",
                 )
             elif puzzle_type in {"sudoku_greater_than", "greater_than", "compdoku", "inequality_sudoku"}:
                 puzzle_text = self._first_non_empty(
@@ -136,6 +154,7 @@ class GridpuzzlesolverPlugin:
                     include_diagonals=False,
                     include_center_dot=False,
                     include_windoku=False,
+                    include_girandola=False,
                     variant="sudoku_greater_than",
                     inequalities=inputs.get("inequalities") or inputs.get("comparisons"),
                 )
@@ -172,6 +191,7 @@ class GridpuzzlesolverPlugin:
         include_diagonals: bool,
         include_center_dot: bool,
         include_windoku: bool,
+        include_girandola: bool,
         variant: str,
         inequalities: Any = None,
     ) -> GridCspProblem:
@@ -235,6 +255,24 @@ class GridpuzzlesolverPlugin:
                             ),
                         )
                     )
+
+        if include_girandola:
+            constraints.append(
+                GridConstraint(
+                    "all_different",
+                    (
+                        (0, 0),
+                        (0, 8),
+                        (1, 4),
+                        (4, 1),
+                        (4, 4),
+                        (4, 7),
+                        (7, 4),
+                        (8, 0),
+                        (8, 8),
+                    ),
+                )
+            )
 
         constraints.extend(self._parse_sudoku_inequalities(inequalities))
 

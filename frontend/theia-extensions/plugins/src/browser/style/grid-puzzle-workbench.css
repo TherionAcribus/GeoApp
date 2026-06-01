@@ -158,6 +158,14 @@
     background: color-mix(in srgb, var(--theia-sideBar-background) 64%, #8b5cf6);
 }
 
+.sudoku-cell.girandola {
+    background: color-mix(in srgb, var(--theia-input-background) 72%, #06b6d4);
+}
+
+.sudoku-cell.given.girandola {
+    background: color-mix(in srgb, var(--theia-sideBar-background) 58%, #06b6d4);
+}
+
 .sudoku-cell.windoku-top {
     border-top: 3px solid #8b5cf6;
 }

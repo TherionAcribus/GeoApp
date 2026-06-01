@@ -214,6 +214,59 @@ def test_windoku_rejects_grid_with_repeated_extra_box_values():
     assert result["summary"] == "Aucune solution compatible avec les contraintes"
 
 
+def test_girandola_accepts_solution_with_unique_extra_region():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "sudoku_girandola",
+            "grid": """
+                538279146
+                179645238
+                426813579
+                651392784
+                394587612
+                782164395
+                817426953
+                965738421
+                243951867
+            """,
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["unique"] is True
+    assert result["metadata"]["variant"] == "sudoku_girandola"
+    assert result["metadata"]["constraint_count"] == 28
+
+
+def test_girandola_rejects_grid_with_repeated_extra_region_values():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "girandola",
+            "grid": """
+                534678912
+                672195348
+                198342567
+                859761423
+                426853791
+                713924856
+                961537284
+                287419635
+                345286179
+            """,
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+    assert result["summary"] == "Aucune solution compatible avec les contraintes"
+
+
 def test_greater_than_accepts_matching_adjacent_relation():
     plugin = load_plugin()
 

@@ -9,7 +9,7 @@ import './style/grid-puzzle-workbench.css';
 
 type Grid = string[][];
 type WorkMode = 'edit' | 'watch';
-type SudokuVariant = 'sudoku_classic' | 'sudoku_x' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_greater_than';
+type SudokuVariant = 'sudoku_classic' | 'sudoku_x' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_greater_than';
 type InequalitySymbol = '' | '>' | '<';
 type InequalityGrid = InequalitySymbol[][];
 
@@ -62,6 +62,9 @@ function getVariantLabel(puzzleType: SudokuVariant): string {
     if (puzzleType === 'sudoku_windoku') {
         return 'Windoku';
     }
+    if (puzzleType === 'sudoku_girandola') {
+        return 'Girandola';
+    }
     if (puzzleType === 'sudoku_greater_than') {
         return 'Greater Than';
     }
@@ -75,6 +78,14 @@ function isCenterDotCell(row: number, col: number): boolean {
 function isWindokuCell(row: number, col: number): boolean {
     return ((row >= 1 && row <= 3) || (row >= 5 && row <= 7))
         && ((col >= 1 && col <= 3) || (col >= 5 && col <= 7));
+}
+
+function isGirandolaCell(row: number, col: number): boolean {
+    return (row === 0 && (col === 0 || col === 8))
+        || (row === 1 && col === 4)
+        || (row === 4 && (col === 1 || col === 4 || col === 7))
+        || (row === 7 && col === 4)
+        || (row === 8 && (col === 0 || col === 8));
 }
 
 function getWindokuBoundaryClasses(row: number, col: number): string[] {
@@ -493,6 +504,7 @@ function GridPuzzleWorkbenchApp({
         const nextPuzzleType = value === 'sudoku_x'
             || value === 'sudoku_center_dot'
             || value === 'sudoku_windoku'
+            || value === 'sudoku_girandola'
             || value === 'sudoku_greater_than'
             ? value
             : 'sudoku_classic';
@@ -567,6 +579,7 @@ function GridPuzzleWorkbenchApp({
             puzzleType === 'sudoku_x' && (rowIndex === colIndex || rowIndex + colIndex === SIZE - 1) ? 'diagonal' : '',
             puzzleType === 'sudoku_center_dot' && isCenterDotCell(rowIndex, colIndex) ? 'center-dot' : '',
             puzzleType === 'sudoku_windoku' && isWindokuCell(rowIndex, colIndex) ? 'windoku' : '',
+            puzzleType === 'sudoku_girandola' && isGirandolaCell(rowIndex, colIndex) ? 'girandola' : '',
             ...(puzzleType === 'sudoku_windoku' ? getWindokuBoundaryClasses(rowIndex, colIndex) : []),
             colIndex === 2 || colIndex === 5 ? 'block-right' : '',
             rowIndex === 2 || rowIndex === 5 ? 'block-bottom' : '',
@@ -665,6 +678,7 @@ function GridPuzzleWorkbenchApp({
                         <option value='sudoku_x'>Sudoku X</option>
                         <option value='sudoku_center_dot'>Center Dot</option>
                         <option value='sudoku_windoku'>Windoku</option>
+                        <option value='sudoku_girandola'>Girandola</option>
                         <option value='sudoku_greater_than'>Greater Than</option>
                     </select>
                     <button onClick={solve} disabled={solveState.running}>

@@ -16,6 +16,7 @@ Les objectifs actuels sont :
 - resoudre un Sudoku Center Dot avec une extra-region formee par les centres
   des 9 blocs 3x3 ;
 - resoudre un Windoku avec quatre extra-regions 3x3 ;
+- resoudre un Sudoku Girandola avec une extra-region de 9 cases ;
 - resoudre un Greater Than Sudoku / Compdoku avec contraintes `>` et `<`
   entre cases adjacentes ;
 - permettre une saisie interactive dans une grille Theia ;
@@ -127,6 +128,7 @@ Valeurs supportees pour `puzzle_type` :
 | `sudoku_x` | `x_sudoku`, `diagonal_sudoku` | Sudoku standard + diagonales principales sans doublons. |
 | `sudoku_center_dot` | `center_dot`, `centerdot_sudoku` | Sudoku standard + extra-region des centres de blocs 3x3. |
 | `sudoku_windoku` | `windoku`, `hyper_sudoku`, `four_box_sudoku` | Sudoku standard + quatre extra-regions 3x3. |
+| `sudoku_girandola` | `girandola`, `girandole_sudoku` | Sudoku standard + extra-region Girandola de 9 cases. |
 | `sudoku_greater_than` | `greater_than`, `compdoku`, `inequality_sudoku` | Sudoku standard + comparaisons `>` / `<` entre cases adjacentes. |
 | `custom_spec` | `custom`, `json_spec` | Probleme CSP decrit en JSON. |
 
@@ -462,6 +464,41 @@ Total :
 Dans l'atelier Theia, les quatre regions Windoku sont teintees et encadrees
 en violet quand la variante `Windoku` est selectionnee.
 
+### Girandola
+
+`puzzle_type = sudoku_girandola`
+
+Alias :
+
+```text
+girandola
+girandole_sudoku
+```
+
+Contraintes :
+
+- toutes les contraintes du Sudoku classique ;
+- les 9 cases Girandola forment une region supplementaire `all_different`.
+
+Cellules de l'extra-region :
+
+```text
+r1c1 r1c9
+r2c5
+r5c2 r5c5 r5c8
+r8c5
+r9c1 r9c9
+```
+
+Total :
+
+```text
+28 contraintes
+```
+
+Dans l'atelier Theia, les cases Girandola sont marquees en cyan quand la
+variante `Girandola` est selectionnee.
+
 ### Greater Than / Compdoku
 
 `puzzle_type = sudoku_greater_than`
@@ -652,10 +689,11 @@ Fonctionnalites actuelles :
 - mode `Surveiller` ;
 - `Ctrl+clic` pour surveiller une cellule en mode saisie ;
 - choix de variante `Classique` / `Sudoku X` / `Center Dot` / `Windoku` /
-  `Greater Than` ;
+  `Girandola` / `Greater Than` ;
 - diagonales orange en mode Sudoku X ;
 - points verts sur les centres de blocs en mode Center Dot ;
 - regions violettes en mode Windoku ;
+- cases cyan en mode Girandola ;
 - bords cliquables `>` / `<` en mode Greater Than / Compdoku ;
 - affichage de la premiere solution ;
 - reprise de la solution dans la grille ;
@@ -668,7 +706,7 @@ Fonctionnalites actuelles :
 |---|---|---|
 | `grid` | `string[][]` | Valeurs courantes de la grille. |
 | `quickText` | `string` | Representation texte de la grille. |
-| `puzzleType` | `sudoku_classic`, `sudoku_x`, `sudoku_center_dot`, `sudoku_windoku` ou `sudoku_greater_than` | Variante active. |
+| `puzzleType` | `sudoku_classic`, `sudoku_x`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola` ou `sudoku_greater_than` | Variante active. |
 | `horizontalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme ligne. |
 | `verticalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme colonne. |
 | `watchCells` | `string[]` | Cellules surveillees au format `r1c1`. |
@@ -914,6 +952,8 @@ Couverture actuelle :
 - grille classique complete refusee en Center Dot ;
 - Windoku valide ;
 - grille classique complete refusee en Windoku ;
+- Girandola valide ;
+- grille classique complete refusee en Girandola ;
 - Greater Than valide avec une relation adjacente compatible ;
 - Greater Than refuse une relation adjacente contradictoire ;
 - extraction des cellules surveillees ;
