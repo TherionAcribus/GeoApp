@@ -2623,17 +2623,17 @@ export class FormulaSolverWidget extends ReactWidget {
                                                 <div style={{ flex: 1 }}>
                                                     <input
                                                         type="text"
-                                                        value={question.question || ''}
+                                                        defaultValue={question.question || ''}
+                                                        key={`q-${question.letter}`}
                                                         onChange={e => {
                                                             const newQuestion = e.target.value;
                                                             const idx = this.state.questions.findIndex(q => q.letter === question.letter);
                                                             if (idx >= 0) {
                                                                 this.state.questions[idx].question = newQuestion;
-                                                                this.update();
                                                             }
                                                         }}
                                                         placeholder="Question inconnue"
-                                                        title="Modifier la question (pour affiner la recherche Internet ou IA)"
+                                                        title="Modifier la question (pour affiner la recherche Internet ou IA). Ctrl+Z pour annuler."
                                                         style={{
                                                             width: '100%',
                                                             padding: '4px 6px',
