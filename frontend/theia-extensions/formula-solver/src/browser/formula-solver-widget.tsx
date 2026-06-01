@@ -1138,11 +1138,6 @@ export class FormulaSolverWidget extends ReactWidget {
     protected async answerAllQuestions(options?: { overwrite?: boolean }): Promise<void> {
         const overwrite = Boolean(options?.overwrite);
 
-        if (this.stepConfig.answersMode === 'manual') {
-            this.messageService.info('Mode réponses manuel: aucune action IA/Web.');
-            return;
-        }
-
         if (this.answersEngine === 'backend-web-search' && !this.webSearchEnabled) {
             this.messageService.warn('La recherche web est désactivée dans les préférences.');
             return;
@@ -1153,6 +1148,9 @@ export class FormulaSolverWidget extends ReactWidget {
             this.messageService.warn('Aucune question à résoudre.');
             return;
         }
+
+        // Si le mode est 'manual', utiliser 'ai-per-question' par défaut pour le bulk
+        const effectiveMode = this.stepConfig.answersMode === 'manual' ? 'ai-per-question' : this.stepConfig.answersMode;
 
         this.updateState({ loading: true, error: undefined });
         try {
@@ -1167,7 +1165,7 @@ export class FormulaSolverWidget extends ReactWidget {
                 preparedContextOverride: this.answeringContextUseOverride ? this.answeringContextOverride : undefined,
                 additionalInstructions: this.answeringAdditionalInstructions,
                 perLetterExtraInfo: Object.fromEntries(this.perLetterExtraInfo.entries()),
-                mode: this.stepConfig.answersMode,
+                mode: effectiveMode,
                 engine: this.answersEngine,
                 aiProfile: this.stepConfig.aiProfileForAnswers,
                 perQuestionProfile: this.perQuestionProfiles,
@@ -1200,20 +1198,16 @@ export class FormulaSolverWidget extends ReactWidget {
         }
     }
 
-    protected async answerSingleQuestion(letter: string, options?: { overwrite?: boolean }): Promise<void> {
+    protected async answerSingleQuestion(letter: string, options?: { overwrite?: boolean; engine?: AnswersEngine }): Promise<void> {
         const overwrite = Boolean(options?.overwrite);
+        const effectiveEngine = options?.engine || this.answersEngine;
         const question = this.state.questions.find(q => q.letter === letter)?.question || '';
         if (!question) {
             this.messageService.warn('Aucune question à résoudre pour cette lettre.');
             return;
         }
 
-        if (this.stepConfig.answersMode === 'manual') {
-            this.messageService.info('Mode réponses manuel: aucune action IA/Web.');
-            return;
-        }
-
-        if (this.answersEngine === 'backend-web-search' && !this.webSearchEnabled) {
+        if (effectiveEngine === 'backend-web-search' && !this.webSearchEnabled) {
             this.messageService.warn('La recherche web est désactivée dans les préférences.');
             return;
         }
@@ -1233,7 +1227,7 @@ export class FormulaSolverWidget extends ReactWidget {
                 additionalInstructions: this.answeringAdditionalInstructions,
                 perLetterExtraInfo: Object.fromEntries(this.perLetterExtraInfo.entries()),
                 mode: 'ai-per-question',
-                engine: this.answersEngine,
+                engine: effectiveEngine,
                 aiProfile: this.stepConfig.aiProfileForAnswers,
                 perQuestionProfile: this.perQuestionProfiles,
                 webMaxResults: this.webMaxResults,
@@ -2313,63 +2307,57 @@ export class FormulaSolverWidget extends ReactWidget {
                             Aide IA (questions)
                         </button>
 
-                        {this.stepConfig.answersMode !== 'manual' && (
-                            <button
-                                style={{
-                                    padding: '6px 10px',
-                                    backgroundColor: 'transparent',
-                                    color: 'var(--theia-foreground)',
-                                    border: '1px solid var(--theia-panel-border)',
-                                    borderRadius: '4px',
-                                    cursor: 'pointer',
-                                    fontSize: '12px'
-                                }}
-                                onClick={() => {
-                                    this.showAdvancedAnswerFields = !this.showAdvancedAnswerFields;
-                                    this.update();
-                                }}
-                                title="Afficher/masquer les champs avancés (infos complémentaires IA)"
-                            >
-                                {this.showAdvancedAnswerFields ? 'Masquer champs IA' : 'Afficher champs IA'}
-                            </button>
-                        )}
+                        <button
+                            style={{
+                                padding: '6px 10px',
+                                backgroundColor: 'transparent',
+                                color: 'var(--theia-foreground)',
+                                border: '1px solid var(--theia-panel-border)',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                                fontSize: '12px'
+                            }}
+                            onClick={() => {
+                                this.showAdvancedAnswerFields = !this.showAdvancedAnswerFields;
+                                this.update();
+                            }}
+                            title="Afficher/masquer les champs avancés (infos complémentaires IA)"
+                        >
+                            {this.showAdvancedAnswerFields ? 'Masquer champs IA' : 'Afficher champs IA'}
+                        </button>
 
-                        {this.stepConfig.answersMode !== 'manual' && (
-                            <>
-                                <button
-                                    style={{
-                                        padding: '6px 10px',
-                                        backgroundColor: 'var(--theia-button-background)',
-                                        color: 'var(--theia-button-foreground)',
-                                        border: 'none',
-                                        borderRadius: '4px',
-                                        cursor: 'pointer',
-                                        fontSize: '12px'
-                                    }}
-                                    onClick={() => void this.answerAllQuestions({ overwrite: false })}
-                                    disabled={this.state.loading}
-                                    title="Remplit automatiquement les champs vides"
-                                >
-                                    Répondre (auto)
-                                </button>
-                                <button
-                                    style={{
-                                        padding: '6px 10px',
-                                        backgroundColor: 'var(--theia-button-secondaryBackground)',
-                                        color: 'var(--theia-button-secondaryForeground)',
-                                        border: 'none',
-                                        borderRadius: '4px',
-                                        cursor: 'pointer',
-                                        fontSize: '12px'
-                                    }}
-                                    onClick={() => void this.answerAllQuestions({ overwrite: true })}
-                                    disabled={this.state.loading}
-                                    title="Écrase les champs existants"
-                                >
-                                    Répondre (écraser)
-                                </button>
-                            </>
-                        )}
+                        <button
+                            style={{
+                                padding: '6px 10px',
+                                backgroundColor: 'var(--theia-button-background)',
+                                color: 'var(--theia-button-foreground)',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                                fontSize: '12px'
+                            }}
+                            onClick={() => void this.answerAllQuestions({ overwrite: false })}
+                            disabled={this.state.loading}
+                            title="Remplit automatiquement les champs vides via IA ou recherche web"
+                        >
+                            Répondre (auto)
+                        </button>
+                        <button
+                            style={{
+                                padding: '6px 10px',
+                                backgroundColor: 'var(--theia-button-secondaryBackground)',
+                                color: 'var(--theia-button-secondaryForeground)',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                                fontSize: '12px'
+                            }}
+                            onClick={() => void this.answerAllQuestions({ overwrite: true })}
+                            disabled={this.state.loading}
+                            title="Écrase les champs existants via IA ou recherche web"
+                        >
+                            Répondre (écraser)
+                        </button>
                     </div>
 
                     {this.questionsAiHintOpen && (
@@ -2591,51 +2579,65 @@ export class FormulaSolverWidget extends ReactWidget {
                                                     <strong>{question.question || 'Question inconnue'}</strong>
                                                 </div>
 
-                                                {this.stepConfig.answersMode !== 'manual' && (
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                        <select
-                                                            value={perQuestionProfile}
-                                                            onChange={e => {
-                                                                this.perQuestionProfiles.set(question.letter, e.target.value as FormulaSolverAiProfile);
-                                                                this.update();
-                                                            }}
-                                                            disabled={this.answersEngine !== 'ai'}
-                                                            title="Profil IA pour cette question"
-                                                            style={{
-                                                                padding: '6px 8px',
-                                                                border: '1px solid var(--theia-dropdown-border)',
-                                                                borderRadius: '3px',
-                                                                backgroundColor: 'var(--theia-dropdown-background)',
-                                                                color: 'var(--theia-dropdown-foreground)',
-                                                                fontSize: '12px'
-                                                            }}
-                                                        >
-                                                            <option value="local">Local</option>
-                                                            <option value="fast">Fast</option>
-                                                            <option value="strong">Strong</option>
-                                                            <option value="web">Web</option>
-                                                        </select>
-                                                        <button
-                                                            style={{
-                                                                padding: '6px 10px',
-                                                                backgroundColor: 'var(--theia-button-background)',
-                                                                color: 'var(--theia-button-foreground)',
-                                                                border: 'none',
-                                                                borderRadius: '4px',
-                                                                cursor: 'pointer',
-                                                                fontSize: '12px'
-                                                            }}
-                                                            onClick={() => void this.answerSingleQuestion(question.letter, { overwrite: false })}
-                                                            disabled={this.state.loading}
-                                                            title="Résout uniquement cette question (remplit si vide)"
-                                                        >
-                                                            Répondre
-                                                        </button>
-                                                    </div>
-                                                )}
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                    <select
+                                                        value={perQuestionProfile}
+                                                        onChange={e => {
+                                                            this.perQuestionProfiles.set(question.letter, e.target.value as FormulaSolverAiProfile);
+                                                            this.update();
+                                                        }}
+                                                        disabled={this.answersEngine !== 'ai'}
+                                                        title="Profil IA pour cette question (Local/Fast/Strong/Web)"
+                                                        style={{
+                                                            padding: '6px 8px',
+                                                            border: '1px solid var(--theia-dropdown-border)',
+                                                            borderRadius: '3px',
+                                                            backgroundColor: 'var(--theia-dropdown-background)',
+                                                            color: 'var(--theia-dropdown-foreground)',
+                                                            fontSize: '12px'
+                                                        }}
+                                                    >
+                                                        <option value="local">Local</option>
+                                                        <option value="fast">Fast</option>
+                                                        <option value="strong">Strong</option>
+                                                        <option value="web">Web</option>
+                                                    </select>
+                                                    <button
+                                                        style={{
+                                                            padding: '6px 10px',
+                                                            backgroundColor: 'var(--theia-button-background)',
+                                                            color: 'var(--theia-button-foreground)',
+                                                            border: 'none',
+                                                            borderRadius: '4px',
+                                                            cursor: 'pointer',
+                                                            fontSize: '12px'
+                                                        }}
+                                                        onClick={() => void this.answerSingleQuestion(question.letter, { overwrite: false })}
+                                                        disabled={this.state.loading}
+                                                        title="Résout cette question via IA"
+                                                    >
+                                                        IA
+                                                    </button>
+                                                    <button
+                                                        style={{
+                                                            padding: '6px 10px',
+                                                            backgroundColor: 'var(--theia-button-secondaryBackground)',
+                                                            color: 'var(--theia-button-secondaryForeground)',
+                                                            border: 'none',
+                                                            borderRadius: '4px',
+                                                            cursor: 'pointer',
+                                                            fontSize: '12px'
+                                                        }}
+                                                        onClick={() => void this.answerSingleQuestion(question.letter, { overwrite: false, engine: 'backend-web-search' })}
+                                                        disabled={this.state.loading}
+                                                        title="Recherche la réponse sur Internet"
+                                                    >
+                                                        Internet
+                                                    </button>
+                                                </div>
                                             </div>
 
-                                            {this.stepConfig.answersMode !== 'manual' && this.showAdvancedAnswerFields && (
+                                            {this.showAdvancedAnswerFields && (
                                                 <div style={{ marginBottom: '8px' }}>
                                                     <textarea
                                                         value={this.perLetterExtraInfo.get(question.letter) || ''}
