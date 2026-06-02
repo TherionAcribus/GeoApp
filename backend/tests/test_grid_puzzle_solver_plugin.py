@@ -108,6 +108,59 @@ def test_sudoku_x_rejects_classic_grid_with_repeated_diagonal_values():
     assert result["summary"] == "Aucune solution compatible avec les contraintes"
 
 
+def test_anti_diagonal_accepts_solution_with_three_distinct_values_per_diagonal():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "sudoku_anti_diagonal",
+            "grid": """
+                395246718
+                286719543
+                471835269
+                719352486
+                634987152
+                528461397
+                162593874
+                947128635
+                853674921
+            """,
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["unique"] is True
+    assert result["metadata"]["variant"] == "sudoku_anti_diagonal"
+    assert result["metadata"]["constraint_count"] == 29
+
+
+def test_anti_diagonal_rejects_grid_with_too_many_diagonal_values():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "anti_diagonal_sudoku",
+            "grid": """
+                534678912
+                672195348
+                198342567
+                859761423
+                426853791
+                713924856
+                961537284
+                287419635
+                345286179
+            """,
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+    assert result["summary"] == "Aucune solution compatible avec les contraintes"
+
+
 def test_center_dot_accepts_solution_with_unique_box_centers():
     plugin = load_plugin()
 

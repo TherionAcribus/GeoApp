@@ -7,6 +7,9 @@ Generic finite-domain grid solver powered by Z3.
 - `sudoku_classic`: classic 9x9 Sudoku.
 - `sudoku_x`: classic 9x9 Sudoku plus both main diagonals as all-different
   regions. The interactive UI highlights those diagonals in orange.
+- `sudoku_anti_diagonal`: classic 9x9 Sudoku where each main diagonal uses at
+  most three different digits. The interactive UI highlights those diagonals in
+  magenta.
 - `sudoku_center_dot`: classic 9x9 Sudoku plus the nine center cells of the
   3x3 boxes as an extra all-different region. The interactive UI marks those
   cells with a green dot.
@@ -74,9 +77,9 @@ the Theia "Grilles" workbench:
 
 - cell-by-cell entry for givens;
 - quick paste textarea for fast Sudoku import;
-- variant selector for classic Sudoku, Sudoku X, Center Dot, Windoku,
-  Girandola, Asterisk, Sujiken, Samurai Sudoku, Flower Sudoku, Sohei Sudoku,
-  Kazaguruma and Greater Than;
+- variant selector for classic Sudoku, Sudoku X, Anti Diagonal, Center Dot,
+  Windoku, Girandola, Asterisk, Sujiken, Samurai Sudoku, Flower Sudoku,
+  Sohei Sudoku, Kazaguruma and Greater Than;
 - editable `>` / `<` borders for Greater Than / Compdoku;
 - watch mode to mark answer cells;
 - solve action calling this plugin;

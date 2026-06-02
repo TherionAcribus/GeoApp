@@ -62,6 +62,7 @@ class GridConstraint:
     cells: Tuple[Cell, ...] = ()
     value: Optional[str] = None
     total: Optional[int] = None
+    limit: Optional[int] = None
 
 
 @dataclass
@@ -129,6 +130,22 @@ class GridpuzzlesolverPlugin:
                     include_girandola=False,
                     include_asterisk=False,
                     variant="sudoku_x",
+                )
+            elif puzzle_type in {"sudoku_anti_diagonal", "anti_diagonal_sudoku", "antidiagonal_sudoku"}:
+                puzzle_text = self._first_non_empty(
+                    inputs.get("grid"),
+                    inputs.get("puzzle"),
+                    inputs.get("text"),
+                )
+                problem = self._build_sudoku_problem(
+                    puzzle_text,
+                    include_diagonals=False,
+                    include_center_dot=False,
+                    include_windoku=False,
+                    include_girandola=False,
+                    include_asterisk=False,
+                    include_anti_diagonal=True,
+                    variant="sudoku_anti_diagonal",
                 )
             elif puzzle_type in {"sudoku_center_dot", "center_dot", "centerdot_sudoku"}:
                 puzzle_text = self._first_non_empty(
@@ -278,6 +295,7 @@ class GridpuzzlesolverPlugin:
         include_asterisk: bool,
         variant: str,
         inequalities: Any = None,
+        include_anti_diagonal: bool = False,
     ) -> GridCspProblem:
         symbols = [str(value) for value in range(1, 10)]
         tokens = self._parse_sudoku_tokens(puzzle_text, symbols)
@@ -316,6 +334,14 @@ class GridpuzzlesolverPlugin:
             )
             constraints.append(
                 GridConstraint("all_different", tuple((index, 8 - index) for index in range(9)))
+            )
+
+        if include_anti_diagonal:
+            constraints.append(
+                GridConstraint("max_distinct", tuple((index, index) for index in range(9)), limit=3)
+            )
+            constraints.append(
+                GridConstraint("max_distinct", tuple((index, 8 - index) for index in range(9)), limit=3)
             )
 
         if include_center_dot:
@@ -690,6 +716,25 @@ class GridpuzzlesolverPlugin:
         if kind == "all_different":
             if len(cells) > 1:
                 solver.add(z3.Distinct(*(variables[cell] for cell in cells)))
+            return
+
+        if kind == "max_distinct":
+            if constraint.limit is None or constraint.limit < 1:
+                raise ValueError("La contrainte max_distinct attend une limite positive")
+            if len(cells) > 1:
+                solver.add(
+                    z3.Sum(
+                        *(
+                            z3.If(
+                                z3.Or(*(variables[cell] == symbol_index for cell in cells)),
+                                1,
+                                0,
+                            )
+                            for symbol_index in range(len(problem.symbols))
+                        )
+                    )
+                    <= constraint.limit
+                )
             return
 
         if kind == "equals":
@@ -1105,6 +1150,11 @@ class GridpuzzlesolverPlugin:
                     total=(
                         int(raw_constraint["total"])
                         if "total" in raw_constraint and raw_constraint["total"] is not None
+                        else None
+                    ),
+                    limit=(
+                        int(raw_constraint["limit"])
+                        if "limit" in raw_constraint and raw_constraint["limit"] is not None
                         else None
                     ),
                 )

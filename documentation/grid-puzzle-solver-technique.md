@@ -13,6 +13,8 @@ Les objectifs actuels sont :
 
 - resoudre un Sudoku classique 9x9 ;
 - resoudre un Sudoku X avec contraintes sur les deux diagonales principales ;
+- resoudre un Anti Diagonal Sudoku avec au plus trois chiffres differents sur
+  chaque grande diagonale ;
 - resoudre un Sudoku Center Dot avec une extra-region formee par les centres
   des 9 blocs 3x3 ;
 - resoudre un Windoku avec quatre extra-regions 3x3 ;
@@ -134,6 +136,7 @@ Valeurs supportees pour `puzzle_type` :
 |---|---|---|
 | `sudoku_classic` | `sudoku`, `classic_sudoku` | Sudoku 9x9 standard. |
 | `sudoku_x` | `x_sudoku`, `diagonal_sudoku` | Sudoku standard + diagonales principales sans doublons. |
+| `sudoku_anti_diagonal` | `anti_diagonal_sudoku`, `antidiagonal_sudoku` | Sudoku standard + au plus trois chiffres differents sur chaque grande diagonale. |
 | `sudoku_center_dot` | `center_dot`, `centerdot_sudoku` | Sudoku standard + extra-region des centres de blocs 3x3. |
 | `sudoku_windoku` | `windoku`, `hyper_sudoku`, `four_box_sudoku` | Sudoku standard + quatre extra-regions 3x3. |
 | `sudoku_girandola` | `girandola`, `girandole_sudoku` | Sudoku standard + extra-region Girandola de 9 cases. |
@@ -269,6 +272,7 @@ class GridConstraint:
     cells: Tuple[Cell, ...] = ()
     value: Optional[str] = None
     total: Optional[int] = None
+    limit: Optional[int] = None
 ```
 
 Contraintes supportees :
@@ -279,6 +283,7 @@ Contraintes supportees :
 | `equals` | `cells`, `value` | Une cellule vaut une valeur precise. |
 | `not_equal` | `cells` | Equivalent a `all_different` sur au moins deux cellules. |
 | `sum` | `cells`, `total` | Somme numerique des cellules egale au total. |
+| `max_distinct` | `cells`, `limit` | Nombre de valeurs distinctes inferieur ou egal a `limit`. |
 | `greater_than` | `cells` | La premiere cellule est strictement superieure a la seconde. |
 | `less_than` | `cells` | La premiere cellule est strictement inferieure a la seconde. |
 
@@ -415,6 +420,39 @@ Total :
 
 Dans l'atelier Theia, les deux diagonales sont marquees en orange quand la
 variante `Sudoku X` est selectionnee.
+
+### Anti Diagonal Sudoku
+
+`puzzle_type = sudoku_anti_diagonal`
+
+Alias :
+
+```text
+anti_diagonal_sudoku
+antidiagonal_sudoku
+```
+
+Contraintes :
+
+- toutes les contraintes du Sudoku classique ;
+- la diagonale principale `r1c1 -> r9c9` utilise au plus 3 chiffres
+  differents ;
+- la diagonale secondaire `r1c9 -> r9c1` utilise au plus 3 chiffres
+  differents.
+
+Ces contraintes sont modelisees avec `GridConstraint(kind="max_distinct",
+limit=3)`.
+
+Total :
+
+```text
+29 contraintes
+```
+
+Dans l'atelier Theia, les deux diagonales sont marquees en magenta quand la
+variante `Anti Diagonal` est selectionnee. Si une saisie depasse les trois
+chiffres differents sur une diagonale, les cases concernees sont signalees en
+rouge.
 
 ### Center Dot
 
@@ -1085,10 +1123,12 @@ Fonctionnalites actuelles :
 - mode `Saisie` ;
 - mode `Surveiller` ;
 - `Ctrl+clic` pour surveiller une cellule en mode saisie ;
-- choix de variante `Classique` / `Sudoku X` / `Center Dot` / `Windoku` /
-  `Girandola` / `Asterisk` / `Sujiken` / `Samurai Sudoku` /
-  `Flower Sudoku` / `Sohei Sudoku` / `Kazaguruma` / `Greater Than` ;
+- choix de variante `Classique` / `Sudoku X` / `Anti Diagonal` /
+  `Center Dot` / `Windoku` / `Girandola` / `Asterisk` / `Sujiken` /
+  `Samurai Sudoku` / `Flower Sudoku` / `Sohei Sudoku` / `Kazaguruma` /
+  `Greater Than` ;
 - diagonales orange en mode Sudoku X ;
+- diagonales magenta en mode Anti Diagonal ;
 - points verts sur les centres de blocs en mode Center Dot ;
 - regions violettes en mode Windoku ;
 - cases cyan en mode Girandola ;
@@ -1110,7 +1150,7 @@ Fonctionnalites actuelles :
 |---|---|---|
 | `grid` | `string[][]` | Valeurs courantes de la grille. |
 | `quickText` | `string` | Representation texte de la grille. |
-| `puzzleType` | `sudoku_classic`, `sudoku_x`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku` ou `sudoku_greater_than` | Variante active. |
+| `puzzleType` | `sudoku_classic`, `sudoku_x`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku` ou `sudoku_greater_than` | Variante active. |
 | `horizontalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme ligne. |
 | `verticalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme colonne. |
 | `watchCells` | `string[]` | Cellules surveillees au format `r1c1`. |
@@ -1352,6 +1392,8 @@ Couverture actuelle :
 - grille Sudoku invalide ;
 - Sudoku X valide ;
 - grille classique complete refusee en Sudoku X ;
+- Anti Diagonal valide ;
+- grille classique complete refusee en Anti Diagonal ;
 - Center Dot valide ;
 - grille classique complete refusee en Center Dot ;
 - Windoku valide ;

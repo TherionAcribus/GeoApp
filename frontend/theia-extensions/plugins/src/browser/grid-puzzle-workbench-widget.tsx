@@ -9,7 +9,7 @@ import './style/grid-puzzle-workbench.css';
 
 type Grid = string[][];
 type WorkMode = 'edit' | 'watch';
-type SudokuVariant = 'sudoku_classic' | 'sudoku_x' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than';
+type SudokuVariant = 'sudoku_classic' | 'sudoku_x' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than';
 type InequalitySymbol = '' | '>' | '<';
 type InequalityGrid = InequalitySymbol[][];
 type CellCoord = [number, number];
@@ -90,6 +90,9 @@ function getVariantLabel(puzzleType: SudokuVariant): string {
     if (puzzleType === 'sudoku_x') {
         return 'Sudoku X';
     }
+    if (puzzleType === 'sudoku_anti_diagonal') {
+        return 'Anti Diagonal';
+    }
     if (puzzleType === 'sudoku_center_dot') {
         return 'Center Dot';
     }
@@ -146,6 +149,10 @@ function isAsteriskCell(row: number, col: number): boolean {
         || (row === 4 && (col === 1 || col === 4 || col === 7))
         || (row === 6 && (col === 2 || col === 6))
         || (row === 7 && col === 4);
+}
+
+function isMainDiagonalCell(row: number, col: number): boolean {
+    return row === col || row + col === SIZE - 1;
 }
 
 function isSujikenCell(row: number, col: number): boolean {
@@ -431,6 +438,25 @@ function findConstraintConflicts(
         }
     }
 
+    if (puzzleType === 'sudoku_anti_diagonal') {
+        addMaxDistinctConflict(
+            grid,
+            cells,
+            messages,
+            'Anti Diagonal diagonale principale',
+            Array.from({ length: SIZE }, (_unused, index) => [index, index]),
+            3,
+        );
+        addMaxDistinctConflict(
+            grid,
+            cells,
+            messages,
+            'Anti Diagonal diagonale secondaire',
+            Array.from({ length: SIZE }, (_unused, index) => [index, SIZE - 1 - index]),
+            3,
+        );
+    }
+
     if (puzzleType === 'sudoku_greater_than') {
         horizontalInequalities.forEach((row, rowIndex) => {
             row.forEach((relation, colIndex) => {
@@ -445,6 +471,32 @@ function findConstraintConflicts(
     }
 
     return { cells, messages };
+}
+
+function addMaxDistinctConflict(
+    grid: Grid,
+    cells: Set<string>,
+    messages: string[],
+    label: string,
+    regionCells: CellCoord[],
+    limit: number,
+): void {
+    const values = new Map<string, string[]>();
+    for (const [row, col] of regionCells) {
+        const value = grid[row]?.[col] || '';
+        if (!value) {
+            continue;
+        }
+        const refs = values.get(value) || [];
+        refs.push(cellRef(row, col));
+        values.set(value, refs);
+    }
+    if (values.size <= limit) {
+        return;
+    }
+    const refs = [...values.values()].flat();
+    refs.forEach(ref => cells.add(ref));
+    messages.push(`${label} utilise ${values.size} chiffres differents, maximum ${limit} : ${refs.join(', ')}`);
 }
 
 function addInequalityConflict(
@@ -1358,6 +1410,7 @@ function GridPuzzleWorkbenchApp({
 
     const handlePuzzleTypeChange = React.useCallback((value: string) => {
         const nextPuzzleType = value === 'sudoku_x'
+            || value === 'sudoku_anti_diagonal'
             || value === 'sudoku_center_dot'
             || value === 'sudoku_windoku'
             || value === 'sudoku_girandola'
@@ -1474,7 +1527,8 @@ function GridPuzzleWorkbenchApp({
             value ? 'given' : '',
             !readonly && value && constraintConflicts.cells.has(ref) ? 'conflict' : '',
             watchCells.includes(ref) ? 'watched' : '',
-            puzzleType === 'sudoku_x' && (rowIndex === colIndex || rowIndex + colIndex === SIZE - 1) ? 'diagonal' : '',
+            puzzleType === 'sudoku_x' && isMainDiagonalCell(rowIndex, colIndex) ? 'diagonal' : '',
+            puzzleType === 'sudoku_anti_diagonal' && isMainDiagonalCell(rowIndex, colIndex) ? 'anti-diagonal' : '',
             puzzleType === 'sudoku_center_dot' && isCenterDotCell(rowIndex, colIndex) ? 'center-dot' : '',
             puzzleType === 'sudoku_windoku' && isWindokuCell(rowIndex, colIndex) ? 'windoku' : '',
             puzzleType === 'sudoku_girandola' && isGirandolaCell(rowIndex, colIndex) ? 'girandola' : '',
@@ -1585,6 +1639,7 @@ function GridPuzzleWorkbenchApp({
                     >
                         <option value='sudoku_classic'>Classique</option>
                         <option value='sudoku_x'>Sudoku X</option>
+                        <option value='sudoku_anti_diagonal'>Anti Diagonal</option>
                         <option value='sudoku_center_dot'>Center Dot</option>
                         <option value='sudoku_windoku'>Windoku</option>
                         <option value='sudoku_girandola'>Girandola</option>
@@ -1653,6 +1708,7 @@ function GridPuzzleWorkbenchApp({
                     <div className='grid-puzzle-hint'>
                         En mode Surveiller, cliquez les cases a extraire pour la reponse. En mode Saisie, Ctrl+clic fonctionne aussi.
                         {isGreaterThan ? ' Cliquez les bords pour alterner entre >, < et vide.' : ''}
+                        {puzzleType === 'sudoku_anti_diagonal' ? ' Anti Diagonal limite chaque grande diagonale a trois chiffres differents.' : ''}
                         {isSujiken ? ' Sujiken utilise les 45 cases du triangle.' : ''}
                         {isSamurai ? ' Samurai utilise les 369 cases actives des cinq grilles 9x9.' : ''}
                         {isFlower ? ' Flower utilise les 189 cases actives des cinq grilles 9x9.' : ''}
