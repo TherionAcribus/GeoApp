@@ -45,6 +45,13 @@ SOHEI_SUDOKU_OFFSETS: Tuple[Cell, ...] = (
     (6, 12),
     (12, 6),
 )
+KAZAGURUMA_SUDOKU_OFFSETS: Tuple[Cell, ...] = (
+    (0, 3),
+    (3, 12),
+    (6, 6),
+    (9, 0),
+    (12, 9),
+)
 
 
 @dataclass(frozen=True)
@@ -211,6 +218,13 @@ class GridpuzzlesolverPlugin:
                     inputs.get("text"),
                 )
                 problem = self._build_sohei_sudoku_problem(puzzle_text)
+            elif puzzle_type in {"kazaguruma_sudoku", "kazaguruma", "windmill_sudoku"}:
+                puzzle_text = self._first_non_empty(
+                    inputs.get("grid"),
+                    inputs.get("puzzle"),
+                    inputs.get("text"),
+                )
+                problem = self._build_kazaguruma_sudoku_problem(puzzle_text)
             elif puzzle_type in {"sudoku_greater_than", "greater_than", "compdoku", "inequality_sudoku"}:
                 puzzle_text = self._first_non_empty(
                     inputs.get("grid"),
@@ -476,6 +490,16 @@ class GridpuzzlesolverPlugin:
             label="Sohei Sudoku",
         )
 
+    def _build_kazaguruma_sudoku_problem(self, puzzle_text: str) -> GridCspProblem:
+        return self._build_composite_sudoku_problem(
+            puzzle_text,
+            offsets=KAZAGURUMA_SUDOKU_OFFSETS,
+            rows=21,
+            cols=21,
+            variant="kazaguruma_sudoku",
+            label="Kazaguruma Sudoku",
+        )
+
     def _build_composite_sudoku_problem(
         self,
         puzzle_text: str,
@@ -544,6 +568,9 @@ class GridpuzzlesolverPlugin:
 
     def _sohei_active_cells(self) -> List[Cell]:
         return self._composite_active_cells(SOHEI_SUDOKU_OFFSETS)
+
+    def _kazaguruma_active_cells(self) -> List[Cell]:
+        return self._composite_active_cells(KAZAGURUMA_SUDOKU_OFFSETS)
 
     def _composite_active_cells(self, offsets: Sequence[Cell]) -> List[Cell]:
         cells = {

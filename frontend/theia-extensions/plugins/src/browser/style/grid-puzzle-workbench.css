@@ -123,6 +123,13 @@
     background: transparent;
 }
 
+.sudoku-board.kazaguruma-board {
+    grid-template-columns: repeat(21, 26px);
+    grid-template-rows: repeat(21, 26px);
+    border: 0;
+    background: transparent;
+}
+
 .sudoku-board.flower-board {
     grid-template-columns: repeat(15, 32px);
     grid-template-rows: repeat(15, 32px);
@@ -146,8 +153,16 @@
     border-right: 3px solid var(--theia-foreground);
 }
 
+.sudoku-cell.block-left {
+    border-left: 3px solid var(--theia-foreground);
+}
+
 .sudoku-cell.block-bottom {
     border-bottom: 3px solid var(--theia-foreground);
+}
+
+.sudoku-cell.block-top {
+    border-top: 3px solid var(--theia-foreground);
 }
 
 .sudoku-cell.given {
@@ -228,6 +243,25 @@
 
 .sudoku-cell.given.sohei-cell {
     background: var(--theia-sideBar-background);
+}
+
+.sudoku-cell.kazaguruma-cell {
+    width: 26px;
+    height: 26px;
+    font-size: 13px;
+    background: var(--theia-input-background);
+}
+
+.sudoku-cell.given.kazaguruma-cell {
+    background: var(--theia-sideBar-background);
+}
+
+.sudoku-cell.kazaguruma-center {
+    background: color-mix(in srgb, var(--theia-input-background) 74%, #67e8f9);
+}
+
+.sudoku-cell.given.kazaguruma-center {
+    background: color-mix(in srgb, var(--theia-sideBar-background) 60%, #67e8f9);
 }
 
 .sudoku-cell.flower-cell {
@@ -468,6 +502,18 @@
     }
 
     .sudoku-cell.sohei-cell {
+        width: 100%;
+        height: auto;
+        font-size: 11px;
+    }
+
+    .sudoku-board.kazaguruma-board {
+        grid-template-columns: repeat(21, minmax(18px, 1fr));
+        grid-template-rows: repeat(21, minmax(18px, 1fr));
+        max-width: none;
+    }
+
+    .sudoku-cell.kazaguruma-cell {
         width: 100%;
         height: auto;
         font-size: 11px;

@@ -23,6 +23,8 @@ Les objectifs actuels sont :
 - resoudre un Flower Sudoku / Musketry compose de cinq grilles 9x9 tres
   chevauchantes ;
 - resoudre un Sohei Sudoku compose de quatre grilles 9x9 chevauchantes ;
+- resoudre un Kazaguruma / Windmill Sudoku compose de cinq grilles 9x9 en
+  moulin ;
 - resoudre un Greater Than Sudoku / Compdoku avec contraintes `>` et `<`
   entre cases adjacentes ;
 - permettre une saisie interactive dans une grille Theia ;
@@ -140,6 +142,7 @@ Valeurs supportees pour `puzzle_type` :
 | `samurai_sudoku` | `samurai`, `gattai_5`, `gattai5` | Cinq grilles Sudoku 9x9 chevauchantes dans un plateau 21x21. |
 | `flower_sudoku` | `flower`, `fleur_sudoku`, `musketry_sudoku` | Cinq grilles Sudoku 9x9 tres chevauchantes dans un plateau 15x15. |
 | `sohei_sudoku` | `sohei` | Quatre grilles Sudoku 9x9 chevauchantes dans un plateau 21x21. |
+| `kazaguruma_sudoku` | `kazaguruma`, `windmill_sudoku` | Cinq grilles Sudoku 9x9 chevauchantes dans un plateau 21x21 en moulin. |
 | `sudoku_greater_than` | `greater_than`, `compdoku`, `inequality_sudoku` | Sudoku standard + comparaisons `>` / `<` entre cases adjacentes. |
 | `custom_spec` | `custom`, `json_spec` | Probleme CSP decrit en JSON. |
 
@@ -821,6 +824,78 @@ ordre ligne/colonne. Les caracteres `0`, `.`, `_` representent les cases vides.
 Dans l'atelier Theia, la variante `Sohei Sudoku` affiche uniquement les cases
 actives du plateau 21x21 et conserve les separations 3x3 de chaque grille.
 
+### Kazaguruma / Windmill Sudoku
+
+`puzzle_type = kazaguruma_sudoku`
+
+Alias :
+
+```text
+kazaguruma
+windmill_sudoku
+```
+
+Kazaguruma Sudoku assemble cinq grilles Sudoku 9x9 en forme de moulin a vent.
+La grille centrale est placee au coeur de la forme et chevauche les quatre
+ailes.
+
+Offsets zero-based des cinq grilles :
+
+```text
+haut   : (0, 3)
+droite : (3, 12)
+centre : (6, 6)
+gauche : (9, 0)
+bas    : (12, 9)
+```
+
+Le plateau logique mesure 21 lignes et 21 colonnes.
+
+Le modele contient :
+
+```text
+333 cases actives
+135 contraintes Sudoku
+```
+
+Chaque grille 9x9 ajoute ses 27 contraintes standard :
+
+- 9 lignes ;
+- 9 colonnes ;
+- 9 blocs 3x3.
+
+Format de saisie principal :
+
+```text
+...471283965.........
+...625791843.........
+...398456217.........
+...549627138497653821
+...736819524265819374
+...182345679381742956
+...854172396548237169
+...913564782139568247
+...267938451726194583
+693718245967813426795
+275934816235974385612
+184526397814652971438
+859367421679385214...
+417892653148297365...
+326145789523461978...
+548679132965178423...
+961283574487932651...
+732451968312654789...
+.........896523147...
+.........734816592...
+.........251749836...
+```
+
+Le parser accepte aussi une representation compacte de 333 cases actives en
+ordre ligne/colonne. Les caracteres `0`, `.`, `_` representent les cases vides.
+
+Dans l'atelier Theia, la variante `Kazaguruma` affiche uniquement les cases
+actives du plateau 21x21 et conserve les separations 3x3 de chaque grille.
+
 ### Greater Than / Compdoku
 
 `puzzle_type = sudoku_greater_than`
@@ -1012,7 +1087,7 @@ Fonctionnalites actuelles :
 - `Ctrl+clic` pour surveiller une cellule en mode saisie ;
 - choix de variante `Classique` / `Sudoku X` / `Center Dot` / `Windoku` /
   `Girandola` / `Asterisk` / `Sujiken` / `Samurai Sudoku` /
-  `Flower Sudoku` / `Sohei Sudoku` / `Greater Than` ;
+  `Flower Sudoku` / `Sohei Sudoku` / `Kazaguruma` / `Greater Than` ;
 - diagonales orange en mode Sudoku X ;
 - points verts sur les centres de blocs en mode Center Dot ;
 - regions violettes en mode Windoku ;
@@ -1022,6 +1097,7 @@ Fonctionnalites actuelles :
 - rendu 21x21 de 369 cases actives en mode Samurai Sudoku ;
 - rendu 15x15 de 189 cases actives en mode Flower Sudoku ;
 - rendu 21x21 de 288 cases actives en mode Sohei Sudoku ;
+- rendu 21x21 de 333 cases actives en mode Kazaguruma ;
 - bords cliquables `>` / `<` en mode Greater Than / Compdoku ;
 - affichage de la premiere solution ;
 - reprise de la solution dans la grille ;
@@ -1034,7 +1110,7 @@ Fonctionnalites actuelles :
 |---|---|---|
 | `grid` | `string[][]` | Valeurs courantes de la grille. |
 | `quickText` | `string` | Representation texte de la grille. |
-| `puzzleType` | `sudoku_classic`, `sudoku_x`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku` ou `sudoku_greater_than` | Variante active. |
+| `puzzleType` | `sudoku_classic`, `sudoku_x`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku` ou `sudoku_greater_than` | Variante active. |
 | `horizontalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme ligne. |
 | `verticalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme colonne. |
 | `watchCells` | `string[]` | Cellules surveillees au format `r1c1`. |
@@ -1292,6 +1368,8 @@ Couverture actuelle :
 - Flower Sudoku refuse une valeur repetee dans une ligne ;
 - Sohei Sudoku valide ;
 - Sohei Sudoku refuse une valeur repetee dans une ligne ;
+- Kazaguruma Sudoku valide ;
+- Kazaguruma Sudoku refuse une valeur repetee dans une ligne ;
 - Greater Than valide avec une relation adjacente compatible ;
 - Greater Than refuse une relation adjacente contradictoire ;
 - extraction des cellules surveillees ;
@@ -1423,7 +1501,7 @@ Le moteur est deja generique, mais l'UI actuelle est encore orientee Sudoku.
 Limites connues :
 
 - l'atelier reste principalement oriente Sudoku, avec des rendus dedies pour
-  Sujiken, Samurai Sudoku, Flower Sudoku et Sohei Sudoku ;
+  Sujiken, Samurai Sudoku, Flower Sudoku, Sohei Sudoku et Kazaguruma ;
 - les symboles UI sont limites aux chiffres `1-9` ;
 - une seule grille par variante est exposee dans l'UI (`state_key = default`) ;
 - pas encore d'editeur visuel pour regions irregulieres ;

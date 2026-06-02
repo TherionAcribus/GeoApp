@@ -25,6 +25,8 @@ Generic finite-domain grid solver powered by Z3.
   15x15 Flower / Musketry layout.
 - `sohei_sudoku`: four overlapping 9x9 Sudoku grids in a 21x21 layout with a
   central 3x3 hole.
+- `kazaguruma_sudoku`: five overlapping 9x9 Sudoku grids in a 21x21 windmill
+  layout.
 - `sudoku_greater_than`: classic 9x9 Sudoku plus adjacent `>` / `<`
   inequalities. The interactive UI lets users toggle border symbols between
   cells.
@@ -73,8 +75,8 @@ the Theia "Grilles" workbench:
 - cell-by-cell entry for givens;
 - quick paste textarea for fast Sudoku import;
 - variant selector for classic Sudoku, Sudoku X, Center Dot, Windoku,
-  Girandola, Asterisk, Sujiken, Samurai Sudoku, Flower Sudoku, Sohei Sudoku
-  and Greater Than;
+  Girandola, Asterisk, Sujiken, Samurai Sudoku, Flower Sudoku, Sohei Sudoku,
+  Kazaguruma and Greater Than;
 - editable `>` / `<` borders for Greater Than / Compdoku;
 - watch mode to mark answer cells;
 - solve action calling this plugin;
