@@ -12,6 +12,17 @@ type WorkMode = 'edit' | 'watch';
 type SudokuVariant = 'sudoku_classic' | 'sudoku_x' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than';
 type InequalitySymbol = '' | '>' | '<';
 type InequalityGrid = InequalitySymbol[][];
+type CellCoord = [number, number];
+
+interface ConstraintRegion {
+    label: string;
+    cells: CellCoord[];
+}
+
+interface ConflictHighlights {
+    cells: Set<string>;
+    messages: string[];
+}
 
 const SIZE = 9;
 const FLOWER_SIZE = 15;
@@ -204,6 +215,265 @@ function isActiveCellForVariant(puzzleType: SudokuVariant, row: number, col: num
         return isKazagurumaCell(row, col);
     }
     return row >= 0 && row < SIZE && col >= 0 && col < SIZE;
+}
+
+function buildSudokuRegions(offsetRow = 0, offsetCol = 0, label = 'Sudoku'): ConstraintRegion[] {
+    const regions: ConstraintRegion[] = [];
+    for (let row = 0; row < SIZE; row += 1) {
+        regions.push({
+            label: `${label} ligne ${row + 1}`,
+            cells: Array.from({ length: SIZE }, (_unused, col) => [offsetRow + row, offsetCol + col]),
+        });
+    }
+    for (let col = 0; col < SIZE; col += 1) {
+        regions.push({
+            label: `${label} colonne ${col + 1}`,
+            cells: Array.from({ length: SIZE }, (_unused, row) => [offsetRow + row, offsetCol + col]),
+        });
+    }
+    for (let boxRow = 0; boxRow < SIZE; boxRow += 3) {
+        for (let boxCol = 0; boxCol < SIZE; boxCol += 3) {
+            const boxIndex = Math.floor(boxRow / 3) * 3 + Math.floor(boxCol / 3) + 1;
+            regions.push({
+                label: `${label} bloc ${boxIndex}`,
+                cells: Array.from({ length: SIZE }, (_unused, index) => [
+                    offsetRow + boxRow + Math.floor(index / 3),
+                    offsetCol + boxCol + (index % 3),
+                ]),
+            });
+        }
+    }
+    return regions;
+}
+
+function buildCompositeSudokuRegions(offsets: Array<[number, number, string]>): ConstraintRegion[] {
+    return offsets.flatMap(([row, col, label]) => buildSudokuRegions(row, col, label));
+}
+
+function getAllDifferentRegions(puzzleType: SudokuVariant): ConstraintRegion[] {
+    const regions = puzzleType === 'sujiken'
+        ? getSujikenRegions()
+        : puzzleType === 'samurai_sudoku'
+            ? buildCompositeSudokuRegions([
+                [0, 0, 'Samurai haut gauche'],
+                [0, 12, 'Samurai haut droit'],
+                [6, 6, 'Samurai centre'],
+                [12, 0, 'Samurai bas gauche'],
+                [12, 12, 'Samurai bas droit'],
+            ])
+        : puzzleType === 'flower_sudoku'
+            ? buildCompositeSudokuRegions([
+                [0, 3, 'Flower haut'],
+                [3, 0, 'Flower gauche'],
+                [3, 3, 'Flower centre'],
+                [3, 6, 'Flower droite'],
+                [6, 3, 'Flower bas'],
+            ])
+        : puzzleType === 'sohei_sudoku'
+            ? buildCompositeSudokuRegions([
+                [0, 6, 'Sohei haut'],
+                [6, 0, 'Sohei gauche'],
+                [6, 12, 'Sohei droite'],
+                [12, 6, 'Sohei bas'],
+            ])
+        : puzzleType === 'kazaguruma_sudoku'
+            ? buildCompositeSudokuRegions([
+                [0, 3, 'Kazaguruma haut'],
+                [3, 12, 'Kazaguruma droite'],
+                [6, 6, 'Kazaguruma centre'],
+                [9, 0, 'Kazaguruma gauche'],
+                [12, 9, 'Kazaguruma bas'],
+            ])
+        : buildSudokuRegions();
+
+    if (puzzleType === 'sudoku_x') {
+        regions.push(
+            {
+                label: 'Sudoku X diagonale principale',
+                cells: Array.from({ length: SIZE }, (_unused, index) => [index, index]),
+            },
+            {
+                label: 'Sudoku X diagonale secondaire',
+                cells: Array.from({ length: SIZE }, (_unused, index) => [index, SIZE - 1 - index]),
+            }
+        );
+    }
+    if (puzzleType === 'sudoku_center_dot') {
+        regions.push({
+            label: 'Center Dot',
+            cells: Array.from({ length: SIZE }, (_unused, index) => [
+                Math.floor(index / 3) * 3 + 1,
+                (index % 3) * 3 + 1,
+            ]),
+        });
+    }
+    if (puzzleType === 'sudoku_windoku') {
+        for (const row of [1, 5]) {
+            for (const col of [1, 5]) {
+                regions.push({
+                    label: `Windoku region r${row + 1}c${col + 1}`,
+                    cells: Array.from({ length: SIZE }, (_unused, index) => [
+                        row + Math.floor(index / 3),
+                        col + (index % 3),
+                    ]),
+                });
+            }
+        }
+    }
+    if (puzzleType === 'sudoku_girandola') {
+        regions.push({
+            label: 'Girandola',
+            cells: [[0, 0], [0, 8], [1, 4], [4, 1], [4, 4], [4, 7], [7, 4], [8, 0], [8, 8]],
+        });
+    }
+    if (puzzleType === 'sudoku_asterisk') {
+        regions.push({
+            label: 'Asterisk',
+            cells: [[1, 4], [2, 2], [2, 6], [4, 1], [4, 4], [4, 7], [6, 2], [6, 6], [7, 4]],
+        });
+    }
+    return regions;
+}
+
+function getSujikenRegions(): ConstraintRegion[] {
+    const regions: ConstraintRegion[] = [];
+    for (let row = 0; row < SIZE; row += 1) {
+        regions.push({
+            label: `Sujiken rangee ${row + 1}`,
+            cells: Array.from({ length: row + 1 }, (_unused, col) => [row, col]),
+        });
+    }
+    for (let col = 0; col < SIZE; col += 1) {
+        regions.push({
+            label: `Sujiken colonne ${col + 1}`,
+            cells: Array.from({ length: SIZE - col }, (_unused, index) => [col + index, col]),
+        });
+    }
+    for (let diagonal = 0; diagonal < SIZE; diagonal += 1) {
+        regions.push({
+            label: `Sujiken diagonale ${diagonal + 1}`,
+            cells: Array.from({ length: SIZE - diagonal }, (_unused, index) => [
+                diagonal + index,
+                index,
+            ]),
+        });
+    }
+    regions.push(
+        {
+            label: 'Sujiken region 1',
+            cells: Array.from({ length: 6 }, (_unused, index) => {
+                const row = index < 1 ? 0 : index < 3 ? 1 : 2;
+                const start = row === 0 ? 0 : row === 1 ? 1 : 3;
+                return [row, index - start];
+            }),
+        },
+        {
+            label: 'Sujiken region 2',
+            cells: Array.from({ length: 9 }, (_unused, index) => [3 + Math.floor(index / 3), index % 3]),
+        },
+        {
+            label: 'Sujiken region 3',
+            cells: Array.from({ length: 6 }, (_unused, index) => {
+                const row = index < 1 ? 3 : index < 3 ? 4 : 5;
+                const start = row === 3 ? 0 : row === 4 ? 1 : 3;
+                return [row, 3 + index - start];
+            }),
+        },
+        {
+            label: 'Sujiken region 4',
+            cells: Array.from({ length: 9 }, (_unused, index) => [6 + Math.floor(index / 3), index % 3]),
+        },
+        {
+            label: 'Sujiken region 5',
+            cells: Array.from({ length: 9 }, (_unused, index) => [6 + Math.floor(index / 3), 3 + (index % 3)]),
+        },
+        {
+            label: 'Sujiken region 6',
+            cells: Array.from({ length: 6 }, (_unused, index) => {
+                const row = index < 1 ? 6 : index < 3 ? 7 : 8;
+                const start = row === 6 ? 0 : row === 7 ? 1 : 3;
+                return [row, 6 + index - start];
+            }),
+        }
+    );
+    return regions;
+}
+
+function findConstraintConflicts(
+    grid: Grid,
+    puzzleType: SudokuVariant,
+    horizontalInequalities: InequalityGrid,
+    verticalInequalities: InequalityGrid,
+): ConflictHighlights {
+    const cells = new Set<string>();
+    const messages: string[] = [];
+
+    for (const region of getAllDifferentRegions(puzzleType)) {
+        const byValue = new Map<string, string[]>();
+        for (const [row, col] of region.cells) {
+            if (!isActiveCellForVariant(puzzleType, row, col)) {
+                continue;
+            }
+            const value = grid[row]?.[col] || '';
+            if (!value) {
+                continue;
+            }
+            const refs = byValue.get(value) || [];
+            refs.push(cellRef(row, col));
+            byValue.set(value, refs);
+        }
+        for (const [value, refs] of byValue.entries()) {
+            if (refs.length < 2) {
+                continue;
+            }
+            refs.forEach(ref => cells.add(ref));
+            messages.push(`Doublon ${value} dans ${region.label} : ${refs.join(', ')}`);
+        }
+    }
+
+    if (puzzleType === 'sudoku_greater_than') {
+        horizontalInequalities.forEach((row, rowIndex) => {
+            row.forEach((relation, colIndex) => {
+                addInequalityConflict(grid, cells, messages, relation, rowIndex, colIndex, rowIndex, colIndex + 1);
+            });
+        });
+        verticalInequalities.forEach((row, rowIndex) => {
+            row.forEach((relation, colIndex) => {
+                addInequalityConflict(grid, cells, messages, relation, rowIndex, colIndex, rowIndex + 1, colIndex);
+            });
+        });
+    }
+
+    return { cells, messages };
+}
+
+function addInequalityConflict(
+    grid: Grid,
+    cells: Set<string>,
+    messages: string[],
+    relation: InequalitySymbol,
+    firstRow: number,
+    firstCol: number,
+    secondRow: number,
+    secondCol: number,
+): void {
+    if (!relation) {
+        return;
+    }
+    const firstValue = Number(grid[firstRow]?.[firstCol] || 0);
+    const secondValue = Number(grid[secondRow]?.[secondCol] || 0);
+    if (!firstValue || !secondValue) {
+        return;
+    }
+    const valid = relation === '>' ? firstValue > secondValue : firstValue < secondValue;
+    if (valid) {
+        return;
+    }
+    const firstRef = cellRef(firstRow, firstCol);
+    const secondRef = cellRef(secondRow, secondCol);
+    cells.add(firstRef);
+    cells.add(secondRef);
+    messages.push(`Inegalite ${firstRef} ${relation} ${secondRef} non respectee`);
 }
 
 function getWindokuBoundaryClasses(row: number, col: number): string[] {
@@ -812,6 +1082,11 @@ function GridPuzzleWorkbenchApp({
         : isSamurai
             ? SAMURAI_TEXT_PLACEHOLDER
             : QUICK_TEXT_PLACEHOLDER;
+    const constraintConflicts = React.useMemo(
+        () => findConstraintConflicts(grid, puzzleType, horizontalInequalities, verticalInequalities),
+        [grid, horizontalInequalities, puzzleType, verticalInequalities],
+    );
+    const visibleConflictMessages = constraintConflicts.messages.slice(0, 4);
 
     const markDirty = React.useCallback(() => {
         if (!geocacheId) {
@@ -1113,6 +1388,13 @@ function GridPuzzleWorkbenchApp({
     }, [markDirty, puzzleType, setGridAndQuickText]);
 
     const solve = React.useCallback(async () => {
+        if (constraintConflicts.messages.length > 0) {
+            setSolveState({
+                running: false,
+                error: 'Corrigez les conflits en rouge avant de lancer la resolution.',
+            });
+            return;
+        }
         setSolveState({ running: true });
         try {
             const result = await pluginsService.executePlugin('grid_puzzle_solver', {
@@ -1140,7 +1422,7 @@ function GridPuzzleWorkbenchApp({
                 error: error instanceof Error ? error.message : String(error),
             });
         }
-    }, [geocacheId, grid, horizontalInequalities, maxSolutions, pluginsService, puzzleType, saveState, timeoutMs, verticalInequalities, watchCells]);
+    }, [constraintConflicts.messages.length, geocacheId, grid, horizontalInequalities, maxSolutions, pluginsService, puzzleType, saveState, timeoutMs, verticalInequalities, watchCells]);
 
     const useSolvedGrid = React.useCallback(() => {
         if (solvedGrid) {
@@ -1190,6 +1472,7 @@ function GridPuzzleWorkbenchApp({
             'sudoku-cell',
             readonly ? 'readonly' : '',
             value ? 'given' : '',
+            !readonly && value && constraintConflicts.cells.has(ref) ? 'conflict' : '',
             watchCells.includes(ref) ? 'watched' : '',
             puzzleType === 'sudoku_x' && (rowIndex === colIndex || rowIndex + colIndex === SIZE - 1) ? 'diagonal' : '',
             puzzleType === 'sudoku_center_dot' && isCenterDotCell(rowIndex, colIndex) ? 'center-dot' : '',
@@ -1376,6 +1659,16 @@ function GridPuzzleWorkbenchApp({
                         {isSohei ? ' Sohei utilise les 288 cases actives des quatre grilles 9x9.' : ''}
                         {isKazaguruma ? ' Kazaguruma utilise les 333 cases actives des cinq grilles 9x9 en moulin.' : ''}
                     </div>
+                    {visibleConflictMessages.length > 0 ? (
+                        <div className='grid-puzzle-conflicts'>
+                            {visibleConflictMessages.map(message => (
+                                <div key={message}>{message}</div>
+                            ))}
+                            {constraintConflicts.messages.length > visibleConflictMessages.length ? (
+                                <div>+{constraintConflicts.messages.length - visibleConflictMessages.length} autre(s) conflit(s).</div>
+                            ) : null}
+                        </div>
+                    ) : null}
 
                     {solvedGrid && (
                         <div className='grid-puzzle-solution'>
