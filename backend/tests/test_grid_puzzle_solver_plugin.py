@@ -518,6 +518,84 @@ def test_flower_sudoku_rejects_repeated_row_value():
     assert result["summary"] == "Aucune solution compatible avec les contraintes"
 
 
+def test_sohei_sudoku_accepts_complete_solution():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "sohei_sudoku",
+            "grid": """
+                ......452638917......
+                ......683719452......
+                ......719254836......
+                ......861945273......
+                ......245873691......
+                ......937126548......
+                594218376492185967423
+                738569124587369428175
+                216743598361724135869
+                345927681...816579234
+                671485932...497213658
+                982631745...253684791
+                163894257614938746512
+                859172463928571892346
+                427356819357642351987
+                ......921876453......
+                ......345192786......
+                ......678543129......
+                ......582769314......
+                ......794231865......
+                ......136485297......
+            """,
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["unique"] is True
+    assert result["metadata"]["variant"] == "sohei_sudoku"
+    assert result["metadata"]["constraint_count"] == 108
+    assert result["results"][0]["grid"][6] == ["5", "9", "4", "2", "1", "8", "3", "7", "6", "4", "9", "2", "1", "8", "5", "9", "6", "7", "4", "2", "3"]
+
+
+def test_sohei_sudoku_rejects_repeated_row_value():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "sohei",
+            "grid": """
+                ......552638917......
+                ......683719452......
+                ......719254836......
+                ......861945273......
+                ......245873691......
+                ......937126548......
+                594218376492185967423
+                738569124587369428175
+                216743598361724135869
+                345927681...816579234
+                671485932...497213658
+                982631745...253684791
+                163894257614938746512
+                859172463928571892346
+                427356819357642351987
+                ......921876453......
+                ......345192786......
+                ......678543129......
+                ......582769314......
+                ......794231865......
+                ......136485297......
+            """,
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+    assert result["summary"] == "Aucune solution compatible avec les contraintes"
+
+
 def test_greater_than_accepts_matching_adjacent_relation():
     plugin = load_plugin()
 

@@ -2,7 +2,7 @@
   "name": "grid_puzzle_solver",
   "version": "0.1.0",
   "plugin_api_version": "2.0",
-  "description": "Solveur Z3 pour grilles de logique. Variantes actuelles: Sudoku classique, Sudoku X, Center Dot, Windoku, Girandola, Asterisk, Sujiken, Samurai Sudoku, Flower Sudoku et Greater Than / Compdoku.",
+  "description": "Solveur Z3 pour grilles de logique. Variantes actuelles: Sudoku classique, Sudoku X, Center Dot, Windoku, Girandola, Asterisk, Sujiken, Samurai Sudoku, Flower Sudoku, Sohei Sudoku et Greater Than / Compdoku.",
   "author": "MysterAI",
   "plugin_type": "python",
   "entry_point": "main.py",
@@ -39,11 +39,12 @@
         {"value": "sujiken", "label": "Sujiken"},
         {"value": "samurai_sudoku", "label": "Samurai Sudoku / Gattai-5"},
         {"value": "flower_sudoku", "label": "Flower Sudoku / Musketry"},
+        {"value": "sohei_sudoku", "label": "Sohei Sudoku"},
         {"value": "sudoku_greater_than", "label": "Greater Than / Compdoku"},
         {"value": "custom_spec", "label": "Spec JSON generique"}
       ],
       "default": "sudoku_classic",
-      "description": "Sudoku classique utilise une grille 9x9. Sudoku X ajoute les deux diagonales principales sans doublons. Center Dot ajoute la region des centres de blocs 3x3. Windoku ajoute quatre regions 3x3 supplementaires. Girandola et Asterisk ajoutent chacun une extra-region de 9 cases. Sujiken utilise une grille triangulaire de 45 cases. Samurai et Flower Sudoku assemblent cinq grilles 9x9 chevauchantes. Greater Than ajoute des comparaisons >/< entre cases adjacentes. Spec JSON permet de decrire une grille CSP finie."
+      "description": "Sudoku classique utilise une grille 9x9. Sudoku X ajoute les deux diagonales principales sans doublons. Center Dot ajoute la region des centres de blocs 3x3. Windoku ajoute quatre regions 3x3 supplementaires. Girandola et Asterisk ajoutent chacun une extra-region de 9 cases. Sujiken utilise une grille triangulaire de 45 cases. Samurai, Flower et Sohei Sudoku assemblent plusieurs grilles 9x9 chevauchantes. Greater Than ajoute des comparaisons >/< entre cases adjacentes. Spec JSON permet de decrire une grille CSP finie."
     },
     "grid": {
       "type": "textarea",

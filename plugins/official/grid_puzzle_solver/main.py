@@ -39,6 +39,12 @@ FLOWER_SUDOKU_OFFSETS: Tuple[Cell, ...] = (
     (3, 6),
     (6, 3),
 )
+SOHEI_SUDOKU_OFFSETS: Tuple[Cell, ...] = (
+    (0, 6),
+    (6, 0),
+    (6, 12),
+    (12, 6),
+)
 
 
 @dataclass(frozen=True)
@@ -198,6 +204,13 @@ class GridpuzzlesolverPlugin:
                     inputs.get("text"),
                 )
                 problem = self._build_flower_sudoku_problem(puzzle_text)
+            elif puzzle_type in {"sohei_sudoku", "sohei"}:
+                puzzle_text = self._first_non_empty(
+                    inputs.get("grid"),
+                    inputs.get("puzzle"),
+                    inputs.get("text"),
+                )
+                problem = self._build_sohei_sudoku_problem(puzzle_text)
             elif puzzle_type in {"sudoku_greater_than", "greater_than", "compdoku", "inequality_sudoku"}:
                 puzzle_text = self._first_non_empty(
                     inputs.get("grid"),
@@ -434,57 +447,57 @@ class GridpuzzlesolverPlugin:
         )
 
     def _build_samurai_sudoku_problem(self, puzzle_text: str) -> GridCspProblem:
-        symbols = [str(value) for value in range(1, 10)]
-        active_cells = self._samurai_active_cells()
-        givens = self._parse_samurai_tokens(puzzle_text, symbols, active_cells)
-
-        constraints: List[GridConstraint] = []
-        for offset_row, offset_col in SAMURAI_SUDOKU_OFFSETS:
-            for local_row in range(9):
-                constraints.append(
-                    GridConstraint(
-                        "all_different",
-                        tuple((offset_row + local_row, offset_col + local_col) for local_col in range(9)),
-                    )
-                )
-            for local_col in range(9):
-                constraints.append(
-                    GridConstraint(
-                        "all_different",
-                        tuple((offset_row + local_row, offset_col + local_col) for local_row in range(9)),
-                    )
-                )
-            for box_row in range(0, 9, 3):
-                for box_col in range(0, 9, 3):
-                    constraints.append(
-                        GridConstraint(
-                            "all_different",
-                            tuple(
-                                (offset_row + local_row, offset_col + local_col)
-                                for local_row in range(box_row, box_row + 3)
-                                for local_col in range(box_col, box_col + 3)
-                            ),
-                        )
-                    )
-
-        return GridCspProblem(
+        return self._build_composite_sudoku_problem(
+            puzzle_text,
+            offsets=SAMURAI_SUDOKU_OFFSETS,
             rows=21,
             cols=21,
-            symbols=symbols,
-            active_cells=active_cells,
-            givens=givens,
-            constraints=constraints,
-            numeric_values={symbol: int(symbol) for symbol in symbols},
             variant="samurai_sudoku",
+            label="Samurai Sudoku",
         )
 
     def _build_flower_sudoku_problem(self, puzzle_text: str) -> GridCspProblem:
+        return self._build_composite_sudoku_problem(
+            puzzle_text,
+            offsets=FLOWER_SUDOKU_OFFSETS,
+            rows=15,
+            cols=15,
+            variant="flower_sudoku",
+            label="Flower Sudoku",
+        )
+
+    def _build_sohei_sudoku_problem(self, puzzle_text: str) -> GridCspProblem:
+        return self._build_composite_sudoku_problem(
+            puzzle_text,
+            offsets=SOHEI_SUDOKU_OFFSETS,
+            rows=21,
+            cols=21,
+            variant="sohei_sudoku",
+            label="Sohei Sudoku",
+        )
+
+    def _build_composite_sudoku_problem(
+        self,
+        puzzle_text: str,
+        offsets: Sequence[Cell],
+        rows: int,
+        cols: int,
+        variant: str,
+        label: str,
+    ) -> GridCspProblem:
         symbols = [str(value) for value in range(1, 10)]
-        active_cells = self._flower_active_cells()
-        givens = self._parse_flower_tokens(puzzle_text, symbols, active_cells)
+        active_cells = self._composite_active_cells(offsets)
+        givens = self._parse_composite_sudoku_tokens(
+            puzzle_text,
+            symbols,
+            active_cells,
+            rows,
+            cols,
+            label,
+        )
 
         constraints: List[GridConstraint] = []
-        for offset_row, offset_col in FLOWER_SUDOKU_OFFSETS:
+        for offset_row, offset_col in offsets:
             for local_row in range(9):
                 constraints.append(
                     GridConstraint(
@@ -513,29 +526,29 @@ class GridpuzzlesolverPlugin:
                     )
 
         return GridCspProblem(
-            rows=15,
-            cols=15,
+            rows=rows,
+            cols=cols,
             symbols=symbols,
             active_cells=active_cells,
             givens=givens,
             constraints=constraints,
             numeric_values={symbol: int(symbol) for symbol in symbols},
-            variant="flower_sudoku",
+            variant=variant,
         )
 
     def _samurai_active_cells(self) -> List[Cell]:
-        cells = {
-            (offset_row + local_row, offset_col + local_col)
-            for offset_row, offset_col in SAMURAI_SUDOKU_OFFSETS
-            for local_row in range(9)
-            for local_col in range(9)
-        }
-        return sorted(cells)
+        return self._composite_active_cells(SAMURAI_SUDOKU_OFFSETS)
 
     def _flower_active_cells(self) -> List[Cell]:
+        return self._composite_active_cells(FLOWER_SUDOKU_OFFSETS)
+
+    def _sohei_active_cells(self) -> List[Cell]:
+        return self._composite_active_cells(SOHEI_SUDOKU_OFFSETS)
+
+    def _composite_active_cells(self, offsets: Sequence[Cell]) -> List[Cell]:
         cells = {
             (offset_row + local_row, offset_col + local_col)
-            for offset_row, offset_col in FLOWER_SUDOKU_OFFSETS
+            for offset_row, offset_col in offsets
             for local_row in range(9)
             for local_col in range(9)
         }
@@ -938,14 +951,17 @@ class GridpuzzlesolverPlugin:
             )
         return tokens
 
-    def _parse_samurai_tokens(
+    def _parse_composite_sudoku_tokens(
         self,
         text: str,
         symbols: Sequence[str],
         active_cells: Sequence[Cell],
+        rows: int,
+        cols: int,
+        label: str,
     ) -> Dict[Cell, str]:
         if not text or not str(text).strip():
-            raise ValueError("Aucune grille Samurai Sudoku fournie")
+            raise ValueError(f"Aucune grille {label} fournie")
 
         blank_tokens = {"0", ".", "_"}
         symbol_set = set(symbols)
@@ -962,7 +978,7 @@ class GridpuzzlesolverPlugin:
                 parsed_rows.append(row_tokens)
 
         givens: Dict[Cell, str] = {}
-        if len(parsed_rows) == 21 and all(len(row) >= 21 for row in parsed_rows):
+        if len(parsed_rows) == rows and all(len(row) >= cols for row in parsed_rows):
             for row, col in active_cells:
                 token = parsed_rows[row][col]
                 if token in symbol_set:
@@ -972,49 +988,7 @@ class GridpuzzlesolverPlugin:
         tokens = [token for row in parsed_rows for token in row]
         if len(tokens) != len(active_cells):
             raise ValueError(
-                f"Une grille Samurai Sudoku doit contenir {len(active_cells)} cases actives, {len(tokens)} detectees"
-            )
-
-        for cell, token in zip(active_cells, tokens):
-            if token in symbol_set:
-                givens[cell] = token
-        return givens
-
-    def _parse_flower_tokens(
-        self,
-        text: str,
-        symbols: Sequence[str],
-        active_cells: Sequence[Cell],
-    ) -> Dict[Cell, str]:
-        if not text or not str(text).strip():
-            raise ValueError("Aucune grille Flower Sudoku fournie")
-
-        blank_tokens = {"0", ".", "_"}
-        symbol_set = set(symbols)
-        parsed_rows: List[List[str]] = []
-
-        for raw_line in str(text).splitlines():
-            line = raw_line.strip()
-            if not line or SEPARATOR_LINE_RE.fullmatch(line):
-                continue
-            row_tokens = [
-                char for char in line if char in symbol_set or char in blank_tokens
-            ]
-            if row_tokens:
-                parsed_rows.append(row_tokens)
-
-        givens: Dict[Cell, str] = {}
-        if len(parsed_rows) == 15 and all(len(row) >= 15 for row in parsed_rows):
-            for row, col in active_cells:
-                token = parsed_rows[row][col]
-                if token in symbol_set:
-                    givens[(row, col)] = token
-            return givens
-
-        tokens = [token for row in parsed_rows for token in row]
-        if len(tokens) != len(active_cells):
-            raise ValueError(
-                f"Une grille Flower Sudoku doit contenir {len(active_cells)} cases actives, {len(tokens)} detectees"
+                f"Une grille {label} doit contenir {len(active_cells)} cases actives, {len(tokens)} detectees"
             )
 
         for cell, token in zip(active_cells, tokens):

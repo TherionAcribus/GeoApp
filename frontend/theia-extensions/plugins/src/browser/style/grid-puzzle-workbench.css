@@ -116,6 +116,13 @@
     background: transparent;
 }
 
+.sudoku-board.sohei-board {
+    grid-template-columns: repeat(21, 26px);
+    grid-template-rows: repeat(21, 26px);
+    border: 0;
+    background: transparent;
+}
+
 .sudoku-board.flower-board {
     grid-template-columns: repeat(15, 32px);
     grid-template-rows: repeat(15, 32px);
@@ -209,6 +216,17 @@
 }
 
 .sudoku-cell.given.samurai-cell {
+    background: var(--theia-sideBar-background);
+}
+
+.sudoku-cell.sohei-cell {
+    width: 26px;
+    height: 26px;
+    font-size: 13px;
+    background: var(--theia-input-background);
+}
+
+.sudoku-cell.given.sohei-cell {
     background: var(--theia-sideBar-background);
 }
 
@@ -438,6 +456,18 @@
     }
 
     .sudoku-cell.samurai-cell {
+        width: 100%;
+        height: auto;
+        font-size: 11px;
+    }
+
+    .sudoku-board.sohei-board {
+        grid-template-columns: repeat(21, minmax(18px, 1fr));
+        grid-template-rows: repeat(21, minmax(18px, 1fr));
+        max-width: none;
+    }
+
+    .sudoku-cell.sohei-cell {
         width: 100%;
         height: auto;
         font-size: 11px;

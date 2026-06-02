@@ -9,7 +9,7 @@ import './style/grid-puzzle-workbench.css';
 
 type Grid = string[][];
 type WorkMode = 'edit' | 'watch';
-type SudokuVariant = 'sudoku_classic' | 'sudoku_x' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'samurai_sudoku' | 'flower_sudoku' | 'sudoku_greater_than';
+type SudokuVariant = 'sudoku_classic' | 'sudoku_x' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'sudoku_greater_than';
 type InequalitySymbol = '' | '>' | '<';
 type InequalityGrid = InequalitySymbol[][];
 
@@ -28,6 +28,11 @@ const FLOWER_TEXT_PLACEHOLDER = Array.from({ length: FLOWER_SIZE }, (_row, rowIn
 const SAMURAI_TEXT_PLACEHOLDER = Array.from({ length: SAMURAI_SIZE }, (_row, rowIndex) => (
     Array.from({ length: SAMURAI_SIZE }, (_col, colIndex) => (
         isSamuraiCell(rowIndex, colIndex) ? '0' : '.'
+    )).join('')
+)).join('\n');
+const SOHEI_TEXT_PLACEHOLDER = Array.from({ length: SAMURAI_SIZE }, (_row, rowIndex) => (
+    Array.from({ length: SAMURAI_SIZE }, (_col, colIndex) => (
+        isSoheiCell(rowIndex, colIndex) ? '0' : '.'
     )).join('')
 )).join('\n');
 
@@ -89,6 +94,9 @@ function getVariantLabel(puzzleType: SudokuVariant): string {
     if (puzzleType === 'flower_sudoku') {
         return 'Flower Sudoku';
     }
+    if (puzzleType === 'sohei_sudoku') {
+        return 'Sohei Sudoku';
+    }
     if (puzzleType === 'sudoku_greater_than') {
         return 'Greater Than';
     }
@@ -140,13 +148,20 @@ function isFlowerCell(row: number, col: number): boolean {
         || isInsideSquare(row, col, 6, 3);
 }
 
+function isSoheiCell(row: number, col: number): boolean {
+    return isInsideSquare(row, col, 0, 6)
+        || isInsideSquare(row, col, 6, 0)
+        || isInsideSquare(row, col, 6, 12)
+        || isInsideSquare(row, col, 12, 6);
+}
+
 function isInsideSquare(row: number, col: number, offsetRow: number, offsetCol: number): boolean {
     return row >= offsetRow && row < offsetRow + SIZE
         && col >= offsetCol && col < offsetCol + SIZE;
 }
 
 function gridSizeForVariant(puzzleType: SudokuVariant): number {
-    if (puzzleType === 'samurai_sudoku') {
+    if (puzzleType === 'samurai_sudoku' || puzzleType === 'sohei_sudoku') {
         return SAMURAI_SIZE;
     }
     if (puzzleType === 'flower_sudoku') {
@@ -164,6 +179,9 @@ function isActiveCellForVariant(puzzleType: SudokuVariant, row: number, col: num
     }
     if (puzzleType === 'flower_sudoku') {
         return isFlowerCell(row, col);
+    }
+    if (puzzleType === 'sohei_sudoku') {
+        return isSoheiCell(row, col);
     }
     return row >= 0 && row < SIZE && col >= 0 && col < SIZE;
 }
@@ -209,6 +227,28 @@ function getFlowerBoundaryClasses(row: number, col: number): string[] {
 
     const classes = new Set<string>();
     for (const [offsetRow, offsetCol] of [[0, 3], [3, 0], [3, 3], [3, 6], [6, 3]]) {
+        if (!isInsideSquare(row, col, offsetRow, offsetCol)) {
+            continue;
+        }
+        const localRow = row - offsetRow;
+        const localCol = col - offsetCol;
+        if (localCol === 2 || localCol === 5) {
+            classes.add('block-right');
+        }
+        if (localRow === 2 || localRow === 5) {
+            classes.add('block-bottom');
+        }
+    }
+    return [...classes];
+}
+
+function getSoheiBoundaryClasses(row: number, col: number): string[] {
+    if (!isSoheiCell(row, col)) {
+        return [];
+    }
+
+    const classes = new Set<string>();
+    for (const [offsetRow, offsetCol] of [[0, 6], [6, 0], [6, 12], [12, 6]]) {
         if (!isInsideSquare(row, col, offsetRow, offsetCol)) {
             continue;
         }
@@ -282,6 +322,14 @@ function gridToText(grid: Grid, puzzleType: SudokuVariant = 'sudoku_classic'): s
         return Array.from({ length: SAMURAI_SIZE }, (_row, rowIndex) => (
             Array.from({ length: SAMURAI_SIZE }, (_col, colIndex) => (
                 isSamuraiCell(rowIndex, colIndex) ? grid[rowIndex]?.[colIndex] || '0' : '.'
+            )).join('')
+        )).join('\n');
+    }
+
+    if (puzzleType === 'sohei_sudoku') {
+        return Array.from({ length: SAMURAI_SIZE }, (_row, rowIndex) => (
+            Array.from({ length: SAMURAI_SIZE }, (_col, colIndex) => (
+                isSoheiCell(rowIndex, colIndex) ? grid[rowIndex]?.[colIndex] || '0' : '.'
             )).join('')
         )).join('\n');
     }
@@ -409,6 +457,54 @@ function parseSamuraiText(text: string): Grid | null {
     return grid;
 }
 
+function parseSoheiText(text: string): Grid | null {
+    const rows = text
+        .split(/\r?\n/)
+        .map(line => {
+            const tokens: string[] = [];
+            for (const char of line) {
+                if (/[1-9]/.test(char)) {
+                    tokens.push(char);
+                } else if (char === '0' || char === '.' || char === '_') {
+                    tokens.push('');
+                }
+            }
+            return tokens;
+        })
+        .filter(row => row.length > 0);
+
+    const grid = createEmptyGrid(SAMURAI_SIZE);
+    if (rows.length === SAMURAI_SIZE && rows.every(row => row.length >= SAMURAI_SIZE)) {
+        rows.forEach((row, rowIndex) => {
+            row.slice(0, SAMURAI_SIZE).forEach((value, colIndex) => {
+                if (isSoheiCell(rowIndex, colIndex)) {
+                    grid[rowIndex][colIndex] = value;
+                }
+            });
+        });
+        return grid;
+    }
+
+    const tokens = rows.flat();
+    const activeCells: Array<[number, number]> = [];
+    for (let rowIndex = 0; rowIndex < SAMURAI_SIZE; rowIndex += 1) {
+        for (let colIndex = 0; colIndex < SAMURAI_SIZE; colIndex += 1) {
+            if (isSoheiCell(rowIndex, colIndex)) {
+                activeCells.push([rowIndex, colIndex]);
+            }
+        }
+    }
+
+    if (tokens.length !== activeCells.length) {
+        return null;
+    }
+
+    activeCells.forEach(([rowIndex, colIndex], index) => {
+        grid[rowIndex][colIndex] = tokens[index];
+    });
+    return grid;
+}
+
 function parseFlowerText(text: string): Grid | null {
     const rows = text
         .split(/\r?\n/)
@@ -463,6 +559,9 @@ function parsePuzzleText(text: string, puzzleType: SudokuVariant): Grid | null {
     }
     if (puzzleType === 'samurai_sudoku') {
         return parseSamuraiText(text);
+    }
+    if (puzzleType === 'sohei_sudoku') {
+        return parseSoheiText(text);
     }
     if (puzzleType === 'flower_sudoku') {
         return parseFlowerText(text);
@@ -573,11 +672,14 @@ function GridPuzzleWorkbenchApp({
     const isSujiken = puzzleType === 'sujiken';
     const isSamurai = puzzleType === 'samurai_sudoku';
     const isFlower = puzzleType === 'flower_sudoku';
+    const isSohei = puzzleType === 'sohei_sudoku';
     const gridSize = gridSizeForVariant(puzzleType);
     const quickTextPlaceholder = isSujiken
         ? SUJIKEN_TEXT_PLACEHOLDER
         : isFlower
             ? FLOWER_TEXT_PLACEHOLDER
+        : isSohei
+            ? SOHEI_TEXT_PLACEHOLDER
         : isSamurai
             ? SAMURAI_TEXT_PLACEHOLDER
             : QUICK_TEXT_PLACEHOLDER;
@@ -602,7 +704,7 @@ function GridPuzzleWorkbenchApp({
     const focusCell = React.useCallback((row: number, col: number, move: [number, number] = [0, 0]) => {
         let nextRow = Math.max(0, Math.min(gridSize - 1, row));
         const maxCol = isSujiken ? nextRow : SIZE - 1;
-        let nextCol = Math.max(0, Math.min(isSamurai || isFlower ? gridSize - 1 : maxCol, col));
+        let nextCol = Math.max(0, Math.min(isSamurai || isFlower || isSohei ? gridSize - 1 : maxCol, col));
         if (!isActiveCellForVariant(puzzleType, nextRow, nextCol)) {
             for (let step = 1; step < gridSize; step += 1) {
                 const candidateRow = Math.max(0, Math.min(gridSize - 1, row + move[0] * step));
@@ -622,7 +724,7 @@ function GridPuzzleWorkbenchApp({
         }
         cellRefs.current[nextRow]?.[nextCol]?.focus();
         cellRefs.current[nextRow]?.[nextCol]?.select();
-    }, [gridSize, isFlower, isSamurai, isSujiken, puzzleType]);
+    }, [gridSize, isFlower, isSamurai, isSohei, isSujiken, puzzleType]);
 
     const applyStateSnapshot = React.useCallback((snapshot: Record<string, any> | undefined) => {
         const restoredGrid = normalizeGrid(snapshot?.grid, puzzleType) || createEmptyGrid(gridSizeForVariant(puzzleType));
@@ -827,6 +929,8 @@ function GridPuzzleWorkbenchApp({
                         ? 'La saisie rapide Samurai doit contenir 369 cases actives ou une matrice 21x21.'
                         : puzzleType === 'flower_sudoku'
                             ? 'La saisie rapide Flower doit contenir 189 cases actives ou une matrice 15x15.'
+                            : puzzleType === 'sohei_sudoku'
+                                ? 'La saisie rapide Sohei doit contenir 288 cases actives ou une matrice 21x21.'
                     : 'La saisie rapide doit contenir exactement 81 cases.'
             );
             return;
@@ -855,6 +959,7 @@ function GridPuzzleWorkbenchApp({
             || value === 'sujiken'
             || value === 'samurai_sudoku'
             || value === 'flower_sudoku'
+            || value === 'sohei_sudoku'
             || value === 'sudoku_greater_than'
             ? value
             : 'sudoku_classic';
@@ -929,6 +1034,11 @@ function GridPuzzleWorkbenchApp({
                         gridColumn: String(colIndex + 1),
                         gridRow: String(rowIndex + 1),
                     }
+                    : isSohei
+                        ? {
+                            gridColumn: String(colIndex + 1),
+                            gridRow: String(rowIndex + 1),
+                        }
                     : isFlower
                         ? {
                             gridColumn: String(colIndex + 1),
@@ -952,11 +1062,13 @@ function GridPuzzleWorkbenchApp({
             puzzleType === 'sujiken' ? 'sujiken-cell' : '',
             puzzleType === 'samurai_sudoku' ? 'samurai-cell' : '',
             puzzleType === 'flower_sudoku' ? 'flower-cell' : '',
+            puzzleType === 'sohei_sudoku' ? 'sohei-cell' : '',
             ...(puzzleType === 'sudoku_windoku' ? getWindokuBoundaryClasses(rowIndex, colIndex) : []),
             ...(puzzleType === 'samurai_sudoku' ? getSamuraiBoundaryClasses(rowIndex, colIndex) : []),
             ...(puzzleType === 'flower_sudoku' ? getFlowerBoundaryClasses(rowIndex, colIndex) : []),
-            puzzleType !== 'samurai_sudoku' && puzzleType !== 'flower_sudoku' && (colIndex === 2 || colIndex === 5) ? 'block-right' : '',
-            puzzleType !== 'samurai_sudoku' && puzzleType !== 'flower_sudoku' && (rowIndex === 2 || rowIndex === 5) ? 'block-bottom' : '',
+            ...(puzzleType === 'sohei_sudoku' ? getSoheiBoundaryClasses(rowIndex, colIndex) : []),
+            puzzleType !== 'samurai_sudoku' && puzzleType !== 'flower_sudoku' && puzzleType !== 'sohei_sudoku' && (colIndex === 2 || colIndex === 5) ? 'block-right' : '',
+            puzzleType !== 'samurai_sudoku' && puzzleType !== 'flower_sudoku' && puzzleType !== 'sohei_sudoku' && (rowIndex === 2 || rowIndex === 5) ? 'block-bottom' : '',
         ].filter(Boolean).join(' ');
     };
 
@@ -1057,6 +1169,7 @@ function GridPuzzleWorkbenchApp({
                         <option value='sujiken'>Sujiken</option>
                         <option value='samurai_sudoku'>Samurai Sudoku</option>
                         <option value='flower_sudoku'>Flower Sudoku</option>
+                        <option value='sohei_sudoku'>Sohei Sudoku</option>
                         <option value='sudoku_greater_than'>Greater Than</option>
                     </select>
                     <button onClick={solve} disabled={solveState.running}>
@@ -1080,6 +1193,7 @@ function GridPuzzleWorkbenchApp({
                             isSujiken ? 'sujiken-board' : '',
                             isSamurai ? 'samurai-board' : '',
                             isFlower ? 'flower-board' : '',
+                            isSohei ? 'sohei-board' : '',
                         ].filter(Boolean).join(' ')}
                         aria-label='Grille Sudoku interactive'
                     >
@@ -1117,6 +1231,7 @@ function GridPuzzleWorkbenchApp({
                         {isSujiken ? ' Sujiken utilise les 45 cases du triangle.' : ''}
                         {isSamurai ? ' Samurai utilise les 369 cases actives des cinq grilles 9x9.' : ''}
                         {isFlower ? ' Flower utilise les 189 cases actives des cinq grilles 9x9.' : ''}
+                        {isSohei ? ' Sohei utilise les 288 cases actives des quatre grilles 9x9.' : ''}
                     </div>
 
                     {solvedGrid && (
@@ -1133,6 +1248,7 @@ function GridPuzzleWorkbenchApp({
                                     isSujiken ? 'sujiken-board' : '',
                                     isSamurai ? 'samurai-board' : '',
                                     isFlower ? 'flower-board' : '',
+                                    isSohei ? 'sohei-board' : '',
                                 ].filter(Boolean).join(' ')}
                                 aria-label='Solution Sudoku'
                             >
