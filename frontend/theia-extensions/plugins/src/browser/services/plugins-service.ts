@@ -114,9 +114,10 @@ export class PluginsServiceImpl implements IPluginsService {
      */
     async executePlugin(name: string, inputs: PluginInputs, signal?: AbortSignal): Promise<PluginResult> {
         try {
+            const timeout = this.getPluginExecutionTimeout(name, inputs);
             const response = await this.client.post(`/api/plugins/${name}/execute`, {
                 inputs
-            }, { signal });
+            }, { signal, timeout });
             
             return response.data;
             
@@ -324,6 +325,9 @@ export class PluginsServiceImpl implements IPluginsService {
      */
     private getErrorMessage(error: any): string {
         if (axios.isAxiosError(error)) {
+            if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+                return 'Le delai d attente de la requete a ete depasse. Le backend peut encore etre en train de calculer.';
+            }
             if (error.response) {
                 // Erreur retournée par le serveur
                 const data = error.response.data;
@@ -335,6 +339,17 @@ export class PluginsServiceImpl implements IPluginsService {
         }
         
         return error.message || 'Erreur inconnue';
+    }
+
+    private getPluginExecutionTimeout(name: string, inputs: PluginInputs): number {
+        if (name === 'grid_puzzle_solver') {
+            const solverTimeout = Number(inputs?.solver_timeout_ms);
+            if (Number.isFinite(solverTimeout) && solverTimeout > 0) {
+                return Math.max(45000, Math.floor(solverTimeout) + 15000);
+            }
+            return 45000;
+        }
+        return 30000;
     }
 
     private createClient(baseURL: string): AxiosInstance {

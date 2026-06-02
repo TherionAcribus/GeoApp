@@ -116,6 +116,13 @@
     background: transparent;
 }
 
+.sudoku-board.flower-board {
+    grid-template-columns: repeat(15, 32px);
+    grid-template-rows: repeat(15, 32px);
+    border: 0;
+    background: transparent;
+}
+
 .sudoku-cell {
     width: 44px;
     height: 44px;
@@ -202,6 +209,17 @@
 }
 
 .sudoku-cell.given.samurai-cell {
+    background: var(--theia-sideBar-background);
+}
+
+.sudoku-cell.flower-cell {
+    width: 32px;
+    height: 32px;
+    font-size: 15px;
+    background: var(--theia-input-background);
+}
+
+.sudoku-cell.given.flower-cell {
     background: var(--theia-sideBar-background);
 }
 
@@ -423,6 +441,18 @@
         width: 100%;
         height: auto;
         font-size: 11px;
+    }
+
+    .sudoku-board.flower-board {
+        grid-template-columns: repeat(15, minmax(22px, 1fr));
+        grid-template-rows: repeat(15, minmax(22px, 1fr));
+        max-width: none;
+    }
+
+    .sudoku-cell.flower-cell {
+        width: 100%;
+        height: auto;
+        font-size: 12px;
     }
 
     .inequality-control,

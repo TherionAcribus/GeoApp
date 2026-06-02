@@ -20,6 +20,8 @@ Les objectifs actuels sont :
 - resoudre un Sudoku Asterisk avec une extra-region de 9 cases ;
 - resoudre un Sujiken sur une grille triangulaire de 45 cases ;
 - resoudre un Samurai Sudoku / Gattai-5 compose de cinq grilles 9x9 ;
+- resoudre un Flower Sudoku / Musketry compose de cinq grilles 9x9 tres
+  chevauchantes ;
 - resoudre un Greater Than Sudoku / Compdoku avec contraintes `>` et `<`
   entre cases adjacentes ;
 - permettre une saisie interactive dans une grille Theia ;
@@ -117,7 +119,7 @@ Entrées principales :
 | `text` | string | vide | Fallback pour integration geocache/plugin executor. |
 | `spec` | string JSON | vide | Specification generique pour `custom_spec`. |
 | `max_solutions` | number | `2` | Nombre maximum de solutions a enumerer. |
-| `solver_timeout_ms` | number | `10000` | Timeout interne Z3. |
+| `solver_timeout_ms` | number | `10000` | Timeout interne Z3, borne entre 1s et 120s. |
 | `inequalities` | object/list/string | vide | Contraintes `>` / `<` pour Greater Than / Compdoku. |
 | `comparisons` | object/list/string | vide | Alias de `inequalities`. |
 | `watched_cells` | string/list | vide | Cellules a extraire apres resolution. |
@@ -135,6 +137,7 @@ Valeurs supportees pour `puzzle_type` :
 | `sudoku_asterisk` | `asterisk`, `asterisk_sudoku` | Sudoku standard + extra-region Asterisk de 9 cases. |
 | `sujiken` | `sudoku_sujiken`, `half_sudoku`, `triangular_sudoku` | Grille triangulaire de 45 cases, lignes/colonnes/diagonales/regions sans doublons. |
 | `samurai_sudoku` | `samurai`, `gattai_5`, `gattai5` | Cinq grilles Sudoku 9x9 chevauchantes dans un plateau 21x21. |
+| `flower_sudoku` | `flower`, `fleur_sudoku`, `musketry_sudoku` | Cinq grilles Sudoku 9x9 tres chevauchantes dans un plateau 15x15. |
 | `sudoku_greater_than` | `greater_than`, `compdoku`, `inequality_sudoku` | Sudoku standard + comparaisons `>` / `<` entre cases adjacentes. |
 | `custom_spec` | `custom`, `json_spec` | Probleme CSP decrit en JSON. |
 
@@ -681,6 +684,71 @@ ordre ligne/colonne. Les caracteres `0`, `.`, `_` representent les cases vides.
 Dans l'atelier Theia, la variante `Samurai Sudoku` affiche uniquement les cases
 actives du plateau 21x21 et conserve les separations 3x3 de chaque grille.
 
+### Flower Sudoku / Musketry
+
+`puzzle_type = flower_sudoku`
+
+Alias :
+
+```text
+flower
+fleur_sudoku
+musketry_sudoku
+```
+
+Flower Sudoku assemble cinq grilles Sudoku 9x9 sur un plateau 15x15. Les
+recouvrements sont beaucoup plus importants que dans Samurai : le carre central
+est entierement couvert par les quatre carres exterieurs.
+
+Offsets zero-based des cinq grilles :
+
+```text
+haut   : (0, 3)
+gauche : (3, 0)
+centre : (3, 3)
+droite : (3, 6)
+bas    : (6, 3)
+```
+
+Le modele contient :
+
+```text
+189 cases actives
+135 contraintes Sudoku
+```
+
+Chaque grille 9x9 ajoute ses 27 contraintes standard :
+
+- 9 lignes ;
+- 9 colonnes ;
+- 9 blocs 3x3.
+
+Format de saisie principal :
+
+```text
+...254613897...
+...396785412...
+...817924653...
+789425361789245
+421673598124367
+356189247365819
+694531872946153
+578942136578492
+132768459231678
+817356924817536
+943217685493721
+265894713652984
+...423561789...
+...175298364...
+...689347125...
+```
+
+Le parser accepte aussi une representation compacte de 189 cases actives en
+ordre ligne/colonne. Les caracteres `0`, `.`, `_` representent les cases vides.
+
+Dans l'atelier Theia, la variante `Flower Sudoku` affiche uniquement les cases
+actives du plateau 15x15 et conserve les separations 3x3 de chaque grille.
+
 ### Greater Than / Compdoku
 
 `puzzle_type = sudoku_greater_than`
@@ -872,7 +940,7 @@ Fonctionnalites actuelles :
 - `Ctrl+clic` pour surveiller une cellule en mode saisie ;
 - choix de variante `Classique` / `Sudoku X` / `Center Dot` / `Windoku` /
   `Girandola` / `Asterisk` / `Sujiken` / `Samurai Sudoku` /
-  `Greater Than` ;
+  `Flower Sudoku` / `Greater Than` ;
 - diagonales orange en mode Sudoku X ;
 - points verts sur les centres de blocs en mode Center Dot ;
 - regions violettes en mode Windoku ;
@@ -880,6 +948,7 @@ Fonctionnalites actuelles :
 - cases magenta en mode Asterisk ;
 - rendu triangulaire de 45 cases en mode Sujiken ;
 - rendu 21x21 de 369 cases actives en mode Samurai Sudoku ;
+- rendu 15x15 de 189 cases actives en mode Flower Sudoku ;
 - bords cliquables `>` / `<` en mode Greater Than / Compdoku ;
 - affichage de la premiere solution ;
 - reprise de la solution dans la grille ;
@@ -892,7 +961,7 @@ Fonctionnalites actuelles :
 |---|---|---|
 | `grid` | `string[][]` | Valeurs courantes de la grille. |
 | `quickText` | `string` | Representation texte de la grille. |
-| `puzzleType` | `sudoku_classic`, `sudoku_x`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku` ou `sudoku_greater_than` | Variante active. |
+| `puzzleType` | `sudoku_classic`, `sudoku_x`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku` ou `sudoku_greater_than` | Variante active. |
 | `horizontalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme ligne. |
 | `verticalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme colonne. |
 | `watchCells` | `string[]` | Cellules surveillees au format `r1c1`. |
@@ -1146,6 +1215,8 @@ Couverture actuelle :
 - Sujiken refuse une valeur repetee dans une colonne ;
 - Samurai Sudoku valide ;
 - Samurai Sudoku refuse une valeur repetee dans une ligne ;
+- Flower Sudoku valide ;
+- Flower Sudoku refuse une valeur repetee dans une ligne ;
 - Greater Than valide avec une relation adjacente compatible ;
 - Greater Than refuse une relation adjacente contradictoire ;
 - extraction des cellules surveillees ;
@@ -1277,7 +1348,7 @@ Le moteur est deja generique, mais l'UI actuelle est encore orientee Sudoku.
 Limites connues :
 
 - l'atelier reste principalement oriente Sudoku, avec des rendus dedies pour
-  Sujiken et Samurai Sudoku ;
+  Sujiken, Samurai Sudoku et Flower Sudoku ;
 - les symboles UI sont limites aux chiffres `1-9` ;
 - une seule grille par variante est exposee dans l'UI (`state_key = default`) ;
 - pas encore d'editeur visuel pour regions irregulieres ;

@@ -452,6 +452,72 @@ def test_samurai_sudoku_rejects_repeated_row_value():
     assert result["summary"] == "Aucune solution compatible avec les contraintes"
 
 
+def test_flower_sudoku_accepts_complete_solution():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "flower_sudoku",
+            "grid": """
+                ...254613897...
+                ...396785412...
+                ...817924653...
+                789425361789245
+                421673598124367
+                356189247365819
+                694531872946153
+                578942136578492
+                132768459231678
+                817356924817536
+                943217685493721
+                265894713652984
+                ...423561789...
+                ...175298364...
+                ...689347125...
+            """,
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["unique"] is True
+    assert result["metadata"]["variant"] == "flower_sudoku"
+    assert result["metadata"]["constraint_count"] == 135
+    assert result["results"][0]["grid"][3] == ["7", "8", "9", "4", "2", "5", "3", "6", "1", "7", "8", "9", "2", "4", "5"]
+
+
+def test_flower_sudoku_rejects_repeated_row_value():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "musketry_sudoku",
+            "grid": """
+                ...254613897...
+                ...396785412...
+                ...817924653...
+                889425361789245
+                421673598124367
+                356189247365819
+                694531872946153
+                578942136578492
+                132768459231678
+                817356924817536
+                943217685493721
+                265894713652984
+                ...423561789...
+                ...175298364...
+                ...689347125...
+            """,
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+    assert result["summary"] == "Aucune solution compatible avec les contraintes"
+
+
 def test_greater_than_accepts_matching_adjacent_relation():
     plugin = load_plugin()
 

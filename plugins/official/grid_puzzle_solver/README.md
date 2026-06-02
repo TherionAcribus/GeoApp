@@ -21,6 +21,8 @@ Generic finite-domain grid solver powered by Z3.
   thick-line regions all reject repeated digits.
 - `samurai_sudoku`: five overlapping 9x9 Sudoku grids in the classic Gattai-5
   21x21 layout.
+- `flower_sudoku`: five heavily overlapping 9x9 Sudoku grids in the compact
+  15x15 Flower / Musketry layout.
 - `sudoku_greater_than`: classic 9x9 Sudoku plus adjacent `>` / `<`
   inequalities. The interactive UI lets users toggle border symbols between
   cells.
@@ -69,7 +71,7 @@ the Theia "Grilles" workbench:
 - cell-by-cell entry for givens;
 - quick paste textarea for fast Sudoku import;
 - variant selector for classic Sudoku, Sudoku X, Center Dot, Windoku,
-  Girandola, Asterisk, Sujiken, Samurai Sudoku and Greater Than;
+  Girandola, Asterisk, Sujiken, Samurai Sudoku, Flower Sudoku and Greater Than;
 - editable `>` / `<` borders for Greater Than / Compdoku;
 - watch mode to mark answer cells;
 - solve action calling this plugin;
