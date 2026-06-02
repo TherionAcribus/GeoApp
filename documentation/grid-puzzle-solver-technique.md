@@ -19,6 +19,7 @@ Les objectifs actuels sont :
 - resoudre un Sudoku Girandola avec une extra-region de 9 cases ;
 - resoudre un Sudoku Asterisk avec une extra-region de 9 cases ;
 - resoudre un Sujiken sur une grille triangulaire de 45 cases ;
+- resoudre un Samurai Sudoku / Gattai-5 compose de cinq grilles 9x9 ;
 - resoudre un Greater Than Sudoku / Compdoku avec contraintes `>` et `<`
   entre cases adjacentes ;
 - permettre une saisie interactive dans une grille Theia ;
@@ -133,6 +134,7 @@ Valeurs supportees pour `puzzle_type` :
 | `sudoku_girandola` | `girandola`, `girandole_sudoku` | Sudoku standard + extra-region Girandola de 9 cases. |
 | `sudoku_asterisk` | `asterisk`, `asterisk_sudoku` | Sudoku standard + extra-region Asterisk de 9 cases. |
 | `sujiken` | `sudoku_sujiken`, `half_sudoku`, `triangular_sudoku` | Grille triangulaire de 45 cases, lignes/colonnes/diagonales/regions sans doublons. |
+| `samurai_sudoku` | `samurai`, `gattai_5`, `gattai5` | Cinq grilles Sudoku 9x9 chevauchantes dans un plateau 21x21. |
 | `sudoku_greater_than` | `greater_than`, `compdoku`, `inequality_sudoku` | Sudoku standard + comparaisons `>` / `<` entre cases adjacentes. |
 | `custom_spec` | `custom`, `json_spec` | Probleme CSP decrit en JSON. |
 
@@ -606,6 +608,79 @@ seules les `row + 1` premieres cases de chaque ligne sont lues.
 Dans l'atelier Theia, la variante `Sujiken` affiche uniquement les 45 cases
 actives du triangle.
 
+### Samurai Sudoku / Gattai-5
+
+`puzzle_type = samurai_sudoku`
+
+Alias :
+
+```text
+samurai
+gattai_5
+gattai5
+```
+
+Samurai Sudoku assemble cinq grilles Sudoku 9x9 sur un plateau 21x21. Les coins
+3x3 des grilles exterieures chevauchent les coins 3x3 de la grille centrale.
+
+Offsets zero-based des cinq grilles :
+
+```text
+haut gauche : (0, 0)
+haut droit  : (0, 12)
+centre      : (6, 6)
+bas gauche  : (12, 0)
+bas droit   : (12, 12)
+```
+
+Le modele contient :
+
+```text
+369 cases actives
+135 contraintes Sudoku
+```
+
+Les contraintes sont les 27 contraintes standard de chaque grille 9x9 :
+
+- 9 lignes ;
+- 9 colonnes ;
+- 9 blocs 3x3.
+
+Les cases chevauchantes sont partagees par construction : une meme variable Z3
+appartient a deux grilles quand elle est dans une zone de recouvrement.
+
+Format de saisie principal :
+
+```text
+697245813...346958271
+852391467...729614835
+143687925...851273649
+935418672...198746523
+416723598...534892167
+278569134...672135984
+389174256714983527416
+524936781923465381792
+761852349856217469358
+......594167328......
+......127538649......
+......638249751......
+125847963481572891436
+789365412375896432175
+643291875692134657982
+568724391...961743258
+271936548...783529614
+394158726...425186793
+852419637...649378521
+936572184...258914367
+417683259...317265849
+```
+
+Le parser accepte aussi une representation compacte de 369 cases actives en
+ordre ligne/colonne. Les caracteres `0`, `.`, `_` representent les cases vides.
+
+Dans l'atelier Theia, la variante `Samurai Sudoku` affiche uniquement les cases
+actives du plateau 21x21 et conserve les separations 3x3 de chaque grille.
+
 ### Greater Than / Compdoku
 
 `puzzle_type = sudoku_greater_than`
@@ -796,13 +871,15 @@ Fonctionnalites actuelles :
 - mode `Surveiller` ;
 - `Ctrl+clic` pour surveiller une cellule en mode saisie ;
 - choix de variante `Classique` / `Sudoku X` / `Center Dot` / `Windoku` /
-  `Girandola` / `Asterisk` / `Sujiken` / `Greater Than` ;
+  `Girandola` / `Asterisk` / `Sujiken` / `Samurai Sudoku` /
+  `Greater Than` ;
 - diagonales orange en mode Sudoku X ;
 - points verts sur les centres de blocs en mode Center Dot ;
 - regions violettes en mode Windoku ;
 - cases cyan en mode Girandola ;
 - cases magenta en mode Asterisk ;
 - rendu triangulaire de 45 cases en mode Sujiken ;
+- rendu 21x21 de 369 cases actives en mode Samurai Sudoku ;
 - bords cliquables `>` / `<` en mode Greater Than / Compdoku ;
 - affichage de la premiere solution ;
 - reprise de la solution dans la grille ;
@@ -815,7 +892,7 @@ Fonctionnalites actuelles :
 |---|---|---|
 | `grid` | `string[][]` | Valeurs courantes de la grille. |
 | `quickText` | `string` | Representation texte de la grille. |
-| `puzzleType` | `sudoku_classic`, `sudoku_x`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken` ou `sudoku_greater_than` | Variante active. |
+| `puzzleType` | `sudoku_classic`, `sudoku_x`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku` ou `sudoku_greater_than` | Variante active. |
 | `horizontalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme ligne. |
 | `verticalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme colonne. |
 | `watchCells` | `string[]` | Cellules surveillees au format `r1c1`. |
@@ -1067,6 +1144,8 @@ Couverture actuelle :
 - grille classique complete refusee en Asterisk ;
 - Sujiken valide ;
 - Sujiken refuse une valeur repetee dans une colonne ;
+- Samurai Sudoku valide ;
+- Samurai Sudoku refuse une valeur repetee dans une ligne ;
 - Greater Than valide avec une relation adjacente compatible ;
 - Greater Than refuse une relation adjacente contradictoire ;
 - extraction des cellules surveillees ;
@@ -1197,8 +1276,8 @@ Le moteur est deja generique, mais l'UI actuelle est encore orientee Sudoku.
 
 Limites connues :
 
-- l'atelier reste principalement oriente Sudoku 9x9, avec un rendu triangulaire
-  dedie pour Sujiken ;
+- l'atelier reste principalement oriente Sudoku, avec des rendus dedies pour
+  Sujiken et Samurai Sudoku ;
 - les symboles UI sont limites aux chiffres `1-9` ;
 - une seule grille par variante est exposee dans l'UI (`state_key = default`) ;
 - pas encore d'editeur visuel pour regions irregulieres ;
