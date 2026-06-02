@@ -17,6 +17,8 @@ Les objectifs actuels sont :
   des 9 blocs 3x3 ;
 - resoudre un Windoku avec quatre extra-regions 3x3 ;
 - resoudre un Sudoku Girandola avec une extra-region de 9 cases ;
+- resoudre un Sudoku Asterisk avec une extra-region de 9 cases ;
+- resoudre un Sujiken sur une grille triangulaire de 45 cases ;
 - resoudre un Greater Than Sudoku / Compdoku avec contraintes `>` et `<`
   entre cases adjacentes ;
 - permettre une saisie interactive dans une grille Theia ;
@@ -129,6 +131,8 @@ Valeurs supportees pour `puzzle_type` :
 | `sudoku_center_dot` | `center_dot`, `centerdot_sudoku` | Sudoku standard + extra-region des centres de blocs 3x3. |
 | `sudoku_windoku` | `windoku`, `hyper_sudoku`, `four_box_sudoku` | Sudoku standard + quatre extra-regions 3x3. |
 | `sudoku_girandola` | `girandola`, `girandole_sudoku` | Sudoku standard + extra-region Girandola de 9 cases. |
+| `sudoku_asterisk` | `asterisk`, `asterisk_sudoku` | Sudoku standard + extra-region Asterisk de 9 cases. |
+| `sujiken` | `sudoku_sujiken`, `half_sudoku`, `triangular_sudoku` | Grille triangulaire de 45 cases, lignes/colonnes/diagonales/regions sans doublons. |
 | `sudoku_greater_than` | `greater_than`, `compdoku`, `inequality_sudoku` | Sudoku standard + comparaisons `>` / `<` entre cases adjacentes. |
 | `custom_spec` | `custom`, `json_spec` | Probleme CSP decrit en JSON. |
 
@@ -499,6 +503,109 @@ Total :
 Dans l'atelier Theia, les cases Girandola sont marquees en cyan quand la
 variante `Girandola` est selectionnee.
 
+### Asterisk
+
+`puzzle_type = sudoku_asterisk`
+
+Alias :
+
+```text
+asterisk
+asterisk_sudoku
+```
+
+Contraintes :
+
+- toutes les contraintes du Sudoku classique ;
+- les 9 cases Asterisk forment une region supplementaire `all_different`.
+
+Cellules de l'extra-region :
+
+```text
+r2c5
+r3c3 r3c7
+r5c2 r5c5 r5c8
+r7c3 r7c7
+r8c5
+```
+
+Total :
+
+```text
+28 contraintes
+```
+
+Dans l'atelier Theia, les cases Asterisk sont marquees en magenta quand la
+variante `Asterisk` est selectionnee.
+
+### Sujiken
+
+`puzzle_type = sujiken`
+
+Alias :
+
+```text
+sudoku_sujiken
+half_sudoku
+triangular_sudoku
+```
+
+Sujiken n'utilise pas la grille Sudoku carree complete. Le modele interne reste
+une matrice 9x9, mais seules les 45 cases du triangle inferieur gauche sont
+actives :
+
+```text
+r1c1
+r2c1 r2c2
+r3c1 r3c2 r3c3
+...
+r9c1 r9c2 r9c3 r9c4 r9c5 r9c6 r9c7 r9c8 r9c9
+```
+
+Contraintes :
+
+- chaque ligne active ne contient aucun doublon ;
+- chaque colonne active ne contient aucun doublon ;
+- chaque diagonale active `rNc1 -> r9c...` ne contient aucun doublon ;
+- les 6 regions delimitees par les traits epais ne contiennent aucun doublon.
+
+Regions :
+
+```text
+Triangle haut gauche: r1c1 / r2c1-r2c2 / r3c1-r3c3
+Carre milieu gauche: r4c1-r6c3
+Triangle central: r4c4 / r5c4-r5c5 / r6c4-r6c6
+Carre bas gauche: r7c1-r9c3
+Carre bas: r7c4-r9c6
+Triangle bas droit: r7c7 / r8c7-r8c8 / r9c7-r9c9
+```
+
+Total :
+
+```text
+33 contraintes
+```
+
+Format de saisie accepte :
+
+```text
+8
+34
+129
+4856
+76295
+931487
+5783612
+21457963
+693248571
+```
+
+Le parser accepte aussi une matrice 9 lignes produite par l'atelier Theia :
+seules les `row + 1` premieres cases de chaque ligne sont lues.
+
+Dans l'atelier Theia, la variante `Sujiken` affiche uniquement les 45 cases
+actives du triangle.
+
 ### Greater Than / Compdoku
 
 `puzzle_type = sudoku_greater_than`
@@ -689,11 +796,13 @@ Fonctionnalites actuelles :
 - mode `Surveiller` ;
 - `Ctrl+clic` pour surveiller une cellule en mode saisie ;
 - choix de variante `Classique` / `Sudoku X` / `Center Dot` / `Windoku` /
-  `Girandola` / `Greater Than` ;
+  `Girandola` / `Asterisk` / `Sujiken` / `Greater Than` ;
 - diagonales orange en mode Sudoku X ;
 - points verts sur les centres de blocs en mode Center Dot ;
 - regions violettes en mode Windoku ;
 - cases cyan en mode Girandola ;
+- cases magenta en mode Asterisk ;
+- rendu triangulaire de 45 cases en mode Sujiken ;
 - bords cliquables `>` / `<` en mode Greater Than / Compdoku ;
 - affichage de la premiere solution ;
 - reprise de la solution dans la grille ;
@@ -706,7 +815,7 @@ Fonctionnalites actuelles :
 |---|---|---|
 | `grid` | `string[][]` | Valeurs courantes de la grille. |
 | `quickText` | `string` | Representation texte de la grille. |
-| `puzzleType` | `sudoku_classic`, `sudoku_x`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola` ou `sudoku_greater_than` | Variante active. |
+| `puzzleType` | `sudoku_classic`, `sudoku_x`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken` ou `sudoku_greater_than` | Variante active. |
 | `horizontalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme ligne. |
 | `verticalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme colonne. |
 | `watchCells` | `string[]` | Cellules surveillees au format `r1c1`. |
@@ -954,6 +1063,10 @@ Couverture actuelle :
 - grille classique complete refusee en Windoku ;
 - Girandola valide ;
 - grille classique complete refusee en Girandola ;
+- Asterisk valide ;
+- grille classique complete refusee en Asterisk ;
+- Sujiken valide ;
+- Sujiken refuse une valeur repetee dans une colonne ;
 - Greater Than valide avec une relation adjacente compatible ;
 - Greater Than refuse une relation adjacente contradictoire ;
 - extraction des cellules surveillees ;
@@ -1084,7 +1197,8 @@ Le moteur est deja generique, mais l'UI actuelle est encore orientee Sudoku.
 
 Limites connues :
 
-- l'atelier affiche uniquement une grille 9x9 ;
+- l'atelier reste principalement oriente Sudoku 9x9, avec un rendu triangulaire
+  dedie pour Sujiken ;
 - les symboles UI sont limites aux chiffres `1-9` ;
 - une seule grille par variante est exposee dans l'UI (`state_key = default`) ;
 - pas encore d'editeur visuel pour regions irregulieres ;

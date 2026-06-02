@@ -85,6 +85,7 @@ class GridpuzzlesolverPlugin:
                     include_center_dot=False,
                     include_windoku=False,
                     include_girandola=False,
+                    include_asterisk=False,
                     variant="sudoku_classic",
                 )
             elif puzzle_type in {"sudoku_x", "x_sudoku", "diagonal_sudoku"}:
@@ -99,6 +100,7 @@ class GridpuzzlesolverPlugin:
                     include_center_dot=False,
                     include_windoku=False,
                     include_girandola=False,
+                    include_asterisk=False,
                     variant="sudoku_x",
                 )
             elif puzzle_type in {"sudoku_center_dot", "center_dot", "centerdot_sudoku"}:
@@ -113,6 +115,7 @@ class GridpuzzlesolverPlugin:
                     include_center_dot=True,
                     include_windoku=False,
                     include_girandola=False,
+                    include_asterisk=False,
                     variant="sudoku_center_dot",
                 )
             elif puzzle_type in {"sudoku_windoku", "windoku", "hyper_sudoku", "four_box_sudoku"}:
@@ -127,6 +130,7 @@ class GridpuzzlesolverPlugin:
                     include_center_dot=False,
                     include_windoku=True,
                     include_girandola=False,
+                    include_asterisk=False,
                     variant="sudoku_windoku",
                 )
             elif puzzle_type in {"sudoku_girandola", "girandola", "girandole_sudoku"}:
@@ -141,8 +145,31 @@ class GridpuzzlesolverPlugin:
                     include_center_dot=False,
                     include_windoku=False,
                     include_girandola=True,
+                    include_asterisk=False,
                     variant="sudoku_girandola",
                 )
+            elif puzzle_type in {"sudoku_asterisk", "asterisk", "asterisk_sudoku"}:
+                puzzle_text = self._first_non_empty(
+                    inputs.get("grid"),
+                    inputs.get("puzzle"),
+                    inputs.get("text"),
+                )
+                problem = self._build_sudoku_problem(
+                    puzzle_text,
+                    include_diagonals=False,
+                    include_center_dot=False,
+                    include_windoku=False,
+                    include_girandola=False,
+                    include_asterisk=True,
+                    variant="sudoku_asterisk",
+                )
+            elif puzzle_type in {"sujiken", "sudoku_sujiken", "half_sudoku", "triangular_sudoku"}:
+                puzzle_text = self._first_non_empty(
+                    inputs.get("grid"),
+                    inputs.get("puzzle"),
+                    inputs.get("text"),
+                )
+                problem = self._build_sujiken_problem(puzzle_text)
             elif puzzle_type in {"sudoku_greater_than", "greater_than", "compdoku", "inequality_sudoku"}:
                 puzzle_text = self._first_non_empty(
                     inputs.get("grid"),
@@ -155,6 +182,7 @@ class GridpuzzlesolverPlugin:
                     include_center_dot=False,
                     include_windoku=False,
                     include_girandola=False,
+                    include_asterisk=False,
                     variant="sudoku_greater_than",
                     inequalities=inputs.get("inequalities") or inputs.get("comparisons"),
                 )
@@ -192,6 +220,7 @@ class GridpuzzlesolverPlugin:
         include_center_dot: bool,
         include_windoku: bool,
         include_girandola: bool,
+        include_asterisk: bool,
         variant: str,
         inequalities: Any = None,
     ) -> GridCspProblem:
@@ -274,6 +303,24 @@ class GridpuzzlesolverPlugin:
                 )
             )
 
+        if include_asterisk:
+            constraints.append(
+                GridConstraint(
+                    "all_different",
+                    (
+                        (1, 4),
+                        (2, 2),
+                        (2, 6),
+                        (4, 1),
+                        (4, 4),
+                        (4, 7),
+                        (6, 2),
+                        (6, 6),
+                        (7, 4),
+                    ),
+                )
+            )
+
         constraints.extend(self._parse_sudoku_inequalities(inequalities))
 
         return GridCspProblem(
@@ -285,6 +332,77 @@ class GridpuzzlesolverPlugin:
             constraints=constraints,
             numeric_values={symbol: int(symbol) for symbol in symbols},
             variant=variant,
+        )
+
+    def _build_sujiken_problem(self, puzzle_text: str) -> GridCspProblem:
+        symbols = [str(value) for value in range(1, 10)]
+        tokens = self._parse_sujiken_tokens(puzzle_text, symbols)
+
+        active_cells = [(row, col) for row in range(9) for col in range(row + 1)]
+        givens: Dict[Cell, str] = {}
+        for index, token in enumerate(tokens):
+            cell = active_cells[index]
+            if token in symbols:
+                givens[cell] = token
+
+        constraints: List[GridConstraint] = []
+
+        for row in range(9):
+            constraints.append(
+                GridConstraint("all_different", tuple((row, col) for col in range(row + 1)))
+            )
+
+        for col in range(9):
+            constraints.append(
+                GridConstraint("all_different", tuple((row, col) for row in range(col, 9)))
+            )
+
+        for diagonal in range(9):
+            constraints.append(
+                GridConstraint(
+                    "all_different",
+                    tuple((row, row - diagonal) for row in range(diagonal, 9)),
+                )
+            )
+
+        constraints.extend(
+            [
+                GridConstraint(
+                    "all_different",
+                    tuple((row, col) for row in range(0, 3) for col in range(row + 1)),
+                ),
+                GridConstraint(
+                    "all_different",
+                    tuple((row, col) for row in range(3, 6) for col in range(0, 3)),
+                ),
+                GridConstraint(
+                    "all_different",
+                    tuple((row, col) for row in range(3, 6) for col in range(3, row + 1)),
+                ),
+                GridConstraint(
+                    "all_different",
+                    tuple((row, col) for row in range(6, 9) for col in range(0, 3)),
+                ),
+                GridConstraint(
+                    "all_different",
+                    tuple((row, col) for row in range(6, 9) for col in range(3, 6)),
+                ),
+                GridConstraint(
+                    "all_different",
+                    tuple((row, col) for row in range(6, 9) for col in range(6, row + 1)),
+                ),
+            ]
+        )
+
+        return GridCspProblem(
+            rows=9,
+            cols=9,
+            symbols=symbols,
+            active_cells=active_cells,
+            givens=givens,
+            constraints=constraints,
+            numeric_values={symbol: int(symbol) for symbol in symbols},
+            variant="sujiken",
         )
 
     def _build_custom_problem(self, raw_spec: Any) -> GridCspProblem:
@@ -647,6 +765,40 @@ class GridpuzzlesolverPlugin:
         if len(tokens) != 81:
             raise ValueError(
                 f"Une grille Sudoku classique doit contenir 81 cases, {len(tokens)} detectees"
+            )
+        return tokens
+
+    def _parse_sujiken_tokens(self, text: str, symbols: Sequence[str]) -> List[str]:
+        if not text or not str(text).strip():
+            raise ValueError("Aucune grille Sujiken fournie")
+
+        blank_tokens = {"0", ".", "_"}
+        symbol_set = set(symbols)
+        parsed_rows: List[List[str]] = []
+
+        for raw_line in str(text).splitlines():
+            line = raw_line.strip()
+            if not line or SEPARATOR_LINE_RE.fullmatch(line):
+                continue
+            row_tokens = [
+                char for char in line if char in symbol_set or char in blank_tokens
+            ]
+            if row_tokens:
+                parsed_rows.append(row_tokens)
+
+        if len(parsed_rows) == 9 and all(
+            len(row) >= row_index + 1 for row_index, row in enumerate(parsed_rows)
+        ):
+            return [
+                token
+                for row_index, row in enumerate(parsed_rows)
+                for token in row[: row_index + 1]
+            ]
+
+        tokens = [token for row in parsed_rows for token in row]
+        if len(tokens) != 45:
+            raise ValueError(
+                f"Une grille Sujiken doit contenir 45 cases actives, {len(tokens)} detectees"
             )
         return tokens
 

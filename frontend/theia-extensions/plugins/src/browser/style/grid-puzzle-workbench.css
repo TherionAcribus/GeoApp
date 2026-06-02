@@ -104,6 +104,11 @@
     background: transparent;
 }
 
+.sudoku-board.sujiken-board {
+    border: 0;
+    background: transparent;
+}
+
 .sudoku-cell {
     width: 44px;
     height: 44px;
@@ -164,6 +169,22 @@
 
 .sudoku-cell.given.girandola {
     background: color-mix(in srgb, var(--theia-sideBar-background) 58%, #06b6d4);
+}
+
+.sudoku-cell.asterisk {
+    background: color-mix(in srgb, var(--theia-input-background) 72%, #d946ef);
+}
+
+.sudoku-cell.given.asterisk {
+    background: color-mix(in srgb, var(--theia-sideBar-background) 58%, #d946ef);
+}
+
+.sudoku-cell.sujiken-cell {
+    background: var(--theia-input-background);
+}
+
+.sudoku-cell.given.sujiken-cell {
+    background: var(--theia-sideBar-background);
 }
 
 .sudoku-cell.windoku-top {
@@ -367,6 +388,11 @@
     .sudoku-board.greater-than-board {
         grid-template-columns: repeat(8, minmax(28px, 1fr) 18px) minmax(28px, 1fr);
         grid-template-rows: repeat(8, minmax(28px, 1fr) 18px) minmax(28px, 1fr);
+    }
+
+    .sudoku-board.sujiken-board {
+        grid-template-columns: repeat(9, minmax(30px, 1fr));
+        grid-template-rows: repeat(9, minmax(30px, 1fr));
     }
 
     .inequality-control,

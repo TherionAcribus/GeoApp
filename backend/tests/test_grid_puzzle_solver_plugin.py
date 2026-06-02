@@ -267,6 +267,113 @@ def test_girandola_rejects_grid_with_repeated_extra_region_values():
     assert result["summary"] == "Aucune solution compatible avec les contraintes"
 
 
+def test_asterisk_accepts_solution_with_unique_extra_region():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "sudoku_asterisk",
+            "grid": """
+                164359782
+                823147569
+                957862314
+                581473926
+                396218457
+                742695138
+                218734695
+                679521843
+                435986271
+            """,
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["unique"] is True
+    assert result["metadata"]["variant"] == "sudoku_asterisk"
+    assert result["metadata"]["constraint_count"] == 28
+
+
+def test_asterisk_rejects_grid_with_repeated_extra_region_values():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "asterisk",
+            "grid": """
+                534678912
+                672195348
+                198342567
+                859761423
+                426853791
+                713924856
+                961537284
+                287419635
+                345286179
+            """,
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+    assert result["summary"] == "Aucune solution compatible avec les contraintes"
+
+
+def test_sujiken_accepts_triangular_solution():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "sujiken",
+            "grid": """
+                8
+                34
+                129
+                4856
+                76295
+                931487
+                5783612
+                21457963
+                693248571
+            """,
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["unique"] is True
+    assert result["metadata"]["variant"] == "sujiken"
+    assert result["metadata"]["constraint_count"] == 33
+    assert result["results"][0]["grid"][8] == ["6", "9", "3", "2", "4", "8", "5", "7", "1"]
+
+
+def test_sujiken_rejects_repeated_column_value():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "half_sudoku",
+            "grid": """
+                3
+                34
+                129
+                4856
+                76295
+                931487
+                5783612
+                21457963
+                693248571
+            """,
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+    assert result["summary"] == "Aucune solution compatible avec les contraintes"
+
+
 def test_greater_than_accepts_matching_adjacent_relation():
     plugin = load_plugin()
 

@@ -15,6 +15,10 @@ Generic finite-domain grid solver powered by Z3.
   regions in purple.
 - `sudoku_girandola`: classic 9x9 Sudoku plus a nine-cell all-different
   Girandola region. The interactive UI highlights those cells in cyan.
+- `sudoku_asterisk`: classic 9x9 Sudoku plus a nine-cell all-different
+  Asterisk region. The interactive UI highlights those cells in magenta.
+- `sujiken`: triangular 45-cell Sudoku. Rows, columns, diagonals and the six
+  thick-line regions all reject repeated digits.
 - `sudoku_greater_than`: classic 9x9 Sudoku plus adjacent `>` / `<`
   inequalities. The interactive UI lets users toggle border symbols between
   cells.
@@ -63,7 +67,7 @@ the Theia "Grilles" workbench:
 - cell-by-cell entry for givens;
 - quick paste textarea for fast Sudoku import;
 - variant selector for classic Sudoku, Sudoku X, Center Dot, Windoku,
-  Girandola and Greater Than;
+  Girandola, Asterisk, Sujiken and Greater Than;
 - editable `>` / `<` borders for Greater Than / Compdoku;
 - watch mode to mark answer cells;
 - solve action calling this plugin;
