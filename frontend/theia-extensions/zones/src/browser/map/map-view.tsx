@@ -1308,7 +1308,7 @@ export const MapView: React.FC<MapViewProps> = ({
                             </div>
 
                             {/* Type / info complémentaire */}
-                            <div style={{ 
+                            <div style={{
                                 fontSize: '11px',
                                 color: 'var(--theia-descriptionForeground)',
                                 marginTop: '6px',
@@ -1316,6 +1316,23 @@ export const MapView: React.FC<MapViewProps> = ({
                             }}>
                                 {popupData.cache_type}
                             </div>
+
+                            {/* Note / valeurs brute force (pour les points détectés) */}
+                            {(popupData as any).note && (
+                                <div style={{
+                                    fontSize: '11px',
+                                    color: 'var(--theia-foreground)',
+                                    marginTop: '8px',
+                                    padding: '6px 8px',
+                                    backgroundColor: 'var(--theia-input-background)',
+                                    borderRadius: '3px',
+                                    whiteSpace: 'pre-wrap',
+                                    fontFamily: 'var(--theia-code-font-family)',
+                                    lineHeight: '1.4'
+                                }}>
+                                    {(popupData as any).note}
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
