@@ -253,7 +253,7 @@ export const BruteForceComponent: React.FC<BruteForceComponentProps> = ({
                                     type="text"
                                     value={pattern}
                                     onChange={(e) => updatePattern(letter, e.target.value)}
-                                    placeholder={currentValue ? `Pattern (ex: 10,20,25 ou *)` : 'Pattern (ex: 10,20,25 ou *)'}
+                                    placeholder={currentValue ? `Valeur actuelle: ${currentValue.value}` : 'Pattern (ex: 10,20,25 ou *)'}
                                     style={{
                                         flex: 1,
                                         padding: '6px 8px',
