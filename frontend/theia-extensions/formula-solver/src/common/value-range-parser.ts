@@ -11,7 +11,7 @@ export interface ValueRange {
 
 /**
  * Parse un pattern et génère les valeurs correspondantes
- * 
+ *
  * Patterns supportés :
  * - * : 0-9
  * - <X : valeurs < X
@@ -20,18 +20,32 @@ export interface ValueRange {
  * - >=X : valeurs >= X
  * - X<>Y : valeurs strictement entre X et Y (X < v < Y)
  * - X<==>Y : valeurs entre X et Y inclus (X <= v <= Y)
+ * - 10,20,25 : liste de valeurs spécifiques
+ * - 10;20;25 : liste de valeurs (alternative avec point-virgule)
  */
 export class ValueRangeParser {
-    
+
     /**
      * Parse un pattern et retourne les valeurs correspondantes
      */
     static parsePattern(pattern: string): number[] {
         const trimmed = pattern.trim();
-        
+
         // Pattern : * (toutes les valeurs 0-9)
         if (trimmed === '*') {
             return [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+        }
+
+        // Pattern : liste de valeurs séparées par virgule ou point-virgule (ex: 10,20,25 ou 10;20;25)
+        const listMatch = trimmed.match(/^[\d\s,;]+$/);
+        if (listMatch && (trimmed.includes(',') || trimmed.includes(';'))) {
+            const values = trimmed.split(/[,;]/)
+                .map(s => s.trim())
+                .filter(s => s.length > 0)
+                .map(s => parseInt(s, 10))
+                .filter(n => !isNaN(n));
+            // Supprimer les doublons et trier
+            return [...new Set(values)].sort((a, b) => a - b);
         }
         
         // Pattern : X<==>Y (inclus)
@@ -121,9 +135,20 @@ export class ValueRangeParser {
      */
     static getPatternDescription(pattern: string): string {
         const trimmed = pattern.trim();
-        
+
         if (trimmed === '*') {
             return 'Toutes les valeurs (0-9)';
+        }
+
+        // Liste de valeurs séparées par virgule ou point-virgule
+        if (trimmed.match(/^[\d\s,;]+$/) && (trimmed.includes(',') || trimmed.includes(';'))) {
+            const values = trimmed.split(/[,;]/)
+                .map(s => s.trim())
+                .filter(s => s.length > 0)
+                .map(s => parseInt(s, 10))
+                .filter(n => !isNaN(n));
+            const uniqueValues = [...new Set(values)].sort((a, b) => a - b);
+            return `${uniqueValues.length} valeur${uniqueValues.length > 1 ? 's' : ''}: ${uniqueValues.join(', ')}`;
         }
         
         const inclusiveRangeMatch = trimmed.match(/^(\d+)<==?>(\d+)$/);

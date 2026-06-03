@@ -149,6 +149,7 @@ export const BruteForceComponent: React.FC<BruteForceComponentProps> = ({
                         <li><code>&gt;=X</code> : Valeurs supérieures ou égales à X</li>
                         <li><code>X&lt;&gt;Y</code> : Valeurs strictement entre X et Y</li>
                         <li><code>X&lt;==&gt;Y</code> : Valeurs entre X et Y inclus</li>
+                        <li><code>10,20,25</code> : Liste de valeurs spécifiques (virgule ou point-virgule)</li>
                     </ul>
                     <div style={{ marginTop: '8px', color: 'var(--theia-descriptionForeground)' }}>
                         💡 Laissez vide pour utiliser la valeur saisie normalement
@@ -171,7 +172,7 @@ export const BruteForceComponent: React.FC<BruteForceComponentProps> = ({
                                     type="text"
                                     value={pattern}
                                     onChange={(e) => updatePattern(letter, e.target.value)}
-                                    placeholder={currentValue ? `Valeur actuelle: ${currentValue.value}` : 'Pattern (ex: *)'}
+                                    placeholder={currentValue ? `Pattern (ex: 10,20,25 ou *)` : 'Pattern (ex: 10,20,25 ou *)'}
                                     style={{
                                         flex: 1,
                                         padding: '6px 8px',
