@@ -804,6 +804,73 @@ def test_greater_than_rejects_contradictory_adjacent_relation():
     assert result["summary"] == "Aucune solution compatible avec les contraintes"
 
 
+def test_rossini_accepts_matching_edge_arrows():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "sudoku_rossini",
+            "grid": """
+                534678912
+                672195348
+                198342567
+                859761423
+                426853791
+                713924856
+                961537284
+                287419635
+                345286179
+            """,
+            "rossini": {
+                "top": ["", "D", "", "", "", "U", "", "D", ""],
+                "bottom": ["", "", "", "U", "", "", "", "", "D"],
+                "left": ["", "", "", "", "", "", "L", "", "R"],
+                "right": ["", "R", "R", "", "", "", "", "", "R"],
+                "enforce_absent": True,
+            },
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["unique"] is True
+    assert result["metadata"]["variant"] == "sudoku_rossini"
+    assert result["metadata"]["constraint_count"] == 63
+
+
+def test_rossini_rejects_contradictory_arrow():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "rossini",
+            "grid": """
+                534678912
+                672195348
+                198342567
+                859761423
+                426853791
+                713924856
+                961537284
+                287419635
+                345286179
+            """,
+            "rossini": {
+                "top": ["", "U", "", "", "", "U", "", "D", ""],
+                "bottom": ["", "", "", "U", "", "", "", "", "D"],
+                "left": ["", "", "", "", "", "", "L", "", "R"],
+                "right": ["", "R", "R", "", "", "", "", "", "R"],
+                "enforce_absent": True,
+            },
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+    assert result["summary"] == "Aucune solution compatible avec les contraintes"
+
+
 def test_watched_cells_are_extracted_in_requested_order():
     plugin = load_plugin()
 

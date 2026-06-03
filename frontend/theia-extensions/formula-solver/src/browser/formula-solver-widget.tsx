@@ -16,6 +16,7 @@ import { FormulaSolverAiProfile } from './geoapp-formula-solver-agents';
 import { AnsweringContextCache, PreparedAnsweringContext } from './answering-context-cache';
 import { AnswerDetail } from './strategies/types';
 import { Formula, Question, LetterValue, FormulaSolverState } from '../common/types';
+import { FormulaSessionManager, SessionIndex } from './formula-solver-session-manager';
 import { parseValueList } from './utils/value-parser';
 import { ensureFormulaFragments } from './utils/formula-fragments';
 import { CoordinatePreviewEngine } from './preview/coordinate-preview-engine';
@@ -110,6 +111,11 @@ export class FormulaSolverWidget extends ReactWidget {
     protected manualEast: string = '';
     protected manualFormulaOpen: boolean = false;
 
+    // Gestion des sessions sauvegardées
+    protected pendingSessionRestore: SessionIndex | null = null;
+    protected showSessionsPanel: boolean = false;
+    protected savedSessionsIndex: SessionIndex[] = [];
+
     // État brute force
     protected bruteForceMode: boolean = false;
     protected bruteForceResults: Array<{
@@ -130,6 +136,9 @@ export class FormulaSolverWidget extends ReactWidget {
         this.title.caption = FormulaSolverWidget.LABEL;
         this.title.closable = true;
         this.title.iconClass = 'codicon codicon-symbol-variable';
+
+        // Charger l'index des sessions sauvegardées au démarrage
+        this.savedSessionsIndex = FormulaSessionManager.listSessions();
 
         // Les préférences seront chargées de manière asynchrone dans onAfterAttach
         this.update();
@@ -403,6 +412,9 @@ export class FormulaSolverWidget extends ReactWidget {
      */
     async loadFromGeocache(geocacheId: number): Promise<void> {
         console.log(`[FORMULA-SOLVER] Chargement depuis geocache ${geocacheId}`);
+
+        // Rafraîchir l'index des sessions
+        this.savedSessionsIndex = FormulaSessionManager.listSessions();
         
         try {
             // Clear overlay preview (nouvelle géocache)
@@ -411,6 +423,7 @@ export class FormulaSolverWidget extends ReactWidget {
             this.manualNorth = '';
             this.manualEast = '';
             this.manualFormulaOpen = false;
+            this.pendingSessionRestore = null;
             this.updateState({
                 loading: true,
                 error: undefined,
@@ -433,6 +446,28 @@ export class FormulaSolverWidget extends ReactWidget {
             const geocache = await this.formulaSolverService.getGeocache(geocacheId);
             
             console.log(`[FORMULA-SOLVER] Geocache ${geocache.gc_code} chargée`);
+
+            // Vérifier s'il existe une session sauvegardée pour cette geocache
+            if (FormulaSessionManager.hasSavedSession(geocache.id)) {
+                const sessionMeta = FormulaSessionManager.getSessionMeta(geocache.id);
+                this.pendingSessionRestore = sessionMeta ?? {
+                    geocacheId: geocache.id,
+                    gcCode: geocache.gc_code,
+                    geocacheName: geocache.name,
+                    savedAt: 0
+                };
+                // Charger uniquement les métadonnées de la geocache (sans déclencher l'extraction)
+                this.updateState({
+                    loading: false,
+                    geocacheId: geocache.id,
+                    gcCode: geocache.gc_code,
+                    geocacheName: geocache.name,
+                    text: geocache.description,
+                    originLat: geocache.latitude,
+                    originLon: geocache.longitude
+                });
+                return;
+            }
             
             // Mettre à jour l'état avec les données de la geocache
             this.updateState({
@@ -1826,6 +1861,88 @@ export class FormulaSolverWidget extends ReactWidget {
         }
     }
 
+    // -----------------------------------------------------------------------
+    // Gestion des sessions sauvegardées
+    // -----------------------------------------------------------------------
+
+    protected saveCurrentSession(): void {
+        const { geocacheId, gcCode, geocacheName } = this.state;
+        if (!geocacheId || !gcCode) {
+            this.messageService.warn('Aucune géocache chargée, impossible de sauvegarder.');
+            return;
+        }
+
+        FormulaSessionManager.saveSession({
+            geocacheId,
+            gcCode,
+            geocacheName,
+            savedAt: Date.now(),
+            currentStep: this.state.currentStep,
+            text: this.state.text,
+            originLat: this.state.originLat,
+            originLon: this.state.originLon,
+            formulas: this.state.formulas,
+            selectedFormula: this.state.selectedFormula,
+            questions: this.state.questions,
+            values: Array.from(this.state.values.entries()),
+            result: this.state.result,
+            answerDetails: Array.from(this.answerDetails.entries()),
+            perLetterExtraInfo: Array.from(this.perLetterExtraInfo.entries()),
+            questionsAiUserHint: this.questionsAiUserHint,
+            bruteForceResults: this.bruteForceResults
+        });
+
+        this.savedSessionsIndex = FormulaSessionManager.listSessions();
+        this.messageService.info(`Session sauvegardée pour ${gcCode}.`);
+        this.update();
+    }
+
+    protected restoreSession(geocacheId: number): void {
+        const session = FormulaSessionManager.loadSession(geocacheId);
+        if (!session) {
+            this.messageService.error('Session introuvable.');
+            return;
+        }
+
+        this.pendingSessionRestore = null;
+        this.manualNorth = '';
+        this.manualEast = '';
+        this.manualFormulaOpen = false;
+        this.bruteForceMode = false;
+        this.bruteForceResults = session.bruteForceResults || [];
+        this.answerDetails = new Map(session.answerDetails || []);
+        this.perLetterExtraInfo = new Map(session.perLetterExtraInfo || []);
+        this.questionsAiUserHint = session.questionsAiUserHint || '';
+
+        this.updateState({
+            currentStep: session.currentStep,
+            geocacheId: session.geocacheId,
+            gcCode: session.gcCode,
+            geocacheName: session.geocacheName,
+            text: session.text,
+            originLat: session.originLat,
+            originLon: session.originLon,
+            formulas: session.formulas,
+            selectedFormula: session.selectedFormula,
+            questions: session.questions,
+            values: new Map(session.values || []),
+            result: session.result,
+            loading: false,
+            error: undefined
+        });
+
+        this.messageService.info(`Session restaurée pour ${session.gcCode}.`);
+    }
+
+    protected deleteSession(geocacheId: number): void {
+        FormulaSessionManager.deleteSession(geocacheId);
+        this.savedSessionsIndex = FormulaSessionManager.listSessions();
+        if (this.pendingSessionRestore?.geocacheId === geocacheId) {
+            this.pendingSessionRestore = null;
+        }
+        this.update();
+    }
+
     /**
      * Render du composant React
      */
@@ -1850,10 +1967,127 @@ export class FormulaSolverWidget extends ReactWidget {
                 `}</style>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                     <h2 style={{ marginTop: 0, marginBottom: 0 }}>Formula Solver</h2>
-                    
-                    {/* Configuration des étapes (méthodes + profils) */}
-                    {this.renderStepConfigPanel()}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {/* Bouton Sauvegarder (visible si une geocache est chargée) */}
+                        {this.state.geocacheId && (
+                            <button
+                                onClick={() => this.saveCurrentSession()}
+                                title="Sauvegarder la session en cours pour y revenir plus tard"
+                                style={{
+                                    padding: '6px 10px',
+                                    backgroundColor: 'var(--theia-button-secondaryBackground)',
+                                    color: 'var(--theia-button-secondaryForeground)',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer',
+                                    fontSize: '12px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                }}
+                            >
+                                <span className="codicon codicon-save" />
+                                Sauvegarder
+                            </button>
+                        )}
+                        {/* Bouton Sessions sauvegardées */}
+                        {this.savedSessionsIndex.length > 0 && (
+                            <button
+                                onClick={() => {
+                                    this.showSessionsPanel = !this.showSessionsPanel;
+                                    this.update();
+                                }}
+                                title="Voir les sessions sauvegardées"
+                                style={{
+                                    padding: '6px 10px',
+                                    backgroundColor: this.showSessionsPanel
+                                        ? 'var(--theia-button-background)'
+                                        : 'var(--theia-button-secondaryBackground)',
+                                    color: this.showSessionsPanel
+                                        ? 'var(--theia-button-foreground)'
+                                        : 'var(--theia-button-secondaryForeground)',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer',
+                                    fontSize: '12px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px'
+                                }}
+                            >
+                                <span className="codicon codicon-history" />
+                                Sessions ({this.savedSessionsIndex.length})
+                            </button>
+                        )}
+                        {/* Configuration des étapes (méthodes + profils) */}
+                        {this.renderStepConfigPanel()}
+                    </div>
                 </div>
+
+                {/* Panneau des sessions sauvegardées */}
+                {this.showSessionsPanel && this.renderSessionsPanel()}
+
+                {/* Bannière de restauration de session */}
+                {this.pendingSessionRestore && (
+                    <div style={{
+                        padding: '12px 16px',
+                        marginBottom: '16px',
+                        backgroundColor: 'var(--theia-notifications-background)',
+                        border: '1px solid var(--theia-focusBorder)',
+                        borderRadius: '6px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '12px'
+                    }}>
+                        <div style={{ fontSize: '13px' }}>
+                            <span className="codicon codicon-history" style={{ marginRight: '8px', color: 'var(--theia-focusBorder)' }} />
+                            <strong>Session sauvegardée</strong> trouvée pour <strong>{this.pendingSessionRestore.gcCode}</strong>
+                            {this.pendingSessionRestore.savedAt > 0 && (
+                                <span style={{ color: 'var(--theia-descriptionForeground)', marginLeft: '8px', fontSize: '11px' }}>
+                                    ({FormulaSessionManager.formatDate(this.pendingSessionRestore.savedAt)})
+                                </span>
+                            )}
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                            <button
+                                className="theia-button"
+                                onClick={() => this.restoreSession(this.pendingSessionRestore!.geocacheId)}
+                                style={{ fontSize: '12px', padding: '5px 12px', display: 'flex', alignItems: 'center', gap: '5px' }}
+                            >
+                                <span className="codicon codicon-history" />
+                                Restaurer
+                            </button>
+                            <button
+                                onClick={() => {
+                                    const gcCode = this.pendingSessionRestore!.gcCode;
+                                    const text = this.state.text;
+                                    this.pendingSessionRestore = null;
+                                    this.update();
+                                    if (text) {
+                                        this.detectFormulasFromText(text);
+                                    }
+                                    this.messageService.info(`Nouvelle recherche pour ${gcCode}.`);
+                                }}
+                                style={{
+                                    fontSize: '12px',
+                                    padding: '5px 12px',
+                                    backgroundColor: 'var(--theia-button-secondaryBackground)',
+                                    color: 'var(--theia-button-secondaryForeground)',
+                                    border: 'none',
+                                    borderRadius: '3px',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '5px'
+                                }}
+                            >
+                                <span className="codicon codicon-refresh" />
+                                Nouvelle recherche
+                            </button>
+                        </div>
+                    </div>
+                )}
                 
                 {/* Étape 1 : Détection de formule */}
                 {this.renderDetectionStep()}
@@ -1876,6 +2110,92 @@ export class FormulaSolverWidget extends ReactWidget {
                 {this.state.error && (
                     <div style={{ color: 'var(--theia-errorForeground)', marginTop: '10px', padding: '10px', backgroundColor: 'var(--theia-inputValidation-errorBackground)' }}>
                         ⚠️ {this.state.error}
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    /**
+     * Panneau listant toutes les sessions sauvegardées
+     */
+    protected renderSessionsPanel(): React.ReactNode {
+        const sessions = this.savedSessionsIndex;
+        return (
+            <div style={{
+                marginBottom: '16px',
+                padding: '12px 16px',
+                backgroundColor: 'var(--theia-editor-background)',
+                border: '1px solid var(--theia-panel-border)',
+                borderRadius: '6px'
+            }}>
+                <h4 style={{ margin: '0 0 10px 0', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
+                    <span className="codicon codicon-history" />
+                    Sessions sauvegardées
+                </h4>
+                {sessions.length === 0 ? (
+                    <div style={{ fontSize: '12px', color: 'var(--theia-descriptionForeground)' }}>
+                        Aucune session sauvegardée.
+                    </div>
+                ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {sessions.map(session => (
+                            <div key={session.geocacheId} style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                padding: '6px 10px',
+                                backgroundColor: 'var(--theia-input-background)',
+                                borderRadius: '4px',
+                                fontSize: '12px',
+                                gap: '12px'
+                            }}>
+                                <div>
+                                    <strong>{session.gcCode}</strong>
+                                    {session.geocacheName && (
+                                        <span style={{ color: 'var(--theia-descriptionForeground)', marginLeft: '6px' }}>
+                                            {session.geocacheName}
+                                        </span>
+                                    )}
+                                    <div style={{ color: 'var(--theia-descriptionForeground)', fontSize: '11px', marginTop: '2px' }}>
+                                        Sauvegardé le {FormulaSessionManager.formatDate(session.savedAt)}
+                                    </div>
+                                </div>
+                                <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                                    <button
+                                        className="theia-button"
+                                        onClick={() => {
+                                            this.restoreSession(session.geocacheId);
+                                            this.showSessionsPanel = false;
+                                        }}
+                                        style={{ fontSize: '11px', padding: '4px 10px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                                        title="Restaurer cette session"
+                                    >
+                                        <span className="codicon codicon-history" />
+                                        Restaurer
+                                    </button>
+                                    <button
+                                        onClick={() => this.deleteSession(session.geocacheId)}
+                                        title="Supprimer cette session"
+                                        style={{
+                                            padding: '4px 8px',
+                                            backgroundColor: 'transparent',
+                                            color: 'var(--theia-errorForeground)',
+                                            border: '1px solid var(--theia-errorForeground)',
+                                            borderRadius: '3px',
+                                            cursor: 'pointer',
+                                            fontSize: '11px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '4px'
+                                        }}
+                                    >
+                                        <span className="codicon codicon-trash" />
+                                        Supprimer
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 )}
             </div>

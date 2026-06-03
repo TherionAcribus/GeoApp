@@ -258,6 +258,23 @@ class GridpuzzlesolverPlugin:
                     variant="sudoku_greater_than",
                     inequalities=inputs.get("inequalities") or inputs.get("comparisons"),
                 )
+            elif puzzle_type in {"sudoku_rossini", "rossini", "rossini_sudoku"}:
+                puzzle_text = self._first_non_empty(
+                    inputs.get("grid"),
+                    inputs.get("puzzle"),
+                    inputs.get("text"),
+                )
+                problem = self._build_sudoku_problem(
+                    puzzle_text,
+                    include_diagonals=False,
+                    include_center_dot=False,
+                    include_windoku=False,
+                    include_girandola=False,
+                    include_asterisk=False,
+                    variant="sudoku_rossini",
+                    rossini=inputs.get("rossini") or inputs.get("arrows") or {},
+                    include_rossini=True,
+                )
             elif puzzle_type in {"custom", "custom_spec", "json_spec"}:
                 problem = self._build_custom_problem(inputs.get("spec"))
             else:
@@ -296,6 +313,8 @@ class GridpuzzlesolverPlugin:
         variant: str,
         inequalities: Any = None,
         include_anti_diagonal: bool = False,
+        rossini: Any = None,
+        include_rossini: bool = False,
     ) -> GridCspProblem:
         symbols = [str(value) for value in range(1, 10)]
         tokens = self._parse_sudoku_tokens(puzzle_text, symbols)
@@ -403,6 +422,8 @@ class GridpuzzlesolverPlugin:
             )
 
         constraints.extend(self._parse_sudoku_inequalities(inequalities))
+        if include_rossini:
+            constraints.extend(self._parse_rossini_constraints(rossini))
 
         return GridCspProblem(
             rows=9,
@@ -737,6 +758,20 @@ class GridpuzzlesolverPlugin:
                 )
             return
 
+        if kind in {"strict_increasing", "strict_decreasing", "not_monotonic"}:
+            if len(cells) != 3:
+                raise ValueError(f"La contrainte {kind} attend exactement trois cellules")
+            first, second, third = (variables[cell] for cell in cells)
+            increasing = z3.And(first < second, second < third)
+            decreasing = z3.And(first > second, second > third)
+            if kind == "strict_increasing":
+                solver.add(increasing)
+            elif kind == "strict_decreasing":
+                solver.add(decreasing)
+            else:
+                solver.add(z3.Not(z3.Or(increasing, decreasing)))
+            return
+
         if kind == "equals":
             if len(cells) != 1 or constraint.value is None:
                 raise ValueError("La contrainte equals attend une cellule et une valeur")
@@ -959,6 +994,106 @@ class GridpuzzlesolverPlugin:
         if relation == "<":
             return GridConstraint("less_than", (first_cell, second_cell))
         raise ValueError(f"Symbole d'inegalite non supporte: {relation}")
+
+    def _parse_rossini_constraints(self, raw_rossini: Any) -> List[GridConstraint]:
+        enforce_absent = True
+        if raw_rossini in (None, "", []):
+            raw_rossini = {}
+        if isinstance(raw_rossini, str):
+            text = raw_rossini.strip()
+            if text:
+                try:
+                    raw_rossini = json.loads(text)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(f"Rossini JSON invalide: {exc.msg}") from exc
+            else:
+                raw_rossini = {}
+        if not isinstance(raw_rossini, dict):
+            raise ValueError("Format rossini non supporte")
+
+        if "enforce_absent" in raw_rossini:
+            enforce_absent = bool(raw_rossini.get("enforce_absent"))
+        elif "all_arrows_given" in raw_rossini:
+            enforce_absent = bool(raw_rossini.get("all_arrows_given"))
+
+        side_specs = (
+            ("top", raw_rossini.get("top") or raw_rossini.get("t"), "vertical"),
+            ("bottom", raw_rossini.get("bottom") or raw_rossini.get("b"), "vertical"),
+            ("left", raw_rossini.get("left") or raw_rossini.get("l"), "horizontal"),
+            ("right", raw_rossini.get("right") or raw_rossini.get("r"), "horizontal"),
+        )
+
+        constraints: List[GridConstraint] = []
+        for side, raw_values, axis in side_specs:
+            values = self._parse_rossini_side(raw_values, side)
+            for index, raw_arrow in enumerate(values):
+                arrow = self._normalize_rossini_arrow(raw_arrow, axis, side)
+                cells = self._rossini_cells(side, index)
+                if arrow in {"right", "down"}:
+                    constraints.append(GridConstraint("strict_increasing", cells))
+                elif arrow in {"left", "up"}:
+                    constraints.append(GridConstraint("strict_decreasing", cells))
+                elif enforce_absent:
+                    constraints.append(GridConstraint("not_monotonic", cells))
+        return constraints
+
+    def _parse_rossini_side(self, raw_values: Any, side: str) -> List[str]:
+        if raw_values in (None, ""):
+            return [""] * 9
+        if isinstance(raw_values, str):
+            values = [
+                char for char in raw_values
+                if char in {"<", ">", "^", "v", "V", "U", "D", "L", "R", "↑", "↓", "←", "→", ".", "0", "_", "-", "?"}
+            ]
+        elif isinstance(raw_values, list):
+            values = [str(value or "") for value in raw_values]
+        else:
+            raise ValueError(f"rossini.{side} doit etre une liste ou une chaine")
+        if len(values) != 9:
+            raise ValueError(f"rossini.{side} doit contenir 9 valeurs")
+        return values
+
+    def _normalize_rossini_arrow(self, raw_arrow: str, axis: str, side: str) -> str:
+        arrow = str(raw_arrow or "").strip()
+        if arrow in {"", ".", "0", "_", "-", "?"}:
+            return ""
+        normalized = {
+            ">": "right",
+            "R": "right",
+            "r": "right",
+            "→": "right",
+            "<": "left",
+            "L": "left",
+            "l": "left",
+            "←": "left",
+            "^": "up",
+            "U": "up",
+            "u": "up",
+            "↑": "up",
+            "v": "down",
+            "V": "down",
+            "D": "down",
+            "d": "down",
+            "↓": "down",
+        }.get(arrow)
+        if normalized is None:
+            raise ValueError(f"Fleche Rossini non supportee sur {side}: {raw_arrow}")
+        if axis == "horizontal" and normalized not in {"left", "right"}:
+            raise ValueError(f"rossini.{side} attend des fleches gauche/droite")
+        if axis == "vertical" and normalized not in {"up", "down"}:
+            raise ValueError(f"rossini.{side} attend des fleches haut/bas")
+        return normalized
+
+    def _rossini_cells(self, side: str, index: int) -> Tuple[Cell, Cell, Cell]:
+        if side == "left":
+            return ((index, 0), (index, 1), (index, 2))
+        if side == "right":
+            return ((index, 6), (index, 7), (index, 8))
+        if side == "top":
+            return ((0, index), (1, index), (2, index))
+        if side == "bottom":
+            return ((6, index), (7, index), (8, index))
+        raise ValueError(f"Cote Rossini inconnu: {side}")
 
     def _validate_adjacent_cells(self, first_cell: Cell, second_cell: Cell) -> None:
         distance = abs(first_cell[0] - second_cell[0]) + abs(first_cell[1] - second_cell[1])

@@ -9,9 +9,18 @@ import './style/grid-puzzle-workbench.css';
 
 type Grid = string[][];
 type WorkMode = 'edit' | 'watch';
-type SudokuVariant = 'sudoku_classic' | 'sudoku_x' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than';
+type SudokuVariant = 'sudoku_classic' | 'sudoku_x' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_rossini';
 type InequalitySymbol = '' | '>' | '<';
 type InequalityGrid = InequalitySymbol[][];
+type RossiniArrow = '' | '↑' | '↓' | '←' | '→';
+type RossiniSide = 'top' | 'bottom' | 'left' | 'right';
+
+interface RossiniArrows {
+    top: RossiniArrow[];
+    bottom: RossiniArrow[];
+    left: RossiniArrow[];
+    right: RossiniArrow[];
+}
 type CellCoord = [number, number];
 
 interface ConstraintRegion {
@@ -30,6 +39,12 @@ const SAMURAI_SIZE = 21;
 const KAZAGURUMA_COLS = 21;
 const EMPTY_HORIZONTAL_INEQUALITIES: InequalityGrid = Array.from({ length: SIZE }, () => Array(SIZE - 1).fill(''));
 const EMPTY_VERTICAL_INEQUALITIES: InequalityGrid = Array.from({ length: SIZE - 1 }, () => Array(SIZE).fill(''));
+const EMPTY_ROSSINI_ARROWS: RossiniArrows = {
+    top: Array<RossiniArrow>(SIZE).fill(''),
+    bottom: Array<RossiniArrow>(SIZE).fill(''),
+    left: Array<RossiniArrow>(SIZE).fill(''),
+    right: Array<RossiniArrow>(SIZE).fill(''),
+};
 const QUICK_TEXT_PLACEHOLDER = '0'.repeat(SIZE).concat('\n').repeat(SIZE).trim();
 const SUJIKEN_TEXT_PLACEHOLDER = Array.from({ length: SIZE }, (_row, index) => '0'.repeat(index + 1)).join('\n');
 const FLOWER_TEXT_PLACEHOLDER = Array.from({ length: FLOWER_SIZE }, (_row, rowIndex) => (
@@ -82,6 +97,15 @@ function cloneInequalityGrid(grid: InequalityGrid): InequalityGrid {
     return grid.map(row => [...row]);
 }
 
+function cloneRossiniArrows(arrows: RossiniArrows): RossiniArrows {
+    return {
+        top: [...arrows.top],
+        bottom: [...arrows.bottom],
+        left: [...arrows.left],
+        right: [...arrows.right],
+    };
+}
+
 function cellRef(row: number, col: number): string {
     return `r${row + 1}c${col + 1}`;
 }
@@ -122,6 +146,9 @@ function getVariantLabel(puzzleType: SudokuVariant): string {
     }
     if (puzzleType === 'sudoku_greater_than') {
         return 'Greater Than';
+    }
+    if (puzzleType === 'sudoku_rossini') {
+        return 'Rossini';
     }
     return 'Sudoku classique';
 }
@@ -411,6 +438,7 @@ function findConstraintConflicts(
     puzzleType: SudokuVariant,
     horizontalInequalities: InequalityGrid,
     verticalInequalities: InequalityGrid,
+    rossiniArrows: RossiniArrows,
 ): ConflictHighlights {
     const cells = new Set<string>();
     const messages: string[] = [];
@@ -470,6 +498,10 @@ function findConstraintConflicts(
         });
     }
 
+    if (puzzleType === 'sudoku_rossini') {
+        addRossiniConflicts(grid, cells, messages, rossiniArrows);
+    }
+
     return { cells, messages };
 }
 
@@ -526,6 +558,56 @@ function addInequalityConflict(
     cells.add(firstRef);
     cells.add(secondRef);
     messages.push(`Inegalite ${firstRef} ${relation} ${secondRef} non respectee`);
+}
+
+function addRossiniConflicts(
+    grid: Grid,
+    cells: Set<string>,
+    messages: string[],
+    arrows: RossiniArrows,
+): void {
+    (['top', 'bottom', 'left', 'right'] as RossiniSide[]).forEach(side => {
+        arrows[side].forEach((arrow, index) => {
+            const triplet = rossiniCells(side, index);
+            const values = triplet.map(([row, col]) => Number(grid[row]?.[col] || 0));
+            if (values.some(value => !value)) {
+                return;
+            }
+            const increasing = values[0] < values[1] && values[1] < values[2];
+            const decreasing = values[0] > values[1] && values[1] > values[2];
+            const expectsIncreasing = arrow === '→' || arrow === '↓';
+            const expectsDecreasing = arrow === '←' || arrow === '↑';
+            const violatesArrow = expectsIncreasing ? !increasing : expectsDecreasing ? !decreasing : false;
+            const violatesAbsence = !arrow && (increasing || decreasing);
+            if (!violatesArrow && !violatesAbsence) {
+                return;
+            }
+            const refs = triplet.map(([row, col]) => cellRef(row, col));
+            refs.forEach(ref => cells.add(ref));
+            if (arrow) {
+                messages.push(`Fleche Rossini ${rossiniSideLabel(side)} ${index + 1} non respectee : ${refs.join(', ')}`);
+            } else {
+                messages.push(`Absence de fleche Rossini ${rossiniSideLabel(side)} ${index + 1} : les trois cases forment une suite`);
+            }
+        });
+    });
+}
+
+function rossiniCells(side: RossiniSide, index: number): CellCoord[] {
+    if (side === 'left') {
+        return [[index, 0], [index, 1], [index, 2]];
+    }
+    if (side === 'right') {
+        return [[index, 6], [index, 7], [index, 8]];
+    }
+    if (side === 'top') {
+        return [[0, index], [1, index], [2, index]];
+    }
+    return [[6, index], [7, index], [8, index]];
+}
+
+function rossiniSideLabel(side: RossiniSide): string {
+    return side === 'top' ? 'haut' : side === 'bottom' ? 'bas' : side === 'left' ? 'gauche' : 'droite';
 }
 
 function getWindokuBoundaryClasses(row: number, col: number): string[] {
@@ -674,6 +756,10 @@ function emptyVerticalInequalities(): InequalityGrid {
     return cloneInequalityGrid(EMPTY_VERTICAL_INEQUALITIES);
 }
 
+function emptyRossiniArrows(): RossiniArrows {
+    return cloneRossiniArrows(EMPTY_ROSSINI_ARROWS);
+}
+
 function normalizeInequalitySymbol(value: unknown): InequalitySymbol {
     return value === '>' || value === '<' ? value : '';
 }
@@ -687,6 +773,69 @@ function normalizeInequalityGrid(value: unknown, rows: number, cols: number): In
         const cells = typeof row === 'string' ? row.split('') : Array.isArray(row) ? row : [];
         return Array.from({ length: cols }, (_unused, index) => normalizeInequalitySymbol(cells[index]));
     });
+}
+
+function normalizeRossiniArrow(value: unknown, side: RossiniSide): RossiniArrow {
+    const text = String(value ?? '').trim();
+    const normalized: Record<string, RossiniArrow> = {
+        '^': '↑',
+        U: '↑',
+        u: '↑',
+        '↑': '↑',
+        v: '↓',
+        V: '↓',
+        D: '↓',
+        d: '↓',
+        '↓': '↓',
+        '<': '←',
+        L: '←',
+        l: '←',
+        '←': '←',
+        '>': '→',
+        R: '→',
+        r: '→',
+        '→': '→',
+    };
+    const arrow = normalized[text] || '';
+    if ((side === 'top' || side === 'bottom') && (arrow === '←' || arrow === '→')) {
+        return '';
+    }
+    if ((side === 'left' || side === 'right') && (arrow === '↑' || arrow === '↓')) {
+        return '';
+    }
+    return arrow;
+}
+
+function normalizeRossiniSide(value: unknown, side: RossiniSide): RossiniArrow[] {
+    const rawValues = typeof value === 'string'
+        ? value.split('')
+        : Array.isArray(value)
+            ? value
+            : [];
+    return Array.from({ length: SIZE }, (_unused, index) => normalizeRossiniArrow(rawValues[index], side));
+}
+
+function normalizeRossiniArrows(value: unknown): RossiniArrows {
+    if (!value || typeof value !== 'object') {
+        return emptyRossiniArrows();
+    }
+    const record = value as Record<string, unknown>;
+    return {
+        top: normalizeRossiniSide(record.top ?? record.t, 'top'),
+        bottom: normalizeRossiniSide(record.bottom ?? record.b, 'bottom'),
+        left: normalizeRossiniSide(record.left ?? record.l, 'left'),
+        right: normalizeRossiniSide(record.right ?? record.r, 'right'),
+    };
+}
+
+function cycleRossiniArrow(side: RossiniSide, current: RossiniArrow): RossiniArrow {
+    const sequence: RossiniArrow[] = side === 'top' || side === 'bottom'
+        ? ['', '↓', '↑']
+        : side === 'left'
+            ? ['', '←', '→']
+            : ['', '→', '←'];
+    const currentIndex = sequence.indexOf(current);
+    return sequence[(currentIndex + 1) % sequence.length];
 }
 
 function cycleInequality(value: InequalitySymbol): InequalitySymbol {
@@ -1096,6 +1245,7 @@ function GridPuzzleWorkbenchApp({
     const [puzzleType, setPuzzleType] = React.useState<SudokuVariant>('sudoku_classic');
     const [horizontalInequalities, setHorizontalInequalities] = React.useState<InequalityGrid>(() => emptyHorizontalInequalities());
     const [verticalInequalities, setVerticalInequalities] = React.useState<InequalityGrid>(() => emptyVerticalInequalities());
+    const [rossiniArrows, setRossiniArrows] = React.useState<RossiniArrows>(() => emptyRossiniArrows());
     const [watchCells, setWatchCells] = React.useState<string[]>([]);
     const [mode, setMode] = React.useState<WorkMode>('edit');
     const [maxSolutions, setMaxSolutions] = React.useState(2);
@@ -1117,6 +1267,7 @@ function GridPuzzleWorkbenchApp({
     const variantLabel = getVariantLabel(puzzleType);
     const contextLabel = context ? `${context.gcCode} - ${context.name}` : 'Mode libre';
     const isGreaterThan = puzzleType === 'sudoku_greater_than';
+    const isRossini = puzzleType === 'sudoku_rossini';
     const isSujiken = puzzleType === 'sujiken';
     const isSamurai = puzzleType === 'samurai_sudoku';
     const isFlower = puzzleType === 'flower_sudoku';
@@ -1135,8 +1286,8 @@ function GridPuzzleWorkbenchApp({
             ? SAMURAI_TEXT_PLACEHOLDER
             : QUICK_TEXT_PLACEHOLDER;
     const constraintConflicts = React.useMemo(
-        () => findConstraintConflicts(grid, puzzleType, horizontalInequalities, verticalInequalities),
-        [grid, horizontalInequalities, puzzleType, verticalInequalities],
+        () => findConstraintConflicts(grid, puzzleType, horizontalInequalities, verticalInequalities, rossiniArrows),
+        [grid, horizontalInequalities, puzzleType, rossiniArrows, verticalInequalities],
     );
     const visibleConflictMessages = constraintConflicts.messages.slice(0, 4);
 
@@ -1192,6 +1343,7 @@ function GridPuzzleWorkbenchApp({
         setWatchCells(normalizeWatchCells(snapshot?.watchCells ?? snapshot?.watchedCells));
         setHorizontalInequalities(normalizeInequalityGrid(snapshot?.inequalities?.horizontal, SIZE, SIZE - 1));
         setVerticalInequalities(normalizeInequalityGrid(snapshot?.inequalities?.vertical, SIZE - 1, SIZE));
+        setRossiniArrows(normalizeRossiniArrows(snapshot?.rossini ?? snapshot?.rossiniArrows));
         setMaxSolutions(normalizeNumber(snapshot?.maxSolutions, 2, 1, 25));
         setTimeoutMs(normalizeNumber(snapshot?.solverTimeoutMs ?? snapshot?.timeoutMs, 10000, 1000, 120000));
         setSolveState({ running: false, result: restoredResult });
@@ -1256,6 +1408,7 @@ function GridPuzzleWorkbenchApp({
                         horizontal: horizontalInequalities,
                         vertical: verticalInequalities,
                     },
+                    rossini: rossiniArrows,
                     watchCells,
                     maxSolutions,
                     solverTimeoutMs: timeoutMs,
@@ -1287,6 +1440,7 @@ function GridPuzzleWorkbenchApp({
         pluginsService,
         puzzleType,
         quickText,
+        rossiniArrows,
         solveState.result,
         timeoutMs,
         variantLabel,
@@ -1320,6 +1474,16 @@ function GridPuzzleWorkbenchApp({
         setVerticalInequalities(previous => {
             const next = cloneInequalityGrid(previous);
             next[row][col] = cycleInequality(next[row][col]);
+            return next;
+        });
+        setSolveState({ running: false });
+        markDirty();
+    }, [markDirty]);
+
+    const toggleRossiniArrow = React.useCallback((side: RossiniSide, index: number) => {
+        setRossiniArrows(previous => {
+            const next = cloneRossiniArrows(previous);
+            next[side][index] = cycleRossiniArrow(side, next[side][index]);
             return next;
         });
         setSolveState({ running: false });
@@ -1421,6 +1585,7 @@ function GridPuzzleWorkbenchApp({
             || value === 'sohei_sudoku'
             || value === 'kazaguruma_sudoku'
             || value === 'sudoku_greater_than'
+            || value === 'sudoku_rossini'
             ? value
             : 'sudoku_classic';
         const nextGrid = resizeGrid(grid, gridSizeForVariant(nextPuzzleType));
@@ -1435,6 +1600,7 @@ function GridPuzzleWorkbenchApp({
         setGridAndQuickText(createEmptyGrid(gridSizeForVariant(puzzleType)));
         setHorizontalInequalities(emptyHorizontalInequalities());
         setVerticalInequalities(emptyVerticalInequalities());
+        setRossiniArrows(emptyRossiniArrows());
         setWatchCells([]);
         setSolveState({ running: false });
         markDirty();
@@ -1458,6 +1624,10 @@ function GridPuzzleWorkbenchApp({
                     horizontal: horizontalInequalities,
                     vertical: verticalInequalities,
                 },
+                rossini: isRossini ? {
+                    ...rossiniArrows,
+                    enforce_absent: true,
+                } : undefined,
                 max_solutions: maxSolutions,
                 solver_timeout_ms: timeoutMs,
             });
@@ -1475,7 +1645,7 @@ function GridPuzzleWorkbenchApp({
                 error: error instanceof Error ? error.message : String(error),
             });
         }
-    }, [constraintConflicts.messages.length, geocacheId, grid, horizontalInequalities, maxSolutions, pluginsService, puzzleType, saveState, timeoutMs, verticalInequalities, watchCells]);
+    }, [constraintConflicts.messages.length, geocacheId, grid, horizontalInequalities, isRossini, maxSolutions, pluginsService, puzzleType, rossiniArrows, saveState, timeoutMs, verticalInequalities, watchCells]);
 
     const useSolvedGrid = React.useCallback(() => {
         if (solvedGrid) {
@@ -1485,39 +1655,27 @@ function GridPuzzleWorkbenchApp({
         }
     }, [markDirty, setGridAndQuickText, solvedGrid]);
 
-    const cellStyle = (rowIndex: number, colIndex: number): React.CSSProperties | undefined => (
-        isGreaterThan
-            ? {
+    const cellStyle = (rowIndex: number, colIndex: number): React.CSSProperties | undefined => {
+        if (isGreaterThan) {
+            return {
                 gridColumn: String(colIndex * 2 + 1),
                 gridRow: String(rowIndex * 2 + 1),
-            }
-            : isSujiken
-                ? {
-                    gridColumn: String(colIndex + 1),
-                    gridRow: String(rowIndex + 1),
-                }
-                : isSamurai
-                    ? {
-                        gridColumn: String(colIndex + 1),
-                        gridRow: String(rowIndex + 1),
-                    }
-                    : isSohei
-                        ? {
-                            gridColumn: String(colIndex + 1),
-                            gridRow: String(rowIndex + 1),
-                        }
-                    : isKazaguruma
-                        ? {
-                            gridColumn: String(colIndex + 1),
-                            gridRow: String(rowIndex + 1),
-                        }
-                    : isFlower
-                        ? {
-                            gridColumn: String(colIndex + 1),
-                            gridRow: String(rowIndex + 1),
-                        }
-            : undefined
-    );
+            };
+        }
+        if (isRossini) {
+            return {
+                gridColumn: String(colIndex + 2),
+                gridRow: String(rowIndex + 2),
+            };
+        }
+        if (isSujiken || isSamurai || isSohei || isKazaguruma || isFlower) {
+            return {
+                gridColumn: String(colIndex + 1),
+                gridRow: String(rowIndex + 1),
+            };
+        }
+        return undefined;
+    };
 
     const cellClassName = (rowIndex: number, colIndex: number, value: string, readonly = false): string => {
         const ref = cellRef(rowIndex, colIndex);
@@ -1618,6 +1776,56 @@ function GridPuzzleWorkbenchApp({
         );
     };
 
+    const renderRossiniControls = (readonly = false): React.ReactNode => {
+        if (!isRossini) {
+            return null;
+        }
+
+        const renderButton = (side: RossiniSide, index: number, style: React.CSSProperties) => {
+            const value = rossiniArrows[side][index];
+            const label = `${rossiniSideLabel(side)} ${index + 1}`;
+            return (
+                <button
+                    key={`rossini-${side}-${index}`}
+                    type='button'
+                    className={[
+                        'rossini-control',
+                        side,
+                        value ? 'active' : '',
+                    ].filter(Boolean).join(' ')}
+                    style={style}
+                    title={`Fleche Rossini ${label}. Vide = pas de suite monotone.`}
+                    aria-label={`Fleche Rossini ${label}`}
+                    disabled={readonly}
+                    onClick={() => toggleRossiniArrow(side, index)}
+                >
+                    {value}
+                </button>
+            );
+        };
+
+        return (
+            <>
+                {rossiniArrows.top.map((_value, index) => renderButton('top', index, {
+                    gridColumn: String(index + 2),
+                    gridRow: '1',
+                }))}
+                {rossiniArrows.bottom.map((_value, index) => renderButton('bottom', index, {
+                    gridColumn: String(index + 2),
+                    gridRow: '11',
+                }))}
+                {rossiniArrows.left.map((_value, index) => renderButton('left', index, {
+                    gridColumn: '1',
+                    gridRow: String(index + 2),
+                }))}
+                {rossiniArrows.right.map((_value, index) => renderButton('right', index, {
+                    gridColumn: '11',
+                    gridRow: String(index + 2),
+                }))}
+            </>
+        );
+    };
+
     return (
         <div className='grid-puzzle-workbench'>
             <div className='grid-puzzle-toolbar'>
@@ -1650,6 +1858,7 @@ function GridPuzzleWorkbenchApp({
                         <option value='sohei_sudoku'>Sohei Sudoku</option>
                         <option value='kazaguruma_sudoku'>Kazaguruma</option>
                         <option value='sudoku_greater_than'>Greater Than</option>
+                        <option value='sudoku_rossini'>Rossini</option>
                     </select>
                     <button onClick={solve} disabled={solveState.running}>
                         {solveState.running ? 'Resolution...' : 'Resoudre'}
@@ -1669,6 +1878,7 @@ function GridPuzzleWorkbenchApp({
                         className={[
                             'sudoku-board',
                             isGreaterThan ? 'greater-than-board' : '',
+                            isRossini ? 'rossini-board' : '',
                             isSujiken ? 'sujiken-board' : '',
                             isSamurai ? 'samurai-board' : '',
                             isFlower ? 'flower-board' : '',
@@ -1703,11 +1913,13 @@ function GridPuzzleWorkbenchApp({
                             })
                         ))}
                         {renderInequalityControls()}
+                        {renderRossiniControls()}
                     </div>
 
                     <div className='grid-puzzle-hint'>
                         En mode Surveiller, cliquez les cases a extraire pour la reponse. En mode Saisie, Ctrl+clic fonctionne aussi.
                         {isGreaterThan ? ' Cliquez les bords pour alterner entre >, < et vide.' : ''}
+                        {isRossini ? ' Cliquez les bords exterieurs pour poser les fleches Rossini. Un bord vide impose aussi que les trois premieres cases ne forment pas une suite.' : ''}
                         {puzzleType === 'sudoku_anti_diagonal' ? ' Anti Diagonal limite chaque grande diagonale a trois chiffres differents.' : ''}
                         {isSujiken ? ' Sujiken utilise les 45 cases du triangle.' : ''}
                         {isSamurai ? ' Samurai utilise les 369 cases actives des cinq grilles 9x9.' : ''}
@@ -1737,6 +1949,7 @@ function GridPuzzleWorkbenchApp({
                                     'sudoku-board',
                                     'solved',
                                     isGreaterThan ? 'greater-than-board' : '',
+                                    isRossini ? 'rossini-board' : '',
                                     isSujiken ? 'sujiken-board' : '',
                                     isSamurai ? 'samurai-board' : '',
                                     isFlower ? 'flower-board' : '',
@@ -1763,6 +1976,7 @@ function GridPuzzleWorkbenchApp({
                                     })
                                 ))}
                                 {renderInequalityControls(true)}
+                                {renderRossiniControls(true)}
                             </div>
                         </div>
                     )}

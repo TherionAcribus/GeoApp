@@ -127,6 +127,8 @@ Entrées principales :
 | `solver_timeout_ms` | number | `10000` | Timeout interne Z3, borne entre 1s et 120s. |
 | `inequalities` | object/list/string | vide | Contraintes `>` / `<` pour Greater Than / Compdoku. |
 | `comparisons` | object/list/string | vide | Alias de `inequalities`. |
+| `rossini` | object | vide | Fleches de bord Rossini (`top`, `bottom`, `left`, `right`). |
+| `arrows` | object | vide | Alias de `rossini`. |
 | `watched_cells` | string/list | vide | Cellules a extraire apres resolution. |
 | `watch_cells` | string/list | vide | Alias de `watched_cells`. |
 
@@ -147,6 +149,7 @@ Valeurs supportees pour `puzzle_type` :
 | `sohei_sudoku` | `sohei` | Quatre grilles Sudoku 9x9 chevauchantes dans un plateau 21x21. |
 | `kazaguruma_sudoku` | `kazaguruma`, `windmill_sudoku` | Cinq grilles Sudoku 9x9 chevauchantes dans un plateau 21x21 en moulin. |
 | `sudoku_greater_than` | `greater_than`, `compdoku`, `inequality_sudoku` | Sudoku standard + comparaisons `>` / `<` entre cases adjacentes. |
+| `sudoku_rossini` | `rossini`, `rossini_sudoku` | Sudoku standard + fleches exterieures ordonnant les trois premieres cases vues depuis un bord. |
 | `custom_spec` | `custom`, `json_spec` | Probleme CSP decrit en JSON. |
 
 Format de grille Sudoku :
@@ -286,6 +289,9 @@ Contraintes supportees :
 | `max_distinct` | `cells`, `limit` | Nombre de valeurs distinctes inferieur ou egal a `limit`. |
 | `greater_than` | `cells` | La premiere cellule est strictement superieure a la seconde. |
 | `less_than` | `cells` | La premiere cellule est strictement inferieure a la seconde. |
+| `strict_increasing` | `cells` | Trois cellules strictement croissantes dans l'ordre donne. |
+| `strict_decreasing` | `cells` | Trois cellules strictement decroissantes dans l'ordre donne. |
+| `not_monotonic` | `cells` | Trois cellules qui ne sont ni strictement croissantes ni strictement decroissantes. |
 
 ### `GridCspProblem`
 
@@ -1008,6 +1014,56 @@ Dans l'atelier Theia, la variante `Greater Than` affiche des emplacements entre
 les cases. Un clic alterne entre vide, `>` et `<`. Les bords sont sauvegardes
 avec l'etat de la grille.
 
+### Rossini Sudoku
+
+`puzzle_type = sudoku_rossini`
+
+Alias :
+
+```text
+rossini
+rossini_sudoku
+```
+
+Contraintes :
+
+- toutes les contraintes du Sudoku classique ;
+- une fleche de bord impose que les trois premieres cases vues depuis ce bord
+  soient strictement ordonnees ;
+- le chiffre le plus eleve est toujours dans la direction de la fleche ;
+- en mode complet, l'absence de fleche impose que le triplet vu depuis ce bord
+  ne soit ni strictement croissant ni strictement decroissant.
+
+Format envoye par l'atelier :
+
+```json
+{
+  "top": ["", "D", "", "", "", "U", "", "D", ""],
+  "bottom": ["", "", "", "U", "", "", "", "", "D"],
+  "left": ["", "", "", "", "", "", "L", "", "R"],
+  "right": ["", "R", "R", "", "", "", "", "", "R"],
+  "enforce_absent": true
+}
+```
+
+Les quatre tableaux contiennent chacun 9 entrees. Les valeurs vides peuvent etre
+`""`, `.`, `0`, `_`, `-` ou `?`. Les fleches Unicode sont acceptees, ainsi que
+les formes ASCII `U`, `D`, `L`, `R`, `^`, `v`, `<`, `>`.
+
+Interpretation :
+
+| Bord | Triplet contraint | Fleche croissante dans l'ordre du triplet | Fleche decroissante |
+|---|---|---|---|
+| `top` | `r1cX`, `r2cX`, `r3cX` | `v` / `D` / `↓` | `^` / `U` / `↑` |
+| `bottom` | `r7cX`, `r8cX`, `r9cX` | `v` / `D` / `↓` | `^` / `U` / `↑` |
+| `left` | `rXc1`, `rXc2`, `rXc3` | `>` / `R` / `→` | `<` / `L` / `←` |
+| `right` | `rXc7`, `rXc8`, `rXc9` | `>` / `R` / `→` | `<` / `L` / `←` |
+
+Dans l'atelier Theia, la variante `Rossini` affiche des boutons de bord autour
+de la grille. Un clic alterne les fleches possibles pour le bord concerne puis
+revient a vide. Les conflits locaux colorent les trois cases concernees en
+rouge avant meme l'appel au solveur.
+
 ## Specification generique `custom_spec`
 
 Le mode `custom_spec` accepte une specification JSON.
@@ -1139,6 +1195,7 @@ Fonctionnalites actuelles :
 - rendu 21x21 de 288 cases actives en mode Sohei Sudoku ;
 - rendu 21x21 de 333 cases actives en mode Kazaguruma ;
 - bords cliquables `>` / `<` en mode Greater Than / Compdoku ;
+- fleches de bord cliquables en mode Rossini ;
 - affichage de la premiere solution ;
 - reprise de la solution dans la grille ;
 - extraction des cellules surveillees ;
@@ -1150,9 +1207,10 @@ Fonctionnalites actuelles :
 |---|---|---|
 | `grid` | `string[][]` | Valeurs courantes de la grille. |
 | `quickText` | `string` | Representation texte de la grille. |
-| `puzzleType` | `sudoku_classic`, `sudoku_x`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku` ou `sudoku_greater_than` | Variante active. |
+| `puzzleType` | `sudoku_classic`, `sudoku_x`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than` ou `sudoku_rossini` | Variante active. |
 | `horizontalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme ligne. |
 | `verticalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme colonne. |
+| `rossiniArrows` | object | Fleches de bord `top`, `bottom`, `left`, `right` pour Rossini. |
 | `watchCells` | `string[]` | Cellules surveillees au format `r1c1`. |
 | `mode` | `edit` ou `watch` | Mode d'interaction. |
 | `maxSolutions` | number | Limite d'enumeration. |
@@ -1321,6 +1379,12 @@ Payload de sauvegarde :
       "horizontal": [["", ">", ""], "..."],
       "vertical": [["", "<", ""], "..."]
     },
+    "rossini": {
+      "top": ["", "D", "", "", "", "U", "", "D", ""],
+      "bottom": ["", "", "", "", "", "", "", "", ""],
+      "left": ["", "", "", "", "", "", "", "", ""],
+      "right": ["", "", "", "", "", "", "", "", ""]
+    },
     "watchCells": ["r1c1", "r9c9"],
     "maxSolutions": 2,
     "solverTimeoutMs": 10000,
@@ -1414,6 +1478,8 @@ Couverture actuelle :
 - Kazaguruma Sudoku refuse une valeur repetee dans une ligne ;
 - Greater Than valide avec une relation adjacente compatible ;
 - Greater Than refuse une relation adjacente contradictoire ;
+- Rossini valide avec des fleches de bord compatibles ;
+- Rossini refuse une fleche de bord contradictoire ;
 - extraction des cellules surveillees ;
 - spec generique type Latin square.
 
