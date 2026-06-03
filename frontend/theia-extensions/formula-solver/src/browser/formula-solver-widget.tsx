@@ -2799,13 +2799,20 @@ export class FormulaSolverWidget extends ReactWidget {
                 />
 
                 {/* Mode Brute Force */}
-                {!this.bruteForceMode && (
-                    <BruteForceComponent
-                        letters={this.extractLettersFromFormula(this.state.selectedFormula)}
-                        values={this.state.values}
-                        onBruteForceExecute={(combinations) => this.executeBruteForceFromCombinations(combinations)}
-                    />
-                )}
+                <BruteForceComponent
+                    letters={this.extractLettersFromFormula(this.state.selectedFormula)}
+                    values={this.state.values}
+                    results={this.bruteForceResults}
+                    onBruteForceExecute={(combinations) => this.executeBruteForceFromCombinations(combinations)}
+                    onCreateWaypoint={(resultId, autoSave) => this.createWaypointFromBrute(resultId, autoSave)}
+                    onRemoveResult={(resultId) => this.removeBruteForceResult(resultId)}
+                    onClearAll={() => {
+                        this.bruteForceMode = false;
+                        this.bruteForceResults = [];
+                        window.dispatchEvent(new CustomEvent('geoapp-map-highlight-clear'));
+                        this.update();
+                    }}
+                />
 
                 {/* Résultat du calcul normal */}
                 {!this.bruteForceMode && this.state.result && this.state.result.status === 'success' && (
@@ -2819,143 +2826,6 @@ export class FormulaSolverWidget extends ReactWidget {
                     />
                 )}
                 
-                {/* Résultats du brute force */}
-                {this.bruteForceMode && this.bruteForceResults.length > 0 && (
-                    <div style={{
-                        marginTop: '20px',
-                        padding: '16px',
-                        backgroundColor: 'var(--theia-editor-background)',
-                        border: '1px solid var(--theia-panel-border)',
-                        borderRadius: '6px'
-                    }}>
-                        <h4 style={{ margin: '0 0 12px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span className="codicon codicon-checklist" />
-                            Résultats Brute Force ({this.bruteForceResults.length})
-                        </h4>
-                        <div style={{ 
-                            maxHeight: '400px', 
-                            overflowY: 'auto',
-                            fontSize: '12px'
-                        }}>
-                            {this.bruteForceResults.map((result) => {
-                                const hasCoordinates = Boolean(result.coordinates);
-                                return (
-                                    <div key={result.id} style={{
-                                        padding: '8px',
-                                        marginBottom: '8px',
-                                        backgroundColor: 'var(--theia-input-background)',
-                                        borderRadius: '4px',
-                                        borderLeft: '3px solid var(--theia-successText)',
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        alignItems: 'flex-start',
-                                        gap: '12px'
-                                    }}>
-                                        <div style={{ flex: 1 }}>
-                                            <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
-                                                {result.label}
-                                            </div>
-                                            <div style={{ fontFamily: 'var(--theia-code-font-family)' }}>
-                                                Valeurs: {Object.entries(result.values)
-                                                    .map(([letter, value]) => `${letter}=${value}`)
-                                                    .join(', ')}
-                                            </div>
-                                            <div style={{ fontFamily: 'var(--theia-code-font-family)', color: 'var(--theia-descriptionForeground)' }}>
-                                                {result.coordinates?.ddm || '—'}
-                                            </div>
-                                        </div>
-                                        <div style={{
-                                            display: 'flex',
-                                            flexDirection: 'column',
-                                            gap: '6px',
-                                            alignItems: 'flex-end'
-                                        }}>
-                                            <button
-                                                className='theia-button'
-                                                style={{
-                                                    padding: '6px 10px',
-                                                    fontSize: '11px',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: '4px'
-                                                }}
-                                                disabled={!hasCoordinates}
-                                                title={hasCoordinates ? 'Ouvrir le formulaire de waypoint prérempli' : 'Aucune coordonnée pour ce résultat'}
-                                                onClick={() => hasCoordinates && this.createWaypointFromBrute(result.id, false)}
-                                            >
-                                                <span className='codicon codicon-add' />
-                                                Créer waypoint
-                                            </button>
-                                            <button
-                                                className='theia-button'
-                                                style={{
-                                                    padding: '6px 10px',
-                                                    fontSize: '11px',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: '4px'
-                                                }}
-                                                disabled={!hasCoordinates}
-                                                title={hasCoordinates ? 'Créer et valider immédiatement le waypoint' : 'Aucune coordonnée pour ce résultat'}
-                                                onClick={() => hasCoordinates && this.createWaypointFromBrute(result.id, true)}
-                                            >
-                                                <span className='codicon codicon-pass-filled' />
-                                                Ajouter & valider
-                                            </button>
-                                            <button
-                                                onClick={() => this.removeBruteForceResult(result.id)}
-                                                title="Supprimer cette solution"
-                                                style={{
-                                                    padding: '4px 8px',
-                                                    backgroundColor: 'transparent',
-                                                    color: 'var(--theia-errorForeground)',
-                                                    border: '1px solid var(--theia-errorForeground)',
-                                                    borderRadius: '3px',
-                                                    cursor: 'pointer',
-                                                    fontSize: '11px',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: '4px'
-                                                }}
-                                                onMouseEnter={(e) => {
-                                                    e.currentTarget.style.backgroundColor = 'var(--theia-errorForeground)';
-                                                    e.currentTarget.style.color = 'var(--theia-editor-background)';
-                                                }}
-                                                onMouseLeave={(e) => {
-                                                    e.currentTarget.style.backgroundColor = 'transparent';
-                                                    e.currentTarget.style.color = 'var(--theia-errorForeground)';
-                                                }}
-                                            >
-                                                <span className="codicon codicon-trash" />
-                                                Supprimer
-                                            </button>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                        <button
-                            onClick={() => {
-                                this.bruteForceMode = false;
-                                this.bruteForceResults = [];
-                                window.dispatchEvent(new CustomEvent('geoapp-map-highlight-clear'));
-                                this.update();
-                            }}
-                            style={{
-                                marginTop: '12px',
-                                padding: '8px 16px',
-                                backgroundColor: 'var(--theia-button-secondaryBackground)',
-                                color: 'var(--theia-button-secondaryForeground)',
-                                border: 'none',
-                                borderRadius: '4px',
-                                cursor: 'pointer',
-                                fontSize: '12px'
-                            }}
-                        >
-                            Effacer les résultats
-                        </button>
-                    </div>
-                )}
             </div>
         );
     }

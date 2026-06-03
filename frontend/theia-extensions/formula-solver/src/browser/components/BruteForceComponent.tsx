@@ -1,25 +1,56 @@
 /**
  * Composant pour le mode brute force
  * Permet de tester plusieurs valeurs pour une ou plusieurs lettres
+ * Avec onglets pour basculer entre les entrées et les résultats
  */
 
 import * as React from '@theia/core/shared/react';
 import { ValueRangeParser, CombinationGenerator } from '../../common/value-range-parser';
 import { LetterValue } from '../../common/types';
 
+export interface BruteForceResult {
+    id: string;
+    label: string;
+    values: Record<string, number>;
+    coordinates?: {
+        ddm: string;
+        decimal: { lat: number; lon: number };
+    };
+}
+
 interface BruteForceComponentProps {
     letters: string[];
     values: Map<string, LetterValue>;
+    results: BruteForceResult[];
     onBruteForceExecute: (combinations: Array<Record<string, number>>) => void;
+    onCreateWaypoint: (resultId: string, autoSave: boolean) => void;
+    onRemoveResult: (resultId: string) => void;
+    onClearAll: () => void;
 }
 
-export const BruteForceComponent: React.FC<BruteForceComponentProps> = ({ 
-    letters, 
+type BruteForceTab = 'inputs' | 'results';
+
+export const BruteForceComponent: React.FC<BruteForceComponentProps> = ({
+    letters,
     values,
-    onBruteForceExecute 
+    results,
+    onBruteForceExecute,
+    onCreateWaypoint,
+    onRemoveResult,
+    onClearAll
 }) => {
     const [patterns, setPatterns] = React.useState<Map<string, string>>(new Map());
     const [showHelp, setShowHelp] = React.useState(false);
+    const [activeTab, setActiveTab] = React.useState<BruteForceTab>('inputs');
+
+    // Basculer automatiquement vers l'onglet résultats quand des résultats arrivent (une seule fois)
+    const previousResultsLength = React.useRef(0);
+    React.useEffect(() => {
+        if (results.length > 0 && previousResultsLength.current === 0) {
+            setActiveTab('results');
+        }
+        previousResultsLength.current = results.length;
+    }, [results.length]);
 
     /**
      * Met à jour le pattern d'une lettre
@@ -114,10 +145,57 @@ export const BruteForceComponent: React.FC<BruteForceComponentProps> = ({
                 <h4 style={{ margin: 0, fontSize: '14px', fontWeight: 'bold' }}>
                     Mode Brute Force
                 </h4>
+                {results.length > 0 && (
+                    <div style={{
+                        display: 'flex',
+                        gap: '4px',
+                        marginLeft: 'auto'
+                    }}>
+                        <button
+                            onClick={() => setActiveTab('inputs')}
+                            style={{
+                                padding: '4px 12px',
+                                fontSize: '11px',
+                                backgroundColor: activeTab === 'inputs'
+                                    ? 'var(--theia-button-background)'
+                                    : 'var(--theia-button-secondaryBackground)',
+                                color: activeTab === 'inputs'
+                                    ? 'var(--theia-button-foreground)'
+                                    : 'var(--theia-button-secondaryForeground)',
+                                border: 'none',
+                                borderRadius: '3px',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            <span className="codicon codicon-edit" style={{ marginRight: '4px' }} />
+                            Entrées
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('results')}
+                            style={{
+                                padding: '4px 12px',
+                                fontSize: '11px',
+                                backgroundColor: activeTab === 'results'
+                                    ? 'var(--theia-button-background)'
+                                    : 'var(--theia-button-secondaryBackground)',
+                                color: activeTab === 'results'
+                                    ? 'var(--theia-button-foreground)'
+                                    : 'var(--theia-button-secondaryForeground)',
+                                border: 'none',
+                                borderRadius: '3px',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            <span className="codicon codicon-checklist" style={{ marginRight: '4px' }} />
+                            Résultats ({results.length})
+                        </button>
+                    </div>
+                )}
+
                 <button
                     onClick={() => setShowHelp(!showHelp)}
                     style={{
-                        marginLeft: 'auto',
+                        marginLeft: results.length > 0 ? '8px' : 'auto',
                         padding: '4px 8px',
                         fontSize: '11px',
                         backgroundColor: 'var(--theia-button-secondaryBackground)',
@@ -157,6 +235,9 @@ export const BruteForceComponent: React.FC<BruteForceComponentProps> = ({
                 </div>
             )}
 
+            {/* Onglet Entrées */}
+            {activeTab === 'inputs' && (
+                <>
             <div style={{ marginBottom: '12px' }}>
                 {letters.map(letter => {
                     const pattern = patterns.get(letter) || '';
@@ -227,8 +308,8 @@ export const BruteForceComponent: React.FC<BruteForceComponentProps> = ({
                 style={{
                     width: '100%',
                     padding: '10px',
-                    backgroundColor: tooManyCombinations 
-                        ? 'var(--theia-button-background)' 
+                    backgroundColor: tooManyCombinations
+                        ? 'var(--theia-button-background)'
                         : 'var(--theia-button-background)',
                     color: 'var(--theia-button-foreground)',
                     border: 'none',
@@ -246,6 +327,134 @@ export const BruteForceComponent: React.FC<BruteForceComponentProps> = ({
                 <span className="codicon codicon-run-all" />
                 Calculer toutes les combinaisons
             </button>
+                </>
+            )}
+
+            {/* Onglet Résultats */}
+            {activeTab === 'results' && results.length > 0 && (
+                <div style={{
+                    maxHeight: '400px',
+                    overflowY: 'auto',
+                    fontSize: '12px'
+                }}>
+                    {results.map((result) => {
+                        const hasCoordinates = Boolean(result.coordinates);
+                        return (
+                            <div key={result.id} style={{
+                                padding: '8px',
+                                marginBottom: '8px',
+                                backgroundColor: 'var(--theia-input-background)',
+                                borderRadius: '4px',
+                                borderLeft: '3px solid var(--theia-successText)',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'flex-start',
+                                gap: '12px'
+                            }}>
+                                <div style={{ flex: 1 }}>
+                                    <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
+                                        {result.label}
+                                    </div>
+                                    <div style={{ fontFamily: 'var(--theia-code-font-family)' }}>
+                                        Valeurs: {Object.entries(result.values)
+                                            .map(([letter, value]) => `${letter}=${value}`)
+                                            .join(', ')}
+                                    </div>
+                                    <div style={{ fontFamily: 'var(--theia-code-font-family)', color: 'var(--theia-descriptionForeground)' }}>
+                                        {result.coordinates?.ddm || '—'}
+                                    </div>
+                                </div>
+                                <div style={{
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: '6px',
+                                    alignItems: 'flex-end'
+                                }}>
+                                    <button
+                                        className='theia-button'
+                                        style={{
+                                            padding: '6px 10px',
+                                            fontSize: '11px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '4px'
+                                        }}
+                                        disabled={!hasCoordinates}
+                                        title={hasCoordinates ? 'Ouvrir le formulaire de waypoint prérempli' : 'Aucune coordonnée pour ce résultat'}
+                                        onClick={() => hasCoordinates && onCreateWaypoint(result.id, false)}
+                                    >
+                                        <span className='codicon codicon-add' />
+                                        Créer waypoint
+                                    </button>
+                                    <button
+                                        className='theia-button'
+                                        style={{
+                                            padding: '6px 10px',
+                                            fontSize: '11px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '4px'
+                                        }}
+                                        disabled={!hasCoordinates}
+                                        title={hasCoordinates ? 'Créer et valider immédiatement le waypoint' : 'Aucune coordonnée pour ce résultat'}
+                                        onClick={() => hasCoordinates && onCreateWaypoint(result.id, true)}
+                                    >
+                                        <span className='codicon codicon-pass-filled' />
+                                        Ajouter & valider
+                                    </button>
+                                    <button
+                                        onClick={() => onRemoveResult(result.id)}
+                                        title="Supprimer cette solution"
+                                        style={{
+                                            padding: '4px 8px',
+                                            backgroundColor: 'transparent',
+                                            color: 'var(--theia-errorForeground)',
+                                            border: '1px solid var(--theia-errorForeground)',
+                                            borderRadius: '3px',
+                                            cursor: 'pointer',
+                                            fontSize: '11px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '4px'
+                                        }}
+                                        onMouseEnter={(e) => {
+                                            e.currentTarget.style.backgroundColor = 'var(--theia-errorForeground)';
+                                            e.currentTarget.style.color = 'var(--theia-editor-background)';
+                                        }}
+                                        onMouseLeave={(e) => {
+                                            e.currentTarget.style.backgroundColor = 'transparent';
+                                            e.currentTarget.style.color = 'var(--theia-errorForeground)';
+                                        }}
+                                    >
+                                        <span className="codicon codicon-trash" />
+                                        Supprimer
+                                    </button>
+                                </div>
+                            </div>
+                        );
+                    })}
+                    <button
+                        onClick={() => {
+                            onClearAll();
+                            setActiveTab('inputs');
+                        }}
+                        style={{
+                            marginTop: '12px',
+                            padding: '8px 16px',
+                            backgroundColor: 'var(--theia-button-secondaryBackground)',
+                            color: 'var(--theia-button-secondaryForeground)',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontSize: '12px',
+                            width: '100%'
+                        }}
+                    >
+                        <span className="codicon codicon-trash" style={{ marginRight: '4px' }} />
+                        Effacer tous les résultats
+                    </button>
+                </div>
+            )}
         </div>
     );
 };
