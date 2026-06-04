@@ -472,10 +472,30 @@ class GeocachingScraper:
                         except Exception:
                             continue
 
-        # Statut
-        status = None
-        status_el = soup.select_one('[data-testid="status"], .status')
-        status = text_or_none(status_el)
+        # Statut (archived / disabled / active)
+        # 1. Archived : présence du log "Archive" (logtype 5) dans le compteur de logs
+        status = 'active'
+        find_counts_span = soup.find('span', {'id': 'ctl00_ContentBody_lblFindCounts'})
+        if find_counts_span:
+            for img in find_counts_span.find_all('img'):
+                src = img.get('src', '')
+                alt = (img.get('alt') or '').strip().lower()
+                title = (img.get('title') or '').strip().lower()
+                if '/logtypes/5.' in src or alt == 'archive' or title == 'archive':
+                    status = 'archived'
+                    logger.debug(f"[{code}] Cache is archived (archive log found)")
+                    break
+        # 2. Disabled : icône SVG avec "disabled" dans le href (seulement si pas archivée)
+        if status == 'active':
+            cache_image_div = soup.find('div', {'id': 'uxCacheImage'})
+            if cache_image_div:
+                for use_el in cache_image_div.find_all('use'):
+                    href = (use_el.get('href') or use_el.get('xlink:href') or '')
+                    if 'disabled' in href.lower():
+                        status = 'disabled'
+                        logger.debug(f"[{code}] Cache is disabled (disabled icon found)")
+                        break
+        logger.debug(f"[{code}] Final status: {status}")
 
         # Description HTML
         description_html = None

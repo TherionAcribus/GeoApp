@@ -1,4 +1,4 @@
-import * as React from 'react';
+﻿import * as React from 'react';
 import { getAttributeIconUrl } from './geocache-attributes-icons-data';
 import {
     GeocacheAttribute,
@@ -321,6 +321,32 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                 <span style={{ opacity: 0.7 }}>{geocacheData.type}</span>
                 <span style={{ opacity: 0.7 }}>|</span>
                 <span style={{ opacity: 0.7 }}>{`Par ${geocacheData.owner || 'Inconnu'}`}</span>
+                {geocacheData.status === 'archived' && (
+                    <span style={{
+                        background: 'rgba(127, 29, 29, 0.4)',
+                        color: '#fca5a5',
+                        border: '1px solid #ef4444',
+                        borderRadius: 4,
+                        padding: '2px 8px',
+                        fontSize: 11,
+                        fontWeight: 'bold',
+                    }}>
+                        ⛔ Archivée
+                    </span>
+                )}
+                {geocacheData.status === 'disabled' && (
+                    <span style={{
+                        background: 'rgba(120, 53, 15, 0.4)',
+                        color: '#fde68a',
+                        border: '1px solid #f59e0b',
+                        borderRadius: 4,
+                        padding: '2px 8px',
+                        fontSize: 11,
+                        fontWeight: 'bold',
+                    }}>
+                        ⚠️ Désactivée
+                    </span>
+                )}
                 {onRefresh && (
                     <button
                         className='theia-button secondary'
