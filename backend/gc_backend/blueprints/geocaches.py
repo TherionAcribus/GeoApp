@@ -540,6 +540,7 @@ def get_geocaches_for_zone(zone_id: int):
                 'original_latitude': gc.original_latitude,
                 'original_longitude': gc.original_longitude,
                 'status': gc.status or 'active',
+                'attributes': gc.attributes or [],
                 'waypoints': [w.to_dict() for w in (gc.waypoints or [])],
             })
         

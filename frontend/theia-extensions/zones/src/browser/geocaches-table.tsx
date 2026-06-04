@@ -62,6 +62,7 @@ export interface Geocache {
     hint?: string;
     waypoints?: GeocacheWaypoint[];
     status?: string;
+    attributes?: Array<{ name: string; is_negative: boolean; base_filename?: string }>;
 }
 
 
@@ -106,7 +107,8 @@ export type GeocachesTableColumnId =
     | 'favorites_count'
     | 'owner'
     | 'logs_count'
-    | 'status';
+    | 'status'
+    | 'need_maintenance';
 
 interface GeocachesTableColumnDefinition {
     id: GeocachesTableColumnId;
@@ -147,6 +149,7 @@ const GEOCACHES_TABLE_COLUMN_DEFINITIONS: GeocachesTableColumnDefinition[] = [
     { id: 'owner', label: 'Propriétaire', description: 'Propriétaire de la cache.' },
     { id: 'logs_count', label: 'Logs', description: 'Nombre de logs connus.' },
     { id: 'status', label: 'Statut', description: 'Statut de la cache sur Geocaching.com (active, désactivée, archivée).' },
+    { id: 'need_maintenance', label: 'Maintenance', description: 'Indique si le propriétaire a demandé une attention particulière (Need Maintenance).' },
 ];
 
 const ALL_GEOCACHES_TABLE_COLUMN_IDS = GEOCACHES_TABLE_COLUMN_DEFINITIONS.map(def => def.id);
@@ -547,6 +550,26 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                     return <span style={{ opacity: 0.45, fontSize: 11 }}>Active</span>;
                 },
                 size: 110,
+            },
+            {
+                id: 'need_maintenance',
+                accessorFn: row => {
+                    const attrs = (row as Geocache).attributes ?? [];
+                    return attrs.some(a => !a.is_negative && a.name.toLowerCase().includes('owner attention')) ? 1 : 0;
+                },
+                header: 'Maint.',
+                cell: ({ row }) => {
+                    const attrs = (row.original as Geocache).attributes ?? [];
+                    const needsMaint = attrs.some(a => !a.is_negative && a.name.toLowerCase().includes('owner attention'));
+                    if (!needsMaint) return null;
+                    return (
+                        <span style={{ background: 'rgba(120, 53, 15, 0.4)', color: '#fde68a', border: '1px solid #f59e0b', borderRadius: 4, padding: '1px 6px', fontSize: 11, fontWeight: 'bold', whiteSpace: 'nowrap' }}
+                            title='Owner attention requested'>
+                            🔧 Maint.
+                        </span>
+                    );
+                },
+                size: 90,
             },
             {
                 id: 'actions',
