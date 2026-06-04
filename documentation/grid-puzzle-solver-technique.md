@@ -131,6 +131,8 @@ Entrées principales :
 | `arrows` | object | vide | Alias de `rossini`. |
 | `xv` | object | vide | Marques de bord Sudoku XV (`horizontal`, `vertical`). |
 | `marks` | object | vide | Alias de `xv`. |
+| `skyscraper` | object | vide | Indices exterieurs Skyscraper (`top`, `bottom`, `left`, `right`). |
+| `clues` | object | vide | Alias de `skyscraper`. |
 | `watched_cells` | string/list | vide | Cellules a extraire apres resolution. |
 | `watch_cells` | string/list | vide | Alias de `watched_cells`. |
 
@@ -153,6 +155,7 @@ Valeurs supportees pour `puzzle_type` :
 | `sudoku_greater_than` | `greater_than`, `compdoku`, `inequality_sudoku` | Sudoku standard + comparaisons `>` / `<` entre cases adjacentes. |
 | `sudoku_rossini` | `rossini`, `rossini_sudoku` | Sudoku standard + fleches exterieures ordonnant les trois premieres cases vues depuis un bord. |
 | `sudoku_xv` | `xv`, `xv_sudoku` | Sudoku standard + marques de bord `X` / `V` pour les sommes 10 et 5. |
+| `sudoku_skyscraper` | `skyscraper`, `skyscraper_sudoku` | Sudoku standard + indices exterieurs comptant les batiments visibles. |
 | `custom_spec` | `custom`, `json_spec` | Probleme CSP decrit en JSON. |
 
 Format de grille Sudoku :
@@ -296,6 +299,7 @@ Contraintes supportees :
 | `strict_decreasing` | `cells` | Trois cellules strictement decroissantes dans l'ordre donne. |
 | `not_monotonic` | `cells` | Trois cellules qui ne sont ni strictement croissantes ni strictement decroissantes. |
 | `sum_not_in` | `cells`, `forbidden_totals` | Somme des cellules differente de chacun des totaux interdits. |
+| `visible_count` | `cells`, `total` | Nombre de valeurs visibles depuis le debut de la sequence ordonnee. |
 
 ### `GridCspProblem`
 
@@ -1145,6 +1149,55 @@ Dans l'atelier Theia, la variante `Sudoku XV` affiche des emplacements entre
 les cases. Un clic alterne entre vide, `X` et `V`. Les emplacements vides
 restent visibles car ils representent eux aussi une contrainte.
 
+### Skyscraper Sudoku
+
+`puzzle_type = sudoku_skyscraper`
+
+Alias :
+
+```text
+skyscraper
+skyscraper_sudoku
+```
+
+Contraintes :
+
+- toutes les contraintes du Sudoku classique ;
+- chaque chiffre de la grille est interprete comme une hauteur de batiment ;
+- un indice exterieur indique combien de batiments sont visibles quand on lit
+  la ligne ou la colonne depuis ce bord ;
+- un batiment est visible s'il est plus haut que tous les batiments precedents
+  dans la direction de lecture.
+
+Format envoye par l'atelier :
+
+```json
+{
+  "top": [3, 1, 3, 6, 3, 2, 3, 2, 2],
+  "bottom": [1, 3, 3, 2, 5, 2, 3, 2, 4],
+  "left": [2, 3, 2, 3, 4, 3, 3, 3, 1],
+  "right": [4, 4, 1, 2, 2, 5, 2, 3, 3]
+}
+```
+
+Les quatre tableaux contiennent chacun 9 entrees. Les valeurs vides peuvent
+etre `""`, `.`, `0`, `_`, `-` ou `?`, et signifient qu'aucun indice n'est
+pose sur ce bord. Les chaines compactes comme `"313632322"` sont aussi
+acceptees.
+
+Interpretation :
+
+| Bord | Sequence contrainte |
+|---|---|
+| `top` | colonne lue de `r1` vers `r9` |
+| `bottom` | colonne lue de `r9` vers `r1` |
+| `left` | ligne lue de `c1` vers `c9` |
+| `right` | ligne lue de `c9` vers `c1` |
+
+Dans l'atelier Theia, la variante `Skyscraper` affiche des champs numeriques
+autour de la grille. Les conflits locaux ne sont signales que lorsque les 9
+cases de la ligne ou colonne concernee sont remplies.
+
 ## Specification generique `custom_spec`
 
 Le mode `custom_spec` accepte une specification JSON.
@@ -1278,6 +1331,7 @@ Fonctionnalites actuelles :
 - bords cliquables `>` / `<` en mode Greater Than / Compdoku ;
 - fleches de bord cliquables en mode Rossini ;
 - bords cliquables `X` / `V` en mode Sudoku XV ;
+- indices exterieurs numeriques en mode Skyscraper ;
 - affichage de la premiere solution ;
 - reprise de la solution dans la grille ;
 - extraction des cellules surveillees ;
@@ -1289,12 +1343,13 @@ Fonctionnalites actuelles :
 |---|---|---|
 | `grid` | `string[][]` | Valeurs courantes de la grille. |
 | `quickText` | `string` | Representation texte de la grille. |
-| `puzzleType` | `sudoku_classic`, `sudoku_x`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_rossini` ou `sudoku_xv` | Variante active. |
+| `puzzleType` | `sudoku_classic`, `sudoku_x`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_rossini`, `sudoku_xv` ou `sudoku_skyscraper` | Variante active. |
 | `horizontalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme ligne. |
 | `verticalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme colonne. |
 | `rossiniArrows` | object | Fleches de bord `top`, `bottom`, `left`, `right` pour Rossini. |
 | `xvHorizontalMarks` | `string[][]` | Marques `X` / `V` entre deux cases d'une meme ligne. |
 | `xvVerticalMarks` | `string[][]` | Marques `X` / `V` entre deux cases d'une meme colonne. |
+| `skyscraperClues` | object | Indices exterieurs `top`, `bottom`, `left`, `right` pour Skyscraper. |
 | `watchCells` | `string[]` | Cellules surveillees au format `r1c1`. |
 | `mode` | `edit` ou `watch` | Mode d'interaction. |
 | `maxSolutions` | number | Limite d'enumeration. |
@@ -1473,6 +1528,12 @@ Payload de sauvegarde :
       "horizontal": [["", "V", "", "", "", "", "", ""], "..."],
       "vertical": [["", "", "X", "", "", "X", "", "", "X"], "..."]
     },
+    "skyscraper": {
+      "top": ["3", "1", "3", "6", "3", "2", "3", "2", "2"],
+      "bottom": ["1", "3", "3", "2", "5", "2", "3", "2", "4"],
+      "left": ["2", "3", "2", "3", "4", "3", "3", "3", "1"],
+      "right": ["4", "4", "1", "2", "2", "5", "2", "3", "3"]
+    },
     "watchCells": ["r1c1", "r9c9"],
     "maxSolutions": 2,
     "solverTimeoutMs": 10000,
@@ -1570,6 +1631,8 @@ Couverture actuelle :
 - Rossini refuse une fleche de bord contradictoire ;
 - Sudoku XV valide avec marques de bord compatibles ;
 - Sudoku XV refuse une marque de bord contradictoire ;
+- Skyscraper valide avec indices exterieurs compatibles ;
+- Skyscraper refuse un indice exterieur contradictoire ;
 - extraction des cellules surveillees ;
 - spec generique type Latin square.
 

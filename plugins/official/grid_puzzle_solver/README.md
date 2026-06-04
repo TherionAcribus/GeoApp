@@ -40,6 +40,9 @@ Generic finite-domain grid solver powered by Z3.
 - `sudoku_xv`: classic 9x9 Sudoku plus `X` / `V` border marks. `X` means the
   adjacent pair sums to 10, `V` means it sums to 5, and an empty border can
   forbid both sums.
+- `sudoku_skyscraper`: classic 9x9 Sudoku plus outside visibility clues. Each
+  clue counts how many increasing-height skyscrapers are visible from that
+  side of a row or column.
 - Empty cells can be written as `0`, `.`, or `_`.
 - Separators such as spaces, pipes, and row divider lines are ignored.
 
@@ -73,6 +76,8 @@ Sudoku is just the first builder on top of a generic CSP model:
   `not_monotonic`) for edge-clue variants such as Rossini;
 - sum exclusion constraints (`sum_not_in`) for negative border clues such as
   empty Sudoku XV borders;
+- visibility count constraints (`visible_count`) for outside-clue variants such
+  as Skyscraper Sudoku;
 - solution enumeration with uniqueness detection.
 - an internal Z3 timeout (`solver_timeout_ms`) for highly open grids.
 - watched cells (`watched_cells`) so an interactive UI can extract answer
@@ -90,10 +95,11 @@ the Theia "Grilles" workbench:
 - quick paste textarea for fast Sudoku import;
 - variant selector for classic Sudoku, Sudoku X, Anti Diagonal, Center Dot,
   Windoku, Girandola, Asterisk, Sujiken, Samurai Sudoku, Flower Sudoku,
-  Sohei Sudoku, Kazaguruma and Greater Than;
+  Sohei Sudoku, Kazaguruma, Greater Than, Rossini, Sudoku XV and Skyscraper;
 - editable `>` / `<` borders for Greater Than / Compdoku;
 - editable edge arrows for Rossini;
 - editable `X` / `V` borders for Sudoku XV;
+- editable outside visibility clues for Skyscraper Sudoku;
 - watch mode to mark answer cells;
 - solve action calling this plugin;
 - extracted watched values returned as `watched_values` and `watched_text`.

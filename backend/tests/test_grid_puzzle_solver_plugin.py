@@ -972,6 +972,71 @@ def test_xv_rejects_contradictory_border_mark():
     assert result["summary"] == "Aucune solution compatible avec les contraintes"
 
 
+def test_skyscraper_accepts_matching_edge_clues():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "sudoku_skyscraper",
+            "grid": """
+                496238175
+                275419863
+                831675429
+                648391257
+                127564938
+                359782641
+                714856392
+                582943716
+                963127584
+            """,
+            "skyscraper": {
+                "top": [3, 1, 3, 6, 3, 2, 3, 2, 2],
+                "bottom": [1, 3, 3, 2, 5, 2, 3, 2, 4],
+                "left": [2, 3, 2, 3, 4, 3, 3, 3, 1],
+                "right": [4, 4, 1, 2, 2, 5, 2, 3, 3],
+            },
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["unique"] is True
+    assert result["metadata"]["variant"] == "sudoku_skyscraper"
+    assert result["metadata"]["constraint_count"] == 63
+
+
+def test_skyscraper_rejects_contradictory_edge_clue():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "skyscraper",
+            "grid": """
+                496238175
+                275419863
+                831675429
+                648391257
+                127564938
+                359782641
+                714856392
+                582943716
+                963127584
+            """,
+            "skyscraper": {
+                "top": [1, 1, 3, 6, 3, 2, 3, 2, 2],
+                "bottom": [1, 3, 3, 2, 5, 2, 3, 2, 4],
+                "left": [2, 3, 2, 3, 4, 3, 3, 3, 1],
+                "right": [4, 4, 1, 2, 2, 5, 2, 3, 3],
+            },
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+    assert result["summary"] == "Aucune solution compatible avec les contraintes"
+
+
 def test_watched_cells_are_extracted_in_requested_order():
     plugin = load_plugin()
 

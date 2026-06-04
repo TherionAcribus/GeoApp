@@ -293,6 +293,23 @@ class GridpuzzlesolverPlugin:
                     xv=inputs.get("xv") or inputs.get("marks") or {},
                     include_xv=True,
                 )
+            elif puzzle_type in {"sudoku_skyscraper", "skyscraper", "skyscraper_sudoku"}:
+                puzzle_text = self._first_non_empty(
+                    inputs.get("grid"),
+                    inputs.get("puzzle"),
+                    inputs.get("text"),
+                )
+                problem = self._build_sudoku_problem(
+                    puzzle_text,
+                    include_diagonals=False,
+                    include_center_dot=False,
+                    include_windoku=False,
+                    include_girandola=False,
+                    include_asterisk=False,
+                    variant="sudoku_skyscraper",
+                    skyscraper=inputs.get("skyscraper") or inputs.get("clues") or {},
+                    include_skyscraper=True,
+                )
             elif puzzle_type in {"custom", "custom_spec", "json_spec"}:
                 problem = self._build_custom_problem(inputs.get("spec"))
             else:
@@ -335,6 +352,8 @@ class GridpuzzlesolverPlugin:
         include_rossini: bool = False,
         xv: Any = None,
         include_xv: bool = False,
+        skyscraper: Any = None,
+        include_skyscraper: bool = False,
     ) -> GridCspProblem:
         symbols = [str(value) for value in range(1, 10)]
         tokens = self._parse_sudoku_tokens(puzzle_text, symbols)
@@ -446,6 +465,8 @@ class GridpuzzlesolverPlugin:
             constraints.extend(self._parse_rossini_constraints(rossini))
         if include_xv:
             constraints.extend(self._parse_xv_constraints(xv))
+        if include_skyscraper:
+            constraints.extend(self._parse_skyscraper_constraints(skyscraper))
 
         return GridCspProblem(
             rows=9,
@@ -792,6 +813,28 @@ class GridpuzzlesolverPlugin:
                 solver.add(decreasing)
             else:
                 solver.add(z3.Not(z3.Or(increasing, decreasing)))
+            return
+
+        if kind == "visible_count":
+            if constraint.total is None or constraint.total < 1:
+                raise ValueError("La contrainte visible_count attend un total positif")
+            if len(cells) < 1:
+                raise ValueError("La contrainte visible_count attend au moins une cellule")
+            heights = [
+                self._numeric_value_expr(
+                    variables[cell],
+                    problem.symbols,
+                    problem.numeric_values,
+                )
+                for cell in cells
+            ]
+            visible_terms = []
+            for index, height in enumerate(heights):
+                if index == 0:
+                    visible_terms.append(1)
+                else:
+                    visible_terms.append(z3.If(z3.And(*(height > previous for previous in heights[:index])), 1, 0))
+            solver.add(z3.Sum(*visible_terms) == constraint.total)
             return
 
         if kind == "equals":
@@ -1192,6 +1235,75 @@ class GridpuzzlesolverPlugin:
                 return GridConstraint("sum_not_in", (first_cell, second_cell), forbidden_totals=(5, 10))
             return None
         raise ValueError(f"Symbole XV non supporte: {symbol}")
+
+    def _parse_skyscraper_constraints(self, raw_skyscraper: Any) -> List[GridConstraint]:
+        if raw_skyscraper in (None, "", []):
+            raw_skyscraper = {}
+        if isinstance(raw_skyscraper, str):
+            text = raw_skyscraper.strip()
+            if text:
+                try:
+                    raw_skyscraper = json.loads(text)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(f"Skyscraper JSON invalide: {exc.msg}") from exc
+            else:
+                raw_skyscraper = {}
+        if not isinstance(raw_skyscraper, dict):
+            raise ValueError("Format skyscraper non supporte")
+
+        side_specs = (
+            ("top", raw_skyscraper.get("top") or raw_skyscraper.get("t")),
+            ("bottom", raw_skyscraper.get("bottom") or raw_skyscraper.get("b")),
+            ("left", raw_skyscraper.get("left") or raw_skyscraper.get("l")),
+            ("right", raw_skyscraper.get("right") or raw_skyscraper.get("r")),
+        )
+
+        constraints: List[GridConstraint] = []
+        for side, raw_values in side_specs:
+            values = self._parse_skyscraper_side(raw_values, side)
+            for index, clue in enumerate(values):
+                if clue is None:
+                    continue
+                constraints.append(
+                    GridConstraint("visible_count", self._skyscraper_cells(side, index), total=clue)
+                )
+        return constraints
+
+    def _parse_skyscraper_side(self, raw_values: Any, side: str) -> List[Optional[int]]:
+        if raw_values in (None, ""):
+            return [None] * 9
+        if isinstance(raw_values, str):
+            values = [char for char in raw_values if char in {"1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "_", "-", "?"}]
+        elif isinstance(raw_values, list):
+            values = list(raw_values)
+        else:
+            raise ValueError(f"skyscraper.{side} doit etre une liste ou une chaine")
+
+        if len(values) != 9:
+            raise ValueError(f"skyscraper.{side} doit contenir 9 valeurs")
+
+        parsed: List[Optional[int]] = []
+        for raw_value in values:
+            text = str(raw_value or "").strip()
+            if text in {"", ".", "0", "_", "-", "?"}:
+                parsed.append(None)
+                continue
+            clue = int(text) if text.isdigit() else 0
+            if clue < 1 or clue > 9:
+                raise ValueError(f"Indice Skyscraper non supporte sur {side}: {raw_value}")
+            parsed.append(clue)
+        return parsed
+
+    def _skyscraper_cells(self, side: str, index: int) -> Tuple[Cell, ...]:
+        if side == "left":
+            return tuple((index, col) for col in range(9))
+        if side == "right":
+            return tuple((index, col) for col in range(8, -1, -1))
+        if side == "top":
+            return tuple((row, index) for row in range(9))
+        if side == "bottom":
+            return tuple((row, index) for row in range(8, -1, -1))
+        raise ValueError(f"Cote Skyscraper inconnu: {side}")
 
     def _parse_rossini_constraints(self, raw_rossini: Any) -> List[GridConstraint]:
         enforce_absent = True

@@ -9,13 +9,22 @@ import './style/grid-puzzle-workbench.css';
 
 type Grid = string[][];
 type WorkMode = 'edit' | 'watch';
-type SudokuVariant = 'sudoku_classic' | 'sudoku_x' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_rossini' | 'sudoku_xv';
+type SudokuVariant = 'sudoku_classic' | 'sudoku_x' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_skyscraper';
 type InequalitySymbol = '' | '>' | '<';
 type InequalityGrid = InequalitySymbol[][];
 type XvSymbol = '' | 'X' | 'V';
 type XvGrid = XvSymbol[][];
 type RossiniArrow = '' | '↑' | '↓' | '←' | '→';
 type RossiniSide = 'top' | 'bottom' | 'left' | 'right';
+
+type SkyscraperSide = 'top' | 'bottom' | 'left' | 'right';
+
+interface SkyscraperClues {
+    top: string[];
+    bottom: string[];
+    left: string[];
+    right: string[];
+}
 
 interface RossiniArrows {
     top: RossiniArrow[];
@@ -43,6 +52,12 @@ const EMPTY_HORIZONTAL_INEQUALITIES: InequalityGrid = Array.from({ length: SIZE 
 const EMPTY_VERTICAL_INEQUALITIES: InequalityGrid = Array.from({ length: SIZE - 1 }, () => Array(SIZE).fill(''));
 const EMPTY_XV_HORIZONTAL_MARKS: XvGrid = Array.from({ length: SIZE }, () => Array(SIZE - 1).fill(''));
 const EMPTY_XV_VERTICAL_MARKS: XvGrid = Array.from({ length: SIZE - 1 }, () => Array(SIZE).fill(''));
+const EMPTY_SKYSCRAPER_CLUES: SkyscraperClues = {
+    top: Array<string>(SIZE).fill(''),
+    bottom: Array<string>(SIZE).fill(''),
+    left: Array<string>(SIZE).fill(''),
+    right: Array<string>(SIZE).fill(''),
+};
 const EMPTY_ROSSINI_ARROWS: RossiniArrows = {
     top: Array<RossiniArrow>(SIZE).fill(''),
     bottom: Array<RossiniArrow>(SIZE).fill(''),
@@ -105,6 +120,15 @@ function cloneXvGrid(grid: XvGrid): XvGrid {
     return grid.map(row => [...row]);
 }
 
+function cloneSkyscraperClues(clues: SkyscraperClues): SkyscraperClues {
+    return {
+        top: [...clues.top],
+        bottom: [...clues.bottom],
+        left: [...clues.left],
+        right: [...clues.right],
+    };
+}
+
 function cloneRossiniArrows(arrows: RossiniArrows): RossiniArrows {
     return {
         top: [...arrows.top],
@@ -160,6 +184,9 @@ function getVariantLabel(puzzleType: SudokuVariant): string {
     }
     if (puzzleType === 'sudoku_xv') {
         return 'Sudoku XV';
+    }
+    if (puzzleType === 'sudoku_skyscraper') {
+        return 'Skyscraper';
     }
     return 'Sudoku classique';
 }
@@ -452,6 +479,7 @@ function findConstraintConflicts(
     rossiniArrows: RossiniArrows,
     xvHorizontalMarks: XvGrid,
     xvVerticalMarks: XvGrid,
+    skyscraperClues: SkyscraperClues,
 ): ConflictHighlights {
     const cells = new Set<string>();
     const messages: string[] = [];
@@ -526,6 +554,10 @@ function findConstraintConflicts(
                 addXvConflict(grid, cells, messages, mark, rowIndex, colIndex, rowIndex + 1, colIndex);
             });
         });
+    }
+
+    if (puzzleType === 'sudoku_skyscraper') {
+        addSkyscraperConflicts(grid, cells, messages, skyscraperClues);
     }
 
     return { cells, messages };
@@ -619,6 +651,62 @@ function addXvConflict(
             ? `Marque XV ${mark} non respectee entre ${firstRef} et ${secondRef} : somme ${total}`
             : `Absence de marque XV entre ${firstRef} et ${secondRef} : somme ${total}`,
     );
+}
+
+function addSkyscraperConflicts(
+    grid: Grid,
+    cells: Set<string>,
+    messages: string[],
+    clues: SkyscraperClues,
+): void {
+    (['top', 'bottom', 'left', 'right'] as SkyscraperSide[]).forEach(side => {
+        clues[side].forEach((clue, index) => {
+            if (!clue) {
+                return;
+            }
+            const lineCells = skyscraperCells(side, index);
+            const values = lineCells.map(([row, col]) => Number(grid[row]?.[col] || 0));
+            if (values.some(value => !value)) {
+                return;
+            }
+            const visible = countVisibleSkyscrapers(values);
+            if (visible === Number(clue)) {
+                return;
+            }
+            const refs = lineCells.map(([row, col]) => cellRef(row, col));
+            refs.forEach(ref => cells.add(ref));
+            messages.push(`Indice Skyscraper ${skyscraperSideLabel(side)} ${index + 1} attendu ${clue}, visible ${visible} : ${refs.join(', ')}`);
+        });
+    });
+}
+
+function skyscraperCells(side: SkyscraperSide, index: number): CellCoord[] {
+    if (side === 'left') {
+        return Array.from({ length: SIZE }, (_unused, col): CellCoord => [index, col]);
+    }
+    if (side === 'right') {
+        return Array.from({ length: SIZE }, (_unused, offset): CellCoord => [index, SIZE - 1 - offset]);
+    }
+    if (side === 'top') {
+        return Array.from({ length: SIZE }, (_unused, row): CellCoord => [row, index]);
+    }
+    return Array.from({ length: SIZE }, (_unused, offset): CellCoord => [SIZE - 1 - offset, index]);
+}
+
+function countVisibleSkyscrapers(values: number[]): number {
+    let highest = 0;
+    let visible = 0;
+    values.forEach(value => {
+        if (value > highest) {
+            highest = value;
+            visible += 1;
+        }
+    });
+    return visible;
+}
+
+function skyscraperSideLabel(side: SkyscraperSide): string {
+    return side === 'top' ? 'haut' : side === 'bottom' ? 'bas' : side === 'left' ? 'gauche' : 'droite';
 }
 
 function addRossiniConflicts(
@@ -825,6 +913,10 @@ function emptyXvVerticalMarks(): XvGrid {
     return cloneXvGrid(EMPTY_XV_VERTICAL_MARKS);
 }
 
+function emptySkyscraperClues(): SkyscraperClues {
+    return cloneSkyscraperClues(EMPTY_SKYSCRAPER_CLUES);
+}
+
 function emptyRossiniArrows(): RossiniArrows {
     return cloneRossiniArrows(EMPTY_ROSSINI_ARROWS);
 }
@@ -858,6 +950,33 @@ function normalizeXvGrid(value: unknown, rows: number, cols: number): XvGrid {
         const cells = typeof row === 'string' ? row.split('') : Array.isArray(row) ? row : [];
         return Array.from({ length: cols }, (_unused, index) => normalizeXvSymbol(cells[index]));
     });
+}
+
+function normalizeSkyscraperClue(value: unknown): string {
+    const text = String(value ?? '').replace(/[^1-9]/g, '').slice(-1);
+    return text;
+}
+
+function normalizeSkyscraperSide(value: unknown): string[] {
+    const rawValues = typeof value === 'string'
+        ? value.split('')
+        : Array.isArray(value)
+            ? value
+            : [];
+    return Array.from({ length: SIZE }, (_unused, index) => normalizeSkyscraperClue(rawValues[index]));
+}
+
+function normalizeSkyscraperClues(value: unknown): SkyscraperClues {
+    if (!value || typeof value !== 'object') {
+        return emptySkyscraperClues();
+    }
+    const record = value as Record<string, unknown>;
+    return {
+        top: normalizeSkyscraperSide(record.top ?? record.t),
+        bottom: normalizeSkyscraperSide(record.bottom ?? record.b),
+        left: normalizeSkyscraperSide(record.left ?? record.l),
+        right: normalizeSkyscraperSide(record.right ?? record.r),
+    };
 }
 
 function normalizeRossiniArrow(value: unknown, side: RossiniSide): RossiniArrow {
@@ -1342,6 +1461,7 @@ function GridPuzzleWorkbenchApp({
     const [verticalInequalities, setVerticalInequalities] = React.useState<InequalityGrid>(() => emptyVerticalInequalities());
     const [xvHorizontalMarks, setXvHorizontalMarks] = React.useState<XvGrid>(() => emptyXvHorizontalMarks());
     const [xvVerticalMarks, setXvVerticalMarks] = React.useState<XvGrid>(() => emptyXvVerticalMarks());
+    const [skyscraperClues, setSkyscraperClues] = React.useState<SkyscraperClues>(() => emptySkyscraperClues());
     const [rossiniArrows, setRossiniArrows] = React.useState<RossiniArrows>(() => emptyRossiniArrows());
     const [watchCells, setWatchCells] = React.useState<string[]>([]);
     const [mode, setMode] = React.useState<WorkMode>('edit');
@@ -1366,6 +1486,7 @@ function GridPuzzleWorkbenchApp({
     const isGreaterThan = puzzleType === 'sudoku_greater_than';
     const isRossini = puzzleType === 'sudoku_rossini';
     const isXv = puzzleType === 'sudoku_xv';
+    const isSkyscraper = puzzleType === 'sudoku_skyscraper';
     const isSujiken = puzzleType === 'sujiken';
     const isSamurai = puzzleType === 'samurai_sudoku';
     const isFlower = puzzleType === 'flower_sudoku';
@@ -1384,8 +1505,8 @@ function GridPuzzleWorkbenchApp({
             ? SAMURAI_TEXT_PLACEHOLDER
             : QUICK_TEXT_PLACEHOLDER;
     const constraintConflicts = React.useMemo(
-        () => findConstraintConflicts(grid, puzzleType, horizontalInequalities, verticalInequalities, rossiniArrows, xvHorizontalMarks, xvVerticalMarks),
-        [grid, horizontalInequalities, puzzleType, rossiniArrows, verticalInequalities, xvHorizontalMarks, xvVerticalMarks],
+        () => findConstraintConflicts(grid, puzzleType, horizontalInequalities, verticalInequalities, rossiniArrows, xvHorizontalMarks, xvVerticalMarks, skyscraperClues),
+        [grid, horizontalInequalities, puzzleType, rossiniArrows, skyscraperClues, verticalInequalities, xvHorizontalMarks, xvVerticalMarks],
     );
     const visibleConflictMessages = constraintConflicts.messages.slice(0, 4);
 
@@ -1443,6 +1564,7 @@ function GridPuzzleWorkbenchApp({
         setVerticalInequalities(normalizeInequalityGrid(snapshot?.inequalities?.vertical, SIZE - 1, SIZE));
         setXvHorizontalMarks(normalizeXvGrid(snapshot?.xv?.horizontal ?? snapshot?.xvMarks?.horizontal, SIZE, SIZE - 1));
         setXvVerticalMarks(normalizeXvGrid(snapshot?.xv?.vertical ?? snapshot?.xvMarks?.vertical, SIZE - 1, SIZE));
+        setSkyscraperClues(normalizeSkyscraperClues(snapshot?.skyscraper ?? snapshot?.skyscraperClues));
         setRossiniArrows(normalizeRossiniArrows(snapshot?.rossini ?? snapshot?.rossiniArrows));
         setMaxSolutions(normalizeNumber(snapshot?.maxSolutions, 2, 1, 25));
         setTimeoutMs(normalizeNumber(snapshot?.solverTimeoutMs ?? snapshot?.timeoutMs, 10000, 1000, 120000));
@@ -1512,6 +1634,7 @@ function GridPuzzleWorkbenchApp({
                         horizontal: xvHorizontalMarks,
                         vertical: xvVerticalMarks,
                     },
+                    skyscraper: skyscraperClues,
                     rossini: rossiniArrows,
                     watchCells,
                     maxSolutions,
@@ -1545,6 +1668,7 @@ function GridPuzzleWorkbenchApp({
         puzzleType,
         quickText,
         rossiniArrows,
+        skyscraperClues,
         solveState.result,
         timeoutMs,
         variantLabel,
@@ -1610,6 +1734,17 @@ function GridPuzzleWorkbenchApp({
         setRossiniArrows(previous => {
             const next = cloneRossiniArrows(previous);
             next[side][index] = cycleRossiniArrow(side, next[side][index]);
+            return next;
+        });
+        setSolveState({ running: false });
+        markDirty();
+    }, [markDirty]);
+
+    const updateSkyscraperClue = React.useCallback((side: SkyscraperSide, index: number, rawValue: string) => {
+        const value = normalizeSkyscraperClue(rawValue);
+        setSkyscraperClues(previous => {
+            const next = cloneSkyscraperClues(previous);
+            next[side][index] = value;
             return next;
         });
         setSolveState({ running: false });
@@ -1713,6 +1848,7 @@ function GridPuzzleWorkbenchApp({
             || value === 'sudoku_greater_than'
             || value === 'sudoku_rossini'
             || value === 'sudoku_xv'
+            || value === 'sudoku_skyscraper'
             ? value
             : 'sudoku_classic';
         const nextGrid = resizeGrid(grid, gridSizeForVariant(nextPuzzleType));
@@ -1729,6 +1865,7 @@ function GridPuzzleWorkbenchApp({
         setVerticalInequalities(emptyVerticalInequalities());
         setXvHorizontalMarks(emptyXvHorizontalMarks());
         setXvVerticalMarks(emptyXvVerticalMarks());
+        setSkyscraperClues(emptySkyscraperClues());
         setRossiniArrows(emptyRossiniArrows());
         setWatchCells([]);
         setSolveState({ running: false });
@@ -1762,6 +1899,7 @@ function GridPuzzleWorkbenchApp({
                     vertical: xvVerticalMarks,
                     enforce_absent: true,
                 } : undefined,
+                skyscraper: isSkyscraper ? skyscraperClues : undefined,
                 max_solutions: maxSolutions,
                 solver_timeout_ms: timeoutMs,
             });
@@ -1779,7 +1917,7 @@ function GridPuzzleWorkbenchApp({
                 error: error instanceof Error ? error.message : String(error),
             });
         }
-    }, [constraintConflicts.messages.length, geocacheId, grid, horizontalInequalities, isRossini, isXv, maxSolutions, pluginsService, puzzleType, rossiniArrows, saveState, timeoutMs, verticalInequalities, watchCells, xvHorizontalMarks, xvVerticalMarks]);
+    }, [constraintConflicts.messages.length, geocacheId, grid, horizontalInequalities, isRossini, isSkyscraper, isXv, maxSolutions, pluginsService, puzzleType, rossiniArrows, saveState, skyscraperClues, timeoutMs, verticalInequalities, watchCells, xvHorizontalMarks, xvVerticalMarks]);
 
     const useSolvedGrid = React.useCallback(() => {
         if (solvedGrid) {
@@ -1796,7 +1934,7 @@ function GridPuzzleWorkbenchApp({
                 gridRow: String(rowIndex * 2 + 1),
             };
         }
-        if (isRossini) {
+        if (isRossini || isSkyscraper) {
             return {
                 gridColumn: String(colIndex + 2),
                 gridRow: String(rowIndex + 2),
@@ -2029,6 +2167,56 @@ function GridPuzzleWorkbenchApp({
         );
     };
 
+    const renderSkyscraperControls = (readonly = false): React.ReactNode => {
+        if (!isSkyscraper) {
+            return null;
+        }
+
+        const renderInput = (side: SkyscraperSide, index: number, style: React.CSSProperties) => {
+            const value = skyscraperClues[side][index];
+            const label = `${skyscraperSideLabel(side)} ${index + 1}`;
+            return (
+                <input
+                    key={`skyscraper-${side}-${index}`}
+                    className={[
+                        'skyscraper-clue',
+                        side,
+                        value ? 'active' : '',
+                    ].filter(Boolean).join(' ')}
+                    style={style}
+                    aria-label={`Indice Skyscraper ${label}`}
+                    title={`Indice Skyscraper ${label}`}
+                    value={value}
+                    inputMode='numeric'
+                    maxLength={1}
+                    disabled={readonly}
+                    onChange={event => updateSkyscraperClue(side, index, event.currentTarget.value)}
+                />
+            );
+        };
+
+        return (
+            <>
+                {skyscraperClues.top.map((_value, index) => renderInput('top', index, {
+                    gridColumn: String(index + 2),
+                    gridRow: '1',
+                }))}
+                {skyscraperClues.bottom.map((_value, index) => renderInput('bottom', index, {
+                    gridColumn: String(index + 2),
+                    gridRow: '11',
+                }))}
+                {skyscraperClues.left.map((_value, index) => renderInput('left', index, {
+                    gridColumn: '1',
+                    gridRow: String(index + 2),
+                }))}
+                {skyscraperClues.right.map((_value, index) => renderInput('right', index, {
+                    gridColumn: '11',
+                    gridRow: String(index + 2),
+                }))}
+            </>
+        );
+    };
+
     return (
         <div className='grid-puzzle-workbench'>
             <div className='grid-puzzle-toolbar'>
@@ -2063,6 +2251,7 @@ function GridPuzzleWorkbenchApp({
                         <option value='sudoku_greater_than'>Greater Than</option>
                         <option value='sudoku_rossini'>Rossini</option>
                         <option value='sudoku_xv'>Sudoku XV</option>
+                        <option value='sudoku_skyscraper'>Skyscraper</option>
                     </select>
                     <button onClick={solve} disabled={solveState.running}>
                         {solveState.running ? 'Resolution...' : 'Resoudre'}
@@ -2084,6 +2273,7 @@ function GridPuzzleWorkbenchApp({
                             isGreaterThan ? 'greater-than-board' : '',
                             isXv ? 'xv-board' : '',
                             isRossini ? 'rossini-board' : '',
+                            isSkyscraper ? 'skyscraper-board' : '',
                             isSujiken ? 'sujiken-board' : '',
                             isSamurai ? 'samurai-board' : '',
                             isFlower ? 'flower-board' : '',
@@ -2120,6 +2310,7 @@ function GridPuzzleWorkbenchApp({
                         {renderInequalityControls()}
                         {renderXvControls()}
                         {renderRossiniControls()}
+                        {renderSkyscraperControls()}
                     </div>
 
                     <div className='grid-puzzle-hint'>
@@ -2127,6 +2318,7 @@ function GridPuzzleWorkbenchApp({
                         {isGreaterThan ? ' Cliquez les bords pour alterner entre >, < et vide.' : ''}
                         {isRossini ? ' Cliquez les bords exterieurs pour poser les fleches Rossini. Un bord vide impose aussi que les trois premieres cases ne forment pas une suite.' : ''}
                         {isXv ? ' Cliquez les bords pour alterner entre X, V et vide. Un bord vide interdit les sommes 5 et 10.' : ''}
+                        {isSkyscraper ? ' Renseignez les indices exterieurs visibles depuis chaque cote de la grille.' : ''}
                         {puzzleType === 'sudoku_anti_diagonal' ? ' Anti Diagonal limite chaque grande diagonale a trois chiffres differents.' : ''}
                         {isSujiken ? ' Sujiken utilise les 45 cases du triangle.' : ''}
                         {isSamurai ? ' Samurai utilise les 369 cases actives des cinq grilles 9x9.' : ''}
@@ -2158,6 +2350,7 @@ function GridPuzzleWorkbenchApp({
                                     isGreaterThan ? 'greater-than-board' : '',
                                     isXv ? 'xv-board' : '',
                                     isRossini ? 'rossini-board' : '',
+                                    isSkyscraper ? 'skyscraper-board' : '',
                                     isSujiken ? 'sujiken-board' : '',
                                     isSamurai ? 'samurai-board' : '',
                                     isFlower ? 'flower-board' : '',
@@ -2186,6 +2379,7 @@ function GridPuzzleWorkbenchApp({
                                 {renderInequalityControls(true)}
                                 {renderXvControls(true)}
                                 {renderRossiniControls(true)}
+                                {renderSkyscraperControls(true)}
                             </div>
                         </div>
                     )}
