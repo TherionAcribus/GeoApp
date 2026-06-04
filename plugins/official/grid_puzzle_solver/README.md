@@ -45,6 +45,9 @@ Generic finite-domain grid solver powered by Z3.
   side of a row or column.
 - `sudoku_frame`: classic 9x9 Sudoku plus outside sum clues. Each clue gives
   the sum of the three nearest cells in the corresponding row or column.
+- `sudoku_godoku`: classic 9x9 Sudoku using nine letters instead of digits.
+  The alphabet can be provided explicitly or inferred from the givens when all
+  nine letters are present.
 - Empty cells can be written as `0`, `.`, or `_`.
 - Separators such as spaces, pipes, and row divider lines are ignored.
 
@@ -97,13 +100,14 @@ the Theia "Grilles" workbench:
 - quick paste textarea for fast Sudoku import;
 - variant selector for classic Sudoku, Sudoku X, Anti Diagonal, Center Dot,
   Windoku, Girandola, Asterisk, Sujiken, Samurai Sudoku, Flower Sudoku,
-  Sohei Sudoku, Kazaguruma, Greater Than, Rossini, Sudoku XV, Skyscraper and
-  Frame;
+  Sohei Sudoku, Kazaguruma, Greater Than, Rossini, Sudoku XV, Skyscraper,
+  Frame and Godoku;
 - editable `>` / `<` borders for Greater Than / Compdoku;
 - editable edge arrows for Rossini;
 - editable `X` / `V` borders for Sudoku XV;
 - editable outside visibility clues for Skyscraper Sudoku;
 - editable outside three-cell sum clues for Frame Sudoku;
+- letter entry and optional alphabet field for Godoku / Wordoku;
 - watch mode to mark answer cells;
 - solve action calling this plugin;
 - extracted watched values returned as `watched_values` and `watched_text`.

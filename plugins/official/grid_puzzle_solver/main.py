@@ -327,6 +327,26 @@ class GridpuzzlesolverPlugin:
                     frame=inputs.get("frame") or inputs.get("outside_sums") or {},
                     include_frame=True,
                 )
+            elif puzzle_type in {"sudoku_godoku", "godoku", "wordoku", "alphabet_sudoku"}:
+                puzzle_text = self._first_non_empty(
+                    inputs.get("grid"),
+                    inputs.get("puzzle"),
+                    inputs.get("text"),
+                )
+                symbols = self._parse_godoku_symbols(
+                    inputs.get("alphabet") or inputs.get("symbols"),
+                    puzzle_text,
+                )
+                problem = self._build_sudoku_problem(
+                    puzzle_text,
+                    include_diagonals=False,
+                    include_center_dot=False,
+                    include_windoku=False,
+                    include_girandola=False,
+                    include_asterisk=False,
+                    variant="sudoku_godoku",
+                    symbols_override=symbols,
+                )
             elif puzzle_type in {"custom", "custom_spec", "json_spec"}:
                 problem = self._build_custom_problem(inputs.get("spec"))
             else:
@@ -373,8 +393,9 @@ class GridpuzzlesolverPlugin:
         include_skyscraper: bool = False,
         frame: Any = None,
         include_frame: bool = False,
+        symbols_override: Optional[Sequence[str]] = None,
     ) -> GridCspProblem:
-        symbols = [str(value) for value in range(1, 10)]
+        symbols = list(symbols_override) if symbols_override is not None else [str(value) for value in range(1, 10)]
         tokens = self._parse_sudoku_tokens(puzzle_text, symbols)
 
         active_cells = [(row, col) for row in range(9) for col in range(9)]
@@ -496,7 +517,7 @@ class GridpuzzlesolverPlugin:
             active_cells=active_cells,
             givens=givens,
             constraints=constraints,
-            numeric_values={symbol: int(symbol) for symbol in symbols},
+            numeric_values=self._default_numeric_values(symbols),
             variant=variant,
         )
 
@@ -936,6 +957,12 @@ class GridpuzzlesolverPlugin:
         for index in range(len(symbols) - 2, -1, -1):
             expr = z3.If(variable == index, numeric_values[symbols[index]], expr)
         return expr
+
+    def _default_numeric_values(self, symbols: Sequence[str]) -> Dict[str, int]:
+        values: Dict[str, int] = {}
+        for index, symbol in enumerate(symbols, start=1):
+            values[symbol] = int(symbol) if str(symbol).isdigit() else index
+        return values
 
     def _model_to_grid(
         self,
@@ -1512,7 +1539,7 @@ class GridpuzzlesolverPlugin:
             raise ValueError("Aucune grille Sudoku fournie")
 
         blank_tokens = {"0", ".", "_"}
-        symbol_set = set(symbols)
+        symbol_by_upper = {str(symbol).upper(): str(symbol) for symbol in symbols}
         tokens: List[str] = []
 
         for raw_line in str(text).splitlines():
@@ -1520,7 +1547,10 @@ class GridpuzzlesolverPlugin:
             if not line or SEPARATOR_LINE_RE.fullmatch(line):
                 continue
             for char in line:
-                if char in symbol_set or char in blank_tokens:
+                normalized_symbol = symbol_by_upper.get(char.upper())
+                if normalized_symbol is not None:
+                    tokens.append(normalized_symbol)
+                elif char in blank_tokens:
                     tokens.append(char)
 
         if len(tokens) != 81:
@@ -1528,6 +1558,36 @@ class GridpuzzlesolverPlugin:
                 f"Une grille Sudoku classique doit contenir 81 cases, {len(tokens)} detectees"
             )
         return tokens
+
+    def _parse_godoku_symbols(self, raw_symbols: Any, puzzle_text: str) -> List[str]:
+        if raw_symbols not in (None, "", []):
+            if isinstance(raw_symbols, list):
+                symbols = [str(symbol).strip().upper() for symbol in raw_symbols if str(symbol).strip()]
+            else:
+                symbols = [
+                    char.upper()
+                    for char in str(raw_symbols)
+                    if char.isalpha() or char.isdigit()
+                ]
+        else:
+            symbols = []
+            seen = set()
+            for char in str(puzzle_text or ""):
+                if not char.isalpha():
+                    continue
+                symbol = char.upper()
+                if symbol in seen:
+                    continue
+                seen.add(symbol)
+                symbols.append(symbol)
+
+        if len(symbols) != 9 or len(set(symbols)) != 9:
+            raise ValueError(
+                "Godoku attend un alphabet de 9 symboles uniques via alphabet/symbols, ou 9 lettres distinctes dans la grille"
+            )
+        if any(len(symbol) != 1 for symbol in symbols):
+            raise ValueError("Godoku attend des symboles d'un seul caractere")
+        return symbols
 
     def _parse_sujiken_tokens(self, text: str, symbols: Sequence[str]) -> List[str]:
         if not text or not str(text).strip():

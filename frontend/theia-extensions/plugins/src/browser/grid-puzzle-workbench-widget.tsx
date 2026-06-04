@@ -9,7 +9,7 @@ import './style/grid-puzzle-workbench.css';
 
 type Grid = string[][];
 type WorkMode = 'edit' | 'watch';
-type SudokuVariant = 'sudoku_classic' | 'sudoku_x' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_skyscraper' | 'sudoku_frame';
+type SudokuVariant = 'sudoku_classic' | 'sudoku_x' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_godoku';
 type InequalitySymbol = '' | '>' | '<';
 type InequalityGrid = InequalitySymbol[][];
 type XvSymbol = '' | 'X' | 'V';
@@ -212,6 +212,9 @@ function getVariantLabel(puzzleType: SudokuVariant): string {
     }
     if (puzzleType === 'sudoku_frame') {
         return 'Frame';
+    }
+    if (puzzleType === 'sudoku_godoku') {
+        return 'Godoku';
     }
     return 'Sudoku classique';
 }
@@ -1232,6 +1235,27 @@ function parseGridText(text: string): Grid | null {
     return grid;
 }
 
+function parseGodokuText(text: string): Grid | null {
+    const tokens: string[] = [];
+    for (const char of text) {
+        if (/[A-Za-z]/.test(char)) {
+            tokens.push(char.toUpperCase());
+        } else if (char === '0' || char === '.' || char === '_') {
+            tokens.push('');
+        }
+    }
+
+    if (tokens.length !== SIZE * SIZE) {
+        return null;
+    }
+
+    const grid = emptyGrid();
+    tokens.forEach((value, index) => {
+        grid[Math.floor(index / SIZE)][index % SIZE] = value;
+    });
+    return grid;
+}
+
 function parseSujikenText(text: string): Grid | null {
     const rows = text
         .split(/\r?\n/)
@@ -1481,6 +1505,9 @@ function parsePuzzleText(text: string, puzzleType: SudokuVariant): Grid | null {
     if (puzzleType === 'flower_sudoku') {
         return parseFlowerText(text);
     }
+    if (puzzleType === 'sudoku_godoku') {
+        return parseGodokuText(text);
+    }
     return parseGridText(text);
 }
 
@@ -1500,7 +1527,9 @@ function normalizeGrid(value: unknown, puzzleType: SudokuVariant): Grid | undefi
             return undefined;
         }
         return Array.from({ length: size }, (_unused, index) => row[index]).map(cell => {
-            const text = String(cell ?? '').replace(/[^1-9]/g, '').slice(-1);
+            const text = puzzleType === 'sudoku_godoku'
+                ? String(cell ?? '').replace(/[^A-Za-z]/g, '').slice(-1).toUpperCase()
+                : String(cell ?? '').replace(/[^1-9]/g, '').slice(-1);
             return text;
         });
     });
@@ -1541,6 +1570,22 @@ function normalizeNumber(value: unknown, fallback: number, min: number, max: num
     return Math.max(min, Math.min(max, Math.floor(numberValue)));
 }
 
+function normalizeGodokuAlphabet(value: unknown): string {
+    const letters: string[] = [];
+    const seen = new Set<string>();
+    for (const char of String(value ?? '').toUpperCase()) {
+        if (!/[A-Z]/.test(char) || seen.has(char)) {
+            continue;
+        }
+        seen.add(char);
+        letters.push(char);
+        if (letters.length === SIZE) {
+            break;
+        }
+    }
+    return letters.join('');
+}
+
 function extractGridFromResult(result: PluginResult | undefined): Grid | undefined {
     const firstGrid = result?.results?.[0]?.grid;
     if (!Array.isArray(firstGrid)) {
@@ -1569,6 +1614,7 @@ function GridPuzzleWorkbenchApp({
     const [skyscraperClues, setSkyscraperClues] = React.useState<SkyscraperClues>(() => emptySkyscraperClues());
     const [frameClues, setFrameClues] = React.useState<FrameClues>(() => emptyFrameClues());
     const [rossiniArrows, setRossiniArrows] = React.useState<RossiniArrows>(() => emptyRossiniArrows());
+    const [godokuAlphabet, setGodokuAlphabet] = React.useState('');
     const [watchCells, setWatchCells] = React.useState<string[]>([]);
     const [mode, setMode] = React.useState<WorkMode>('edit');
     const [maxSolutions, setMaxSolutions] = React.useState(2);
@@ -1594,6 +1640,7 @@ function GridPuzzleWorkbenchApp({
     const isXv = puzzleType === 'sudoku_xv';
     const isSkyscraper = puzzleType === 'sudoku_skyscraper';
     const isFrame = puzzleType === 'sudoku_frame';
+    const isGodoku = puzzleType === 'sudoku_godoku';
     const isSujiken = puzzleType === 'sujiken';
     const isSamurai = puzzleType === 'samurai_sudoku';
     const isFlower = puzzleType === 'flower_sudoku';
@@ -1674,6 +1721,7 @@ function GridPuzzleWorkbenchApp({
         setSkyscraperClues(normalizeSkyscraperClues(snapshot?.skyscraper ?? snapshot?.skyscraperClues));
         setFrameClues(normalizeFrameClues(snapshot?.frame ?? snapshot?.frameClues));
         setRossiniArrows(normalizeRossiniArrows(snapshot?.rossini ?? snapshot?.rossiniArrows));
+        setGodokuAlphabet(normalizeGodokuAlphabet(snapshot?.godokuAlphabet ?? snapshot?.alphabet));
         setMaxSolutions(normalizeNumber(snapshot?.maxSolutions, 2, 1, 25));
         setTimeoutMs(normalizeNumber(snapshot?.solverTimeoutMs ?? snapshot?.timeoutMs, 10000, 1000, 120000));
         setSolveState({ running: false, result: restoredResult });
@@ -1745,6 +1793,7 @@ function GridPuzzleWorkbenchApp({
                     skyscraper: skyscraperClues,
                     frame: frameClues,
                     rossini: rossiniArrows,
+                    godokuAlphabet,
                     watchCells,
                     maxSolutions,
                     solverTimeoutMs: timeoutMs,
@@ -1770,6 +1819,7 @@ function GridPuzzleWorkbenchApp({
         context?.gcCode,
         frameClues,
         geocacheId,
+        godokuAlphabet,
         grid,
         horizontalInequalities,
         maxSolutions,
@@ -1789,7 +1839,9 @@ function GridPuzzleWorkbenchApp({
     ]);
 
     const updateCell = React.useCallback((row: number, col: number, rawValue: string) => {
-        const value = rawValue.replace(/[^1-9]/g, '').slice(-1);
+        const value = isGodoku
+            ? rawValue.replace(/[^A-Za-z]/g, '').slice(-1).toUpperCase()
+            : rawValue.replace(/[^1-9]/g, '').slice(-1);
         setGrid(previous => {
             const next = cloneGrid(previous);
             next[row][col] = value;
@@ -1798,7 +1850,7 @@ function GridPuzzleWorkbenchApp({
         });
         setSolveState({ running: false });
         markDirty();
-    }, [markDirty, puzzleType]);
+    }, [isGodoku, markDirty, puzzleType]);
 
     const toggleHorizontalInequality = React.useCallback((row: number, col: number) => {
         setHorizontalInequalities(previous => {
@@ -1892,7 +1944,13 @@ function GridPuzzleWorkbenchApp({
             return;
         }
 
-        if (/^[1-9]$/.test(event.key)) {
+        if (!isGodoku && /^[1-9]$/.test(event.key)) {
+            event.preventDefault();
+            updateCell(row, col, event.key);
+            return;
+        }
+
+        if (isGodoku && /^[A-Za-z]$/.test(event.key)) {
             event.preventDefault();
             updateCell(row, col, event.key);
             return;
@@ -1902,7 +1960,7 @@ function GridPuzzleWorkbenchApp({
             event.preventDefault();
             updateCell(row, col, '');
         }
-    }, [focusCell, updateCell]);
+    }, [focusCell, isGodoku, updateCell]);
 
     const toggleWatchCell = React.useCallback((ref: string) => {
         setWatchCells(previous => (
@@ -1927,6 +1985,8 @@ function GridPuzzleWorkbenchApp({
             messageService.error(
                 puzzleType === 'sujiken'
                     ? 'La saisie rapide Sujiken doit contenir 45 cases actives.'
+                    : puzzleType === 'sudoku_godoku'
+                        ? 'La saisie rapide Godoku doit contenir exactement 81 cases, avec lettres ou cases vides.'
                     : puzzleType === 'samurai_sudoku'
                         ? 'La saisie rapide Samurai doit contenir 369 cases actives ou une matrice 21x21.'
                         : puzzleType === 'flower_sudoku'
@@ -1971,6 +2031,7 @@ function GridPuzzleWorkbenchApp({
             || value === 'sudoku_xv'
             || value === 'sudoku_skyscraper'
             || value === 'sudoku_frame'
+            || value === 'sudoku_godoku'
             ? value
             : 'sudoku_classic';
         const nextGrid = resizeGrid(grid, gridSizeForVariant(nextPuzzleType));
@@ -2024,6 +2085,7 @@ function GridPuzzleWorkbenchApp({
                 } : undefined,
                 skyscraper: isSkyscraper ? skyscraperClues : undefined,
                 frame: isFrame ? frameClues : undefined,
+                alphabet: isGodoku && godokuAlphabet ? godokuAlphabet : undefined,
                 max_solutions: maxSolutions,
                 solver_timeout_ms: timeoutMs,
             });
@@ -2041,7 +2103,7 @@ function GridPuzzleWorkbenchApp({
                 error: error instanceof Error ? error.message : String(error),
             });
         }
-    }, [constraintConflicts.messages.length, frameClues, geocacheId, grid, horizontalInequalities, isFrame, isRossini, isSkyscraper, isXv, maxSolutions, pluginsService, puzzleType, rossiniArrows, saveState, skyscraperClues, timeoutMs, verticalInequalities, watchCells, xvHorizontalMarks, xvVerticalMarks]);
+    }, [constraintConflicts.messages.length, frameClues, geocacheId, godokuAlphabet, grid, horizontalInequalities, isFrame, isGodoku, isRossini, isSkyscraper, isXv, maxSolutions, pluginsService, puzzleType, rossiniArrows, saveState, skyscraperClues, timeoutMs, verticalInequalities, watchCells, xvHorizontalMarks, xvVerticalMarks]);
 
     const useSolvedGrid = React.useCallback(() => {
         if (solvedGrid) {
@@ -2427,6 +2489,7 @@ function GridPuzzleWorkbenchApp({
                         <option value='sudoku_xv'>Sudoku XV</option>
                         <option value='sudoku_skyscraper'>Skyscraper</option>
                         <option value='sudoku_frame'>Frame</option>
+                        <option value='sudoku_godoku'>Godoku</option>
                     </select>
                     <button onClick={solve} disabled={solveState.running}>
                         {solveState.running ? 'Resolution...' : 'Resoudre'}
@@ -2474,7 +2537,7 @@ function GridPuzzleWorkbenchApp({
                                         }}
                                         aria-label={ref}
                                         value={value}
-                                        inputMode='numeric'
+                                        inputMode={isGodoku ? 'text' : 'numeric'}
                                         maxLength={1}
                                         onClick={event => handleCellClick(rowIndex, colIndex, event)}
                                         onKeyDown={event => handleCellKeyDown(rowIndex, colIndex, event)}
@@ -2497,6 +2560,7 @@ function GridPuzzleWorkbenchApp({
                         {isXv ? ' Cliquez les bords pour alterner entre X, V et vide. Un bord vide interdit les sommes 5 et 10.' : ''}
                         {isSkyscraper ? ' Renseignez les indices exterieurs visibles depuis chaque cote de la grille.' : ''}
                         {isFrame ? ' Renseignez les sommes exterieures des trois cases les plus proches du bord.' : ''}
+                        {isGodoku ? ' Saisissez les lettres directement dans la grille. L alphabet peut etre renseigne dans les options si la grille ne montre pas les 9 lettres.' : ''}
                         {puzzleType === 'sudoku_anti_diagonal' ? ' Anti Diagonal limite chaque grande diagonale a trois chiffres differents.' : ''}
                         {isSujiken ? ' Sujiken utilise les 45 cases du triangle.' : ''}
                         {isSamurai ? ' Samurai utilise les 369 cases actives des cinq grilles 9x9.' : ''}
@@ -2584,6 +2648,22 @@ function GridPuzzleWorkbenchApp({
 
                     <section>
                         <strong>Options</strong>
+                        {isGodoku ? (
+                            <label>
+                                Alphabet Godoku
+                                <input
+                                    type='text'
+                                    maxLength={17}
+                                    value={godokuAlphabet}
+                                    placeholder='ORESNMBAU'
+                                    onChange={event => {
+                                        setGodokuAlphabet(normalizeGodokuAlphabet(event.currentTarget.value));
+                                        setSolveState({ running: false });
+                                        markDirty();
+                                    }}
+                                />
+                            </label>
+                        ) : null}
                         <label>
                             Solutions max
                             <input

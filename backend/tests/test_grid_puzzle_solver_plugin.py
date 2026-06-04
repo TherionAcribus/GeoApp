@@ -1102,6 +1102,61 @@ def test_frame_rejects_contradictory_outside_sum():
     assert result["summary"] == "Aucune solution compatible avec les contraintes"
 
 
+def test_godoku_accepts_letter_symbols():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "sudoku_godoku",
+            "grid": """
+                ORESNMBAU
+                NMUABEROS
+                SBAOURMNE
+                BORMESAUN
+                USNRABEMO
+                EAMNOUSBR
+                MNSURAOEB
+                AUBESONRM
+                REOBMNUSA
+            """,
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["unique"] is True
+    assert result["metadata"]["variant"] == "sudoku_godoku"
+    assert result["metadata"]["symbols"] == ["O", "R", "E", "S", "N", "M", "B", "A", "U"]
+    assert result["results"][0]["grid"][0] == list("ORESNMBAU")
+
+
+def test_godoku_rejects_repeated_letter_in_row():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "wordoku",
+            "alphabet": "ORESNMBAU",
+            "grid": """
+                OOESNMBAU
+                NMUABEROS
+                SBAOURMNE
+                BORMESAUN
+                USNRABEMO
+                EAMNOUSBR
+                MNSURAOEB
+                AUBESONRM
+                REOBMNUSA
+            """,
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+    assert result["summary"] == "Aucune solution compatible avec les contraintes"
+
+
 def test_watched_cells_are_extracted_in_requested_order():
     plugin = load_plugin()
 

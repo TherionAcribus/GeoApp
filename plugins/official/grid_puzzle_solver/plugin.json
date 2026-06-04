@@ -2,7 +2,7 @@
   "name": "grid_puzzle_solver",
   "version": "0.1.0",
   "plugin_api_version": "2.0",
-  "description": "Solveur Z3 pour grilles de logique. Variantes actuelles: Sudoku classique, Sudoku X, Anti Diagonal, Center Dot, Windoku, Girandola, Asterisk, Sujiken, Samurai Sudoku, Flower Sudoku, Sohei Sudoku, Kazaguruma, Greater Than / Compdoku, Rossini, Sudoku XV, Skyscraper et Frame.",
+  "description": "Solveur Z3 pour grilles de logique. Variantes actuelles: Sudoku classique, Sudoku X, Anti Diagonal, Center Dot, Windoku, Girandola, Asterisk, Sujiken, Samurai Sudoku, Flower Sudoku, Sohei Sudoku, Kazaguruma, Greater Than / Compdoku, Rossini, Sudoku XV, Skyscraper, Frame et Godoku.",
   "author": "MysterAI",
   "plugin_type": "python",
   "entry_point": "main.py",
@@ -47,10 +47,11 @@
         {"value": "sudoku_xv", "label": "Sudoku XV"},
         {"value": "sudoku_skyscraper", "label": "Skyscraper Sudoku"},
         {"value": "sudoku_frame", "label": "Frame / Outside Sum Sudoku"},
+        {"value": "sudoku_godoku", "label": "Godoku / Wordoku"},
         {"value": "custom_spec", "label": "Spec JSON generique"}
       ],
       "default": "sudoku_classic",
-      "description": "Sudoku classique utilise une grille 9x9. Sudoku X ajoute les deux diagonales principales sans doublons. Anti Diagonal limite chacune des deux grandes diagonales a trois chiffres differents. Center Dot ajoute la region des centres de blocs 3x3. Windoku ajoute quatre regions 3x3 supplementaires. Girandola et Asterisk ajoutent chacun une extra-region de 9 cases. Sujiken utilise une grille triangulaire de 45 cases. Samurai, Flower, Sohei et Kazaguruma assemblent plusieurs grilles 9x9 chevauchantes. Greater Than ajoute des comparaisons >/< entre cases adjacentes. Rossini ajoute des fleches de bord sur les trois premieres cases vues depuis chaque cote. Sudoku XV ajoute des marques X/V entre cases adjacentes. Skyscraper ajoute des indices exterieurs de visibilite. Frame ajoute des sommes exterieures des trois cases voisines du bord. Spec JSON permet de decrire une grille CSP finie."
+      "description": "Sudoku classique utilise une grille 9x9. Sudoku X ajoute les deux diagonales principales sans doublons. Anti Diagonal limite chacune des deux grandes diagonales a trois chiffres differents. Center Dot ajoute la region des centres de blocs 3x3. Windoku ajoute quatre regions 3x3 supplementaires. Girandola et Asterisk ajoutent chacun une extra-region de 9 cases. Sujiken utilise une grille triangulaire de 45 cases. Samurai, Flower, Sohei et Kazaguruma assemblent plusieurs grilles 9x9 chevauchantes. Greater Than ajoute des comparaisons >/< entre cases adjacentes. Rossini ajoute des fleches de bord sur les trois premieres cases vues depuis chaque cote. Sudoku XV ajoute des marques X/V entre cases adjacentes. Skyscraper ajoute des indices exterieurs de visibilite. Frame ajoute des sommes exterieures des trois cases voisines du bord. Godoku remplace les chiffres par 9 lettres. Spec JSON permet de decrire une grille CSP finie."
     },
     "grid": {
       "type": "textarea",
@@ -65,6 +66,12 @@
       "placeholder": "{\"rows\":9,\"cols\":9,\"symbols\":[\"1\",\"2\",\"3\",\"4\",\"5\",\"6\",\"7\",\"8\",\"9\"],\"givens\":{\"r1c1\":\"5\"},\"constraints\":[]}",
       "required": false,
       "description": "Spec optionnelle pour de futures variantes: dimensions, symboles, cellules actives, valeurs donnees, regions et contraintes."
+    },
+    "alphabet": {
+      "type": "string",
+      "label": "Alphabet Godoku",
+      "required": false,
+      "description": "Neuf lettres uniques pour Godoku/Wordoku. Si absent, le moteur tente de les inferer depuis la grille."
     },
     "max_solutions": {
       "type": "number",

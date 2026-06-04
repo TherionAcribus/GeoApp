@@ -135,6 +135,8 @@ Entrées principales :
 | `clues` | object | vide | Alias de `skyscraper`. |
 | `frame` | object | vide | Sommes exterieures Frame (`top`, `bottom`, `left`, `right`). |
 | `outside_sums` | object | vide | Alias de `frame`. |
+| `alphabet` | string/list | vide | Neuf lettres uniques pour Godoku / Wordoku. |
+| `symbols` | string/list | vide | Alias accepte pour l'alphabet Godoku. |
 | `watched_cells` | string/list | vide | Cellules a extraire apres resolution. |
 | `watch_cells` | string/list | vide | Alias de `watched_cells`. |
 
@@ -159,6 +161,7 @@ Valeurs supportees pour `puzzle_type` :
 | `sudoku_xv` | `xv`, `xv_sudoku` | Sudoku standard + marques de bord `X` / `V` pour les sommes 10 et 5. |
 | `sudoku_skyscraper` | `skyscraper`, `skyscraper_sudoku` | Sudoku standard + indices exterieurs comptant les batiments visibles. |
 | `sudoku_frame` | `frame`, `frame_sudoku`, `outside_sum_sudoku` | Sudoku standard + sommes exterieures des trois cases voisines du bord. |
+| `sudoku_godoku` | `godoku`, `wordoku`, `alphabet_sudoku` | Sudoku standard avec 9 lettres au lieu des chiffres. |
 | `custom_spec` | `custom`, `json_spec` | Probleme CSP decrit en JSON. |
 
 Format de grille Sudoku :
@@ -1248,6 +1251,58 @@ Dans l'atelier Theia, la variante `Frame` affiche des champs numeriques autour
 de la grille. Les conflits locaux sont signales des que les trois cases du
 triplet concerne sont remplies.
 
+### Godoku / Wordoku / Alphabet Sudoku
+
+`puzzle_type = sudoku_godoku`
+
+Alias :
+
+```text
+godoku
+wordoku
+alphabet_sudoku
+```
+
+Contraintes :
+
+- toutes les contraintes du Sudoku classique ;
+- le domaine contient 9 lettres uniques au lieu des chiffres `1` a `9` ;
+- chaque ligne, colonne et bloc 3x3 contient chacune des 9 lettres exactement
+  une fois.
+
+Format de grille :
+
+```text
+ORESNMBAU
+NMUABEROS
+SBAOURMNE
+BORMESAUN
+USNRABEMO
+EAMNOUSBR
+MNSURAOEB
+AUBESONRM
+REOBMNUSA
+```
+
+Les cases vides peuvent etre notees `0`, `.` ou `_`.
+
+Alphabet :
+
+```json
+{
+  "alphabet": "ORESNMBAU"
+}
+```
+
+Si `alphabet` ou `symbols` est absent, le moteur tente d'inferer les 9 lettres
+depuis la grille. Cette inference fonctionne seulement si les 9 lettres
+distinctes apparaissent deja dans les donnees. Sinon, l'alphabet doit etre
+renseigne explicitement.
+
+Dans l'atelier Theia, la variante `Godoku` accepte directement les lettres dans
+les cases et dans la saisie rapide. Le champ `Alphabet Godoku` des options sert
+a fournir les 9 lettres quand la grille de depart ne les contient pas toutes.
+
 ## Specification generique `custom_spec`
 
 Le mode `custom_spec` accepte une specification JSON.
@@ -1383,6 +1438,7 @@ Fonctionnalites actuelles :
 - bords cliquables `X` / `V` en mode Sudoku XV ;
 - indices exterieurs numeriques en mode Skyscraper ;
 - sommes exterieures numeriques en mode Frame ;
+- saisie de lettres et alphabet optionnel en mode Godoku ;
 - affichage de la premiere solution ;
 - reprise de la solution dans la grille ;
 - extraction des cellules surveillees ;
@@ -1394,7 +1450,7 @@ Fonctionnalites actuelles :
 |---|---|---|
 | `grid` | `string[][]` | Valeurs courantes de la grille. |
 | `quickText` | `string` | Representation texte de la grille. |
-| `puzzleType` | `sudoku_classic`, `sudoku_x`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_rossini`, `sudoku_xv`, `sudoku_skyscraper` ou `sudoku_frame` | Variante active. |
+| `puzzleType` | `sudoku_classic`, `sudoku_x`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_rossini`, `sudoku_xv`, `sudoku_skyscraper`, `sudoku_frame` ou `sudoku_godoku` | Variante active. |
 | `horizontalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme ligne. |
 | `verticalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme colonne. |
 | `rossiniArrows` | object | Fleches de bord `top`, `bottom`, `left`, `right` pour Rossini. |
@@ -1402,6 +1458,7 @@ Fonctionnalites actuelles :
 | `xvVerticalMarks` | `string[][]` | Marques `X` / `V` entre deux cases d'une meme colonne. |
 | `skyscraperClues` | object | Indices exterieurs `top`, `bottom`, `left`, `right` pour Skyscraper. |
 | `frameClues` | object | Sommes exterieures `top`, `bottom`, `left`, `right` pour Frame. |
+| `godokuAlphabet` | string | Alphabet de 9 lettres pour Godoku. |
 | `watchCells` | `string[]` | Cellules surveillees au format `r1c1`. |
 | `mode` | `edit` ou `watch` | Mode d'interaction. |
 | `maxSolutions` | number | Limite d'enumeration. |
@@ -1592,6 +1649,7 @@ Payload de sauvegarde :
       "left": ["8", "15", "22", "11", "13", "21", "18", "19", "8"],
       "right": ["22", "8", "15", "22", "12", "11", "15", "13", "17"]
     },
+    "godokuAlphabet": "ORESNMBAU",
     "watchCells": ["r1c1", "r9c9"],
     "maxSolutions": 2,
     "solverTimeoutMs": 10000,
@@ -1693,6 +1751,8 @@ Couverture actuelle :
 - Skyscraper refuse un indice exterieur contradictoire ;
 - Frame valide avec sommes exterieures compatibles ;
 - Frame refuse une somme exterieure contradictoire ;
+- Godoku valide avec symboles lettres ;
+- Godoku refuse une lettre repetee dans une ligne ;
 - extraction des cellules surveillees ;
 - spec generique type Latin square.
 
