@@ -9,7 +9,7 @@ import './style/grid-puzzle-workbench.css';
 
 type Grid = string[][];
 type WorkMode = 'edit' | 'watch';
-type SudokuVariant = 'sudoku_classic' | 'sudoku_x' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_skyscraper';
+type SudokuVariant = 'sudoku_classic' | 'sudoku_x' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_skyscraper' | 'sudoku_frame';
 type InequalitySymbol = '' | '>' | '<';
 type InequalityGrid = InequalitySymbol[][];
 type XvSymbol = '' | 'X' | 'V';
@@ -20,6 +20,13 @@ type RossiniSide = 'top' | 'bottom' | 'left' | 'right';
 type SkyscraperSide = 'top' | 'bottom' | 'left' | 'right';
 
 interface SkyscraperClues {
+    top: string[];
+    bottom: string[];
+    left: string[];
+    right: string[];
+}
+
+interface FrameClues {
     top: string[];
     bottom: string[];
     left: string[];
@@ -53,6 +60,12 @@ const EMPTY_VERTICAL_INEQUALITIES: InequalityGrid = Array.from({ length: SIZE - 
 const EMPTY_XV_HORIZONTAL_MARKS: XvGrid = Array.from({ length: SIZE }, () => Array(SIZE - 1).fill(''));
 const EMPTY_XV_VERTICAL_MARKS: XvGrid = Array.from({ length: SIZE - 1 }, () => Array(SIZE).fill(''));
 const EMPTY_SKYSCRAPER_CLUES: SkyscraperClues = {
+    top: Array<string>(SIZE).fill(''),
+    bottom: Array<string>(SIZE).fill(''),
+    left: Array<string>(SIZE).fill(''),
+    right: Array<string>(SIZE).fill(''),
+};
+const EMPTY_FRAME_CLUES: FrameClues = {
     top: Array<string>(SIZE).fill(''),
     bottom: Array<string>(SIZE).fill(''),
     left: Array<string>(SIZE).fill(''),
@@ -129,6 +142,15 @@ function cloneSkyscraperClues(clues: SkyscraperClues): SkyscraperClues {
     };
 }
 
+function cloneFrameClues(clues: FrameClues): FrameClues {
+    return {
+        top: [...clues.top],
+        bottom: [...clues.bottom],
+        left: [...clues.left],
+        right: [...clues.right],
+    };
+}
+
 function cloneRossiniArrows(arrows: RossiniArrows): RossiniArrows {
     return {
         top: [...arrows.top],
@@ -187,6 +209,9 @@ function getVariantLabel(puzzleType: SudokuVariant): string {
     }
     if (puzzleType === 'sudoku_skyscraper') {
         return 'Skyscraper';
+    }
+    if (puzzleType === 'sudoku_frame') {
+        return 'Frame';
     }
     return 'Sudoku classique';
 }
@@ -480,6 +505,7 @@ function findConstraintConflicts(
     xvHorizontalMarks: XvGrid,
     xvVerticalMarks: XvGrid,
     skyscraperClues: SkyscraperClues,
+    frameClues: FrameClues,
 ): ConflictHighlights {
     const cells = new Set<string>();
     const messages: string[] = [];
@@ -558,6 +584,10 @@ function findConstraintConflicts(
 
     if (puzzleType === 'sudoku_skyscraper') {
         addSkyscraperConflicts(grid, cells, messages, skyscraperClues);
+    }
+
+    if (puzzleType === 'sudoku_frame') {
+        addFrameConflicts(grid, cells, messages, frameClues);
     }
 
     return { cells, messages };
@@ -707,6 +737,46 @@ function countVisibleSkyscrapers(values: number[]): number {
 
 function skyscraperSideLabel(side: SkyscraperSide): string {
     return side === 'top' ? 'haut' : side === 'bottom' ? 'bas' : side === 'left' ? 'gauche' : 'droite';
+}
+
+function addFrameConflicts(
+    grid: Grid,
+    cells: Set<string>,
+    messages: string[],
+    clues: FrameClues,
+): void {
+    (['top', 'bottom', 'left', 'right'] as SkyscraperSide[]).forEach(side => {
+        clues[side].forEach((clue, index) => {
+            if (!clue) {
+                return;
+            }
+            const triplet = frameCells(side, index);
+            const values = triplet.map(([row, col]) => Number(grid[row]?.[col] || 0));
+            if (values.some(value => !value)) {
+                return;
+            }
+            const total = values.reduce((sum, value) => sum + value, 0);
+            if (total === Number(clue)) {
+                return;
+            }
+            const refs = triplet.map(([row, col]) => cellRef(row, col));
+            refs.forEach(ref => cells.add(ref));
+            messages.push(`Indice Frame ${skyscraperSideLabel(side)} ${index + 1} attendu ${clue}, somme ${total} : ${refs.join(', ')}`);
+        });
+    });
+}
+
+function frameCells(side: SkyscraperSide, index: number): CellCoord[] {
+    if (side === 'left') {
+        return [[index, 0], [index, 1], [index, 2]];
+    }
+    if (side === 'right') {
+        return [[index, 6], [index, 7], [index, 8]];
+    }
+    if (side === 'top') {
+        return [[0, index], [1, index], [2, index]];
+    }
+    return [[6, index], [7, index], [8, index]];
 }
 
 function addRossiniConflicts(
@@ -917,6 +987,10 @@ function emptySkyscraperClues(): SkyscraperClues {
     return cloneSkyscraperClues(EMPTY_SKYSCRAPER_CLUES);
 }
 
+function emptyFrameClues(): FrameClues {
+    return cloneFrameClues(EMPTY_FRAME_CLUES);
+}
+
 function emptyRossiniArrows(): RossiniArrows {
     return cloneRossiniArrows(EMPTY_ROSSINI_ARROWS);
 }
@@ -976,6 +1050,37 @@ function normalizeSkyscraperClues(value: unknown): SkyscraperClues {
         bottom: normalizeSkyscraperSide(record.bottom ?? record.b),
         left: normalizeSkyscraperSide(record.left ?? record.l),
         right: normalizeSkyscraperSide(record.right ?? record.r),
+    };
+}
+
+function normalizeFrameClue(value: unknown): string {
+    const text = String(value ?? '').replace(/[^0-9]/g, '').slice(0, 2);
+    if (!text) {
+        return '';
+    }
+    const numberValue = Number(text);
+    return numberValue >= 1 && numberValue <= 27 ? String(numberValue) : '';
+}
+
+function normalizeFrameSide(value: unknown): string[] {
+    const rawValues = typeof value === 'string'
+        ? value.trim().split(/[\s,;|]+/).filter(Boolean)
+        : Array.isArray(value)
+            ? value
+            : [];
+    return Array.from({ length: SIZE }, (_unused, index) => normalizeFrameClue(rawValues[index]));
+}
+
+function normalizeFrameClues(value: unknown): FrameClues {
+    if (!value || typeof value !== 'object') {
+        return emptyFrameClues();
+    }
+    const record = value as Record<string, unknown>;
+    return {
+        top: normalizeFrameSide(record.top ?? record.t),
+        bottom: normalizeFrameSide(record.bottom ?? record.b),
+        left: normalizeFrameSide(record.left ?? record.l),
+        right: normalizeFrameSide(record.right ?? record.r),
     };
 }
 
@@ -1462,6 +1567,7 @@ function GridPuzzleWorkbenchApp({
     const [xvHorizontalMarks, setXvHorizontalMarks] = React.useState<XvGrid>(() => emptyXvHorizontalMarks());
     const [xvVerticalMarks, setXvVerticalMarks] = React.useState<XvGrid>(() => emptyXvVerticalMarks());
     const [skyscraperClues, setSkyscraperClues] = React.useState<SkyscraperClues>(() => emptySkyscraperClues());
+    const [frameClues, setFrameClues] = React.useState<FrameClues>(() => emptyFrameClues());
     const [rossiniArrows, setRossiniArrows] = React.useState<RossiniArrows>(() => emptyRossiniArrows());
     const [watchCells, setWatchCells] = React.useState<string[]>([]);
     const [mode, setMode] = React.useState<WorkMode>('edit');
@@ -1487,6 +1593,7 @@ function GridPuzzleWorkbenchApp({
     const isRossini = puzzleType === 'sudoku_rossini';
     const isXv = puzzleType === 'sudoku_xv';
     const isSkyscraper = puzzleType === 'sudoku_skyscraper';
+    const isFrame = puzzleType === 'sudoku_frame';
     const isSujiken = puzzleType === 'sujiken';
     const isSamurai = puzzleType === 'samurai_sudoku';
     const isFlower = puzzleType === 'flower_sudoku';
@@ -1505,8 +1612,8 @@ function GridPuzzleWorkbenchApp({
             ? SAMURAI_TEXT_PLACEHOLDER
             : QUICK_TEXT_PLACEHOLDER;
     const constraintConflicts = React.useMemo(
-        () => findConstraintConflicts(grid, puzzleType, horizontalInequalities, verticalInequalities, rossiniArrows, xvHorizontalMarks, xvVerticalMarks, skyscraperClues),
-        [grid, horizontalInequalities, puzzleType, rossiniArrows, skyscraperClues, verticalInequalities, xvHorizontalMarks, xvVerticalMarks],
+        () => findConstraintConflicts(grid, puzzleType, horizontalInequalities, verticalInequalities, rossiniArrows, xvHorizontalMarks, xvVerticalMarks, skyscraperClues, frameClues),
+        [frameClues, grid, horizontalInequalities, puzzleType, rossiniArrows, skyscraperClues, verticalInequalities, xvHorizontalMarks, xvVerticalMarks],
     );
     const visibleConflictMessages = constraintConflicts.messages.slice(0, 4);
 
@@ -1565,6 +1672,7 @@ function GridPuzzleWorkbenchApp({
         setXvHorizontalMarks(normalizeXvGrid(snapshot?.xv?.horizontal ?? snapshot?.xvMarks?.horizontal, SIZE, SIZE - 1));
         setXvVerticalMarks(normalizeXvGrid(snapshot?.xv?.vertical ?? snapshot?.xvMarks?.vertical, SIZE - 1, SIZE));
         setSkyscraperClues(normalizeSkyscraperClues(snapshot?.skyscraper ?? snapshot?.skyscraperClues));
+        setFrameClues(normalizeFrameClues(snapshot?.frame ?? snapshot?.frameClues));
         setRossiniArrows(normalizeRossiniArrows(snapshot?.rossini ?? snapshot?.rossiniArrows));
         setMaxSolutions(normalizeNumber(snapshot?.maxSolutions, 2, 1, 25));
         setTimeoutMs(normalizeNumber(snapshot?.solverTimeoutMs ?? snapshot?.timeoutMs, 10000, 1000, 120000));
@@ -1635,6 +1743,7 @@ function GridPuzzleWorkbenchApp({
                         vertical: xvVerticalMarks,
                     },
                     skyscraper: skyscraperClues,
+                    frame: frameClues,
                     rossini: rossiniArrows,
                     watchCells,
                     maxSolutions,
@@ -1659,6 +1768,7 @@ function GridPuzzleWorkbenchApp({
         }
     }, [
         context?.gcCode,
+        frameClues,
         geocacheId,
         grid,
         horizontalInequalities,
@@ -1744,6 +1854,17 @@ function GridPuzzleWorkbenchApp({
         const value = normalizeSkyscraperClue(rawValue);
         setSkyscraperClues(previous => {
             const next = cloneSkyscraperClues(previous);
+            next[side][index] = value;
+            return next;
+        });
+        setSolveState({ running: false });
+        markDirty();
+    }, [markDirty]);
+
+    const updateFrameClue = React.useCallback((side: SkyscraperSide, index: number, rawValue: string) => {
+        const value = normalizeFrameClue(rawValue);
+        setFrameClues(previous => {
+            const next = cloneFrameClues(previous);
             next[side][index] = value;
             return next;
         });
@@ -1849,6 +1970,7 @@ function GridPuzzleWorkbenchApp({
             || value === 'sudoku_rossini'
             || value === 'sudoku_xv'
             || value === 'sudoku_skyscraper'
+            || value === 'sudoku_frame'
             ? value
             : 'sudoku_classic';
         const nextGrid = resizeGrid(grid, gridSizeForVariant(nextPuzzleType));
@@ -1866,6 +1988,7 @@ function GridPuzzleWorkbenchApp({
         setXvHorizontalMarks(emptyXvHorizontalMarks());
         setXvVerticalMarks(emptyXvVerticalMarks());
         setSkyscraperClues(emptySkyscraperClues());
+        setFrameClues(emptyFrameClues());
         setRossiniArrows(emptyRossiniArrows());
         setWatchCells([]);
         setSolveState({ running: false });
@@ -1900,6 +2023,7 @@ function GridPuzzleWorkbenchApp({
                     enforce_absent: true,
                 } : undefined,
                 skyscraper: isSkyscraper ? skyscraperClues : undefined,
+                frame: isFrame ? frameClues : undefined,
                 max_solutions: maxSolutions,
                 solver_timeout_ms: timeoutMs,
             });
@@ -1917,7 +2041,7 @@ function GridPuzzleWorkbenchApp({
                 error: error instanceof Error ? error.message : String(error),
             });
         }
-    }, [constraintConflicts.messages.length, geocacheId, grid, horizontalInequalities, isRossini, isSkyscraper, isXv, maxSolutions, pluginsService, puzzleType, rossiniArrows, saveState, skyscraperClues, timeoutMs, verticalInequalities, watchCells, xvHorizontalMarks, xvVerticalMarks]);
+    }, [constraintConflicts.messages.length, frameClues, geocacheId, grid, horizontalInequalities, isFrame, isRossini, isSkyscraper, isXv, maxSolutions, pluginsService, puzzleType, rossiniArrows, saveState, skyscraperClues, timeoutMs, verticalInequalities, watchCells, xvHorizontalMarks, xvVerticalMarks]);
 
     const useSolvedGrid = React.useCallback(() => {
         if (solvedGrid) {
@@ -1934,7 +2058,7 @@ function GridPuzzleWorkbenchApp({
                 gridRow: String(rowIndex * 2 + 1),
             };
         }
-        if (isRossini || isSkyscraper) {
+        if (isRossini || isSkyscraper || isFrame) {
             return {
                 gridColumn: String(colIndex + 2),
                 gridRow: String(rowIndex + 2),
@@ -2217,6 +2341,56 @@ function GridPuzzleWorkbenchApp({
         );
     };
 
+    const renderFrameControls = (readonly = false): React.ReactNode => {
+        if (!isFrame) {
+            return null;
+        }
+
+        const renderInput = (side: SkyscraperSide, index: number, style: React.CSSProperties) => {
+            const value = frameClues[side][index];
+            const label = `${skyscraperSideLabel(side)} ${index + 1}`;
+            return (
+                <input
+                    key={`frame-${side}-${index}`}
+                    className={[
+                        'frame-clue',
+                        side,
+                        value ? 'active' : '',
+                    ].filter(Boolean).join(' ')}
+                    style={style}
+                    aria-label={`Somme Frame ${label}`}
+                    title={`Somme Frame ${label}`}
+                    value={value}
+                    inputMode='numeric'
+                    maxLength={2}
+                    disabled={readonly}
+                    onChange={event => updateFrameClue(side, index, event.currentTarget.value)}
+                />
+            );
+        };
+
+        return (
+            <>
+                {frameClues.top.map((_value, index) => renderInput('top', index, {
+                    gridColumn: String(index + 2),
+                    gridRow: '1',
+                }))}
+                {frameClues.bottom.map((_value, index) => renderInput('bottom', index, {
+                    gridColumn: String(index + 2),
+                    gridRow: '11',
+                }))}
+                {frameClues.left.map((_value, index) => renderInput('left', index, {
+                    gridColumn: '1',
+                    gridRow: String(index + 2),
+                }))}
+                {frameClues.right.map((_value, index) => renderInput('right', index, {
+                    gridColumn: '11',
+                    gridRow: String(index + 2),
+                }))}
+            </>
+        );
+    };
+
     return (
         <div className='grid-puzzle-workbench'>
             <div className='grid-puzzle-toolbar'>
@@ -2252,6 +2426,7 @@ function GridPuzzleWorkbenchApp({
                         <option value='sudoku_rossini'>Rossini</option>
                         <option value='sudoku_xv'>Sudoku XV</option>
                         <option value='sudoku_skyscraper'>Skyscraper</option>
+                        <option value='sudoku_frame'>Frame</option>
                     </select>
                     <button onClick={solve} disabled={solveState.running}>
                         {solveState.running ? 'Resolution...' : 'Resoudre'}
@@ -2274,6 +2449,7 @@ function GridPuzzleWorkbenchApp({
                             isXv ? 'xv-board' : '',
                             isRossini ? 'rossini-board' : '',
                             isSkyscraper ? 'skyscraper-board' : '',
+                            isFrame ? 'frame-board' : '',
                             isSujiken ? 'sujiken-board' : '',
                             isSamurai ? 'samurai-board' : '',
                             isFlower ? 'flower-board' : '',
@@ -2311,6 +2487,7 @@ function GridPuzzleWorkbenchApp({
                         {renderXvControls()}
                         {renderRossiniControls()}
                         {renderSkyscraperControls()}
+                        {renderFrameControls()}
                     </div>
 
                     <div className='grid-puzzle-hint'>
@@ -2319,6 +2496,7 @@ function GridPuzzleWorkbenchApp({
                         {isRossini ? ' Cliquez les bords exterieurs pour poser les fleches Rossini. Un bord vide impose aussi que les trois premieres cases ne forment pas une suite.' : ''}
                         {isXv ? ' Cliquez les bords pour alterner entre X, V et vide. Un bord vide interdit les sommes 5 et 10.' : ''}
                         {isSkyscraper ? ' Renseignez les indices exterieurs visibles depuis chaque cote de la grille.' : ''}
+                        {isFrame ? ' Renseignez les sommes exterieures des trois cases les plus proches du bord.' : ''}
                         {puzzleType === 'sudoku_anti_diagonal' ? ' Anti Diagonal limite chaque grande diagonale a trois chiffres differents.' : ''}
                         {isSujiken ? ' Sujiken utilise les 45 cases du triangle.' : ''}
                         {isSamurai ? ' Samurai utilise les 369 cases actives des cinq grilles 9x9.' : ''}
@@ -2351,6 +2529,7 @@ function GridPuzzleWorkbenchApp({
                                     isXv ? 'xv-board' : '',
                                     isRossini ? 'rossini-board' : '',
                                     isSkyscraper ? 'skyscraper-board' : '',
+                                    isFrame ? 'frame-board' : '',
                                     isSujiken ? 'sujiken-board' : '',
                                     isSamurai ? 'samurai-board' : '',
                                     isFlower ? 'flower-board' : '',
@@ -2380,6 +2559,7 @@ function GridPuzzleWorkbenchApp({
                                 {renderXvControls(true)}
                                 {renderRossiniControls(true)}
                                 {renderSkyscraperControls(true)}
+                                {renderFrameControls(true)}
                             </div>
                         </div>
                     )}

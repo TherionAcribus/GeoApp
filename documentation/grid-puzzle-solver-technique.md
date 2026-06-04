@@ -133,6 +133,8 @@ Entrées principales :
 | `marks` | object | vide | Alias de `xv`. |
 | `skyscraper` | object | vide | Indices exterieurs Skyscraper (`top`, `bottom`, `left`, `right`). |
 | `clues` | object | vide | Alias de `skyscraper`. |
+| `frame` | object | vide | Sommes exterieures Frame (`top`, `bottom`, `left`, `right`). |
+| `outside_sums` | object | vide | Alias de `frame`. |
 | `watched_cells` | string/list | vide | Cellules a extraire apres resolution. |
 | `watch_cells` | string/list | vide | Alias de `watched_cells`. |
 
@@ -156,6 +158,7 @@ Valeurs supportees pour `puzzle_type` :
 | `sudoku_rossini` | `rossini`, `rossini_sudoku` | Sudoku standard + fleches exterieures ordonnant les trois premieres cases vues depuis un bord. |
 | `sudoku_xv` | `xv`, `xv_sudoku` | Sudoku standard + marques de bord `X` / `V` pour les sommes 10 et 5. |
 | `sudoku_skyscraper` | `skyscraper`, `skyscraper_sudoku` | Sudoku standard + indices exterieurs comptant les batiments visibles. |
+| `sudoku_frame` | `frame`, `frame_sudoku`, `outside_sum_sudoku` | Sudoku standard + sommes exterieures des trois cases voisines du bord. |
 | `custom_spec` | `custom`, `json_spec` | Probleme CSP decrit en JSON. |
 
 Format de grille Sudoku :
@@ -1198,6 +1201,53 @@ Dans l'atelier Theia, la variante `Skyscraper` affiche des champs numeriques
 autour de la grille. Les conflits locaux ne sont signales que lorsque les 9
 cases de la ligne ou colonne concernee sont remplies.
 
+### Frame Sudoku / Outside Sum
+
+`puzzle_type = sudoku_frame`
+
+Alias :
+
+```text
+frame
+frame_sudoku
+outside_sum_sudoku
+```
+
+Contraintes :
+
+- toutes les contraintes du Sudoku classique ;
+- un indice exterieur indique la somme des trois cases les plus proches de ce
+  bord dans la ligne ou colonne concernee.
+
+Format envoye par l'atelier :
+
+```json
+{
+  "top": [15, 18, 12, 11, 21, 13, 15, 17, 13],
+  "bottom": [15, 9, 21, 10, 16, 19, 13, 15, 17],
+  "left": [8, 15, 22, 11, 13, 21, 18, 19, 8],
+  "right": [22, 8, 15, 22, 12, 11, 15, 13, 17]
+}
+```
+
+Les quatre tableaux contiennent chacun 9 entrees. Les valeurs vides peuvent
+etre `""`, `.`, `0`, `_`, `-` ou `?`, et signifient qu'aucun indice n'est
+pose sur ce bord. Les chaines separees par espaces, par exemple
+`"15 18 12 11 21 13 15 17 13"`, sont aussi acceptees.
+
+Interpretation :
+
+| Bord | Triplet somme |
+|---|---|
+| `top` | `r1cX`, `r2cX`, `r3cX` |
+| `bottom` | `r7cX`, `r8cX`, `r9cX` |
+| `left` | `rXc1`, `rXc2`, `rXc3` |
+| `right` | `rXc7`, `rXc8`, `rXc9` |
+
+Dans l'atelier Theia, la variante `Frame` affiche des champs numeriques autour
+de la grille. Les conflits locaux sont signales des que les trois cases du
+triplet concerne sont remplies.
+
 ## Specification generique `custom_spec`
 
 Le mode `custom_spec` accepte une specification JSON.
@@ -1332,6 +1382,7 @@ Fonctionnalites actuelles :
 - fleches de bord cliquables en mode Rossini ;
 - bords cliquables `X` / `V` en mode Sudoku XV ;
 - indices exterieurs numeriques en mode Skyscraper ;
+- sommes exterieures numeriques en mode Frame ;
 - affichage de la premiere solution ;
 - reprise de la solution dans la grille ;
 - extraction des cellules surveillees ;
@@ -1343,13 +1394,14 @@ Fonctionnalites actuelles :
 |---|---|---|
 | `grid` | `string[][]` | Valeurs courantes de la grille. |
 | `quickText` | `string` | Representation texte de la grille. |
-| `puzzleType` | `sudoku_classic`, `sudoku_x`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_rossini`, `sudoku_xv` ou `sudoku_skyscraper` | Variante active. |
+| `puzzleType` | `sudoku_classic`, `sudoku_x`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_rossini`, `sudoku_xv`, `sudoku_skyscraper` ou `sudoku_frame` | Variante active. |
 | `horizontalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme ligne. |
 | `verticalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme colonne. |
 | `rossiniArrows` | object | Fleches de bord `top`, `bottom`, `left`, `right` pour Rossini. |
 | `xvHorizontalMarks` | `string[][]` | Marques `X` / `V` entre deux cases d'une meme ligne. |
 | `xvVerticalMarks` | `string[][]` | Marques `X` / `V` entre deux cases d'une meme colonne. |
 | `skyscraperClues` | object | Indices exterieurs `top`, `bottom`, `left`, `right` pour Skyscraper. |
+| `frameClues` | object | Sommes exterieures `top`, `bottom`, `left`, `right` pour Frame. |
 | `watchCells` | `string[]` | Cellules surveillees au format `r1c1`. |
 | `mode` | `edit` ou `watch` | Mode d'interaction. |
 | `maxSolutions` | number | Limite d'enumeration. |
@@ -1534,6 +1586,12 @@ Payload de sauvegarde :
       "left": ["2", "3", "2", "3", "4", "3", "3", "3", "1"],
       "right": ["4", "4", "1", "2", "2", "5", "2", "3", "3"]
     },
+    "frame": {
+      "top": ["15", "18", "12", "11", "21", "13", "15", "17", "13"],
+      "bottom": ["15", "9", "21", "10", "16", "19", "13", "15", "17"],
+      "left": ["8", "15", "22", "11", "13", "21", "18", "19", "8"],
+      "right": ["22", "8", "15", "22", "12", "11", "15", "13", "17"]
+    },
     "watchCells": ["r1c1", "r9c9"],
     "maxSolutions": 2,
     "solverTimeoutMs": 10000,
@@ -1633,6 +1691,8 @@ Couverture actuelle :
 - Sudoku XV refuse une marque de bord contradictoire ;
 - Skyscraper valide avec indices exterieurs compatibles ;
 - Skyscraper refuse un indice exterieur contradictoire ;
+- Frame valide avec sommes exterieures compatibles ;
+- Frame refuse une somme exterieure contradictoire ;
 - extraction des cellules surveillees ;
 - spec generique type Latin square.
 

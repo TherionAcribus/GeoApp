@@ -1037,6 +1037,71 @@ def test_skyscraper_rejects_contradictory_edge_clue():
     assert result["summary"] == "Aucune solution compatible avec les contraintes"
 
 
+def test_frame_accepts_matching_outside_sums():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "sudoku_frame",
+            "grid": """
+                143285967
+                852697431
+                697341285
+                236714859
+                481956372
+                975823614
+                729138546
+                568472193
+                314569728
+            """,
+            "frame": {
+                "top": [15, 18, 12, 11, 21, 13, 15, 17, 13],
+                "bottom": [15, 9, 21, 10, 16, 19, 13, 15, 17],
+                "left": [8, 15, 22, 11, 13, 21, 18, 19, 8],
+                "right": [22, 8, 15, 22, 12, 11, 15, 13, 17],
+            },
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["unique"] is True
+    assert result["metadata"]["variant"] == "sudoku_frame"
+    assert result["metadata"]["constraint_count"] == 63
+
+
+def test_frame_rejects_contradictory_outside_sum():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "frame",
+            "grid": """
+                143285967
+                852697431
+                697341285
+                236714859
+                481956372
+                975823614
+                729138546
+                568472193
+                314569728
+            """,
+            "frame": {
+                "top": [14, 18, 12, 11, 21, 13, 15, 17, 13],
+                "bottom": [15, 9, 21, 10, 16, 19, 13, 15, 17],
+                "left": [8, 15, 22, 11, 13, 21, 18, 19, 8],
+                "right": [22, 8, 15, 22, 12, 11, 15, 13, 17],
+            },
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+    assert result["summary"] == "Aucune solution compatible avec les contraintes"
+
+
 def test_watched_cells_are_extracted_in_requested_order():
     plugin = load_plugin()
 

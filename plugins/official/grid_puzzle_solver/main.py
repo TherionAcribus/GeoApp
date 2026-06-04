@@ -310,6 +310,23 @@ class GridpuzzlesolverPlugin:
                     skyscraper=inputs.get("skyscraper") or inputs.get("clues") or {},
                     include_skyscraper=True,
                 )
+            elif puzzle_type in {"sudoku_frame", "frame", "frame_sudoku", "outside_sum_sudoku"}:
+                puzzle_text = self._first_non_empty(
+                    inputs.get("grid"),
+                    inputs.get("puzzle"),
+                    inputs.get("text"),
+                )
+                problem = self._build_sudoku_problem(
+                    puzzle_text,
+                    include_diagonals=False,
+                    include_center_dot=False,
+                    include_windoku=False,
+                    include_girandola=False,
+                    include_asterisk=False,
+                    variant="sudoku_frame",
+                    frame=inputs.get("frame") or inputs.get("outside_sums") or {},
+                    include_frame=True,
+                )
             elif puzzle_type in {"custom", "custom_spec", "json_spec"}:
                 problem = self._build_custom_problem(inputs.get("spec"))
             else:
@@ -354,6 +371,8 @@ class GridpuzzlesolverPlugin:
         include_xv: bool = False,
         skyscraper: Any = None,
         include_skyscraper: bool = False,
+        frame: Any = None,
+        include_frame: bool = False,
     ) -> GridCspProblem:
         symbols = [str(value) for value in range(1, 10)]
         tokens = self._parse_sudoku_tokens(puzzle_text, symbols)
@@ -467,6 +486,8 @@ class GridpuzzlesolverPlugin:
             constraints.extend(self._parse_xv_constraints(xv))
         if include_skyscraper:
             constraints.extend(self._parse_skyscraper_constraints(skyscraper))
+        if include_frame:
+            constraints.extend(self._parse_frame_constraints(frame))
 
         return GridCspProblem(
             rows=9,
@@ -1304,6 +1325,80 @@ class GridpuzzlesolverPlugin:
         if side == "bottom":
             return tuple((row, index) for row in range(8, -1, -1))
         raise ValueError(f"Cote Skyscraper inconnu: {side}")
+
+    def _parse_frame_constraints(self, raw_frame: Any) -> List[GridConstraint]:
+        if raw_frame in (None, "", []):
+            raw_frame = {}
+        if isinstance(raw_frame, str):
+            text = raw_frame.strip()
+            if text:
+                try:
+                    raw_frame = json.loads(text)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(f"Frame JSON invalide: {exc.msg}") from exc
+            else:
+                raw_frame = {}
+        if not isinstance(raw_frame, dict):
+            raise ValueError("Format frame non supporte")
+
+        side_specs = (
+            ("top", raw_frame.get("top") or raw_frame.get("t")),
+            ("bottom", raw_frame.get("bottom") or raw_frame.get("b")),
+            ("left", raw_frame.get("left") or raw_frame.get("l")),
+            ("right", raw_frame.get("right") or raw_frame.get("r")),
+        )
+
+        constraints: List[GridConstraint] = []
+        for side, raw_values in side_specs:
+            values = self._parse_frame_side(raw_values, side)
+            for index, clue in enumerate(values):
+                if clue is None:
+                    continue
+                constraints.append(
+                    GridConstraint("sum", self._frame_cells(side, index), total=clue)
+                )
+        return constraints
+
+    def _parse_frame_side(self, raw_values: Any, side: str) -> List[Optional[int]]:
+        if raw_values in (None, ""):
+            return [None] * 9
+        if isinstance(raw_values, str):
+            values = [
+                value for value in re.split(r"[\s,;|]+", raw_values.strip())
+                if value
+            ]
+            if len(values) == 1 and len(values[0]) == 9 and values[0].isdigit():
+                values = list(values[0])
+        elif isinstance(raw_values, list):
+            values = list(raw_values)
+        else:
+            raise ValueError(f"frame.{side} doit etre une liste ou une chaine")
+
+        if len(values) != 9:
+            raise ValueError(f"frame.{side} doit contenir 9 valeurs")
+
+        parsed: List[Optional[int]] = []
+        for raw_value in values:
+            text = str(raw_value or "").strip()
+            if text in {"", ".", "0", "_", "-", "?"}:
+                parsed.append(None)
+                continue
+            clue = int(text) if text.isdigit() else 0
+            if clue < 1 or clue > 27:
+                raise ValueError(f"Somme Frame non supportee sur {side}: {raw_value}")
+            parsed.append(clue)
+        return parsed
+
+    def _frame_cells(self, side: str, index: int) -> Tuple[Cell, Cell, Cell]:
+        if side == "left":
+            return ((index, 0), (index, 1), (index, 2))
+        if side == "right":
+            return ((index, 6), (index, 7), (index, 8))
+        if side == "top":
+            return ((0, index), (1, index), (2, index))
+        if side == "bottom":
+            return ((6, index), (7, index), (8, index))
+        raise ValueError(f"Cote Frame inconnu: {side}")
 
     def _parse_rossini_constraints(self, raw_rossini: Any) -> List[GridConstraint]:
         enforce_absent = True

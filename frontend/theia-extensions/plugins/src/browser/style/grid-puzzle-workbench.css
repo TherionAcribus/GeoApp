@@ -128,6 +128,14 @@
     background: transparent;
 }
 
+.sudoku-board.frame-board {
+    grid-template-columns: 34px repeat(9, 44px) 34px;
+    grid-template-rows: 34px repeat(9, 44px) 34px;
+    gap: 0;
+    border: 0;
+    background: transparent;
+}
+
 .sudoku-board.sujiken-board {
     border: 0;
     background: transparent;
@@ -478,6 +486,42 @@
     opacity: 1;
 }
 
+.grid-puzzle-workbench .frame-clue {
+    width: 34px;
+    height: 28px;
+    min-height: 0;
+    padding: 0;
+    align-self: center;
+    justify-self: center;
+    text-align: center;
+    color: var(--theia-descriptionForeground);
+    background: color-mix(in srgb, var(--theia-editor-background) 88%, var(--theia-descriptionForeground));
+    border: 1px dashed color-mix(in srgb, var(--theia-panel-border) 65%, var(--theia-descriptionForeground));
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 1;
+}
+
+.grid-puzzle-workbench .frame-clue:hover,
+.grid-puzzle-workbench .frame-clue:focus {
+    color: var(--theia-input-foreground);
+    background: var(--theia-input-background);
+    border-color: var(--theia-focusBorder);
+    outline: none;
+}
+
+.grid-puzzle-workbench .frame-clue.active {
+    color: #eab308;
+    background: color-mix(in srgb, var(--theia-input-background) 78%, #eab308);
+    border-style: solid;
+    border-color: #eab308;
+}
+
+.grid-puzzle-workbench .frame-clue:disabled {
+    opacity: 1;
+}
+
 .grid-puzzle-workbench .inequality-control.vertical {
     transform: rotate(90deg);
 }
@@ -658,6 +702,11 @@
         grid-template-rows: 22px repeat(9, minmax(28px, 1fr)) 22px;
     }
 
+    .sudoku-board.frame-board {
+        grid-template-columns: 28px repeat(9, minmax(28px, 1fr)) 28px;
+        grid-template-rows: 28px repeat(9, minmax(28px, 1fr)) 28px;
+    }
+
     .sudoku-board.sujiken-board {
         grid-template-columns: repeat(9, minmax(30px, 1fr));
         grid-template-rows: repeat(9, minmax(30px, 1fr));
@@ -716,7 +765,8 @@
     .xv-control,
     .xv-corner,
     .rossini-control,
-    .skyscraper-clue {
+    .skyscraper-clue,
+    .frame-clue {
         width: 100%;
         height: 100%;
     }

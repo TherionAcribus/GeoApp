@@ -43,6 +43,8 @@ Generic finite-domain grid solver powered by Z3.
 - `sudoku_skyscraper`: classic 9x9 Sudoku plus outside visibility clues. Each
   clue counts how many increasing-height skyscrapers are visible from that
   side of a row or column.
+- `sudoku_frame`: classic 9x9 Sudoku plus outside sum clues. Each clue gives
+  the sum of the three nearest cells in the corresponding row or column.
 - Empty cells can be written as `0`, `.`, or `_`.
 - Separators such as spaces, pipes, and row divider lines are ignored.
 
@@ -95,11 +97,13 @@ the Theia "Grilles" workbench:
 - quick paste textarea for fast Sudoku import;
 - variant selector for classic Sudoku, Sudoku X, Anti Diagonal, Center Dot,
   Windoku, Girandola, Asterisk, Sujiken, Samurai Sudoku, Flower Sudoku,
-  Sohei Sudoku, Kazaguruma, Greater Than, Rossini, Sudoku XV and Skyscraper;
+  Sohei Sudoku, Kazaguruma, Greater Than, Rossini, Sudoku XV, Skyscraper and
+  Frame;
 - editable `>` / `<` borders for Greater Than / Compdoku;
 - editable edge arrows for Rossini;
 - editable `X` / `V` borders for Sudoku XV;
 - editable outside visibility clues for Skyscraper Sudoku;
+- editable outside three-cell sum clues for Frame Sudoku;
 - watch mode to mark answer cells;
 - solve action calling this plugin;
 - extracted watched values returned as `watched_values` and `watched_text`.
