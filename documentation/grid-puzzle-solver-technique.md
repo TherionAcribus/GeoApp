@@ -129,6 +129,8 @@ Entrées principales :
 | `comparisons` | object/list/string | vide | Alias de `inequalities`. |
 | `rossini` | object | vide | Fleches de bord Rossini (`top`, `bottom`, `left`, `right`). |
 | `arrows` | object | vide | Alias de `rossini`. |
+| `xv` | object | vide | Marques de bord Sudoku XV (`horizontal`, `vertical`). |
+| `marks` | object | vide | Alias de `xv`. |
 | `watched_cells` | string/list | vide | Cellules a extraire apres resolution. |
 | `watch_cells` | string/list | vide | Alias de `watched_cells`. |
 
@@ -150,6 +152,7 @@ Valeurs supportees pour `puzzle_type` :
 | `kazaguruma_sudoku` | `kazaguruma`, `windmill_sudoku` | Cinq grilles Sudoku 9x9 chevauchantes dans un plateau 21x21 en moulin. |
 | `sudoku_greater_than` | `greater_than`, `compdoku`, `inequality_sudoku` | Sudoku standard + comparaisons `>` / `<` entre cases adjacentes. |
 | `sudoku_rossini` | `rossini`, `rossini_sudoku` | Sudoku standard + fleches exterieures ordonnant les trois premieres cases vues depuis un bord. |
+| `sudoku_xv` | `xv`, `xv_sudoku` | Sudoku standard + marques de bord `X` / `V` pour les sommes 10 et 5. |
 | `custom_spec` | `custom`, `json_spec` | Probleme CSP decrit en JSON. |
 
 Format de grille Sudoku :
@@ -292,6 +295,7 @@ Contraintes supportees :
 | `strict_increasing` | `cells` | Trois cellules strictement croissantes dans l'ordre donne. |
 | `strict_decreasing` | `cells` | Trois cellules strictement decroissantes dans l'ordre donne. |
 | `not_monotonic` | `cells` | Trois cellules qui ne sont ni strictement croissantes ni strictement decroissantes. |
+| `sum_not_in` | `cells`, `forbidden_totals` | Somme des cellules differente de chacun des totaux interdits. |
 
 ### `GridCspProblem`
 
@@ -1064,6 +1068,83 @@ de la grille. Un clic alterne les fleches possibles pour le bord concerne puis
 revient a vide. Les conflits locaux colorent les trois cases concernees en
 rouge avant meme l'appel au solveur.
 
+### Sudoku XV
+
+`puzzle_type = sudoku_xv`
+
+Alias :
+
+```text
+xv
+xv_sudoku
+```
+
+Contraintes :
+
+- toutes les contraintes du Sudoku classique ;
+- une marque `X` entre deux cases adjacentes impose une somme egale a 10 ;
+- une marque `V` entre deux cases adjacentes impose une somme egale a 5 ;
+- en mode complet, l'absence de marque entre deux cases adjacentes impose une
+  somme differente de 5 et de 10.
+
+Format envoye par l'atelier :
+
+```json
+{
+  "horizontal": [
+    ".V......",
+    "...X....",
+    "..V.X...",
+    "..V.....",
+    "....X.X.",
+    "..V.....",
+    "X...V...",
+    ".X......",
+    "....X..."
+  ],
+  "vertical": [
+    "..X..X..X",
+    ".......X.",
+    "..VV.....",
+    ".........",
+    "...V.....",
+    "..X.X....",
+    ".........",
+    "........."
+  ],
+  "enforce_absent": true
+}
+```
+
+`horizontal` contient 9 lignes de 8 marques. Chaque marque concerne la paire
+gauche/droite.
+
+`vertical` contient 8 lignes de 9 marques. Chaque marque concerne la paire
+haut/bas.
+
+Les valeurs vides peuvent etre `""`, `.`, `0`, `_` ou `-`. Les marques `x` et
+`v` minuscules sont acceptees.
+
+Formats alternatifs acceptes par le moteur :
+
+```json
+[
+  {"cells": ["r1c2", "r1c3"], "symbol": "V"},
+  {"from": "r2c4", "to": "r2c5", "mark": "X"}
+]
+```
+
+ou des lignes texte :
+
+```text
+r1c2Vr1c3
+r2c4Xr2c5
+```
+
+Dans l'atelier Theia, la variante `Sudoku XV` affiche des emplacements entre
+les cases. Un clic alterne entre vide, `X` et `V`. Les emplacements vides
+restent visibles car ils representent eux aussi une contrainte.
+
 ## Specification generique `custom_spec`
 
 Le mode `custom_spec` accepte une specification JSON.
@@ -1196,6 +1277,7 @@ Fonctionnalites actuelles :
 - rendu 21x21 de 333 cases actives en mode Kazaguruma ;
 - bords cliquables `>` / `<` en mode Greater Than / Compdoku ;
 - fleches de bord cliquables en mode Rossini ;
+- bords cliquables `X` / `V` en mode Sudoku XV ;
 - affichage de la premiere solution ;
 - reprise de la solution dans la grille ;
 - extraction des cellules surveillees ;
@@ -1207,10 +1289,12 @@ Fonctionnalites actuelles :
 |---|---|---|
 | `grid` | `string[][]` | Valeurs courantes de la grille. |
 | `quickText` | `string` | Representation texte de la grille. |
-| `puzzleType` | `sudoku_classic`, `sudoku_x`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than` ou `sudoku_rossini` | Variante active. |
+| `puzzleType` | `sudoku_classic`, `sudoku_x`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_rossini` ou `sudoku_xv` | Variante active. |
 | `horizontalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme ligne. |
 | `verticalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme colonne. |
 | `rossiniArrows` | object | Fleches de bord `top`, `bottom`, `left`, `right` pour Rossini. |
+| `xvHorizontalMarks` | `string[][]` | Marques `X` / `V` entre deux cases d'une meme ligne. |
+| `xvVerticalMarks` | `string[][]` | Marques `X` / `V` entre deux cases d'une meme colonne. |
 | `watchCells` | `string[]` | Cellules surveillees au format `r1c1`. |
 | `mode` | `edit` ou `watch` | Mode d'interaction. |
 | `maxSolutions` | number | Limite d'enumeration. |
@@ -1385,6 +1469,10 @@ Payload de sauvegarde :
       "left": ["", "", "", "", "", "", "", "", ""],
       "right": ["", "", "", "", "", "", "", "", ""]
     },
+    "xv": {
+      "horizontal": [["", "V", "", "", "", "", "", ""], "..."],
+      "vertical": [["", "", "X", "", "", "X", "", "", "X"], "..."]
+    },
     "watchCells": ["r1c1", "r9c9"],
     "maxSolutions": 2,
     "solverTimeoutMs": 10000,
@@ -1480,6 +1568,8 @@ Couverture actuelle :
 - Greater Than refuse une relation adjacente contradictoire ;
 - Rossini valide avec des fleches de bord compatibles ;
 - Rossini refuse une fleche de bord contradictoire ;
+- Sudoku XV valide avec marques de bord compatibles ;
+- Sudoku XV refuse une marque de bord contradictoire ;
 - extraction des cellules surveillees ;
 - spec generique type Latin square.
 

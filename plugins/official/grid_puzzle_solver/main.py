@@ -63,6 +63,7 @@ class GridConstraint:
     value: Optional[str] = None
     total: Optional[int] = None
     limit: Optional[int] = None
+    forbidden_totals: Tuple[int, ...] = ()
 
 
 @dataclass
@@ -275,6 +276,23 @@ class GridpuzzlesolverPlugin:
                     rossini=inputs.get("rossini") or inputs.get("arrows") or {},
                     include_rossini=True,
                 )
+            elif puzzle_type in {"sudoku_xv", "xv", "xv_sudoku"}:
+                puzzle_text = self._first_non_empty(
+                    inputs.get("grid"),
+                    inputs.get("puzzle"),
+                    inputs.get("text"),
+                )
+                problem = self._build_sudoku_problem(
+                    puzzle_text,
+                    include_diagonals=False,
+                    include_center_dot=False,
+                    include_windoku=False,
+                    include_girandola=False,
+                    include_asterisk=False,
+                    variant="sudoku_xv",
+                    xv=inputs.get("xv") or inputs.get("marks") or {},
+                    include_xv=True,
+                )
             elif puzzle_type in {"custom", "custom_spec", "json_spec"}:
                 problem = self._build_custom_problem(inputs.get("spec"))
             else:
@@ -315,6 +333,8 @@ class GridpuzzlesolverPlugin:
         include_anti_diagonal: bool = False,
         rossini: Any = None,
         include_rossini: bool = False,
+        xv: Any = None,
+        include_xv: bool = False,
     ) -> GridCspProblem:
         symbols = [str(value) for value in range(1, 10)]
         tokens = self._parse_sudoku_tokens(puzzle_text, symbols)
@@ -424,6 +444,8 @@ class GridpuzzlesolverPlugin:
         constraints.extend(self._parse_sudoku_inequalities(inequalities))
         if include_rossini:
             constraints.extend(self._parse_rossini_constraints(rossini))
+        if include_xv:
+            constraints.extend(self._parse_xv_constraints(xv))
 
         return GridCspProblem(
             rows=9,
@@ -804,6 +826,22 @@ class GridpuzzlesolverPlugin:
             )
             return
 
+        if kind in {"sum_not_in", "sum_not_equal"}:
+            if len(cells) < 1 or not constraint.forbidden_totals:
+                raise ValueError("La contrainte sum_not_in attend des cellules et des totaux interdits")
+            total_expr = z3.Sum(
+                *(
+                    self._numeric_value_expr(
+                        variables[cell],
+                        problem.symbols,
+                        problem.numeric_values,
+                    )
+                    for cell in cells
+                )
+            )
+            solver.add(z3.And(*(total_expr != total for total in constraint.forbidden_totals)))
+            return
+
         if kind in {"greater_than", "gt"}:
             if len(cells) != 2:
                 raise ValueError("La contrainte greater_than attend deux cellules")
@@ -994,6 +1032,166 @@ class GridpuzzlesolverPlugin:
         if relation == "<":
             return GridConstraint("less_than", (first_cell, second_cell))
         raise ValueError(f"Symbole d'inegalite non supporte: {relation}")
+
+    def _parse_xv_constraints(self, raw_xv: Any) -> List[GridConstraint]:
+        enforce_absent = True
+        if raw_xv in (None, "", []):
+            raw_xv = {}
+        if isinstance(raw_xv, str):
+            text = raw_xv.strip()
+            if text:
+                try:
+                    raw_xv = json.loads(text)
+                except json.JSONDecodeError:
+                    return self._parse_xv_lines(text)
+            else:
+                raw_xv = {}
+        if not isinstance(raw_xv, dict):
+            if isinstance(raw_xv, list):
+                return self._parse_xv_entries(raw_xv)
+            raise ValueError("Format xv non supporte")
+
+        if "enforce_absent" in raw_xv:
+            enforce_absent = bool(raw_xv.get("enforce_absent"))
+        elif "all_marks_given" in raw_xv:
+            enforce_absent = bool(raw_xv.get("all_marks_given"))
+
+        constraints: List[GridConstraint] = []
+        has_matrix = any(key in raw_xv for key in ("horizontal", "h", "vertical", "v"))
+        if has_matrix or "constraints" not in raw_xv:
+            constraints.extend(
+                self._parse_xv_matrix(
+                    raw_xv.get("horizontal") or raw_xv.get("h"),
+                    rows=9,
+                    cols=8,
+                    first_cell=lambda row, col: (row, col),
+                    second_cell=lambda row, col: (row, col + 1),
+                    label="horizontal",
+                    enforce_absent=enforce_absent,
+                )
+            )
+            constraints.extend(
+                self._parse_xv_matrix(
+                    raw_xv.get("vertical") or raw_xv.get("v"),
+                    rows=8,
+                    cols=9,
+                    first_cell=lambda row, col: (row, col),
+                    second_cell=lambda row, col: (row + 1, col),
+                    label="vertical",
+                    enforce_absent=enforce_absent,
+                )
+            )
+        if "constraints" in raw_xv:
+            constraints.extend(self._parse_xv_entries(raw_xv["constraints"]))
+        return constraints
+
+    def _parse_xv_matrix(
+        self,
+        raw_matrix: Any,
+        rows: int,
+        cols: int,
+        first_cell: Any,
+        second_cell: Any,
+        label: str,
+        enforce_absent: bool,
+    ) -> List[GridConstraint]:
+        if raw_matrix in (None, ""):
+            raw_matrix = ["." * cols for _ in range(rows)]
+        if not isinstance(raw_matrix, list) or len(raw_matrix) != rows:
+            raise ValueError(f"xv.{label} doit contenir {rows} lignes")
+
+        constraints: List[GridConstraint] = []
+        for row_index, raw_row in enumerate(raw_matrix):
+            if isinstance(raw_row, str):
+                values = [char for char in raw_row if char.upper() in {"X", "V"} or char in {".", "0", "_", "-"}]
+            elif isinstance(raw_row, list):
+                values = [str(value or "") for value in raw_row]
+            else:
+                raise ValueError(f"xv.{label}[{row_index}] doit etre une liste ou une chaine")
+
+            if len(values) != cols:
+                raise ValueError(f"xv.{label}[{row_index}] doit contenir {cols} valeurs")
+
+            for col_index, symbol in enumerate(values):
+                constraints.append(
+                    self._build_xv_constraint(
+                        first_cell(row_index, col_index),
+                        second_cell(row_index, col_index),
+                        symbol,
+                        enforce_absent,
+                    )
+                )
+        return [constraint for constraint in constraints if constraint is not None]
+
+    def _parse_xv_entries(self, raw_entries: Any) -> List[GridConstraint]:
+        if raw_entries in (None, "", []):
+            return []
+        if not isinstance(raw_entries, list):
+            raise ValueError("Les contraintes XV en liste doivent etre une liste d'objets")
+
+        constraints: List[GridConstraint] = []
+        for entry in raw_entries:
+            if not isinstance(entry, dict):
+                raise ValueError("Chaque contrainte XV doit etre un objet")
+            symbol = str(
+                entry.get("symbol")
+                or entry.get("mark")
+                or entry.get("value")
+                or ""
+            ).strip()
+            raw_cells = entry.get("cells")
+            if raw_cells is None:
+                raw_cells = [entry.get("from") or entry.get("cell_a") or entry.get("a"), entry.get("to") or entry.get("cell_b") or entry.get("b")]
+            if not isinstance(raw_cells, list) or len(raw_cells) != 2:
+                raise ValueError("Chaque contrainte XV doit definir deux cellules")
+
+            constraint = self._build_xv_constraint(
+                self._parse_cell_ref(raw_cells[0], 9, 9),
+                self._parse_cell_ref(raw_cells[1], 9, 9),
+                symbol,
+                enforce_absent=False,
+            )
+            if constraint is not None:
+                constraints.append(constraint)
+        return constraints
+
+    def _parse_xv_lines(self, text: str) -> List[GridConstraint]:
+        constraints: List[GridConstraint] = []
+        for line in text.splitlines():
+            normalized = line.strip().replace(" ", "")
+            if not normalized:
+                continue
+            match = re.fullmatch(r"(r\d+c\d+)([XVxv])(r\d+c\d+)", normalized, re.IGNORECASE)
+            if not match:
+                raise ValueError(f"Contrainte XV invalide: {line}")
+            constraint = self._build_xv_constraint(
+                self._parse_cell_ref(match.group(1), 9, 9),
+                self._parse_cell_ref(match.group(3), 9, 9),
+                match.group(2),
+                enforce_absent=False,
+            )
+            if constraint is not None:
+                constraints.append(constraint)
+        return constraints
+
+    def _build_xv_constraint(
+        self,
+        first_cell: Cell,
+        second_cell: Cell,
+        symbol: str,
+        enforce_absent: bool,
+    ) -> Optional[GridConstraint]:
+        self._validate_adjacent_cells(first_cell, second_cell)
+        normalized = str(symbol or "").strip().upper()
+        if normalized == "X":
+            return GridConstraint("sum", (first_cell, second_cell), total=10)
+        if normalized == "V":
+            return GridConstraint("sum", (first_cell, second_cell), total=5)
+        if normalized in {"", ".", "0", "_", "-"}:
+            if enforce_absent:
+                return GridConstraint("sum_not_in", (first_cell, second_cell), forbidden_totals=(5, 10))
+            return None
+        raise ValueError(f"Symbole XV non supporte: {symbol}")
 
     def _parse_rossini_constraints(self, raw_rossini: Any) -> List[GridConstraint]:
         enforce_absent = True

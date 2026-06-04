@@ -871,6 +871,107 @@ def test_rossini_rejects_contradictory_arrow():
     assert result["summary"] == "Aucune solution compatible avec les contraintes"
 
 
+def test_xv_accepts_matching_border_marks():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "sudoku_xv",
+            "grid": """
+                241587693
+                589643127
+                763291584
+                172356948
+                695428731
+                834179256
+                916832475
+                428715369
+                357964812
+            """,
+            "xv": {
+                "horizontal": [
+                    ".V......",
+                    "...X....",
+                    "..V.X...",
+                    "..V.....",
+                    "....X.X.",
+                    "..V.....",
+                    "X...V...",
+                    ".X......",
+                    "....X...",
+                ],
+                "vertical": [
+                    "..X..X..X",
+                    ".......X.",
+                    "..VV.....",
+                    ".........",
+                    "...V.....",
+                    "..X.X....",
+                    ".........",
+                    ".........",
+                ],
+                "enforce_absent": True,
+            },
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["unique"] is True
+    assert result["metadata"]["variant"] == "sudoku_xv"
+    assert result["metadata"]["constraint_count"] == 171
+
+
+def test_xv_rejects_contradictory_border_mark():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "xv",
+            "grid": """
+                241587693
+                589643127
+                763291584
+                172356948
+                695428731
+                834179256
+                916832475
+                428715369
+                357964812
+            """,
+            "xv": {
+                "horizontal": [
+                    ".X......",
+                    "...X....",
+                    "..V.X...",
+                    "..V.....",
+                    "....X.X.",
+                    "..V.....",
+                    "X...V...",
+                    ".X......",
+                    "....X...",
+                ],
+                "vertical": [
+                    "..X..X..X",
+                    ".......X.",
+                    "..VV.....",
+                    ".........",
+                    "...V.....",
+                    "..X.X....",
+                    ".........",
+                    ".........",
+                ],
+                "enforce_absent": True,
+            },
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+    assert result["summary"] == "Aucune solution compatible avec les contraintes"
+
+
 def test_watched_cells_are_extracted_in_requested_order():
     plugin = load_plugin()
 
