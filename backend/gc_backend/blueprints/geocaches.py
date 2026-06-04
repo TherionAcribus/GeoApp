@@ -539,6 +539,7 @@ def get_geocaches_for_zone(zone_id: int):
                 'is_corrected': gc.is_corrected or False,
                 'original_latitude': gc.original_latitude,
                 'original_longitude': gc.original_longitude,
+                'status': gc.status or 'active',
                 'waypoints': [w.to_dict() for w in (gc.waypoints or [])],
             })
         

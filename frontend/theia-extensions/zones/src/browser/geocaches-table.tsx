@@ -1,4 +1,4 @@
-import * as React from 'react';
+﻿import * as React from 'react';
 import {
     useReactTable,
     getCoreRowModel,
@@ -61,6 +61,7 @@ export interface Geocache {
     description?: string;
     hint?: string;
     waypoints?: GeocacheWaypoint[];
+    status?: string;
 }
 
 
@@ -104,7 +105,8 @@ export type GeocachesTableColumnId =
     | 'waypoints_count'
     | 'favorites_count'
     | 'owner'
-    | 'logs_count';
+    | 'logs_count'
+    | 'status';
 
 interface GeocachesTableColumnDefinition {
     id: GeocachesTableColumnId;
@@ -144,6 +146,7 @@ const GEOCACHES_TABLE_COLUMN_DEFINITIONS: GeocachesTableColumnDefinition[] = [
     { id: 'favorites_count', label: 'Favoris', description: 'Nombre de points favoris.' },
     { id: 'owner', label: 'Propriétaire', description: 'Propriétaire de la cache.' },
     { id: 'logs_count', label: 'Logs', description: 'Nombre de logs connus.' },
+    { id: 'status', label: 'Statut', description: 'Statut de la cache sur Geocaching.com (active, désactivée, archivée).' },
 ];
 
 const ALL_GEOCACHES_TABLE_COLUMN_IDS = GEOCACHES_TABLE_COLUMN_DEFINITIONS.map(def => def.id);
@@ -388,12 +391,32 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                 header: 'Type',
                 cell: info => {
                     const type = info.getValue() as string;
+                    const status = (info.row.original as Geocache).status;
+                    const isArchived = status === 'archived';
+                    const isDisabled = status === 'disabled';
+                    const statusLabel = isArchived ? ' \u2014 ⛔ Archivée' : isDisabled ? ' \u2014 ⚠️ Désactivée' : '';
                     return (
-                        <GeocacheIcon 
-                            type={type} 
-                            size={20}
-                            showLabel={false}
-                        />
+                        <span style={{ position: 'relative', display: 'inline-block' }}>
+                            <GeocacheIcon
+                                type={type}
+                                size={20}
+                                showLabel={false}
+                                title={type + statusLabel}
+                                style={(isArchived || isDisabled) ? { filter: 'grayscale(100%) opacity(0.55)' } : undefined}
+                            />
+                            {isArchived && (
+                                <span style={{
+                                    position: 'absolute',
+                                    top: '50%',
+                                    left: -2,
+                                    right: -2,
+                                    height: 2,
+                                    background: '#ef4444',
+                                    transform: 'translateY(-50%)',
+                                    pointerEvents: 'none',
+                                }} />
+                            )}
+                        </span>
                     );
                 },
                 size: 50,
@@ -508,6 +531,22 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                 header: 'Logs',
                 cell: info => <span>{(info.getValue() as number | undefined) ?? 0}</span>,
                 size: 70,
+            },
+            {
+                id: 'status',
+                accessorFn: row => (row as Geocache).status ?? 'active',
+                header: 'Statut',
+                cell: ({ row }) => {
+                    const status = (row.original as Geocache).status ?? 'active';
+                    if (status === 'archived') {
+                        return <span style={{ background: 'rgba(127, 29, 29, 0.4)', color: '#fca5a5', border: '1px solid #ef4444', borderRadius: 4, padding: '1px 6px', fontSize: 11, fontWeight: 'bold', whiteSpace: 'nowrap' }}>⛔ Archivée</span>;
+                    }
+                    if (status === 'disabled') {
+                        return <span style={{ background: 'rgba(120, 53, 15, 0.4)', color: '#fde68a', border: '1px solid #f59e0b', borderRadius: 4, padding: '1px 6px', fontSize: 11, fontWeight: 'bold', whiteSpace: 'nowrap' }}>⚠️ Désactivée</span>;
+                    }
+                    return <span style={{ opacity: 0.45, fontSize: 11 }}>Active</span>;
+                },
+                size: 110,
             },
             {
                 id: 'actions',
