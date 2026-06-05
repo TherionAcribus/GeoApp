@@ -364,6 +364,22 @@ class GridpuzzlesolverPlugin:
                     parity=inputs.get("parity") or inputs.get("even_odd") or {},
                     include_parity=True,
                 )
+            elif puzzle_type in {"sudoku_non_consecutive", "non_consecutive", "nonconsecutive_sudoku"}:
+                puzzle_text = self._first_non_empty(
+                    inputs.get("grid"),
+                    inputs.get("puzzle"),
+                    inputs.get("text"),
+                )
+                problem = self._build_sudoku_problem(
+                    puzzle_text,
+                    include_diagonals=False,
+                    include_center_dot=False,
+                    include_windoku=False,
+                    include_girandola=False,
+                    include_asterisk=False,
+                    variant="sudoku_non_consecutive",
+                    include_non_consecutive=True,
+                )
             elif puzzle_type in {"custom", "custom_spec", "json_spec"}:
                 problem = self._build_custom_problem(inputs.get("spec"))
             else:
@@ -413,6 +429,7 @@ class GridpuzzlesolverPlugin:
         symbols_override: Optional[Sequence[str]] = None,
         parity: Any = None,
         include_parity: bool = False,
+        include_non_consecutive: bool = False,
     ) -> GridCspProblem:
         symbols = list(symbols_override) if symbols_override is not None else [str(value) for value in range(1, 10)]
         tokens = self._parse_sudoku_tokens(puzzle_text, symbols)
@@ -530,6 +547,8 @@ class GridpuzzlesolverPlugin:
             constraints.extend(self._parse_frame_constraints(frame))
         if include_parity:
             constraints.extend(self._parse_parity_constraints(parity))
+        if include_non_consecutive:
+            constraints.extend(self._non_consecutive_constraints())
 
         return GridCspProblem(
             rows=9,
@@ -909,6 +928,22 @@ class GridpuzzlesolverPlugin:
                 problem.numeric_values,
             )
             solver.add(numeric_expr % 2 == (0 if constraint.value == "even" else 1))
+            return
+
+        if kind == "non_consecutive":
+            if len(cells) != 2:
+                raise ValueError("La contrainte non_consecutive attend deux cellules")
+            first_expr = self._numeric_value_expr(
+                variables[cells[0]],
+                problem.symbols,
+                problem.numeric_values,
+            )
+            second_expr = self._numeric_value_expr(
+                variables[cells[1]],
+                problem.symbols,
+                problem.numeric_values,
+            )
+            solver.add(z3.Abs(first_expr - second_expr) != 1)
             return
 
         if kind == "equals":
@@ -1513,6 +1548,16 @@ class GridpuzzlesolverPlugin:
         if text in {"o", "odd", "impair", "i"}:
             return "odd"
         raise ValueError(f"Marqueur de parite non supporte: {raw_value}")
+
+    def _non_consecutive_constraints(self) -> List[GridConstraint]:
+        constraints: List[GridConstraint] = []
+        for row in range(9):
+            for col in range(9):
+                if col < 8:
+                    constraints.append(GridConstraint("non_consecutive", ((row, col), (row, col + 1))))
+                if row < 8:
+                    constraints.append(GridConstraint("non_consecutive", ((row, col), (row + 1, col))))
+        return constraints
 
     def _parse_rossini_constraints(self, raw_rossini: Any) -> List[GridConstraint]:
         enforce_absent = True

@@ -165,6 +165,7 @@ Valeurs supportees pour `puzzle_type` :
 | `sudoku_frame` | `frame`, `frame_sudoku`, `outside_sum_sudoku` | Sudoku standard + sommes exterieures des trois cases voisines du bord. |
 | `sudoku_godoku` | `godoku`, `wordoku`, `alphabet_sudoku` | Sudoku standard avec 9 lettres au lieu des chiffres. |
 | `sudoku_even_odd` | `even_odd`, `evenodd`, `odd_even_sudoku` | Sudoku standard + contraintes de parite sur certaines cases. |
+| `sudoku_non_consecutive` | `non_consecutive`, `nonconsecutive_sudoku` | Sudoku standard + interdiction des chiffres consecutifs dans les cases adjacentes. |
 | `custom_spec` | `custom`, `json_spec` | Probleme CSP decrit en JSON. |
 
 Format de grille Sudoku :
@@ -310,6 +311,7 @@ Contraintes supportees :
 | `sum_not_in` | `cells`, `forbidden_totals` | Somme des cellules differente de chacun des totaux interdits. |
 | `visible_count` | `cells`, `total` | Nombre de valeurs visibles depuis le debut de la sequence ordonnee. |
 | `parity` | `cells`, `value` | Une cellule est paire (`even`) ou impaire (`odd`). |
+| `non_consecutive` | `cells` | Deux cellules adjacentes ne peuvent pas differer de 1. |
 
 ### `GridCspProblem`
 
@@ -388,6 +390,13 @@ un modulo :
 ```python
 numeric_expr % 2 == 0  # pair
 numeric_expr % 2 == 1  # impair
+```
+
+Les contraintes `non_consecutive` convertissent les deux cellules en valeurs
+numeriques et interdisent une difference absolue de 1 :
+
+```python
+z3.Abs(first_expr - second_expr) != 1
 ```
 
 ## Enumeration des solutions
@@ -1367,6 +1376,40 @@ les cases impaires gardent une base claire avec un marqueur central. Les
 conflits locaux sont signales si une valeur deja saisie ne respecte pas la
 parite marquee.
 
+### Non-Consecutive Sudoku
+
+`puzzle_type = sudoku_non_consecutive`
+
+Alias :
+
+```text
+non_consecutive
+nonconsecutive_sudoku
+```
+
+Contraintes :
+
+- toutes les contraintes du Sudoku classique ;
+- chaque paire de cases orthogonalement adjacentes ne peut pas contenir deux
+  chiffres consecutifs ;
+- les diagonales ne sont pas concernees par cette regle.
+
+Le moteur ajoute 144 contraintes `non_consecutive` :
+
+- 72 paires horizontales ;
+- 72 paires verticales.
+
+Exemple interdit :
+
+```text
+r1c1 = 3
+r1c2 = 2 ou 4
+```
+
+Dans l'atelier Theia, la variante `Non-Consecutive` ne demande aucune saisie de
+marques supplementaires. Les conflits locaux sont signales en rouge des que
+deux cases voisines remplies contiennent des chiffres consecutifs.
+
 ## Specification generique `custom_spec`
 
 Le mode `custom_spec` accepte une specification JSON.
@@ -1504,6 +1547,7 @@ Fonctionnalites actuelles :
 - sommes exterieures numeriques en mode Frame ;
 - saisie de lettres et alphabet optionnel en mode Godoku ;
 - mode `Parite` avec cases pair/impair en mode Even-Odd ;
+- detection locale des voisins consecutifs en mode Non-Consecutive ;
 - affichage de la premiere solution ;
 - reprise de la solution dans la grille ;
 - extraction des cellules surveillees ;
@@ -1515,7 +1559,7 @@ Fonctionnalites actuelles :
 |---|---|---|
 | `grid` | `string[][]` | Valeurs courantes de la grille. |
 | `quickText` | `string` | Representation texte de la grille. |
-| `puzzleType` | `sudoku_classic`, `sudoku_x`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_rossini`, `sudoku_xv`, `sudoku_skyscraper`, `sudoku_frame`, `sudoku_godoku` ou `sudoku_even_odd` | Variante active. |
+| `puzzleType` | `sudoku_classic`, `sudoku_x`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_rossini`, `sudoku_xv`, `sudoku_skyscraper`, `sudoku_frame`, `sudoku_godoku`, `sudoku_even_odd` ou `sudoku_non_consecutive` | Variante active. |
 | `horizontalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme ligne. |
 | `verticalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme colonne. |
 | `rossiniArrows` | object | Fleches de bord `top`, `bottom`, `left`, `right` pour Rossini. |
@@ -1821,6 +1865,8 @@ Couverture actuelle :
 - Godoku refuse une lettre repetee dans une ligne ;
 - Even-Odd valide avec marques pair/impair compatibles ;
 - Even-Odd refuse une marque pair/impair contradictoire ;
+- Non-Consecutive valide une grille sans voisins consecutifs ;
+- Non-Consecutive refuse une grille avec voisins consecutifs ;
 - extraction des cellules surveillees ;
 - spec generique type Latin square.
 

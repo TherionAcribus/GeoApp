@@ -51,6 +51,8 @@ Generic finite-domain grid solver powered by Z3.
 - `sudoku_even_odd`: classic 9x9 Sudoku plus cell parity constraints. Marked
   cells can be forced to even or odd values; the interactive UI shows even
   cells in grey and odd cells with a light marker.
+- `sudoku_non_consecutive`: classic 9x9 Sudoku where orthogonally adjacent
+  cells cannot contain consecutive digits.
 - Empty cells can be written as `0`, `.`, or `_`.
 - Separators such as spaces, pipes, and row divider lines are ignored.
 
@@ -87,6 +89,8 @@ Sudoku is just the first builder on top of a generic CSP model:
 - visibility count constraints (`visible_count`) for outside-clue variants such
   as Skyscraper Sudoku;
 - parity constraints (`parity`) for variants such as Even-Odd Sudoku;
+- non-consecutive adjacency constraints (`non_consecutive`) for variants where
+  neighboring cells cannot differ by 1;
 - solution enumeration with uniqueness detection.
 - an internal Z3 timeout (`solver_timeout_ms`) for highly open grids.
 - watched cells (`watched_cells`) so an interactive UI can extract answer
@@ -105,7 +109,7 @@ the Theia "Grilles" workbench:
 - variant selector for classic Sudoku, Sudoku X, Anti Diagonal, Center Dot,
   Windoku, Girandola, Asterisk, Sujiken, Samurai Sudoku, Flower Sudoku,
   Sohei Sudoku, Kazaguruma, Greater Than, Rossini, Sudoku XV, Skyscraper,
-  Frame, Godoku and Even-Odd;
+  Frame, Godoku, Even-Odd and Non-Consecutive;
 - editable `>` / `<` borders for Greater Than / Compdoku;
 - editable edge arrows for Rossini;
 - editable `X` / `V` borders for Sudoku XV;

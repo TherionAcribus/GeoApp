@@ -1235,6 +1235,58 @@ def test_even_odd_rejects_contradictory_parity_mark():
     assert result["summary"] == "Aucune solution compatible avec les contraintes"
 
 
+def test_non_consecutive_accepts_grid_without_adjacent_consecutive_values():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "sudoku_non_consecutive",
+            "grid": """
+                286351974
+                413796258
+                795248613
+                357962481
+                829514736
+                641837592
+                964173825
+                538629147
+                172485369
+            """,
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["unique"] is True
+    assert result["metadata"]["variant"] == "sudoku_non_consecutive"
+
+
+def test_non_consecutive_rejects_adjacent_consecutive_values():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "non_consecutive",
+            "grid": """
+                534678912
+                672195348
+                198342567
+                859761423
+                426853791
+                713924856
+                961537284
+                287419635
+                345286179
+            """,
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+    assert result["summary"] == "Aucune solution compatible avec les contraintes"
+
+
 def test_watched_cells_are_extracted_in_requested_order():
     plugin = load_plugin()
 

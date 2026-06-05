@@ -9,7 +9,7 @@ import './style/grid-puzzle-workbench.css';
 
 type Grid = string[][];
 type WorkMode = 'edit' | 'watch' | 'parity';
-type SudokuVariant = 'sudoku_classic' | 'sudoku_x' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_godoku' | 'sudoku_even_odd';
+type SudokuVariant = 'sudoku_classic' | 'sudoku_x' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_godoku' | 'sudoku_even_odd' | 'sudoku_non_consecutive';
 type InequalitySymbol = '' | '>' | '<';
 type InequalityGrid = InequalitySymbol[][];
 type XvSymbol = '' | 'X' | 'V';
@@ -225,6 +225,9 @@ function getVariantLabel(puzzleType: SudokuVariant): string {
     }
     if (puzzleType === 'sudoku_even_odd') {
         return 'Even-Odd';
+    }
+    if (puzzleType === 'sudoku_non_consecutive') {
+        return 'Non-Consecutive';
     }
     return 'Sudoku classique';
 }
@@ -608,6 +611,10 @@ function findConstraintConflicts(
         addParityConflicts(grid, cells, messages, parityMarks);
     }
 
+    if (puzzleType === 'sudoku_non_consecutive') {
+        addNonConsecutiveConflicts(grid, cells, messages);
+    }
+
     return { cells, messages };
 }
 
@@ -725,6 +732,44 @@ function addParityConflicts(
             messages.push(`Parite ${mark === 'even' ? 'paire' : 'impaire'} non respectee en ${ref}`);
         });
     });
+}
+
+function addNonConsecutiveConflicts(
+    grid: Grid,
+    cells: Set<string>,
+    messages: string[],
+): void {
+    for (let row = 0; row < SIZE; row += 1) {
+        for (let col = 0; col < SIZE; col += 1) {
+            if (col < SIZE - 1) {
+                addNonConsecutiveConflict(grid, cells, messages, row, col, row, col + 1);
+            }
+            if (row < SIZE - 1) {
+                addNonConsecutiveConflict(grid, cells, messages, row, col, row + 1, col);
+            }
+        }
+    }
+}
+
+function addNonConsecutiveConflict(
+    grid: Grid,
+    cells: Set<string>,
+    messages: string[],
+    firstRow: number,
+    firstCol: number,
+    secondRow: number,
+    secondCol: number,
+): void {
+    const firstValue = Number(grid[firstRow]?.[firstCol] || 0);
+    const secondValue = Number(grid[secondRow]?.[secondCol] || 0);
+    if (!firstValue || !secondValue || Math.abs(firstValue - secondValue) !== 1) {
+        return;
+    }
+    const firstRef = cellRef(firstRow, firstCol);
+    const secondRef = cellRef(secondRow, secondCol);
+    cells.add(firstRef);
+    cells.add(secondRef);
+    messages.push(`Voisins consecutifs interdits entre ${firstRef} et ${secondRef}`);
 }
 
 function addSkyscraperConflicts(
@@ -1732,6 +1777,7 @@ function GridPuzzleWorkbenchApp({
     const isFrame = puzzleType === 'sudoku_frame';
     const isGodoku = puzzleType === 'sudoku_godoku';
     const isEvenOdd = puzzleType === 'sudoku_even_odd';
+    const isNonConsecutive = puzzleType === 'sudoku_non_consecutive';
     const isSujiken = puzzleType === 'sujiken';
     const isSamurai = puzzleType === 'samurai_sudoku';
     const isFlower = puzzleType === 'flower_sudoku';
@@ -2155,6 +2201,7 @@ function GridPuzzleWorkbenchApp({
             || value === 'sudoku_frame'
             || value === 'sudoku_godoku'
             || value === 'sudoku_even_odd'
+            || value === 'sudoku_non_consecutive'
             ? value
             : 'sudoku_classic';
         const nextGrid = resizeGrid(grid, gridSizeForVariant(nextPuzzleType));
@@ -2627,6 +2674,7 @@ function GridPuzzleWorkbenchApp({
                         <option value='sudoku_frame'>Frame</option>
                         <option value='sudoku_godoku'>Godoku</option>
                         <option value='sudoku_even_odd'>Even-Odd</option>
+                        <option value='sudoku_non_consecutive'>Non-Consecutive</option>
                     </select>
                     <button onClick={solve} disabled={solveState.running}>
                         {solveState.running ? 'Resolution...' : 'Resoudre'}
@@ -2701,6 +2749,7 @@ function GridPuzzleWorkbenchApp({
                         {isFrame ? ' Renseignez les sommes exterieures des trois cases les plus proches du bord.' : ''}
                         {isGodoku ? ' Saisissez les lettres directement dans la grille. L alphabet peut etre renseigne dans les options si la grille ne montre pas les 9 lettres.' : ''}
                         {isEvenOdd ? ' Double-cliquez une case pour alterner entre pair, impair et vide. En mode Parite, un simple clic suffit.' : ''}
+                        {isNonConsecutive ? ' Les cases adjacentes horizontalement ou verticalement ne peuvent pas contenir deux chiffres consecutifs.' : ''}
                         {puzzleType === 'sudoku_anti_diagonal' ? ' Anti Diagonal limite chaque grande diagonale a trois chiffres differents.' : ''}
                         {isSujiken ? ' Sujiken utilise les 45 cases du triangle.' : ''}
                         {isSamurai ? ' Samurai utilise les 369 cases actives des cinq grilles 9x9.' : ''}
