@@ -255,6 +255,27 @@
     background: color-mix(in srgb, var(--theia-sideBar-background) 58%, #d946ef);
 }
 
+.sudoku-cell.even-parity {
+    background: color-mix(in srgb, var(--theia-input-background) 52%, #9ca3af);
+}
+
+.sudoku-cell.given.even-parity {
+    background: color-mix(in srgb, var(--theia-sideBar-background) 42%, #9ca3af);
+}
+
+.sudoku-cell.odd-parity {
+    background:
+        radial-gradient(circle at center, rgba(255, 255, 255, 0.88) 0 8px, transparent 9px),
+        var(--theia-input-background);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--theia-panel-border) 50%, #ffffff);
+}
+
+.sudoku-cell.given.odd-parity {
+    background:
+        radial-gradient(circle at center, rgba(255, 255, 255, 0.94) 0 8px, transparent 9px),
+        var(--theia-sideBar-background);
+}
+
 .sudoku-cell.sujiken-cell {
     background: var(--theia-input-background);
 }

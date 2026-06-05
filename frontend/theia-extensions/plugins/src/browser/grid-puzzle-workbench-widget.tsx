@@ -8,12 +8,14 @@ import type { GeocacheContext } from './plugin-executor-widget';
 import './style/grid-puzzle-workbench.css';
 
 type Grid = string[][];
-type WorkMode = 'edit' | 'watch';
-type SudokuVariant = 'sudoku_classic' | 'sudoku_x' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_godoku';
+type WorkMode = 'edit' | 'watch' | 'parity';
+type SudokuVariant = 'sudoku_classic' | 'sudoku_x' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_godoku' | 'sudoku_even_odd';
 type InequalitySymbol = '' | '>' | '<';
 type InequalityGrid = InequalitySymbol[][];
 type XvSymbol = '' | 'X' | 'V';
 type XvGrid = XvSymbol[][];
+type ParitySymbol = '' | 'even' | 'odd';
+type ParityGrid = ParitySymbol[][];
 type RossiniArrow = '' | '↑' | '↓' | '←' | '→';
 type RossiniSide = 'top' | 'bottom' | 'left' | 'right';
 
@@ -59,6 +61,7 @@ const EMPTY_HORIZONTAL_INEQUALITIES: InequalityGrid = Array.from({ length: SIZE 
 const EMPTY_VERTICAL_INEQUALITIES: InequalityGrid = Array.from({ length: SIZE - 1 }, () => Array(SIZE).fill(''));
 const EMPTY_XV_HORIZONTAL_MARKS: XvGrid = Array.from({ length: SIZE }, () => Array(SIZE - 1).fill(''));
 const EMPTY_XV_VERTICAL_MARKS: XvGrid = Array.from({ length: SIZE - 1 }, () => Array(SIZE).fill(''));
+const EMPTY_PARITY_MARKS: ParityGrid = Array.from({ length: SIZE }, () => Array(SIZE).fill(''));
 const EMPTY_SKYSCRAPER_CLUES: SkyscraperClues = {
     top: Array<string>(SIZE).fill(''),
     bottom: Array<string>(SIZE).fill(''),
@@ -130,6 +133,10 @@ function cloneInequalityGrid(grid: InequalityGrid): InequalityGrid {
 }
 
 function cloneXvGrid(grid: XvGrid): XvGrid {
+    return grid.map(row => [...row]);
+}
+
+function cloneParityGrid(grid: ParityGrid): ParityGrid {
     return grid.map(row => [...row]);
 }
 
@@ -215,6 +222,9 @@ function getVariantLabel(puzzleType: SudokuVariant): string {
     }
     if (puzzleType === 'sudoku_godoku') {
         return 'Godoku';
+    }
+    if (puzzleType === 'sudoku_even_odd') {
+        return 'Even-Odd';
     }
     return 'Sudoku classique';
 }
@@ -509,6 +519,7 @@ function findConstraintConflicts(
     xvVerticalMarks: XvGrid,
     skyscraperClues: SkyscraperClues,
     frameClues: FrameClues,
+    parityMarks: ParityGrid,
 ): ConflictHighlights {
     const cells = new Set<string>();
     const messages: string[] = [];
@@ -591,6 +602,10 @@ function findConstraintConflicts(
 
     if (puzzleType === 'sudoku_frame') {
         addFrameConflicts(grid, cells, messages, frameClues);
+    }
+
+    if (puzzleType === 'sudoku_even_odd') {
+        addParityConflicts(grid, cells, messages, parityMarks);
     }
 
     return { cells, messages };
@@ -684,6 +699,32 @@ function addXvConflict(
             ? `Marque XV ${mark} non respectee entre ${firstRef} et ${secondRef} : somme ${total}`
             : `Absence de marque XV entre ${firstRef} et ${secondRef} : somme ${total}`,
     );
+}
+
+function addParityConflicts(
+    grid: Grid,
+    cells: Set<string>,
+    messages: string[],
+    parityMarks: ParityGrid,
+): void {
+    parityMarks.forEach((row, rowIndex) => {
+        row.forEach((mark, colIndex) => {
+            if (!mark) {
+                return;
+            }
+            const value = Number(grid[rowIndex]?.[colIndex] || 0);
+            if (!value) {
+                return;
+            }
+            const valid = mark === 'even' ? value % 2 === 0 : value % 2 === 1;
+            if (valid) {
+                return;
+            }
+            const ref = cellRef(rowIndex, colIndex);
+            cells.add(ref);
+            messages.push(`Parite ${mark === 'even' ? 'paire' : 'impaire'} non respectee en ${ref}`);
+        });
+    });
 }
 
 function addSkyscraperConflicts(
@@ -986,6 +1027,10 @@ function emptyXvVerticalMarks(): XvGrid {
     return cloneXvGrid(EMPTY_XV_VERTICAL_MARKS);
 }
 
+function emptyParityMarks(): ParityGrid {
+    return cloneParityGrid(EMPTY_PARITY_MARKS);
+}
+
 function emptySkyscraperClues(): SkyscraperClues {
     return cloneSkyscraperClues(EMPTY_SKYSCRAPER_CLUES);
 }
@@ -1027,6 +1072,44 @@ function normalizeXvGrid(value: unknown, rows: number, cols: number): XvGrid {
         const cells = typeof row === 'string' ? row.split('') : Array.isArray(row) ? row : [];
         return Array.from({ length: cols }, (_unused, index) => normalizeXvSymbol(cells[index]));
     });
+}
+
+function normalizeParitySymbol(value: unknown): ParitySymbol {
+    const text = String(value ?? '').trim().toLowerCase();
+    if (text === 'even' || text === 'e' || text === 'pair' || text === 'p') {
+        return 'even';
+    }
+    if (text === 'odd' || text === 'o' || text === 'impair' || text === 'i') {
+        return 'odd';
+    }
+    return '';
+}
+
+function normalizeParityGrid(value: unknown): ParityGrid {
+    const rawGrid = value && typeof value === 'object' && !Array.isArray(value)
+        ? (value as Record<string, unknown>).grid ?? (value as Record<string, unknown>).matrix
+        : value;
+    if (!Array.isArray(rawGrid) || rawGrid.length !== SIZE) {
+        return emptyParityMarks();
+    }
+    return rawGrid.map(row => {
+        const cells = typeof row === 'string' ? row.split('') : Array.isArray(row) ? row : [];
+        return Array.from({ length: SIZE }, (_unused, index) => normalizeParitySymbol(cells[index]));
+    });
+}
+
+function cycleParitySymbol(value: ParitySymbol): ParitySymbol {
+    if (value === '') {
+        return 'even';
+    }
+    if (value === 'even') {
+        return 'odd';
+    }
+    return '';
+}
+
+function parityLabel(value: ParitySymbol): string {
+    return value === 'even' ? 'pair' : value === 'odd' ? 'impair' : '';
 }
 
 function normalizeSkyscraperClue(value: unknown): string {
@@ -1611,6 +1694,7 @@ function GridPuzzleWorkbenchApp({
     const [verticalInequalities, setVerticalInequalities] = React.useState<InequalityGrid>(() => emptyVerticalInequalities());
     const [xvHorizontalMarks, setXvHorizontalMarks] = React.useState<XvGrid>(() => emptyXvHorizontalMarks());
     const [xvVerticalMarks, setXvVerticalMarks] = React.useState<XvGrid>(() => emptyXvVerticalMarks());
+    const [parityMarks, setParityMarks] = React.useState<ParityGrid>(() => emptyParityMarks());
     const [skyscraperClues, setSkyscraperClues] = React.useState<SkyscraperClues>(() => emptySkyscraperClues());
     const [frameClues, setFrameClues] = React.useState<FrameClues>(() => emptyFrameClues());
     const [rossiniArrows, setRossiniArrows] = React.useState<RossiniArrows>(() => emptyRossiniArrows());
@@ -1647,6 +1731,7 @@ function GridPuzzleWorkbenchApp({
     const isSkyscraper = puzzleType === 'sudoku_skyscraper';
     const isFrame = puzzleType === 'sudoku_frame';
     const isGodoku = puzzleType === 'sudoku_godoku';
+    const isEvenOdd = puzzleType === 'sudoku_even_odd';
     const isSujiken = puzzleType === 'sujiken';
     const isSamurai = puzzleType === 'samurai_sudoku';
     const isFlower = puzzleType === 'flower_sudoku';
@@ -1665,8 +1750,8 @@ function GridPuzzleWorkbenchApp({
             ? SAMURAI_TEXT_PLACEHOLDER
             : QUICK_TEXT_PLACEHOLDER;
     const constraintConflicts = React.useMemo(
-        () => findConstraintConflicts(grid, puzzleType, horizontalInequalities, verticalInequalities, rossiniArrows, xvHorizontalMarks, xvVerticalMarks, skyscraperClues, frameClues),
-        [frameClues, grid, horizontalInequalities, puzzleType, rossiniArrows, skyscraperClues, verticalInequalities, xvHorizontalMarks, xvVerticalMarks],
+        () => findConstraintConflicts(grid, puzzleType, horizontalInequalities, verticalInequalities, rossiniArrows, xvHorizontalMarks, xvVerticalMarks, skyscraperClues, frameClues, parityMarks),
+        [frameClues, grid, horizontalInequalities, parityMarks, puzzleType, rossiniArrows, skyscraperClues, verticalInequalities, xvHorizontalMarks, xvVerticalMarks],
     );
     const visibleConflictMessages = constraintConflicts.messages.slice(0, 4);
 
@@ -1724,6 +1809,7 @@ function GridPuzzleWorkbenchApp({
         setVerticalInequalities(normalizeInequalityGrid(snapshot?.inequalities?.vertical, SIZE - 1, SIZE));
         setXvHorizontalMarks(normalizeXvGrid(snapshot?.xv?.horizontal ?? snapshot?.xvMarks?.horizontal, SIZE, SIZE - 1));
         setXvVerticalMarks(normalizeXvGrid(snapshot?.xv?.vertical ?? snapshot?.xvMarks?.vertical, SIZE - 1, SIZE));
+        setParityMarks(normalizeParityGrid(snapshot?.parity ?? snapshot?.parityMarks));
         setSkyscraperClues(normalizeSkyscraperClues(snapshot?.skyscraper ?? snapshot?.skyscraperClues));
         setFrameClues(normalizeFrameClues(snapshot?.frame ?? snapshot?.frameClues));
         setRossiniArrows(normalizeRossiniArrows(snapshot?.rossini ?? snapshot?.rossiniArrows));
@@ -1797,6 +1883,9 @@ function GridPuzzleWorkbenchApp({
                         horizontal: xvHorizontalMarks,
                         vertical: xvVerticalMarks,
                     },
+                    parity: {
+                        grid: parityMarks,
+                    },
                     skyscraper: skyscraperClues,
                     frame: frameClues,
                     rossini: rossiniArrows,
@@ -1831,6 +1920,7 @@ function GridPuzzleWorkbenchApp({
         horizontalInequalities,
         maxSolutions,
         messageService,
+        parityMarks,
         pluginsService,
         puzzleType,
         quickText,
@@ -1893,6 +1983,16 @@ function GridPuzzleWorkbenchApp({
         setXvVerticalMarks(previous => {
             const next = cloneXvGrid(previous);
             next[row][col] = cycleXvMark(next[row][col]);
+            return next;
+        });
+        setSolveState({ running: false });
+        markDirty();
+    }, [markDirty]);
+
+    const toggleParityCell = React.useCallback((row: number, col: number) => {
+        setParityMarks(previous => {
+            const next = cloneParityGrid(previous);
+            next[row][col] = cycleParitySymbol(next[row][col]);
             return next;
         });
         setSolveState({ running: false });
@@ -1980,11 +2080,26 @@ function GridPuzzleWorkbenchApp({
 
     const handleCellClick = React.useCallback((row: number, col: number, event: React.MouseEvent) => {
         const ref = cellRef(row, col);
+        if (isEvenOdd && mode === 'parity') {
+            event.preventDefault();
+            if (event.detail === 1) {
+                toggleParityCell(row, col);
+            }
+            return;
+        }
         if (mode === 'watch' || event.ctrlKey || event.metaKey) {
             event.preventDefault();
             toggleWatchCell(ref);
         }
-    }, [mode, toggleWatchCell]);
+    }, [isEvenOdd, mode, toggleParityCell, toggleWatchCell]);
+
+    const handleCellDoubleClick = React.useCallback((row: number, col: number, event: React.MouseEvent) => {
+        if (!isEvenOdd || mode === 'parity') {
+            return;
+        }
+        event.preventDefault();
+        toggleParityCell(row, col);
+    }, [isEvenOdd, mode, toggleParityCell]);
 
     const applyQuickText = React.useCallback((text: string) => {
         const parsed = parsePuzzleText(text, puzzleType);
@@ -2039,15 +2154,19 @@ function GridPuzzleWorkbenchApp({
             || value === 'sudoku_skyscraper'
             || value === 'sudoku_frame'
             || value === 'sudoku_godoku'
+            || value === 'sudoku_even_odd'
             ? value
             : 'sudoku_classic';
         const nextGrid = resizeGrid(grid, gridSizeForVariant(nextPuzzleType));
         setGrid(nextGrid);
         setPuzzleType(nextPuzzleType);
+        if (nextPuzzleType !== 'sudoku_even_odd' && mode === 'parity') {
+            setMode('edit');
+        }
         setQuickText(gridToText(nextGrid, nextPuzzleType));
         setSolveState({ running: false });
         markDirty();
-    }, [grid, markDirty]);
+    }, [grid, markDirty, mode]);
 
     const clearGrid = React.useCallback(() => {
         setGridAndQuickText(createEmptyGrid(gridSizeForVariant(puzzleType)));
@@ -2055,6 +2174,7 @@ function GridPuzzleWorkbenchApp({
         setVerticalInequalities(emptyVerticalInequalities());
         setXvHorizontalMarks(emptyXvHorizontalMarks());
         setXvVerticalMarks(emptyXvVerticalMarks());
+        setParityMarks(emptyParityMarks());
         setSkyscraperClues(emptySkyscraperClues());
         setFrameClues(emptyFrameClues());
         setRossiniArrows(emptyRossiniArrows());
@@ -2094,6 +2214,7 @@ function GridPuzzleWorkbenchApp({
                 skyscraper: isSkyscraper ? skyscraperClues : undefined,
                 frame: isFrame ? frameClues : undefined,
                 alphabet: isGodoku && godokuAlphabet ? godokuAlphabet : undefined,
+                parity: isEvenOdd ? { grid: parityMarks } : undefined,
                 max_solutions: maxSolutions,
                 solver_timeout_ms: timeoutMs,
             });
@@ -2111,7 +2232,7 @@ function GridPuzzleWorkbenchApp({
                 error: error instanceof Error ? error.message : String(error),
             });
         }
-    }, [constraintConflicts.messages.length, frameClues, geocacheId, godokuAlphabet, grid, horizontalInequalities, isFrame, isGodoku, isRossini, isSkyscraper, isXv, maxSolutions, pluginsService, puzzleType, rossiniArrows, saveState, skyscraperClues, timeoutMs, verticalInequalities, watchCells, xvHorizontalMarks, xvVerticalMarks]);
+    }, [constraintConflicts.messages.length, frameClues, geocacheId, godokuAlphabet, grid, horizontalInequalities, isEvenOdd, isFrame, isGodoku, isRossini, isSkyscraper, isXv, maxSolutions, parityMarks, pluginsService, puzzleType, rossiniArrows, saveState, skyscraperClues, timeoutMs, verticalInequalities, watchCells, xvHorizontalMarks, xvVerticalMarks]);
 
     const useSolvedGrid = React.useCallback(() => {
         if (solvedGrid) {
@@ -2157,6 +2278,8 @@ function GridPuzzleWorkbenchApp({
             puzzleType === 'sudoku_windoku' && isWindokuCell(rowIndex, colIndex) ? 'windoku' : '',
             puzzleType === 'sudoku_girandola' && isGirandolaCell(rowIndex, colIndex) ? 'girandola' : '',
             puzzleType === 'sudoku_asterisk' && isAsteriskCell(rowIndex, colIndex) ? 'asterisk' : '',
+            puzzleType === 'sudoku_even_odd' && parityMarks[rowIndex]?.[colIndex] === 'even' ? 'even-parity' : '',
+            puzzleType === 'sudoku_even_odd' && parityMarks[rowIndex]?.[colIndex] === 'odd' ? 'odd-parity' : '',
             puzzleType === 'sujiken' ? 'sujiken-cell' : '',
             puzzleType === 'samurai_sudoku' ? 'samurai-cell' : '',
             puzzleType === 'flower_sudoku' ? 'flower-cell' : '',
@@ -2475,6 +2598,11 @@ function GridPuzzleWorkbenchApp({
                     <button className={mode === 'watch' ? 'active' : ''} onClick={() => setMode('watch')}>
                         Surveiller
                     </button>
+                    {isEvenOdd ? (
+                        <button className={mode === 'parity' ? 'active' : ''} onClick={() => setMode('parity')}>
+                            Parite
+                        </button>
+                    ) : null}
                     <select
                         className='grid-puzzle-variant-select'
                         value={puzzleType}
@@ -2498,6 +2626,7 @@ function GridPuzzleWorkbenchApp({
                         <option value='sudoku_skyscraper'>Skyscraper</option>
                         <option value='sudoku_frame'>Frame</option>
                         <option value='sudoku_godoku'>Godoku</option>
+                        <option value='sudoku_even_odd'>Even-Odd</option>
                     </select>
                     <button onClick={solve} disabled={solveState.running}>
                         {solveState.running ? 'Resolution...' : 'Resoudre'}
@@ -2544,10 +2673,12 @@ function GridPuzzleWorkbenchApp({
                                             cellRefs.current[rowIndex][colIndex] = element;
                                         }}
                                         aria-label={ref}
+                                        title={isEvenOdd && parityMarks[rowIndex]?.[colIndex] ? `Contrainte ${parityLabel(parityMarks[rowIndex][colIndex])}` : ref}
                                         value={value}
                                         inputMode={isGodoku ? 'text' : 'numeric'}
                                         maxLength={1}
                                         onClick={event => handleCellClick(rowIndex, colIndex, event)}
+                                        onDoubleClick={event => handleCellDoubleClick(rowIndex, colIndex, event)}
                                         onKeyDown={event => handleCellKeyDown(rowIndex, colIndex, event)}
                                         onChange={event => updateCell(rowIndex, colIndex, event.currentTarget.value)}
                                     />
@@ -2569,6 +2700,7 @@ function GridPuzzleWorkbenchApp({
                         {isSkyscraper ? ' Renseignez les indices exterieurs visibles depuis chaque cote de la grille.' : ''}
                         {isFrame ? ' Renseignez les sommes exterieures des trois cases les plus proches du bord.' : ''}
                         {isGodoku ? ' Saisissez les lettres directement dans la grille. L alphabet peut etre renseigne dans les options si la grille ne montre pas les 9 lettres.' : ''}
+                        {isEvenOdd ? ' Double-cliquez une case pour alterner entre pair, impair et vide. En mode Parite, un simple clic suffit.' : ''}
                         {puzzleType === 'sudoku_anti_diagonal' ? ' Anti Diagonal limite chaque grande diagonale a trois chiffres differents.' : ''}
                         {isSujiken ? ' Sujiken utilise les 45 cases du triangle.' : ''}
                         {isSamurai ? ' Samurai utilise les 369 cases actives des cinq grilles 9x9.' : ''}

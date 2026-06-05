@@ -347,6 +347,23 @@ class GridpuzzlesolverPlugin:
                     variant="sudoku_godoku",
                     symbols_override=symbols,
                 )
+            elif puzzle_type in {"sudoku_even_odd", "even_odd", "evenodd", "odd_even_sudoku"}:
+                puzzle_text = self._first_non_empty(
+                    inputs.get("grid"),
+                    inputs.get("puzzle"),
+                    inputs.get("text"),
+                )
+                problem = self._build_sudoku_problem(
+                    puzzle_text,
+                    include_diagonals=False,
+                    include_center_dot=False,
+                    include_windoku=False,
+                    include_girandola=False,
+                    include_asterisk=False,
+                    variant="sudoku_even_odd",
+                    parity=inputs.get("parity") or inputs.get("even_odd") or {},
+                    include_parity=True,
+                )
             elif puzzle_type in {"custom", "custom_spec", "json_spec"}:
                 problem = self._build_custom_problem(inputs.get("spec"))
             else:
@@ -394,6 +411,8 @@ class GridpuzzlesolverPlugin:
         frame: Any = None,
         include_frame: bool = False,
         symbols_override: Optional[Sequence[str]] = None,
+        parity: Any = None,
+        include_parity: bool = False,
     ) -> GridCspProblem:
         symbols = list(symbols_override) if symbols_override is not None else [str(value) for value in range(1, 10)]
         tokens = self._parse_sudoku_tokens(puzzle_text, symbols)
@@ -509,6 +528,8 @@ class GridpuzzlesolverPlugin:
             constraints.extend(self._parse_skyscraper_constraints(skyscraper))
         if include_frame:
             constraints.extend(self._parse_frame_constraints(frame))
+        if include_parity:
+            constraints.extend(self._parse_parity_constraints(parity))
 
         return GridCspProblem(
             rows=9,
@@ -877,6 +898,17 @@ class GridpuzzlesolverPlugin:
                 else:
                     visible_terms.append(z3.If(z3.And(*(height > previous for previous in heights[:index])), 1, 0))
             solver.add(z3.Sum(*visible_terms) == constraint.total)
+            return
+
+        if kind == "parity":
+            if len(cells) != 1 or constraint.value not in {"even", "odd"}:
+                raise ValueError("La contrainte parity attend une cellule et une valeur even/odd")
+            numeric_expr = self._numeric_value_expr(
+                variables[cells[0]],
+                problem.symbols,
+                problem.numeric_values,
+            )
+            solver.add(numeric_expr % 2 == (0 if constraint.value == "even" else 1))
             return
 
         if kind == "equals":
@@ -1426,6 +1458,61 @@ class GridpuzzlesolverPlugin:
         if side == "bottom":
             return ((6, index), (7, index), (8, index))
         raise ValueError(f"Cote Frame inconnu: {side}")
+
+    def _parse_parity_constraints(self, raw_parity: Any) -> List[GridConstraint]:
+        if raw_parity in (None, "", []):
+            return []
+        if isinstance(raw_parity, str):
+            text = raw_parity.strip()
+            if not text:
+                return []
+            try:
+                raw_parity = json.loads(text)
+            except json.JSONDecodeError:
+                raw_parity = {"grid": text.splitlines()}
+        if isinstance(raw_parity, dict):
+            raw_grid = raw_parity.get("grid") or raw_parity.get("matrix") or raw_parity.get("cells")
+        else:
+            raw_grid = raw_parity
+
+        if raw_grid in (None, "", []):
+            return []
+        if not isinstance(raw_grid, list) or len(raw_grid) != 9:
+            raise ValueError("parity.grid doit contenir 9 lignes")
+
+        constraints: List[GridConstraint] = []
+        for row_index, raw_row in enumerate(raw_grid):
+            if isinstance(raw_row, str):
+                values = [
+                    char for char in raw_row
+                    if char.upper() in {"E", "O", "P", "I"} or char in {".", "0", "_", "-"}
+                ]
+            elif isinstance(raw_row, list):
+                values = [str(value or "") for value in raw_row]
+            else:
+                raise ValueError(f"parity.grid[{row_index}] doit etre une liste ou une chaine")
+
+            if len(values) != 9:
+                raise ValueError(f"parity.grid[{row_index}] doit contenir 9 valeurs")
+
+            for col_index, raw_value in enumerate(values):
+                parity_value = self._normalize_parity_value(raw_value)
+                if parity_value is None:
+                    continue
+                constraints.append(
+                    GridConstraint("parity", ((row_index, col_index),), value=parity_value)
+                )
+        return constraints
+
+    def _normalize_parity_value(self, raw_value: Any) -> Optional[str]:
+        text = str(raw_value or "").strip().lower()
+        if text in {"", ".", "0", "_", "-"}:
+            return None
+        if text in {"e", "even", "pair", "p"}:
+            return "even"
+        if text in {"o", "odd", "impair", "i"}:
+            return "odd"
+        raise ValueError(f"Marqueur de parite non supporte: {raw_value}")
 
     def _parse_rossini_constraints(self, raw_rossini: Any) -> List[GridConstraint]:
         enforce_absent = True

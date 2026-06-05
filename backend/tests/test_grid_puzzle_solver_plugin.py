@@ -1157,6 +1157,84 @@ def test_godoku_rejects_repeated_letter_in_row():
     assert result["summary"] == "Aucune solution compatible avec les contraintes"
 
 
+def test_even_odd_accepts_matching_parity_marks():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "sudoku_even_odd",
+            "grid": """
+                534678912
+                672195348
+                198342567
+                859761423
+                426853791
+                713924856
+                961537284
+                287419635
+                345286179
+            """,
+            "parity": {
+                "grid": [
+                    "OOEEOEOOE",
+                    "EOEOOOOEE",
+                    "OOEOEEOEO",
+                    "EOOOEOEEO",
+                    "EEEEOOOOO",
+                    "OOOOEEEOE",
+                    "OEOOOOEEE",
+                    "EEOEOOEOO",
+                    "OEOEEEOOO",
+                ]
+            },
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["unique"] is True
+    assert result["metadata"]["variant"] == "sudoku_even_odd"
+
+
+def test_even_odd_rejects_contradictory_parity_mark():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "even_odd",
+            "grid": """
+                534678912
+                672195348
+                198342567
+                859761423
+                426853791
+                713924856
+                961537284
+                287419635
+                345286179
+            """,
+            "parity": {
+                "grid": [
+                    "EOEEOEOOE",
+                    "EOEOOOOEE",
+                    "OOEOEEOEO",
+                    "EOOOEOEEO",
+                    "EEEEOOOOO",
+                    "OOOOEEEOE",
+                    "OEOOOOEEE",
+                    "EEOEOOEOO",
+                    "OEOEEEOOO",
+                ]
+            },
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+    assert result["summary"] == "Aucune solution compatible avec les contraintes"
+
+
 def test_watched_cells_are_extracted_in_requested_order():
     plugin = load_plugin()
 

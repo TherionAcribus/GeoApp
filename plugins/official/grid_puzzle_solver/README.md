@@ -48,6 +48,9 @@ Generic finite-domain grid solver powered by Z3.
 - `sudoku_godoku`: classic 9x9 Sudoku using nine letters instead of digits.
   The alphabet can be provided explicitly or inferred from the givens when all
   nine letters are present.
+- `sudoku_even_odd`: classic 9x9 Sudoku plus cell parity constraints. Marked
+  cells can be forced to even or odd values; the interactive UI shows even
+  cells in grey and odd cells with a light marker.
 - Empty cells can be written as `0`, `.`, or `_`.
 - Separators such as spaces, pipes, and row divider lines are ignored.
 
@@ -83,6 +86,7 @@ Sudoku is just the first builder on top of a generic CSP model:
   empty Sudoku XV borders;
 - visibility count constraints (`visible_count`) for outside-clue variants such
   as Skyscraper Sudoku;
+- parity constraints (`parity`) for variants such as Even-Odd Sudoku;
 - solution enumeration with uniqueness detection.
 - an internal Z3 timeout (`solver_timeout_ms`) for highly open grids.
 - watched cells (`watched_cells`) so an interactive UI can extract answer
@@ -101,13 +105,14 @@ the Theia "Grilles" workbench:
 - variant selector for classic Sudoku, Sudoku X, Anti Diagonal, Center Dot,
   Windoku, Girandola, Asterisk, Sujiken, Samurai Sudoku, Flower Sudoku,
   Sohei Sudoku, Kazaguruma, Greater Than, Rossini, Sudoku XV, Skyscraper,
-  Frame and Godoku;
+  Frame, Godoku and Even-Odd;
 - editable `>` / `<` borders for Greater Than / Compdoku;
 - editable edge arrows for Rossini;
 - editable `X` / `V` borders for Sudoku XV;
 - editable outside visibility clues for Skyscraper Sudoku;
 - editable outside three-cell sum clues for Frame Sudoku;
 - letter entry and optional alphabet field for Godoku / Wordoku;
+- editable parity marks for Even-Odd Sudoku;
 - watch mode to mark answer cells;
 - solve action calling this plugin;
 - extracted watched values returned as `watched_values` and `watched_text`.

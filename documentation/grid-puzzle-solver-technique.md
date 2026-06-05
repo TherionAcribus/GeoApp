@@ -137,6 +137,8 @@ Entrées principales :
 | `outside_sums` | object | vide | Alias de `frame`. |
 | `alphabet` | string/list | vide | Neuf lettres uniques pour Godoku / Wordoku. |
 | `symbols` | string/list | vide | Alias accepte pour l'alphabet Godoku. |
+| `parity` | object/list/string | vide | Contraintes Pair/Impair Even-Odd. |
+| `even_odd` | object/list/string | vide | Alias de `parity`. |
 | `watched_cells` | string/list | vide | Cellules a extraire apres resolution. |
 | `watch_cells` | string/list | vide | Alias de `watched_cells`. |
 
@@ -162,6 +164,7 @@ Valeurs supportees pour `puzzle_type` :
 | `sudoku_skyscraper` | `skyscraper`, `skyscraper_sudoku` | Sudoku standard + indices exterieurs comptant les batiments visibles. |
 | `sudoku_frame` | `frame`, `frame_sudoku`, `outside_sum_sudoku` | Sudoku standard + sommes exterieures des trois cases voisines du bord. |
 | `sudoku_godoku` | `godoku`, `wordoku`, `alphabet_sudoku` | Sudoku standard avec 9 lettres au lieu des chiffres. |
+| `sudoku_even_odd` | `even_odd`, `evenodd`, `odd_even_sudoku` | Sudoku standard + contraintes de parite sur certaines cases. |
 | `custom_spec` | `custom`, `json_spec` | Probleme CSP decrit en JSON. |
 
 Format de grille Sudoku :
@@ -306,6 +309,7 @@ Contraintes supportees :
 | `not_monotonic` | `cells` | Trois cellules qui ne sont ni strictement croissantes ni strictement decroissantes. |
 | `sum_not_in` | `cells`, `forbidden_totals` | Somme des cellules differente de chacun des totaux interdits. |
 | `visible_count` | `cells`, `total` | Nombre de valeurs visibles depuis le debut de la sequence ordonnee. |
+| `parity` | `cells`, `value` | Une cellule est paire (`even`) ou impaire (`odd`). |
 
 ### `GridCspProblem`
 
@@ -377,6 +381,14 @@ z3.Distinct(...)
 
 Les contraintes `sum` utilisent une expression `z3.If` qui convertit l'index
 de symbole en valeur numerique.
+
+Les contraintes `parity` utilisent la meme conversion numerique, puis ajoutent
+un modulo :
+
+```python
+numeric_expr % 2 == 0  # pair
+numeric_expr % 2 == 1  # impair
+```
 
 ## Enumeration des solutions
 
@@ -1303,6 +1315,58 @@ Dans l'atelier Theia, la variante `Godoku` accepte directement les lettres dans
 les cases et dans la saisie rapide. Le champ `Alphabet Godoku` des options sert
 a fournir les 9 lettres quand la grille de depart ne les contient pas toutes.
 
+### Even-Odd Sudoku / Pair-Impair
+
+`puzzle_type = sudoku_even_odd`
+
+Alias :
+
+```text
+even_odd
+evenodd
+odd_even_sudoku
+```
+
+Contraintes :
+
+- toutes les contraintes du Sudoku classique ;
+- chaque case marquee `even` / `pair` doit contenir un chiffre pair ;
+- chaque case marquee `odd` / `impair` doit contenir un chiffre impair.
+
+Format des marques de parite :
+
+```json
+{
+  "parity": {
+    "grid": [
+      "OOEEOEOOE",
+      "EOEOOOOEE",
+      "OOEOEEOEO",
+      "EOOOEOEEO",
+      "EEEEOOOOO",
+      "OOOOEEEOE",
+      "OEOOOOEEE",
+      "EEOEOOEOO",
+      "OEOEEEOOO"
+    ]
+  }
+}
+```
+
+Valeurs acceptees :
+
+| Marque | Sens |
+|---|---|
+| `E`, `even`, `pair`, `P` | Case paire. |
+| `O`, `odd`, `impair`, `I` | Case impaire. |
+| `0`, `.`, `_`, `-`, vide | Aucune contrainte de parite. |
+
+Dans l'atelier Theia, la variante `Even-Odd` ajoute un mode `Parite`. Un clic
+sur une case alterne entre vide, pair et impair. Les cases paires sont grises ;
+les cases impaires gardent une base claire avec un marqueur central. Les
+conflits locaux sont signales si une valeur deja saisie ne respecte pas la
+parite marquee.
+
 ## Specification generique `custom_spec`
 
 Le mode `custom_spec` accepte une specification JSON.
@@ -1439,6 +1503,7 @@ Fonctionnalites actuelles :
 - indices exterieurs numeriques en mode Skyscraper ;
 - sommes exterieures numeriques en mode Frame ;
 - saisie de lettres et alphabet optionnel en mode Godoku ;
+- mode `Parite` avec cases pair/impair en mode Even-Odd ;
 - affichage de la premiere solution ;
 - reprise de la solution dans la grille ;
 - extraction des cellules surveillees ;
@@ -1450,7 +1515,7 @@ Fonctionnalites actuelles :
 |---|---|---|
 | `grid` | `string[][]` | Valeurs courantes de la grille. |
 | `quickText` | `string` | Representation texte de la grille. |
-| `puzzleType` | `sudoku_classic`, `sudoku_x`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_rossini`, `sudoku_xv`, `sudoku_skyscraper`, `sudoku_frame` ou `sudoku_godoku` | Variante active. |
+| `puzzleType` | `sudoku_classic`, `sudoku_x`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_rossini`, `sudoku_xv`, `sudoku_skyscraper`, `sudoku_frame`, `sudoku_godoku` ou `sudoku_even_odd` | Variante active. |
 | `horizontalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme ligne. |
 | `verticalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme colonne. |
 | `rossiniArrows` | object | Fleches de bord `top`, `bottom`, `left`, `right` pour Rossini. |
@@ -1459,8 +1524,9 @@ Fonctionnalites actuelles :
 | `skyscraperClues` | object | Indices exterieurs `top`, `bottom`, `left`, `right` pour Skyscraper. |
 | `frameClues` | object | Sommes exterieures `top`, `bottom`, `left`, `right` pour Frame. |
 | `godokuAlphabet` | string | Alphabet de 9 lettres pour Godoku. |
+| `parityMarks` | `string[][]` | Marques `even` / `odd` par cellule pour Even-Odd. |
 | `watchCells` | `string[]` | Cellules surveillees au format `r1c1`. |
-| `mode` | `edit` ou `watch` | Mode d'interaction. |
+| `mode` | `edit`, `watch` ou `parity` | Mode d'interaction. |
 | `maxSolutions` | number | Limite d'enumeration. |
 | `timeoutMs` | number | Timeout Z3. |
 | `solveState` | object | Etat d'execution et resultat. |
@@ -1753,6 +1819,8 @@ Couverture actuelle :
 - Frame refuse une somme exterieure contradictoire ;
 - Godoku valide avec symboles lettres ;
 - Godoku refuse une lettre repetee dans une ligne ;
+- Even-Odd valide avec marques pair/impair compatibles ;
+- Even-Odd refuse une marque pair/impair contradictoire ;
 - extraction des cellules surveillees ;
 - spec generique type Latin square.
 
