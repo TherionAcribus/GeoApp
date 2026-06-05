@@ -1586,12 +1586,12 @@ function normalizeGodokuAlphabet(value: unknown): string {
     return letters.join('');
 }
 
-function extractGridFromResult(result: PluginResult | undefined): Grid | undefined {
-    const firstGrid = result?.results?.[0]?.grid;
-    if (!Array.isArray(firstGrid)) {
+function extractGridFromSolution(solution: unknown): Grid | undefined {
+    const grid = (solution as { grid?: unknown } | undefined)?.grid;
+    if (!Array.isArray(grid)) {
         return undefined;
     }
-    return firstGrid.map((row: unknown) => {
+    return grid.map((row: unknown) => {
         if (!Array.isArray(row)) {
             return Array(SIZE).fill('');
         }
@@ -1620,6 +1620,7 @@ function GridPuzzleWorkbenchApp({
     const [maxSolutions, setMaxSolutions] = React.useState(2);
     const [timeoutMs, setTimeoutMs] = React.useState(10000);
     const [solveState, setSolveState] = React.useState<SolveState>({ running: false });
+    const [selectedSolutionIndex, setSelectedSolutionIndex] = React.useState(0);
     const [persistence, setPersistence] = React.useState<PersistenceState>({
         loading: false,
         saving: false,
@@ -1629,9 +1630,14 @@ function GridPuzzleWorkbenchApp({
         Array.from({ length: SAMURAI_SIZE }, () => Array<HTMLInputElement | null>(SAMURAI_SIZE).fill(null))
     );
 
-    const solvedGrid = extractGridFromResult(solveState.result);
-    const watchedValues = (solveState.result as any)?.watched_values as Record<string, string> | undefined;
-    const watchedText = String((solveState.result as any)?.watched_text || '');
+    const solutionResults = Array.isArray(solveState.result?.results) ? solveState.result.results : [];
+    const activeSolutionIndex = solutionResults.length
+        ? Math.min(selectedSolutionIndex, solutionResults.length - 1)
+        : 0;
+    const activeSolution = solutionResults[activeSolutionIndex] as any;
+    const solvedGrid = extractGridFromSolution(activeSolution);
+    const watchedValues = activeSolution?.watched_values as Record<string, string> | undefined;
+    const watchedText = String(activeSolution?.watched_text || '');
     const geocacheId = context?.geocacheId;
     const variantLabel = getVariantLabel(puzzleType);
     const contextLabel = context ? `${context.gcCode} - ${context.name}` : 'Mode libre';
@@ -1724,6 +1730,7 @@ function GridPuzzleWorkbenchApp({
         setGodokuAlphabet(normalizeGodokuAlphabet(snapshot?.godokuAlphabet ?? snapshot?.alphabet));
         setMaxSolutions(normalizeNumber(snapshot?.maxSolutions, 2, 1, 25));
         setTimeoutMs(normalizeNumber(snapshot?.solverTimeoutMs ?? snapshot?.timeoutMs, 10000, 1000, 120000));
+        setSelectedSolutionIndex(0);
         setSolveState({ running: false, result: restoredResult });
     }, [puzzleType, setGridAndQuickText]);
 
@@ -2064,6 +2071,7 @@ function GridPuzzleWorkbenchApp({
             });
             return;
         }
+        setSelectedSolutionIndex(0);
         setSolveState({ running: true });
         try {
             const result = await pluginsService.executePlugin('grid_puzzle_solver', {
@@ -2582,8 +2590,25 @@ function GridPuzzleWorkbenchApp({
                     {solvedGrid && (
                         <div className='grid-puzzle-solution'>
                             <div className='grid-puzzle-section-title'>
-                                <strong>Solution</strong>
-                                <button onClick={useSolvedGrid}>Reprendre dans la grille</button>
+                                <strong>
+                                    Solution {solutionResults.length > 1 ? `${activeSolutionIndex + 1}/${solutionResults.length}` : ''}
+                                </strong>
+                                <div className='solution-actions'>
+                                    {solutionResults.length > 1 ? (
+                                        <select
+                                            value={activeSolutionIndex}
+                                            onChange={event => setSelectedSolutionIndex(Number(event.currentTarget.value) || 0)}
+                                            aria-label='Solution affichee'
+                                        >
+                                            {solutionResults.map((_solution, index) => (
+                                                <option key={`solution-option-${index}`} value={index}>
+                                                    Solution {index + 1}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    ) : null}
+                                    <button onClick={useSolvedGrid}>Reprendre dans la grille</button>
+                                </div>
                             </div>
                             <div
                                 className={[

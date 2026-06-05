@@ -585,6 +585,21 @@
     align-items: center;
 }
 
+.solution-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: flex-end;
+}
+
+.solution-actions select {
+    color: var(--theia-dropdown-foreground, var(--theia-input-foreground));
+    background: var(--theia-dropdown-background, var(--theia-input-background));
+    border: 1px solid var(--theia-dropdown-border, var(--theia-panel-border));
+    border-radius: 4px;
+    padding: 4px 6px;
+}
+
 .grid-puzzle-side textarea {
     width: 100%;
     min-height: 140px;
