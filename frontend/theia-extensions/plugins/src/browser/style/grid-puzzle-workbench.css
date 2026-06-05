@@ -211,6 +211,44 @@
     background: color-mix(in srgb, var(--theia-sideBar-background) 58%, #f59e0b);
 }
 
+.sudoku-cell.argyle-down {
+    background:
+        linear-gradient(45deg, transparent calc(50% - 1px), #f97316 calc(50% - 1px), #f97316 calc(50% + 1px), transparent calc(50% + 1px)),
+        var(--theia-input-background);
+}
+
+.sudoku-cell.argyle-up {
+    background:
+        linear-gradient(135deg, transparent calc(50% - 1px), #f97316 calc(50% - 1px), #f97316 calc(50% + 1px), transparent calc(50% + 1px)),
+        var(--theia-input-background);
+}
+
+.sudoku-cell.argyle-down.argyle-up {
+    background:
+        linear-gradient(45deg, transparent calc(50% - 1px), #f97316 calc(50% - 1px), #f97316 calc(50% + 1px), transparent calc(50% + 1px)),
+        linear-gradient(135deg, transparent calc(50% - 1px), #f97316 calc(50% - 1px), #f97316 calc(50% + 1px), transparent calc(50% + 1px)),
+        var(--theia-input-background);
+}
+
+.sudoku-cell.given.argyle-down {
+    background:
+        linear-gradient(45deg, transparent calc(50% - 1px), #f97316 calc(50% - 1px), #f97316 calc(50% + 1px), transparent calc(50% + 1px)),
+        var(--theia-sideBar-background);
+}
+
+.sudoku-cell.given.argyle-up {
+    background:
+        linear-gradient(135deg, transparent calc(50% - 1px), #f97316 calc(50% - 1px), #f97316 calc(50% + 1px), transparent calc(50% + 1px)),
+        var(--theia-sideBar-background);
+}
+
+.sudoku-cell.given.argyle-down.argyle-up {
+    background:
+        linear-gradient(45deg, transparent calc(50% - 1px), #f97316 calc(50% - 1px), #f97316 calc(50% + 1px), transparent calc(50% + 1px)),
+        linear-gradient(135deg, transparent calc(50% - 1px), #f97316 calc(50% - 1px), #f97316 calc(50% + 1px), transparent calc(50% + 1px)),
+        var(--theia-sideBar-background);
+}
+
 .sudoku-cell.anti-diagonal {
     background: color-mix(in srgb, var(--theia-input-background) 70%, #ff00cc);
 }

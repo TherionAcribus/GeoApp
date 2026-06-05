@@ -5,8 +5,15 @@ Generic finite-domain grid solver powered by Z3.
 ## Current preset
 
 - `sudoku_classic`: classic 9x9 Sudoku.
+- `sudoku_4x4`, `sudoku_6x6`, `sudoku_8x8`, `sudoku_10x10`,
+  `sudoku_12x12`, `sudoku_15x15`, `sudoku_16x16`: classic Sudoku with
+  alternate grid sizes and rectangular/square boxes. Symbols are `1-9`, then
+  `A-G` when needed.
 - `sudoku_x`: classic 9x9 Sudoku plus both main diagonals as all-different
   regions. The interactive UI highlights those diagonals in orange.
+- `sudoku_argyle`: classic 9x9 Sudoku plus eight marked partial diagonals in
+  an Argyle diamond pattern. Those marked diagonals are all-different regions;
+  the two main Sudoku X diagonals are not included.
 - `sudoku_anti_diagonal`: classic 9x9 Sudoku where each main diagonal uses at
   most three different digits. The interactive UI highlights those diagonals in
   magenta.
@@ -78,7 +85,9 @@ Sudoku is just the first builder on top of a generic CSP model:
 - rectangular dimensions and optional active cells;
 - finite symbol domain;
 - givens;
-- all-different regions;
+- all-different regions, including configurable Sudoku rows, columns and
+  boxes for 4x4 through 16x16 presets;
+- partial marked diagonals for variants such as Argyle;
 - declarative constraints (`all_different`, `equals`, `not_equal`, `sum`);
 - comparison constraints (`greater_than`, `less_than`) for adjacent-cell
   variants such as Compdoku;
@@ -106,8 +115,9 @@ the Theia "Grilles" workbench:
 
 - cell-by-cell entry for givens;
 - quick paste textarea for fast Sudoku import;
-- variant selector for classic Sudoku, Sudoku X, Anti Diagonal, Center Dot,
-  Windoku, Girandola, Asterisk, Sujiken, Samurai Sudoku, Flower Sudoku,
+- variant selector for classic Sudoku in multiple sizes, Sudoku X, Argyle,
+  Anti Diagonal, Center Dot, Windoku, Girandola, Asterisk, Sujiken, Samurai Sudoku,
+  Flower Sudoku,
   Sohei Sudoku, Kazaguruma, Greater Than, Rossini, Sudoku XV, Skyscraper,
   Frame, Godoku, Even-Odd and Non-Consecutive;
 - editable `>` / `<` borders for Greater Than / Compdoku;

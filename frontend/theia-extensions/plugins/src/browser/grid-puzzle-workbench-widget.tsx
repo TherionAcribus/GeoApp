@@ -9,7 +9,7 @@ import './style/grid-puzzle-workbench.css';
 
 type Grid = string[][];
 type WorkMode = 'edit' | 'watch' | 'parity';
-type SudokuVariant = 'sudoku_classic' | 'sudoku_x' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_godoku' | 'sudoku_even_odd' | 'sudoku_non_consecutive';
+type SudokuVariant = 'sudoku_classic' | 'sudoku_4x4' | 'sudoku_6x6' | 'sudoku_8x8' | 'sudoku_10x10' | 'sudoku_12x12' | 'sudoku_15x15' | 'sudoku_16x16' | 'sudoku_x' | 'sudoku_argyle' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_godoku' | 'sudoku_even_odd' | 'sudoku_non_consecutive';
 type InequalitySymbol = '' | '>' | '<';
 type InequalityGrid = InequalitySymbol[][];
 type XvSymbol = '' | 'X' | 'V';
@@ -57,6 +57,16 @@ const SIZE = 9;
 const FLOWER_SIZE = 15;
 const SAMURAI_SIZE = 21;
 const KAZAGURUMA_COLS = 21;
+const SUDOKU_SYMBOL_POOL = '123456789ABCDEFG';
+const SIZED_SUDOKU_CONFIGS: Record<string, { size: number; boxRows: number; boxCols: number; label: string }> = {
+    sudoku_4x4: { size: 4, boxRows: 2, boxCols: 2, label: 'Sudoku 4x4' },
+    sudoku_6x6: { size: 6, boxRows: 2, boxCols: 3, label: 'Sudoku 6x6' },
+    sudoku_8x8: { size: 8, boxRows: 2, boxCols: 4, label: 'Sudoku 8x8' },
+    sudoku_10x10: { size: 10, boxRows: 2, boxCols: 5, label: 'Sudoku 10x10' },
+    sudoku_12x12: { size: 12, boxRows: 3, boxCols: 4, label: 'Sudoku 12x12' },
+    sudoku_15x15: { size: 15, boxRows: 3, boxCols: 5, label: 'Sudoku 15x15' },
+    sudoku_16x16: { size: 16, boxRows: 4, boxCols: 4, label: 'Sudoku 16x16' },
+};
 const EMPTY_HORIZONTAL_INEQUALITIES: InequalityGrid = Array.from({ length: SIZE }, () => Array(SIZE - 1).fill(''));
 const EMPTY_VERTICAL_INEQUALITIES: InequalityGrid = Array.from({ length: SIZE - 1 }, () => Array(SIZE).fill(''));
 const EMPTY_XV_HORIZONTAL_MARKS: XvGrid = Array.from({ length: SIZE }, () => Array(SIZE - 1).fill(''));
@@ -102,6 +112,10 @@ const KAZAGURUMA_TEXT_PLACEHOLDER = Array.from({ length: SAMURAI_SIZE }, (_row, 
         isKazagurumaCell(rowIndex, colIndex) ? '0' : '.'
     )).join('')
 )).join('\n');
+
+function sizedSudokuTextPlaceholder(size: number): string {
+    return Array.from({ length: size }, () => '0'.repeat(size)).join('\n');
+}
 
 interface GridPuzzleWorkbenchAppProps {
     pluginsService: PluginsService;
@@ -172,8 +186,15 @@ function cellRef(row: number, col: number): string {
 }
 
 function getVariantLabel(puzzleType: SudokuVariant): string {
+    const sizedConfig = getSizedSudokuConfig(puzzleType);
+    if (sizedConfig) {
+        return sizedConfig.label;
+    }
     if (puzzleType === 'sudoku_x') {
         return 'Sudoku X';
+    }
+    if (puzzleType === 'sudoku_argyle') {
+        return 'Argyle';
     }
     if (puzzleType === 'sudoku_anti_diagonal') {
         return 'Anti Diagonal';
@@ -261,6 +282,42 @@ function isMainDiagonalCell(row: number, col: number): boolean {
     return row === col || row + col === SIZE - 1;
 }
 
+function getArgyleDiagonalRegions(): ConstraintRegion[] {
+    const regions: CellCoord[][] = [
+        [[0, 4], [1, 5], [2, 6], [3, 7], [4, 8]],
+        [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 8]],
+        [[1, 0], [2, 1], [3, 2], [4, 3], [5, 4], [6, 5], [7, 6], [8, 7]],
+        [[4, 0], [5, 1], [6, 2], [7, 3], [8, 4]],
+        [[0, 4], [1, 3], [2, 2], [3, 1], [4, 0]],
+        [[0, 7], [1, 6], [2, 5], [3, 4], [4, 3], [5, 2], [6, 1], [7, 0]],
+        [[1, 8], [2, 7], [3, 6], [4, 5], [5, 4], [6, 3], [7, 2], [8, 1]],
+        [[4, 8], [5, 7], [6, 6], [7, 5], [8, 4]],
+    ];
+    return regions.map((cells, index) => ({
+        label: `Argyle diagonale ${index + 1}`,
+        cells,
+    }));
+}
+
+function getArgyleCellClasses(row: number, col: number): string[] {
+    let hasDown = false;
+    let hasUp = false;
+    getArgyleDiagonalRegions().forEach((region, index) => {
+        if (!region.cells.some(([regionRow, regionCol]) => regionRow === row && regionCol === col)) {
+            return;
+        }
+        if (index < 4) {
+            hasDown = true;
+        } else {
+            hasUp = true;
+        }
+    });
+    return [
+        hasDown ? 'argyle-down' : '',
+        hasUp ? 'argyle-up' : '',
+    ].filter(Boolean);
+}
+
 function isSujikenCell(row: number, col: number): boolean {
     return col <= row;
 }
@@ -301,6 +358,23 @@ function isInsideSquare(row: number, col: number, offsetRow: number, offsetCol: 
         && col >= offsetCol && col < offsetCol + SIZE;
 }
 
+function getSizedSudokuConfig(puzzleType: SudokuVariant): { size: number; boxRows: number; boxCols: number; label: string } | undefined {
+    return SIZED_SUDOKU_CONFIGS[puzzleType];
+}
+
+function getSingleGridSudokuConfig(puzzleType: SudokuVariant): { size: number; boxRows: number; boxCols: number; label: string } | undefined {
+    return getSizedSudokuConfig(puzzleType) || {
+        size: SIZE,
+        boxRows: 3,
+        boxCols: 3,
+        label: 'Sudoku 9x9',
+    };
+}
+
+function sudokuSymbolsForSize(size: number): string[] {
+    return SUDOKU_SYMBOL_POOL.slice(0, size).split('');
+}
+
 function gridSizeForVariant(puzzleType: SudokuVariant): number {
     if (puzzleType === 'samurai_sudoku' || puzzleType === 'sohei_sudoku' || puzzleType === 'kazaguruma_sudoku') {
         return SAMURAI_SIZE;
@@ -308,7 +382,7 @@ function gridSizeForVariant(puzzleType: SudokuVariant): number {
     if (puzzleType === 'flower_sudoku') {
         return FLOWER_SIZE;
     }
-    return SIZE;
+    return getSingleGridSudokuConfig(puzzleType)?.size || SIZE;
 }
 
 function isActiveCellForVariant(puzzleType: SudokuVariant, row: number, col: number): boolean {
@@ -327,31 +401,40 @@ function isActiveCellForVariant(puzzleType: SudokuVariant, row: number, col: num
     if (puzzleType === 'kazaguruma_sudoku') {
         return isKazagurumaCell(row, col);
     }
-    return row >= 0 && row < SIZE && col >= 0 && col < SIZE;
+    const config = getSingleGridSudokuConfig(puzzleType);
+    return row >= 0 && row < (config?.size || SIZE) && col >= 0 && col < (config?.size || SIZE);
 }
 
-function buildSudokuRegions(offsetRow = 0, offsetCol = 0, label = 'Sudoku'): ConstraintRegion[] {
+function buildSudokuRegions(
+    offsetRow = 0,
+    offsetCol = 0,
+    label = 'Sudoku',
+    size = SIZE,
+    boxRows = 3,
+    boxCols = 3,
+): ConstraintRegion[] {
     const regions: ConstraintRegion[] = [];
-    for (let row = 0; row < SIZE; row += 1) {
+    for (let row = 0; row < size; row += 1) {
         regions.push({
             label: `${label} ligne ${row + 1}`,
-            cells: Array.from({ length: SIZE }, (_unused, col) => [offsetRow + row, offsetCol + col]),
+            cells: Array.from({ length: size }, (_unused, col) => [offsetRow + row, offsetCol + col]),
         });
     }
-    for (let col = 0; col < SIZE; col += 1) {
+    for (let col = 0; col < size; col += 1) {
         regions.push({
             label: `${label} colonne ${col + 1}`,
-            cells: Array.from({ length: SIZE }, (_unused, row) => [offsetRow + row, offsetCol + col]),
+            cells: Array.from({ length: size }, (_unused, row) => [offsetRow + row, offsetCol + col]),
         });
     }
-    for (let boxRow = 0; boxRow < SIZE; boxRow += 3) {
-        for (let boxCol = 0; boxCol < SIZE; boxCol += 3) {
-            const boxIndex = Math.floor(boxRow / 3) * 3 + Math.floor(boxCol / 3) + 1;
+    for (let boxRow = 0; boxRow < size; boxRow += boxRows) {
+        for (let boxCol = 0; boxCol < size; boxCol += boxCols) {
+            const boxesPerRow = size / boxCols;
+            const boxIndex = Math.floor(boxRow / boxRows) * boxesPerRow + Math.floor(boxCol / boxCols) + 1;
             regions.push({
                 label: `${label} bloc ${boxIndex}`,
-                cells: Array.from({ length: SIZE }, (_unused, index) => [
-                    offsetRow + boxRow + Math.floor(index / 3),
-                    offsetCol + boxCol + (index % 3),
+                cells: Array.from({ length: size }, (_unused, index) => [
+                    offsetRow + boxRow + Math.floor(index / boxCols),
+                    offsetCol + boxCol + (index % boxCols),
                 ]),
             });
         }
@@ -397,7 +480,10 @@ function getAllDifferentRegions(puzzleType: SudokuVariant): ConstraintRegion[] {
                 [9, 0, 'Kazaguruma gauche'],
                 [12, 9, 'Kazaguruma bas'],
             ])
-        : buildSudokuRegions();
+        : (() => {
+            const config = getSingleGridSudokuConfig(puzzleType);
+            return buildSudokuRegions(0, 0, config?.label || 'Sudoku', config?.size, config?.boxRows, config?.boxCols);
+        })();
 
     if (puzzleType === 'sudoku_x') {
         regions.push(
@@ -410,6 +496,9 @@ function getAllDifferentRegions(puzzleType: SudokuVariant): ConstraintRegion[] {
                 cells: Array.from({ length: SIZE }, (_unused, index) => [index, SIZE - 1 - index]),
             }
         );
+    }
+    if (puzzleType === 'sudoku_argyle') {
+        regions.push(...getArgyleDiagonalRegions());
     }
     if (puzzleType === 'sudoku_center_dot') {
         regions.push({
@@ -1157,6 +1246,19 @@ function parityLabel(value: ParitySymbol): string {
     return value === 'even' ? 'pair' : value === 'odd' ? 'impair' : '';
 }
 
+function normalizeCellValueForVariant(rawValue: string, puzzleType: SudokuVariant): string {
+    const sizedConfig = getSizedSudokuConfig(puzzleType);
+    if (sizedConfig) {
+        const symbols = new Set(sudokuSymbolsForSize(sizedConfig.size));
+        const value = rawValue.trim().slice(-1).toUpperCase();
+        return symbols.has(value) ? value : '';
+    }
+    if (puzzleType === 'sudoku_godoku') {
+        return rawValue.replace(/[^A-Za-z]/g, '').slice(-1).toUpperCase();
+    }
+    return rawValue.replace(/[^1-9]/g, '').slice(-1);
+}
+
 function normalizeSkyscraperClue(value: unknown): string {
     const text = String(value ?? '').replace(/[^1-9]/g, '').slice(-1);
     return text;
@@ -1299,6 +1401,13 @@ function cycleXvMark(value: XvSymbol): XvSymbol {
 }
 
 function gridToText(grid: Grid, puzzleType: SudokuVariant = 'sudoku_classic'): string {
+    const sizedConfig = getSizedSudokuConfig(puzzleType);
+    if (sizedConfig) {
+        return Array.from({ length: sizedConfig.size }, (_row, rowIndex) => (
+            Array.from({ length: sizedConfig.size }, (_col, colIndex) => grid[rowIndex]?.[colIndex] || '0').join('')
+        )).join('\n');
+    }
+
     if (puzzleType === 'sujiken') {
         return Array.from({ length: SIZE }, (_row, rowIndex) => (
             Array.from({ length: rowIndex + 1 }, (_col, colIndex) => grid[rowIndex]?.[colIndex] || '0').join('')
@@ -1342,23 +1451,27 @@ function gridToText(grid: Grid, puzzleType: SudokuVariant = 'sudoku_classic'): s
     )).join('\n');
 }
 
-function parseGridText(text: string): Grid | null {
+function parseGridText(text: string, puzzleType: SudokuVariant = 'sudoku_classic'): Grid | null {
+    const config = getSizedSudokuConfig(puzzleType) || { size: SIZE };
+    const symbols = sudokuSymbolsForSize(config.size);
+    const symbolSet = new Set(symbols);
     const tokens: string[] = [];
     for (const char of text) {
-        if (/[1-9]/.test(char)) {
-            tokens.push(char);
+        const normalized = char.toUpperCase();
+        if (symbolSet.has(normalized)) {
+            tokens.push(normalized);
         } else if (char === '0' || char === '.' || char === '_') {
             tokens.push('');
         }
     }
 
-    if (tokens.length !== SIZE * SIZE) {
+    if (tokens.length !== config.size * config.size) {
         return null;
     }
 
-    const grid = emptyGrid();
+    const grid = createEmptyGrid(config.size);
     tokens.forEach((value, index) => {
-        grid[Math.floor(index / SIZE)][index % SIZE] = value;
+        grid[Math.floor(index / config.size)][index % config.size] = value;
     });
     return grid;
 }
@@ -1636,7 +1749,7 @@ function parsePuzzleText(text: string, puzzleType: SudokuVariant): Grid | null {
     if (puzzleType === 'sudoku_godoku') {
         return parseGodokuText(text);
     }
-    return parseGridText(text);
+    return parseGridText(text, puzzleType);
 }
 
 function normalizeGrid(value: unknown, puzzleType: SudokuVariant): Grid | undefined {
@@ -1646,6 +1759,8 @@ function normalizeGrid(value: unknown, puzzleType: SudokuVariant): Grid | undefi
 
     const size = gridSizeForVariant(puzzleType);
     const requiredCols = puzzleType === 'kazaguruma_sudoku' ? KAZAGURUMA_COLS : size;
+    const sizedConfig = getSizedSudokuConfig(puzzleType);
+    const sizedSymbols = sizedConfig ? new Set(sudokuSymbolsForSize(sizedConfig.size)) : undefined;
     if (!Array.isArray(value) || value.length !== size) {
         return undefined;
     }
@@ -1655,6 +1770,10 @@ function normalizeGrid(value: unknown, puzzleType: SudokuVariant): Grid | undefi
             return undefined;
         }
         return Array.from({ length: size }, (_unused, index) => row[index]).map(cell => {
+            if (sizedSymbols) {
+                const text = String(cell ?? '').trim().slice(-1).toUpperCase();
+                return sizedSymbols.has(text) ? text : '';
+            }
             const text = puzzleType === 'sudoku_godoku'
                 ? String(cell ?? '').replace(/[^A-Za-z]/g, '').slice(-1).toUpperCase()
                 : String(cell ?? '').replace(/[^1-9]/g, '').slice(-1);
@@ -1778,14 +1897,28 @@ function GridPuzzleWorkbenchApp({
     const isGodoku = puzzleType === 'sudoku_godoku';
     const isEvenOdd = puzzleType === 'sudoku_even_odd';
     const isNonConsecutive = puzzleType === 'sudoku_non_consecutive';
+    const sizedSudokuConfig = getSizedSudokuConfig(puzzleType);
     const isSujiken = puzzleType === 'sujiken';
     const isSamurai = puzzleType === 'samurai_sudoku';
     const isFlower = puzzleType === 'flower_sudoku';
     const isSohei = puzzleType === 'sohei_sudoku';
     const isKazaguruma = puzzleType === 'kazaguruma_sudoku';
     const gridSize = gridSizeForVariant(puzzleType);
+    const sizedCellSize = sizedSudokuConfig
+        ? sizedSudokuConfig.size >= 15
+            ? 32
+            : sizedSudokuConfig.size >= 10
+                ? 36
+                : 44
+        : 44;
+    const sizedBoardStyle: React.CSSProperties | undefined = sizedSudokuConfig ? {
+        gridTemplateColumns: `repeat(${sizedSudokuConfig.size}, ${sizedCellSize}px)`,
+        gridTemplateRows: `repeat(${sizedSudokuConfig.size}, ${sizedCellSize}px)`,
+    } : undefined;
     const quickTextPlaceholder = isSujiken
         ? SUJIKEN_TEXT_PLACEHOLDER
+        : sizedSudokuConfig
+            ? sizedSudokuTextPlaceholder(sizedSudokuConfig.size)
         : isFlower
             ? FLOWER_TEXT_PLACEHOLDER
         : isKazaguruma
@@ -1820,7 +1953,7 @@ function GridPuzzleWorkbenchApp({
 
     const focusCell = React.useCallback((row: number, col: number, move: [number, number] = [0, 0]) => {
         let nextRow = Math.max(0, Math.min(gridSize - 1, row));
-        const maxCol = isSujiken ? nextRow : SIZE - 1;
+        const maxCol = isSujiken ? nextRow : gridSize - 1;
         let nextCol = Math.max(0, Math.min(isSamurai || isFlower || isSohei || isKazaguruma ? gridSize - 1 : maxCol, col));
         if (!isActiveCellForVariant(puzzleType, nextRow, nextCol)) {
             for (let step = 1; step < gridSize; step += 1) {
@@ -1982,9 +2115,7 @@ function GridPuzzleWorkbenchApp({
     ]);
 
     const updateCell = React.useCallback((row: number, col: number, rawValue: string) => {
-        const value = isGodoku
-            ? rawValue.replace(/[^A-Za-z]/g, '').slice(-1).toUpperCase()
-            : rawValue.replace(/[^1-9]/g, '').slice(-1);
+        const value = normalizeCellValueForVariant(rawValue, puzzleType);
         setGrid(previous => {
             const next = cloneGrid(previous);
             next[row][col] = value;
@@ -1993,7 +2124,7 @@ function GridPuzzleWorkbenchApp({
         });
         setSolveState({ running: false });
         markDirty();
-    }, [isGodoku, markDirty, puzzleType]);
+    }, [markDirty, puzzleType]);
 
     const toggleHorizontalInequality = React.useCallback((row: number, col: number) => {
         setHorizontalInequalities(previous => {
@@ -2097,13 +2228,7 @@ function GridPuzzleWorkbenchApp({
             return;
         }
 
-        if (!isGodoku && /^[1-9]$/.test(event.key)) {
-            event.preventDefault();
-            updateCell(row, col, event.key);
-            return;
-        }
-
-        if (isGodoku && /^[A-Za-z]$/.test(event.key)) {
+        if (normalizeCellValueForVariant(event.key, puzzleType)) {
             event.preventDefault();
             updateCell(row, col, event.key);
             return;
@@ -2113,7 +2238,7 @@ function GridPuzzleWorkbenchApp({
             event.preventDefault();
             updateCell(row, col, '');
         }
-    }, [focusCell, isGodoku, updateCell]);
+    }, [focusCell, puzzleType, updateCell]);
 
     const toggleWatchCell = React.useCallback((ref: string) => {
         setWatchCells(previous => (
@@ -2153,6 +2278,8 @@ function GridPuzzleWorkbenchApp({
             messageService.error(
                 puzzleType === 'sujiken'
                     ? 'La saisie rapide Sujiken doit contenir 45 cases actives.'
+                    : sizedSudokuConfig
+                        ? `La saisie rapide ${sizedSudokuConfig.label} doit contenir exactement ${sizedSudokuConfig.size * sizedSudokuConfig.size} cases, avec symboles ${sudokuSymbolsForSize(sizedSudokuConfig.size).join('')} ou cases vides.`
                     : puzzleType === 'sudoku_godoku'
                         ? 'La saisie rapide Godoku doit contenir exactement 81 cases, avec lettres ou cases vides.'
                     : puzzleType === 'samurai_sudoku'
@@ -2170,7 +2297,7 @@ function GridPuzzleWorkbenchApp({
         setGridAndQuickText(parsed);
         setSolveState({ running: false });
         markDirty();
-    }, [markDirty, messageService, puzzleType, setGridAndQuickText]);
+    }, [markDirty, messageService, puzzleType, setGridAndQuickText, sizedSudokuConfig]);
 
     const handleQuickTextChange = React.useCallback((text: string) => {
         setQuickText(text);
@@ -2183,7 +2310,15 @@ function GridPuzzleWorkbenchApp({
     }, [markDirty, puzzleType]);
 
     const handlePuzzleTypeChange = React.useCallback((value: string) => {
-        const nextPuzzleType = value === 'sudoku_x'
+        const nextPuzzleType = value === 'sudoku_4x4'
+            || value === 'sudoku_6x6'
+            || value === 'sudoku_8x8'
+            || value === 'sudoku_10x10'
+            || value === 'sudoku_12x12'
+            || value === 'sudoku_15x15'
+            || value === 'sudoku_16x16'
+            || value === 'sudoku_x'
+            || value === 'sudoku_argyle'
             || value === 'sudoku_anti_diagonal'
             || value === 'sudoku_center_dot'
             || value === 'sudoku_windoku'
@@ -2290,6 +2425,15 @@ function GridPuzzleWorkbenchApp({
     }, [markDirty, setGridAndQuickText, solvedGrid]);
 
     const cellStyle = (rowIndex: number, colIndex: number): React.CSSProperties | undefined => {
+        if (sizedSudokuConfig) {
+            return {
+                gridColumn: String(colIndex + 1),
+                gridRow: String(rowIndex + 1),
+                width: sizedCellSize,
+                height: sizedCellSize,
+                fontSize: sizedCellSize <= 32 ? 14 : sizedCellSize <= 36 ? 16 : 19,
+            };
+        }
         if (isGreaterThan || isXv) {
             return {
                 gridColumn: String(colIndex * 2 + 1),
@@ -2313,6 +2457,19 @@ function GridPuzzleWorkbenchApp({
 
     const cellClassName = (rowIndex: number, colIndex: number, value: string, readonly = false): string => {
         const ref = cellRef(rowIndex, colIndex);
+        const blockConfig = getSingleGridSudokuConfig(puzzleType);
+        const isCompositeSudoku = puzzleType === 'samurai_sudoku'
+            || puzzleType === 'flower_sudoku'
+            || puzzleType === 'sohei_sudoku'
+            || puzzleType === 'kazaguruma_sudoku';
+        const hasBlockRight = blockConfig
+            && !isCompositeSudoku
+            && (colIndex + 1) % blockConfig.boxCols === 0
+            && colIndex !== blockConfig.size - 1;
+        const hasBlockBottom = blockConfig
+            && !isCompositeSudoku
+            && (rowIndex + 1) % blockConfig.boxRows === 0
+            && rowIndex !== blockConfig.size - 1;
         return [
             'sudoku-cell',
             readonly ? 'readonly' : '',
@@ -2320,6 +2477,7 @@ function GridPuzzleWorkbenchApp({
             !readonly && value && constraintConflicts.cells.has(ref) ? 'conflict' : '',
             watchCells.includes(ref) ? 'watched' : '',
             puzzleType === 'sudoku_x' && isMainDiagonalCell(rowIndex, colIndex) ? 'diagonal' : '',
+            ...(puzzleType === 'sudoku_argyle' ? getArgyleCellClasses(rowIndex, colIndex) : []),
             puzzleType === 'sudoku_anti_diagonal' && isMainDiagonalCell(rowIndex, colIndex) ? 'anti-diagonal' : '',
             puzzleType === 'sudoku_center_dot' && isCenterDotCell(rowIndex, colIndex) ? 'center-dot' : '',
             puzzleType === 'sudoku_windoku' && isWindokuCell(rowIndex, colIndex) ? 'windoku' : '',
@@ -2338,8 +2496,8 @@ function GridPuzzleWorkbenchApp({
             ...(puzzleType === 'flower_sudoku' ? getFlowerBoundaryClasses(rowIndex, colIndex) : []),
             ...(puzzleType === 'sohei_sudoku' ? getSoheiBoundaryClasses(rowIndex, colIndex) : []),
             ...(puzzleType === 'kazaguruma_sudoku' ? getKazagurumaBoundaryClasses(rowIndex, colIndex) : []),
-            puzzleType !== 'samurai_sudoku' && puzzleType !== 'flower_sudoku' && puzzleType !== 'sohei_sudoku' && puzzleType !== 'kazaguruma_sudoku' && (colIndex === 2 || colIndex === 5) ? 'block-right' : '',
-            puzzleType !== 'samurai_sudoku' && puzzleType !== 'flower_sudoku' && puzzleType !== 'sohei_sudoku' && puzzleType !== 'kazaguruma_sudoku' && (rowIndex === 2 || rowIndex === 5) ? 'block-bottom' : '',
+            hasBlockRight ? 'block-right' : '',
+            hasBlockBottom ? 'block-bottom' : '',
         ].filter(Boolean).join(' ');
     };
 
@@ -2656,7 +2814,15 @@ function GridPuzzleWorkbenchApp({
                         onChange={event => handlePuzzleTypeChange(event.currentTarget.value)}
                     >
                         <option value='sudoku_classic'>Classique</option>
+                        <option value='sudoku_4x4'>Classique 4x4</option>
+                        <option value='sudoku_6x6'>Classique 6x6</option>
+                        <option value='sudoku_8x8'>Classique 8x8</option>
+                        <option value='sudoku_10x10'>Classique 10x10</option>
+                        <option value='sudoku_12x12'>Classique 12x12</option>
+                        <option value='sudoku_15x15'>Classique 15x15</option>
+                        <option value='sudoku_16x16'>Classique 16x16</option>
                         <option value='sudoku_x'>Sudoku X</option>
+                        <option value='sudoku_argyle'>Argyle</option>
                         <option value='sudoku_anti_diagonal'>Anti Diagonal</option>
                         <option value='sudoku_center_dot'>Center Dot</option>
                         <option value='sudoku_windoku'>Windoku</option>
@@ -2704,6 +2870,7 @@ function GridPuzzleWorkbenchApp({
                             isSohei ? 'sohei-board' : '',
                             isKazaguruma ? 'kazaguruma-board' : '',
                         ].filter(Boolean).join(' ')}
+                        style={sizedBoardStyle}
                         aria-label='Grille Sudoku interactive'
                     >
                         {grid.map((row, rowIndex) => (
@@ -2723,7 +2890,7 @@ function GridPuzzleWorkbenchApp({
                                         aria-label={ref}
                                         title={isEvenOdd && parityMarks[rowIndex]?.[colIndex] ? `Contrainte ${parityLabel(parityMarks[rowIndex][colIndex])}` : ref}
                                         value={value}
-                                        inputMode={isGodoku ? 'text' : 'numeric'}
+                                        inputMode={isGodoku || (sizedSudokuConfig?.size || 0) > SIZE ? 'text' : 'numeric'}
                                         maxLength={1}
                                         onClick={event => handleCellClick(rowIndex, colIndex, event)}
                                         onDoubleClick={event => handleCellDoubleClick(rowIndex, colIndex, event)}
@@ -2748,6 +2915,8 @@ function GridPuzzleWorkbenchApp({
                         {isSkyscraper ? ' Renseignez les indices exterieurs visibles depuis chaque cote de la grille.' : ''}
                         {isFrame ? ' Renseignez les sommes exterieures des trois cases les plus proches du bord.' : ''}
                         {isGodoku ? ' Saisissez les lettres directement dans la grille. L alphabet peut etre renseigne dans les options si la grille ne montre pas les 9 lettres.' : ''}
+                        {sizedSudokuConfig ? ` Symboles utilises : ${sudokuSymbolsForSize(sizedSudokuConfig.size).join(' ')}.` : ''}
+                        {puzzleType === 'sudoku_argyle' ? ' Les diagonales orange du motif Argyle ne peuvent pas contenir deux fois le meme chiffre.' : ''}
                         {isEvenOdd ? ' Double-cliquez une case pour alterner entre pair, impair et vide. En mode Parite, un simple clic suffit.' : ''}
                         {isNonConsecutive ? ' Les cases adjacentes horizontalement ou verticalement ne peuvent pas contenir deux chiffres consecutifs.' : ''}
                         {puzzleType === 'sudoku_anti_diagonal' ? ' Anti Diagonal limite chaque grande diagonale a trois chiffres differents.' : ''}
@@ -2806,6 +2975,7 @@ function GridPuzzleWorkbenchApp({
                                     isSohei ? 'sohei-board' : '',
                                     isKazaguruma ? 'kazaguruma-board' : '',
                                 ].filter(Boolean).join(' ')}
+                                style={sizedBoardStyle}
                                 aria-label='Solution Sudoku'
                             >
                                 {solvedGrid.map((row, rowIndex) => (

@@ -2,6 +2,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 
 def load_plugin():
     plugin_path = (
@@ -16,6 +18,25 @@ def load_plugin():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module.GridpuzzlesolverPlugin()
+
+
+SIZED_SUDOKU_CONFIGS = [
+    (4, 2, 2, "sudoku_4x4"),
+    (6, 2, 3, "sudoku_6x6"),
+    (8, 2, 4, "sudoku_8x8"),
+    (10, 2, 5, "sudoku_10x10"),
+    (12, 3, 4, "sudoku_12x12"),
+    (15, 3, 5, "sudoku_15x15"),
+    (16, 4, 4, "sudoku_16x16"),
+]
+
+
+def solved_sized_sudoku(size, box_rows, box_cols):
+    symbols = list("123456789ABCDEFG"[:size])
+    return "\n".join(
+        "".join(symbols[(row * box_cols + row // box_rows + col) % size] for col in range(size))
+        for row in range(size)
+    )
 
 
 def test_classic_sudoku_solution_is_unique():
@@ -55,6 +76,40 @@ def test_invalid_sudoku_reports_clear_error():
     assert "81 cases" in result["summary"]
 
 
+@pytest.mark.parametrize("size,box_rows,box_cols,puzzle_type", SIZED_SUDOKU_CONFIGS)
+def test_sized_classic_sudoku_accepts_complete_solution(size, box_rows, box_cols, puzzle_type):
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": puzzle_type,
+            "grid": solved_sized_sudoku(size, box_rows, box_cols),
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["unique"] is True
+    assert result["metadata"]["variant"] == puzzle_type
+
+
+def test_sized_classic_sudoku_rejects_repeated_row_value():
+    plugin = load_plugin()
+    grid = solved_sized_sudoku(4, 2, 2).replace("1234", "1134", 1)
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "sudoku_4x4",
+            "grid": grid,
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+    assert result["summary"] == "Aucune solution compatible avec les contraintes"
+
+
 def test_sudoku_x_accepts_diagonal_solution():
     plugin = load_plugin()
 
@@ -88,6 +143,58 @@ def test_sudoku_x_rejects_classic_grid_with_repeated_diagonal_values():
     result = plugin.execute(
         {
             "puzzle_type": "sudoku_x",
+            "grid": """
+                534678912
+                672195348
+                198342567
+                859761423
+                426853791
+                713924856
+                961537284
+                287419635
+                345286179
+            """,
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+    assert result["summary"] == "Aucune solution compatible avec les contraintes"
+
+
+def test_argyle_accepts_solution_with_unique_marked_diagonals():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "sudoku_argyle",
+            "grid": """
+                327568914
+                496721358
+                158394276
+                842179635
+                931685427
+                765432891
+                683917542
+                274853169
+                519246783
+            """,
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["unique"] is True
+    assert result["metadata"]["variant"] == "sudoku_argyle"
+
+
+def test_argyle_rejects_repeated_value_on_marked_diagonal():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "argyle",
             "grid": """
                 534678912
                 672195348

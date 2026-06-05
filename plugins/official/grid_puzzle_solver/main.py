@@ -52,6 +52,16 @@ KAZAGURUMA_SUDOKU_OFFSETS: Tuple[Cell, ...] = (
     (9, 0),
     (12, 9),
 )
+SUDOKU_SYMBOL_POOL = "123456789ABCDEFG"
+SIZED_SUDOKU_CONFIGS: Dict[str, Tuple[int, int, int]] = {
+    "sudoku_4x4": (4, 2, 2),
+    "sudoku_6x6": (6, 2, 3),
+    "sudoku_8x8": (8, 2, 4),
+    "sudoku_10x10": (10, 2, 5),
+    "sudoku_12x12": (12, 3, 4),
+    "sudoku_15x15": (15, 3, 5),
+    "sudoku_16x16": (16, 4, 4),
+}
 
 
 @dataclass(frozen=True)
@@ -117,6 +127,26 @@ class GridpuzzlesolverPlugin:
                     include_asterisk=False,
                     variant="sudoku_classic",
                 )
+            elif (sized_config := self._sized_sudoku_config(puzzle_type)) is not None:
+                size, box_rows, box_cols = sized_config
+                puzzle_text = self._first_non_empty(
+                    inputs.get("grid"),
+                    inputs.get("puzzle"),
+                    inputs.get("text"),
+                )
+                problem = self._build_sudoku_problem(
+                    puzzle_text,
+                    include_diagonals=False,
+                    include_center_dot=False,
+                    include_windoku=False,
+                    include_girandola=False,
+                    include_asterisk=False,
+                    variant=f"sudoku_{size}x{size}",
+                    size=size,
+                    box_rows=box_rows,
+                    box_cols=box_cols,
+                    symbols_override=self._sudoku_symbols(size),
+                )
             elif puzzle_type in {"sudoku_x", "x_sudoku", "diagonal_sudoku"}:
                 puzzle_text = self._first_non_empty(
                     inputs.get("grid"),
@@ -131,6 +161,22 @@ class GridpuzzlesolverPlugin:
                     include_girandola=False,
                     include_asterisk=False,
                     variant="sudoku_x",
+                )
+            elif puzzle_type in {"sudoku_argyle", "argyle", "argyle_sudoku"}:
+                puzzle_text = self._first_non_empty(
+                    inputs.get("grid"),
+                    inputs.get("puzzle"),
+                    inputs.get("text"),
+                )
+                problem = self._build_sudoku_problem(
+                    puzzle_text,
+                    include_diagonals=False,
+                    include_center_dot=False,
+                    include_windoku=False,
+                    include_girandola=False,
+                    include_asterisk=False,
+                    include_argyle=True,
+                    variant="sudoku_argyle",
                 )
             elif puzzle_type in {"sudoku_anti_diagonal", "anti_diagonal_sudoku", "antidiagonal_sudoku"}:
                 puzzle_text = self._first_non_empty(
@@ -418,6 +464,7 @@ class GridpuzzlesolverPlugin:
         variant: str,
         inequalities: Any = None,
         include_anti_diagonal: bool = False,
+        include_argyle: bool = False,
         rossini: Any = None,
         include_rossini: bool = False,
         xv: Any = None,
@@ -430,34 +477,37 @@ class GridpuzzlesolverPlugin:
         parity: Any = None,
         include_parity: bool = False,
         include_non_consecutive: bool = False,
+        size: int = 9,
+        box_rows: int = 3,
+        box_cols: int = 3,
     ) -> GridCspProblem:
         symbols = list(symbols_override) if symbols_override is not None else [str(value) for value in range(1, 10)]
-        tokens = self._parse_sudoku_tokens(puzzle_text, symbols)
+        tokens = self._parse_sudoku_tokens(puzzle_text, symbols, size)
 
-        active_cells = [(row, col) for row in range(9) for col in range(9)]
+        active_cells = [(row, col) for row in range(size) for col in range(size)]
         givens: Dict[Cell, str] = {}
         for index, token in enumerate(tokens):
             if token in symbols:
-                givens[(index // 9, index % 9)] = token
+                givens[(index // size, index % size)] = token
 
         constraints: List[GridConstraint] = []
-        for row in range(9):
+        for row in range(size):
             constraints.append(
-                GridConstraint("all_different", tuple((row, col) for col in range(9)))
+                GridConstraint("all_different", tuple((row, col) for col in range(size)))
             )
-        for col in range(9):
+        for col in range(size):
             constraints.append(
-                GridConstraint("all_different", tuple((row, col) for row in range(9)))
+                GridConstraint("all_different", tuple((row, col) for row in range(size)))
             )
-        for box_row in range(0, 9, 3):
-            for box_col in range(0, 9, 3):
+        for box_row in range(0, size, box_rows):
+            for box_col in range(0, size, box_cols):
                 constraints.append(
                     GridConstraint(
                         "all_different",
                         tuple(
                             (row, col)
-                            for row in range(box_row, box_row + 3)
-                            for col in range(box_col, box_col + 3)
+                            for row in range(box_row, box_row + box_rows)
+                            for col in range(box_col, box_col + box_cols)
                         ),
                     )
                 )
@@ -477,6 +527,9 @@ class GridpuzzlesolverPlugin:
             constraints.append(
                 GridConstraint("max_distinct", tuple((index, 8 - index) for index in range(9)), limit=3)
             )
+
+        if include_argyle:
+            constraints.extend(self._argyle_regions())
 
         if include_center_dot:
             constraints.append(
@@ -551,8 +604,8 @@ class GridpuzzlesolverPlugin:
             constraints.extend(self._non_consecutive_constraints())
 
         return GridCspProblem(
-            rows=9,
-            cols=9,
+            rows=size,
+            cols=size,
             symbols=symbols,
             active_cells=active_cells,
             givens=givens,
@@ -1559,6 +1612,19 @@ class GridpuzzlesolverPlugin:
                     constraints.append(GridConstraint("non_consecutive", ((row, col), (row + 1, col))))
         return constraints
 
+    def _argyle_regions(self) -> List[GridConstraint]:
+        region_cells = [
+            ((0, 4), (1, 5), (2, 6), (3, 7), (4, 8)),
+            ((0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 7), (7, 8)),
+            ((1, 0), (2, 1), (3, 2), (4, 3), (5, 4), (6, 5), (7, 6), (8, 7)),
+            ((4, 0), (5, 1), (6, 2), (7, 3), (8, 4)),
+            ((0, 4), (1, 3), (2, 2), (3, 1), (4, 0)),
+            ((0, 7), (1, 6), (2, 5), (3, 4), (4, 3), (5, 2), (6, 1), (7, 0)),
+            ((1, 8), (2, 7), (3, 6), (4, 5), (5, 4), (6, 3), (7, 2), (8, 1)),
+            ((4, 8), (5, 7), (6, 6), (7, 5), (8, 4)),
+        ]
+        return [GridConstraint("all_different", cells) for cells in region_cells]
+
     def _parse_rossini_constraints(self, raw_rossini: Any) -> List[GridConstraint]:
         enforce_absent = True
         if raw_rossini in (None, "", []):
@@ -1666,7 +1732,24 @@ class GridpuzzlesolverPlugin:
                 "Les contraintes d'inegalite Sudoku doivent relier deux cellules adjacentes"
             )
 
-    def _parse_sudoku_tokens(self, text: str, symbols: Sequence[str]) -> List[str]:
+    def _sized_sudoku_config(self, puzzle_type: str) -> Optional[Tuple[int, int, int]]:
+        normalized = puzzle_type.replace("-", "_")
+        if normalized in SIZED_SUDOKU_CONFIGS:
+            return SIZED_SUDOKU_CONFIGS[normalized]
+
+        size_match = re.fullmatch(r"(?:sudoku|classic_sudoku)_(?P<size>\d+)(?:x(?P=size))?", normalized)
+        if not size_match:
+            return None
+
+        key = f"sudoku_{size_match.group('size')}x{size_match.group('size')}"
+        return SIZED_SUDOKU_CONFIGS.get(key)
+
+    def _sudoku_symbols(self, size: int) -> List[str]:
+        if size < 1 or size > len(SUDOKU_SYMBOL_POOL):
+            raise ValueError(f"Taille Sudoku non supportee: {size}")
+        return list(SUDOKU_SYMBOL_POOL[:size])
+
+    def _parse_sudoku_tokens(self, text: str, symbols: Sequence[str], size: int = 9) -> List[str]:
         if not text or not str(text).strip():
             raise ValueError("Aucune grille Sudoku fournie")
 
@@ -1685,9 +1768,10 @@ class GridpuzzlesolverPlugin:
                 elif char in blank_tokens:
                     tokens.append(char)
 
-        if len(tokens) != 81:
+        expected = size * size
+        if len(tokens) != expected:
             raise ValueError(
-                f"Une grille Sudoku classique doit contenir 81 cases, {len(tokens)} detectees"
+                f"Une grille Sudoku {size}x{size} doit contenir {expected} cases, {len(tokens)} detectees"
             )
         return tokens
 

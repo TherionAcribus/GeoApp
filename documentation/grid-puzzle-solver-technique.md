@@ -11,7 +11,7 @@ pas seulement des Sudokus.
 
 Les objectifs actuels sont :
 
-- resoudre un Sudoku classique 9x9 ;
+- resoudre un Sudoku classique 4x4 a 16x16 ;
 - resoudre un Sudoku X avec contraintes sur les deux diagonales principales ;
 - resoudre un Anti Diagonal Sudoku avec au plus trois chiffres differents sur
   chaque grande diagonale ;
@@ -147,7 +147,15 @@ Valeurs supportees pour `puzzle_type` :
 | Valeur | Aliases | Role |
 |---|---|---|
 | `sudoku_classic` | `sudoku`, `classic_sudoku` | Sudoku 9x9 standard. |
+| `sudoku_4x4` | `sudoku_4`, `classic_sudoku_4x4` | Sudoku classique 4x4 avec blocs 2x2. |
+| `sudoku_6x6` | `sudoku_6`, `classic_sudoku_6x6` | Sudoku classique 6x6 avec blocs 2x3. |
+| `sudoku_8x8` | `sudoku_8`, `classic_sudoku_8x8` | Sudoku classique 8x8 avec blocs 2x4. |
+| `sudoku_10x10` | `sudoku_10`, `classic_sudoku_10x10` | Sudoku classique 10x10 avec blocs 2x5. |
+| `sudoku_12x12` | `sudoku_12`, `classic_sudoku_12x12` | Sudoku classique 12x12 avec blocs 3x4. |
+| `sudoku_15x15` | `sudoku_15`, `classic_sudoku_15x15` | Sudoku classique 15x15 avec blocs 3x5. |
+| `sudoku_16x16` | `sudoku_16`, `classic_sudoku_16x16` | Sudoku classique 16x16 avec blocs 4x4. |
 | `sudoku_x` | `x_sudoku`, `diagonal_sudoku` | Sudoku standard + diagonales principales sans doublons. |
+| `sudoku_argyle` | `argyle`, `argyle_sudoku` | Sudoku standard + 8 diagonales partielles marquees sans doublons. |
 | `sudoku_anti_diagonal` | `anti_diagonal_sudoku`, `antidiagonal_sudoku` | Sudoku standard + au plus trois chiffres differents sur chaque grande diagonale. |
 | `sudoku_center_dot` | `center_dot`, `centerdot_sudoku` | Sudoku standard + extra-region des centres de blocs 3x3. |
 | `sudoku_windoku` | `windoku`, `hyper_sudoku`, `four_box_sudoku` | Sudoku standard + quatre extra-regions 3x3. |
@@ -443,6 +451,35 @@ Total :
 27 contraintes
 ```
 
+### Sudoku classiques multi-tailles
+
+`puzzle_type = sudoku_4x4`, `sudoku_6x6`, `sudoku_8x8`, `sudoku_10x10`,
+`sudoku_12x12`, `sudoku_15x15`, `sudoku_16x16`
+
+Ces variantes reprennent exactement la logique du Sudoku classique :
+
+- chaque ligne contient tous les symboles une seule fois ;
+- chaque colonne contient tous les symboles une seule fois ;
+- chaque bloc contient tous les symboles une seule fois.
+
+Configurations :
+
+| Variante | Taille | Blocs | Symboles |
+|---|---:|---|---|
+| `sudoku_4x4` | 4x4 | 2x2 | `1234` |
+| `sudoku_6x6` | 6x6 | 2x3 | `123456` |
+| `sudoku_8x8` | 8x8 | 2x4 | `12345678` |
+| `sudoku_10x10` | 10x10 | 2x5 | `123456789A` |
+| `sudoku_12x12` | 12x12 | 3x4 | `123456789ABC` |
+| `sudoku_15x15` | 15x15 | 3x5 | `123456789ABCDEF` |
+| `sudoku_16x16` | 16x16 | 4x4 | `123456789ABCDEFG` |
+
+Les tailles superieures a 9 utilisent donc des lettres comme symboles de
+valeur. `0`, `.`, et `_` restent reserves aux cases vides.
+
+Dans l'atelier Theia, les traits epais suivent automatiquement la forme de bloc
+de la variante choisie. La saisie rapide attend `N x N` caracteres utiles.
+
 ### Sudoku X
 
 `puzzle_type = sudoku_x`
@@ -461,6 +498,40 @@ Total :
 
 Dans l'atelier Theia, les deux diagonales sont marquees en orange quand la
 variante `Sudoku X` est selectionnee.
+
+### Argyle Sudoku
+
+`puzzle_type = sudoku_argyle`
+
+Alias :
+
+```text
+argyle
+argyle_sudoku
+```
+
+Contraintes :
+
+- toutes les contraintes du Sudoku classique ;
+- 8 diagonales partielles marquees sont des regions `all_different` ;
+- les deux grandes diagonales principales de Sudoku X ne sont pas incluses.
+
+Regions ajoutees :
+
+| Region | Cases | Taille |
+|---|---|---:|
+| Argyle 1 | `r1c5 r2c6 r3c7 r4c8 r5c9` | 5 |
+| Argyle 2 | `r1c2 r2c3 r3c4 r4c5 r5c6 r6c7 r7c8 r8c9` | 8 |
+| Argyle 3 | `r2c1 r3c2 r4c3 r5c4 r6c5 r7c6 r8c7 r9c8` | 8 |
+| Argyle 4 | `r5c1 r6c2 r7c3 r8c4 r9c5` | 5 |
+| Argyle 5 | `r1c5 r2c4 r3c3 r4c2 r5c1` | 5 |
+| Argyle 6 | `r1c8 r2c7 r3c6 r4c5 r5c4 r6c3 r7c2 r8c1` | 8 |
+| Argyle 7 | `r2c9 r3c8 r4c7 r5c6 r6c5 r7c4 r8c3 r9c2` | 8 |
+| Argyle 8 | `r5c9 r6c8 r7c7 r8c6 r9c5` | 5 |
+
+Dans l'atelier Theia, ces diagonales sont dessinees par des traits orange dans
+les cellules concernees. Les conflits locaux utilisent les memes regions
+`all_different`.
 
 ### Anti Diagonal Sudoku
 
@@ -1559,7 +1630,7 @@ Fonctionnalites actuelles :
 |---|---|---|
 | `grid` | `string[][]` | Valeurs courantes de la grille. |
 | `quickText` | `string` | Representation texte de la grille. |
-| `puzzleType` | `sudoku_classic`, `sudoku_x`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_rossini`, `sudoku_xv`, `sudoku_skyscraper`, `sudoku_frame`, `sudoku_godoku`, `sudoku_even_odd` ou `sudoku_non_consecutive` | Variante active. |
+| `puzzleType` | `sudoku_classic`, variantes classiques `sudoku_4x4` a `sudoku_16x16`, `sudoku_x`, `sudoku_argyle`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_rossini`, `sudoku_xv`, `sudoku_skyscraper`, `sudoku_frame`, `sudoku_godoku`, `sudoku_even_odd` ou `sudoku_non_consecutive` | Variante active. |
 | `horizontalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme ligne. |
 | `verticalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme colonne. |
 | `rossiniArrows` | object | Fleches de bord `top`, `bottom`, `left`, `right` pour Rossini. |
@@ -1829,8 +1900,12 @@ Couverture actuelle :
 
 - Sudoku classique avec solution unique ;
 - grille Sudoku invalide ;
+- Sudokus classiques 4x4, 6x6, 8x8, 10x10, 12x12, 15x15 et 16x16 valides ;
+- Sudoku classique multi-taille refuse un doublon de ligne ;
 - Sudoku X valide ;
 - grille classique complete refusee en Sudoku X ;
+- Argyle valide ;
+- grille classique complete refusee en Argyle ;
 - Anti Diagonal valide ;
 - grille classique complete refusee en Anti Diagonal ;
 - Center Dot valide ;
