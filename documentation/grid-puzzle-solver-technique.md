@@ -127,6 +127,8 @@ Entrées principales :
 | `solver_timeout_ms` | number | `10000` | Timeout interne Z3, borne entre 1s et 120s. |
 | `inequalities` | object/list/string | vide | Contraintes `>` / `<` pour Greater Than / Compdoku. |
 | `comparisons` | object/list/string | vide | Alias de `inequalities`. |
+| `vudoku` | object/list/string | vide | Coins Vudoku 8x8 (`grid`, `corners` ou liste d'objets). |
+| `v_corners` | object/list/string | vide | Alias de `vudoku`. |
 | `rossini` | object | vide | Fleches de bord Rossini (`top`, `bottom`, `left`, `right`). |
 | `arrows` | object | vide | Alias de `rossini`. |
 | `xv` | object | vide | Marques de bord Sudoku XV (`horizontal`, `vertical`). |
@@ -170,6 +172,7 @@ Valeurs supportees pour `puzzle_type` :
 | `sohei_sudoku` | `sohei` | Quatre grilles Sudoku 9x9 chevauchantes dans un plateau 21x21. |
 | `kazaguruma_sudoku` | `kazaguruma`, `windmill_sudoku` | Cinq grilles Sudoku 9x9 chevauchantes dans un plateau 21x21 en moulin. |
 | `sudoku_greater_than` | `greater_than`, `compdoku`, `inequality_sudoku` | Sudoku standard + comparaisons `>` / `<` entre cases adjacentes. |
+| `sudoku_vudoku` | `vudoku` | Sudoku standard + coins V de trois cases, sommet egal a la somme ou difference des deux branches. |
 | `sudoku_rossini` | `rossini`, `rossini_sudoku` | Sudoku standard + fleches exterieures ordonnant les trois premieres cases vues depuis un bord. |
 | `sudoku_xv` | `xv`, `xv_sudoku` | Sudoku standard + marques de bord `X` / `V` pour les sommes 10 et 5. |
 | `sudoku_skyscraper` | `skyscraper`, `skyscraper_sudoku` | Sudoku standard + indices exterieurs comptant les batiments visibles. |
@@ -327,6 +330,7 @@ Contraintes supportees :
 | `strict_decreasing` | `cells` | Trois cellules strictement decroissantes dans l'ordre donne. |
 | `not_monotonic` | `cells` | Trois cellules qui ne sont ni strictement croissantes ni strictement decroissantes. |
 | `sum_not_in` | `cells`, `forbidden_totals` | Somme des cellules differente de chacun des totaux interdits. |
+| `vudoku` | `cells` | Trois cellules en V : la premiere cellule est le sommet, egale a la somme ou a la difference absolue des deux autres. |
 | `visible_count` | `cells`, `total` | Nombre de valeurs visibles depuis le debut de la sequence ordonnee. |
 | `parity` | `cells`, `value` | Une cellule est paire (`even`) ou impaire (`odd`). |
 | `non_consecutive` | `cells` | Deux cellules adjacentes ne peuvent pas differer de 1. |
@@ -415,6 +419,15 @@ numeriques et interdisent une difference absolue de 1 :
 
 ```python
 z3.Abs(first_expr - second_expr) != 1
+```
+
+Les contraintes `vudoku` convertissent les trois cellules en valeurs numeriques.
+La premiere cellule est toujours le sommet du V :
+
+```python
+vertex_expr == first_arm_expr + second_arm_expr
+z3.Or(vertex_expr == first_arm_expr + second_arm_expr,
+      vertex_expr == z3.Abs(first_arm_expr - second_arm_expr))
 ```
 
 ## Enumeration des solutions
@@ -1129,6 +1142,70 @@ Les deux cellules d'une inegalite doivent etre adjacentes orthogonalement.
 Dans l'atelier Theia, la variante `Greater Than` affiche des emplacements entre
 les cases. Un clic alterne entre vide, `>` et `<`. Les bords sont sauvegardes
 avec l'etat de la grille.
+
+### Vudoku
+
+`puzzle_type = sudoku_vudoku`
+
+Alias :
+
+```text
+vudoku
+```
+
+Contraintes :
+
+- toutes les contraintes du Sudoku classique ;
+- chaque coin Vudoku occupe trois cases d'un carre 2x2 ;
+- la case au sommet du V vaut soit la somme des deux cases de branche, soit
+  leur difference absolue.
+
+Le format principal envoye par l'atelier est une matrice 8x8, car chaque coin
+se pose sur l'intersection de quatre cases :
+
+```json
+{
+  "grid": [
+    ".A......",
+    "........",
+    "........",
+    "........",
+    "........",
+    "........",
+    "........",
+    "........"
+  ]
+}
+```
+
+Chaque symbole de cette matrice decrit le sommet du V dans le carre 2x2 :
+
+| Symbole | Alias | Sommet | Branches |
+|---|---|---|---|
+| `A` | `1`, `tl`, `nw` | haut-gauche | haut-droite + bas-gauche |
+| `B` | `2`, `tr`, `ne` | haut-droite | haut-gauche + bas-droite |
+| `C` | `3`, `bl`, `sw` | bas-gauche | haut-gauche + bas-droite |
+| `D` | `4`, `br`, `se` | bas-droite | haut-droite + bas-gauche |
+
+Les valeurs vides acceptees sont `""`, `.`, `0`, `_`, `-` et `?`.
+
+Formats alternatifs acceptes :
+
+```json
+[
+  {"row": 1, "col": 2, "orientation": "tl"},
+  {"row": 4, "col": 5, "corner": "br"}
+]
+```
+
+`row` et `col` sont 1-based et designent le coin haut-gauche du carre 2x2 qui
+porte le V.
+
+Dans l'atelier Theia, la variante `Vudoku` affiche des boutons aux
+intersections de cases. Un clic alterne entre vide, haut-gauche, haut-droite,
+bas-droite et bas-gauche. Les conflits locaux colorent les trois cases du V
+quand les trois valeurs sont saisies mais que la relation somme/difference est
+fausse.
 
 ### Rossini Sudoku
 
@@ -1849,7 +1926,7 @@ Fonctionnalites actuelles :
 - choix de variante `Classique` / `Sudoku X` / `Anti Diagonal` /
   `Center Dot` / `Windoku` / `Girandola` / `Asterisk` / `Sujiken` /
   `Samurai Sudoku` / `Flower Sudoku` / `Sohei Sudoku` / `Kazaguruma` /
-  `Greater Than` ;
+  `Greater Than` / `Vudoku` ;
 - diagonales orange en mode Sudoku X ;
 - diagonales magenta en mode Anti Diagonal ;
 - points verts sur les centres de blocs en mode Center Dot ;
@@ -1862,6 +1939,7 @@ Fonctionnalites actuelles :
 - rendu 21x21 de 288 cases actives en mode Sohei Sudoku ;
 - rendu 21x21 de 333 cases actives en mode Kazaguruma ;
 - bords cliquables `>` / `<` en mode Greater Than / Compdoku ;
+- coins V cliquables aux intersections de cases en mode Vudoku ;
 - fleches de bord cliquables en mode Rossini ;
 - bords cliquables `X` / `V` en mode Sudoku XV ;
 - indices exterieurs numeriques en mode Skyscraper ;
@@ -1881,9 +1959,10 @@ Fonctionnalites actuelles :
 |---|---|---|
 | `grid` | `string[][]` | Valeurs courantes de la grille. |
 | `quickText` | `string` | Representation texte de la grille. |
-| `puzzleType` | `sudoku_classic`, variantes classiques `sudoku_4x4` a `sudoku_16x16`, `sudoku_x`, `sudoku_argyle`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_rossini`, `sudoku_xv`, `sudoku_skyscraper`, `sudoku_frame`, `sudoku_outside`, `sudoku_little_killer`, `sudoku_little_unique_killer`, `sudoku_godoku`, `sudoku_even_odd`, `sudoku_non_consecutive`, `sudoku_mine`, `sudoku_mine_6x6` ou `sudoku_tripod_4x4` a `sudoku_tripod_8x8` | Variante active. |
+| `puzzleType` | `sudoku_classic`, variantes classiques `sudoku_4x4` a `sudoku_16x16`, `sudoku_x`, `sudoku_argyle`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_vudoku`, `sudoku_rossini`, `sudoku_xv`, `sudoku_skyscraper`, `sudoku_frame`, `sudoku_outside`, `sudoku_little_killer`, `sudoku_little_unique_killer`, `sudoku_godoku`, `sudoku_even_odd`, `sudoku_non_consecutive`, `sudoku_mine`, `sudoku_mine_6x6` ou `sudoku_tripod_4x4` a `sudoku_tripod_8x8` | Variante active. |
 | `horizontalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme ligne. |
 | `verticalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme colonne. |
+| `vudokuCorners` | `string[][]` | Coins Vudoku 8x8 : `tl`, `tr`, `bl`, `br` ou vide. |
 | `rossiniArrows` | object | Fleches de bord `top`, `bottom`, `left`, `right` pour Rossini. |
 | `xvHorizontalMarks` | `string[][]` | Marques `X` / `V` entre deux cases d'une meme ligne. |
 | `xvVerticalMarks` | `string[][]` | Marques `X` / `V` entre deux cases d'une meme colonne. |
@@ -2062,6 +2141,18 @@ Payload de sauvegarde :
       "horizontal": [["", ">", ""], "..."],
       "vertical": [["", "<", ""], "..."]
     },
+    "vudoku": {
+      "grid": [
+        ["", "tl", "", "", "", "", "", ""],
+        ["", "", "", "", "", "", "", ""],
+        ["", "", "", "", "", "", "", ""],
+        ["", "", "", "br", "", "", "", ""],
+        ["", "", "", "", "", "", "", ""],
+        ["", "", "", "", "", "", "", ""],
+        ["", "", "", "", "", "", "", ""],
+        ["", "", "", "", "", "", "", ""]
+      ]
+    },
     "rossini": {
       "top": ["", "D", "", "", "", "U", "", "D", ""],
       "bottom": ["", "", "", "", "", "", "", "", ""],
@@ -2188,6 +2279,8 @@ Couverture actuelle :
 - Kazaguruma Sudoku refuse une valeur repetee dans une ligne ;
 - Greater Than valide avec une relation adjacente compatible ;
 - Greater Than refuse une relation adjacente contradictoire ;
+- Vudoku valide avec un coin compatible ;
+- Vudoku refuse un coin contradictoire ;
 - Rossini valide avec des fleches de bord compatibles ;
 - Rossini refuse une fleche de bord contradictoire ;
 - Sudoku XV valide avec marques de bord compatibles ;

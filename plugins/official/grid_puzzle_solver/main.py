@@ -305,6 +305,23 @@ class GridpuzzlesolverPlugin:
                     variant="sudoku_greater_than",
                     inequalities=inputs.get("inequalities") or inputs.get("comparisons"),
                 )
+            elif puzzle_type in {"sudoku_vudoku", "vudoku"}:
+                puzzle_text = self._first_non_empty(
+                    inputs.get("grid"),
+                    inputs.get("puzzle"),
+                    inputs.get("text"),
+                )
+                problem = self._build_sudoku_problem(
+                    puzzle_text,
+                    include_diagonals=False,
+                    include_center_dot=False,
+                    include_windoku=False,
+                    include_girandola=False,
+                    include_asterisk=False,
+                    variant="sudoku_vudoku",
+                    vudoku=inputs.get("vudoku") or inputs.get("v_corners") or inputs.get("corners") or {},
+                    include_vudoku=True,
+                )
             elif puzzle_type in {"sudoku_rossini", "rossini", "rossini_sudoku"}:
                 puzzle_text = self._first_non_empty(
                     inputs.get("grid"),
@@ -580,6 +597,8 @@ class GridpuzzlesolverPlugin:
         include_asterisk: bool,
         variant: str,
         inequalities: Any = None,
+        vudoku: Any = None,
+        include_vudoku: bool = False,
         include_anti_diagonal: bool = False,
         include_argyle: bool = False,
         rossini: Any = None,
@@ -712,6 +731,8 @@ class GridpuzzlesolverPlugin:
             )
 
         constraints.extend(self._parse_sudoku_inequalities(inequalities))
+        if include_vudoku:
+            constraints.extend(self._parse_vudoku_constraints(vudoku))
         if include_rossini:
             constraints.extend(self._parse_rossini_constraints(rossini))
         if include_xv:
@@ -1476,6 +1497,32 @@ class GridpuzzlesolverPlugin:
             solver.add(z3.And(*(total_expr != total for total in constraint.forbidden_totals)))
             return
 
+        if kind == "vudoku":
+            if len(cells) != 3:
+                raise ValueError("La contrainte vudoku attend trois cellules")
+            vertex_expr = self._numeric_value_expr(
+                variables[cells[0]],
+                problem.symbols,
+                problem.numeric_values,
+            )
+            first_expr = self._numeric_value_expr(
+                variables[cells[1]],
+                problem.symbols,
+                problem.numeric_values,
+            )
+            second_expr = self._numeric_value_expr(
+                variables[cells[2]],
+                problem.symbols,
+                problem.numeric_values,
+            )
+            solver.add(
+                z3.Or(
+                    vertex_expr == first_expr + second_expr,
+                    vertex_expr == z3.Abs(first_expr - second_expr),
+                )
+            )
+            return
+
         if kind in {"greater_than", "gt"}:
             if len(cells) != 2:
                 raise ValueError("La contrainte greater_than attend deux cellules")
@@ -1672,6 +1719,139 @@ class GridpuzzlesolverPlugin:
         if relation == "<":
             return GridConstraint("less_than", (first_cell, second_cell))
         raise ValueError(f"Symbole d'inegalite non supporte: {relation}")
+
+    def _parse_vudoku_constraints(self, raw_vudoku: Any) -> List[GridConstraint]:
+        if raw_vudoku in (None, "", [], {}):
+            return []
+        if isinstance(raw_vudoku, str):
+            text = raw_vudoku.strip()
+            if not text:
+                return []
+            try:
+                raw_vudoku = json.loads(text)
+            except json.JSONDecodeError:
+                raw_vudoku = {"grid": text.splitlines()}
+
+        if isinstance(raw_vudoku, dict):
+            raw_grid = (
+                raw_vudoku.get("grid")
+                or raw_vudoku.get("matrix")
+                or raw_vudoku.get("corners")
+                or raw_vudoku.get("v")
+            )
+            constraints = self._parse_vudoku_matrix(raw_grid)
+            if "constraints" in raw_vudoku:
+                constraints.extend(self._parse_vudoku_entries(raw_vudoku["constraints"]))
+            return constraints
+
+        if isinstance(raw_vudoku, list):
+            if raw_vudoku and all(isinstance(entry, dict) for entry in raw_vudoku):
+                return self._parse_vudoku_entries(raw_vudoku)
+            return self._parse_vudoku_matrix(raw_vudoku)
+
+        raise ValueError("Format vudoku non supporte")
+
+    def _parse_vudoku_matrix(self, raw_grid: Any) -> List[GridConstraint]:
+        if raw_grid in (None, "", []):
+            return []
+        if not isinstance(raw_grid, list) or len(raw_grid) != 8:
+            raise ValueError("vudoku.grid doit contenir 8 lignes")
+
+        constraints: List[GridConstraint] = []
+        for row_index, raw_row in enumerate(raw_grid):
+            if isinstance(raw_row, str):
+                values = [
+                    char for char in raw_row
+                    if char.upper() in {"A", "B", "C", "D"} or char in {".", "0", "_", "-"}
+                ]
+            elif isinstance(raw_row, list):
+                values = list(raw_row)
+            else:
+                raise ValueError(f"vudoku.grid[{row_index}] doit etre une liste ou une chaine")
+            if len(values) != 8:
+                raise ValueError(f"vudoku.grid[{row_index}] doit contenir 8 valeurs")
+            for col_index, raw_value in enumerate(values):
+                orientation = self._normalize_vudoku_orientation(raw_value)
+                if orientation is None:
+                    continue
+                constraints.append(
+                    GridConstraint("vudoku", self._vudoku_cells(row_index, col_index, orientation))
+                )
+        return constraints
+
+    def _parse_vudoku_entries(self, raw_entries: Any) -> List[GridConstraint]:
+        if raw_entries in (None, "", []):
+            return []
+        if not isinstance(raw_entries, list):
+            raise ValueError("Les contraintes Vudoku en liste doivent etre une liste d'objets")
+        constraints: List[GridConstraint] = []
+        for entry in raw_entries:
+            if not isinstance(entry, dict):
+                raise ValueError("Chaque contrainte Vudoku doit etre un objet")
+            raw_row = entry.get("row", entry.get("r"))
+            raw_col = entry.get("col", entry.get("column", entry.get("c")))
+            if raw_row is None or raw_col is None:
+                raise ValueError("Chaque contrainte Vudoku doit definir row et col")
+            row = int(raw_row) - 1
+            col = int(raw_col) - 1
+            if row < 0 or row >= 8 or col < 0 or col >= 8:
+                raise ValueError(f"Position Vudoku hors grille: r{raw_row}c{raw_col}")
+            orientation = self._normalize_vudoku_orientation(
+                entry.get("orientation")
+                or entry.get("vertex")
+                or entry.get("corner")
+                or entry.get("value")
+            )
+            if orientation is None:
+                continue
+            constraints.append(GridConstraint("vudoku", self._vudoku_cells(row, col, orientation)))
+        return constraints
+
+    def _normalize_vudoku_orientation(self, raw_value: Any) -> Optional[str]:
+        text = str(raw_value or "").strip().lower()
+        if text in {"", ".", "0", "_", "-", "?"}:
+            return None
+        aliases = {
+            "a": "tl",
+            "1": "tl",
+            "tl": "tl",
+            "top-left": "tl",
+            "top_left": "tl",
+            "nw": "tl",
+            "b": "tr",
+            "2": "tr",
+            "tr": "tr",
+            "top-right": "tr",
+            "top_right": "tr",
+            "ne": "tr",
+            "c": "bl",
+            "3": "bl",
+            "bl": "bl",
+            "bottom-left": "bl",
+            "bottom_left": "bl",
+            "sw": "bl",
+            "d": "br",
+            "4": "br",
+            "br": "br",
+            "bottom-right": "br",
+            "bottom_right": "br",
+            "se": "br",
+        }
+        orientation = aliases.get(text)
+        if orientation is None:
+            raise ValueError(f"Orientation Vudoku non supportee: {raw_value}")
+        return orientation
+
+    def _vudoku_cells(self, row: int, col: int, orientation: str) -> Tuple[Cell, Cell, Cell]:
+        if orientation == "tl":
+            return ((row, col), (row, col + 1), (row + 1, col))
+        if orientation == "tr":
+            return ((row, col + 1), (row, col), (row + 1, col + 1))
+        if orientation == "bl":
+            return ((row + 1, col), (row, col), (row + 1, col + 1))
+        if orientation == "br":
+            return ((row + 1, col + 1), (row, col + 1), (row + 1, col))
+        raise ValueError(f"Orientation Vudoku inconnue: {orientation}")
 
     def _parse_xv_constraints(self, raw_xv: Any) -> List[GridConstraint]:
         enforce_absent = True

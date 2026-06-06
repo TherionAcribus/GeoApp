@@ -116,6 +116,14 @@
     background: transparent;
 }
 
+.sudoku-board.vudoku-board {
+    grid-template-columns: repeat(8, 44px 22px) 44px;
+    grid-template-rows: repeat(8, 44px 22px) 44px;
+    gap: 0;
+    border: 0;
+    background: color-mix(in srgb, var(--theia-editor-background) 82%, #ffffff);
+}
+
 .sudoku-board.rossini-board {
     grid-template-columns: 26px repeat(9, 44px) 26px;
     grid-template-rows: 26px repeat(9, 44px) 26px;
@@ -513,6 +521,116 @@
 }
 
 .grid-puzzle-workbench .xv-control:disabled {
+    opacity: 1;
+}
+
+.grid-puzzle-workbench .vudoku-control {
+    width: 22px;
+    height: 22px;
+    min-height: 0;
+    padding: 0;
+    align-self: center;
+    justify-self: center;
+    position: relative;
+    overflow: visible;
+    color: transparent;
+    background: color-mix(in srgb, var(--theia-editor-background) 86%, #ffffff);
+    border: 1px dashed color-mix(in srgb, var(--theia-panel-border) 65%, transparent);
+    border-radius: 4px;
+    z-index: 2;
+}
+
+.grid-puzzle-workbench .vudoku-control:hover,
+.grid-puzzle-workbench .vudoku-control:focus {
+    background: color-mix(in srgb, var(--theia-editor-background) 72%, #ffffff);
+    border-color: var(--theia-focusBorder);
+    outline: none;
+}
+
+.grid-puzzle-workbench .vudoku-control.active {
+    background: transparent;
+    border-color: transparent;
+}
+
+.grid-puzzle-workbench .vudoku-control::before,
+.grid-puzzle-workbench .vudoku-control::after {
+    content: '';
+    position: absolute;
+    pointer-events: none;
+    opacity: 0;
+    background: color-mix(in srgb, #ffffff 88%, var(--theia-input-foreground));
+    box-shadow:
+        0 0 0 1px color-mix(in srgb, var(--theia-input-foreground) 24%, transparent),
+        0 1px 4px color-mix(in srgb, #000000 30%, transparent);
+}
+
+.grid-puzzle-workbench .vudoku-control:not(.active)::before {
+    left: 8px;
+    top: 8px;
+    width: 6px;
+    height: 6px;
+    border: 1px solid color-mix(in srgb, var(--theia-descriptionForeground) 36%, transparent);
+    border-radius: 2px;
+    background: transparent;
+    box-shadow: none;
+    opacity: 0.42;
+}
+
+.grid-puzzle-workbench .vudoku-control.active::before {
+    width: 15px;
+    height: 5px;
+    border-radius: 999px;
+    opacity: 1;
+}
+
+.grid-puzzle-workbench .vudoku-control.active::after {
+    width: 5px;
+    height: 15px;
+    border-radius: 999px;
+    opacity: 1;
+}
+
+.grid-puzzle-workbench .vudoku-control.active.tl::before {
+    left: 4px;
+    top: 4px;
+}
+
+.grid-puzzle-workbench .vudoku-control.active.tl::after {
+    left: 4px;
+    top: 4px;
+}
+
+.grid-puzzle-workbench .vudoku-control.active.tr::before {
+    right: 4px;
+    top: 4px;
+}
+
+.grid-puzzle-workbench .vudoku-control.active.tr::after {
+    right: 4px;
+    top: 4px;
+}
+
+.grid-puzzle-workbench .vudoku-control.active.bl::before {
+    left: 4px;
+    bottom: 4px;
+}
+
+.grid-puzzle-workbench .vudoku-control.active.bl::after {
+    left: 4px;
+    bottom: 4px;
+}
+
+.grid-puzzle-workbench .vudoku-control.active.br::before {
+    right: 4px;
+    bottom: 4px;
+}
+
+.grid-puzzle-workbench .vudoku-control.active.br::after {
+    right: 4px;
+    bottom: 4px;
+}
+
+.grid-puzzle-workbench .vudoku-control:disabled {
     opacity: 1;
 }
 
@@ -1051,6 +1169,11 @@
         grid-template-rows: repeat(8, minmax(28px, 1fr) 18px) minmax(28px, 1fr);
     }
 
+    .sudoku-board.vudoku-board {
+        grid-template-columns: repeat(8, minmax(28px, 1fr) 18px) minmax(28px, 1fr);
+        grid-template-rows: repeat(8, minmax(28px, 1fr) 18px) minmax(28px, 1fr);
+    }
+
     .sudoku-board.rossini-board {
         grid-template-columns: 20px repeat(9, minmax(28px, 1fr)) 20px;
         grid-template-rows: 20px repeat(9, minmax(28px, 1fr)) 20px;
@@ -1133,6 +1256,7 @@
     .inequality-corner,
     .xv-control,
     .xv-corner,
+    .vudoku-control,
     .rossini-control,
     .skyscraper-clue,
     .frame-clue,

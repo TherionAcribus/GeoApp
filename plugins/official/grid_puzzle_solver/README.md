@@ -40,6 +40,9 @@ Generic finite-domain grid solver powered by Z3.
 - `sudoku_greater_than`: classic 9x9 Sudoku plus adjacent `>` / `<`
   inequalities. The interactive UI lets users toggle border symbols between
   cells.
+- `sudoku_vudoku`: classic 9x9 Sudoku plus V-shaped three-cell corners. The
+  vertex digit must equal either the sum or the absolute difference of the two
+  branch digits.
 - `sudoku_rossini`: classic 9x9 Sudoku plus edge arrows. Each arrow constrains
   the first three cells seen from that side to be strictly ordered, with the
   highest digit in the arrow direction. Empty edges can also forbid monotonic
@@ -107,6 +110,8 @@ Sudoku is just the first builder on top of a generic CSP model:
 - declarative constraints (`all_different`, `equals`, `not_equal`, `sum`);
 - comparison constraints (`greater_than`, `less_than`) for adjacent-cell
   variants such as Compdoku;
+- V-corner constraints (`vudoku`) where a vertex equals the sum or difference
+  of two branch cells;
 - ordered triplet constraints (`strict_increasing`, `strict_decreasing`,
   `not_monotonic`) for edge-clue variants such as Rossini;
 - sum exclusion constraints (`sum_not_in`) for negative border clues such as
@@ -140,13 +145,14 @@ the Theia "Grilles" workbench:
 - variant selector for classic Sudoku in multiple sizes, Sudoku X, Argyle,
   Anti Diagonal, Center Dot, Windoku, Girandola, Asterisk, Sujiken, Samurai Sudoku,
   Flower Sudoku,
-  Sohei Sudoku, Kazaguruma, Greater Than, Rossini, Sudoku XV, Skyscraper,
+  Sohei Sudoku, Kazaguruma, Greater Than, Vudoku, Rossini, Sudoku XV, Skyscraper,
   Frame, Outside, Little Killer, Little Unique Killer, Godoku, Even-Odd,
   Non-Consecutive and Tripod 4x4 through 8x8;
 - Sudoku Mine entry using clue digits and solved mine markers;
 - editable outside digit clues for Outside Sudoku;
 - editable Tripod dots at grid intersections;
 - editable `>` / `<` borders for Greater Than / Compdoku;
+- editable V-corners for Vudoku;
 - editable edge arrows for Rossini;
 - editable `X` / `V` borders for Sudoku XV;
 - editable outside visibility clues for Skyscraper Sudoku;
