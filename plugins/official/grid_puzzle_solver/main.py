@@ -356,6 +356,23 @@ class GridpuzzlesolverPlugin:
                     xv=inputs.get("xv") or inputs.get("marks") or {},
                     include_xv=True,
                 )
+            elif puzzle_type in {"sudoku_kropki", "kropki", "kropki_sudoku", "dots_sudoku"}:
+                puzzle_text = self._first_non_empty(
+                    inputs.get("grid"),
+                    inputs.get("puzzle"),
+                    inputs.get("text"),
+                )
+                problem = self._build_sudoku_problem(
+                    puzzle_text,
+                    include_diagonals=False,
+                    include_center_dot=False,
+                    include_windoku=False,
+                    include_girandola=False,
+                    include_asterisk=False,
+                    variant="sudoku_kropki",
+                    kropki=inputs.get("kropki") or inputs.get("dots") or {},
+                    include_kropki=True,
+                )
             elif puzzle_type in {"sudoku_skyscraper", "skyscraper", "skyscraper_sudoku"}:
                 puzzle_text = self._first_non_empty(
                     inputs.get("grid"),
@@ -605,6 +622,8 @@ class GridpuzzlesolverPlugin:
         include_rossini: bool = False,
         xv: Any = None,
         include_xv: bool = False,
+        kropki: Any = None,
+        include_kropki: bool = False,
         skyscraper: Any = None,
         include_skyscraper: bool = False,
         frame: Any = None,
@@ -737,6 +756,8 @@ class GridpuzzlesolverPlugin:
             constraints.extend(self._parse_rossini_constraints(rossini))
         if include_xv:
             constraints.extend(self._parse_xv_constraints(xv))
+        if include_kropki:
+            constraints.extend(self._parse_kropki_constraints(kropki))
         if include_skyscraper:
             constraints.extend(self._parse_skyscraper_constraints(skyscraper))
         if include_frame:
@@ -1523,6 +1544,29 @@ class GridpuzzlesolverPlugin:
             )
             return
 
+        if kind in {"kropki_white", "kropki_black", "kropki_none"}:
+            if len(cells) != 2:
+                raise ValueError("La contrainte kropki attend deux cellules")
+            first_expr = self._numeric_value_expr(
+                variables[cells[0]],
+                problem.symbols,
+                problem.numeric_values,
+            )
+            second_expr = self._numeric_value_expr(
+                variables[cells[1]],
+                problem.symbols,
+                problem.numeric_values,
+            )
+            consecutive_expr = z3.Abs(first_expr - second_expr) == 1
+            double_expr = z3.Or(first_expr == second_expr * 2, second_expr == first_expr * 2)
+            if kind == "kropki_white":
+                solver.add(consecutive_expr)
+            elif kind == "kropki_black":
+                solver.add(double_expr)
+            else:
+                solver.add(z3.And(z3.Not(consecutive_expr), z3.Not(double_expr)))
+            return
+
         if kind in {"greater_than", "gt"}:
             if len(cells) != 2:
                 raise ValueError("La contrainte greater_than attend deux cellules")
@@ -2012,6 +2056,172 @@ class GridpuzzlesolverPlugin:
                 return GridConstraint("sum_not_in", (first_cell, second_cell), forbidden_totals=(5, 10))
             return None
         raise ValueError(f"Symbole XV non supporte: {symbol}")
+
+    def _parse_kropki_constraints(self, raw_kropki: Any) -> List[GridConstraint]:
+        enforce_absent = True
+        if raw_kropki in (None, "", []):
+            raw_kropki = {}
+        if isinstance(raw_kropki, str):
+            text = raw_kropki.strip()
+            if text:
+                try:
+                    raw_kropki = json.loads(text)
+                except json.JSONDecodeError:
+                    return self._parse_kropki_lines(text)
+            else:
+                raw_kropki = {}
+        if not isinstance(raw_kropki, dict):
+            if isinstance(raw_kropki, list):
+                return self._parse_kropki_entries(raw_kropki)
+            raise ValueError("Format kropki non supporte")
+
+        if "enforce_absent" in raw_kropki:
+            enforce_absent = bool(raw_kropki.get("enforce_absent"))
+        elif "all_dots_given" in raw_kropki:
+            enforce_absent = bool(raw_kropki.get("all_dots_given"))
+
+        constraints: List[GridConstraint] = []
+        has_matrix = any(key in raw_kropki for key in ("horizontal", "h", "vertical", "v"))
+        if has_matrix or "constraints" not in raw_kropki:
+            constraints.extend(
+                self._parse_kropki_matrix(
+                    raw_kropki.get("horizontal") or raw_kropki.get("h"),
+                    rows=9,
+                    cols=8,
+                    first_cell=lambda row, col: (row, col),
+                    second_cell=lambda row, col: (row, col + 1),
+                    label="horizontal",
+                    enforce_absent=enforce_absent,
+                )
+            )
+            constraints.extend(
+                self._parse_kropki_matrix(
+                    raw_kropki.get("vertical") or raw_kropki.get("v"),
+                    rows=8,
+                    cols=9,
+                    first_cell=lambda row, col: (row, col),
+                    second_cell=lambda row, col: (row + 1, col),
+                    label="vertical",
+                    enforce_absent=enforce_absent,
+                )
+            )
+        if "constraints" in raw_kropki:
+            constraints.extend(self._parse_kropki_entries(raw_kropki["constraints"]))
+        return constraints
+
+    def _parse_kropki_matrix(
+        self,
+        raw_matrix: Any,
+        rows: int,
+        cols: int,
+        first_cell: Any,
+        second_cell: Any,
+        label: str,
+        enforce_absent: bool,
+    ) -> List[GridConstraint]:
+        if raw_matrix in (None, ""):
+            raw_matrix = ["." * cols for _ in range(rows)]
+        if not isinstance(raw_matrix, list) or len(raw_matrix) != rows:
+            raise ValueError(f"kropki.{label} doit contenir {rows} lignes")
+
+        constraints: List[GridConstraint] = []
+        for row_index, raw_row in enumerate(raw_matrix):
+            if isinstance(raw_row, str):
+                values = [
+                    char
+                    for char in raw_row
+                    if char.lower() in {"w", "b", "o"} or char in {"○", "●", ".", "0", "_", "-"}
+                ]
+            elif isinstance(raw_row, list):
+                values = [str(value or "") for value in raw_row]
+            else:
+                raise ValueError(f"kropki.{label}[{row_index}] doit etre une liste ou une chaine")
+
+            if len(values) != cols:
+                raise ValueError(f"kropki.{label}[{row_index}] doit contenir {cols} valeurs")
+
+            for col_index, symbol in enumerate(values):
+                constraint = self._build_kropki_constraint(
+                    first_cell(row_index, col_index),
+                    second_cell(row_index, col_index),
+                    symbol,
+                    enforce_absent,
+                )
+                if constraint is not None:
+                    constraints.append(constraint)
+        return constraints
+
+    def _parse_kropki_entries(self, raw_entries: Any) -> List[GridConstraint]:
+        if raw_entries in (None, "", []):
+            return []
+        if not isinstance(raw_entries, list):
+            raise ValueError("Les contraintes Kropki en liste doivent etre une liste d'objets")
+
+        constraints: List[GridConstraint] = []
+        for entry in raw_entries:
+            if not isinstance(entry, dict):
+                raise ValueError("Chaque contrainte Kropki doit etre un objet")
+            symbol = str(
+                entry.get("symbol")
+                or entry.get("mark")
+                or entry.get("dot")
+                or entry.get("color")
+                or entry.get("value")
+                or ""
+            ).strip()
+            raw_cells = entry.get("cells")
+            if raw_cells is None:
+                raw_cells = [entry.get("from") or entry.get("cell_a") or entry.get("a"), entry.get("to") or entry.get("cell_b") or entry.get("b")]
+            if not isinstance(raw_cells, list) or len(raw_cells) != 2:
+                raise ValueError("Chaque contrainte Kropki doit definir deux cellules")
+
+            constraint = self._build_kropki_constraint(
+                self._parse_cell_ref(raw_cells[0], 9, 9),
+                self._parse_cell_ref(raw_cells[1], 9, 9),
+                symbol,
+                enforce_absent=False,
+            )
+            if constraint is not None:
+                constraints.append(constraint)
+        return constraints
+
+    def _parse_kropki_lines(self, text: str) -> List[GridConstraint]:
+        constraints: List[GridConstraint] = []
+        for line in text.splitlines():
+            normalized = line.strip().replace(" ", "")
+            if not normalized:
+                continue
+            match = re.fullmatch(r"(r\d+c\d+)(white|black|[WwBbOo○●])(r\d+c\d+)", normalized, re.IGNORECASE)
+            if not match:
+                raise ValueError(f"Contrainte Kropki invalide: {line}")
+            constraint = self._build_kropki_constraint(
+                self._parse_cell_ref(match.group(1), 9, 9),
+                self._parse_cell_ref(match.group(3), 9, 9),
+                match.group(2),
+                enforce_absent=False,
+            )
+            if constraint is not None:
+                constraints.append(constraint)
+        return constraints
+
+    def _build_kropki_constraint(
+        self,
+        first_cell: Cell,
+        second_cell: Cell,
+        symbol: str,
+        enforce_absent: bool,
+    ) -> Optional[GridConstraint]:
+        self._validate_adjacent_cells(first_cell, second_cell)
+        normalized = str(symbol or "").strip().lower()
+        if normalized in {"w", "white", "o", "○"}:
+            return GridConstraint("kropki_white", (first_cell, second_cell))
+        if normalized in {"b", "black", "●"}:
+            return GridConstraint("kropki_black", (first_cell, second_cell))
+        if normalized in {"", ".", "0", "_", "-"}:
+            if enforce_absent:
+                return GridConstraint("kropki_none", (first_cell, second_cell))
+            return None
+        raise ValueError(f"Symbole Kropki non supporte: {symbol}")
 
     def _parse_skyscraper_constraints(self, raw_skyscraper: Any) -> List[GridConstraint]:
         if raw_skyscraper in (None, "", []):

@@ -1156,6 +1156,107 @@ def test_xv_rejects_contradictory_border_mark():
     assert result["summary"] == "Aucune solution compatible avec les contraintes"
 
 
+def test_kropki_accepts_matching_dots():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "sudoku_kropki",
+            "grid": """
+                167324958
+                542869731
+                839175462
+                674518293
+                395247186
+                281693547
+                723956814
+                458731629
+                916482375
+            """,
+            "kropki": {
+                "horizontal": [
+                    ".W.WB...",
+                    "WB......",
+                    ".....W..",
+                    "W.W.....",
+                    "...B....",
+                    "......W.",
+                    ".W..W...",
+                    "W.W.....",
+                    "...B.W..",
+                ],
+                "vertical": [
+                    ".........",
+                    ".W..W..BW",
+                    "......B.W",
+                    "B.W..WWWB",
+                    "WW.....BW",
+                    ".....B...",
+                    ".......W.",
+                    ".....WB..",
+                ],
+                "enforce_absent": True,
+            },
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["unique"] is True
+    assert result["metadata"]["variant"] == "sudoku_kropki"
+    assert result["metadata"]["constraint_count"] == 171
+
+
+def test_kropki_rejects_contradictory_dot():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "kropki",
+            "grid": """
+                167324958
+                542869731
+                839175462
+                674518293
+                395247186
+                281693547
+                723956814
+                458731629
+                916482375
+            """,
+            "kropki": {
+                "horizontal": [
+                    "WW.WB...",
+                    "WB......",
+                    ".....W..",
+                    "W.W.....",
+                    "...B....",
+                    "......W.",
+                    ".W..W...",
+                    "W.W.....",
+                    "...B.W..",
+                ],
+                "vertical": [
+                    ".........",
+                    ".W..W..BW",
+                    "......B.W",
+                    "B.W..WWWB",
+                    "WW.....BW",
+                    ".....B...",
+                    ".......W.",
+                    ".....WB..",
+                ],
+                "enforce_absent": True,
+            },
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+    assert result["summary"] == "Aucune solution compatible avec les contraintes"
+
+
 def test_skyscraper_accepts_matching_edge_clues():
     plugin = load_plugin()
 

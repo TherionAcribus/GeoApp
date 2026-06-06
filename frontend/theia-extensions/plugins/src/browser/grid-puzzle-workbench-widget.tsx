@@ -10,13 +10,15 @@ import './style/grid-puzzle-workbench.css';
 type Grid = string[][];
 type RegionGrid = number[][];
 type WorkMode = 'edit' | 'watch' | 'parity';
-type SudokuVariant = 'sudoku_classic' | 'sudoku_4x4' | 'sudoku_6x6' | 'sudoku_8x8' | 'sudoku_10x10' | 'sudoku_12x12' | 'sudoku_15x15' | 'sudoku_16x16' | 'sudoku_x' | 'sudoku_argyle' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_vudoku' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_outside' | 'sudoku_little_killer' | 'sudoku_little_unique_killer' | 'sudoku_godoku' | 'sudoku_even_odd' | 'sudoku_non_consecutive' | 'sudoku_mine' | 'sudoku_mine_6x6' | 'sudoku_tripod' | 'sudoku_tripod_4x4' | 'sudoku_tripod_5x5' | 'sudoku_tripod_6x6' | 'sudoku_tripod_7x7' | 'sudoku_tripod_8x8';
+type SudokuVariant = 'sudoku_classic' | 'sudoku_4x4' | 'sudoku_6x6' | 'sudoku_8x8' | 'sudoku_10x10' | 'sudoku_12x12' | 'sudoku_15x15' | 'sudoku_16x16' | 'sudoku_x' | 'sudoku_argyle' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_vudoku' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_kropki' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_outside' | 'sudoku_little_killer' | 'sudoku_little_unique_killer' | 'sudoku_godoku' | 'sudoku_even_odd' | 'sudoku_non_consecutive' | 'sudoku_mine' | 'sudoku_mine_6x6' | 'sudoku_tripod' | 'sudoku_tripod_4x4' | 'sudoku_tripod_5x5' | 'sudoku_tripod_6x6' | 'sudoku_tripod_7x7' | 'sudoku_tripod_8x8';
 type InequalitySymbol = '' | '>' | '<';
 type InequalityGrid = InequalitySymbol[][];
 type VudokuSymbol = '' | 'tl' | 'tr' | 'bl' | 'br';
 type VudokuGrid = VudokuSymbol[][];
 type XvSymbol = '' | 'X' | 'V';
 type XvGrid = XvSymbol[][];
+type KropkiSymbol = '' | 'white' | 'black';
+type KropkiGrid = KropkiSymbol[][];
 type ParitySymbol = '' | 'even' | 'odd';
 type ParityGrid = ParitySymbol[][];
 type TripodDots = boolean[][];
@@ -108,6 +110,8 @@ const EMPTY_VERTICAL_INEQUALITIES: InequalityGrid = Array.from({ length: SIZE - 
 const EMPTY_VUDOKU_CORNERS: VudokuGrid = Array.from({ length: SIZE - 1 }, () => Array(SIZE - 1).fill(''));
 const EMPTY_XV_HORIZONTAL_MARKS: XvGrid = Array.from({ length: SIZE }, () => Array(SIZE - 1).fill(''));
 const EMPTY_XV_VERTICAL_MARKS: XvGrid = Array.from({ length: SIZE - 1 }, () => Array(SIZE).fill(''));
+const EMPTY_KROPKI_HORIZONTAL_DOTS: KropkiGrid = Array.from({ length: SIZE }, () => Array(SIZE - 1).fill(''));
+const EMPTY_KROPKI_VERTICAL_DOTS: KropkiGrid = Array.from({ length: SIZE - 1 }, () => Array(SIZE).fill(''));
 const EMPTY_PARITY_MARKS: ParityGrid = Array.from({ length: SIZE }, () => Array(SIZE).fill(''));
 const EMPTY_SKYSCRAPER_CLUES: SkyscraperClues = {
     top: Array<string>(SIZE).fill(''),
@@ -210,6 +214,10 @@ function cloneVudokuGrid(grid: VudokuGrid): VudokuGrid {
 }
 
 function cloneXvGrid(grid: XvGrid): XvGrid {
+    return grid.map(row => [...row]);
+}
+
+function cloneKropkiGrid(grid: KropkiGrid): KropkiGrid {
     return grid.map(row => [...row]);
 }
 
@@ -330,6 +338,9 @@ function getVariantLabel(puzzleType: SudokuVariant): string {
     }
     if (puzzleType === 'sudoku_xv') {
         return 'Sudoku XV';
+    }
+    if (puzzleType === 'sudoku_kropki') {
+        return 'Kropki';
     }
     if (puzzleType === 'sudoku_skyscraper') {
         return 'Skyscraper';
@@ -764,6 +775,8 @@ function findConstraintConflicts(
     rossiniArrows: RossiniArrows,
     xvHorizontalMarks: XvGrid,
     xvVerticalMarks: XvGrid,
+    kropkiHorizontalDots: KropkiGrid,
+    kropkiVerticalDots: KropkiGrid,
     skyscraperClues: SkyscraperClues,
     frameClues: FrameClues,
     outsideClues: OutsideClues,
@@ -845,6 +858,19 @@ function findConstraintConflicts(
         xvVerticalMarks.forEach((row, rowIndex) => {
             row.forEach((mark, colIndex) => {
                 addXvConflict(grid, cells, messages, mark, rowIndex, colIndex, rowIndex + 1, colIndex);
+            });
+        });
+    }
+
+    if (puzzleType === 'sudoku_kropki') {
+        kropkiHorizontalDots.forEach((row, rowIndex) => {
+            row.forEach((mark, colIndex) => {
+                addKropkiConflict(grid, cells, messages, mark, rowIndex, colIndex, rowIndex, colIndex + 1);
+            });
+        });
+        kropkiVerticalDots.forEach((row, rowIndex) => {
+            row.forEach((mark, colIndex) => {
+                addKropkiConflict(grid, cells, messages, mark, rowIndex, colIndex, rowIndex + 1, colIndex);
             });
         });
     }
@@ -1016,6 +1042,49 @@ function addXvConflict(
         mark
             ? `Marque XV ${mark} non respectee entre ${firstRef} et ${secondRef} : somme ${total}`
             : `Absence de marque XV entre ${firstRef} et ${secondRef} : somme ${total}`,
+    );
+}
+
+function addKropkiConflict(
+    grid: Grid,
+    cells: Set<string>,
+    messages: string[],
+    mark: KropkiSymbol,
+    firstRow: number,
+    firstCol: number,
+    secondRow: number,
+    secondCol: number,
+): void {
+    const firstValue = Number(grid[firstRow]?.[firstCol] || 0);
+    const secondValue = Number(grid[secondRow]?.[secondCol] || 0);
+    if (!firstValue || !secondValue) {
+        return;
+    }
+    const isConsecutive = Math.abs(firstValue - secondValue) === 1;
+    const isDouble = firstValue === secondValue * 2 || secondValue === firstValue * 2;
+    const valid = mark === 'white'
+        ? isConsecutive
+        : mark === 'black'
+            ? isDouble
+            : !isConsecutive && !isDouble;
+    if (valid) {
+        return;
+    }
+    const firstRef = cellRef(firstRow, firstCol);
+    const secondRef = cellRef(secondRow, secondCol);
+    cells.add(firstRef);
+    cells.add(secondRef);
+    const relation = isConsecutive && isDouble
+        ? 'consecutifs et doubles'
+        : isConsecutive
+            ? 'consecutifs'
+            : isDouble
+                ? 'doubles'
+                : 'sans relation Kropki';
+    messages.push(
+        mark
+            ? `Rond Kropki ${mark === 'white' ? 'blanc' : 'noir'} non respecte entre ${firstRef} et ${secondRef}`
+            : `Absence de rond Kropki entre ${firstRef} et ${secondRef} : chiffres ${relation}`,
     );
 }
 
@@ -1497,6 +1566,14 @@ function emptyXvVerticalMarks(): XvGrid {
     return cloneXvGrid(EMPTY_XV_VERTICAL_MARKS);
 }
 
+function emptyKropkiHorizontalDots(): KropkiGrid {
+    return cloneKropkiGrid(EMPTY_KROPKI_HORIZONTAL_DOTS);
+}
+
+function emptyKropkiVerticalDots(): KropkiGrid {
+    return cloneKropkiGrid(EMPTY_KROPKI_VERTICAL_DOTS);
+}
+
 function emptyParityMarks(): ParityGrid {
     return cloneParityGrid(EMPTY_PARITY_MARKS);
 }
@@ -1589,6 +1666,27 @@ function normalizeXvGrid(value: unknown, rows: number, cols: number): XvGrid {
     return value.map(row => {
         const cells = typeof row === 'string' ? row.split('') : Array.isArray(row) ? row : [];
         return Array.from({ length: cols }, (_unused, index) => normalizeXvSymbol(cells[index]));
+    });
+}
+
+function normalizeKropkiSymbol(value: unknown): KropkiSymbol {
+    const text = String(value ?? '').trim().toLowerCase();
+    if (['w', 'white', 'o', '○'].includes(text)) {
+        return 'white';
+    }
+    if (['b', 'black', '●'].includes(text)) {
+        return 'black';
+    }
+    return '';
+}
+
+function normalizeKropkiGrid(value: unknown, rows: number, cols: number): KropkiGrid {
+    if (!Array.isArray(value) || value.length !== rows) {
+        return Array.from({ length: rows }, () => Array<KropkiSymbol>(cols).fill(''));
+    }
+    return value.map(row => {
+        const cells = typeof row === 'string' ? row.split('') : Array.isArray(row) ? row : [];
+        return Array.from({ length: cols }, (_unused, index) => normalizeKropkiSymbol(cells[index]));
     });
 }
 
@@ -1950,6 +2048,16 @@ function cycleXvMark(value: XvSymbol): XvSymbol {
     }
     if (value === 'X') {
         return 'V';
+    }
+    return '';
+}
+
+function cycleKropkiDot(value: KropkiSymbol): KropkiSymbol {
+    if (value === '') {
+        return 'white';
+    }
+    if (value === 'white') {
+        return 'black';
     }
     return '';
 }
@@ -2469,6 +2577,8 @@ function GridPuzzleWorkbenchApp({
     const [vudokuCorners, setVudokuCorners] = React.useState<VudokuGrid>(() => emptyVudokuCorners());
     const [xvHorizontalMarks, setXvHorizontalMarks] = React.useState<XvGrid>(() => emptyXvHorizontalMarks());
     const [xvVerticalMarks, setXvVerticalMarks] = React.useState<XvGrid>(() => emptyXvVerticalMarks());
+    const [kropkiHorizontalDots, setKropkiHorizontalDots] = React.useState<KropkiGrid>(() => emptyKropkiHorizontalDots());
+    const [kropkiVerticalDots, setKropkiVerticalDots] = React.useState<KropkiGrid>(() => emptyKropkiVerticalDots());
     const [parityMarks, setParityMarks] = React.useState<ParityGrid>(() => emptyParityMarks());
     const [tripodDots, setTripodDots] = React.useState<TripodDots>(() => emptyTripodDots());
     const [skyscraperClues, setSkyscraperClues] = React.useState<SkyscraperClues>(() => emptySkyscraperClues());
@@ -2507,6 +2617,7 @@ function GridPuzzleWorkbenchApp({
     const isVudoku = puzzleType === 'sudoku_vudoku';
     const isRossini = puzzleType === 'sudoku_rossini';
     const isXv = puzzleType === 'sudoku_xv';
+    const isKropki = puzzleType === 'sudoku_kropki';
     const isSkyscraper = puzzleType === 'sudoku_skyscraper';
     const isFrame = puzzleType === 'sudoku_frame';
     const isOutside = puzzleType === 'sudoku_outside';
@@ -2555,8 +2666,8 @@ function GridPuzzleWorkbenchApp({
             ? SAMURAI_TEXT_PLACEHOLDER
             : QUICK_TEXT_PLACEHOLDER;
     const constraintConflicts = React.useMemo(
-        () => findConstraintConflicts(grid, puzzleType, horizontalInequalities, verticalInequalities, vudokuCorners, rossiniArrows, xvHorizontalMarks, xvVerticalMarks, skyscraperClues, frameClues, outsideClues, littleKillerClues, parityMarks),
-        [frameClues, grid, horizontalInequalities, littleKillerClues, outsideClues, parityMarks, puzzleType, rossiniArrows, skyscraperClues, verticalInequalities, vudokuCorners, xvHorizontalMarks, xvVerticalMarks],
+        () => findConstraintConflicts(grid, puzzleType, horizontalInequalities, verticalInequalities, vudokuCorners, rossiniArrows, xvHorizontalMarks, xvVerticalMarks, kropkiHorizontalDots, kropkiVerticalDots, skyscraperClues, frameClues, outsideClues, littleKillerClues, parityMarks),
+        [frameClues, grid, horizontalInequalities, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, outsideClues, parityMarks, puzzleType, rossiniArrows, skyscraperClues, verticalInequalities, vudokuCorners, xvHorizontalMarks, xvVerticalMarks],
     );
     const visibleConflictMessages = constraintConflicts.messages.slice(0, 4);
 
@@ -2621,6 +2732,8 @@ function GridPuzzleWorkbenchApp({
         setVudokuCorners(normalizeVudokuGrid(snapshot?.vudoku ?? snapshot?.vudokuCorners));
         setXvHorizontalMarks(normalizeXvGrid(snapshot?.xv?.horizontal ?? snapshot?.xvMarks?.horizontal, SIZE, SIZE - 1));
         setXvVerticalMarks(normalizeXvGrid(snapshot?.xv?.vertical ?? snapshot?.xvMarks?.vertical, SIZE - 1, SIZE));
+        setKropkiHorizontalDots(normalizeKropkiGrid(snapshot?.kropki?.horizontal ?? snapshot?.kropkiDots?.horizontal, SIZE, SIZE - 1));
+        setKropkiVerticalDots(normalizeKropkiGrid(snapshot?.kropki?.vertical ?? snapshot?.kropkiDots?.vertical, SIZE - 1, SIZE));
         setParityMarks(normalizeParityGrid(snapshot?.parity ?? snapshot?.parityMarks));
         setTripodDots(normalizeTripodDots(snapshot?.tripod ?? snapshot?.tripodDots, gridSizeForVariant(puzzleType)));
         setSkyscraperClues(normalizeSkyscraperClues(snapshot?.skyscraper ?? snapshot?.skyscraperClues));
@@ -2701,6 +2814,10 @@ function GridPuzzleWorkbenchApp({
                         horizontal: xvHorizontalMarks,
                         vertical: xvVerticalMarks,
                     },
+                    kropki: {
+                        horizontal: kropkiHorizontalDots,
+                        vertical: kropkiVerticalDots,
+                    },
                     parity: {
                         grid: parityMarks,
                     },
@@ -2741,6 +2858,8 @@ function GridPuzzleWorkbenchApp({
         godokuAlphabet,
         grid,
         horizontalInequalities,
+        kropkiHorizontalDots,
+        kropkiVerticalDots,
         littleKillerClues,
         maxSolutions,
         messageService,
@@ -2881,6 +3000,26 @@ function GridPuzzleWorkbenchApp({
         setOutsideClues(previous => {
             const next = cloneOutsideClues(previous);
             next[side][index] = value;
+            return next;
+        });
+        setSolveState({ running: false });
+        markDirty();
+    }, [markDirty]);
+
+    const toggleHorizontalKropkiDot = React.useCallback((row: number, col: number) => {
+        setKropkiHorizontalDots(previous => {
+            const next = cloneKropkiGrid(previous);
+            next[row][col] = cycleKropkiDot(next[row][col]);
+            return next;
+        });
+        setSolveState({ running: false });
+        markDirty();
+    }, [markDirty]);
+
+    const toggleVerticalKropkiDot = React.useCallback((row: number, col: number) => {
+        setKropkiVerticalDots(previous => {
+            const next = cloneKropkiGrid(previous);
+            next[row][col] = cycleKropkiDot(next[row][col]);
             return next;
         });
         setSolveState({ running: false });
@@ -3059,6 +3198,7 @@ function GridPuzzleWorkbenchApp({
             || value === 'sudoku_vudoku'
             || value === 'sudoku_rossini'
             || value === 'sudoku_xv'
+            || value === 'sudoku_kropki'
             || value === 'sudoku_skyscraper'
             || value === 'sudoku_frame'
             || value === 'sudoku_outside'
@@ -3098,6 +3238,8 @@ function GridPuzzleWorkbenchApp({
         setVudokuCorners(emptyVudokuCorners());
         setXvHorizontalMarks(emptyXvHorizontalMarks());
         setXvVerticalMarks(emptyXvVerticalMarks());
+        setKropkiHorizontalDots(emptyKropkiHorizontalDots());
+        setKropkiVerticalDots(emptyKropkiVerticalDots());
         setParityMarks(emptyParityMarks());
         setTripodDots(emptyTripodDots(gridSizeForVariant(puzzleType)));
         setSkyscraperClues(emptySkyscraperClues());
@@ -3139,6 +3281,11 @@ function GridPuzzleWorkbenchApp({
                     vertical: xvVerticalMarks,
                     enforce_absent: true,
                 } : undefined,
+                kropki: isKropki ? {
+                    horizontal: kropkiHorizontalDots,
+                    vertical: kropkiVerticalDots,
+                    enforce_absent: true,
+                } : undefined,
                 skyscraper: isSkyscraper ? skyscraperClues : undefined,
                 frame: isFrame ? frameClues : undefined,
                 outside: isOutside ? outsideClues : undefined,
@@ -3163,7 +3310,7 @@ function GridPuzzleWorkbenchApp({
                 error: error instanceof Error ? error.message : String(error),
             });
         }
-    }, [constraintConflicts.messages.length, frameClues, geocacheId, godokuAlphabet, grid, horizontalInequalities, isEvenOdd, isFrame, isGodoku, isLittleKiller, isOutside, isRossini, isSkyscraper, isTripod, isVudoku, isXv, littleKillerClues, maxSolutions, outsideClues, parityMarks, pluginsService, puzzleType, rossiniArrows, saveState, skyscraperClues, timeoutMs, tripodDots, verticalInequalities, vudokuCorners, watchCells, xvHorizontalMarks, xvVerticalMarks]);
+    }, [constraintConflicts.messages.length, frameClues, geocacheId, godokuAlphabet, grid, horizontalInequalities, isEvenOdd, isFrame, isGodoku, isKropki, isLittleKiller, isOutside, isRossini, isSkyscraper, isTripod, isVudoku, isXv, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, maxSolutions, outsideClues, parityMarks, pluginsService, puzzleType, rossiniArrows, saveState, skyscraperClues, timeoutMs, tripodDots, verticalInequalities, vudokuCorners, watchCells, xvHorizontalMarks, xvVerticalMarks]);
 
     const useSolvedGrid = React.useCallback(() => {
         if (solvedGrid) {
@@ -3183,7 +3330,7 @@ function GridPuzzleWorkbenchApp({
                 fontSize: sizedCellSize <= 32 ? 14 : sizedCellSize <= 36 ? 16 : 19,
             };
         }
-        if (isGreaterThan || isVudoku || isXv) {
+        if (isGreaterThan || isVudoku || isXv || isKropki) {
             return {
                 gridColumn: String(colIndex * 2 + 1),
                 gridRow: String(rowIndex * 2 + 1),
@@ -3431,6 +3578,73 @@ function GridPuzzleWorkbenchApp({
                         <span
                             key={`xv-corner-${rowIndex}-${colIndex}`}
                             className='xv-corner'
+                            style={{
+                                gridColumn: String(colIndex * 2 + 2),
+                                gridRow: String(rowIndex * 2 + 2),
+                            }}
+                        />
+                    ))
+                ))}
+            </>
+        );
+    };
+
+    const renderKropkiControls = (readonly = false): React.ReactNode => {
+        if (!isKropki) {
+            return null;
+        }
+
+        return (
+            <>
+                {kropkiHorizontalDots.map((row, rowIndex) => (
+                    row.map((value, colIndex) => (
+                        <button
+                            key={`kropki-h-${rowIndex}-${colIndex}`}
+                            type='button'
+                            className={[
+                                'kropki-control',
+                                'horizontal',
+                                value ? 'active' : '',
+                                value,
+                            ].filter(Boolean).join(' ')}
+                            style={{
+                                gridColumn: String(colIndex * 2 + 2),
+                                gridRow: String(rowIndex * 2 + 1),
+                            }}
+                            title={`Rond Kropki entre ${cellRef(rowIndex, colIndex)} et ${cellRef(rowIndex, colIndex + 1)}. Vide = ni consecutif, ni double.`}
+                            aria-label={`Rond Kropki entre ${cellRef(rowIndex, colIndex)} et ${cellRef(rowIndex, colIndex + 1)}`}
+                            disabled={readonly}
+                            onClick={() => toggleHorizontalKropkiDot(rowIndex, colIndex)}
+                        />
+                    ))
+                ))}
+                {kropkiVerticalDots.map((row, rowIndex) => (
+                    row.map((value, colIndex) => (
+                        <button
+                            key={`kropki-v-${rowIndex}-${colIndex}`}
+                            type='button'
+                            className={[
+                                'kropki-control',
+                                'vertical',
+                                value ? 'active' : '',
+                                value,
+                            ].filter(Boolean).join(' ')}
+                            style={{
+                                gridColumn: String(colIndex * 2 + 1),
+                                gridRow: String(rowIndex * 2 + 2),
+                            }}
+                            title={`Rond Kropki entre ${cellRef(rowIndex, colIndex)} et ${cellRef(rowIndex + 1, colIndex)}. Vide = ni consecutif, ni double.`}
+                            aria-label={`Rond Kropki entre ${cellRef(rowIndex, colIndex)} et ${cellRef(rowIndex + 1, colIndex)}`}
+                            disabled={readonly}
+                            onClick={() => toggleVerticalKropkiDot(rowIndex, colIndex)}
+                        />
+                    ))
+                ))}
+                {Array.from({ length: SIZE - 1 }, (_row, rowIndex) => (
+                    Array.from({ length: SIZE - 1 }, (_col, colIndex) => (
+                        <span
+                            key={`kropki-corner-${rowIndex}-${colIndex}`}
+                            className='kropki-corner'
                             style={{
                                 gridColumn: String(colIndex * 2 + 2),
                                 gridRow: String(rowIndex * 2 + 2),
@@ -3777,6 +3991,7 @@ function GridPuzzleWorkbenchApp({
                         <option value='sudoku_vudoku'>Vudoku</option>
                         <option value='sudoku_rossini'>Rossini</option>
                         <option value='sudoku_xv'>Sudoku XV</option>
+                        <option value='sudoku_kropki'>Kropki</option>
                         <option value='sudoku_skyscraper'>Skyscraper</option>
                         <option value='sudoku_frame'>Frame</option>
                         <option value='sudoku_outside'>Outside</option>
@@ -3813,6 +4028,7 @@ function GridPuzzleWorkbenchApp({
                             isGreaterThan ? 'greater-than-board' : '',
                             isVudoku ? 'vudoku-board' : '',
                             isXv ? 'xv-board' : '',
+                            isKropki ? 'kropki-board' : '',
                             isRossini ? 'rossini-board' : '',
                             isSkyscraper ? 'skyscraper-board' : '',
                             isFrame ? 'frame-board' : '',
@@ -3858,6 +4074,7 @@ function GridPuzzleWorkbenchApp({
                         {renderInequalityControls()}
                         {renderVudokuControls()}
                         {renderXvControls()}
+                        {renderKropkiControls()}
                         {renderRossiniControls()}
                         {renderSkyscraperControls()}
                         {renderFrameControls()}
@@ -3872,6 +4089,7 @@ function GridPuzzleWorkbenchApp({
                         {isVudoku ? ' Cliquez les intersections pour poser un coin Vudoku. La case au sommet vaut la somme ou la difference des deux cases sur les cotes du V.' : ''}
                         {isRossini ? ' Cliquez les bords exterieurs pour poser les fleches Rossini. Un bord vide impose aussi que les trois premieres cases ne forment pas une suite.' : ''}
                         {isXv ? ' Cliquez les bords pour alterner entre X, V et vide. Un bord vide interdit les sommes 5 et 10.' : ''}
+                        {isKropki ? ' Cliquez les bords pour alterner entre rond blanc, rond noir et vide. Un bord vide interdit les chiffres consecutifs et les rapports double/moitie.' : ''}
                         {isSkyscraper ? ' Renseignez les indices exterieurs visibles depuis chaque cote de la grille.' : ''}
                         {isFrame ? ' Renseignez les sommes exterieures des trois cases les plus proches du bord.' : ''}
                         {isOutside ? ' Renseignez les chiffres exterieurs : ils doivent apparaitre dans les trois premieres cases vues depuis ce cote. Plusieurs chiffres peuvent partager un meme indice.' : ''}
@@ -3931,6 +4149,7 @@ function GridPuzzleWorkbenchApp({
                                     isGreaterThan ? 'greater-than-board' : '',
                                     isVudoku ? 'vudoku-board' : '',
                                     isXv ? 'xv-board' : '',
+                                    isKropki ? 'kropki-board' : '',
                                     isRossini ? 'rossini-board' : '',
                                     isSkyscraper ? 'skyscraper-board' : '',
                                     isFrame ? 'frame-board' : '',
@@ -3980,6 +4199,7 @@ function GridPuzzleWorkbenchApp({
                                 {renderInequalityControls(true)}
                                 {renderVudokuControls(true)}
                                 {renderXvControls(true)}
+                                {renderKropkiControls(true)}
                                 {renderRossiniControls(true)}
                                 {renderSkyscraperControls(true)}
                                 {renderFrameControls(true)}

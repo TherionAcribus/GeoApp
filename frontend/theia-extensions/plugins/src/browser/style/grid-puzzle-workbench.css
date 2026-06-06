@@ -116,6 +116,14 @@
     background: transparent;
 }
 
+.sudoku-board.kropki-board {
+    grid-template-columns: repeat(8, 44px 22px) 44px;
+    grid-template-rows: repeat(8, 44px 22px) 44px;
+    gap: 0;
+    border: 0;
+    background: transparent;
+}
+
 .sudoku-board.vudoku-board {
     grid-template-columns: repeat(8, 44px 22px) 44px;
     grid-template-rows: repeat(8, 44px 22px) 44px;
@@ -521,6 +529,73 @@
 }
 
 .grid-puzzle-workbench .xv-control:disabled {
+    opacity: 1;
+}
+
+.grid-puzzle-workbench .kropki-control {
+    width: 22px;
+    height: 22px;
+    min-height: 0;
+    padding: 0;
+    align-self: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    justify-self: center;
+    position: relative;
+    background: color-mix(in srgb, var(--theia-editor-background) 90%, var(--theia-descriptionForeground));
+    border: 1px dashed color-mix(in srgb, var(--theia-panel-border) 65%, var(--theia-descriptionForeground));
+    border-radius: 3px;
+}
+
+.grid-puzzle-workbench .kropki-control:hover,
+.grid-puzzle-workbench .kropki-control:focus {
+    background: var(--theia-input-background);
+    border-color: var(--theia-focusBorder);
+    outline: none;
+}
+
+.grid-puzzle-workbench .kropki-control::before {
+    content: '';
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--theia-descriptionForeground) 55%, transparent);
+    background: transparent;
+    opacity: 0.38;
+}
+
+.grid-puzzle-workbench .kropki-control.active {
+    border-style: solid;
+}
+
+.grid-puzzle-workbench .kropki-control.active::before {
+    width: 10px;
+    height: 10px;
+    opacity: 1;
+}
+
+.grid-puzzle-workbench .kropki-control.active.white {
+    border-color: #d1d5db;
+}
+
+.grid-puzzle-workbench .kropki-control.active.white::before {
+    background: #ffffff;
+    border-color: #111827;
+    box-shadow: 0 1px 4px color-mix(in srgb, #000000 32%, transparent);
+}
+
+.grid-puzzle-workbench .kropki-control.active.black {
+    border-color: #111827;
+}
+
+.grid-puzzle-workbench .kropki-control.active.black::before {
+    background: #111827;
+    border-color: #030712;
+    box-shadow: 0 1px 4px color-mix(in srgb, #000000 40%, transparent);
+}
+
+.grid-puzzle-workbench .kropki-control:disabled {
     opacity: 1;
 }
 
@@ -991,6 +1066,12 @@
     background: var(--theia-editor-background);
 }
 
+.kropki-corner {
+    width: 22px;
+    height: 22px;
+    background: var(--theia-editor-background);
+}
+
 .grid-puzzle-hint {
     max-width: 420px;
     margin-top: 8px;
@@ -1169,6 +1250,11 @@
         grid-template-rows: repeat(8, minmax(28px, 1fr) 18px) minmax(28px, 1fr);
     }
 
+    .sudoku-board.kropki-board {
+        grid-template-columns: repeat(8, minmax(28px, 1fr) 18px) minmax(28px, 1fr);
+        grid-template-rows: repeat(8, minmax(28px, 1fr) 18px) minmax(28px, 1fr);
+    }
+
     .sudoku-board.vudoku-board {
         grid-template-columns: repeat(8, minmax(28px, 1fr) 18px) minmax(28px, 1fr);
         grid-template-rows: repeat(8, minmax(28px, 1fr) 18px) minmax(28px, 1fr);
@@ -1256,6 +1342,8 @@
     .inequality-corner,
     .xv-control,
     .xv-corner,
+    .kropki-control,
+    .kropki-corner,
     .vudoku-control,
     .rossini-control,
     .skyscraper-clue,

@@ -133,6 +133,8 @@ Entrées principales :
 | `arrows` | object | vide | Alias de `rossini`. |
 | `xv` | object | vide | Marques de bord Sudoku XV (`horizontal`, `vertical`). |
 | `marks` | object | vide | Alias de `xv`. |
+| `kropki` | object | vide | Ronds Kropki (`horizontal`, `vertical`) : blanc, noir ou vide. |
+| `dots` | object | vide | Alias de `kropki`. |
 | `skyscraper` | object | vide | Indices exterieurs Skyscraper (`top`, `bottom`, `left`, `right`). |
 | `clues` | object | vide | Alias de `skyscraper`. |
 | `frame` | object | vide | Sommes exterieures Frame (`top`, `bottom`, `left`, `right`). |
@@ -175,6 +177,7 @@ Valeurs supportees pour `puzzle_type` :
 | `sudoku_vudoku` | `vudoku` | Sudoku standard + coins V de trois cases, sommet egal a la somme ou difference des deux branches. |
 | `sudoku_rossini` | `rossini`, `rossini_sudoku` | Sudoku standard + fleches exterieures ordonnant les trois premieres cases vues depuis un bord. |
 | `sudoku_xv` | `xv`, `xv_sudoku` | Sudoku standard + marques de bord `X` / `V` pour les sommes 10 et 5. |
+| `sudoku_kropki` | `kropki`, `kropki_sudoku`, `dots_sudoku` | Sudoku standard + ronds blancs/noirs entre cases adjacentes. |
 | `sudoku_skyscraper` | `skyscraper`, `skyscraper_sudoku` | Sudoku standard + indices exterieurs comptant les batiments visibles. |
 | `sudoku_frame` | `frame`, `frame_sudoku`, `outside_sum_sudoku` | Sudoku standard + sommes exterieures des trois cases voisines du bord. |
 | `sudoku_outside` | `outside`, `outside_sudoku` | Sudoku standard + chiffres exterieurs presents dans les trois premieres cases vues depuis le bord. |
@@ -331,6 +334,9 @@ Contraintes supportees :
 | `not_monotonic` | `cells` | Trois cellules qui ne sont ni strictement croissantes ni strictement decroissantes. |
 | `sum_not_in` | `cells`, `forbidden_totals` | Somme des cellules differente de chacun des totaux interdits. |
 | `vudoku` | `cells` | Trois cellules en V : la premiere cellule est le sommet, egale a la somme ou a la difference absolue des deux autres. |
+| `kropki_white` | `cells` | Deux cellules adjacentes contiennent des chiffres consecutifs. |
+| `kropki_black` | `cells` | Deux cellules adjacentes contiennent deux chiffres dont l'un vaut le double de l'autre. |
+| `kropki_none` | `cells` | Deux cellules adjacentes ne sont ni consecutives ni dans un rapport double/moitie. |
 | `visible_count` | `cells`, `total` | Nombre de valeurs visibles depuis le debut de la sequence ordonnee. |
 | `parity` | `cells`, `value` | Une cellule est paire (`even`) ou impaire (`odd`). |
 | `non_consecutive` | `cells` | Deux cellules adjacentes ne peuvent pas differer de 1. |
@@ -429,6 +435,19 @@ vertex_expr == first_arm_expr + second_arm_expr
 z3.Or(vertex_expr == first_arm_expr + second_arm_expr,
       vertex_expr == z3.Abs(first_arm_expr - second_arm_expr))
 ```
+
+Les contraintes `kropki_*` convertissent deux cellules adjacentes en valeurs
+numeriques :
+
+```python
+consecutive_expr = z3.Abs(first_expr - second_expr) == 1
+double_expr = z3.Or(first_expr == second_expr * 2,
+                    second_expr == first_expr * 2)
+```
+
+Un couple `1` / `2` satisfait donc a la fois un rond blanc et un rond noir. Un
+bord vide en Kropki standard ajoute `Not(consecutive_expr)` et
+`Not(double_expr)`.
 
 ## Enumeration des solutions
 
@@ -1334,6 +1353,91 @@ Dans l'atelier Theia, la variante `Sudoku XV` affiche des emplacements entre
 les cases. Un clic alterne entre vide, `X` et `V`. Les emplacements vides
 restent visibles car ils representent eux aussi une contrainte.
 
+### Kropki Sudoku
+
+`puzzle_type = sudoku_kropki`
+
+Alias :
+
+```text
+kropki
+kropki_sudoku
+dots_sudoku
+```
+
+Contraintes :
+
+- toutes les contraintes du Sudoku classique ;
+- un rond blanc entre deux cases adjacentes impose deux chiffres consecutifs ;
+- un rond noir entre deux cases adjacentes impose que l'un des deux chiffres
+  vaille le double de l'autre ;
+- le couple `1` / `2` peut donc satisfaire un rond blanc ou un rond noir ;
+- en mode complet, l'absence de rond impose que les deux chiffres ne soient ni
+  consecutifs, ni dans un rapport double/moitie.
+
+Format envoye par l'atelier :
+
+```json
+{
+  "horizontal": [
+    ".W.WB...",
+    "WB......",
+    ".....W..",
+    "W.W.....",
+    "...B....",
+    "......W.",
+    ".W..W...",
+    "W.W.....",
+    "...B.W.."
+  ],
+  "vertical": [
+    ".........",
+    ".W..W..BW",
+    "......B.W",
+    "B.W..WWWB",
+    "WW.....BW",
+    ".....B...",
+    ".......W.",
+    ".....WB.."
+  ],
+  "enforce_absent": true
+}
+```
+
+`horizontal` contient 9 lignes de 8 marques. Chaque marque concerne la paire
+gauche/droite.
+
+`vertical` contient 8 lignes de 9 marques. Chaque marque concerne la paire
+haut/bas.
+
+Valeurs acceptees :
+
+| Valeur | Sens |
+|---|---|
+| `W`, `white`, `o`, `○` | Rond blanc : chiffres consecutifs. |
+| `B`, `black`, `●` | Rond noir : rapport double/moitie. |
+| `""`, `.`, `0`, `_`, `-` | Absence de rond. |
+
+Formats alternatifs acceptes par le moteur :
+
+```json
+[
+  {"cells": ["r1c2", "r1c3"], "dot": "white"},
+  {"from": "r2c4", "to": "r3c4", "color": "black"}
+]
+```
+
+ou des lignes texte :
+
+```text
+r1c2Wr1c3
+r2c4blackr3c4
+```
+
+Dans l'atelier Theia, la variante `Kropki` affiche des emplacements entre les
+cases. Un clic alterne entre vide, rond blanc et rond noir. Les emplacements
+vides restent visibles car ils representent la contrainte negative standard.
+
 ### Skyscraper Sudoku
 
 `puzzle_type = sudoku_skyscraper`
@@ -1926,7 +2030,7 @@ Fonctionnalites actuelles :
 - choix de variante `Classique` / `Sudoku X` / `Anti Diagonal` /
   `Center Dot` / `Windoku` / `Girandola` / `Asterisk` / `Sujiken` /
   `Samurai Sudoku` / `Flower Sudoku` / `Sohei Sudoku` / `Kazaguruma` /
-  `Greater Than` / `Vudoku` ;
+  `Greater Than` / `Vudoku` / `Kropki` ;
 - diagonales orange en mode Sudoku X ;
 - diagonales magenta en mode Anti Diagonal ;
 - points verts sur les centres de blocs en mode Center Dot ;
@@ -1942,6 +2046,7 @@ Fonctionnalites actuelles :
 - coins V cliquables aux intersections de cases en mode Vudoku ;
 - fleches de bord cliquables en mode Rossini ;
 - bords cliquables `X` / `V` en mode Sudoku XV ;
+- ronds blancs/noirs cliquables en mode Kropki ;
 - indices exterieurs numeriques en mode Skyscraper ;
 - sommes exterieures numeriques en mode Frame ;
 - saisie de lettres et alphabet optionnel en mode Godoku ;
@@ -1959,13 +2064,15 @@ Fonctionnalites actuelles :
 |---|---|---|
 | `grid` | `string[][]` | Valeurs courantes de la grille. |
 | `quickText` | `string` | Representation texte de la grille. |
-| `puzzleType` | `sudoku_classic`, variantes classiques `sudoku_4x4` a `sudoku_16x16`, `sudoku_x`, `sudoku_argyle`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_vudoku`, `sudoku_rossini`, `sudoku_xv`, `sudoku_skyscraper`, `sudoku_frame`, `sudoku_outside`, `sudoku_little_killer`, `sudoku_little_unique_killer`, `sudoku_godoku`, `sudoku_even_odd`, `sudoku_non_consecutive`, `sudoku_mine`, `sudoku_mine_6x6` ou `sudoku_tripod_4x4` a `sudoku_tripod_8x8` | Variante active. |
+| `puzzleType` | `sudoku_classic`, variantes classiques `sudoku_4x4` a `sudoku_16x16`, `sudoku_x`, `sudoku_argyle`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_vudoku`, `sudoku_rossini`, `sudoku_xv`, `sudoku_kropki`, `sudoku_skyscraper`, `sudoku_frame`, `sudoku_outside`, `sudoku_little_killer`, `sudoku_little_unique_killer`, `sudoku_godoku`, `sudoku_even_odd`, `sudoku_non_consecutive`, `sudoku_mine`, `sudoku_mine_6x6` ou `sudoku_tripod_4x4` a `sudoku_tripod_8x8` | Variante active. |
 | `horizontalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme ligne. |
 | `verticalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme colonne. |
 | `vudokuCorners` | `string[][]` | Coins Vudoku 8x8 : `tl`, `tr`, `bl`, `br` ou vide. |
 | `rossiniArrows` | object | Fleches de bord `top`, `bottom`, `left`, `right` pour Rossini. |
 | `xvHorizontalMarks` | `string[][]` | Marques `X` / `V` entre deux cases d'une meme ligne. |
 | `xvVerticalMarks` | `string[][]` | Marques `X` / `V` entre deux cases d'une meme colonne. |
+| `kropkiHorizontalDots` | `string[][]` | Ronds `white` / `black` entre deux cases d'une meme ligne. |
+| `kropkiVerticalDots` | `string[][]` | Ronds `white` / `black` entre deux cases d'une meme colonne. |
 | `skyscraperClues` | object | Indices exterieurs `top`, `bottom`, `left`, `right` pour Skyscraper. |
 | `frameClues` | object | Sommes exterieures `top`, `bottom`, `left`, `right` pour Frame. |
 | `outsideClues` | object | Chiffres exterieurs `top`, `bottom`, `left`, `right` pour Outside. |
@@ -2163,6 +2270,10 @@ Payload de sauvegarde :
       "horizontal": [["", "V", "", "", "", "", "", ""], "..."],
       "vertical": [["", "", "X", "", "", "X", "", "", "X"], "..."]
     },
+    "kropki": {
+      "horizontal": [["", "white", "", "white", "black", "", "", ""], "..."],
+      "vertical": [["", "", "", "", "", "", "", "", ""], "..."]
+    },
     "skyscraper": {
       "top": ["3", "1", "3", "6", "3", "2", "3", "2", "2"],
       "bottom": ["1", "3", "3", "2", "5", "2", "3", "2", "4"],
@@ -2285,6 +2396,8 @@ Couverture actuelle :
 - Rossini refuse une fleche de bord contradictoire ;
 - Sudoku XV valide avec marques de bord compatibles ;
 - Sudoku XV refuse une marque de bord contradictoire ;
+- Kropki valide avec ronds et absences de ronds compatibles ;
+- Kropki refuse un rond contradictoire ;
 - Skyscraper valide avec indices exterieurs compatibles ;
 - Skyscraper refuse un indice exterieur contradictoire ;
 - Frame valide avec sommes exterieures compatibles ;

@@ -50,6 +50,9 @@ Generic finite-domain grid solver powered by Z3.
 - `sudoku_xv`: classic 9x9 Sudoku plus `X` / `V` border marks. `X` means the
   adjacent pair sums to 10, `V` means it sums to 5, and an empty border can
   forbid both sums.
+- `sudoku_kropki`: classic 9x9 Sudoku plus white and black dots between
+  adjacent cells. A white dot means consecutive digits, a black dot means one
+  digit is double the other, and an empty border can forbid both relations.
 - `sudoku_skyscraper`: classic 9x9 Sudoku plus outside visibility clues. Each
   clue counts how many increasing-height skyscrapers are visible from that
   side of a row or column.
@@ -116,6 +119,8 @@ Sudoku is just the first builder on top of a generic CSP model:
   `not_monotonic`) for edge-clue variants such as Rossini;
 - sum exclusion constraints (`sum_not_in`) for negative border clues such as
   empty Sudoku XV borders;
+- Kropki adjacency constraints (`kropki_white`, `kropki_black`,
+  `kropki_none`) for consecutive, double/half, and absent-dot borders;
 - visibility count constraints (`visible_count`) for outside-clue variants such
   as Skyscraper Sudoku;
 - contains-value constraints (`contains_value`) for Outside Sudoku;
@@ -145,8 +150,8 @@ the Theia "Grilles" workbench:
 - variant selector for classic Sudoku in multiple sizes, Sudoku X, Argyle,
   Anti Diagonal, Center Dot, Windoku, Girandola, Asterisk, Sujiken, Samurai Sudoku,
   Flower Sudoku,
-  Sohei Sudoku, Kazaguruma, Greater Than, Vudoku, Rossini, Sudoku XV, Skyscraper,
-  Frame, Outside, Little Killer, Little Unique Killer, Godoku, Even-Odd,
+  Sohei Sudoku, Kazaguruma, Greater Than, Vudoku, Rossini, Sudoku XV, Kropki,
+  Skyscraper, Frame, Outside, Little Killer, Little Unique Killer, Godoku, Even-Odd,
   Non-Consecutive and Tripod 4x4 through 8x8;
 - Sudoku Mine entry using clue digits and solved mine markers;
 - editable outside digit clues for Outside Sudoku;
@@ -155,6 +160,7 @@ the Theia "Grilles" workbench:
 - editable V-corners for Vudoku;
 - editable edge arrows for Rossini;
 - editable `X` / `V` borders for Sudoku XV;
+- editable white/black dots for Kropki Sudoku;
 - editable outside visibility clues for Skyscraper Sudoku;
 - editable outside three-cell sum clues for Frame Sudoku;
 - editable diagonal outside sum clues for Little Killer and Little Unique
