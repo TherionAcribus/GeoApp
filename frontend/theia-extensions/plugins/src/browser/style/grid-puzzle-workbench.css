@@ -96,6 +96,10 @@
     background: var(--theia-panel-border);
 }
 
+.sudoku-board.tripod-board {
+    position: relative;
+}
+
 .sudoku-board.greater-than-board {
     grid-template-columns: repeat(8, 44px 22px) 44px;
     grid-template-rows: repeat(8, 44px 22px) 44px;
@@ -407,6 +411,14 @@
     justify-content: center;
 }
 
+.sudoku-cell.tripod-region-right {
+    border-right: 3px solid var(--theia-foreground);
+}
+
+.sudoku-cell.tripod-region-bottom {
+    border-bottom: 3px solid var(--theia-foreground);
+}
+
 .sudoku-board.solved {
     margin-top: 8px;
 }
@@ -579,6 +591,29 @@
 
 .grid-puzzle-workbench .frame-clue:disabled {
     opacity: 1;
+}
+
+.grid-puzzle-workbench .tripod-dot-control {
+    position: absolute;
+    z-index: 4;
+    width: 14px;
+    height: 14px;
+    min-height: 0;
+    padding: 0;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--theia-foreground) 35%, transparent);
+    background: color-mix(in srgb, var(--theia-editor-background) 70%, transparent);
+    transform: translate(-50%, -50%);
+}
+
+.grid-puzzle-workbench .tripod-dot-control.active {
+    border-color: #000000;
+    background: #000000;
+}
+
+.grid-puzzle-workbench .tripod-dot-control:disabled {
+    cursor: default;
+    opacity: 0.9;
 }
 
 .grid-puzzle-workbench .inequality-control.vertical {

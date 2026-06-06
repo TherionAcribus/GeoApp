@@ -426,6 +426,32 @@ class GridpuzzlesolverPlugin:
                     variant="sudoku_non_consecutive",
                     include_non_consecutive=True,
                 )
+            elif (tripod_size := self._tripod_size(puzzle_type)) is not None:
+                puzzle_text = self._first_non_empty(
+                    inputs.get("grid"),
+                    inputs.get("puzzle"),
+                    inputs.get("text"),
+                )
+                problem, tripod_dots = self._build_tripod_problem(
+                    puzzle_text,
+                    inputs.get("tripod") or inputs.get("dots") or {},
+                    tripod_size,
+                )
+                watched_cells = self._parse_watch_cells(
+                    watched_cells_input,
+                    problem.rows,
+                    problem.cols,
+                    set(problem.active_cells),
+                )
+                solved = self._solve_tripod_problem(problem, tripod_dots, max_solutions, solver_timeout_ms)
+                return self._success_response(
+                    start_time,
+                    problem,
+                    solved,
+                    max_solutions,
+                    solver_timeout_ms,
+                    watched_cells,
+                )
             elif puzzle_type in {"custom", "custom_spec", "json_spec"}:
                 problem = self._build_custom_problem(inputs.get("spec"))
             else:
@@ -842,6 +868,49 @@ class GridpuzzlesolverPlugin:
             variant=str(spec.get("variant") or "custom_spec"),
         )
 
+    def _tripod_size(self, puzzle_type: str) -> Optional[int]:
+        normalized = puzzle_type.replace("-", "_")
+        if normalized in {"sudoku_tripod", "tripod", "tripod_sudoku"}:
+            return 5
+        match = re.fullmatch(r"(?:sudoku_)?tripod(?:_sudoku)?_?([4-8])(?:x\1)?", normalized)
+        if match:
+            return int(match.group(1))
+        return None
+
+    def _build_tripod_problem(
+        self,
+        puzzle_text: str,
+        raw_tripod: Any,
+        size: int,
+    ) -> Tuple[GridCspProblem, List[List[bool]]]:
+        symbols = self._sudoku_symbols(size)
+        tokens = self._parse_sudoku_tokens(puzzle_text, symbols, size)
+        active_cells = [(row, col) for row in range(size) for col in range(size)]
+        givens: Dict[Cell, str] = {}
+        for index, token in enumerate(tokens):
+            if token in symbols:
+                givens[(index // size, index % size)] = token
+
+        constraints: List[GridConstraint] = []
+        for row in range(size):
+            constraints.append(GridConstraint("all_different", tuple((row, col) for col in range(size))))
+        for col in range(size):
+            constraints.append(GridConstraint("all_different", tuple((row, col) for row in range(size))))
+
+        return (
+            GridCspProblem(
+                rows=size,
+                cols=size,
+                symbols=symbols,
+                active_cells=active_cells,
+                givens=givens,
+                constraints=constraints,
+                numeric_values=self._default_numeric_values(symbols),
+                variant=f"sudoku_tripod_{size}x{size}",
+            ),
+            self._parse_tripod_dots(raw_tripod, size),
+        )
+
     # ------------------------------------------------------------------
     # Z3 solving
     # ------------------------------------------------------------------
@@ -879,7 +948,7 @@ class GridpuzzlesolverPlugin:
                 exhausted = True
                 break
             if check == z3.unknown:
-                raise RuntimeError(f"Z3 n'a pas pu conclure: {solver.reason_unknown()}")
+                raise RuntimeError(self._z3_unknown_message(solver.reason_unknown(), solver_timeout_ms))
 
             model = solver.model()
             solution = self._model_to_grid(problem, variables, model)
@@ -896,6 +965,202 @@ class GridpuzzlesolverPlugin:
             "exhausted": exhausted,
             "truncated": not exhausted and len(solutions) >= max_solutions,
         }
+
+    def _solve_tripod_problem(
+        self,
+        problem: GridCspProblem,
+        dots: List[List[bool]],
+        max_solutions: int,
+        solver_timeout_ms: int,
+    ) -> Dict[str, Any]:
+        size = problem.rows
+        solver = z3.Solver()
+        solver.set("timeout", solver_timeout_ms)
+        values = {
+            cell: z3.Int(f"v_r{cell[0] + 1}c{cell[1] + 1}") for cell in problem.active_cells
+        }
+        regions = {
+            cell: z3.Int(f"region_r{cell[0] + 1}c{cell[1] + 1}") for cell in problem.active_cells
+        }
+        distances = {
+            cell: z3.Int(f"distance_r{cell[0] + 1}c{cell[1] + 1}") for cell in problem.active_cells
+        }
+        symbol_to_index = {symbol: index for index, symbol in enumerate(problem.symbols)}
+
+        for cell in problem.active_cells:
+            solver.add(values[cell] >= 0, values[cell] < size)
+            solver.add(regions[cell] >= 0, regions[cell] < size)
+            solver.add(distances[cell] >= 0, distances[cell] < size)
+
+        ordered_cells = sorted(problem.active_cells)
+        self._add_tripod_symmetry_breaking(solver, regions, distances, ordered_cells, size)
+
+        for cell, symbol in problem.givens.items():
+            solver.add(values[cell] == symbol_to_index[symbol])
+
+        for row in range(size):
+            solver.add(z3.Distinct(*(values[(row, col)] for col in range(size))))
+        for col in range(size):
+            solver.add(z3.Distinct(*(values[(row, col)] for row in range(size))))
+
+        for region_id in range(size):
+            region_cells = [regions[cell] == region_id for cell in problem.active_cells]
+            solver.add(z3.Sum(*(z3.If(term, 1, 0) for term in region_cells)) == size)
+            solver.add(
+                z3.Sum(
+                    *(
+                        z3.If(z3.And(regions[cell] == region_id, distances[cell] == 0), 1, 0)
+                        for cell in problem.active_cells
+                    )
+                )
+                == 1
+            )
+            for digit_index in range(size):
+                solver.add(
+                    z3.Sum(
+                        *(
+                            z3.If(
+                                z3.And(regions[cell] == region_id, values[cell] == digit_index),
+                                1,
+                                0,
+                            )
+                            for cell in problem.active_cells
+                        )
+                    )
+                    == 1
+                )
+            for cell in problem.active_cells:
+                smaller_same_region_neighbors = [
+                    z3.And(regions[neighbor] == region_id, distances[neighbor] < distances[cell])
+                    for neighbor in self._orthogonal_neighbors(cell, size, size)
+                ]
+                solver.add(
+                    z3.Implies(
+                        z3.And(regions[cell] == region_id, distances[cell] > 0),
+                        z3.Or(*smaller_same_region_neighbors)
+                        if smaller_same_region_neighbors
+                        else z3.BoolVal(False),
+                    )
+                )
+
+        for vertex_row in range(size + 1):
+            for vertex_col in range(size + 1):
+                degree = self._tripod_vertex_degree(regions, size, vertex_row, vertex_col)
+                solver.add(degree != 1, degree != 4)
+                solver.add(degree == 3 if dots[vertex_row][vertex_col] else degree != 3)
+
+        solutions: List[List[List[Optional[str]]]] = []
+        solution_regions: List[List[List[int]]] = []
+        exhausted = False
+
+        all_variables = list(values.values()) + list(regions.values())
+        while len(solutions) < max_solutions:
+            check = solver.check()
+            if check == z3.unsat:
+                exhausted = True
+                break
+            if check == z3.unknown:
+                raise RuntimeError(self._z3_unknown_message(solver.reason_unknown(), solver_timeout_ms))
+
+            model = solver.model()
+            solutions.append(self._model_to_grid(problem, values, model))
+            solution_regions.append(
+                [
+                    [model.eval(regions[(row, col)], model_completion=True).as_long() + 1 for col in range(size)]
+                    for row in range(size)
+                ]
+            )
+            solver.add(
+                z3.Or(
+                    *(variable != model.eval(variable, model_completion=True) for variable in all_variables)
+                )
+            )
+
+        return {
+            "solutions": solutions,
+            "solution_regions": solution_regions,
+            "exhausted": exhausted,
+            "truncated": not exhausted and len(solutions) >= max_solutions,
+        }
+
+    def _add_tripod_symmetry_breaking(
+        self,
+        solver: Any,
+        regions: Mapping[Cell, Any],
+        distances: Mapping[Cell, Any],
+        ordered_cells: Sequence[Cell],
+        size: int,
+    ) -> None:
+        for region_id in range(1, size):
+            for index, cell in enumerate(ordered_cells):
+                previous_region_seen = z3.Or(
+                    *(regions[previous_cell] == region_id - 1 for previous_cell in ordered_cells[:index])
+                ) if index > 0 else z3.BoolVal(False)
+                solver.add(z3.Implies(regions[cell] == region_id, previous_region_seen))
+
+        for index, cell in enumerate(ordered_cells):
+            no_previous_same_region = z3.And(
+                *(regions[previous_cell] != regions[cell] for previous_cell in ordered_cells[:index])
+            ) if index > 0 else z3.BoolVal(True)
+            solver.add((distances[cell] == 0) == no_previous_same_region)
+
+    def _z3_unknown_message(self, reason: str, solver_timeout_ms: int) -> str:
+        if reason in {"timeout", "canceled"}:
+            return (
+                "Resolution interrompue par le timeout Z3 "
+                f"({solver_timeout_ms} ms). Augmentez le timeout ou ajoutez des donnees."
+            )
+        return f"Z3 n'a pas pu conclure: {reason}"
+
+    def _tripod_vertex_degree(
+        self,
+        regions: Mapping[Cell, Any],
+        size: int,
+        vertex_row: int,
+        vertex_col: int,
+    ) -> Any:
+        terms = []
+        if vertex_row > 0:
+            terms.append(self._tripod_vertical_segment(regions, size, vertex_row - 1, vertex_col))
+        if vertex_row < size:
+            terms.append(self._tripod_vertical_segment(regions, size, vertex_row, vertex_col))
+        if vertex_col > 0:
+            terms.append(self._tripod_horizontal_segment(regions, size, vertex_row, vertex_col - 1))
+        if vertex_col < size:
+            terms.append(self._tripod_horizontal_segment(regions, size, vertex_row, vertex_col))
+        return z3.Sum(*(z3.If(term, 1, 0) for term in terms))
+
+    def _tripod_vertical_segment(
+        self,
+        regions: Mapping[Cell, Any],
+        size: int,
+        row: int,
+        col_line: int,
+    ) -> Any:
+        if col_line == 0 or col_line == size:
+            return True
+        return regions[(row, col_line - 1)] != regions[(row, col_line)]
+
+    def _tripod_horizontal_segment(
+        self,
+        regions: Mapping[Cell, Any],
+        size: int,
+        row_line: int,
+        col: int,
+    ) -> Any:
+        if row_line == 0 or row_line == size:
+            return True
+        return regions[(row_line - 1, col)] != regions[(row_line, col)]
+
+    def _orthogonal_neighbors(self, cell: Cell, rows: int, cols: int) -> List[Cell]:
+        row, col = cell
+        neighbors: List[Cell] = []
+        for row_delta, col_delta in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            next_row = row + row_delta
+            next_col = col + col_delta
+            if 0 <= next_row < rows and 0 <= next_col < cols:
+                neighbors.append((next_row, next_col))
+        return neighbors
 
     def _add_constraint(
         self,
@@ -2009,6 +2274,52 @@ class GridpuzzlesolverPlugin:
             raise ValueError(f"numeric_values incomplet pour: {', '.join(missing)}")
         return parsed
 
+    def _parse_tripod_dots(self, raw_tripod: Any, size: int) -> List[List[bool]]:
+        raw_dots = raw_tripod
+        if isinstance(raw_tripod, str):
+            text = raw_tripod.strip()
+            if not text:
+                raw_dots = []
+            else:
+                try:
+                    raw_dots = json.loads(text)
+                except json.JSONDecodeError:
+                    raw_dots = text.splitlines()
+        if isinstance(raw_dots, dict):
+            raw_dots = raw_dots.get("dots") or raw_dots.get("points") or raw_dots.get("grid")
+
+        if raw_dots in (None, "", []):
+            return [[False for _ in range(size + 1)] for _ in range(size + 1)]
+        if not isinstance(raw_dots, list) or len(raw_dots) != size + 1:
+            raise ValueError(
+                f"tripod.dots doit contenir {size + 1} lignes de {size + 1} points"
+            )
+
+        dots: List[List[bool]] = []
+        for row_index, raw_row in enumerate(raw_dots):
+            if isinstance(raw_row, str):
+                values = [char for char in raw_row if char.strip()]
+            elif isinstance(raw_row, list):
+                values = raw_row
+            else:
+                raise ValueError(f"tripod.dots[{row_index}] doit etre une liste ou une chaine")
+            if len(values) != size + 1:
+                raise ValueError(
+                    f"tripod.dots[{row_index}] doit contenir {size + 1} valeurs"
+                )
+            dots.append([self._normalize_tripod_dot(value) for value in values])
+        return dots
+
+    def _normalize_tripod_dot(self, raw_value: Any) -> bool:
+        if isinstance(raw_value, bool):
+            return raw_value
+        text = str(raw_value or "").strip().lower()
+        if text in {"1", "x", "*", "#", "dot", "point", "true", "yes", "●", "o"}:
+            return True
+        if text in {"", "0", ".", "_", "-", "false", "no"}:
+            return False
+        raise ValueError(f"Point Tripod non supporte: {raw_value}")
+
     def _parse_watch_cells(
         self,
         raw_cells: Any,
@@ -2125,29 +2436,31 @@ class GridpuzzlesolverPlugin:
             summary = f"{len(solutions)} solutions trouvees"
 
         results = []
+        solution_regions = list(solved.get("solution_regions", []))
         for index, grid in enumerate(solutions, start=1):
             watched_values = self._extract_watched_values(grid, watched_cells)
-            results.append(
-                {
-                    "id": f"solution_{index}",
-                    "text_output": self._format_grid(grid),
-                    "confidence": 1.0,
-                    "grid": grid,
-                    "watched_values": watched_values,
-                    "watched_text": "".join(watched_values.values()),
-                    "parameters": {
-                        "variant": problem.variant,
-                        "rows": problem.rows,
-                        "cols": problem.cols,
-                        "symbols": problem.symbols,
-                    },
-                    "metadata": {
-                        "solution_index": index,
-                        "givens_count": len(problem.givens),
-                        "constraint_count": len(problem.constraints),
-                    },
-                }
-            )
+            result = {
+                "id": f"solution_{index}",
+                "text_output": self._format_grid(grid),
+                "confidence": 1.0,
+                "grid": grid,
+                "watched_values": watched_values,
+                "watched_text": "".join(watched_values.values()),
+                "parameters": {
+                    "variant": problem.variant,
+                    "rows": problem.rows,
+                    "cols": problem.cols,
+                    "symbols": problem.symbols,
+                },
+                "metadata": {
+                    "solution_index": index,
+                    "givens_count": len(problem.givens),
+                    "constraint_count": len(problem.constraints),
+                },
+            }
+            if index <= len(solution_regions):
+                result["region_grid"] = solution_regions[index - 1]
+            results.append(result)
 
         return {
             "status": "ok",

@@ -8,14 +8,16 @@ import type { GeocacheContext } from './plugin-executor-widget';
 import './style/grid-puzzle-workbench.css';
 
 type Grid = string[][];
+type RegionGrid = number[][];
 type WorkMode = 'edit' | 'watch' | 'parity';
-type SudokuVariant = 'sudoku_classic' | 'sudoku_4x4' | 'sudoku_6x6' | 'sudoku_8x8' | 'sudoku_10x10' | 'sudoku_12x12' | 'sudoku_15x15' | 'sudoku_16x16' | 'sudoku_x' | 'sudoku_argyle' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_godoku' | 'sudoku_even_odd' | 'sudoku_non_consecutive';
+type SudokuVariant = 'sudoku_classic' | 'sudoku_4x4' | 'sudoku_6x6' | 'sudoku_8x8' | 'sudoku_10x10' | 'sudoku_12x12' | 'sudoku_15x15' | 'sudoku_16x16' | 'sudoku_x' | 'sudoku_argyle' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_godoku' | 'sudoku_even_odd' | 'sudoku_non_consecutive' | 'sudoku_tripod' | 'sudoku_tripod_4x4' | 'sudoku_tripod_5x5' | 'sudoku_tripod_6x6' | 'sudoku_tripod_7x7' | 'sudoku_tripod_8x8';
 type InequalitySymbol = '' | '>' | '<';
 type InequalityGrid = InequalitySymbol[][];
 type XvSymbol = '' | 'X' | 'V';
 type XvGrid = XvSymbol[][];
 type ParitySymbol = '' | 'even' | 'odd';
 type ParityGrid = ParitySymbol[][];
+type TripodDots = boolean[][];
 type RossiniArrow = '' | '↑' | '↓' | '←' | '→';
 type RossiniSide = 'top' | 'bottom' | 'left' | 'right';
 
@@ -66,6 +68,14 @@ const SIZED_SUDOKU_CONFIGS: Record<string, { size: number; boxRows: number; boxC
     sudoku_12x12: { size: 12, boxRows: 3, boxCols: 4, label: 'Sudoku 12x12' },
     sudoku_15x15: { size: 15, boxRows: 3, boxCols: 5, label: 'Sudoku 15x15' },
     sudoku_16x16: { size: 16, boxRows: 4, boxCols: 4, label: 'Sudoku 16x16' },
+};
+const TRIPOD_SIZE_CONFIGS: Record<string, { size: number; label: string }> = {
+    sudoku_tripod: { size: 5, label: 'Tripod 5x5' },
+    sudoku_tripod_4x4: { size: 4, label: 'Tripod 4x4' },
+    sudoku_tripod_5x5: { size: 5, label: 'Tripod 5x5' },
+    sudoku_tripod_6x6: { size: 6, label: 'Tripod 6x6' },
+    sudoku_tripod_7x7: { size: 7, label: 'Tripod 7x7' },
+    sudoku_tripod_8x8: { size: 8, label: 'Tripod 8x8' },
 };
 const EMPTY_HORIZONTAL_INEQUALITIES: InequalityGrid = Array.from({ length: SIZE }, () => Array(SIZE - 1).fill(''));
 const EMPTY_VERTICAL_INEQUALITIES: InequalityGrid = Array.from({ length: SIZE - 1 }, () => Array(SIZE).fill(''));
@@ -154,6 +164,10 @@ function cloneParityGrid(grid: ParityGrid): ParityGrid {
     return grid.map(row => [...row]);
 }
 
+function cloneTripodDots(dots: TripodDots): TripodDots {
+    return dots.map(row => [...row]);
+}
+
 function cloneSkyscraperClues(clues: SkyscraperClues): SkyscraperClues {
     return {
         top: [...clues.top],
@@ -189,6 +203,10 @@ function getVariantLabel(puzzleType: SudokuVariant): string {
     const sizedConfig = getSizedSudokuConfig(puzzleType);
     if (sizedConfig) {
         return sizedConfig.label;
+    }
+    const tripodConfig = getTripodConfig(puzzleType);
+    if (tripodConfig) {
+        return tripodConfig.label;
     }
     if (puzzleType === 'sudoku_x') {
         return 'Sudoku X';
@@ -362,6 +380,10 @@ function getSizedSudokuConfig(puzzleType: SudokuVariant): { size: number; boxRow
     return SIZED_SUDOKU_CONFIGS[puzzleType];
 }
 
+function getTripodConfig(puzzleType: SudokuVariant): { size: number; label: string } | undefined {
+    return TRIPOD_SIZE_CONFIGS[puzzleType];
+}
+
 function getSingleGridSudokuConfig(puzzleType: SudokuVariant): { size: number; boxRows: number; boxCols: number; label: string } | undefined {
     return getSizedSudokuConfig(puzzleType) || {
         size: SIZE,
@@ -382,6 +404,10 @@ function gridSizeForVariant(puzzleType: SudokuVariant): number {
     if (puzzleType === 'flower_sudoku') {
         return FLOWER_SIZE;
     }
+    const tripodConfig = getTripodConfig(puzzleType);
+    if (tripodConfig) {
+        return tripodConfig.size;
+    }
     return getSingleGridSudokuConfig(puzzleType)?.size || SIZE;
 }
 
@@ -400,6 +426,10 @@ function isActiveCellForVariant(puzzleType: SudokuVariant, row: number, col: num
     }
     if (puzzleType === 'kazaguruma_sudoku') {
         return isKazagurumaCell(row, col);
+    }
+    const tripodConfig = getTripodConfig(puzzleType);
+    if (tripodConfig) {
+        return row >= 0 && row < tripodConfig.size && col >= 0 && col < tripodConfig.size;
     }
     const config = getSingleGridSudokuConfig(puzzleType);
     return row >= 0 && row < (config?.size || SIZE) && col >= 0 && col < (config?.size || SIZE);
@@ -442,11 +472,29 @@ function buildSudokuRegions(
     return regions;
 }
 
+function buildLatinRegions(size: number, label: string): ConstraintRegion[] {
+    const regions: ConstraintRegion[] = [];
+    for (let row = 0; row < size; row += 1) {
+        regions.push({
+            label: `${label} ligne ${row + 1}`,
+            cells: Array.from({ length: size }, (_unused, col) => [row, col]),
+        });
+    }
+    for (let col = 0; col < size; col += 1) {
+        regions.push({
+            label: `${label} colonne ${col + 1}`,
+            cells: Array.from({ length: size }, (_unused, row) => [row, col]),
+        });
+    }
+    return regions;
+}
+
 function buildCompositeSudokuRegions(offsets: Array<[number, number, string]>): ConstraintRegion[] {
     return offsets.flatMap(([row, col, label]) => buildSudokuRegions(row, col, label));
 }
 
 function getAllDifferentRegions(puzzleType: SudokuVariant): ConstraintRegion[] {
+    const tripodConfig = getTripodConfig(puzzleType);
     const regions = puzzleType === 'sujiken'
         ? getSujikenRegions()
         : puzzleType === 'samurai_sudoku'
@@ -480,6 +528,8 @@ function getAllDifferentRegions(puzzleType: SudokuVariant): ConstraintRegion[] {
                 [9, 0, 'Kazaguruma gauche'],
                 [12, 9, 'Kazaguruma bas'],
             ])
+        : tripodConfig
+            ? buildLatinRegions(tripodConfig.size, tripodConfig.label)
         : (() => {
             const config = getSingleGridSudokuConfig(puzzleType);
             return buildSudokuRegions(0, 0, config?.label || 'Sudoku', config?.size, config?.boxRows, config?.boxCols);
@@ -1165,6 +1215,10 @@ function emptyParityMarks(): ParityGrid {
     return cloneParityGrid(EMPTY_PARITY_MARKS);
 }
 
+function emptyTripodDots(size = SIZE): TripodDots {
+    return Array.from({ length: size + 1 }, () => Array(size + 1).fill(false));
+}
+
 function emptySkyscraperClues(): SkyscraperClues {
     return cloneSkyscraperClues(EMPTY_SKYSCRAPER_CLUES);
 }
@@ -1246,10 +1300,31 @@ function parityLabel(value: ParitySymbol): string {
     return value === 'even' ? 'pair' : value === 'odd' ? 'impair' : '';
 }
 
+function normalizeTripodDot(value: unknown): boolean {
+    if (typeof value === 'boolean') {
+        return value;
+    }
+    const text = String(value ?? '').trim().toLowerCase();
+    return text === '1' || text === 'x' || text === '*' || text === '#' || text === 'true' || text === 'dot' || text === 'point' || text === 'o';
+}
+
+function normalizeTripodDots(value: unknown, size = SIZE): TripodDots {
+    const rawDots = value && typeof value === 'object' && !Array.isArray(value)
+        ? (value as Record<string, unknown>).dots ?? (value as Record<string, unknown>).points ?? (value as Record<string, unknown>).grid
+        : value;
+    if (!Array.isArray(rawDots) || rawDots.length !== size + 1) {
+        return emptyTripodDots(size);
+    }
+    return rawDots.map(row => {
+        const cells = typeof row === 'string' ? row.split('') : Array.isArray(row) ? row : [];
+        return Array.from({ length: size + 1 }, (_unused, index) => normalizeTripodDot(cells[index]));
+    });
+}
+
 function normalizeCellValueForVariant(rawValue: string, puzzleType: SudokuVariant): string {
-    const sizedConfig = getSizedSudokuConfig(puzzleType);
-    if (sizedConfig) {
-        const symbols = new Set(sudokuSymbolsForSize(sizedConfig.size));
+    const symbolConfig = getSizedSudokuConfig(puzzleType) || getTripodConfig(puzzleType);
+    if (symbolConfig) {
+        const symbols = new Set(sudokuSymbolsForSize(symbolConfig.size));
         const value = rawValue.trim().slice(-1).toUpperCase();
         return symbols.has(value) ? value : '';
     }
@@ -1401,10 +1476,10 @@ function cycleXvMark(value: XvSymbol): XvSymbol {
 }
 
 function gridToText(grid: Grid, puzzleType: SudokuVariant = 'sudoku_classic'): string {
-    const sizedConfig = getSizedSudokuConfig(puzzleType);
-    if (sizedConfig) {
-        return Array.from({ length: sizedConfig.size }, (_row, rowIndex) => (
-            Array.from({ length: sizedConfig.size }, (_col, colIndex) => grid[rowIndex]?.[colIndex] || '0').join('')
+    const symbolConfig = getSizedSudokuConfig(puzzleType) || getTripodConfig(puzzleType);
+    if (symbolConfig) {
+        return Array.from({ length: symbolConfig.size }, (_row, rowIndex) => (
+            Array.from({ length: symbolConfig.size }, (_col, colIndex) => grid[rowIndex]?.[colIndex] || '0').join('')
         )).join('\n');
     }
 
@@ -1452,7 +1527,7 @@ function gridToText(grid: Grid, puzzleType: SudokuVariant = 'sudoku_classic'): s
 }
 
 function parseGridText(text: string, puzzleType: SudokuVariant = 'sudoku_classic'): Grid | null {
-    const config = getSizedSudokuConfig(puzzleType) || { size: SIZE };
+    const config = getSizedSudokuConfig(puzzleType) || getTripodConfig(puzzleType) || { size: SIZE };
     const symbols = sudokuSymbolsForSize(config.size);
     const symbolSet = new Set(symbols);
     const tokens: string[] = [];
@@ -1759,8 +1834,8 @@ function normalizeGrid(value: unknown, puzzleType: SudokuVariant): Grid | undefi
 
     const size = gridSizeForVariant(puzzleType);
     const requiredCols = puzzleType === 'kazaguruma_sudoku' ? KAZAGURUMA_COLS : size;
-    const sizedConfig = getSizedSudokuConfig(puzzleType);
-    const sizedSymbols = sizedConfig ? new Set(sudokuSymbolsForSize(sizedConfig.size)) : undefined;
+    const symbolConfig = getSizedSudokuConfig(puzzleType) || getTripodConfig(puzzleType);
+    const sizedSymbols = symbolConfig ? new Set(sudokuSymbolsForSize(symbolConfig.size)) : undefined;
     if (!Array.isArray(value) || value.length !== size) {
         return undefined;
     }
@@ -1846,6 +1921,23 @@ function extractGridFromSolution(solution: unknown): Grid | undefined {
     });
 }
 
+function extractRegionGridFromSolution(solution: unknown, size: number): RegionGrid | undefined {
+    const regionGrid = (solution as { region_grid?: unknown } | undefined)?.region_grid;
+    if (!Array.isArray(regionGrid) || regionGrid.length !== size) {
+        return undefined;
+    }
+    const parsed = regionGrid.map((row: unknown) => {
+        if (!Array.isArray(row) || row.length !== size) {
+            return undefined;
+        }
+        return row.map(value => Number(value));
+    });
+    if (parsed.some(row => row === undefined || row.some(value => !Number.isFinite(value)))) {
+        return undefined;
+    }
+    return parsed as RegionGrid;
+}
+
 function GridPuzzleWorkbenchApp({
     pluginsService,
     messageService,
@@ -1859,6 +1951,7 @@ function GridPuzzleWorkbenchApp({
     const [xvHorizontalMarks, setXvHorizontalMarks] = React.useState<XvGrid>(() => emptyXvHorizontalMarks());
     const [xvVerticalMarks, setXvVerticalMarks] = React.useState<XvGrid>(() => emptyXvVerticalMarks());
     const [parityMarks, setParityMarks] = React.useState<ParityGrid>(() => emptyParityMarks());
+    const [tripodDots, setTripodDots] = React.useState<TripodDots>(() => emptyTripodDots());
     const [skyscraperClues, setSkyscraperClues] = React.useState<SkyscraperClues>(() => emptySkyscraperClues());
     const [frameClues, setFrameClues] = React.useState<FrameClues>(() => emptyFrameClues());
     const [rossiniArrows, setRossiniArrows] = React.useState<RossiniArrows>(() => emptyRossiniArrows());
@@ -1897,6 +1990,8 @@ function GridPuzzleWorkbenchApp({
     const isGodoku = puzzleType === 'sudoku_godoku';
     const isEvenOdd = puzzleType === 'sudoku_even_odd';
     const isNonConsecutive = puzzleType === 'sudoku_non_consecutive';
+    const tripodConfig = getTripodConfig(puzzleType);
+    const isTripod = Boolean(tripodConfig);
     const sizedSudokuConfig = getSizedSudokuConfig(puzzleType);
     const isSujiken = puzzleType === 'sujiken';
     const isSamurai = puzzleType === 'samurai_sudoku';
@@ -1904,21 +1999,23 @@ function GridPuzzleWorkbenchApp({
     const isSohei = puzzleType === 'sohei_sudoku';
     const isKazaguruma = puzzleType === 'kazaguruma_sudoku';
     const gridSize = gridSizeForVariant(puzzleType);
-    const sizedCellSize = sizedSudokuConfig
-        ? sizedSudokuConfig.size >= 15
+    const solvedRegionGrid = isTripod ? extractRegionGridFromSolution(activeSolution, gridSize) : undefined;
+    const variableGridConfig = sizedSudokuConfig || tripodConfig;
+    const sizedCellSize = variableGridConfig
+        ? variableGridConfig.size >= 15
             ? 32
-            : sizedSudokuConfig.size >= 10
+            : variableGridConfig.size >= 10
                 ? 36
                 : 44
         : 44;
-    const sizedBoardStyle: React.CSSProperties | undefined = sizedSudokuConfig ? {
-        gridTemplateColumns: `repeat(${sizedSudokuConfig.size}, ${sizedCellSize}px)`,
-        gridTemplateRows: `repeat(${sizedSudokuConfig.size}, ${sizedCellSize}px)`,
+    const sizedBoardStyle: React.CSSProperties | undefined = variableGridConfig ? {
+        gridTemplateColumns: `repeat(${variableGridConfig.size}, ${sizedCellSize}px)`,
+        gridTemplateRows: `repeat(${variableGridConfig.size}, ${sizedCellSize}px)`,
     } : undefined;
     const quickTextPlaceholder = isSujiken
         ? SUJIKEN_TEXT_PLACEHOLDER
-        : sizedSudokuConfig
-            ? sizedSudokuTextPlaceholder(sizedSudokuConfig.size)
+        : variableGridConfig
+            ? sizedSudokuTextPlaceholder(variableGridConfig.size)
         : isFlower
             ? FLOWER_TEXT_PLACEHOLDER
         : isKazaguruma
@@ -1933,6 +2030,12 @@ function GridPuzzleWorkbenchApp({
         [frameClues, grid, horizontalInequalities, parityMarks, puzzleType, rossiniArrows, skyscraperClues, verticalInequalities, xvHorizontalMarks, xvVerticalMarks],
     );
     const visibleConflictMessages = constraintConflicts.messages.slice(0, 4);
+
+    React.useEffect(() => {
+        if (isTripod && timeoutMs < 30000) {
+            setTimeoutMs(30000);
+        }
+    }, [isTripod, timeoutMs]);
 
     const markDirty = React.useCallback(() => {
         if (!geocacheId) {
@@ -1989,6 +2092,7 @@ function GridPuzzleWorkbenchApp({
         setXvHorizontalMarks(normalizeXvGrid(snapshot?.xv?.horizontal ?? snapshot?.xvMarks?.horizontal, SIZE, SIZE - 1));
         setXvVerticalMarks(normalizeXvGrid(snapshot?.xv?.vertical ?? snapshot?.xvMarks?.vertical, SIZE - 1, SIZE));
         setParityMarks(normalizeParityGrid(snapshot?.parity ?? snapshot?.parityMarks));
+        setTripodDots(normalizeTripodDots(snapshot?.tripod ?? snapshot?.tripodDots, gridSizeForVariant(puzzleType)));
         setSkyscraperClues(normalizeSkyscraperClues(snapshot?.skyscraper ?? snapshot?.skyscraperClues));
         setFrameClues(normalizeFrameClues(snapshot?.frame ?? snapshot?.frameClues));
         setRossiniArrows(normalizeRossiniArrows(snapshot?.rossini ?? snapshot?.rossiniArrows));
@@ -2065,6 +2169,9 @@ function GridPuzzleWorkbenchApp({
                     parity: {
                         grid: parityMarks,
                     },
+                    tripod: {
+                        dots: tripodDots,
+                    },
                     skyscraper: skyscraperClues,
                     frame: frameClues,
                     rossini: rossiniArrows,
@@ -2107,6 +2214,7 @@ function GridPuzzleWorkbenchApp({
         skyscraperClues,
         solveState.result,
         timeoutMs,
+        tripodDots,
         variantLabel,
         verticalInequalities,
         watchCells,
@@ -2170,6 +2278,16 @@ function GridPuzzleWorkbenchApp({
         setParityMarks(previous => {
             const next = cloneParityGrid(previous);
             next[row][col] = cycleParitySymbol(next[row][col]);
+            return next;
+        });
+        setSolveState({ running: false });
+        markDirty();
+    }, [markDirty]);
+
+    const toggleTripodDot = React.useCallback((row: number, col: number) => {
+        setTripodDots(previous => {
+            const next = cloneTripodDots(previous);
+            next[row][col] = !next[row][col];
             return next;
         });
         setSolveState({ running: false });
@@ -2280,6 +2398,8 @@ function GridPuzzleWorkbenchApp({
                     ? 'La saisie rapide Sujiken doit contenir 45 cases actives.'
                     : sizedSudokuConfig
                         ? `La saisie rapide ${sizedSudokuConfig.label} doit contenir exactement ${sizedSudokuConfig.size * sizedSudokuConfig.size} cases, avec symboles ${sudokuSymbolsForSize(sizedSudokuConfig.size).join('')} ou cases vides.`
+                    : tripodConfig
+                        ? `La saisie rapide ${tripodConfig.label} doit contenir exactement ${tripodConfig.size * tripodConfig.size} cases, avec symboles ${sudokuSymbolsForSize(tripodConfig.size).join('')} ou cases vides.`
                     : puzzleType === 'sudoku_godoku'
                         ? 'La saisie rapide Godoku doit contenir exactement 81 cases, avec lettres ou cases vides.'
                     : puzzleType === 'samurai_sudoku'
@@ -2297,7 +2417,7 @@ function GridPuzzleWorkbenchApp({
         setGridAndQuickText(parsed);
         setSolveState({ running: false });
         markDirty();
-    }, [markDirty, messageService, puzzleType, setGridAndQuickText, sizedSudokuConfig]);
+    }, [markDirty, messageService, puzzleType, setGridAndQuickText, sizedSudokuConfig, tripodConfig]);
 
     const handleQuickTextChange = React.useCallback((text: string) => {
         setQuickText(text);
@@ -2337,6 +2457,12 @@ function GridPuzzleWorkbenchApp({
             || value === 'sudoku_godoku'
             || value === 'sudoku_even_odd'
             || value === 'sudoku_non_consecutive'
+            || value === 'sudoku_tripod'
+            || value === 'sudoku_tripod_4x4'
+            || value === 'sudoku_tripod_5x5'
+            || value === 'sudoku_tripod_6x6'
+            || value === 'sudoku_tripod_7x7'
+            || value === 'sudoku_tripod_8x8'
             ? value
             : 'sudoku_classic';
         const nextGrid = resizeGrid(grid, gridSizeForVariant(nextPuzzleType));
@@ -2344,6 +2470,9 @@ function GridPuzzleWorkbenchApp({
         setPuzzleType(nextPuzzleType);
         if (nextPuzzleType !== 'sudoku_even_odd' && mode === 'parity') {
             setMode('edit');
+        }
+        if (getTripodConfig(nextPuzzleType)) {
+            setTripodDots(emptyTripodDots(gridSizeForVariant(nextPuzzleType)));
         }
         setQuickText(gridToText(nextGrid, nextPuzzleType));
         setSolveState({ running: false });
@@ -2357,6 +2486,7 @@ function GridPuzzleWorkbenchApp({
         setXvHorizontalMarks(emptyXvHorizontalMarks());
         setXvVerticalMarks(emptyXvVerticalMarks());
         setParityMarks(emptyParityMarks());
+        setTripodDots(emptyTripodDots(gridSizeForVariant(puzzleType)));
         setSkyscraperClues(emptySkyscraperClues());
         setFrameClues(emptyFrameClues());
         setRossiniArrows(emptyRossiniArrows());
@@ -2397,6 +2527,7 @@ function GridPuzzleWorkbenchApp({
                 frame: isFrame ? frameClues : undefined,
                 alphabet: isGodoku && godokuAlphabet ? godokuAlphabet : undefined,
                 parity: isEvenOdd ? { grid: parityMarks } : undefined,
+                tripod: isTripod ? { dots: tripodDots } : undefined,
                 max_solutions: maxSolutions,
                 solver_timeout_ms: timeoutMs,
             });
@@ -2414,7 +2545,7 @@ function GridPuzzleWorkbenchApp({
                 error: error instanceof Error ? error.message : String(error),
             });
         }
-    }, [constraintConflicts.messages.length, frameClues, geocacheId, godokuAlphabet, grid, horizontalInequalities, isEvenOdd, isFrame, isGodoku, isRossini, isSkyscraper, isXv, maxSolutions, parityMarks, pluginsService, puzzleType, rossiniArrows, saveState, skyscraperClues, timeoutMs, verticalInequalities, watchCells, xvHorizontalMarks, xvVerticalMarks]);
+    }, [constraintConflicts.messages.length, frameClues, geocacheId, godokuAlphabet, grid, horizontalInequalities, isEvenOdd, isFrame, isGodoku, isRossini, isSkyscraper, isTripod, isXv, maxSolutions, parityMarks, pluginsService, puzzleType, rossiniArrows, saveState, skyscraperClues, timeoutMs, tripodDots, verticalInequalities, watchCells, xvHorizontalMarks, xvVerticalMarks]);
 
     const useSolvedGrid = React.useCallback(() => {
         if (solvedGrid) {
@@ -2425,7 +2556,7 @@ function GridPuzzleWorkbenchApp({
     }, [markDirty, setGridAndQuickText, solvedGrid]);
 
     const cellStyle = (rowIndex: number, colIndex: number): React.CSSProperties | undefined => {
-        if (sizedSudokuConfig) {
+        if (variableGridConfig) {
             return {
                 gridColumn: String(colIndex + 1),
                 gridRow: String(rowIndex + 1),
@@ -2455,9 +2586,29 @@ function GridPuzzleWorkbenchApp({
         return undefined;
     };
 
-    const cellClassName = (rowIndex: number, colIndex: number, value: string, readonly = false): string => {
+    const tripodRegionBoundaryClasses = (rowIndex: number, colIndex: number): string[] => {
+        if (!solvedRegionGrid) {
+            return [];
+        }
+        const region = solvedRegionGrid[rowIndex]?.[colIndex];
+        if (!Number.isFinite(region)) {
+            return [];
+        }
+        return [
+            colIndex < gridSize - 1 && solvedRegionGrid[rowIndex]?.[colIndex + 1] !== region ? 'tripod-region-right' : '',
+            rowIndex < gridSize - 1 && solvedRegionGrid[rowIndex + 1]?.[colIndex] !== region ? 'tripod-region-bottom' : '',
+        ].filter(Boolean);
+    };
+
+    const cellClassName = (
+        rowIndex: number,
+        colIndex: number,
+        value: string,
+        readonly = false,
+        extraClasses: string[] = [],
+    ): string => {
         const ref = cellRef(rowIndex, colIndex);
-        const blockConfig = getSingleGridSudokuConfig(puzzleType);
+        const blockConfig = isTripod ? undefined : getSingleGridSudokuConfig(puzzleType);
         const isCompositeSudoku = puzzleType === 'samurai_sudoku'
             || puzzleType === 'flower_sudoku'
             || puzzleType === 'sohei_sudoku'
@@ -2498,6 +2649,7 @@ function GridPuzzleWorkbenchApp({
             ...(puzzleType === 'kazaguruma_sudoku' ? getKazagurumaBoundaryClasses(rowIndex, colIndex) : []),
             hasBlockRight ? 'block-right' : '',
             hasBlockBottom ? 'block-bottom' : '',
+            ...extraClasses,
         ].filter(Boolean).join(' ');
     };
 
@@ -2789,6 +2941,34 @@ function GridPuzzleWorkbenchApp({
         );
     };
 
+    const renderTripodDotControls = (readonly = false): React.ReactNode => {
+        if (!isTripod) {
+            return null;
+        }
+
+        return (
+            <>
+                {tripodDots.map((row, rowIndex) => (
+                    row.map((active, colIndex) => (
+                        <button
+                            key={`tripod-dot-${rowIndex}-${colIndex}`}
+                            type='button'
+                            className={['tripod-dot-control', active ? 'active' : ''].filter(Boolean).join(' ')}
+                            style={{
+                                left: `${colIndex * 44}px`,
+                                top: `${rowIndex * 44}px`,
+                            }}
+                            aria-label={`Point Tripod r${rowIndex + 1}c${colIndex + 1}`}
+                            title='Point Tripod'
+                            disabled={readonly}
+                            onClick={() => toggleTripodDot(rowIndex, colIndex)}
+                        />
+                    ))
+                ))}
+            </>
+        );
+    };
+
     return (
         <div className='grid-puzzle-workbench'>
             <div className='grid-puzzle-toolbar'>
@@ -2841,6 +3021,11 @@ function GridPuzzleWorkbenchApp({
                         <option value='sudoku_godoku'>Godoku</option>
                         <option value='sudoku_even_odd'>Even-Odd</option>
                         <option value='sudoku_non_consecutive'>Non-Consecutive</option>
+                        <option value='sudoku_tripod_4x4'>Tripod 4x4</option>
+                        <option value='sudoku_tripod_5x5'>Tripod 5x5</option>
+                        <option value='sudoku_tripod_6x6'>Tripod 6x6</option>
+                        <option value='sudoku_tripod_7x7'>Tripod 7x7</option>
+                        <option value='sudoku_tripod_8x8'>Tripod 8x8</option>
                     </select>
                     <button onClick={solve} disabled={solveState.running}>
                         {solveState.running ? 'Resolution...' : 'Resoudre'}
@@ -2864,6 +3049,7 @@ function GridPuzzleWorkbenchApp({
                             isRossini ? 'rossini-board' : '',
                             isSkyscraper ? 'skyscraper-board' : '',
                             isFrame ? 'frame-board' : '',
+                            isTripod ? 'tripod-board' : '',
                             isSujiken ? 'sujiken-board' : '',
                             isSamurai ? 'samurai-board' : '',
                             isFlower ? 'flower-board' : '',
@@ -2890,7 +3076,7 @@ function GridPuzzleWorkbenchApp({
                                         aria-label={ref}
                                         title={isEvenOdd && parityMarks[rowIndex]?.[colIndex] ? `Contrainte ${parityLabel(parityMarks[rowIndex][colIndex])}` : ref}
                                         value={value}
-                                        inputMode={isGodoku || (sizedSudokuConfig?.size || 0) > SIZE ? 'text' : 'numeric'}
+                                        inputMode={isGodoku || (variableGridConfig?.size || 0) > SIZE ? 'text' : 'numeric'}
                                         maxLength={1}
                                         onClick={event => handleCellClick(rowIndex, colIndex, event)}
                                         onDoubleClick={event => handleCellDoubleClick(rowIndex, colIndex, event)}
@@ -2905,6 +3091,7 @@ function GridPuzzleWorkbenchApp({
                         {renderRossiniControls()}
                         {renderSkyscraperControls()}
                         {renderFrameControls()}
+                        {renderTripodDotControls()}
                     </div>
 
                     <div className='grid-puzzle-hint'>
@@ -2915,10 +3102,11 @@ function GridPuzzleWorkbenchApp({
                         {isSkyscraper ? ' Renseignez les indices exterieurs visibles depuis chaque cote de la grille.' : ''}
                         {isFrame ? ' Renseignez les sommes exterieures des trois cases les plus proches du bord.' : ''}
                         {isGodoku ? ' Saisissez les lettres directement dans la grille. L alphabet peut etre renseigne dans les options si la grille ne montre pas les 9 lettres.' : ''}
-                        {sizedSudokuConfig ? ` Symboles utilises : ${sudokuSymbolsForSize(sizedSudokuConfig.size).join(' ')}.` : ''}
+                        {variableGridConfig ? ` Symboles utilises : ${sudokuSymbolsForSize(variableGridConfig.size).join(' ')}.` : ''}
                         {puzzleType === 'sudoku_argyle' ? ' Les diagonales orange du motif Argyle ne peuvent pas contenir deux fois le meme chiffre.' : ''}
                         {isEvenOdd ? ' Double-cliquez une case pour alterner entre pair, impair et vide. En mode Parite, un simple clic suffit.' : ''}
                         {isNonConsecutive ? ' Les cases adjacentes horizontalement ou verticalement ne peuvent pas contenir deux chiffres consecutifs.' : ''}
+                        {isTripod ? ` Cliquez les intersections pour placer les points noirs Tripod (${tripodConfig?.size}x${tripodConfig?.size}). Le moteur reconstruit ensuite les regions.` : ''}
                         {puzzleType === 'sudoku_anti_diagonal' ? ' Anti Diagonal limite chaque grande diagonale a trois chiffres differents.' : ''}
                         {isSujiken ? ' Sujiken utilise les 45 cases du triangle.' : ''}
                         {isSamurai ? ' Samurai utilise les 369 cases actives des cinq grilles 9x9.' : ''}
@@ -2969,6 +3157,7 @@ function GridPuzzleWorkbenchApp({
                                     isRossini ? 'rossini-board' : '',
                                     isSkyscraper ? 'skyscraper-board' : '',
                                     isFrame ? 'frame-board' : '',
+                                    isTripod ? 'tripod-board' : '',
                                     isSujiken ? 'sujiken-board' : '',
                                     isSamurai ? 'samurai-board' : '',
                                     isFlower ? 'flower-board' : '',
@@ -2987,7 +3176,13 @@ function GridPuzzleWorkbenchApp({
                                         return (
                                             <div
                                                 key={`solved-${ref}`}
-                                                className={cellClassName(rowIndex, colIndex, grid[rowIndex][colIndex], true)}
+                                                className={cellClassName(
+                                                    rowIndex,
+                                                    colIndex,
+                                                    grid[rowIndex][colIndex],
+                                                    true,
+                                                    tripodRegionBoundaryClasses(rowIndex, colIndex),
+                                                )}
                                                 style={cellStyle(rowIndex, colIndex)}
                                             >
                                                 {value}
@@ -3000,6 +3195,7 @@ function GridPuzzleWorkbenchApp({
                                 {renderRossiniControls(true)}
                                 {renderSkyscraperControls(true)}
                                 {renderFrameControls(true)}
+                                {renderTripodDotControls(true)}
                             </div>
                         </div>
                     )}
@@ -3057,7 +3253,7 @@ function GridPuzzleWorkbenchApp({
                             Timeout Z3 (ms)
                             <input
                                 type='number'
-                                min={1000}
+                                min={isTripod ? 30000 : 1000}
                                 max={120000}
                                 step={1000}
                                 value={timeoutMs}

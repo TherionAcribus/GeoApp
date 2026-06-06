@@ -174,6 +174,7 @@ Valeurs supportees pour `puzzle_type` :
 | `sudoku_godoku` | `godoku`, `wordoku`, `alphabet_sudoku` | Sudoku standard avec 9 lettres au lieu des chiffres. |
 | `sudoku_even_odd` | `even_odd`, `evenodd`, `odd_even_sudoku` | Sudoku standard + contraintes de parite sur certaines cases. |
 | `sudoku_non_consecutive` | `non_consecutive`, `nonconsecutive_sudoku` | Sudoku standard + interdiction des chiffres consecutifs dans les cases adjacentes. |
+| `sudoku_tripod_4x4` a `sudoku_tripod_8x8` | `tripod`, `tripod_sudoku`, `sudoku_tripod` pour 5x5 | Tripod NxN avec regions reconstruites depuis les points noirs aux intersections. |
 | `custom_spec` | `custom`, `json_spec` | Probleme CSP decrit en JSON. |
 
 Format de grille Sudoku :
@@ -1481,6 +1482,65 @@ Dans l'atelier Theia, la variante `Non-Consecutive` ne demande aucune saisie de
 marques supplementaires. Les conflits locaux sont signales en rouge des que
 deux cases voisines remplies contiennent des chiffres consecutifs.
 
+### Tripod Sudoku / Sudoku Trepied
+
+`puzzle_type = sudoku_tripod_4x4` a `sudoku_tripod_8x8`
+
+Alias :
+
+```text
+tripod
+tripod_sudoku
+sudoku_tripod
+```
+
+Contraintes :
+
+- la taille N est comprise entre 4 et 8 ;
+- les chiffres 1 a N apparaissent une seule fois dans chaque ligne ;
+- les chiffres 1 a N apparaissent une seule fois dans chaque colonne ;
+- le moteur reconstruit N regions connectees de N cases ;
+- chaque region reconstruite contient les chiffres 1 a N une seule fois ;
+- les points noirs donnes indiquent exactement les intersections ou 3 lignes
+  de frontiere se rencontrent ;
+- aucun croisement a 4 lignes n'est autorise.
+
+Modele Z3 specialise :
+
+- `values[r,c]` represente le chiffre de la cellule ;
+- `regions[r,c]` represente l'identifiant de region reconstruit ;
+- `distances[r,c]` force la connectivite de chaque region par distances
+  strictement decroissantes vers une racine ;
+- une frontiere entre deux cellules adjacentes existe lorsque leurs identifiants
+  de region sont differents ;
+- le degre de chaque sommet de grille est calcule a partir des segments de
+  frontiere incidents et des bords externes.
+
+Format des points :
+
+```json
+{
+  "tripod": {
+    "dots": [
+      "......",
+      "1....1",
+      "1....1",
+      "1....1",
+      "1....1",
+      "......"
+    ]
+  }
+}
+```
+
+`tripod.dots` est une matrice (N+1)x(N+1) placee sur les intersections de lignes,
+pas sur les cellules. `1`, `x`, `*` ou `#` indiquent un point noir ; `0`, `.`,
+`_` ou `-` indiquent une intersection vide.
+
+Dans l'atelier Theia, les variantes `Tripod 4x4` a `Tripod 8x8` affichent des boutons circulaires sur
+les intersections. Les points actifs sont noirs. La solution renvoie aussi
+`region_grid`, une carte numerotee des regions reconstruites.
+
 ## Specification generique `custom_spec`
 
 Le mode `custom_spec` accepte une specification JSON.
@@ -1619,6 +1679,7 @@ Fonctionnalites actuelles :
 - saisie de lettres et alphabet optionnel en mode Godoku ;
 - mode `Parite` avec cases pair/impair en mode Even-Odd ;
 - detection locale des voisins consecutifs en mode Non-Consecutive ;
+- points d'intersection cliquables en mode Tripod ;
 - affichage de la premiere solution ;
 - reprise de la solution dans la grille ;
 - extraction des cellules surveillees ;
@@ -1630,7 +1691,7 @@ Fonctionnalites actuelles :
 |---|---|---|
 | `grid` | `string[][]` | Valeurs courantes de la grille. |
 | `quickText` | `string` | Representation texte de la grille. |
-| `puzzleType` | `sudoku_classic`, variantes classiques `sudoku_4x4` a `sudoku_16x16`, `sudoku_x`, `sudoku_argyle`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_rossini`, `sudoku_xv`, `sudoku_skyscraper`, `sudoku_frame`, `sudoku_godoku`, `sudoku_even_odd` ou `sudoku_non_consecutive` | Variante active. |
+| `puzzleType` | `sudoku_classic`, variantes classiques `sudoku_4x4` a `sudoku_16x16`, `sudoku_x`, `sudoku_argyle`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_rossini`, `sudoku_xv`, `sudoku_skyscraper`, `sudoku_frame`, `sudoku_godoku`, `sudoku_even_odd`, `sudoku_non_consecutive` ou `sudoku_tripod_4x4` a `sudoku_tripod_8x8` | Variante active. |
 | `horizontalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme ligne. |
 | `verticalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme colonne. |
 | `rossiniArrows` | object | Fleches de bord `top`, `bottom`, `left`, `right` pour Rossini. |
@@ -1640,6 +1701,7 @@ Fonctionnalites actuelles :
 | `frameClues` | object | Sommes exterieures `top`, `bottom`, `left`, `right` pour Frame. |
 | `godokuAlphabet` | string | Alphabet de 9 lettres pour Godoku. |
 | `parityMarks` | `string[][]` | Marques `even` / `odd` par cellule pour Even-Odd. |
+| `tripodDots` | `boolean[][]` | Points noirs (N+1)x(N+1) aux intersections pour Tripod. |
 | `watchCells` | `string[]` | Cellules surveillees au format `r1c1`. |
 | `mode` | `edit`, `watch` ou `parity` | Mode d'interaction. |
 | `maxSolutions` | number | Limite d'enumeration. |
@@ -1942,6 +2004,8 @@ Couverture actuelle :
 - Even-Odd refuse une marque pair/impair contradictoire ;
 - Non-Consecutive valide une grille sans voisins consecutifs ;
 - Non-Consecutive refuse une grille avec voisins consecutifs ;
+- Tripod valide avec reconstruction de regions ;
+- Tripod refuse un point noir impossible ;
 - extraction des cellules surveillees ;
 - spec generique type Latin square.
 

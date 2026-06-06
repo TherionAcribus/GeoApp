@@ -1394,6 +1394,68 @@ def test_non_consecutive_rejects_adjacent_consecutive_values():
     assert result["summary"] == "Aucune solution compatible avec les contraintes"
 
 
+def tripod_row_region_case(size):
+    symbols = "123456789ABCDEFG"[:size]
+    grid = "\n".join(
+        "".join(symbols[(row + col) % size] for col in range(size))
+        for row in range(size)
+    )
+    dots = [["." for _col in range(size + 1)] for _row in range(size + 1)]
+    for row in range(1, size):
+        dots[row][0] = "1"
+        dots[row][size] = "1"
+    return grid, dots
+
+
+@pytest.mark.parametrize(
+    ("size", "puzzle_type"),
+    [
+        (4, "sudoku_tripod_4x4"),
+        (5, "sudoku_tripod_5x5"),
+        (6, "sudoku_tripod_6x6"),
+        (7, "sudoku_tripod_7x7"),
+        (8, "sudoku_tripod_8x8"),
+    ],
+)
+def test_tripod_accepts_reconstructed_row_regions(size, puzzle_type):
+    plugin = load_plugin()
+    grid, dots = tripod_row_region_case(size)
+
+    result = plugin.execute(
+        {
+            "puzzle_type": puzzle_type,
+            "grid": grid,
+            "tripod": {"dots": ["".join(row) for row in dots]},
+            "max_solutions": 1,
+            "solver_timeout_ms": 30000,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 1
+    assert result["metadata"]["variant"] == puzzle_type
+    assert "region_grid" in result["results"][0]
+
+
+def test_tripod_rejects_impossible_corner_dot():
+    plugin = load_plugin()
+    grid, dots = tripod_row_region_case(5)
+    dots[0][0] = "1"
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "tripod",
+            "grid": grid,
+            "tripod": {"dots": ["".join(row) for row in dots]},
+            "max_solutions": 1,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+    assert result["summary"] == "Aucune solution compatible avec les contraintes"
+
+
 def test_watched_cells_are_extracted_in_requested_order():
     plugin = load_plugin()
 

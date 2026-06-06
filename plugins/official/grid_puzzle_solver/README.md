@@ -60,6 +60,10 @@ Generic finite-domain grid solver powered by Z3.
   cells in grey and odd cells with a light marker.
 - `sudoku_non_consecutive`: classic 9x9 Sudoku where orthogonally adjacent
   cells cannot contain consecutive digits.
+- `sudoku_tripod_4x4` through `sudoku_tripod_8x8`: Tripod Sudoku. The solver
+  reconstructs N connected N-cell regions from the marked tripod dots, then
+  applies row, column and region uniqueness. The legacy `sudoku_tripod` alias
+  is treated as 5x5.
 - Empty cells can be written as `0`, `.`, or `_`.
 - Separators such as spaces, pipes, and row divider lines are ignored.
 
@@ -100,6 +104,8 @@ Sudoku is just the first builder on top of a generic CSP model:
 - parity constraints (`parity`) for variants such as Even-Odd Sudoku;
 - non-consecutive adjacency constraints (`non_consecutive`) for variants where
   neighboring cells cannot differ by 1;
+- a specialized Tripod model with value variables, region variables, vertex
+  degree constraints and connected-region constraints;
 - solution enumeration with uniqueness detection.
 - an internal Z3 timeout (`solver_timeout_ms`) for highly open grids.
 - watched cells (`watched_cells`) so an interactive UI can extract answer
@@ -119,7 +125,8 @@ the Theia "Grilles" workbench:
   Anti Diagonal, Center Dot, Windoku, Girandola, Asterisk, Sujiken, Samurai Sudoku,
   Flower Sudoku,
   Sohei Sudoku, Kazaguruma, Greater Than, Rossini, Sudoku XV, Skyscraper,
-  Frame, Godoku, Even-Odd and Non-Consecutive;
+  Frame, Godoku, Even-Odd, Non-Consecutive and Tripod 4x4 through 8x8;
+- editable Tripod dots at grid intersections;
 - editable `>` / `<` borders for Greater Than / Compdoku;
 - editable edge arrows for Rossini;
 - editable `X` / `V` borders for Sudoku XV;
