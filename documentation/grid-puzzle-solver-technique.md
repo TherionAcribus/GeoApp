@@ -135,6 +135,9 @@ Entrées principales :
 | `clues` | object | vide | Alias de `skyscraper`. |
 | `frame` | object | vide | Sommes exterieures Frame (`top`, `bottom`, `left`, `right`). |
 | `outside_sums` | object | vide | Alias de `frame`. |
+| `outside` | object | vide | Indices Outside (`top`, `bottom`, `left`, `right`). |
+| `little_killer` | object/list/string | vide | Sommes diagonales Little Killer depuis les bords. |
+| `diagonal_sums` | object/list/string | vide | Alias de `little_killer`. |
 | `alphabet` | string/list | vide | Neuf lettres uniques pour Godoku / Wordoku. |
 | `symbols` | string/list | vide | Alias accepte pour l'alphabet Godoku. |
 | `parity` | object/list/string | vide | Contraintes Pair/Impair Even-Odd. |
@@ -172,6 +175,7 @@ Valeurs supportees pour `puzzle_type` :
 | `sudoku_skyscraper` | `skyscraper`, `skyscraper_sudoku` | Sudoku standard + indices exterieurs comptant les batiments visibles. |
 | `sudoku_frame` | `frame`, `frame_sudoku`, `outside_sum_sudoku` | Sudoku standard + sommes exterieures des trois cases voisines du bord. |
 | `sudoku_outside` | `outside`, `outside_sudoku` | Sudoku standard + chiffres exterieurs presents dans les trois premieres cases vues depuis le bord. |
+| `sudoku_little_killer` | `little_killer`, `little_killer_sudoku` | Sudoku standard + sommes diagonales exterieures, repetitions autorisees sur les diagonales. |
 | `sudoku_godoku` | `godoku`, `wordoku`, `alphabet_sudoku` | Sudoku standard avec 9 lettres au lieu des chiffres. |
 | `sudoku_even_odd` | `even_odd`, `evenodd`, `odd_even_sudoku` | Sudoku standard + contraintes de parite sur certaines cases. |
 | `sudoku_non_consecutive` | `non_consecutive`, `nonconsecutive_sudoku` | Sudoku standard + interdiction des chiffres consecutifs dans les cases adjacentes. |
@@ -1395,6 +1399,61 @@ Dans l'atelier Theia, la variante `Outside` affiche des champs autour de la
 grille. Les conflits locaux sont signales des que les trois cases concernees
 sont remplies.
 
+### Little Killer Sudoku
+
+`puzzle_type = sudoku_little_killer`
+
+Alias :
+
+```text
+little_killer
+little_killer_sudoku
+```
+
+Contraintes :
+
+- toutes les contraintes du Sudoku classique ;
+- chaque indice exterieur impose la somme de toute la diagonale visee ;
+- les chiffres peuvent se repeter sur cette diagonale, aucune contrainte
+  `all_different` supplementaire n'est ajoutee.
+
+Format envoye par l'atelier :
+
+```json
+{
+  "top": [
+    {"total": "2", "direction": "dl"},
+    {"total": "11", "direction": "dl"},
+    "",
+    {"total": "14", "direction": "dl"},
+    {"total": "29", "direction": "dl"},
+    "",
+    {"total": "27", "direction": "dl"},
+    "",
+    {"total": "29", "direction": "dl"}
+  ],
+  "left": ["", "", {"total": "26", "direction": "dr"}, "", "", "", "", "", ""],
+  "right": ["", "", {"total": "3", "direction": "dl"}, "", "", "", "", "", ""]
+}
+```
+
+Les quatre tableaux `top`, `bottom`, `left`, `right` contiennent chacun 9
+entrees. Une entree vide ignore l'indice. Une entree peut etre un objet
+`{"total":29,"direction":"dr"}` ou une notation compacte comme `29dr`.
+
+Directions :
+
+| Direction | Sens |
+|---|---|
+| `dl` | bas-gauche |
+| `dr` | bas-droite |
+| `ul` | haut-gauche |
+| `ur` | haut-droite |
+
+Dans l'atelier Theia, chaque indice affiche un champ de somme et un bouton de
+direction. Les conflits locaux sont signales des que toute la diagonale
+concernee est remplie.
+
 ### Godoku / Wordoku / Alphabet Sudoku
 
 `puzzle_type = sudoku_godoku`
@@ -1797,7 +1856,7 @@ Fonctionnalites actuelles :
 |---|---|---|
 | `grid` | `string[][]` | Valeurs courantes de la grille. |
 | `quickText` | `string` | Representation texte de la grille. |
-| `puzzleType` | `sudoku_classic`, variantes classiques `sudoku_4x4` a `sudoku_16x16`, `sudoku_x`, `sudoku_argyle`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_rossini`, `sudoku_xv`, `sudoku_skyscraper`, `sudoku_frame`, `sudoku_outside`, `sudoku_godoku`, `sudoku_even_odd`, `sudoku_non_consecutive`, `sudoku_mine`, `sudoku_mine_6x6` ou `sudoku_tripod_4x4` a `sudoku_tripod_8x8` | Variante active. |
+| `puzzleType` | `sudoku_classic`, variantes classiques `sudoku_4x4` a `sudoku_16x16`, `sudoku_x`, `sudoku_argyle`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_rossini`, `sudoku_xv`, `sudoku_skyscraper`, `sudoku_frame`, `sudoku_outside`, `sudoku_little_killer`, `sudoku_godoku`, `sudoku_even_odd`, `sudoku_non_consecutive`, `sudoku_mine`, `sudoku_mine_6x6` ou `sudoku_tripod_4x4` a `sudoku_tripod_8x8` | Variante active. |
 | `horizontalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme ligne. |
 | `verticalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme colonne. |
 | `rossiniArrows` | object | Fleches de bord `top`, `bottom`, `left`, `right` pour Rossini. |
@@ -1806,6 +1865,7 @@ Fonctionnalites actuelles :
 | `skyscraperClues` | object | Indices exterieurs `top`, `bottom`, `left`, `right` pour Skyscraper. |
 | `frameClues` | object | Sommes exterieures `top`, `bottom`, `left`, `right` pour Frame. |
 | `outsideClues` | object | Chiffres exterieurs `top`, `bottom`, `left`, `right` pour Outside. |
+| `littleKillerClues` | object | Sommes et directions diagonales `top`, `bottom`, `left`, `right` pour Little Killer. |
 | `godokuAlphabet` | string | Alphabet de 9 lettres pour Godoku. |
 | `parityMarks` | `string[][]` | Marques `even` / `odd` par cellule pour Even-Odd. |
 | `tripodDots` | `boolean[][]` | Points noirs (N+1)x(N+1) aux intersections pour Tripod. |
@@ -1998,6 +2058,12 @@ Payload de sauvegarde :
       "bottom": ["15", "9", "21", "10", "16", "19", "13", "15", "17"],
       "left": ["8", "15", "22", "11", "13", "21", "18", "19", "8"],
       "right": ["22", "8", "15", "22", "12", "11", "15", "13", "17"]
+    },
+    "littleKiller": {
+      "top": [{"total": "29", "direction": "dr"}],
+      "bottom": [],
+      "left": [],
+      "right": []
     },
     "godokuAlphabet": "ORESNMBAU",
     "watchCells": ["r1c1", "r9c9"],

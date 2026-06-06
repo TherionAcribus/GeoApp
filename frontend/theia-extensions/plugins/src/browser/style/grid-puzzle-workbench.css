@@ -148,6 +148,14 @@
     background: transparent;
 }
 
+.sudoku-board.little-killer-board {
+    grid-template-columns: 58px repeat(9, 44px) 58px;
+    grid-template-rows: 42px repeat(9, 44px) 42px;
+    gap: 0;
+    border: 0;
+    background: transparent;
+}
+
 .sudoku-board.sujiken-board {
     border: 0;
     background: transparent;
@@ -656,6 +664,171 @@
     opacity: 1;
 }
 
+.grid-puzzle-workbench .little-killer-clue {
+    min-width: 52px;
+    height: 34px;
+    align-self: center;
+    justify-self: center;
+    position: relative;
+    display: block;
+    color: var(--theia-descriptionForeground);
+    pointer-events: none;
+}
+
+.grid-puzzle-workbench .little-killer-clue input {
+    position: absolute;
+    z-index: 2;
+    width: 30px;
+    height: 28px;
+    min-height: 0;
+    padding: 0;
+    text-align: center;
+    color: var(--theia-descriptionForeground);
+    background: color-mix(in srgb, var(--theia-editor-background) 88%, var(--theia-descriptionForeground));
+    border: 1px dashed color-mix(in srgb, var(--theia-panel-border) 65%, var(--theia-descriptionForeground));
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 1;
+    pointer-events: auto;
+}
+
+.grid-puzzle-workbench .little-killer-direction {
+    position: absolute;
+    z-index: 3;
+    width: 22px;
+    height: 28px;
+    min-height: 0;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--theia-descriptionForeground);
+    background: transparent;
+    border: 0;
+    border-radius: 4px;
+    font-size: 18px;
+    font-weight: 800;
+    line-height: 1;
+    pointer-events: auto;
+}
+
+.grid-puzzle-workbench .little-killer-clue:hover,
+.grid-puzzle-workbench .little-killer-clue:focus-within {
+    z-index: 5;
+}
+
+.grid-puzzle-workbench .little-killer-clue.top.dl input {
+    left: 24px;
+    top: -2px;
+}
+
+.grid-puzzle-workbench .little-killer-clue.top.dr input {
+    left: -10px;
+    top: -2px;
+}
+
+.grid-puzzle-workbench .little-killer-clue.bottom.ul input {
+    left: 24px;
+    bottom: -2px;
+}
+
+.grid-puzzle-workbench .little-killer-clue.bottom.ur input {
+    left: -10px;
+    bottom: -2px;
+}
+
+.grid-puzzle-workbench .little-killer-clue.left.ur input {
+    left: -4px;
+    top: 20px;
+}
+
+.grid-puzzle-workbench .little-killer-clue.left.dr input {
+    left: -4px;
+    top: -8px;
+}
+
+.grid-puzzle-workbench .little-killer-clue.right.ul input {
+    right: -4px;
+    top: 20px;
+}
+
+.grid-puzzle-workbench .little-killer-clue.right.dl input {
+    right: -4px;
+    top: -8px;
+}
+
+.grid-puzzle-workbench .little-killer-clue.top.dl .little-killer-direction {
+    right: -12px;
+    bottom: -16px;
+}
+
+.grid-puzzle-workbench .little-killer-clue.top.dr .little-killer-direction {
+    left: -12px;
+    bottom: -16px;
+}
+
+.grid-puzzle-workbench .little-killer-clue.bottom.ul .little-killer-direction {
+    right: -12px;
+    top: -16px;
+}
+
+.grid-puzzle-workbench .little-killer-clue.bottom.ur .little-killer-direction {
+    left: -12px;
+    top: -16px;
+}
+
+.grid-puzzle-workbench .little-killer-clue.left.ur .little-killer-direction {
+    right: -14px;
+    bottom: -13px;
+}
+
+.grid-puzzle-workbench .little-killer-clue.left.dr .little-killer-direction {
+    right: -14px;
+    top: -13px;
+}
+
+.grid-puzzle-workbench .little-killer-clue.right.ul .little-killer-direction {
+    left: -14px;
+    bottom: -13px;
+}
+
+.grid-puzzle-workbench .little-killer-clue.right.dl .little-killer-direction {
+    left: -14px;
+    top: -13px;
+}
+
+.grid-puzzle-workbench .little-killer-clue:hover input,
+.grid-puzzle-workbench .little-killer-clue input:focus {
+    color: var(--theia-input-foreground);
+    background: var(--theia-input-background);
+    border-color: var(--theia-focusBorder);
+    outline: none;
+}
+
+.grid-puzzle-workbench .little-killer-clue:hover .little-killer-direction,
+.grid-puzzle-workbench .little-killer-direction:focus {
+    color: var(--theia-input-foreground);
+    background: color-mix(in srgb, var(--theia-input-background) 72%, transparent);
+    outline: none;
+}
+
+.grid-puzzle-workbench .little-killer-clue.active input {
+    color: #f97316;
+    background: color-mix(in srgb, var(--theia-input-background) 78%, #f97316);
+    border-style: solid;
+    border-color: #f97316;
+}
+
+.grid-puzzle-workbench .little-killer-clue.active .little-killer-direction {
+    color: #f97316;
+}
+
+.grid-puzzle-workbench .little-killer-clue input:disabled,
+.grid-puzzle-workbench .little-killer-direction:disabled {
+    opacity: 1;
+}
+
 .grid-puzzle-workbench .tripod-dot-control {
     position: absolute;
     z-index: 4;
@@ -775,6 +948,20 @@
     font-size: 12px;
 }
 
+.little-killer-direction-tools {
+    display: grid;
+    gap: 6px;
+}
+
+.little-killer-direction-tools > span {
+    color: var(--theia-descriptionForeground);
+    font-size: 12px;
+}
+
+.little-killer-direction-tools .grid-puzzle-actions.inline {
+    margin-top: 0;
+}
+
 .grid-puzzle-side input[type='number'] {
     width: 100%;
     color: var(--theia-input-foreground);
@@ -884,6 +1071,11 @@
         grid-template-rows: 36px repeat(9, minmax(28px, 1fr)) 36px;
     }
 
+    .sudoku-board.little-killer-board {
+        grid-template-columns: 44px repeat(9, minmax(28px, 1fr)) 44px;
+        grid-template-rows: 36px repeat(9, minmax(28px, 1fr)) 36px;
+    }
+
     .sudoku-board.sujiken-board {
         grid-template-columns: repeat(9, minmax(30px, 1fr));
         grid-template-rows: repeat(9, minmax(30px, 1fr));
@@ -944,8 +1136,65 @@
     .rossini-control,
     .skyscraper-clue,
     .frame-clue,
-    .outside-clue {
+    .outside-clue,
+    .little-killer-clue {
         width: 100%;
         height: 100%;
+    }
+
+    .little-killer-clue {
+        min-width: 0;
+    }
+
+    .little-killer-direction {
+        width: 18px;
+        height: 24px;
+        font-size: 15px;
+    }
+
+    .little-killer-clue input {
+        width: 26px;
+        height: 24px;
+        font-size: 11px;
+    }
+
+    .little-killer-clue.top.dl input {
+        left: 18px;
+        top: -1px;
+    }
+
+    .little-killer-clue.top.dr input {
+        left: -8px;
+        top: -1px;
+    }
+
+    .little-killer-clue.bottom.ul input {
+        left: 18px;
+        bottom: -1px;
+    }
+
+    .little-killer-clue.bottom.ur input {
+        left: -8px;
+        bottom: -1px;
+    }
+
+    .little-killer-clue.left.ur input {
+        left: -3px;
+        top: 18px;
+    }
+
+    .little-killer-clue.left.dr input {
+        left: -3px;
+        top: -6px;
+    }
+
+    .little-killer-clue.right.ul input {
+        right: -3px;
+        top: 18px;
+    }
+
+    .little-killer-clue.right.dl input {
+        right: -3px;
+        top: -6px;
     }
 }

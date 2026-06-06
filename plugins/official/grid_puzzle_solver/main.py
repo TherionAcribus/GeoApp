@@ -390,6 +390,23 @@ class GridpuzzlesolverPlugin:
                     outside=inputs.get("outside") or inputs.get("outside_clues") or inputs.get("clues") or {},
                     include_outside=True,
                 )
+            elif puzzle_type in {"sudoku_little_killer", "little_killer", "little_killer_sudoku"}:
+                puzzle_text = self._first_non_empty(
+                    inputs.get("grid"),
+                    inputs.get("puzzle"),
+                    inputs.get("text"),
+                )
+                problem = self._build_sudoku_problem(
+                    puzzle_text,
+                    include_diagonals=False,
+                    include_center_dot=False,
+                    include_windoku=False,
+                    include_girandola=False,
+                    include_asterisk=False,
+                    variant="sudoku_little_killer",
+                    little_killer=inputs.get("little_killer") or inputs.get("diagonal_sums") or inputs.get("clues") or {},
+                    include_little_killer=True,
+                )
             elif puzzle_type in {"sudoku_godoku", "godoku", "wordoku", "alphabet_sudoku"}:
                 puzzle_text = self._first_non_empty(
                     inputs.get("grid"),
@@ -551,6 +568,8 @@ class GridpuzzlesolverPlugin:
         include_frame: bool = False,
         outside: Any = None,
         include_outside: bool = False,
+        little_killer: Any = None,
+        include_little_killer: bool = False,
         symbols_override: Optional[Sequence[str]] = None,
         parity: Any = None,
         include_parity: bool = False,
@@ -678,6 +697,8 @@ class GridpuzzlesolverPlugin:
             constraints.extend(self._parse_frame_constraints(frame))
         if include_outside:
             constraints.extend(self._parse_outside_constraints(outside))
+        if include_little_killer:
+            constraints.extend(self._parse_little_killer_constraints(little_killer))
         if include_parity:
             constraints.extend(self._parse_parity_constraints(parity))
         if include_non_consecutive:
@@ -2002,6 +2023,222 @@ class GridpuzzlesolverPlugin:
         if side == "bottom":
             return ((8, index), (7, index), (6, index))
         raise ValueError(f"Cote Outside inconnu: {side}")
+
+    def _parse_little_killer_constraints(self, raw_little_killer: Any) -> List[GridConstraint]:
+        if raw_little_killer in (None, "", []):
+            raw_little_killer = {}
+        if isinstance(raw_little_killer, str):
+            text = raw_little_killer.strip()
+            if text:
+                try:
+                    raw_little_killer = json.loads(text)
+                except json.JSONDecodeError:
+                    return self._parse_little_killer_lines(text)
+            else:
+                raw_little_killer = {}
+        if isinstance(raw_little_killer, list):
+            return self._parse_little_killer_entries(raw_little_killer)
+        if not isinstance(raw_little_killer, dict):
+            raise ValueError("Format little_killer non supporte")
+
+        constraints: List[GridConstraint] = []
+        side_specs = (
+            ("top", raw_little_killer.get("top") or raw_little_killer.get("t")),
+            ("bottom", raw_little_killer.get("bottom") or raw_little_killer.get("b")),
+            ("left", raw_little_killer.get("left") or raw_little_killer.get("l")),
+            ("right", raw_little_killer.get("right") or raw_little_killer.get("r")),
+        )
+        for side, raw_values in side_specs:
+            values = self._parse_little_killer_side(raw_values, side)
+            for index, entry in enumerate(values):
+                if entry is None:
+                    continue
+                total, direction = entry
+                constraints.append(
+                    GridConstraint(
+                        "sum",
+                        self._little_killer_cells(side, index, direction),
+                        total=total,
+                    )
+                )
+
+        if "constraints" in raw_little_killer:
+            constraints.extend(self._parse_little_killer_entries(raw_little_killer["constraints"]))
+        return constraints
+
+    def _parse_little_killer_side(self, raw_values: Any, side: str) -> List[Optional[Tuple[int, str]]]:
+        if raw_values in (None, ""):
+            return [None] * 9
+        if isinstance(raw_values, str):
+            values = [
+                value for value in re.split(r"[\s,;|]+", raw_values.strip())
+                if value
+            ]
+        elif isinstance(raw_values, list):
+            values = list(raw_values)
+        else:
+            raise ValueError(f"little_killer.{side} doit etre une liste ou une chaine")
+
+        if len(values) != 9:
+            raise ValueError(f"little_killer.{side} doit contenir 9 valeurs")
+
+        return [self._normalize_little_killer_entry(value, side) for value in values]
+
+    def _parse_little_killer_entries(self, raw_entries: Any) -> List[GridConstraint]:
+        if raw_entries in (None, "", []):
+            return []
+        if not isinstance(raw_entries, list):
+            raise ValueError("Les contraintes Little Killer en liste doivent etre une liste d'objets")
+
+        constraints: List[GridConstraint] = []
+        for entry in raw_entries:
+            if not isinstance(entry, dict):
+                raise ValueError("Chaque contrainte Little Killer doit etre un objet")
+            side = str(entry.get("side") or entry.get("edge") or "").strip().lower()
+            if side not in {"top", "bottom", "left", "right"}:
+                raise ValueError(f"Cote Little Killer inconnu: {side}")
+            raw_index = entry.get("index", entry.get("position", entry.get("pos")))
+            if raw_index is None:
+                raise ValueError("Chaque contrainte Little Killer doit definir un index")
+            index = int(raw_index) - 1
+            if index < 0 or index >= 9:
+                raise ValueError(f"Index Little Killer hors grille: {raw_index}")
+            normalized = self._normalize_little_killer_entry(entry, side)
+            if normalized is None:
+                continue
+            total, direction = normalized
+            constraints.append(
+                GridConstraint("sum", self._little_killer_cells(side, index, direction), total=total)
+            )
+        return constraints
+
+    def _parse_little_killer_lines(self, text: str) -> List[GridConstraint]:
+        constraints: List[GridConstraint] = []
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            match = re.fullmatch(
+                r"(top|bottom|left|right)[\s:,-]*(\d+)[\s:,-]+(\d+)[\s:,-]*(ul|ur|dl|dr|[\\/])",
+                stripped,
+                re.IGNORECASE,
+            )
+            if not match:
+                raise ValueError(f"Contrainte Little Killer invalide: {line}")
+            side = match.group(1).lower()
+            index = int(match.group(2)) - 1
+            if index < 0 or index >= 9:
+                raise ValueError(f"Index Little Killer hors grille: {match.group(2)}")
+            direction = self._normalize_little_killer_direction(match.group(4), side)
+            constraints.append(
+                GridConstraint("sum", self._little_killer_cells(side, index, direction), total=int(match.group(3)))
+            )
+        return constraints
+
+    def _normalize_little_killer_entry(self, raw_value: Any, side: str) -> Optional[Tuple[int, str]]:
+        if isinstance(raw_value, dict):
+            raw_total = raw_value.get("total", raw_value.get("sum", raw_value.get("value")))
+            raw_direction = raw_value.get("direction", raw_value.get("dir", raw_value.get("arrow")))
+        else:
+            text = str(raw_value or "").strip()
+            if text in {"", ".", "0", "_", "-", "?"}:
+                return None
+            match = re.fullmatch(r"(\d+)\s*(ul|ur|dl|dr|[\\/])?", text, re.IGNORECASE)
+            if not match:
+                raise ValueError(f"Indice Little Killer non supporte sur {side}: {raw_value}")
+            raw_total = match.group(1)
+            raw_direction = match.group(2)
+
+        if raw_total in (None, ""):
+            return None
+        total = int(raw_total)
+        if total < 1 or total > 81:
+            raise ValueError(f"Somme Little Killer non supportee sur {side}: {raw_total}")
+        direction = self._normalize_little_killer_direction(raw_direction, side)
+        return total, direction
+
+    def _normalize_little_killer_direction(self, raw_direction: Any, side: str) -> str:
+        text = str(raw_direction or "").strip().lower()
+        normalized = {
+            "down-left": "dl",
+            "down_left": "dl",
+            "downleft": "dl",
+            "south-west": "dl",
+            "south_west": "dl",
+            "sw": "dl",
+            "dl": "dl",
+            "down-right": "dr",
+            "down_right": "dr",
+            "downright": "dr",
+            "south-east": "dr",
+            "south_east": "dr",
+            "se": "dr",
+            "dr": "dr",
+            "up-left": "ul",
+            "up_left": "ul",
+            "upleft": "ul",
+            "north-west": "ul",
+            "north_west": "ul",
+            "nw": "ul",
+            "ul": "ul",
+            "up-right": "ur",
+            "up_right": "ur",
+            "upright": "ur",
+            "north-east": "ur",
+            "north_east": "ur",
+            "ne": "ur",
+            "ur": "ur",
+            "\\": "dr" if side in {"top", "left"} else "ul",
+            "/": "dl" if side in {"top", "right"} else "ur",
+        }
+        if not text:
+            return {
+                "top": "dr",
+                "bottom": "ur",
+                "left": "dr",
+                "right": "dl",
+            }[side]
+        direction = normalized.get(text)
+        if direction is None:
+            raise ValueError(f"Direction Little Killer non supportee sur {side}: {raw_direction}")
+        allowed = {
+            "top": {"dl", "dr"},
+            "bottom": {"ul", "ur"},
+            "left": {"ur", "dr"},
+            "right": {"ul", "dl"},
+        }[side]
+        if direction not in allowed:
+            raise ValueError(f"Direction Little Killer {direction} impossible depuis {side}")
+        return direction
+
+    def _little_killer_cells(self, side: str, index: int, direction: str) -> Tuple[Cell, ...]:
+        starts = {
+            "top": (0, index),
+            "bottom": (8, index),
+            "left": (index, 0),
+            "right": (index, 8),
+        }
+        deltas = {
+            "dl": (1, -1),
+            "dr": (1, 1),
+            "ul": (-1, -1),
+            "ur": (-1, 1),
+        }
+        if side not in starts:
+            raise ValueError(f"Cote Little Killer inconnu: {side}")
+        if direction not in deltas:
+            raise ValueError(f"Direction Little Killer inconnue: {direction}")
+
+        row, col = starts[side]
+        row_delta, col_delta = deltas[direction]
+        cells: List[Cell] = []
+        while 0 <= row < 9 and 0 <= col < 9:
+            cells.append((row, col))
+            row += row_delta
+            col += col_delta
+        if not cells:
+            raise ValueError(f"Indice Little Killer sans cellule sur {side} {index + 1}")
+        return tuple(cells)
 
     def _parse_parity_constraints(self, raw_parity: Any) -> List[GridConstraint]:
         if raw_parity in (None, "", []):

@@ -1270,6 +1270,71 @@ def test_outside_rejects_missing_edge_digit():
     assert result["summary"] == "Aucune solution compatible avec les contraintes"
 
 
+def test_little_killer_accepts_matching_diagonal_sums():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "sudoku_little_killer",
+            "grid": """
+                534678912
+                672195348
+                198342567
+                859761423
+                426853791
+                713924856
+                961537284
+                287419635
+                345286179
+            """,
+            "little_killer": {
+                "top": [
+                    {"total": 50, "direction": "dr"},
+                    "", "", "", "", "", "", "",
+                    {"total": 38, "direction": "dl"},
+                ],
+                "left": ["", "", {"total": 34, "direction": "dr"}, "", "", "", "", "", ""],
+                "right": [{"total": 38, "direction": "dl"}, "", "", "", "", "", "", "", ""],
+            },
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["unique"] is True
+    assert result["metadata"]["variant"] == "sudoku_little_killer"
+    assert result["metadata"]["constraint_count"] == 31
+
+
+def test_little_killer_rejects_contradictory_diagonal_sum():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "little_killer",
+            "grid": """
+                534678912
+                672195348
+                198342567
+                859761423
+                426853791
+                713924856
+                961537284
+                287419635
+                345286179
+            """,
+            "little_killer": {
+                "top": [{"total": 49, "direction": "dr"}, "", "", "", "", "", "", "", ""],
+            },
+            "max_solutions": 1,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+    assert result["summary"] == "Aucune solution compatible avec les contraintes"
+
+
 def test_godoku_accepts_letter_symbols():
     plugin = load_plugin()
 

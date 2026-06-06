@@ -2,7 +2,7 @@
   "name": "grid_puzzle_solver",
   "version": "0.1.0",
   "plugin_api_version": "2.0",
-  "description": "Solveur Z3 pour grilles de logique. Variantes actuelles: Sudoku classique 4x4 a 16x16, Sudoku X, Argyle, Anti Diagonal, Center Dot, Windoku, Girandola, Asterisk, Sujiken, Samurai Sudoku, Flower Sudoku, Sohei Sudoku, Kazaguruma, Greater Than / Compdoku, Rossini, Sudoku XV, Skyscraper, Frame, Outside, Godoku, Even-Odd, Non-Consecutive, Sudoku Mine et Tripod.",
+  "description": "Solveur Z3 pour grilles de logique. Variantes actuelles: Sudoku classique 4x4 a 16x16, Sudoku X, Argyle, Anti Diagonal, Center Dot, Windoku, Girandola, Asterisk, Sujiken, Samurai Sudoku, Flower Sudoku, Sohei Sudoku, Kazaguruma, Greater Than / Compdoku, Rossini, Sudoku XV, Skyscraper, Frame, Outside, Little Killer, Godoku, Even-Odd, Non-Consecutive, Sudoku Mine et Tripod.",
   "author": "MysterAI",
   "plugin_type": "python",
   "entry_point": "main.py",
@@ -56,6 +56,7 @@
         {"value": "sudoku_skyscraper", "label": "Skyscraper Sudoku"},
         {"value": "sudoku_frame", "label": "Frame / Outside Sum Sudoku"},
         {"value": "sudoku_outside", "label": "Outside Sudoku"},
+        {"value": "sudoku_little_killer", "label": "Little Killer Sudoku"},
         {"value": "sudoku_godoku", "label": "Godoku / Wordoku"},
         {"value": "sudoku_even_odd", "label": "Even-Odd / Pair-Impair"},
         {"value": "sudoku_non_consecutive", "label": "Non-Consecutive Sudoku"},
@@ -69,7 +70,7 @@
         {"value": "custom_spec", "label": "Spec JSON generique"}
       ],
       "default": "sudoku_classic",
-      "description": "Sudoku classique existe en 4x4, 6x6, 8x8, 9x9, 10x10, 12x12, 15x15 et 16x16. Les tailles superieures a 9 utilisent les symboles 1-9 puis A-G. Sudoku X ajoute les deux diagonales principales sans doublons. Argyle ajoute 8 diagonales marquees sans doublons. Anti Diagonal limite chacune des deux grandes diagonales a trois chiffres differents. Center Dot ajoute la region des centres de blocs 3x3. Windoku ajoute quatre regions 3x3 supplementaires. Girandola et Asterisk ajoutent chacun une extra-region de 9 cases. Sujiken utilise une grille triangulaire de 45 cases. Samurai, Flower, Sohei et Kazaguruma assemblent plusieurs grilles 9x9 chevauchantes. Greater Than ajoute des comparaisons >/< entre cases adjacentes. Rossini ajoute des fleches de bord sur les trois premieres cases vues depuis chaque cote. Sudoku XV ajoute des marques X/V entre cases adjacentes. Skyscraper ajoute des indices exterieurs de visibilite. Frame ajoute des sommes exterieures des trois cases voisines du bord. Outside impose que les chiffres exterieurs apparaissent dans les trois premieres cases vues depuis le bord. Godoku remplace les chiffres par 9 lettres. Even-Odd contraint certaines cases a etre paires ou impaires. Non-Consecutive interdit les chiffres consecutifs dans les cases adjacentes. Sudoku Mine place des mines selon des sommes ligne/colonne/region et des indices adjacents. Tripod existe en 4x4 a 8x8 et reconstruit les regions a partir des points noirs. Spec JSON permet de decrire une grille CSP finie."
+      "description": "Sudoku classique existe en 4x4, 6x6, 8x8, 9x9, 10x10, 12x12, 15x15 et 16x16. Les tailles superieures a 9 utilisent les symboles 1-9 puis A-G. Sudoku X ajoute les deux diagonales principales sans doublons. Argyle ajoute 8 diagonales marquees sans doublons. Anti Diagonal limite chacune des deux grandes diagonales a trois chiffres differents. Center Dot ajoute la region des centres de blocs 3x3. Windoku ajoute quatre regions 3x3 supplementaires. Girandola et Asterisk ajoutent chacun une extra-region de 9 cases. Sujiken utilise une grille triangulaire de 45 cases. Samurai, Flower, Sohei et Kazaguruma assemblent plusieurs grilles 9x9 chevauchantes. Greater Than ajoute des comparaisons >/< entre cases adjacentes. Rossini ajoute des fleches de bord sur les trois premieres cases vues depuis chaque cote. Sudoku XV ajoute des marques X/V entre cases adjacentes. Skyscraper ajoute des indices exterieurs de visibilite. Frame ajoute des sommes exterieures des trois cases voisines du bord. Outside impose que les chiffres exterieurs apparaissent dans les trois premieres cases vues depuis le bord. Little Killer ajoute des sommes diagonales depuis les bords, avec repetitions autorisees sur ces diagonales. Godoku remplace les chiffres par 9 lettres. Even-Odd contraint certaines cases a etre paires ou impaires. Non-Consecutive interdit les chiffres consecutifs dans les cases adjacentes. Sudoku Mine place des mines selon des sommes ligne/colonne/region et des indices adjacents. Tripod existe en 4x4 a 8x8 et reconstruit les regions a partir des points noirs. Spec JSON permet de decrire une grille CSP finie."
     },
     "grid": {
       "type": "textarea",
@@ -108,6 +109,12 @@
       "label": "Indices Outside",
       "required": false,
       "description": "Objet JSON optionnel avec top/bottom/left/right. Chaque cote contient 9 valeurs; chaque valeur peut contenir plusieurs chiffres 1-9 qui doivent apparaitre dans les trois premieres cases vues depuis ce cote."
+    },
+    "little_killer": {
+      "type": "textarea",
+      "label": "Indices Little Killer",
+      "required": false,
+      "description": "Objet JSON optionnel avec top/bottom/left/right. Chaque cote contient 9 valeurs; une valeur peut etre un objet {\"total\":29,\"direction\":\"dr\"} ou une notation compacte comme 29dr. Directions: dl, dr, ul, ur."
     },
     "max_solutions": {
       "type": "number",
