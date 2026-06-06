@@ -171,6 +171,7 @@ Valeurs supportees pour `puzzle_type` :
 | `sudoku_xv` | `xv`, `xv_sudoku` | Sudoku standard + marques de bord `X` / `V` pour les sommes 10 et 5. |
 | `sudoku_skyscraper` | `skyscraper`, `skyscraper_sudoku` | Sudoku standard + indices exterieurs comptant les batiments visibles. |
 | `sudoku_frame` | `frame`, `frame_sudoku`, `outside_sum_sudoku` | Sudoku standard + sommes exterieures des trois cases voisines du bord. |
+| `sudoku_outside` | `outside`, `outside_sudoku` | Sudoku standard + chiffres exterieurs presents dans les trois premieres cases vues depuis le bord. |
 | `sudoku_godoku` | `godoku`, `wordoku`, `alphabet_sudoku` | Sudoku standard avec 9 lettres au lieu des chiffres. |
 | `sudoku_even_odd` | `even_odd`, `evenodd`, `odd_even_sudoku` | Sudoku standard + contraintes de parite sur certaines cases. |
 | `sudoku_non_consecutive` | `non_consecutive`, `nonconsecutive_sudoku` | Sudoku standard + interdiction des chiffres consecutifs dans les cases adjacentes. |
@@ -312,6 +313,7 @@ Contraintes supportees :
 | `all_different` | `cells` | Toutes les cellules ont des valeurs distinctes. |
 | `equals` | `cells`, `value` | Une cellule vaut une valeur precise. |
 | `not_equal` | `cells` | Equivalent a `all_different` sur au moins deux cellules. |
+| `contains_value` | `cells`, `value` | Au moins une cellule de la zone contient la valeur donnee. |
 | `sum` | `cells`, `total` | Somme numerique des cellules egale au total. |
 | `max_distinct` | `cells`, `limit` | Nombre de valeurs distinctes inferieur ou egal a `limit`. |
 | `greater_than` | `cells` | La premiere cellule est strictement superieure a la seconde. |
@@ -1346,6 +1348,53 @@ Dans l'atelier Theia, la variante `Frame` affiche des champs numeriques autour
 de la grille. Les conflits locaux sont signales des que les trois cases du
 triplet concerne sont remplies.
 
+### Outside Sudoku
+
+`puzzle_type = sudoku_outside`
+
+Alias :
+
+```text
+outside
+outside_sudoku
+```
+
+Contraintes :
+
+- toutes les contraintes du Sudoku classique ;
+- un chiffre exterieur doit apparaitre dans les trois premieres cases vues
+  depuis ce bord, dans la ligne ou colonne concernee ;
+- plusieurs chiffres peuvent etre donnes sur le meme bord et le meme index, par
+  exemple `"76"`.
+
+Format envoye par l'atelier :
+
+```json
+{
+  "top": ["4", "21", "", "", "6", "4", "", "7", ""],
+  "bottom": ["", "3", "", "", "9", "7", "", "6", ""],
+  "left": ["76", "41", "8", "76", "54", "2", "24", "7", "3"],
+  "right": ["1", "6", "73", "4", "39", "87", "6", "54", "28"]
+}
+```
+
+Les quatre tableaux contiennent chacun 9 entrees. Les valeurs vides peuvent
+etre `""`, `.`, `0`, `_`, `-` ou `?`, et signifient qu'aucun indice n'est pose
+sur ce bord. Chaque entree peut contenir de 1 a 3 chiffres distincts.
+
+Interpretation :
+
+| Bord | Zone de presence |
+|---|---|
+| `top` | `r1cX`, `r2cX`, `r3cX` |
+| `bottom` | `r9cX`, `r8cX`, `r7cX` |
+| `left` | `rXc1`, `rXc2`, `rXc3` |
+| `right` | `rXc9`, `rXc8`, `rXc7` |
+
+Dans l'atelier Theia, la variante `Outside` affiche des champs autour de la
+grille. Les conflits locaux sont signales des que les trois cases concernees
+sont remplies.
+
 ### Godoku / Wordoku / Alphabet Sudoku
 
 `puzzle_type = sudoku_godoku`
@@ -1748,7 +1797,7 @@ Fonctionnalites actuelles :
 |---|---|---|
 | `grid` | `string[][]` | Valeurs courantes de la grille. |
 | `quickText` | `string` | Representation texte de la grille. |
-| `puzzleType` | `sudoku_classic`, variantes classiques `sudoku_4x4` a `sudoku_16x16`, `sudoku_x`, `sudoku_argyle`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_rossini`, `sudoku_xv`, `sudoku_skyscraper`, `sudoku_frame`, `sudoku_godoku`, `sudoku_even_odd`, `sudoku_non_consecutive`, `sudoku_mine`, `sudoku_mine_6x6` ou `sudoku_tripod_4x4` a `sudoku_tripod_8x8` | Variante active. |
+| `puzzleType` | `sudoku_classic`, variantes classiques `sudoku_4x4` a `sudoku_16x16`, `sudoku_x`, `sudoku_argyle`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_rossini`, `sudoku_xv`, `sudoku_skyscraper`, `sudoku_frame`, `sudoku_outside`, `sudoku_godoku`, `sudoku_even_odd`, `sudoku_non_consecutive`, `sudoku_mine`, `sudoku_mine_6x6` ou `sudoku_tripod_4x4` a `sudoku_tripod_8x8` | Variante active. |
 | `horizontalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme ligne. |
 | `verticalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme colonne. |
 | `rossiniArrows` | object | Fleches de bord `top`, `bottom`, `left`, `right` pour Rossini. |
@@ -1756,6 +1805,7 @@ Fonctionnalites actuelles :
 | `xvVerticalMarks` | `string[][]` | Marques `X` / `V` entre deux cases d'une meme colonne. |
 | `skyscraperClues` | object | Indices exterieurs `top`, `bottom`, `left`, `right` pour Skyscraper. |
 | `frameClues` | object | Sommes exterieures `top`, `bottom`, `left`, `right` pour Frame. |
+| `outsideClues` | object | Chiffres exterieurs `top`, `bottom`, `left`, `right` pour Outside. |
 | `godokuAlphabet` | string | Alphabet de 9 lettres pour Godoku. |
 | `parityMarks` | `string[][]` | Marques `even` / `odd` par cellule pour Even-Odd. |
 | `tripodDots` | `boolean[][]` | Points noirs (N+1)x(N+1) aux intersections pour Tripod. |

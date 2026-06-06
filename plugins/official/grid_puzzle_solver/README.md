@@ -52,6 +52,9 @@ Generic finite-domain grid solver powered by Z3.
   side of a row or column.
 - `sudoku_frame`: classic 9x9 Sudoku plus outside sum clues. Each clue gives
   the sum of the three nearest cells in the corresponding row or column.
+- `sudoku_outside`: classic 9x9 Sudoku plus outside digit clues. Each outside
+  digit must appear in the first three cells seen from that side; multiple
+  digits can be given for the same row or column side.
 - `sudoku_godoku`: classic 9x9 Sudoku using nine letters instead of digits.
   The alphabet can be provided explicitly or inferred from the givens when all
   nine letters are present.
@@ -105,6 +108,7 @@ Sudoku is just the first builder on top of a generic CSP model:
   empty Sudoku XV borders;
 - visibility count constraints (`visible_count`) for outside-clue variants such
   as Skyscraper Sudoku;
+- contains-value constraints (`contains_value`) for Outside Sudoku;
 - parity constraints (`parity`) for variants such as Even-Odd Sudoku;
 - non-consecutive adjacency constraints (`non_consecutive`) for variants where
   neighboring cells cannot differ by 1;
@@ -130,8 +134,9 @@ the Theia "Grilles" workbench:
   Anti Diagonal, Center Dot, Windoku, Girandola, Asterisk, Sujiken, Samurai Sudoku,
   Flower Sudoku,
   Sohei Sudoku, Kazaguruma, Greater Than, Rossini, Sudoku XV, Skyscraper,
-  Frame, Godoku, Even-Odd, Non-Consecutive and Tripod 4x4 through 8x8;
+  Frame, Outside, Godoku, Even-Odd, Non-Consecutive and Tripod 4x4 through 8x8;
 - Sudoku Mine entry using clue digits and solved mine markers;
+- editable outside digit clues for Outside Sudoku;
 - editable Tripod dots at grid intersections;
 - editable `>` / `<` borders for Greater Than / Compdoku;
 - editable edge arrows for Rossini;

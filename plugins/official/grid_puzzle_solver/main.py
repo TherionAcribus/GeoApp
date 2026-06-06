@@ -373,6 +373,23 @@ class GridpuzzlesolverPlugin:
                     frame=inputs.get("frame") or inputs.get("outside_sums") or {},
                     include_frame=True,
                 )
+            elif puzzle_type in {"sudoku_outside", "outside", "outside_sudoku"}:
+                puzzle_text = self._first_non_empty(
+                    inputs.get("grid"),
+                    inputs.get("puzzle"),
+                    inputs.get("text"),
+                )
+                problem = self._build_sudoku_problem(
+                    puzzle_text,
+                    include_diagonals=False,
+                    include_center_dot=False,
+                    include_windoku=False,
+                    include_girandola=False,
+                    include_asterisk=False,
+                    variant="sudoku_outside",
+                    outside=inputs.get("outside") or inputs.get("outside_clues") or inputs.get("clues") or {},
+                    include_outside=True,
+                )
             elif puzzle_type in {"sudoku_godoku", "godoku", "wordoku", "alphabet_sudoku"}:
                 puzzle_text = self._first_non_empty(
                     inputs.get("grid"),
@@ -532,6 +549,8 @@ class GridpuzzlesolverPlugin:
         include_skyscraper: bool = False,
         frame: Any = None,
         include_frame: bool = False,
+        outside: Any = None,
+        include_outside: bool = False,
         symbols_override: Optional[Sequence[str]] = None,
         parity: Any = None,
         include_parity: bool = False,
@@ -657,6 +676,8 @@ class GridpuzzlesolverPlugin:
             constraints.extend(self._parse_skyscraper_constraints(skyscraper))
         if include_frame:
             constraints.extend(self._parse_frame_constraints(frame))
+        if include_outside:
+            constraints.extend(self._parse_outside_constraints(outside))
         if include_parity:
             constraints.extend(self._parse_parity_constraints(parity))
         if include_non_consecutive:
@@ -1362,6 +1383,14 @@ class GridpuzzlesolverPlugin:
             solver.add(z3.Distinct(*(variables[cell] for cell in cells)))
             return
 
+        if kind in {"contains_value", "contains"}:
+            if len(cells) < 1 or constraint.value is None:
+                raise ValueError("La contrainte contains_value attend des cellules et une valeur")
+            if constraint.value not in symbol_to_index:
+                raise ValueError(f"Valeur inconnue dans contains_value: {constraint.value}")
+            solver.add(z3.Or(*(variables[cell] == symbol_to_index[constraint.value] for cell in cells)))
+            return
+
         if kind == "sum":
             if constraint.total is None:
                 raise ValueError("La contrainte sum attend un total")
@@ -1895,6 +1924,84 @@ class GridpuzzlesolverPlugin:
         if side == "bottom":
             return ((6, index), (7, index), (8, index))
         raise ValueError(f"Cote Frame inconnu: {side}")
+
+    def _parse_outside_constraints(self, raw_outside: Any) -> List[GridConstraint]:
+        if raw_outside in (None, "", []):
+            raw_outside = {}
+        if isinstance(raw_outside, str):
+            text = raw_outside.strip()
+            if text:
+                try:
+                    raw_outside = json.loads(text)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(f"Outside JSON invalide: {exc.msg}") from exc
+            else:
+                raw_outside = {}
+        if not isinstance(raw_outside, dict):
+            raise ValueError("Format outside non supporte")
+
+        side_specs = (
+            ("top", raw_outside.get("top") or raw_outside.get("t")),
+            ("bottom", raw_outside.get("bottom") or raw_outside.get("b")),
+            ("left", raw_outside.get("left") or raw_outside.get("l")),
+            ("right", raw_outside.get("right") or raw_outside.get("r")),
+        )
+
+        constraints: List[GridConstraint] = []
+        for side, raw_values in side_specs:
+            values = self._parse_outside_side(raw_values, side)
+            for index, digits in enumerate(values):
+                for digit in digits:
+                    constraints.append(
+                        GridConstraint("contains_value", self._outside_cells(side, index), value=digit)
+                    )
+        return constraints
+
+    def _parse_outside_side(self, raw_values: Any, side: str) -> List[List[str]]:
+        if raw_values in (None, ""):
+            return [[] for _ in range(9)]
+        if isinstance(raw_values, str):
+            stripped = raw_values.strip()
+            if any(char.isspace() or char in ",;|" for char in stripped):
+                values = [part for part in re.split(r"[\s,;|]+", stripped) if part != ""]
+            else:
+                values = list(stripped)
+        elif isinstance(raw_values, list):
+            values = list(raw_values)
+        else:
+            raise ValueError(f"outside.{side} doit etre une liste ou une chaine")
+
+        if len(values) != 9:
+            raise ValueError(f"outside.{side} doit contenir 9 valeurs")
+
+        return [self._normalize_outside_digits(value, side) for value in values]
+
+    def _normalize_outside_digits(self, raw_value: Any, side: str) -> List[str]:
+        text = str(raw_value or "").strip()
+        if text in {"", ".", "0", "_", "-", "?"}:
+            return []
+        digits: List[str] = []
+        for char in text:
+            if char in {" ", ","}:
+                continue
+            if char < "1" or char > "9":
+                raise ValueError(f"Indice Outside non supporte sur {side}: {raw_value}")
+            if char not in digits:
+                digits.append(char)
+        if len(digits) > 3:
+            raise ValueError(f"outside.{side} ne peut pas imposer plus de 3 chiffres par position")
+        return digits
+
+    def _outside_cells(self, side: str, index: int) -> Tuple[Cell, Cell, Cell]:
+        if side == "left":
+            return ((index, 0), (index, 1), (index, 2))
+        if side == "right":
+            return ((index, 8), (index, 7), (index, 6))
+        if side == "top":
+            return ((0, index), (1, index), (2, index))
+        if side == "bottom":
+            return ((8, index), (7, index), (6, index))
+        raise ValueError(f"Cote Outside inconnu: {side}")
 
     def _parse_parity_constraints(self, raw_parity: Any) -> List[GridConstraint]:
         if raw_parity in (None, "", []):

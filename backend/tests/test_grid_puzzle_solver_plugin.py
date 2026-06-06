@@ -1209,6 +1209,67 @@ def test_frame_rejects_contradictory_outside_sum():
     assert result["summary"] == "Aucune solution compatible avec les contraintes"
 
 
+def test_outside_accepts_matching_edge_digits():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "sudoku_outside",
+            "grid": """
+                534678912
+                672195348
+                198342567
+                859761423
+                426853791
+                713924856
+                961537284
+                287419635
+                345286179
+            """,
+            "outside": {
+                "top": ["5", "79", "", "", "4", "8", "", "6", ""],
+                "bottom": ["3", "4", "", "", "8", "7", "", "8", ""],
+                "left": ["53", "72", "8", "85", "42", "7", "96", "7", "3"],
+                "right": ["1", "8", "76", "4", "19", "65", "4", "53", "97"],
+            },
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["unique"] is True
+    assert result["metadata"]["variant"] == "sudoku_outside"
+
+
+def test_outside_rejects_missing_edge_digit():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "outside",
+            "grid": """
+                534678912
+                672195348
+                198342567
+                859761423
+                426853791
+                713924856
+                961537284
+                287419635
+                345286179
+            """,
+            "outside": {
+                "top": ["9", "", "", "", "", "", "", "", ""],
+            },
+            "max_solutions": 1,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+    assert result["summary"] == "Aucune solution compatible avec les contraintes"
+
+
 def test_godoku_accepts_letter_symbols():
     plugin = load_plugin()
 
