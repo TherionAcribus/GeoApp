@@ -10,7 +10,7 @@ import './style/grid-puzzle-workbench.css';
 type Grid = string[][];
 type RegionGrid = number[][];
 type WorkMode = 'edit' | 'watch' | 'parity';
-type SudokuVariant = 'sudoku_classic' | 'sudoku_4x4' | 'sudoku_6x6' | 'sudoku_8x8' | 'sudoku_10x10' | 'sudoku_12x12' | 'sudoku_15x15' | 'sudoku_16x16' | 'sudoku_x' | 'sudoku_argyle' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_outside' | 'sudoku_little_killer' | 'sudoku_godoku' | 'sudoku_even_odd' | 'sudoku_non_consecutive' | 'sudoku_mine' | 'sudoku_mine_6x6' | 'sudoku_tripod' | 'sudoku_tripod_4x4' | 'sudoku_tripod_5x5' | 'sudoku_tripod_6x6' | 'sudoku_tripod_7x7' | 'sudoku_tripod_8x8';
+type SudokuVariant = 'sudoku_classic' | 'sudoku_4x4' | 'sudoku_6x6' | 'sudoku_8x8' | 'sudoku_10x10' | 'sudoku_12x12' | 'sudoku_15x15' | 'sudoku_16x16' | 'sudoku_x' | 'sudoku_argyle' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_outside' | 'sudoku_little_killer' | 'sudoku_little_unique_killer' | 'sudoku_godoku' | 'sudoku_even_odd' | 'sudoku_non_consecutive' | 'sudoku_mine' | 'sudoku_mine_6x6' | 'sudoku_tripod' | 'sudoku_tripod_4x4' | 'sudoku_tripod_5x5' | 'sudoku_tripod_6x6' | 'sudoku_tripod_7x7' | 'sudoku_tripod_8x8';
 type InequalitySymbol = '' | '>' | '<';
 type InequalityGrid = InequalitySymbol[][];
 type XvSymbol = '' | 'X' | 'V';
@@ -332,6 +332,9 @@ function getVariantLabel(puzzleType: SudokuVariant): string {
     }
     if (puzzleType === 'sudoku_little_killer') {
         return 'Little Killer';
+    }
+    if (puzzleType === 'sudoku_little_unique_killer') {
+        return 'Little Unique Killer';
     }
     if (puzzleType === 'sudoku_godoku') {
         return 'Godoku';
@@ -843,8 +846,14 @@ function findConstraintConflicts(
         addOutsideConflicts(grid, cells, messages, outsideClues);
     }
 
-    if (puzzleType === 'sudoku_little_killer') {
-        addLittleKillerConflicts(grid, cells, messages, littleKillerClues);
+    if (puzzleType === 'sudoku_little_killer' || puzzleType === 'sudoku_little_unique_killer') {
+        addLittleKillerConflicts(
+            grid,
+            cells,
+            messages,
+            littleKillerClues,
+            puzzleType === 'sudoku_little_unique_killer',
+        );
     }
 
     if (puzzleType === 'sudoku_even_odd') {
@@ -1153,6 +1162,7 @@ function addLittleKillerConflicts(
     cells: Set<string>,
     messages: string[],
     clues: LittleKillerClues,
+    unique = false,
 ): void {
     (['top', 'bottom', 'left', 'right'] as SkyscraperSide[]).forEach(side => {
         clues[side].forEach((clue, index) => {
@@ -1160,6 +1170,24 @@ function addLittleKillerConflicts(
                 return;
             }
             const diagonal = littleKillerCells(side, index, clue.direction);
+            if (unique) {
+                const byValue = new Map<string, string[]>();
+                diagonal.forEach(([row, col]) => {
+                    const value = grid[row]?.[col] || '';
+                    if (!value) {
+                        return;
+                    }
+                    const refs = byValue.get(value) || [];
+                    refs.push(cellRef(row, col));
+                    byValue.set(value, refs);
+                });
+                for (const [value, refs] of byValue.entries()) {
+                    if (refs.length > 1) {
+                        refs.forEach(ref => cells.add(ref));
+                        messages.push(`Doublon ${value} sur Little Unique Killer ${skyscraperSideLabel(side)} ${index + 1} : ${refs.join(', ')}`);
+                    }
+                }
+            }
             const values = diagonal.map(([row, col]) => Number(grid[row]?.[col] || 0));
             if (values.some(value => !value)) {
                 return;
@@ -2378,7 +2406,8 @@ function GridPuzzleWorkbenchApp({
     const isSkyscraper = puzzleType === 'sudoku_skyscraper';
     const isFrame = puzzleType === 'sudoku_frame';
     const isOutside = puzzleType === 'sudoku_outside';
-    const isLittleKiller = puzzleType === 'sudoku_little_killer';
+    const isLittleKiller = puzzleType === 'sudoku_little_killer' || puzzleType === 'sudoku_little_unique_killer';
+    const isLittleUniqueKiller = puzzleType === 'sudoku_little_unique_killer';
     const isGodoku = puzzleType === 'sudoku_godoku';
     const isEvenOdd = puzzleType === 'sudoku_even_odd';
     const isNonConsecutive = puzzleType === 'sudoku_non_consecutive';
@@ -2914,6 +2943,7 @@ function GridPuzzleWorkbenchApp({
             || value === 'sudoku_frame'
             || value === 'sudoku_outside'
             || value === 'sudoku_little_killer'
+            || value === 'sudoku_little_unique_killer'
             || value === 'sudoku_godoku'
             || value === 'sudoku_even_odd'
             || value === 'sudoku_non_consecutive'
@@ -3596,6 +3626,7 @@ function GridPuzzleWorkbenchApp({
                         <option value='sudoku_frame'>Frame</option>
                         <option value='sudoku_outside'>Outside</option>
                         <option value='sudoku_little_killer'>Little Killer</option>
+                        <option value='sudoku_little_unique_killer'>Little Unique Killer</option>
                         <option value='sudoku_godoku'>Godoku</option>
                         <option value='sudoku_even_odd'>Even-Odd</option>
                         <option value='sudoku_non_consecutive'>Non-Consecutive</option>
@@ -3686,7 +3717,7 @@ function GridPuzzleWorkbenchApp({
                         {isSkyscraper ? ' Renseignez les indices exterieurs visibles depuis chaque cote de la grille.' : ''}
                         {isFrame ? ' Renseignez les sommes exterieures des trois cases les plus proches du bord.' : ''}
                         {isOutside ? ' Renseignez les chiffres exterieurs : ils doivent apparaitre dans les trois premieres cases vues depuis ce cote. Plusieurs chiffres peuvent partager un meme indice.' : ''}
-                        {isLittleKiller ? ' Renseignez les sommes Little Killer et cliquez la fleche pour choisir la diagonale visee.' : ''}
+                        {isLittleKiller ? ` Renseignez les sommes Little Killer et cliquez la fleche pour choisir la diagonale visee.${isLittleUniqueKiller ? ' Les diagonales flechees ne peuvent pas contenir de doublon.' : ''}` : ''}
                         {isGodoku ? ' Saisissez les lettres directement dans la grille. L alphabet peut etre renseigne dans les options si la grille ne montre pas les 9 lettres.' : ''}
                         {sizedSudokuConfig || tripodConfig ? ` Symboles utilises : ${sudokuSymbolsForSize((sizedSudokuConfig || tripodConfig)!.size).join(' ')}.` : ''}
                         {puzzleType === 'sudoku_argyle' ? ' Les diagonales orange du motif Argyle ne peuvent pas contenir deux fois le meme chiffre.' : ''}

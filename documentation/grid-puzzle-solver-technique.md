@@ -176,6 +176,7 @@ Valeurs supportees pour `puzzle_type` :
 | `sudoku_frame` | `frame`, `frame_sudoku`, `outside_sum_sudoku` | Sudoku standard + sommes exterieures des trois cases voisines du bord. |
 | `sudoku_outside` | `outside`, `outside_sudoku` | Sudoku standard + chiffres exterieurs presents dans les trois premieres cases vues depuis le bord. |
 | `sudoku_little_killer` | `little_killer`, `little_killer_sudoku` | Sudoku standard + sommes diagonales exterieures, repetitions autorisees sur les diagonales. |
+| `sudoku_little_unique_killer` | `little_unique_killer`, `little_unique_killer_sudoku`, `unique_little_killer` | Sudoku standard + sommes diagonales exterieures sans repetitions sur chaque diagonale flechee. |
 | `sudoku_godoku` | `godoku`, `wordoku`, `alphabet_sudoku` | Sudoku standard avec 9 lettres au lieu des chiffres. |
 | `sudoku_even_odd` | `even_odd`, `evenodd`, `odd_even_sudoku` | Sudoku standard + contraintes de parite sur certaines cases. |
 | `sudoku_non_consecutive` | `non_consecutive`, `nonconsecutive_sudoku` | Sudoku standard + interdiction des chiffres consecutifs dans les cases adjacentes. |
@@ -1454,6 +1455,30 @@ Dans l'atelier Theia, chaque indice affiche un champ de somme et un bouton de
 direction. Les conflits locaux sont signales des que toute la diagonale
 concernee est remplie.
 
+### Little Unique Killer Sudoku
+
+`puzzle_type = sudoku_little_unique_killer`
+
+Alias :
+
+```text
+little_unique_killer
+little_unique_killer_sudoku
+unique_little_killer
+unique_little_killer_sudoku
+```
+
+Contraintes :
+
+- toutes les contraintes du Little Killer Sudoku ;
+- chaque diagonale flechee est aussi une region `all_different` ;
+- les doublons sont donc interdits dans les cellules qui composent la somme.
+
+Le format d'entree est identique a `sudoku_little_killer` et reutilise le champ
+`little_killer`. Dans l'atelier Theia, les memes controles de somme et de
+direction sont utilises, avec une detection locale des doublons sur les
+diagonales flechees.
+
 ### Godoku / Wordoku / Alphabet Sudoku
 
 `puzzle_type = sudoku_godoku`
@@ -1856,7 +1881,7 @@ Fonctionnalites actuelles :
 |---|---|---|
 | `grid` | `string[][]` | Valeurs courantes de la grille. |
 | `quickText` | `string` | Representation texte de la grille. |
-| `puzzleType` | `sudoku_classic`, variantes classiques `sudoku_4x4` a `sudoku_16x16`, `sudoku_x`, `sudoku_argyle`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_rossini`, `sudoku_xv`, `sudoku_skyscraper`, `sudoku_frame`, `sudoku_outside`, `sudoku_little_killer`, `sudoku_godoku`, `sudoku_even_odd`, `sudoku_non_consecutive`, `sudoku_mine`, `sudoku_mine_6x6` ou `sudoku_tripod_4x4` a `sudoku_tripod_8x8` | Variante active. |
+| `puzzleType` | `sudoku_classic`, variantes classiques `sudoku_4x4` a `sudoku_16x16`, `sudoku_x`, `sudoku_argyle`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_rossini`, `sudoku_xv`, `sudoku_skyscraper`, `sudoku_frame`, `sudoku_outside`, `sudoku_little_killer`, `sudoku_little_unique_killer`, `sudoku_godoku`, `sudoku_even_odd`, `sudoku_non_consecutive`, `sudoku_mine`, `sudoku_mine_6x6` ou `sudoku_tripod_4x4` a `sudoku_tripod_8x8` | Variante active. |
 | `horizontalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme ligne. |
 | `verticalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme colonne. |
 | `rossiniArrows` | object | Fleches de bord `top`, `bottom`, `left`, `right` pour Rossini. |

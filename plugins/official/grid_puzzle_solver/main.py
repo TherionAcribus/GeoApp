@@ -407,6 +407,30 @@ class GridpuzzlesolverPlugin:
                     little_killer=inputs.get("little_killer") or inputs.get("diagonal_sums") or inputs.get("clues") or {},
                     include_little_killer=True,
                 )
+            elif puzzle_type in {
+                "sudoku_little_unique_killer",
+                "little_unique_killer",
+                "little_unique_killer_sudoku",
+                "unique_little_killer",
+                "unique_little_killer_sudoku",
+            }:
+                puzzle_text = self._first_non_empty(
+                    inputs.get("grid"),
+                    inputs.get("puzzle"),
+                    inputs.get("text"),
+                )
+                problem = self._build_sudoku_problem(
+                    puzzle_text,
+                    include_diagonals=False,
+                    include_center_dot=False,
+                    include_windoku=False,
+                    include_girandola=False,
+                    include_asterisk=False,
+                    variant="sudoku_little_unique_killer",
+                    little_killer=inputs.get("little_killer") or inputs.get("diagonal_sums") or inputs.get("clues") or {},
+                    include_little_killer=True,
+                    include_little_killer_unique=True,
+                )
             elif puzzle_type in {"sudoku_godoku", "godoku", "wordoku", "alphabet_sudoku"}:
                 puzzle_text = self._first_non_empty(
                     inputs.get("grid"),
@@ -570,6 +594,7 @@ class GridpuzzlesolverPlugin:
         include_outside: bool = False,
         little_killer: Any = None,
         include_little_killer: bool = False,
+        include_little_killer_unique: bool = False,
         symbols_override: Optional[Sequence[str]] = None,
         parity: Any = None,
         include_parity: bool = False,
@@ -698,7 +723,12 @@ class GridpuzzlesolverPlugin:
         if include_outside:
             constraints.extend(self._parse_outside_constraints(outside))
         if include_little_killer:
-            constraints.extend(self._parse_little_killer_constraints(little_killer))
+            constraints.extend(
+                self._parse_little_killer_constraints(
+                    little_killer,
+                    unique=include_little_killer_unique,
+                )
+            )
         if include_parity:
             constraints.extend(self._parse_parity_constraints(parity))
         if include_non_consecutive:
@@ -2024,7 +2054,11 @@ class GridpuzzlesolverPlugin:
             return ((8, index), (7, index), (6, index))
         raise ValueError(f"Cote Outside inconnu: {side}")
 
-    def _parse_little_killer_constraints(self, raw_little_killer: Any) -> List[GridConstraint]:
+    def _parse_little_killer_constraints(
+        self,
+        raw_little_killer: Any,
+        unique: bool = False,
+    ) -> List[GridConstraint]:
         if raw_little_killer in (None, "", []):
             raw_little_killer = {}
         if isinstance(raw_little_killer, str):
@@ -2033,11 +2067,11 @@ class GridpuzzlesolverPlugin:
                 try:
                     raw_little_killer = json.loads(text)
                 except json.JSONDecodeError:
-                    return self._parse_little_killer_lines(text)
+                    return self._parse_little_killer_lines(text, unique=unique)
             else:
                 raw_little_killer = {}
         if isinstance(raw_little_killer, list):
-            return self._parse_little_killer_entries(raw_little_killer)
+            return self._parse_little_killer_entries(raw_little_killer, unique=unique)
         if not isinstance(raw_little_killer, dict):
             raise ValueError("Format little_killer non supporte")
 
@@ -2054,16 +2088,23 @@ class GridpuzzlesolverPlugin:
                 if entry is None:
                     continue
                 total, direction = entry
-                constraints.append(
-                    GridConstraint(
-                        "sum",
-                        self._little_killer_cells(side, index, direction),
-                        total=total,
+                constraints.extend(
+                    self._build_little_killer_constraints(
+                        side,
+                        index,
+                        direction,
+                        total,
+                        unique,
                     )
                 )
 
         if "constraints" in raw_little_killer:
-            constraints.extend(self._parse_little_killer_entries(raw_little_killer["constraints"]))
+            constraints.extend(
+                self._parse_little_killer_entries(
+                    raw_little_killer["constraints"],
+                    unique=unique,
+                )
+            )
         return constraints
 
     def _parse_little_killer_side(self, raw_values: Any, side: str) -> List[Optional[Tuple[int, str]]]:
@@ -2084,7 +2125,11 @@ class GridpuzzlesolverPlugin:
 
         return [self._normalize_little_killer_entry(value, side) for value in values]
 
-    def _parse_little_killer_entries(self, raw_entries: Any) -> List[GridConstraint]:
+    def _parse_little_killer_entries(
+        self,
+        raw_entries: Any,
+        unique: bool = False,
+    ) -> List[GridConstraint]:
         if raw_entries in (None, "", []):
             return []
         if not isinstance(raw_entries, list):
@@ -2107,12 +2152,22 @@ class GridpuzzlesolverPlugin:
             if normalized is None:
                 continue
             total, direction = normalized
-            constraints.append(
-                GridConstraint("sum", self._little_killer_cells(side, index, direction), total=total)
+            constraints.extend(
+                self._build_little_killer_constraints(
+                    side,
+                    index,
+                    direction,
+                    total,
+                    unique,
+                )
             )
         return constraints
 
-    def _parse_little_killer_lines(self, text: str) -> List[GridConstraint]:
+    def _parse_little_killer_lines(
+        self,
+        text: str,
+        unique: bool = False,
+    ) -> List[GridConstraint]:
         constraints: List[GridConstraint] = []
         for line in text.splitlines():
             stripped = line.strip()
@@ -2130,9 +2185,29 @@ class GridpuzzlesolverPlugin:
             if index < 0 or index >= 9:
                 raise ValueError(f"Index Little Killer hors grille: {match.group(2)}")
             direction = self._normalize_little_killer_direction(match.group(4), side)
-            constraints.append(
-                GridConstraint("sum", self._little_killer_cells(side, index, direction), total=int(match.group(3)))
+            constraints.extend(
+                self._build_little_killer_constraints(
+                    side,
+                    index,
+                    direction,
+                    int(match.group(3)),
+                    unique,
+                )
             )
+        return constraints
+
+    def _build_little_killer_constraints(
+        self,
+        side: str,
+        index: int,
+        direction: str,
+        total: int,
+        unique: bool,
+    ) -> List[GridConstraint]:
+        cells = self._little_killer_cells(side, index, direction)
+        constraints = [GridConstraint("sum", cells, total=total)]
+        if unique and len(cells) > 1:
+            constraints.append(GridConstraint("all_different", cells))
         return constraints
 
     def _normalize_little_killer_entry(self, raw_value: Any, side: str) -> Optional[Tuple[int, str]]:

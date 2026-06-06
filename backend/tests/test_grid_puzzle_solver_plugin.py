@@ -1335,6 +1335,65 @@ def test_little_killer_rejects_contradictory_diagonal_sum():
     assert result["summary"] == "Aucune solution compatible avec les contraintes"
 
 
+def test_little_unique_killer_accepts_matching_unique_diagonal_sum():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "sudoku_little_unique_killer",
+            "grid": """
+                534678912
+                672195348
+                198342567
+                859761423
+                426853791
+                713924856
+                961537284
+                287419635
+                345286179
+            """,
+            "little_killer": {
+                "top": ["", "", "", {"total": 25, "direction": "dl"}, "", "", "", "", ""],
+            },
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["unique"] is True
+    assert result["metadata"]["variant"] == "sudoku_little_unique_killer"
+    assert result["metadata"]["constraint_count"] == 29
+
+
+def test_little_unique_killer_rejects_repeated_digit_on_diagonal_sum():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "little_unique_killer",
+            "grid": """
+                534678912
+                672195348
+                198342567
+                859761423
+                426853791
+                713924856
+                961537284
+                287419635
+                345286179
+            """,
+            "little_killer": {
+                "top": [{"total": 50, "direction": "dr"}, "", "", "", "", "", "", "", ""],
+            },
+            "max_solutions": 1,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+    assert result["summary"] == "Aucune solution compatible avec les contraintes"
+
+
 def test_godoku_accepts_letter_symbols():
     plugin = load_plugin()
 

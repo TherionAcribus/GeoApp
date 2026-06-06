@@ -58,6 +58,8 @@ Generic finite-domain grid solver powered by Z3.
 - `sudoku_little_killer`: classic 9x9 Sudoku plus diagonal outside sum clues.
   Each clue gives the sum of the cells on the indicated diagonal; repeats are
   allowed along that diagonal.
+- `sudoku_little_unique_killer`: Little Killer Sudoku where every indicated
+  sum diagonal also rejects repeated digits.
 - `sudoku_godoku`: classic 9x9 Sudoku using nine letters instead of digits.
   The alphabet can be provided explicitly or inferred from the givens when all
   nine letters are present.
@@ -112,7 +114,8 @@ Sudoku is just the first builder on top of a generic CSP model:
 - visibility count constraints (`visible_count`) for outside-clue variants such
   as Skyscraper Sudoku;
 - contains-value constraints (`contains_value`) for Outside Sudoku;
-- diagonal outside sum constraints for Little Killer Sudoku;
+- diagonal outside sum constraints for Little Killer and Little Unique Killer
+  Sudoku;
 - parity constraints (`parity`) for variants such as Even-Odd Sudoku;
 - non-consecutive adjacency constraints (`non_consecutive`) for variants where
   neighboring cells cannot differ by 1;
@@ -138,8 +141,8 @@ the Theia "Grilles" workbench:
   Anti Diagonal, Center Dot, Windoku, Girandola, Asterisk, Sujiken, Samurai Sudoku,
   Flower Sudoku,
   Sohei Sudoku, Kazaguruma, Greater Than, Rossini, Sudoku XV, Skyscraper,
-  Frame, Outside, Little Killer, Godoku, Even-Odd, Non-Consecutive and Tripod
-  4x4 through 8x8;
+  Frame, Outside, Little Killer, Little Unique Killer, Godoku, Even-Odd,
+  Non-Consecutive and Tripod 4x4 through 8x8;
 - Sudoku Mine entry using clue digits and solved mine markers;
 - editable outside digit clues for Outside Sudoku;
 - editable Tripod dots at grid intersections;
@@ -148,7 +151,8 @@ the Theia "Grilles" workbench:
 - editable `X` / `V` borders for Sudoku XV;
 - editable outside visibility clues for Skyscraper Sudoku;
 - editable outside three-cell sum clues for Frame Sudoku;
-- editable diagonal outside sum clues for Little Killer Sudoku;
+- editable diagonal outside sum clues for Little Killer and Little Unique
+  Killer Sudoku;
 - letter entry and optional alphabet field for Godoku / Wordoku;
 - editable parity marks for Even-Odd Sudoku;
 - watch mode to mark answer cells;
