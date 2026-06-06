@@ -426,6 +426,39 @@ class GridpuzzlesolverPlugin:
                     variant="sudoku_non_consecutive",
                     include_non_consecutive=True,
                 )
+            elif puzzle_type in {
+                "sudoku_mine",
+                "mine_sudoku",
+                "minesudoku",
+                "sudoku_mine_9x9",
+            }:
+                puzzle_text = self._first_non_empty(
+                    inputs.get("grid"),
+                    inputs.get("puzzle"),
+                    inputs.get("text"),
+                )
+                problem = self._build_mine_problem(
+                    puzzle_text,
+                    size=9,
+                    box_rows=3,
+                    box_cols=3,
+                    mines_per_unit=3,
+                    variant="sudoku_mine",
+                )
+            elif puzzle_type in {"sudoku_mine_6x6", "mine_sudoku_6x6", "minesudoku_6x6"}:
+                puzzle_text = self._first_non_empty(
+                    inputs.get("grid"),
+                    inputs.get("puzzle"),
+                    inputs.get("text"),
+                )
+                problem = self._build_mine_problem(
+                    puzzle_text,
+                    size=6,
+                    box_rows=2,
+                    box_cols=3,
+                    mines_per_unit=2,
+                    variant="sudoku_mine_6x6",
+                )
             elif (tripod_size := self._tripod_size(puzzle_type)) is not None:
                 puzzle_text = self._first_non_empty(
                     inputs.get("grid"),
@@ -909,6 +942,57 @@ class GridpuzzlesolverPlugin:
                 variant=f"sudoku_tripod_{size}x{size}",
             ),
             self._parse_tripod_dots(raw_tripod, size),
+        )
+
+    def _build_mine_problem(
+        self,
+        puzzle_text: str,
+        size: int,
+        box_rows: int,
+        box_cols: int,
+        mines_per_unit: int,
+        variant: str,
+    ) -> GridCspProblem:
+        clues = self._parse_mine_clues(puzzle_text, size)
+        symbols = [".", "M"]
+        active_cells = [(row, col) for row in range(size) for col in range(size)]
+        constraints: List[GridConstraint] = []
+
+        for row in range(size):
+            constraints.append(
+                GridConstraint("sum", tuple((row, col) for col in range(size)), total=mines_per_unit)
+            )
+        for col in range(size):
+            constraints.append(
+                GridConstraint("sum", tuple((row, col) for row in range(size)), total=mines_per_unit)
+            )
+        for box_row in range(0, size, box_rows):
+            for box_col in range(0, size, box_cols):
+                constraints.append(
+                    GridConstraint(
+                        "sum",
+                        tuple(
+                            (box_row + row_delta, box_col + col_delta)
+                            for row_delta in range(box_rows)
+                            for col_delta in range(box_cols)
+                        ),
+                        total=mines_per_unit,
+                    )
+                )
+
+        for cell, clue in clues.items():
+            constraints.append(GridConstraint("equals", (cell,), value="."))
+            constraints.append(GridConstraint("sum", tuple(self._mine_neighbors(cell, size)), total=clue))
+
+        return GridCspProblem(
+            rows=size,
+            cols=size,
+            symbols=symbols,
+            active_cells=active_cells,
+            givens={},
+            constraints=constraints,
+            numeric_values={".": 0, "M": 1},
+            variant=variant,
         )
 
     # ------------------------------------------------------------------
@@ -2039,6 +2123,49 @@ class GridpuzzlesolverPlugin:
                 f"Une grille Sudoku {size}x{size} doit contenir {expected} cases, {len(tokens)} detectees"
             )
         return tokens
+
+    def _parse_mine_clues(self, text: str, size: int) -> Dict[Cell, int]:
+        if not text or not str(text).strip():
+            raise ValueError("Aucune grille Sudoku Mine fournie")
+
+        tokens: List[Optional[int]] = []
+        for raw_line in str(text).splitlines():
+            line = raw_line.strip()
+            if not line or SEPARATOR_LINE_RE.fullmatch(line):
+                continue
+            for char in line:
+                if char.isdigit():
+                    clue = int(char)
+                    if clue > 8:
+                        raise ValueError(f"Indice Sudoku Mine non supporte: {char}")
+                    tokens.append(clue)
+                elif char in {".", "_", "-"}:
+                    tokens.append(None)
+
+        expected = size * size
+        if len(tokens) != expected:
+            raise ValueError(
+                f"Une grille Sudoku Mine {size}x{size} doit contenir {expected} cases, {len(tokens)} detectees"
+            )
+
+        return {
+            (index // size, index % size): clue
+            for index, clue in enumerate(tokens)
+            if clue is not None
+        }
+
+    def _mine_neighbors(self, cell: Cell, size: int) -> List[Cell]:
+        row, col = cell
+        neighbors: List[Cell] = []
+        for row_delta in (-1, 0, 1):
+            for col_delta in (-1, 0, 1):
+                if row_delta == 0 and col_delta == 0:
+                    continue
+                next_row = row + row_delta
+                next_col = col + col_delta
+                if 0 <= next_row < size and 0 <= next_col < size:
+                    neighbors.append((next_row, next_col))
+        return neighbors
 
     def _parse_godoku_symbols(self, raw_symbols: Any, puzzle_text: str) -> List[str]:
         if raw_symbols not in (None, "", []):

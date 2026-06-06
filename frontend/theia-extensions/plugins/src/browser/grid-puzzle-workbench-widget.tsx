@@ -10,7 +10,7 @@ import './style/grid-puzzle-workbench.css';
 type Grid = string[][];
 type RegionGrid = number[][];
 type WorkMode = 'edit' | 'watch' | 'parity';
-type SudokuVariant = 'sudoku_classic' | 'sudoku_4x4' | 'sudoku_6x6' | 'sudoku_8x8' | 'sudoku_10x10' | 'sudoku_12x12' | 'sudoku_15x15' | 'sudoku_16x16' | 'sudoku_x' | 'sudoku_argyle' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_godoku' | 'sudoku_even_odd' | 'sudoku_non_consecutive' | 'sudoku_tripod' | 'sudoku_tripod_4x4' | 'sudoku_tripod_5x5' | 'sudoku_tripod_6x6' | 'sudoku_tripod_7x7' | 'sudoku_tripod_8x8';
+type SudokuVariant = 'sudoku_classic' | 'sudoku_4x4' | 'sudoku_6x6' | 'sudoku_8x8' | 'sudoku_10x10' | 'sudoku_12x12' | 'sudoku_15x15' | 'sudoku_16x16' | 'sudoku_x' | 'sudoku_argyle' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_godoku' | 'sudoku_even_odd' | 'sudoku_non_consecutive' | 'sudoku_mine' | 'sudoku_mine_6x6' | 'sudoku_tripod' | 'sudoku_tripod_4x4' | 'sudoku_tripod_5x5' | 'sudoku_tripod_6x6' | 'sudoku_tripod_7x7' | 'sudoku_tripod_8x8';
 type InequalitySymbol = '' | '>' | '<';
 type InequalityGrid = InequalitySymbol[][];
 type XvSymbol = '' | 'X' | 'V';
@@ -77,6 +77,10 @@ const TRIPOD_SIZE_CONFIGS: Record<string, { size: number; label: string }> = {
     sudoku_tripod_7x7: { size: 7, label: 'Tripod 7x7' },
     sudoku_tripod_8x8: { size: 8, label: 'Tripod 8x8' },
 };
+const MINE_CONFIGS: Record<string, { size: number; boxRows: number; boxCols: number; minesPerUnit: number; label: string }> = {
+    sudoku_mine: { size: 9, boxRows: 3, boxCols: 3, minesPerUnit: 3, label: 'Sudoku Mine 9x9' },
+    sudoku_mine_6x6: { size: 6, boxRows: 2, boxCols: 3, minesPerUnit: 2, label: 'Sudoku Mine 6x6' },
+};
 const EMPTY_HORIZONTAL_INEQUALITIES: InequalityGrid = Array.from({ length: SIZE }, () => Array(SIZE - 1).fill(''));
 const EMPTY_VERTICAL_INEQUALITIES: InequalityGrid = Array.from({ length: SIZE - 1 }, () => Array(SIZE).fill(''));
 const EMPTY_XV_HORIZONTAL_MARKS: XvGrid = Array.from({ length: SIZE }, () => Array(SIZE - 1).fill(''));
@@ -125,6 +129,10 @@ const KAZAGURUMA_TEXT_PLACEHOLDER = Array.from({ length: SAMURAI_SIZE }, (_row, 
 
 function sizedSudokuTextPlaceholder(size: number): string {
     return Array.from({ length: size }, () => '0'.repeat(size)).join('\n');
+}
+
+function mineTextPlaceholder(size: number): string {
+    return Array.from({ length: size }, () => '.'.repeat(size)).join('\n');
 }
 
 interface GridPuzzleWorkbenchAppProps {
@@ -207,6 +215,10 @@ function getVariantLabel(puzzleType: SudokuVariant): string {
     const tripodConfig = getTripodConfig(puzzleType);
     if (tripodConfig) {
         return tripodConfig.label;
+    }
+    const mineConfig = getMineConfig(puzzleType);
+    if (mineConfig) {
+        return mineConfig.label;
     }
     if (puzzleType === 'sudoku_x') {
         return 'Sudoku X';
@@ -384,6 +396,12 @@ function getTripodConfig(puzzleType: SudokuVariant): { size: number; label: stri
     return TRIPOD_SIZE_CONFIGS[puzzleType];
 }
 
+function getMineConfig(
+    puzzleType: SudokuVariant,
+): { size: number; boxRows: number; boxCols: number; minesPerUnit: number; label: string } | undefined {
+    return MINE_CONFIGS[puzzleType];
+}
+
 function getSingleGridSudokuConfig(puzzleType: SudokuVariant): { size: number; boxRows: number; boxCols: number; label: string } | undefined {
     return getSizedSudokuConfig(puzzleType) || {
         size: SIZE,
@@ -408,6 +426,10 @@ function gridSizeForVariant(puzzleType: SudokuVariant): number {
     if (tripodConfig) {
         return tripodConfig.size;
     }
+    const mineConfig = getMineConfig(puzzleType);
+    if (mineConfig) {
+        return mineConfig.size;
+    }
     return getSingleGridSudokuConfig(puzzleType)?.size || SIZE;
 }
 
@@ -430,6 +452,10 @@ function isActiveCellForVariant(puzzleType: SudokuVariant, row: number, col: num
     const tripodConfig = getTripodConfig(puzzleType);
     if (tripodConfig) {
         return row >= 0 && row < tripodConfig.size && col >= 0 && col < tripodConfig.size;
+    }
+    const mineConfig = getMineConfig(puzzleType);
+    if (mineConfig) {
+        return row >= 0 && row < mineConfig.size && col >= 0 && col < mineConfig.size;
     }
     const config = getSingleGridSudokuConfig(puzzleType);
     return row >= 0 && row < (config?.size || SIZE) && col >= 0 && col < (config?.size || SIZE);
@@ -495,6 +521,9 @@ function buildCompositeSudokuRegions(offsets: Array<[number, number, string]>): 
 
 function getAllDifferentRegions(puzzleType: SudokuVariant): ConstraintRegion[] {
     const tripodConfig = getTripodConfig(puzzleType);
+    if (getMineConfig(puzzleType)) {
+        return [];
+    }
     const regions = puzzleType === 'sujiken'
         ? getSujikenRegions()
         : puzzleType === 'samurai_sudoku'
@@ -1322,6 +1351,9 @@ function normalizeTripodDots(value: unknown, size = SIZE): TripodDots {
 }
 
 function normalizeCellValueForVariant(rawValue: string, puzzleType: SudokuVariant): string {
+    if (getMineConfig(puzzleType)) {
+        return rawValue.replace(/[^0-8]/g, '').slice(-1);
+    }
     const symbolConfig = getSizedSudokuConfig(puzzleType) || getTripodConfig(puzzleType);
     if (symbolConfig) {
         const symbols = new Set(sudokuSymbolsForSize(symbolConfig.size));
@@ -1476,6 +1508,13 @@ function cycleXvMark(value: XvSymbol): XvSymbol {
 }
 
 function gridToText(grid: Grid, puzzleType: SudokuVariant = 'sudoku_classic'): string {
+    const mineConfig = getMineConfig(puzzleType);
+    if (mineConfig) {
+        return Array.from({ length: mineConfig.size }, (_row, rowIndex) => (
+            Array.from({ length: mineConfig.size }, (_col, colIndex) => grid[rowIndex]?.[colIndex] || '.').join('')
+        )).join('\n');
+    }
+
     const symbolConfig = getSizedSudokuConfig(puzzleType) || getTripodConfig(puzzleType);
     if (symbolConfig) {
         return Array.from({ length: symbolConfig.size }, (_row, rowIndex) => (
@@ -1536,6 +1575,31 @@ function parseGridText(text: string, puzzleType: SudokuVariant = 'sudoku_classic
         if (symbolSet.has(normalized)) {
             tokens.push(normalized);
         } else if (char === '0' || char === '.' || char === '_') {
+            tokens.push('');
+        }
+    }
+
+    if (tokens.length !== config.size * config.size) {
+        return null;
+    }
+
+    const grid = createEmptyGrid(config.size);
+    tokens.forEach((value, index) => {
+        grid[Math.floor(index / config.size)][index % config.size] = value;
+    });
+    return grid;
+}
+
+function parseMineText(text: string, puzzleType: SudokuVariant): Grid | null {
+    const config = getMineConfig(puzzleType);
+    if (!config) {
+        return null;
+    }
+    const tokens: string[] = [];
+    for (const char of text) {
+        if (/[0-8]/.test(char)) {
+            tokens.push(char);
+        } else if (char === '.' || char === '_' || char === '-') {
             tokens.push('');
         }
     }
@@ -1806,6 +1870,9 @@ function parseFlowerText(text: string): Grid | null {
 }
 
 function parsePuzzleText(text: string, puzzleType: SudokuVariant): Grid | null {
+    if (getMineConfig(puzzleType)) {
+        return parseMineText(text, puzzleType);
+    }
     if (puzzleType === 'sujiken') {
         return parseSujikenText(text);
     }
@@ -1836,6 +1903,7 @@ function normalizeGrid(value: unknown, puzzleType: SudokuVariant): Grid | undefi
     const requiredCols = puzzleType === 'kazaguruma_sudoku' ? KAZAGURUMA_COLS : size;
     const symbolConfig = getSizedSudokuConfig(puzzleType) || getTripodConfig(puzzleType);
     const sizedSymbols = symbolConfig ? new Set(sudokuSymbolsForSize(symbolConfig.size)) : undefined;
+    const mineConfig = getMineConfig(puzzleType);
     if (!Array.isArray(value) || value.length !== size) {
         return undefined;
     }
@@ -1848,6 +1916,9 @@ function normalizeGrid(value: unknown, puzzleType: SudokuVariant): Grid | undefi
             if (sizedSymbols) {
                 const text = String(cell ?? '').trim().slice(-1).toUpperCase();
                 return sizedSymbols.has(text) ? text : '';
+            }
+            if (mineConfig) {
+                return String(cell ?? '').replace(/[^0-8]/g, '').slice(-1);
             }
             const text = puzzleType === 'sudoku_godoku'
                 ? String(cell ?? '').replace(/[^A-Za-z]/g, '').slice(-1).toUpperCase()
@@ -1990,6 +2061,8 @@ function GridPuzzleWorkbenchApp({
     const isGodoku = puzzleType === 'sudoku_godoku';
     const isEvenOdd = puzzleType === 'sudoku_even_odd';
     const isNonConsecutive = puzzleType === 'sudoku_non_consecutive';
+    const mineConfig = getMineConfig(puzzleType);
+    const isMine = Boolean(mineConfig);
     const tripodConfig = getTripodConfig(puzzleType);
     const isTripod = Boolean(tripodConfig);
     const sizedSudokuConfig = getSizedSudokuConfig(puzzleType);
@@ -2000,7 +2073,7 @@ function GridPuzzleWorkbenchApp({
     const isKazaguruma = puzzleType === 'kazaguruma_sudoku';
     const gridSize = gridSizeForVariant(puzzleType);
     const solvedRegionGrid = isTripod ? extractRegionGridFromSolution(activeSolution, gridSize) : undefined;
-    const variableGridConfig = sizedSudokuConfig || tripodConfig;
+    const variableGridConfig = sizedSudokuConfig || tripodConfig || mineConfig;
     const sizedCellSize = variableGridConfig
         ? variableGridConfig.size >= 15
             ? 32
@@ -2014,6 +2087,8 @@ function GridPuzzleWorkbenchApp({
     } : undefined;
     const quickTextPlaceholder = isSujiken
         ? SUJIKEN_TEXT_PLACEHOLDER
+        : mineConfig
+            ? mineTextPlaceholder(mineConfig.size)
         : variableGridConfig
             ? sizedSudokuTextPlaceholder(variableGridConfig.size)
         : isFlower
@@ -2400,6 +2475,8 @@ function GridPuzzleWorkbenchApp({
                         ? `La saisie rapide ${sizedSudokuConfig.label} doit contenir exactement ${sizedSudokuConfig.size * sizedSudokuConfig.size} cases, avec symboles ${sudokuSymbolsForSize(sizedSudokuConfig.size).join('')} ou cases vides.`
                     : tripodConfig
                         ? `La saisie rapide ${tripodConfig.label} doit contenir exactement ${tripodConfig.size * tripodConfig.size} cases, avec symboles ${sudokuSymbolsForSize(tripodConfig.size).join('')} ou cases vides.`
+                    : mineConfig
+                        ? `La saisie rapide ${mineConfig.label} doit contenir exactement ${mineConfig.size * mineConfig.size} cases, avec chiffres 0-8 pour les indices et . pour les cases inconnues.`
                     : puzzleType === 'sudoku_godoku'
                         ? 'La saisie rapide Godoku doit contenir exactement 81 cases, avec lettres ou cases vides.'
                     : puzzleType === 'samurai_sudoku'
@@ -2417,7 +2494,7 @@ function GridPuzzleWorkbenchApp({
         setGridAndQuickText(parsed);
         setSolveState({ running: false });
         markDirty();
-    }, [markDirty, messageService, puzzleType, setGridAndQuickText, sizedSudokuConfig, tripodConfig]);
+    }, [markDirty, messageService, puzzleType, setGridAndQuickText, sizedSudokuConfig, tripodConfig, mineConfig]);
 
     const handleQuickTextChange = React.useCallback((text: string) => {
         setQuickText(text);
@@ -2457,6 +2534,8 @@ function GridPuzzleWorkbenchApp({
             || value === 'sudoku_godoku'
             || value === 'sudoku_even_odd'
             || value === 'sudoku_non_consecutive'
+            || value === 'sudoku_mine'
+            || value === 'sudoku_mine_6x6'
             || value === 'sudoku_tripod'
             || value === 'sudoku_tripod_4x4'
             || value === 'sudoku_tripod_5x5'
@@ -2608,7 +2687,7 @@ function GridPuzzleWorkbenchApp({
         extraClasses: string[] = [],
     ): string => {
         const ref = cellRef(rowIndex, colIndex);
-        const blockConfig = isTripod ? undefined : getSingleGridSudokuConfig(puzzleType);
+        const blockConfig = isTripod ? undefined : mineConfig || getSingleGridSudokuConfig(puzzleType);
         const isCompositeSudoku = puzzleType === 'samurai_sudoku'
             || puzzleType === 'flower_sudoku'
             || puzzleType === 'sohei_sudoku'
@@ -2636,6 +2715,7 @@ function GridPuzzleWorkbenchApp({
             puzzleType === 'sudoku_asterisk' && isAsteriskCell(rowIndex, colIndex) ? 'asterisk' : '',
             puzzleType === 'sudoku_even_odd' && parityMarks[rowIndex]?.[colIndex] === 'even' ? 'even-parity' : '',
             puzzleType === 'sudoku_even_odd' && parityMarks[rowIndex]?.[colIndex] === 'odd' ? 'odd-parity' : '',
+            isMine && value ? 'mine-clue' : '',
             puzzleType === 'sujiken' ? 'sujiken-cell' : '',
             puzzleType === 'samurai_sudoku' ? 'samurai-cell' : '',
             puzzleType === 'flower_sudoku' ? 'flower-cell' : '',
@@ -3021,6 +3101,8 @@ function GridPuzzleWorkbenchApp({
                         <option value='sudoku_godoku'>Godoku</option>
                         <option value='sudoku_even_odd'>Even-Odd</option>
                         <option value='sudoku_non_consecutive'>Non-Consecutive</option>
+                        <option value='sudoku_mine'>Sudoku Mine 9x9</option>
+                        <option value='sudoku_mine_6x6'>Sudoku Mine 6x6</option>
                         <option value='sudoku_tripod_4x4'>Tripod 4x4</option>
                         <option value='sudoku_tripod_5x5'>Tripod 5x5</option>
                         <option value='sudoku_tripod_6x6'>Tripod 6x6</option>
@@ -3102,10 +3184,11 @@ function GridPuzzleWorkbenchApp({
                         {isSkyscraper ? ' Renseignez les indices exterieurs visibles depuis chaque cote de la grille.' : ''}
                         {isFrame ? ' Renseignez les sommes exterieures des trois cases les plus proches du bord.' : ''}
                         {isGodoku ? ' Saisissez les lettres directement dans la grille. L alphabet peut etre renseigne dans les options si la grille ne montre pas les 9 lettres.' : ''}
-                        {variableGridConfig ? ` Symboles utilises : ${sudokuSymbolsForSize(variableGridConfig.size).join(' ')}.` : ''}
+                        {sizedSudokuConfig || tripodConfig ? ` Symboles utilises : ${sudokuSymbolsForSize((sizedSudokuConfig || tripodConfig)!.size).join(' ')}.` : ''}
                         {puzzleType === 'sudoku_argyle' ? ' Les diagonales orange du motif Argyle ne peuvent pas contenir deux fois le meme chiffre.' : ''}
                         {isEvenOdd ? ' Double-cliquez une case pour alterner entre pair, impair et vide. En mode Parite, un simple clic suffit.' : ''}
                         {isNonConsecutive ? ' Les cases adjacentes horizontalement ou verticalement ne peuvent pas contenir deux chiffres consecutifs.' : ''}
+                        {isMine ? ` Saisissez les indices 0-8. La solution place ${mineConfig?.minesPerUnit} mines par ligne, colonne et region ${mineConfig?.boxCols}x${mineConfig?.boxRows}.` : ''}
                         {isTripod ? ` Cliquez les intersections pour placer les points noirs Tripod (${tripodConfig?.size}x${tripodConfig?.size}). Le moteur reconstruit ensuite les regions.` : ''}
                         {puzzleType === 'sudoku_anti_diagonal' ? ' Anti Diagonal limite chaque grande diagonale a trois chiffres differents.' : ''}
                         {isSujiken ? ' Sujiken utilise les 45 cases du triangle.' : ''}
@@ -3145,7 +3228,7 @@ function GridPuzzleWorkbenchApp({
                                             ))}
                                         </select>
                                     ) : null}
-                                    <button onClick={useSolvedGrid}>Reprendre dans la grille</button>
+                                    {!isMine ? <button onClick={useSolvedGrid}>Reprendre dans la grille</button> : null}
                                 </div>
                             </div>
                             <div
@@ -3173,6 +3256,11 @@ function GridPuzzleWorkbenchApp({
                                             return null;
                                         }
                                         const ref = cellRef(rowIndex, colIndex);
+                                        const displayedValue = isMine
+                                            ? value === 'M'
+                                                ? 'M'
+                                                : grid[rowIndex]?.[colIndex] || ''
+                                            : value;
                                         return (
                                             <div
                                                 key={`solved-${ref}`}
@@ -3181,11 +3269,14 @@ function GridPuzzleWorkbenchApp({
                                                     colIndex,
                                                     grid[rowIndex][colIndex],
                                                     true,
-                                                    tripodRegionBoundaryClasses(rowIndex, colIndex),
+                                                    [
+                                                        ...tripodRegionBoundaryClasses(rowIndex, colIndex),
+                                                        isMine && value === 'M' ? 'mine-solved' : '',
+                                                    ],
                                                 )}
                                                 style={cellStyle(rowIndex, colIndex)}
                                             >
-                                                {value}
+                                                {displayedValue}
                                             </div>
                                         );
                                     })

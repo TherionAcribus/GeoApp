@@ -174,6 +174,8 @@ Valeurs supportees pour `puzzle_type` :
 | `sudoku_godoku` | `godoku`, `wordoku`, `alphabet_sudoku` | Sudoku standard avec 9 lettres au lieu des chiffres. |
 | `sudoku_even_odd` | `even_odd`, `evenodd`, `odd_even_sudoku` | Sudoku standard + contraintes de parite sur certaines cases. |
 | `sudoku_non_consecutive` | `non_consecutive`, `nonconsecutive_sudoku` | Sudoku standard + interdiction des chiffres consecutifs dans les cases adjacentes. |
+| `sudoku_mine` | `mine_sudoku`, `minesudoku`, `sudoku_mine_9x9` | Sudoku Mine 9x9 : 3 mines par ligne, colonne et bloc 3x3, indices adjacents. |
+| `sudoku_mine_6x6` | `mine_sudoku_6x6`, `minesudoku_6x6` | Sudoku Mine 6x6 : 2 mines par ligne, colonne et region 2x3, indices adjacents. |
 | `sudoku_tripod_4x4` a `sudoku_tripod_8x8` | `tripod`, `tripod_sudoku`, `sudoku_tripod` pour 5x5 | Tripod NxN avec regions reconstruites depuis les points noirs aux intersections. |
 | `custom_spec` | `custom`, `json_spec` | Probleme CSP decrit en JSON. |
 
@@ -1482,6 +1484,61 @@ Dans l'atelier Theia, la variante `Non-Consecutive` ne demande aucune saisie de
 marques supplementaires. Les conflits locaux sont signales en rouge des que
 deux cases voisines remplies contiennent des chiffres consecutifs.
 
+### Sudoku Mine
+
+`puzzle_type = sudoku_mine`
+
+Alias :
+
+```text
+mine_sudoku
+minesudoku
+sudoku_mine_9x9
+```
+
+La variante `sudoku_mine_6x6` accepte aussi :
+
+```text
+mine_sudoku_6x6
+minesudoku_6x6
+```
+
+Contraintes 9x9 :
+
+- chaque cellule contient soit une mine (`M`), soit aucune mine (`.`) ;
+- chaque ligne contient exactement 3 mines ;
+- chaque colonne contient exactement 3 mines ;
+- chaque bloc 3x3 contient exactement 3 mines ;
+- chaque indice numerique impose le nombre de mines dans les cases adjacentes
+  horizontalement, verticalement et diagonalement ;
+- une case indice ne peut pas contenir de mine.
+
+Contraintes 6x6 :
+
+- meme principe binaire ;
+- chaque ligne, colonne et region 2x3 contient exactement 2 mines.
+
+Format de grille :
+
+```text
+11.1.....
+.......3.
+..3....2.
+4.....2..
+...3..3..
+..3.....4
+.1...3...
+.3.......
+......121
+```
+
+Pour Sudoku Mine, les chiffres `0` a `8` sont des indices. Les cases inconnues
+doivent donc etre saisies avec `.`, `_` ou `-`; `0` n'est pas interprete comme
+une case vide dans cette variante.
+
+Dans l'atelier Theia, les indices restent visibles dans la solution et les mines
+trouvees sont affichees avec `M`.
+
 ### Tripod Sudoku / Sudoku Trepied
 
 `puzzle_type = sudoku_tripod_4x4` a `sudoku_tripod_8x8`
@@ -1691,7 +1748,7 @@ Fonctionnalites actuelles :
 |---|---|---|
 | `grid` | `string[][]` | Valeurs courantes de la grille. |
 | `quickText` | `string` | Representation texte de la grille. |
-| `puzzleType` | `sudoku_classic`, variantes classiques `sudoku_4x4` a `sudoku_16x16`, `sudoku_x`, `sudoku_argyle`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_rossini`, `sudoku_xv`, `sudoku_skyscraper`, `sudoku_frame`, `sudoku_godoku`, `sudoku_even_odd`, `sudoku_non_consecutive` ou `sudoku_tripod_4x4` a `sudoku_tripod_8x8` | Variante active. |
+| `puzzleType` | `sudoku_classic`, variantes classiques `sudoku_4x4` a `sudoku_16x16`, `sudoku_x`, `sudoku_argyle`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_rossini`, `sudoku_xv`, `sudoku_skyscraper`, `sudoku_frame`, `sudoku_godoku`, `sudoku_even_odd`, `sudoku_non_consecutive`, `sudoku_mine`, `sudoku_mine_6x6` ou `sudoku_tripod_4x4` a `sudoku_tripod_8x8` | Variante active. |
 | `horizontalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme ligne. |
 | `verticalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme colonne. |
 | `rossiniArrows` | object | Fleches de bord `top`, `bottom`, `left`, `right` pour Rossini. |

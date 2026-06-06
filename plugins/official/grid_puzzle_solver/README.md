@@ -60,6 +60,10 @@ Generic finite-domain grid solver powered by Z3.
   cells in grey and odd cells with a light marker.
 - `sudoku_non_consecutive`: classic 9x9 Sudoku where orthogonally adjacent
   cells cannot contain consecutive digits.
+- `sudoku_mine`: 9x9 Sudoku Mine. Place mines so every row, column and 3x3
+  box contains exactly three mines; numeric clues count adjacent mines.
+- `sudoku_mine_6x6`: 6x6 Sudoku Mine. Place two mines in every row, column
+  and 2x3 box; numeric clues count adjacent mines.
 - `sudoku_tripod_4x4` through `sudoku_tripod_8x8`: Tripod Sudoku. The solver
   reconstructs N connected N-cell regions from the marked tripod dots, then
   applies row, column and region uniqueness. The legacy `sudoku_tripod` alias
@@ -104,6 +108,7 @@ Sudoku is just the first builder on top of a generic CSP model:
 - parity constraints (`parity`) for variants such as Even-Odd Sudoku;
 - non-consecutive adjacency constraints (`non_consecutive`) for variants where
   neighboring cells cannot differ by 1;
+- binary mine placement with adjacent mine-count clues for Sudoku Mine;
 - a specialized Tripod model with value variables, region variables, vertex
   degree constraints and connected-region constraints;
 - solution enumeration with uniqueness detection.
@@ -126,6 +131,7 @@ the Theia "Grilles" workbench:
   Flower Sudoku,
   Sohei Sudoku, Kazaguruma, Greater Than, Rossini, Sudoku XV, Skyscraper,
   Frame, Godoku, Even-Odd, Non-Consecutive and Tripod 4x4 through 8x8;
+- Sudoku Mine entry using clue digits and solved mine markers;
 - editable Tripod dots at grid intersections;
 - editable `>` / `<` borders for Greater Than / Compdoku;
 - editable edge arrows for Rossini;

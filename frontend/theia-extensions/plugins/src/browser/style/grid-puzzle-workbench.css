@@ -207,6 +207,19 @@
     font-weight: 700;
 }
 
+.sudoku-cell.mine-clue {
+    color: var(--theia-editor-foreground);
+    background: var(--theia-sideBar-background);
+    font-weight: 700;
+}
+
+.sudoku-cell.mine-solved {
+    color: #ffffff;
+    background: #111827;
+    border-color: #111827;
+    font-weight: 800;
+}
+
 .sudoku-cell.diagonal {
     background: color-mix(in srgb, var(--theia-input-background) 72%, #f59e0b);
 }

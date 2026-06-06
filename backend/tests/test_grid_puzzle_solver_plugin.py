@@ -1394,6 +1394,108 @@ def test_non_consecutive_rejects_adjacent_consecutive_values():
     assert result["summary"] == "Aucune solution compatible avec les contraintes"
 
 
+def mine_clue_grid(solution):
+    size = len(solution)
+    rows = []
+    for row_index, row in enumerate(solution):
+        clues = []
+        for col_index, value in enumerate(row):
+            if value == "M":
+                clues.append(".")
+                continue
+            total = 0
+            for row_delta in (-1, 0, 1):
+                for col_delta in (-1, 0, 1):
+                    if row_delta == 0 and col_delta == 0:
+                        continue
+                    neighbor_row = row_index + row_delta
+                    neighbor_col = col_index + col_delta
+                    if 0 <= neighbor_row < size and 0 <= neighbor_col < size:
+                        total += solution[neighbor_row][neighbor_col] == "M"
+            clues.append(str(total))
+        rows.append("".join(clues))
+    return "\n".join(rows)
+
+
+def test_sudoku_mine_accepts_matching_9x9_grid():
+    plugin = load_plugin()
+    solution = [
+        "M..M..M..",
+        ".M..M..M.",
+        "..M..M..M",
+        "M..M..M..",
+        ".M..M..M.",
+        "..M..M..M",
+        "M..M..M..",
+        ".M..M..M.",
+        "..M..M..M",
+    ]
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "sudoku_mine",
+            "grid": mine_clue_grid(solution),
+            "max_solutions": 1,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 1
+    assert result["metadata"]["variant"] == "sudoku_mine"
+    assert ["M", ".", ".", "M", ".", ".", "M", ".", "."] == result["results"][0]["grid"][0]
+
+
+def test_sudoku_mine_accepts_matching_6x6_grid():
+    plugin = load_plugin()
+    solution = [
+        "M..M..",
+        ".M..M.",
+        "..M..M",
+        "M..M..",
+        ".M..M.",
+        "..M..M",
+    ]
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "sudoku_mine_6x6",
+            "grid": mine_clue_grid(solution),
+            "max_solutions": 1,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 1
+    assert result["metadata"]["variant"] == "sudoku_mine_6x6"
+    assert ["M", ".", ".", "M", ".", "."] == result["results"][0]["grid"][0]
+
+
+def test_sudoku_mine_rejects_wrong_clue():
+    plugin = load_plugin()
+    solution = [
+        "M..M..",
+        ".M..M.",
+        "..M..M",
+        "M..M..",
+        ".M..M.",
+        "..M..M",
+    ]
+    rows = mine_clue_grid(solution).splitlines()
+    rows[0] = "8" + rows[0][1:]
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "mine_sudoku_6x6",
+            "grid": "\n".join(rows),
+            "max_solutions": 1,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+    assert result["summary"] == "Aucune solution compatible avec les contraintes"
+
+
 def tripod_row_region_case(size):
     symbols = "123456789ABCDEFG"[:size]
     grid = "\n".join(
