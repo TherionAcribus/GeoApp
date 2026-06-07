@@ -129,6 +129,8 @@ Entrées principales :
 | `comparisons` | object/list/string | vide | Alias de `inequalities`. |
 | `vudoku` | object/list/string | vide | Coins Vudoku 8x8 (`grid`, `corners` ou liste d'objets). |
 | `v_corners` | object/list/string | vide | Alias de `vudoku`. |
+| `chains` | object/list/string | vide | Matrice NxN des chaines Chain / Strimko. |
+| `streams` | object/list/string | vide | Alias de `chains`. |
 | `rossini` | object | vide | Fleches de bord Rossini (`top`, `bottom`, `left`, `right`). |
 | `arrows` | object | vide | Alias de `rossini`. |
 | `xv` | object | vide | Marques de bord Sudoku XV (`horizontal`, `vertical`). |
@@ -161,6 +163,7 @@ Valeurs supportees pour `puzzle_type` :
 | `sudoku_12x12` | `sudoku_12`, `classic_sudoku_12x12` | Sudoku classique 12x12 avec blocs 3x4. |
 | `sudoku_15x15` | `sudoku_15`, `classic_sudoku_15x15` | Sudoku classique 15x15 avec blocs 3x5. |
 | `sudoku_16x16` | `sudoku_16`, `classic_sudoku_16x16` | Sudoku classique 16x16 avec blocs 4x4. |
+| `chain_sudoku_4x4` a `chain_sudoku_9x9` | `strimko_4x4` a `strimko_9x9`, `chain_sudoku` pour 9x9 | Chain Sudoku / Strimko : lignes, colonnes et chaines sans doublons. |
 | `sudoku_x` | `x_sudoku`, `diagonal_sudoku` | Sudoku standard + diagonales principales sans doublons. |
 | `sudoku_argyle` | `argyle`, `argyle_sudoku` | Sudoku standard + 8 diagonales partielles marquees sans doublons. |
 | `sudoku_anti_diagonal` | `anti_diagonal_sudoku`, `antidiagonal_sudoku` | Sudoku standard + au plus trois chiffres differents sur chaque grande diagonale. |
@@ -521,6 +524,51 @@ valeur. `0`, `.`, et `_` restent reserves aux cases vides.
 
 Dans l'atelier Theia, les traits epais suivent automatiquement la forme de bloc
 de la variante choisie. La saisie rapide attend `N x N` caracteres utiles.
+
+### Chain Sudoku / Strimko
+
+`puzzle_type = chain_sudoku_4x4` a `chain_sudoku_9x9`
+
+Alias :
+
+```text
+strimko_4x4
+strimko_sudoku_4x4
+sudoku_chain_4x4
+sudoku_chaines_4x4
+chain_sudoku  # 9x9 par defaut
+strimko       # 9x9 par defaut
+```
+
+Contraintes :
+
+- chaque ligne contient les symboles `1..N` une seule fois ;
+- chaque colonne contient les symboles `1..N` une seule fois ;
+- chaque chaine contient exactement `N` ronds et rejette les doublons.
+
+Format des chaines :
+
+```json
+{
+  "grid": [
+    "AABB",
+    "CCDD",
+    "BBAA",
+    "DDCC"
+  ]
+}
+```
+
+Le moteur accepte aussi une matrice brute ou les alias `streams` / `regions`.
+Chaque identifiant non vide est le nom d'une chaine. Pour une grille NxN, le
+moteur exige exactement N chaines et chaque chaine doit apparaitre exactement N
+fois.
+
+Dans l'atelier Theia, Chain / Strimko affiche les cellules sous forme de ronds.
+Le mode `Chaines` permet de choisir une chaine active puis de peindre les ronds.
+Les couleurs sont serialisees dans `chains.grid`. Par defaut, aucune chaine
+n'est assignee : les compteurs de la palette guident la construction jusqu'a
+obtenir N chaines de N ronds.
 
 ### Sudoku X
 
@@ -2030,7 +2078,7 @@ Fonctionnalites actuelles :
 - choix de variante `Classique` / `Sudoku X` / `Anti Diagonal` /
   `Center Dot` / `Windoku` / `Girandola` / `Asterisk` / `Sujiken` /
   `Samurai Sudoku` / `Flower Sudoku` / `Sohei Sudoku` / `Kazaguruma` /
-  `Greater Than` / `Vudoku` / `Kropki` ;
+  `Greater Than` / `Vudoku` / `Kropki` / `Chain` ;
 - diagonales orange en mode Sudoku X ;
 - diagonales magenta en mode Anti Diagonal ;
 - points verts sur les centres de blocs en mode Center Dot ;
@@ -2047,6 +2095,7 @@ Fonctionnalites actuelles :
 - fleches de bord cliquables en mode Rossini ;
 - bords cliquables `X` / `V` en mode Sudoku XV ;
 - ronds blancs/noirs cliquables en mode Kropki ;
+- mode `Chaines` pour peindre les chaines Strimko ;
 - indices exterieurs numeriques en mode Skyscraper ;
 - sommes exterieures numeriques en mode Frame ;
 - saisie de lettres et alphabet optionnel en mode Godoku ;
@@ -2064,7 +2113,7 @@ Fonctionnalites actuelles :
 |---|---|---|
 | `grid` | `string[][]` | Valeurs courantes de la grille. |
 | `quickText` | `string` | Representation texte de la grille. |
-| `puzzleType` | `sudoku_classic`, variantes classiques `sudoku_4x4` a `sudoku_16x16`, `sudoku_x`, `sudoku_argyle`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_vudoku`, `sudoku_rossini`, `sudoku_xv`, `sudoku_kropki`, `sudoku_skyscraper`, `sudoku_frame`, `sudoku_outside`, `sudoku_little_killer`, `sudoku_little_unique_killer`, `sudoku_godoku`, `sudoku_even_odd`, `sudoku_non_consecutive`, `sudoku_mine`, `sudoku_mine_6x6` ou `sudoku_tripod_4x4` a `sudoku_tripod_8x8` | Variante active. |
+| `puzzleType` | `sudoku_classic`, variantes classiques `sudoku_4x4` a `sudoku_16x16`, `chain_sudoku_4x4` a `chain_sudoku_9x9`, `sudoku_x`, `sudoku_argyle`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_vudoku`, `sudoku_rossini`, `sudoku_xv`, `sudoku_kropki`, `sudoku_skyscraper`, `sudoku_frame`, `sudoku_outside`, `sudoku_little_killer`, `sudoku_little_unique_killer`, `sudoku_godoku`, `sudoku_even_odd`, `sudoku_non_consecutive`, `sudoku_mine`, `sudoku_mine_6x6` ou `sudoku_tripod_4x4` a `sudoku_tripod_8x8` | Variante active. |
 | `horizontalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme ligne. |
 | `verticalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme colonne. |
 | `vudokuCorners` | `string[][]` | Coins Vudoku 8x8 : `tl`, `tr`, `bl`, `br` ou vide. |
@@ -2080,8 +2129,10 @@ Fonctionnalites actuelles :
 | `godokuAlphabet` | string | Alphabet de 9 lettres pour Godoku. |
 | `parityMarks` | `string[][]` | Marques `even` / `odd` par cellule pour Even-Odd. |
 | `tripodDots` | `boolean[][]` | Points noirs (N+1)x(N+1) aux intersections pour Tripod. |
+| `chainGrid` | `number[][]` | Affectation des chaines Chain / Strimko. |
+| `activeChain` | number | Chaine peinte par le mode `Chaines`. |
 | `watchCells` | `string[]` | Cellules surveillees au format `r1c1`. |
-| `mode` | `edit`, `watch` ou `parity` | Mode d'interaction. |
+| `mode` | `edit`, `watch`, `parity` ou `chain` | Mode d'interaction. |
 | `maxSolutions` | number | Limite d'enumeration. |
 | `timeoutMs` | number | Timeout Z3. |
 | `solveState` | object | Etat d'execution et resultat. |
@@ -2274,6 +2325,14 @@ Payload de sauvegarde :
       "horizontal": [["", "white", "", "white", "black", "", "", ""], "..."],
       "vertical": [["", "", "", "", "", "", "", "", ""], "..."]
     },
+    "chains": {
+      "grid": [
+        [1, 1, 2, 2],
+        [3, 3, 4, 4],
+        [2, 2, 1, 1],
+        [4, 4, 3, 3]
+      ]
+    },
     "skyscraper": {
       "top": ["3", "1", "3", "6", "3", "2", "3", "2", "2"],
       "bottom": ["1", "3", "3", "2", "5", "2", "3", "2", "4"],
@@ -2364,6 +2423,8 @@ Couverture actuelle :
 - grille Sudoku invalide ;
 - Sudokus classiques 4x4, 6x6, 8x8, 10x10, 12x12, 15x15 et 16x16 valides ;
 - Sudoku classique multi-taille refuse un doublon de ligne ;
+- Chain / Strimko valide avec chaines compatibles ;
+- Chain / Strimko refuse un doublon dans une chaine ;
 - Sudoku X valide ;
 - grille classique complete refusee en Sudoku X ;
 - Argyle valide ;

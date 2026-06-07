@@ -2,7 +2,7 @@
   "name": "grid_puzzle_solver",
   "version": "0.1.0",
   "plugin_api_version": "2.0",
-  "description": "Solveur Z3 pour grilles de logique. Variantes actuelles: Sudoku classique 4x4 a 16x16, Sudoku X, Argyle, Anti Diagonal, Center Dot, Windoku, Girandola, Asterisk, Sujiken, Samurai Sudoku, Flower Sudoku, Sohei Sudoku, Kazaguruma, Greater Than / Compdoku, Vudoku, Rossini, Sudoku XV, Kropki, Skyscraper, Frame, Outside, Little Killer, Little Unique Killer, Godoku, Even-Odd, Non-Consecutive, Sudoku Mine et Tripod.",
+  "description": "Solveur Z3 pour grilles de logique. Variantes actuelles: Sudoku classique 4x4 a 16x16, Chain / Strimko 4x4 a 9x9, Sudoku X, Argyle, Anti Diagonal, Center Dot, Windoku, Girandola, Asterisk, Sujiken, Samurai Sudoku, Flower Sudoku, Sohei Sudoku, Kazaguruma, Greater Than / Compdoku, Vudoku, Rossini, Sudoku XV, Kropki, Skyscraper, Frame, Outside, Little Killer, Little Unique Killer, Godoku, Even-Odd, Non-Consecutive, Sudoku Mine et Tripod.",
   "author": "MysterAI",
   "plugin_type": "python",
   "entry_point": "main.py",
@@ -55,6 +55,12 @@
         {"value": "sudoku_rossini", "label": "Rossini Sudoku"},
         {"value": "sudoku_xv", "label": "Sudoku XV"},
         {"value": "sudoku_kropki", "label": "Kropki / Dots Sudoku"},
+        {"value": "chain_sudoku_4x4", "label": "Chain / Strimko 4x4"},
+        {"value": "chain_sudoku_5x5", "label": "Chain / Strimko 5x5"},
+        {"value": "chain_sudoku_6x6", "label": "Chain / Strimko 6x6"},
+        {"value": "chain_sudoku_7x7", "label": "Chain / Strimko 7x7"},
+        {"value": "chain_sudoku_8x8", "label": "Chain / Strimko 8x8"},
+        {"value": "chain_sudoku_9x9", "label": "Chain / Strimko 9x9"},
         {"value": "sudoku_skyscraper", "label": "Skyscraper Sudoku"},
         {"value": "sudoku_frame", "label": "Frame / Outside Sum Sudoku"},
         {"value": "sudoku_outside", "label": "Outside Sudoku"},
@@ -73,7 +79,7 @@
         {"value": "custom_spec", "label": "Spec JSON generique"}
       ],
       "default": "sudoku_classic",
-      "description": "Sudoku classique existe en 4x4, 6x6, 8x8, 9x9, 10x10, 12x12, 15x15 et 16x16. Les tailles superieures a 9 utilisent les symboles 1-9 puis A-G. Sudoku X ajoute les deux diagonales principales sans doublons. Argyle ajoute 8 diagonales marquees sans doublons. Anti Diagonal limite chacune des deux grandes diagonales a trois chiffres differents. Center Dot ajoute la region des centres de blocs 3x3. Windoku ajoute quatre regions 3x3 supplementaires. Girandola et Asterisk ajoutent chacun une extra-region de 9 cases. Sujiken utilise une grille triangulaire de 45 cases. Samurai, Flower, Sohei et Kazaguruma assemblent plusieurs grilles 9x9 chevauchantes. Greater Than ajoute des comparaisons >/< entre cases adjacentes. Vudoku ajoute des coins V de trois cases: le sommet vaut la somme ou la difference des deux branches. Rossini ajoute des fleches de bord sur les trois premieres cases vues depuis chaque cote. Sudoku XV ajoute des marques X/V entre cases adjacentes. Kropki ajoute des ronds blancs/noirs entre cases adjacentes: blanc pour consecutif, noir pour double/moitie, vide pour aucune de ces relations. Skyscraper ajoute des indices exterieurs de visibilite. Frame ajoute des sommes exterieures des trois cases voisines du bord. Outside impose que les chiffres exterieurs apparaissent dans les trois premieres cases vues depuis le bord. Little Killer ajoute des sommes diagonales depuis les bords, avec repetitions autorisees sur ces diagonales. Little Unique Killer ajoute les memes sommes mais interdit les repetitions sur chaque diagonale flechee. Godoku remplace les chiffres par 9 lettres. Even-Odd contraint certaines cases a etre paires ou impaires. Non-Consecutive interdit les chiffres consecutifs dans les cases adjacentes. Sudoku Mine place des mines selon des sommes ligne/colonne/region et des indices adjacents. Tripod existe en 4x4 a 8x8 et reconstruit les regions a partir des points noirs. Spec JSON permet de decrire une grille CSP finie."
+      "description": "Sudoku classique existe en 4x4, 6x6, 8x8, 9x9, 10x10, 12x12, 15x15 et 16x16. Les tailles superieures a 9 utilisent les symboles 1-9 puis A-G. Chain / Strimko existe de 4x4 a 9x9 et ajoute des chaines de N ronds sans doublons. Sudoku X ajoute les deux diagonales principales sans doublons. Argyle ajoute 8 diagonales marquees sans doublons. Anti Diagonal limite chacune des deux grandes diagonales a trois chiffres differents. Center Dot ajoute la region des centres de blocs 3x3. Windoku ajoute quatre regions 3x3 supplementaires. Girandola et Asterisk ajoutent chacun une extra-region de 9 cases. Sujiken utilise une grille triangulaire de 45 cases. Samurai, Flower, Sohei et Kazaguruma assemblent plusieurs grilles 9x9 chevauchantes. Greater Than ajoute des comparaisons >/< entre cases adjacentes. Vudoku ajoute des coins V de trois cases: le sommet vaut la somme ou la difference des deux branches. Rossini ajoute des fleches de bord sur les trois premieres cases vues depuis chaque cote. Sudoku XV ajoute des marques X/V entre cases adjacentes. Kropki ajoute des ronds blancs/noirs entre cases adjacentes: blanc pour consecutif, noir pour double/moitie, vide pour aucune de ces relations. Skyscraper ajoute des indices exterieurs de visibilite. Frame ajoute des sommes exterieures des trois cases voisines du bord. Outside impose que les chiffres exterieurs apparaissent dans les trois premieres cases vues depuis le bord. Little Killer ajoute des sommes diagonales depuis les bords, avec repetitions autorisees sur ces diagonales. Little Unique Killer ajoute les memes sommes mais interdit les repetitions sur chaque diagonale flechee. Godoku remplace les chiffres par 9 lettres. Even-Odd contraint certaines cases a etre paires ou impaires. Non-Consecutive interdit les chiffres consecutifs dans les cases adjacentes. Sudoku Mine place des mines selon des sommes ligne/colonne/region et des indices adjacents. Tripod existe en 4x4 a 8x8 et reconstruit les regions a partir des points noirs. Spec JSON permet de decrire une grille CSP finie."
     },
     "grid": {
       "type": "textarea",
@@ -112,6 +118,12 @@
       "label": "Ronds Kropki",
       "required": false,
       "description": "Objet JSON optionnel avec horizontal 9x8 et vertical 8x9. W/white/o = rond blanc (chiffres consecutifs), B/black = rond noir (double/moitie), 0 ou . = absence de rond."
+    },
+    "chains": {
+      "type": "textarea",
+      "label": "Chaines Strimko",
+      "required": false,
+      "description": "Matrice NxN pour Chain / Strimko. Chaque identifiant de chaine doit apparaitre exactement N fois; N vaut la taille de la grille, de 4 a 9."
     },
     "tripod": {
       "type": "textarea",

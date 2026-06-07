@@ -9,6 +9,8 @@ Generic finite-domain grid solver powered by Z3.
   `sudoku_12x12`, `sudoku_15x15`, `sudoku_16x16`: classic Sudoku with
   alternate grid sizes and rectangular/square boxes. Symbols are `1-9`, then
   `A-G` when needed.
+- `chain_sudoku_4x4` through `chain_sudoku_9x9`: Chain Sudoku / Strimko.
+  Rows, columns and each N-cell chain reject repeated symbols.
 - `sudoku_x`: classic 9x9 Sudoku plus both main diagonals as all-different
   regions. The interactive UI highlights those diagonals in orange.
 - `sudoku_argyle`: classic 9x9 Sudoku plus eight marked partial diagonals in
@@ -109,6 +111,7 @@ Sudoku is just the first builder on top of a generic CSP model:
 - givens;
 - all-different regions, including configurable Sudoku rows, columns and
   boxes for 4x4 through 16x16 presets;
+- chain regions for Strimko / Chain Sudoku presets;
 - partial marked diagonals for variants such as Argyle;
 - declarative constraints (`all_different`, `equals`, `not_equal`, `sum`);
 - comparison constraints (`greater_than`, `less_than`) for adjacent-cell
@@ -148,6 +151,7 @@ the Theia "Grilles" workbench:
 - cell-by-cell entry for givens;
 - quick paste textarea for fast Sudoku import;
 - variant selector for classic Sudoku in multiple sizes, Sudoku X, Argyle,
+  Chain / Strimko,
   Anti Diagonal, Center Dot, Windoku, Girandola, Asterisk, Sujiken, Samurai Sudoku,
   Flower Sudoku,
   Sohei Sudoku, Kazaguruma, Greater Than, Vudoku, Rossini, Sudoku XV, Kropki,
@@ -161,6 +165,7 @@ the Theia "Grilles" workbench:
 - editable edge arrows for Rossini;
 - editable `X` / `V` borders for Sudoku XV;
 - editable white/black dots for Kropki Sudoku;
+- editable chain colors for Chain Sudoku / Strimko;
 - editable outside visibility clues for Skyscraper Sudoku;
 - editable outside three-cell sum clues for Frame Sudoku;
 - editable diagonal outside sum clues for Little Killer and Little Unique

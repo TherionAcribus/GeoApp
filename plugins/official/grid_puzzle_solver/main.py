@@ -62,6 +62,7 @@ SIZED_SUDOKU_CONFIGS: Dict[str, Tuple[int, int, int]] = {
     "sudoku_15x15": (15, 3, 5),
     "sudoku_16x16": (16, 4, 4),
 }
+CHAIN_SUDOKU_SIZES = frozenset(range(4, 10))
 
 
 @dataclass(frozen=True)
@@ -146,6 +147,17 @@ class GridpuzzlesolverPlugin:
                     box_rows=box_rows,
                     box_cols=box_cols,
                     symbols_override=self._sudoku_symbols(size),
+                )
+            elif (chain_size := self._chain_sudoku_size(puzzle_type)) is not None:
+                puzzle_text = self._first_non_empty(
+                    inputs.get("grid"),
+                    inputs.get("puzzle"),
+                    inputs.get("text"),
+                )
+                problem = self._build_chain_sudoku_problem(
+                    puzzle_text,
+                    chains=inputs.get("chains") or inputs.get("streams") or inputs.get("regions"),
+                    size=chain_size,
                 )
             elif puzzle_type in {"sudoku_x", "x_sudoku", "diagonal_sudoku"}:
                 puzzle_text = self._first_non_empty(
@@ -785,6 +797,42 @@ class GridpuzzlesolverPlugin:
             constraints=constraints,
             numeric_values=self._default_numeric_values(symbols),
             variant=variant,
+        )
+
+    def _build_chain_sudoku_problem(
+        self,
+        puzzle_text: str,
+        chains: Any,
+        size: int,
+    ) -> GridCspProblem:
+        symbols = self._sudoku_symbols(size)
+        tokens = self._parse_sudoku_tokens(puzzle_text, symbols, size)
+
+        active_cells = [(row, col) for row in range(size) for col in range(size)]
+        givens: Dict[Cell, str] = {}
+        for index, token in enumerate(tokens):
+            if token in symbols:
+                givens[(index // size, index % size)] = token
+
+        constraints: List[GridConstraint] = []
+        for row in range(size):
+            constraints.append(GridConstraint("all_different", tuple((row, col) for col in range(size))))
+        for col in range(size):
+            constraints.append(GridConstraint("all_different", tuple((row, col) for row in range(size))))
+        constraints.extend(
+            GridConstraint("all_different", tuple(cells))
+            for cells in self._parse_chain_regions(chains, size)
+        )
+
+        return GridCspProblem(
+            rows=size,
+            cols=size,
+            symbols=symbols,
+            active_cells=active_cells,
+            givens=givens,
+            constraints=constraints,
+            numeric_values=self._default_numeric_values(symbols),
+            variant=f"chain_sudoku_{size}x{size}",
         )
 
     def _build_sujiken_problem(self, puzzle_text: str) -> GridCspProblem:
@@ -1665,6 +1713,56 @@ class GridpuzzlesolverPlugin:
             return self._parse_inequality_entries(raw_inequalities)
 
         raise ValueError("Format inequalities non supporte")
+
+    def _parse_chain_regions(self, raw_chains: Any, size: int) -> List[List[Cell]]:
+        if raw_chains in (None, "", [], {}):
+            raise ValueError("Les chaines Strimko sont requises")
+        if isinstance(raw_chains, str):
+            text = raw_chains.strip()
+            if not text:
+                raise ValueError("Les chaines Strimko sont requises")
+            try:
+                raw_chains = json.loads(text)
+            except json.JSONDecodeError:
+                raw_chains = text.splitlines()
+        if isinstance(raw_chains, dict):
+            raw_chains = (
+                raw_chains.get("grid")
+                or raw_chains.get("matrix")
+                or raw_chains.get("chains")
+                or raw_chains.get("streams")
+                or raw_chains.get("regions")
+            )
+        if not isinstance(raw_chains, list) or len(raw_chains) != size:
+            raise ValueError(f"chains doit contenir {size} lignes")
+
+        regions: Dict[str, List[Cell]] = {}
+        blank_values = {"", ".", "0", "_", "-", "?"}
+        for row_index, raw_row in enumerate(raw_chains):
+            if isinstance(raw_row, str):
+                values = [char for char in raw_row if not char.isspace() and char not in {"|", ","}]
+            elif isinstance(raw_row, list):
+                values = [str(value or "").strip() for value in raw_row]
+            else:
+                raise ValueError(f"chains[{row_index}] doit etre une liste ou une chaine")
+
+            if len(values) != size:
+                raise ValueError(f"chains[{row_index}] doit contenir {size} valeurs")
+
+            for col_index, raw_value in enumerate(values):
+                chain_id = str(raw_value or "").strip().upper()
+                if chain_id in blank_values:
+                    raise ValueError(f"Cellule Strimko r{row_index + 1}c{col_index + 1} sans chaine")
+                regions.setdefault(chain_id, []).append((row_index, col_index))
+
+        if len(regions) != size:
+            raise ValueError(f"Strimko {size}x{size} attend {size} chaines, {len(regions)} detectees")
+
+        for chain_id, cells in regions.items():
+            if len(cells) != size:
+                raise ValueError(f"La chaine Strimko {chain_id} doit contenir {size} cellules, {len(cells)} detectees")
+
+        return list(regions.values())
 
     def _parse_inequality_matrix(
         self,
@@ -2901,6 +2999,19 @@ class GridpuzzlesolverPlugin:
 
         key = f"sudoku_{size_match.group('size')}x{size_match.group('size')}"
         return SIZED_SUDOKU_CONFIGS.get(key)
+
+    def _chain_sudoku_size(self, puzzle_type: str) -> Optional[int]:
+        normalized = puzzle_type.replace("-", "_")
+        if normalized in {"chain_sudoku", "strimko", "strimko_sudoku", "sudoku_chain", "sudoku_chaines"}:
+            return 9
+        size_match = re.fullmatch(
+            r"(?:chain_sudoku|strimko|strimko_sudoku|sudoku_chain|sudoku_chaines)_(?P<size>\d+)(?:x(?P=size))?",
+            normalized,
+        )
+        if not size_match:
+            return None
+        size = int(size_match.group("size"))
+        return size if size in CHAIN_SUDOKU_SIZES else None
 
     def _sudoku_symbols(self, size: int) -> List[str]:
         if size < 1 or size > len(SUDOKU_SYMBOL_POOL):

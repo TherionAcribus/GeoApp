@@ -9,8 +9,8 @@ import './style/grid-puzzle-workbench.css';
 
 type Grid = string[][];
 type RegionGrid = number[][];
-type WorkMode = 'edit' | 'watch' | 'parity';
-type SudokuVariant = 'sudoku_classic' | 'sudoku_4x4' | 'sudoku_6x6' | 'sudoku_8x8' | 'sudoku_10x10' | 'sudoku_12x12' | 'sudoku_15x15' | 'sudoku_16x16' | 'sudoku_x' | 'sudoku_argyle' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_vudoku' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_kropki' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_outside' | 'sudoku_little_killer' | 'sudoku_little_unique_killer' | 'sudoku_godoku' | 'sudoku_even_odd' | 'sudoku_non_consecutive' | 'sudoku_mine' | 'sudoku_mine_6x6' | 'sudoku_tripod' | 'sudoku_tripod_4x4' | 'sudoku_tripod_5x5' | 'sudoku_tripod_6x6' | 'sudoku_tripod_7x7' | 'sudoku_tripod_8x8';
+type WorkMode = 'edit' | 'watch' | 'parity' | 'chain';
+type SudokuVariant = 'sudoku_classic' | 'sudoku_4x4' | 'sudoku_6x6' | 'sudoku_8x8' | 'sudoku_10x10' | 'sudoku_12x12' | 'sudoku_15x15' | 'sudoku_16x16' | 'sudoku_x' | 'sudoku_argyle' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_vudoku' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_kropki' | 'chain_sudoku_4x4' | 'chain_sudoku_5x5' | 'chain_sudoku_6x6' | 'chain_sudoku_7x7' | 'chain_sudoku_8x8' | 'chain_sudoku_9x9' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_outside' | 'sudoku_little_killer' | 'sudoku_little_unique_killer' | 'sudoku_godoku' | 'sudoku_even_odd' | 'sudoku_non_consecutive' | 'sudoku_mine' | 'sudoku_mine_6x6' | 'sudoku_tripod' | 'sudoku_tripod_4x4' | 'sudoku_tripod_5x5' | 'sudoku_tripod_6x6' | 'sudoku_tripod_7x7' | 'sudoku_tripod_8x8';
 type InequalitySymbol = '' | '>' | '<';
 type InequalityGrid = InequalitySymbol[][];
 type VudokuSymbol = '' | 'tl' | 'tr' | 'bl' | 'br';
@@ -22,6 +22,8 @@ type KropkiGrid = KropkiSymbol[][];
 type ParitySymbol = '' | 'even' | 'odd';
 type ParityGrid = ParitySymbol[][];
 type TripodDots = boolean[][];
+type ChainGrid = number[][];
+type ChainPaths = CellCoord[][];
 type LittleKillerDirection = 'dl' | 'dr' | 'ul' | 'ur';
 type RossiniArrow = '' | '↑' | '↓' | '←' | '→';
 type RossiniSide = 'top' | 'bottom' | 'left' | 'right';
@@ -100,6 +102,14 @@ const TRIPOD_SIZE_CONFIGS: Record<string, { size: number; label: string }> = {
     sudoku_tripod_6x6: { size: 6, label: 'Tripod 6x6' },
     sudoku_tripod_7x7: { size: 7, label: 'Tripod 7x7' },
     sudoku_tripod_8x8: { size: 8, label: 'Tripod 8x8' },
+};
+const CHAIN_SIZE_CONFIGS: Record<string, { size: number; label: string }> = {
+    chain_sudoku_4x4: { size: 4, label: 'Chain 4x4' },
+    chain_sudoku_5x5: { size: 5, label: 'Chain 5x5' },
+    chain_sudoku_6x6: { size: 6, label: 'Chain 6x6' },
+    chain_sudoku_7x7: { size: 7, label: 'Chain 7x7' },
+    chain_sudoku_8x8: { size: 8, label: 'Chain 8x8' },
+    chain_sudoku_9x9: { size: 9, label: 'Chain 9x9' },
 };
 const MINE_CONFIGS: Record<string, { size: number; boxRows: number; boxCols: number; minesPerUnit: number; label: string }> = {
     sudoku_mine: { size: 9, boxRows: 3, boxCols: 3, minesPerUnit: 3, label: 'Sudoku Mine 9x9' },
@@ -229,6 +239,10 @@ function cloneTripodDots(dots: TripodDots): TripodDots {
     return dots.map(row => [...row]);
 }
 
+function cloneChainPaths(paths: ChainPaths): ChainPaths {
+    return paths.map(path => path.map(([row, col]): CellCoord => [row, col]));
+}
+
 function cloneSkyscraperClues(clues: SkyscraperClues): SkyscraperClues {
     return {
         top: [...clues.top],
@@ -341,6 +355,9 @@ function getVariantLabel(puzzleType: SudokuVariant): string {
     }
     if (puzzleType === 'sudoku_kropki') {
         return 'Kropki';
+    }
+    if (puzzleType.startsWith('chain_sudoku_')) {
+        return `Chain ${gridSizeForVariant(puzzleType)}x${gridSizeForVariant(puzzleType)}`;
     }
     if (puzzleType === 'sudoku_skyscraper') {
         return 'Skyscraper';
@@ -482,6 +499,10 @@ function getTripodConfig(puzzleType: SudokuVariant): { size: number; label: stri
     return TRIPOD_SIZE_CONFIGS[puzzleType];
 }
 
+function getChainConfig(puzzleType: SudokuVariant): { size: number; label: string } | undefined {
+    return CHAIN_SIZE_CONFIGS[puzzleType];
+}
+
 function getMineConfig(
     puzzleType: SudokuVariant,
 ): { size: number; boxRows: number; boxCols: number; minesPerUnit: number; label: string } | undefined {
@@ -512,6 +533,10 @@ function gridSizeForVariant(puzzleType: SudokuVariant): number {
     if (tripodConfig) {
         return tripodConfig.size;
     }
+    const chainConfig = getChainConfig(puzzleType);
+    if (chainConfig) {
+        return chainConfig.size;
+    }
     const mineConfig = getMineConfig(puzzleType);
     if (mineConfig) {
         return mineConfig.size;
@@ -538,6 +563,10 @@ function isActiveCellForVariant(puzzleType: SudokuVariant, row: number, col: num
     const tripodConfig = getTripodConfig(puzzleType);
     if (tripodConfig) {
         return row >= 0 && row < tripodConfig.size && col >= 0 && col < tripodConfig.size;
+    }
+    const chainConfig = getChainConfig(puzzleType);
+    if (chainConfig) {
+        return row >= 0 && row < chainConfig.size && col >= 0 && col < chainConfig.size;
     }
     const mineConfig = getMineConfig(puzzleType);
     if (mineConfig) {
@@ -601,12 +630,32 @@ function buildLatinRegions(size: number, label: string): ConstraintRegion[] {
     return regions;
 }
 
+function buildChainRegions(chainGrid: ChainGrid, size: number): ConstraintRegion[] {
+    const regions = new Map<number, CellCoord[]>();
+    for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+            const chain = Number(chainGrid[row]?.[col] || 0);
+            if (chain < 1 || chain > size) {
+                continue;
+            }
+            const cells = regions.get(chain) || [];
+            cells.push([row, col]);
+            regions.set(chain, cells);
+        }
+    }
+    return Array.from(regions.entries()).map(([chain, cells]) => ({
+        label: `Chain ${chain}`,
+        cells,
+    }));
+}
+
 function buildCompositeSudokuRegions(offsets: Array<[number, number, string]>): ConstraintRegion[] {
     return offsets.flatMap(([row, col, label]) => buildSudokuRegions(row, col, label));
 }
 
 function getAllDifferentRegions(puzzleType: SudokuVariant): ConstraintRegion[] {
     const tripodConfig = getTripodConfig(puzzleType);
+    const chainConfig = getChainConfig(puzzleType);
     if (getMineConfig(puzzleType)) {
         return [];
     }
@@ -645,6 +694,8 @@ function getAllDifferentRegions(puzzleType: SudokuVariant): ConstraintRegion[] {
             ])
         : tripodConfig
             ? buildLatinRegions(tripodConfig.size, tripodConfig.label)
+        : chainConfig
+            ? buildLatinRegions(chainConfig.size, chainConfig.label)
         : (() => {
             const config = getSingleGridSudokuConfig(puzzleType);
             return buildSudokuRegions(0, 0, config?.label || 'Sudoku', config?.size, config?.boxRows, config?.boxCols);
@@ -777,6 +828,7 @@ function findConstraintConflicts(
     xvVerticalMarks: XvGrid,
     kropkiHorizontalDots: KropkiGrid,
     kropkiVerticalDots: KropkiGrid,
+    chainGrid: ChainGrid,
     skyscraperClues: SkyscraperClues,
     frameClues: FrameClues,
     outsideClues: OutsideClues,
@@ -786,7 +838,13 @@ function findConstraintConflicts(
     const cells = new Set<string>();
     const messages: string[] = [];
 
-    for (const region of getAllDifferentRegions(puzzleType)) {
+    const chainConfig = getChainConfig(puzzleType);
+    const regions = getAllDifferentRegions(puzzleType);
+    if (chainConfig) {
+        regions.push(...buildChainRegions(chainGrid, chainConfig.size));
+    }
+
+    for (const region of regions) {
         const byValue = new Map<string, string[]>();
         for (const [row, col] of region.cells) {
             if (!isActiveCellForVariant(puzzleType, row, col)) {
@@ -1582,6 +1640,57 @@ function emptyTripodDots(size = SIZE): TripodDots {
     return Array.from({ length: size + 1 }, () => Array(size + 1).fill(false));
 }
 
+function emptyChainGrid(size = SIZE): ChainGrid {
+    return Array.from({ length: size }, () => Array(size).fill(0));
+}
+
+function emptyChainPaths(size = SIZE): ChainPaths {
+    return Array.from({ length: size }, () => []);
+}
+
+function chainPathKey(row: number, col: number): string {
+    return `${row}:${col}`;
+}
+
+function chainGridFromPaths(paths: ChainPaths, size = SIZE): ChainGrid {
+    const grid = emptyChainGrid(size);
+    const seen = new Set<string>();
+    paths.slice(0, size).forEach((path, chainIndex) => {
+        path.forEach(([row, col]) => {
+            const key = chainPathKey(row, col);
+            if (row < 0 || row >= size || col < 0 || col >= size || seen.has(key)) {
+                return;
+            }
+            grid[row][col] = chainIndex + 1;
+            seen.add(key);
+        });
+    });
+    return grid;
+}
+
+function chainPathsFromGrid(grid: ChainGrid, size = SIZE): ChainPaths {
+    const paths = emptyChainPaths(size);
+    for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+            const chain = Number(grid[row]?.[col] || 0);
+            if (chain >= 1 && chain <= size) {
+                paths[chain - 1].push([row, col]);
+            }
+        }
+    }
+    return paths;
+}
+
+function nextIncompleteChain(counts: number[], size: number, currentChain: number): number {
+    for (let offset = 1; offset <= size; offset += 1) {
+        const candidate = ((currentChain - 1 + offset) % size) + 1;
+        if ((counts[candidate - 1] || 0) < size) {
+            return candidate;
+        }
+    }
+    return currentChain;
+}
+
 function emptySkyscraperClues(): SkyscraperClues {
     return cloneSkyscraperClues(EMPTY_SKYSCRAPER_CLUES);
 }
@@ -1749,11 +1858,96 @@ function normalizeTripodDots(value: unknown, size = SIZE): TripodDots {
     });
 }
 
+function normalizeChainGrid(value: unknown, size = SIZE): ChainGrid {
+    const rawGrid = value && typeof value === 'object' && !Array.isArray(value)
+        ? (value as Record<string, unknown>).grid ?? (value as Record<string, unknown>).matrix ?? (value as Record<string, unknown>).chains
+        : value;
+    if (!Array.isArray(rawGrid) || rawGrid.length !== size) {
+        return emptyChainGrid(size);
+    }
+    const chainIds = new Map<string, number>();
+    const normalizeId = (cell: unknown): number => {
+        const text = String(cell ?? '').trim().toUpperCase();
+        if (!text || text === '.' || text === '0' || text === '_' || text === '-' || text === '?') {
+            return 0;
+        }
+        const numeric = Number(text);
+        if (Number.isInteger(numeric) && numeric >= 1 && numeric <= size) {
+            return numeric;
+        }
+        if (!chainIds.has(text)) {
+            chainIds.set(text, Math.min(chainIds.size + 1, size));
+        }
+        return chainIds.get(text) || 0;
+    };
+    return rawGrid.map(row => {
+        const cells = typeof row === 'string' ? row.split('').filter(char => !/\s|[|,]/.test(char)) : Array.isArray(row) ? row : [];
+        return Array.from({ length: size }, (_unused, index) => normalizeId(cells[index]));
+    });
+}
+
+function normalizeChainPathCell(value: unknown, size = SIZE): CellCoord | undefined {
+    if (Array.isArray(value) && value.length >= 2) {
+        const row = Number(value[0]);
+        const col = Number(value[1]);
+        if (Number.isInteger(row) && Number.isInteger(col) && row >= 0 && row < size && col >= 0 && col < size) {
+            return [row, col];
+        }
+        return undefined;
+    }
+
+    if (value && typeof value === 'object') {
+        const raw = value as Record<string, unknown>;
+        const row = Number(raw.row ?? raw.r);
+        const col = Number(raw.col ?? raw.c);
+        if (Number.isInteger(row) && Number.isInteger(col)) {
+            const zeroBasedRow = row >= 1 && row <= size ? row - 1 : row;
+            const zeroBasedCol = col >= 1 && col <= size ? col - 1 : col;
+            if (zeroBasedRow >= 0 && zeroBasedRow < size && zeroBasedCol >= 0 && zeroBasedCol < size) {
+                return [zeroBasedRow, zeroBasedCol];
+            }
+        }
+    }
+
+    return undefined;
+}
+
+function normalizeChainPaths(value: unknown, fallbackGrid: ChainGrid, size = SIZE): ChainPaths {
+    const rawPaths = value && typeof value === 'object' && !Array.isArray(value)
+        ? (value as Record<string, unknown>).paths ?? (value as Record<string, unknown>).chains
+        : value;
+    if (!Array.isArray(rawPaths) || rawPaths.length !== size) {
+        return chainPathsFromGrid(fallbackGrid, size);
+    }
+
+    const used = new Set<string>();
+    return Array.from({ length: size }, (_unused, chainIndex) => {
+        const rawPath = rawPaths[chainIndex];
+        if (!Array.isArray(rawPath)) {
+            return [];
+        }
+        const path: CellCoord[] = [];
+        rawPath.forEach(cell => {
+            const coord = normalizeChainPathCell(cell, size);
+            if (!coord) {
+                return;
+            }
+            const key = chainPathKey(coord[0], coord[1]);
+            if (used.has(key)) {
+                return;
+            }
+            used.add(key);
+            path.push(coord);
+        });
+        return path;
+    });
+}
+
 function normalizeCellValueForVariant(rawValue: string, puzzleType: SudokuVariant): string {
     if (getMineConfig(puzzleType)) {
         return rawValue.replace(/[^0-8]/g, '').slice(-1);
     }
-    const symbolConfig = getSizedSudokuConfig(puzzleType) || getTripodConfig(puzzleType);
+    const symbolConfig = getSizedSudokuConfig(puzzleType) || getTripodConfig(puzzleType) || getChainConfig(puzzleType);
     if (symbolConfig) {
         const symbols = new Set(sudokuSymbolsForSize(symbolConfig.size));
         const value = rawValue.trim().slice(-1).toUpperCase();
@@ -2070,7 +2264,7 @@ function gridToText(grid: Grid, puzzleType: SudokuVariant = 'sudoku_classic'): s
         )).join('\n');
     }
 
-    const symbolConfig = getSizedSudokuConfig(puzzleType) || getTripodConfig(puzzleType);
+    const symbolConfig = getSizedSudokuConfig(puzzleType) || getTripodConfig(puzzleType) || getChainConfig(puzzleType);
     if (symbolConfig) {
         return Array.from({ length: symbolConfig.size }, (_row, rowIndex) => (
             Array.from({ length: symbolConfig.size }, (_col, colIndex) => grid[rowIndex]?.[colIndex] || '0').join('')
@@ -2121,7 +2315,7 @@ function gridToText(grid: Grid, puzzleType: SudokuVariant = 'sudoku_classic'): s
 }
 
 function parseGridText(text: string, puzzleType: SudokuVariant = 'sudoku_classic'): Grid | null {
-    const config = getSizedSudokuConfig(puzzleType) || getTripodConfig(puzzleType) || { size: SIZE };
+    const config = getSizedSudokuConfig(puzzleType) || getTripodConfig(puzzleType) || getChainConfig(puzzleType) || { size: SIZE };
     const symbols = sudokuSymbolsForSize(config.size);
     const symbolSet = new Set(symbols);
     const tokens: string[] = [];
@@ -2456,7 +2650,7 @@ function normalizeGrid(value: unknown, puzzleType: SudokuVariant): Grid | undefi
 
     const size = gridSizeForVariant(puzzleType);
     const requiredCols = puzzleType === 'kazaguruma_sudoku' ? KAZAGURUMA_COLS : size;
-    const symbolConfig = getSizedSudokuConfig(puzzleType) || getTripodConfig(puzzleType);
+    const symbolConfig = getSizedSudokuConfig(puzzleType) || getTripodConfig(puzzleType) || getChainConfig(puzzleType);
     const sizedSymbols = symbolConfig ? new Set(sudokuSymbolsForSize(symbolConfig.size)) : undefined;
     const mineConfig = getMineConfig(puzzleType);
     if (!Array.isArray(value) || value.length !== size) {
@@ -2581,6 +2775,9 @@ function GridPuzzleWorkbenchApp({
     const [kropkiVerticalDots, setKropkiVerticalDots] = React.useState<KropkiGrid>(() => emptyKropkiVerticalDots());
     const [parityMarks, setParityMarks] = React.useState<ParityGrid>(() => emptyParityMarks());
     const [tripodDots, setTripodDots] = React.useState<TripodDots>(() => emptyTripodDots());
+    const [chainGrid, setChainGrid] = React.useState<ChainGrid>(() => emptyChainGrid());
+    const [chainPaths, setChainPaths] = React.useState<ChainPaths>(() => emptyChainPaths());
+    const [activeChain, setActiveChain] = React.useState(1);
     const [skyscraperClues, setSkyscraperClues] = React.useState<SkyscraperClues>(() => emptySkyscraperClues());
     const [frameClues, setFrameClues] = React.useState<FrameClues>(() => emptyFrameClues());
     const [outsideClues, setOutsideClues] = React.useState<OutsideClues>(() => emptyOutsideClues());
@@ -2630,6 +2827,8 @@ function GridPuzzleWorkbenchApp({
     const isMine = Boolean(mineConfig);
     const tripodConfig = getTripodConfig(puzzleType);
     const isTripod = Boolean(tripodConfig);
+    const chainConfig = getChainConfig(puzzleType);
+    const isChain = Boolean(chainConfig);
     const sizedSudokuConfig = getSizedSudokuConfig(puzzleType);
     const isSujiken = puzzleType === 'sujiken';
     const isSamurai = puzzleType === 'samurai_sudoku';
@@ -2638,7 +2837,7 @@ function GridPuzzleWorkbenchApp({
     const isKazaguruma = puzzleType === 'kazaguruma_sudoku';
     const gridSize = gridSizeForVariant(puzzleType);
     const solvedRegionGrid = isTripod ? extractRegionGridFromSolution(activeSolution, gridSize) : undefined;
-    const variableGridConfig = sizedSudokuConfig || tripodConfig || mineConfig;
+    const variableGridConfig = sizedSudokuConfig || tripodConfig || chainConfig || mineConfig;
     const sizedCellSize = variableGridConfig
         ? variableGridConfig.size >= 15
             ? 32
@@ -2650,6 +2849,14 @@ function GridPuzzleWorkbenchApp({
         gridTemplateColumns: `repeat(${variableGridConfig.size}, ${sizedCellSize}px)`,
         gridTemplateRows: `repeat(${variableGridConfig.size}, ${sizedCellSize}px)`,
     } : undefined;
+    const chainCounts = React.useMemo(() => {
+        return Array.from({ length: chainConfig?.size || 0 }, (_unused, index) => chainPaths[index]?.length || 0);
+    }, [chainConfig?.size, chainPaths]);
+    const areChainsComplete = Boolean(
+        chainConfig
+        && chainCounts.length === chainConfig.size
+        && chainCounts.every(count => count === chainConfig.size),
+    );
     const quickTextPlaceholder = isSujiken
         ? SUJIKEN_TEXT_PLACEHOLDER
         : mineConfig
@@ -2666,8 +2873,8 @@ function GridPuzzleWorkbenchApp({
             ? SAMURAI_TEXT_PLACEHOLDER
             : QUICK_TEXT_PLACEHOLDER;
     const constraintConflicts = React.useMemo(
-        () => findConstraintConflicts(grid, puzzleType, horizontalInequalities, verticalInequalities, vudokuCorners, rossiniArrows, xvHorizontalMarks, xvVerticalMarks, kropkiHorizontalDots, kropkiVerticalDots, skyscraperClues, frameClues, outsideClues, littleKillerClues, parityMarks),
-        [frameClues, grid, horizontalInequalities, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, outsideClues, parityMarks, puzzleType, rossiniArrows, skyscraperClues, verticalInequalities, vudokuCorners, xvHorizontalMarks, xvVerticalMarks],
+        () => findConstraintConflicts(grid, puzzleType, horizontalInequalities, verticalInequalities, vudokuCorners, rossiniArrows, xvHorizontalMarks, xvVerticalMarks, kropkiHorizontalDots, kropkiVerticalDots, chainGrid, skyscraperClues, frameClues, outsideClues, littleKillerClues, parityMarks),
+        [chainGrid, frameClues, grid, horizontalInequalities, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, outsideClues, parityMarks, puzzleType, rossiniArrows, skyscraperClues, verticalInequalities, vudokuCorners, xvHorizontalMarks, xvVerticalMarks],
     );
     const visibleConflictMessages = constraintConflicts.messages.slice(0, 4);
 
@@ -2720,7 +2927,9 @@ function GridPuzzleWorkbenchApp({
     }, [gridSize, isFlower, isKazaguruma, isSamurai, isSohei, isSujiken, puzzleType]);
 
     const applyStateSnapshot = React.useCallback((snapshot: Record<string, any> | undefined) => {
-        const restoredGrid = normalizeGrid(snapshot?.grid, puzzleType) || createEmptyGrid(gridSizeForVariant(puzzleType));
+        const variantSize = gridSizeForVariant(puzzleType);
+        const restoredGrid = normalizeGrid(snapshot?.grid, puzzleType) || createEmptyGrid(variantSize);
+        const restoredChainGrid = normalizeChainGrid(snapshot?.chains ?? snapshot?.chainGrid, variantSize);
         const restoredResult = snapshot?.lastResult && typeof snapshot.lastResult === 'object'
             ? snapshot.lastResult as PluginResult
             : undefined;
@@ -2734,8 +2943,11 @@ function GridPuzzleWorkbenchApp({
         setXvVerticalMarks(normalizeXvGrid(snapshot?.xv?.vertical ?? snapshot?.xvMarks?.vertical, SIZE - 1, SIZE));
         setKropkiHorizontalDots(normalizeKropkiGrid(snapshot?.kropki?.horizontal ?? snapshot?.kropkiDots?.horizontal, SIZE, SIZE - 1));
         setKropkiVerticalDots(normalizeKropkiGrid(snapshot?.kropki?.vertical ?? snapshot?.kropkiDots?.vertical, SIZE - 1, SIZE));
+        setChainGrid(restoredChainGrid);
+        setChainPaths(normalizeChainPaths(snapshot?.chains?.paths ?? snapshot?.chainPaths, restoredChainGrid, variantSize));
+        setActiveChain(previous => Math.min(previous, variantSize));
         setParityMarks(normalizeParityGrid(snapshot?.parity ?? snapshot?.parityMarks));
-        setTripodDots(normalizeTripodDots(snapshot?.tripod ?? snapshot?.tripodDots, gridSizeForVariant(puzzleType)));
+        setTripodDots(normalizeTripodDots(snapshot?.tripod ?? snapshot?.tripodDots, variantSize));
         setSkyscraperClues(normalizeSkyscraperClues(snapshot?.skyscraper ?? snapshot?.skyscraperClues));
         setFrameClues(normalizeFrameClues(snapshot?.frame ?? snapshot?.frameClues));
         setOutsideClues(normalizeOutsideClues(snapshot?.outside ?? snapshot?.outsideClues));
@@ -2818,6 +3030,10 @@ function GridPuzzleWorkbenchApp({
                         horizontal: kropkiHorizontalDots,
                         vertical: kropkiVerticalDots,
                     },
+                    chains: {
+                        grid: chainGrid,
+                        paths: chainPaths,
+                    },
                     parity: {
                         grid: parityMarks,
                     },
@@ -2853,6 +3069,8 @@ function GridPuzzleWorkbenchApp({
         }
     }, [
         context?.gcCode,
+        chainGrid,
+        chainPaths,
         frameClues,
         geocacheId,
         godokuAlphabet,
@@ -3026,6 +3244,69 @@ function GridPuzzleWorkbenchApp({
         markDirty();
     }, [markDirty]);
 
+    const assignChainCell = React.useCallback((row: number, col: number) => {
+        const size = chainConfig?.size;
+        if (!size || row < 0 || row >= size || col < 0 || col >= size) {
+            return;
+        }
+
+        setChainPaths(previous => {
+            const next = cloneChainPaths(previous);
+            while (next.length < size) {
+                next.push([]);
+            }
+            next.length = size;
+
+            let targetChain = Math.max(1, Math.min(activeChain, size));
+            let targetIndex = targetChain - 1;
+            const existingIndex = next.findIndex(path => path.some(([cellRow, cellCol]) => cellRow === row && cellCol === col));
+
+            if (existingIndex >= 0) {
+                next[existingIndex] = next[existingIndex].filter(([cellRow, cellCol]) => cellRow !== row || cellCol !== col);
+                targetChain = existingIndex + 1;
+                targetIndex = existingIndex;
+            } else {
+                if (next[targetIndex].length >= size) {
+                    const incompleteIndex = next.findIndex(path => path.length < size);
+                    if (incompleteIndex >= 0) {
+                        targetIndex = incompleteIndex;
+                        targetChain = incompleteIndex + 1;
+                    }
+                }
+
+                if (next[targetIndex].length < size) {
+                    next[targetIndex] = [...next[targetIndex], [row, col]];
+                }
+            }
+
+            const counts = next.map(path => path.length);
+            setActiveChain(counts[targetIndex] >= size ? nextIncompleteChain(counts, size, targetChain) : targetChain);
+            setChainGrid(chainGridFromPaths(next, size));
+            return next;
+        });
+        setSolveState({ running: false });
+        markDirty();
+    }, [activeChain, chainConfig?.size, markDirty]);
+
+    const clearActiveChain = React.useCallback(() => {
+        const size = chainConfig?.size;
+        if (!size) {
+            return;
+        }
+        setChainPaths(previous => {
+            const next = cloneChainPaths(previous);
+            while (next.length < size) {
+                next.push([]);
+            }
+            next.length = size;
+            next[Math.max(0, Math.min(activeChain - 1, size - 1))] = [];
+            setChainGrid(chainGridFromPaths(next, size));
+            return next;
+        });
+        setSolveState({ running: false });
+        markDirty();
+    }, [activeChain, chainConfig?.size, markDirty]);
+
     const updateLittleKillerTotal = React.useCallback((side: SkyscraperSide, index: number, rawValue: string) => {
         const value = normalizeLittleKillerTotal(rawValue);
         setLittleKillerClues(previous => {
@@ -3119,11 +3400,16 @@ function GridPuzzleWorkbenchApp({
             }
             return;
         }
+        if (isChain && mode === 'chain') {
+            event.preventDefault();
+            assignChainCell(row, col);
+            return;
+        }
         if (mode === 'watch' || event.ctrlKey || event.metaKey) {
             event.preventDefault();
             toggleWatchCell(ref);
         }
-    }, [isEvenOdd, mode, toggleParityCell, toggleWatchCell]);
+    }, [assignChainCell, isChain, isEvenOdd, mode, toggleParityCell, toggleWatchCell]);
 
     const handleCellDoubleClick = React.useCallback((row: number, col: number, event: React.MouseEvent) => {
         if (!isEvenOdd || mode === 'parity') {
@@ -3143,6 +3429,8 @@ function GridPuzzleWorkbenchApp({
                         ? `La saisie rapide ${sizedSudokuConfig.label} doit contenir exactement ${sizedSudokuConfig.size * sizedSudokuConfig.size} cases, avec symboles ${sudokuSymbolsForSize(sizedSudokuConfig.size).join('')} ou cases vides.`
                     : tripodConfig
                         ? `La saisie rapide ${tripodConfig.label} doit contenir exactement ${tripodConfig.size * tripodConfig.size} cases, avec symboles ${sudokuSymbolsForSize(tripodConfig.size).join('')} ou cases vides.`
+                    : chainConfig
+                        ? `La saisie rapide ${chainConfig.label} doit contenir exactement ${chainConfig.size * chainConfig.size} ronds, avec symboles ${sudokuSymbolsForSize(chainConfig.size).join('')} ou ronds vides.`
                     : mineConfig
                         ? `La saisie rapide ${mineConfig.label} doit contenir exactement ${mineConfig.size * mineConfig.size} cases, avec chiffres 0-8 pour les indices et . pour les cases inconnues.`
                     : puzzleType === 'sudoku_godoku'
@@ -3162,7 +3450,7 @@ function GridPuzzleWorkbenchApp({
         setGridAndQuickText(parsed);
         setSolveState({ running: false });
         markDirty();
-    }, [markDirty, messageService, puzzleType, setGridAndQuickText, sizedSudokuConfig, tripodConfig, mineConfig]);
+    }, [chainConfig, markDirty, messageService, puzzleType, setGridAndQuickText, sizedSudokuConfig, tripodConfig, mineConfig]);
 
     const handleQuickTextChange = React.useCallback((text: string) => {
         setQuickText(text);
@@ -3199,6 +3487,12 @@ function GridPuzzleWorkbenchApp({
             || value === 'sudoku_rossini'
             || value === 'sudoku_xv'
             || value === 'sudoku_kropki'
+            || value === 'chain_sudoku_4x4'
+            || value === 'chain_sudoku_5x5'
+            || value === 'chain_sudoku_6x6'
+            || value === 'chain_sudoku_7x7'
+            || value === 'chain_sudoku_8x8'
+            || value === 'chain_sudoku_9x9'
             || value === 'sudoku_skyscraper'
             || value === 'sudoku_frame'
             || value === 'sudoku_outside'
@@ -3223,8 +3517,18 @@ function GridPuzzleWorkbenchApp({
         if (nextPuzzleType !== 'sudoku_even_odd' && mode === 'parity') {
             setMode('edit');
         }
+        if (!getChainConfig(nextPuzzleType) && mode === 'chain') {
+            setMode('edit');
+        }
         if (getTripodConfig(nextPuzzleType)) {
             setTripodDots(emptyTripodDots(gridSizeForVariant(nextPuzzleType)));
+        }
+        if (getChainConfig(nextPuzzleType)) {
+            const nextSize = gridSizeForVariant(nextPuzzleType);
+            setChainGrid(emptyChainGrid(nextSize));
+            setChainPaths(emptyChainPaths(nextSize));
+            setActiveChain(1);
+            setMode('chain');
         }
         setQuickText(gridToText(nextGrid, nextPuzzleType));
         setSolveState({ running: false });
@@ -3242,6 +3546,9 @@ function GridPuzzleWorkbenchApp({
         setKropkiVerticalDots(emptyKropkiVerticalDots());
         setParityMarks(emptyParityMarks());
         setTripodDots(emptyTripodDots(gridSizeForVariant(puzzleType)));
+        setChainGrid(emptyChainGrid(gridSizeForVariant(puzzleType)));
+        setChainPaths(emptyChainPaths(gridSizeForVariant(puzzleType)));
+        setActiveChain(1);
         setSkyscraperClues(emptySkyscraperClues());
         setFrameClues(emptyFrameClues());
         setOutsideClues(emptyOutsideClues());
@@ -3257,6 +3564,13 @@ function GridPuzzleWorkbenchApp({
             setSolveState({
                 running: false,
                 error: 'Corrigez les conflits en rouge avant de lancer la resolution.',
+            });
+            return;
+        }
+        if (isChain && !areChainsComplete) {
+            setSolveState({
+                running: false,
+                error: `Completez les chaines avant de lancer la resolution : chaque chaine doit contenir ${chainConfig?.size} ronds.`,
             });
             return;
         }
@@ -3293,6 +3607,7 @@ function GridPuzzleWorkbenchApp({
                 alphabet: isGodoku && godokuAlphabet ? godokuAlphabet : undefined,
                 parity: isEvenOdd ? { grid: parityMarks } : undefined,
                 tripod: isTripod ? { dots: tripodDots } : undefined,
+                chains: isChain ? { grid: chainGrid } : undefined,
                 max_solutions: maxSolutions,
                 solver_timeout_ms: timeoutMs,
             });
@@ -3310,7 +3625,7 @@ function GridPuzzleWorkbenchApp({
                 error: error instanceof Error ? error.message : String(error),
             });
         }
-    }, [constraintConflicts.messages.length, frameClues, geocacheId, godokuAlphabet, grid, horizontalInequalities, isEvenOdd, isFrame, isGodoku, isKropki, isLittleKiller, isOutside, isRossini, isSkyscraper, isTripod, isVudoku, isXv, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, maxSolutions, outsideClues, parityMarks, pluginsService, puzzleType, rossiniArrows, saveState, skyscraperClues, timeoutMs, tripodDots, verticalInequalities, vudokuCorners, watchCells, xvHorizontalMarks, xvVerticalMarks]);
+    }, [areChainsComplete, chainConfig?.size, chainGrid, constraintConflicts.messages.length, frameClues, geocacheId, godokuAlphabet, grid, horizontalInequalities, isChain, isEvenOdd, isFrame, isGodoku, isKropki, isLittleKiller, isOutside, isRossini, isSkyscraper, isTripod, isVudoku, isXv, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, maxSolutions, outsideClues, parityMarks, pluginsService, puzzleType, rossiniArrows, saveState, skyscraperClues, timeoutMs, tripodDots, verticalInequalities, vudokuCorners, watchCells, xvHorizontalMarks, xvVerticalMarks]);
 
     const useSolvedGrid = React.useCallback(() => {
         if (solvedGrid) {
@@ -3373,7 +3688,7 @@ function GridPuzzleWorkbenchApp({
         extraClasses: string[] = [],
     ): string => {
         const ref = cellRef(rowIndex, colIndex);
-        const blockConfig = isTripod ? undefined : mineConfig || getSingleGridSudokuConfig(puzzleType);
+        const blockConfig = isTripod || isChain ? undefined : mineConfig || getSingleGridSudokuConfig(puzzleType);
         const isCompositeSudoku = puzzleType === 'samurai_sudoku'
             || puzzleType === 'flower_sudoku'
             || puzzleType === 'sohei_sudoku'
@@ -3402,6 +3717,9 @@ function GridPuzzleWorkbenchApp({
             puzzleType === 'sudoku_even_odd' && parityMarks[rowIndex]?.[colIndex] === 'even' ? 'even-parity' : '',
             puzzleType === 'sudoku_even_odd' && parityMarks[rowIndex]?.[colIndex] === 'odd' ? 'odd-parity' : '',
             isMine && value ? 'mine-clue' : '',
+            isChain ? 'chain-cell' : '',
+            isChain ? `chain-${chainGrid[rowIndex]?.[colIndex] || 0}` : '',
+            isChain && mode === 'chain' && chainGrid[rowIndex]?.[colIndex] === activeChain ? 'chain-active' : '',
             puzzleType === 'sujiken' ? 'sujiken-cell' : '',
             puzzleType === 'samurai_sudoku' ? 'samurai-cell' : '',
             puzzleType === 'flower_sudoku' ? 'flower-cell' : '',
@@ -3943,6 +4261,48 @@ function GridPuzzleWorkbenchApp({
         );
     };
 
+    const renderChainConnectors = (): React.ReactNode => {
+        if (!isChain || !chainConfig) {
+            return null;
+        }
+        const gap = 4;
+        const connectors: React.ReactNode[] = [];
+        chainPaths.slice(0, chainConfig.size).forEach((path, chainIndex) => {
+            const chain = chainIndex + 1;
+            for (let index = 0; index < path.length - 1; index += 1) {
+                const [startRow, startCol] = path[index];
+                const [endRow, endCol] = path[index + 1];
+                if (
+                    startRow < 0 || startRow >= chainConfig.size
+                    || startCol < 0 || startCol >= chainConfig.size
+                    || endRow < 0 || endRow >= chainConfig.size
+                    || endCol < 0 || endCol >= chainConfig.size
+                ) {
+                    continue;
+                }
+                const startX = startCol * (sizedCellSize + gap) + (sizedCellSize / 2);
+                const startY = startRow * (sizedCellSize + gap) + (sizedCellSize / 2);
+                const endX = endCol * (sizedCellSize + gap) + (sizedCellSize / 2);
+                const endY = endRow * (sizedCellSize + gap) + (sizedCellSize / 2);
+                const dx = endX - startX;
+                const dy = endY - startY;
+                connectors.push(
+                    <span
+                        key={`chain-path-${chain}-${index}-${startRow}-${startCol}-${endRow}-${endCol}`}
+                        className={['chain-connector', 'path', `chain-${chain}`].join(' ')}
+                        style={{
+                            left: startX,
+                            top: startY - 3,
+                            width: Math.sqrt((dx * dx) + (dy * dy)),
+                            transform: `rotate(${Math.atan2(dy, dx)}rad)`,
+                        }}
+                    />
+                );
+            }
+        });
+        return connectors;
+    };
+
     return (
         <div className='grid-puzzle-workbench'>
             <div className='grid-puzzle-toolbar'>
@@ -3960,6 +4320,11 @@ function GridPuzzleWorkbenchApp({
                     {isEvenOdd ? (
                         <button className={mode === 'parity' ? 'active' : ''} onClick={() => setMode('parity')}>
                             Parite
+                        </button>
+                    ) : null}
+                    {isChain ? (
+                        <button className={mode === 'chain' ? 'active' : ''} onClick={() => setMode('chain')}>
+                            Chaines
                         </button>
                     ) : null}
                     <select
@@ -3992,6 +4357,12 @@ function GridPuzzleWorkbenchApp({
                         <option value='sudoku_rossini'>Rossini</option>
                         <option value='sudoku_xv'>Sudoku XV</option>
                         <option value='sudoku_kropki'>Kropki</option>
+                        <option value='chain_sudoku_4x4'>Chain / Strimko 4x4</option>
+                        <option value='chain_sudoku_5x5'>Chain / Strimko 5x5</option>
+                        <option value='chain_sudoku_6x6'>Chain / Strimko 6x6</option>
+                        <option value='chain_sudoku_7x7'>Chain / Strimko 7x7</option>
+                        <option value='chain_sudoku_8x8'>Chain / Strimko 8x8</option>
+                        <option value='chain_sudoku_9x9'>Chain / Strimko 9x9</option>
                         <option value='sudoku_skyscraper'>Skyscraper</option>
                         <option value='sudoku_frame'>Frame</option>
                         <option value='sudoku_outside'>Outside</option>
@@ -4029,6 +4400,7 @@ function GridPuzzleWorkbenchApp({
                             isVudoku ? 'vudoku-board' : '',
                             isXv ? 'xv-board' : '',
                             isKropki ? 'kropki-board' : '',
+                            isChain ? 'chain-board' : '',
                             isRossini ? 'rossini-board' : '',
                             isSkyscraper ? 'skyscraper-board' : '',
                             isFrame ? 'frame-board' : '',
@@ -4044,6 +4416,7 @@ function GridPuzzleWorkbenchApp({
                         style={sizedBoardStyle}
                         aria-label='Grille Sudoku interactive'
                     >
+                        {renderChainConnectors()}
                         {grid.map((row, rowIndex) => (
                             row.map((value, colIndex) => {
                                 if (!isActiveCellForVariant(puzzleType, rowIndex, colIndex)) {
@@ -4059,8 +4432,9 @@ function GridPuzzleWorkbenchApp({
                                             cellRefs.current[rowIndex][colIndex] = element;
                                         }}
                                         aria-label={ref}
-                                        title={isEvenOdd && parityMarks[rowIndex]?.[colIndex] ? `Contrainte ${parityLabel(parityMarks[rowIndex][colIndex])}` : ref}
+                                        title={isChain ? `${ref} - chaine ${chainGrid[rowIndex]?.[colIndex] || '?'}` : isEvenOdd && parityMarks[rowIndex]?.[colIndex] ? `Contrainte ${parityLabel(parityMarks[rowIndex][colIndex])}` : ref}
                                         value={value}
+                                        placeholder={isChain && mode === 'chain' ? String(chainGrid[rowIndex]?.[colIndex] || '') : undefined}
                                         inputMode={isGodoku || (variableGridConfig?.size || 0) > SIZE ? 'text' : 'numeric'}
                                         maxLength={1}
                                         onClick={event => handleCellClick(rowIndex, colIndex, event)}
@@ -4090,12 +4464,13 @@ function GridPuzzleWorkbenchApp({
                         {isRossini ? ' Cliquez les bords exterieurs pour poser les fleches Rossini. Un bord vide impose aussi que les trois premieres cases ne forment pas une suite.' : ''}
                         {isXv ? ' Cliquez les bords pour alterner entre X, V et vide. Un bord vide interdit les sommes 5 et 10.' : ''}
                         {isKropki ? ' Cliquez les bords pour alterner entre rond blanc, rond noir et vide. Un bord vide interdit les chiffres consecutifs et les rapports double/moitie.' : ''}
+                        {isChain ? ` Aucune chaine n'est posee au depart. En mode Chaines, choisissez une couleur puis cliquez les ronds dans l'ordre de la chaine. Cliquez un rond colore pour l'effacer; chaque compteur doit finir a ${chainConfig?.size}/${chainConfig?.size}.` : ''}
                         {isSkyscraper ? ' Renseignez les indices exterieurs visibles depuis chaque cote de la grille.' : ''}
                         {isFrame ? ' Renseignez les sommes exterieures des trois cases les plus proches du bord.' : ''}
                         {isOutside ? ' Renseignez les chiffres exterieurs : ils doivent apparaitre dans les trois premieres cases vues depuis ce cote. Plusieurs chiffres peuvent partager un meme indice.' : ''}
                         {isLittleKiller ? ` Renseignez les sommes Little Killer et cliquez la fleche pour choisir la diagonale visee.${isLittleUniqueKiller ? ' Les diagonales flechees ne peuvent pas contenir de doublon.' : ''}` : ''}
                         {isGodoku ? ' Saisissez les lettres directement dans la grille. L alphabet peut etre renseigne dans les options si la grille ne montre pas les 9 lettres.' : ''}
-                        {sizedSudokuConfig || tripodConfig ? ` Symboles utilises : ${sudokuSymbolsForSize((sizedSudokuConfig || tripodConfig)!.size).join(' ')}.` : ''}
+                        {sizedSudokuConfig || tripodConfig || chainConfig ? ` Symboles utilises : ${sudokuSymbolsForSize((sizedSudokuConfig || tripodConfig || chainConfig)!.size).join(' ')}.` : ''}
                         {puzzleType === 'sudoku_argyle' ? ' Les diagonales orange du motif Argyle ne peuvent pas contenir deux fois le meme chiffre.' : ''}
                         {isEvenOdd ? ' Double-cliquez une case pour alterner entre pair, impair et vide. En mode Parite, un simple clic suffit.' : ''}
                         {isNonConsecutive ? ' Les cases adjacentes horizontalement ou verticalement ne peuvent pas contenir deux chiffres consecutifs.' : ''}
@@ -4150,6 +4525,7 @@ function GridPuzzleWorkbenchApp({
                                     isVudoku ? 'vudoku-board' : '',
                                     isXv ? 'xv-board' : '',
                                     isKropki ? 'kropki-board' : '',
+                                    isChain ? 'chain-board' : '',
                                     isRossini ? 'rossini-board' : '',
                                     isSkyscraper ? 'skyscraper-board' : '',
                                     isFrame ? 'frame-board' : '',
@@ -4165,6 +4541,7 @@ function GridPuzzleWorkbenchApp({
                                 style={sizedBoardStyle}
                                 aria-label='Solution Sudoku'
                             >
+                                {renderChainConnectors()}
                                 {solvedGrid.map((row, rowIndex) => (
                                     row.map((value, colIndex) => {
                                         if (!isActiveCellForVariant(puzzleType, rowIndex, colIndex)) {
@@ -4245,6 +4622,51 @@ function GridPuzzleWorkbenchApp({
                                     }}
                                 />
                             </label>
+                        ) : null}
+                        {isChain && chainConfig ? (
+                            <div className='chain-tools'>
+                                <span>Chaine active</span>
+                                <div className='chain-palette'>
+                                    {Array.from({ length: chainConfig.size }, (_unused, index) => {
+                                        const chain = index + 1;
+                                        return (
+                                            <button
+                                                key={`chain-palette-${chain}`}
+                                                type='button'
+                                                className={[
+                                                    'chain-palette-button',
+                                                    `chain-${chain}`,
+                                                    activeChain === chain ? 'active' : '',
+                                                    chainCounts[index] === chainConfig.size ? 'complete' : 'incomplete',
+                                                ].filter(Boolean).join(' ')}
+                                                title={`Chaine ${chain}: ${chainCounts[index]}/${chainConfig.size} ronds`}
+                                                onClick={() => setActiveChain(chain)}
+                                            >
+                                                <span>{chain}</span>
+                                                <small>{chainCounts[index] === chainConfig.size ? 'OK' : `${chainCounts[index]}/${chainConfig.size}`}</small>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                                <button
+                                    type='button'
+                                    onClick={clearActiveChain}
+                                >
+                                    Effacer la chaine active
+                                </button>
+                                <button
+                                    type='button'
+                                    onClick={() => {
+                                        setChainGrid(emptyChainGrid(chainConfig.size));
+                                        setChainPaths(emptyChainPaths(chainConfig.size));
+                                        setActiveChain(1);
+                                        setSolveState({ running: false });
+                                        markDirty();
+                                    }}
+                                >
+                                    Effacer les chaines
+                                </button>
+                            </div>
                         ) : null}
                         {isLittleKiller ? (
                             <div className='little-killer-direction-tools'>

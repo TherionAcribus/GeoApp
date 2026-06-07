@@ -100,6 +100,13 @@
     position: relative;
 }
 
+.sudoku-board.chain-board {
+    position: relative;
+    gap: 4px;
+    border: 0;
+    background: transparent;
+}
+
 .sudoku-board.greater-than-board {
     grid-template-columns: repeat(8, 44px 22px) 44px;
     grid-template-rows: repeat(8, 44px 22px) 44px;
@@ -251,6 +258,59 @@
     border-color: #111827;
     font-weight: 800;
 }
+
+.sudoku-cell.chain-cell {
+    position: relative;
+    z-index: 2;
+    border-radius: 999px;
+    border-width: 2px;
+    font-weight: 700;
+    box-shadow: 0 1px 4px color-mix(in srgb, #000000 18%, transparent);
+}
+
+.sudoku-cell.chain-cell::placeholder {
+    color: color-mix(in srgb, var(--theia-input-foreground) 48%, transparent);
+    opacity: 1;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.sudoku-cell.chain-active {
+    outline: 3px solid var(--theia-focusBorder);
+    outline-offset: 1px;
+}
+
+.chain-connector {
+    position: absolute;
+    z-index: 1;
+    pointer-events: none;
+    border-radius: 999px;
+    opacity: 0.62;
+    box-shadow: 0 1px 3px color-mix(in srgb, #000000 20%, transparent);
+    transform-origin: 0 50%;
+}
+
+.chain-connector.path {
+    height: 6px;
+}
+
+.chain-connector.horizontal {
+    height: 6px;
+}
+
+.chain-connector.vertical {
+    width: 6px;
+}
+
+.chain-1 { background: color-mix(in srgb, var(--theia-input-background) 64%, #fecaca); border-color: #ef4444; }
+.chain-2 { background: color-mix(in srgb, var(--theia-input-background) 64%, #fed7aa); border-color: #f97316; }
+.chain-3 { background: color-mix(in srgb, var(--theia-input-background) 64%, #fef08a); border-color: #ca8a04; }
+.chain-4 { background: color-mix(in srgb, var(--theia-input-background) 64%, #bbf7d0); border-color: #22c55e; }
+.chain-5 { background: color-mix(in srgb, var(--theia-input-background) 64%, #bae6fd); border-color: #0ea5e9; }
+.chain-6 { background: color-mix(in srgb, var(--theia-input-background) 64%, #c7d2fe); border-color: #6366f1; }
+.chain-7 { background: color-mix(in srgb, var(--theia-input-background) 64%, #e9d5ff); border-color: #a855f7; }
+.chain-8 { background: color-mix(in srgb, var(--theia-input-background) 64%, #fbcfe8); border-color: #ec4899; }
+.chain-9 { background: color-mix(in srgb, var(--theia-input-background) 64%, #d1d5db); border-color: #6b7280; }
 
 .sudoku-cell.diagonal {
     background: color-mix(in srgb, var(--theia-input-background) 72%, #f59e0b);
@@ -1180,6 +1240,50 @@
     color: var(--theia-foreground);
     background: var(--theia-input-background);
     border-color: var(--theia-focusBorder);
+}
+
+.chain-tools {
+    display: grid;
+    gap: 8px;
+}
+
+.chain-palette {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.grid-puzzle-workbench .chain-palette-button {
+    min-width: 32px;
+    min-height: 38px;
+    padding: 3px 6px;
+    color: var(--theia-input-foreground);
+    border-width: 2px;
+    border-radius: 8px;
+    font-weight: 800;
+    display: grid;
+    gap: 1px;
+    place-items: center;
+    line-height: 1;
+}
+
+.grid-puzzle-workbench .chain-palette-button.active {
+    outline: 3px solid var(--theia-focusBorder);
+    outline-offset: 1px;
+}
+
+.grid-puzzle-workbench .chain-palette-button.incomplete {
+    border-style: dashed;
+}
+
+.grid-puzzle-workbench .chain-palette-button.complete {
+    border-style: solid;
+}
+
+.grid-puzzle-workbench .chain-palette-button small {
+    font-size: 10px;
+    font-weight: 700;
+    color: color-mix(in srgb, var(--theia-input-foreground) 74%, transparent);
 }
 
 .watched-output {

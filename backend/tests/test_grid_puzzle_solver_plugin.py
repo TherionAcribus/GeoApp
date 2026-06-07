@@ -110,6 +110,63 @@ def test_sized_classic_sudoku_rejects_repeated_row_value():
     assert result["summary"] == "Aucune solution compatible avec les contraintes"
 
 
+def test_chain_sudoku_accepts_matching_chains():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "chain_sudoku_4x4",
+            "grid": """
+                1234
+                3412
+                2143
+                4321
+            """,
+            "chains": {
+                "grid": [
+                    "AABB",
+                    "CCDD",
+                    "BBAA",
+                    "DDCC",
+                ]
+            },
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["unique"] is True
+    assert result["metadata"]["variant"] == "chain_sudoku_4x4"
+    assert result["metadata"]["constraint_count"] == 12
+
+
+def test_chain_sudoku_rejects_repeated_value_in_chain():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "strimko_4x4",
+            "grid": """
+                1234
+                3412
+                2143
+                4321
+            """,
+            "chains": [
+                "AABB",
+                "CCDD",
+                "ABAB",
+                "DDCC",
+            ],
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+    assert result["summary"] == "Aucune solution compatible avec les contraintes"
+
+
 def test_sudoku_x_accepts_diagonal_solution():
     plugin = load_plugin()
 
