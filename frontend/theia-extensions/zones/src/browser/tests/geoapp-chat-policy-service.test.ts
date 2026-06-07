@@ -104,6 +104,7 @@ function testGuidedProfileEnablesDefaultsAndConfirmsRiskyTools(): void {
         GeoAppChatSkillNames.coordinates,
         GeoAppChatSkillNames.secretCode,
         GeoAppChatSkillNames.formula,
+        GeoAppChatSkillNames.research,
     ]);
     assert.ok(exposed.find(request => request.name === 'run_checker')?.confirmAlwaysAllow);
 }

@@ -705,20 +705,27 @@ def ai_search_answer():
         question = data.get('question')
         context = data.get('context')
         max_results = data.get('max_results', 5)
+        raw = bool(data.get('raw', False))
+        geocache_id = data.get('geocache_id')
         
         if not question:
             return jsonify({
                 'status': 'error',
                 'error': 'Paramètre question requis'
             }), 400
+
+        # Si aucun contexte n'est fourni mais qu'une géocache est connue, construire
+        # un contexte court (nom + localisation) utile pour les recherches documentaires.
+        if not context and geocache_id is not None:
+            context = _build_geocache_search_context(geocache_id)
         
-        # Rechercher sur le web
-        results = web_search_service.search(question, context, max_results)
+        # Rechercher sur le web (raw=True pour les énigmes de connaissance/listes)
+        results = web_search_service.search(question, context, max_results, raw=raw)
         
         # Extraire la meilleure réponse
         best_answer = web_search_service.extract_answer(results)
         
-        logger.info(f"[AI] Recherche web: {len(results)} résultats pour '{question}'")
+        logger.info(f"[AI] Recherche web (raw={raw}): {len(results)} résultats pour '{question}'")
         
         return jsonify({
             'status': 'success',
@@ -728,6 +735,67 @@ def ai_search_answer():
     
     except Exception as e:
         logger.error(f"[AI] Erreur recherche web: {e}")
+        return jsonify({
+            'status': 'error',
+            'error': str(e)
+        }), 500
+
+
+def _build_geocache_search_context(geocache_id) -> str:
+    """Construit un court contexte de recherche (nom + localisation) pour une géocache."""
+    try:
+        geocache = db.session.get(Geocache, int(geocache_id))
+    except Exception:
+        geocache = None
+    if not geocache:
+        return ''
+    name = getattr(geocache, 'name', None) or ''
+    return str(name).strip()
+
+
+@formula_solver_bp.post('/ai/fetch-url')
+def ai_fetch_url():
+    """
+    Endpoint pour l'agent IA - Lit le contenu textuel d'une page web.
+
+    Body JSON:
+        {
+            "url": "https://...",
+            "max_chars": 6000  // optionnel
+        }
+
+    Returns:
+        {
+            "status": "success",
+            "url": "...",
+            "title": "...",
+            "text": "contenu textuel nettoyé",
+            "truncated": false
+        }
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        url = data.get('url')
+        max_chars = data.get('max_chars', 6000)
+
+        if not url:
+            return jsonify({
+                'status': 'error',
+                'error': 'Paramètre url requis'
+            }), 400
+
+        try:
+            max_chars = max(500, min(int(max_chars), 20000))
+        except (TypeError, ValueError):
+            max_chars = 6000
+
+        result = web_search_service.fetch_page(url, max_chars=max_chars)
+        status_code = 200 if result.get('status') == 'success' else 400
+        logger.info(f"[AI] Lecture page web: {url} -> {result.get('status')}")
+        return jsonify(result), status_code
+
+    except Exception as e:
+        logger.error(f"[AI] Erreur lecture page web: {e}")
         return jsonify({
             'status': 'error',
             'error': str(e)

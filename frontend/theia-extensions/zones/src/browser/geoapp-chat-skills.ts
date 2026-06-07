@@ -6,6 +6,7 @@ export const GeoAppChatSkillNames = {
     imagePuzzle: 'geoapp-image-puzzle',
     secretCode: 'geoapp-secret-code',
     coordinates: 'geoapp-coordinates',
+    research: 'geoapp-research',
 } as const;
 
 export type GeoAppChatSkillName = typeof GeoAppChatSkillNames[keyof typeof GeoAppChatSkillNames];
@@ -73,7 +74,7 @@ Use this skill when the cache looks like a formula puzzle, coordinate transform,
 - If formulas and variables were already returned by the workflow, start from those values.
 - Use detect_formula only when the formula extraction must be refreshed from new text.
 - Use find_questions_for_variables to attach missing variables to listing questions or nearby clues.
-- Use search_answer_online only when the active policy exposes network tools and the answer is factual.
+- Use search_answer_online when the active policy exposes network tools and a variable depends on an external fact (mode auto for a short fact). If a snippet is promising but incomplete, open the page with fetch_url to confirm the exact value.
 - Convert found answers with calculate_variable_value before substituting them.
 - Use calculate_final_coordinates once the north/east formulas and values are known.
 
@@ -261,6 +262,46 @@ Use this skill whenever a candidate coordinate, projection, intersection, waypoi
 - Do not silently discard a valid candidate without explaining the selection criterion.
 `,
     },
+    {
+        name: GeoAppChatSkillNames.research,
+        label: 'Recherche web',
+        description: 'Strategie GeoApp pour les enigmes de connaissance: rechercher des faits, listes et references sur Internet et lire les sources.',
+        workflows: ['general', 'secret_code', 'hidden_content', 'image_puzzle', 'formula', 'checker'],
+        toolRegistryIds: [
+            'formula-solver.search-answer',
+            'formula-solver.fetch-url',
+            'geoapp.checkers.run',
+        ],
+        content: `${skillFrontmatter(GeoAppChatSkillNames.research, 'Strategie GeoApp pour la recherche web et les enigmes de connaissance.', [
+            'formula-solver.search-answer',
+            'formula-solver.fetch-url',
+            'geoapp.checkers.run',
+        ])}# GeoApp Research Skill
+
+Use this skill when solving the cache requires external knowledge rather than (or in addition to) decoding: facts, dates, names, lists, cultural or historical references, or "find the N items" style questions.
+
+## When To Use Web Tools
+
+- Use this skill when the listing asks a knowledge question that cannot be answered from the listing text alone (for example "name the 9 places", "what year did X happen", "who wrote Y").
+- Only use the web tools that the active policy exposes (search_answer_online, fetch_url). If they are blocked, explain the missing step instead of guessing.
+
+## Search Strategy
+
+- For a single short fact (one value, one name, one date), call search_answer_online in mode auto.
+- For an open knowledge question or a list of several items, call search_answer_online in mode research so the full question is kept.
+- Pass the geocache_id (or a short context with the cache name/location) to focus the search.
+- Read the returned snippets and their source URLs. If a snippet looks like it contains the answer but is incomplete, open that URL with fetch_url to read the page and extract the precise information.
+- If the first query is too generic, reformulate with more specific keywords from the listing and search again.
+
+## Reasoning Rules
+
+- Cross-check the answer against the listing constraints (count, format, alphabetical order, requested casing).
+- Never present an unverified web result as certain. State your confidence and the source.
+- Never invent coordinates from web content.
+- If a checker is referenced and checker tools are exposed, validate the final candidate with run_checker before concluding.
+- If the web search returns nothing useful, say so and propose the most specific search terms the user could try, instead of fabricating an answer.
+`,
+    },
 ];
 
 export function getGeoAppChatSkillNames(): GeoAppChatSkillName[] {
@@ -311,15 +352,15 @@ export function getBaseGeoAppChatSkillNames(workflowKind?: GeoAppChatWorkflowKin
         return [GeoAppChatSkillNames.checkers, GeoAppChatSkillNames.coordinates];
     }
     if (workflowKind === 'secret_code') {
-        return [GeoAppChatSkillNames.secretCode, GeoAppChatSkillNames.coordinates, GeoAppChatSkillNames.checkers];
+        return [GeoAppChatSkillNames.secretCode, GeoAppChatSkillNames.coordinates, GeoAppChatSkillNames.checkers, GeoAppChatSkillNames.research];
     }
     if (workflowKind === 'hidden_content') {
-        return [GeoAppChatSkillNames.secretCode, GeoAppChatSkillNames.imagePuzzle, GeoAppChatSkillNames.coordinates];
+        return [GeoAppChatSkillNames.secretCode, GeoAppChatSkillNames.imagePuzzle, GeoAppChatSkillNames.coordinates, GeoAppChatSkillNames.research];
     }
     if (workflowKind === 'image_puzzle') {
-        return [GeoAppChatSkillNames.imagePuzzle, GeoAppChatSkillNames.secretCode, GeoAppChatSkillNames.coordinates];
+        return [GeoAppChatSkillNames.imagePuzzle, GeoAppChatSkillNames.secretCode, GeoAppChatSkillNames.coordinates, GeoAppChatSkillNames.research];
     }
-    return [GeoAppChatSkillNames.coordinates, GeoAppChatSkillNames.secretCode, GeoAppChatSkillNames.formula];
+    return [GeoAppChatSkillNames.coordinates, GeoAppChatSkillNames.secretCode, GeoAppChatSkillNames.formula, GeoAppChatSkillNames.research];
 }
 
 export function getRecommendedGeoAppChatSkillNames(workflowKind?: GeoAppChatWorkflowKind, skillPack: GeoAppChatSkillPack = 'workflow'): GeoAppChatSkillName[] {

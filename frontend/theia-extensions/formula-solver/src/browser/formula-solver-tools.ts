@@ -64,6 +64,7 @@ export class FormulaSolverToolsManager implements FrontendApplicationContributio
             this.createDetectFormulaTool(),
             this.createFindQuestionsTool(),
             this.createSearchAnswerTool(),
+            this.createFetchUrlTool(),
             this.createCalculateValueTool(),
             this.createCalculateCoordinatesTool()
         ];
@@ -135,21 +136,62 @@ export class FormulaSolverToolsManager implements FrontendApplicationContributio
         return {
             id: 'formula-solver.search-answer',
             name: 'search_answer_online',
-            description: 'Recherche la réponse à une question sur Internet via DuckDuckGo. Utile pour trouver des informations factuelles.',
+            description: 'Recherche des informations sur Internet via DuckDuckGo. Utile pour resoudre les enigmes de connaissance (faits, listes, noms, dates). Renvoie des extraits (snippets) avec leur source. Pour lire le contenu complet d\'une page trouvee, enchaine avec ~fetch_url.',
             providerName: FormulaSolverToolsManager.PROVIDER_NAME,
             parameters: this.buildParameters({
                 question: {
                     type: 'string',
-                    description: 'La question à rechercher',
+                    description: 'La question ou les mots-cles a rechercher',
                     required: true
                 },
                 context: {
                     type: 'string',
-                    description: 'Contexte optionnel pour affiner la recherche',
+                    description: 'Contexte optionnel pour affiner la recherche (ex: nom/lieu de la geocache). Si omis et geocache_id fourni, GeoApp ajoute le nom de la cache.',
+                    required: false
+                },
+                mode: {
+                    type: 'string',
+                    description: 'auto = recherche optimisee pour une variable de formule (un fait court). research = garde la question quasi intacte, ideal pour les listes/connaissances ouvertes (ex: "9 lieux-dits"). Defaut: auto.',
+                    enum: ['auto', 'research'],
+                    required: false
+                },
+                max_results: {
+                    type: 'number',
+                    description: 'Nombre maximum de resultats (defaut 5).',
+                    required: false
+                },
+                geocache_id: {
+                    type: 'number',
+                    description: 'Optionnel: id de la geocache pour enrichir automatiquement le contexte de recherche.',
                     required: false
                 }
             }),
             handler: async (argString: string) => this.handleSearchAnswer(argString)
+        };
+    }
+
+    /**
+     * Tool: Lecture du contenu textuel d'une page web
+     */
+    private createFetchUrlTool(): ToolRequest {
+        return {
+            id: 'formula-solver.fetch-url',
+            name: 'fetch_url',
+            description: 'Lit le contenu textuel d\'une page web (http/https) et le renvoie nettoye. A utiliser apres ~search_answer_online pour ouvrir une source prometteuse et en extraire des informations precises (listes, noms, valeurs).',
+            providerName: FormulaSolverToolsManager.PROVIDER_NAME,
+            parameters: this.buildParameters({
+                url: {
+                    type: 'string',
+                    description: 'URL complete de la page a lire (doit commencer par http:// ou https://).',
+                    required: true
+                },
+                max_chars: {
+                    type: 'number',
+                    description: 'Longueur maximale du texte extrait (defaut 6000, max 20000).',
+                    required: false
+                }
+            }),
+            handler: async (argString: string) => this.handleFetchUrl(argString)
         };
     }
 
@@ -291,7 +333,10 @@ export class FormulaSolverToolsManager implements FrontendApplicationContributio
 
             const response = await this.apiClient.post('/ai/search-answer', {
                 question: args.question,
-                context: args.context
+                context: args.context,
+                raw: args.mode === 'research',
+                max_results: args.max_results,
+                geocache_id: args.geocache_id
             });
 
             const data = response.data;
@@ -309,6 +354,36 @@ export class FormulaSolverToolsManager implements FrontendApplicationContributio
         } catch (error: any) {
             console.error('[FORMULA-SOLVER-TOOLS] Erreur search_answer:', error);
             return { error: error.message || 'Erreur lors de la recherche web' };
+        }
+    }
+
+    private async handleFetchUrl(argString: string): Promise<ToolCallResult> {
+        try {
+            const args = JSON.parse(argString);
+            console.log('[FORMULA-SOLVER-TOOLS] fetch_url appelé:', args);
+
+            const response = await this.apiClient.post('/ai/fetch-url', {
+                url: args.url,
+                max_chars: args.max_chars
+            });
+
+            const data = response.data;
+
+            if (data.status === 'error') {
+                return { error: data.error || 'Impossible de lire la page' };
+            }
+
+            return {
+                content: JSON.stringify({
+                    url: data.url,
+                    title: data.title,
+                    text: data.text,
+                    truncated: data.truncated
+                }, null, 2)
+            };
+        } catch (error: any) {
+            console.error('[FORMULA-SOLVER-TOOLS] Erreur fetch_url:', error);
+            return { error: error.message || 'Erreur lors de la lecture de la page web' };
         }
     }
 

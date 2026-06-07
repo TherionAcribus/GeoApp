@@ -174,11 +174,109 @@ class WebSearchService:
         logger.debug(f"Query cleanup: '{raw_question}' -> '{q}'")
         return q
 
+    def _light_cleanup_for_search(self, raw_question: str) -> str:
+        """
+        Nettoyage léger pour la recherche documentaire (mode raw).
+        On garde la question quasi intacte : seuls la ponctuation parasite
+        et les espaces multiples sont normalisés. Chaque mot compte pour
+        les énigmes de connaissance (ex: "9 lieux-dits banc de sable Certes").
+        """
+        q = _CLEANUP_RE.sub(' ', raw_question or '')
+        q = _MULTI_SPACE_RE.sub(' ', q).strip(' .,;:-–—')
+        return q
+
+    def fetch_page(self, url: str, max_chars: int = 6000) -> Dict[str, any]:
+        """
+        Récupère le contenu textuel d'une page web pour analyse par l'IA.
+
+        Args:
+            url: URL de la page à lire (http/https uniquement)
+            max_chars: longueur maximale du texte extrait (défaut 6000)
+
+        Returns:
+            {
+                "status": "success" | "error",
+                "url": "...",
+                "title": "...",
+                "text": "contenu textuel nettoyé",
+                "truncated": bool,
+                "error": "..."  # seulement si status == error
+            }
+        """
+        cleaned_url = (url or '').strip()
+        if not re.match(r'^https?://', cleaned_url, flags=re.IGNORECASE):
+            return {
+                "status": "error",
+                "url": url,
+                "error": "URL invalide: seuls les schémas http/https sont autorisés.",
+            }
+
+        try:
+            resp = http_requests.get(
+                cleaned_url,
+                timeout=self.timeout,
+                headers={
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                                  '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                    'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
+                },
+            )
+        except Exception as e:
+            logger.warning(f"fetch_page error for {cleaned_url}: {e}")
+            return {"status": "error", "url": cleaned_url, "error": str(e)}
+
+        if resp.status_code != 200:
+            return {
+                "status": "error",
+                "url": cleaned_url,
+                "error": f"HTTP {resp.status_code}",
+            }
+
+        content_type = resp.headers.get('Content-Type', '')
+        if 'html' not in content_type and 'text' not in content_type:
+            return {
+                "status": "error",
+                "url": cleaned_url,
+                "error": f"Type de contenu non supporté: {content_type or 'inconnu'}",
+            }
+
+        try:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(resp.text, 'html.parser')
+
+            # Retirer les éléments non informatifs.
+            for tag in soup(['script', 'style', 'noscript', 'header', 'footer', 'nav', 'form', 'svg']):
+                tag.decompose()
+
+            title = soup.title.get_text(strip=True) if soup.title else ''
+
+            # Extraction du texte principal avec séparation par lignes.
+            text = soup.get_text(separator='\n')
+            lines = [line.strip() for line in text.splitlines()]
+            text = '\n'.join(line for line in lines if line)
+            text = re.sub(r'\n{3,}', '\n\n', text)
+
+            truncated = len(text) > max_chars
+            if truncated:
+                text = text[:max_chars]
+
+            return {
+                "status": "success",
+                "url": cleaned_url,
+                "title": title,
+                "text": text,
+                "truncated": truncated,
+            }
+        except Exception as e:
+            logger.warning(f"fetch_page parse error for {cleaned_url}: {e}")
+            return {"status": "error", "url": cleaned_url, "error": str(e)}
+
     def search(
         self, 
         query: str, 
         context: Optional[str] = None,
-        max_results: Optional[int] = None
+        max_results: Optional[int] = None,
+        raw: bool = False
     ) -> List[Dict[str, any]]:
         """
         Recherche une réponse sur Internet.
@@ -187,6 +285,10 @@ class WebSearchService:
             query: La question à rechercher
             context: Contexte additionnel pour affiner la recherche
             max_results: Nombre maximum de résultats (défaut: 5)
+            raw: Si True, mode "recherche documentaire": la requête est gardée
+                quasi intacte (nettoyage léger) au lieu d'être réduite à un
+                sujet de formule. Utile pour les énigmes de connaissance
+                (ex: "liste des 9 lieux-dits ...") où chaque mot compte.
             
         Returns:
             Liste de résultats avec leur contenu et score de pertinence:
@@ -202,16 +304,23 @@ class WebSearchService:
         if max_results is None:
             max_results = self.max_results
         
-        # Nettoyer la question pour construire une requête de recherche web efficace
-        clean_query = self._clean_query_for_search(query)
+        # Construire la requête de recherche web.
+        # - mode formule (défaut) : on isole le sujet en retirant les instructions de calcul.
+        # - mode brut (raw) : on garde la question quasi intacte pour la recherche documentaire.
+        if raw:
+            clean_query = self._light_cleanup_for_search(query)
+        else:
+            clean_query = self._clean_query_for_search(query)
         
-        # Ne pas ajouter le contexte s'il est trop long ou pollue la recherche
-        if context and len(context.strip()) < 80:
+        # En mode brut, le contexte (titre/localisation de la cache) est précieux,
+        # on l'ajoute même s'il est un peu plus long.
+        max_context_len = 160 if raw else 80
+        if context and len(context.strip()) < max_context_len:
             search_query = f"{clean_query} {context.strip()}"
         else:
             search_query = clean_query
         
-        logger.info(f"Web search: original='{query}' -> cleaned='{search_query}'")
+        logger.info(f"Web search (raw={raw}): original='{query}' -> cleaned='{search_query}'")
         
         results = []
         

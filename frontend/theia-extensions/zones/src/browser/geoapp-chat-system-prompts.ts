@@ -37,6 +37,12 @@ const WORKFLOW_RULES = [
     '- Si un direct_plugin_candidate fiable est remonte et que le step correspondant est expose, execute execute-direct-plugin avant de proposer des variantes generiques.',
     '- Utilise classify_geocache_listing seulement pour reinspecter le listing apres une nouvelle hypothese ou comparer plusieurs branches.',
     '- Quand un skill donne une strategie et que la policy bloque un tool requis, explique simplement le blocage et propose l etape manuelle equivalente.',
+    '',
+    'Recherche web :',
+    '- Quand l enigme demande des connaissances externes (faits, dates, noms, listes, references culturelles) et que le profil expose les tools web, utilise ~search_answer_online au lieu de rester bloque ou de demander la reponse a l utilisateur.',
+    '- Pour une variable de formule (un fait court), appelle ~search_answer_online en mode auto. Pour une liste ou une question de connaissance ouverte (ex: "les 9 lieux-dits ..."), appelle-le en mode research.',
+    '- Si un resultat de recherche semble contenir la reponse mais que le snippet est insuffisant, ouvre la page avec ~fetch_url pour en extraire les details precis avant de conclure.',
+    '- Cite toujours la ou les sources web utilisees. Ne presente jamais une information web non verifiee comme certaine, et n invente jamais de coordonnees a partir du web.',
 ].join('\n');
 
 function withMode(modeRules: string): string {
