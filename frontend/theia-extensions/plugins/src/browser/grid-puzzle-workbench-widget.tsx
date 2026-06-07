@@ -10,7 +10,7 @@ import './style/grid-puzzle-workbench.css';
 type Grid = string[][];
 type RegionGrid = number[][];
 type WorkMode = 'edit' | 'watch' | 'parity' | 'chain';
-type SudokuVariant = 'sudoku_classic' | 'sudoku_4x4' | 'sudoku_6x6' | 'sudoku_8x8' | 'sudoku_10x10' | 'sudoku_12x12' | 'sudoku_15x15' | 'sudoku_16x16' | 'sudoku_x' | 'sudoku_argyle' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_vudoku' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_kropki' | 'chain_sudoku_4x4' | 'chain_sudoku_5x5' | 'chain_sudoku_6x6' | 'chain_sudoku_7x7' | 'chain_sudoku_8x8' | 'chain_sudoku_9x9' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_outside' | 'sudoku_little_killer' | 'sudoku_little_unique_killer' | 'sudoku_godoku' | 'sudoku_even_odd' | 'sudoku_non_consecutive' | 'sudoku_mine' | 'sudoku_mine_6x6' | 'sudoku_tripod' | 'sudoku_tripod_4x4' | 'sudoku_tripod_5x5' | 'sudoku_tripod_6x6' | 'sudoku_tripod_7x7' | 'sudoku_tripod_8x8';
+type SudokuVariant = 'sudoku_classic' | 'sudoku_4x4' | 'sudoku_6x6' | 'sudoku_8x8' | 'sudoku_10x10' | 'sudoku_12x12' | 'sudoku_15x15' | 'sudoku_16x16' | 'sudoku_x' | 'sudoku_argyle' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_vudoku' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_kropki' | 'chain_sudoku_4x4' | 'chain_sudoku_5x5' | 'chain_sudoku_6x6' | 'chain_sudoku_7x7' | 'chain_sudoku_8x8' | 'chain_sudoku_9x9' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_outside' | 'sudoku_sandwich' | 'sudoku_little_killer' | 'sudoku_little_unique_killer' | 'sudoku_godoku' | 'sudoku_even_odd' | 'sudoku_non_consecutive' | 'sudoku_mine' | 'sudoku_mine_6x6' | 'sudoku_tripod' | 'sudoku_tripod_4x4' | 'sudoku_tripod_5x5' | 'sudoku_tripod_6x6' | 'sudoku_tripod_7x7' | 'sudoku_tripod_8x8';
 type InequalitySymbol = '' | '>' | '<';
 type InequalityGrid = InequalitySymbol[][];
 type VudokuSymbol = '' | 'tl' | 'tr' | 'bl' | 'br';
@@ -45,6 +45,13 @@ interface FrameClues {
 }
 
 interface OutsideClues {
+    top: string[];
+    bottom: string[];
+    left: string[];
+    right: string[];
+}
+
+interface SandwichClues {
     top: string[];
     bottom: string[];
     left: string[];
@@ -136,6 +143,12 @@ const EMPTY_FRAME_CLUES: FrameClues = {
     right: Array<string>(SIZE).fill(''),
 };
 const EMPTY_OUTSIDE_CLUES: OutsideClues = {
+    top: Array<string>(SIZE).fill(''),
+    bottom: Array<string>(SIZE).fill(''),
+    left: Array<string>(SIZE).fill(''),
+    right: Array<string>(SIZE).fill(''),
+};
+const EMPTY_SANDWICH_CLUES: SandwichClues = {
     top: Array<string>(SIZE).fill(''),
     bottom: Array<string>(SIZE).fill(''),
     left: Array<string>(SIZE).fill(''),
@@ -270,6 +283,15 @@ function cloneOutsideClues(clues: OutsideClues): OutsideClues {
     };
 }
 
+function cloneSandwichClues(clues: SandwichClues): SandwichClues {
+    return {
+        top: [...clues.top],
+        bottom: [...clues.bottom],
+        left: [...clues.left],
+        right: [...clues.right],
+    };
+}
+
 function cloneLittleKillerClues(clues: LittleKillerClues): LittleKillerClues {
     return {
         top: clues.top.map(clue => ({ ...clue })),
@@ -367,6 +389,9 @@ function getVariantLabel(puzzleType: SudokuVariant): string {
     }
     if (puzzleType === 'sudoku_outside') {
         return 'Outside';
+    }
+    if (puzzleType === 'sudoku_sandwich') {
+        return 'Sandwich';
     }
     if (puzzleType === 'sudoku_little_killer') {
         return 'Little Killer';
@@ -832,6 +857,7 @@ function findConstraintConflicts(
     skyscraperClues: SkyscraperClues,
     frameClues: FrameClues,
     outsideClues: OutsideClues,
+    sandwichClues: SandwichClues,
     littleKillerClues: LittleKillerClues,
     parityMarks: ParityGrid,
 ): ConflictHighlights {
@@ -943,6 +969,10 @@ function findConstraintConflicts(
 
     if (puzzleType === 'sudoku_outside') {
         addOutsideConflicts(grid, cells, messages, outsideClues);
+    }
+
+    if (puzzleType === 'sudoku_sandwich') {
+        addSandwichConflicts(grid, cells, messages, activeSandwichClues(sandwichClues));
     }
 
     if (puzzleType === 'sudoku_little_killer' || puzzleType === 'sudoku_little_unique_killer') {
@@ -1346,6 +1376,41 @@ function outsideCells(side: SkyscraperSide, index: number): CellCoord[] {
     return [[8, index], [7, index], [6, index]];
 }
 
+function addSandwichConflicts(
+    grid: Grid,
+    cells: Set<string>,
+    messages: string[],
+    clues: SandwichClues,
+): void {
+    (['top', 'bottom', 'left', 'right'] as SkyscraperSide[]).forEach(side => {
+        clues[side].forEach((clue, index) => {
+            if (clue === '') {
+                return;
+            }
+            const lineCells = skyscraperCells(side, index);
+            const values = lineCells.map(([row, col]) => Number(grid[row]?.[col] || 0));
+            if (values.some(value => !value)) {
+                return;
+            }
+            const oneIndex = values.indexOf(1);
+            const nineIndex = values.indexOf(9);
+            if (oneIndex < 0 || nineIndex < 0) {
+                return;
+            }
+            const start = Math.min(oneIndex, nineIndex) + 1;
+            const end = Math.max(oneIndex, nineIndex);
+            const total = values.slice(start, end).reduce((sum, value) => sum + value, 0);
+            if (total === Number(clue)) {
+                return;
+            }
+            const involvedCells = lineCells.slice(Math.min(oneIndex, nineIndex), Math.max(oneIndex, nineIndex) + 1);
+            const refs = involvedCells.map(([row, col]) => cellRef(row, col));
+            refs.forEach(ref => cells.add(ref));
+            messages.push(`Indice Sandwich ${skyscraperSideLabel(side)} ${index + 1} attendu ${clue}, somme ${total} : ${refs.join(', ')}`);
+        });
+    });
+}
+
 function addLittleKillerConflicts(
     grid: Grid,
     cells: Set<string>,
@@ -1703,6 +1768,10 @@ function emptyOutsideClues(): OutsideClues {
     return cloneOutsideClues(EMPTY_OUTSIDE_CLUES);
 }
 
+function emptySandwichClues(): SandwichClues {
+    return cloneSandwichClues(EMPTY_SANDWICH_CLUES);
+}
+
 function emptyLittleKillerClues(): LittleKillerClues {
     return cloneLittleKillerClues(EMPTY_LITTLE_KILLER_CLUES);
 }
@@ -2054,6 +2123,46 @@ function normalizeOutsideClues(value: unknown): OutsideClues {
         bottom: normalizeOutsideSide(record.bottom ?? record.b),
         left: normalizeOutsideSide(record.left ?? record.l),
         right: normalizeOutsideSide(record.right ?? record.r),
+    };
+}
+
+function normalizeSandwichClue(value: unknown): string {
+    const text = String(value ?? '').replace(/[^0-9]/g, '').slice(0, 2);
+    if (text === '') {
+        return '';
+    }
+    const numberValue = Number(text);
+    return numberValue >= 0 && numberValue <= 35 ? String(numberValue) : '';
+}
+
+function normalizeSandwichSide(value: unknown): string[] {
+    const rawValues = typeof value === 'string'
+        ? value.trim().split(/[\s,;|]+/).filter(Boolean)
+        : Array.isArray(value)
+            ? value
+            : [];
+    return Array.from({ length: SIZE }, (_unused, index) => normalizeSandwichClue(rawValues[index]));
+}
+
+function normalizeSandwichClues(value: unknown): SandwichClues {
+    if (!value || typeof value !== 'object') {
+        return emptySandwichClues();
+    }
+    const record = value as Record<string, unknown>;
+    return {
+        top: normalizeSandwichSide(record.top ?? record.t),
+        bottom: normalizeSandwichSide(record.bottom ?? record.b),
+        left: normalizeSandwichSide(record.left ?? record.l),
+        right: normalizeSandwichSide(record.right ?? record.r),
+    };
+}
+
+function activeSandwichClues(clues: SandwichClues): SandwichClues {
+    return {
+        top: [...clues.top],
+        left: [...clues.left],
+        bottom: Array<string>(SIZE).fill(''),
+        right: Array<string>(SIZE).fill(''),
     };
 }
 
@@ -2781,6 +2890,7 @@ function GridPuzzleWorkbenchApp({
     const [skyscraperClues, setSkyscraperClues] = React.useState<SkyscraperClues>(() => emptySkyscraperClues());
     const [frameClues, setFrameClues] = React.useState<FrameClues>(() => emptyFrameClues());
     const [outsideClues, setOutsideClues] = React.useState<OutsideClues>(() => emptyOutsideClues());
+    const [sandwichClues, setSandwichClues] = React.useState<SandwichClues>(() => emptySandwichClues());
     const [littleKillerClues, setLittleKillerClues] = React.useState<LittleKillerClues>(() => emptyLittleKillerClues());
     const [rossiniArrows, setRossiniArrows] = React.useState<RossiniArrows>(() => emptyRossiniArrows());
     const [godokuAlphabet, setGodokuAlphabet] = React.useState('');
@@ -2818,6 +2928,7 @@ function GridPuzzleWorkbenchApp({
     const isSkyscraper = puzzleType === 'sudoku_skyscraper';
     const isFrame = puzzleType === 'sudoku_frame';
     const isOutside = puzzleType === 'sudoku_outside';
+    const isSandwich = puzzleType === 'sudoku_sandwich';
     const isLittleKiller = puzzleType === 'sudoku_little_killer' || puzzleType === 'sudoku_little_unique_killer';
     const isLittleUniqueKiller = puzzleType === 'sudoku_little_unique_killer';
     const isGodoku = puzzleType === 'sudoku_godoku';
@@ -2873,8 +2984,8 @@ function GridPuzzleWorkbenchApp({
             ? SAMURAI_TEXT_PLACEHOLDER
             : QUICK_TEXT_PLACEHOLDER;
     const constraintConflicts = React.useMemo(
-        () => findConstraintConflicts(grid, puzzleType, horizontalInequalities, verticalInequalities, vudokuCorners, rossiniArrows, xvHorizontalMarks, xvVerticalMarks, kropkiHorizontalDots, kropkiVerticalDots, chainGrid, skyscraperClues, frameClues, outsideClues, littleKillerClues, parityMarks),
-        [chainGrid, frameClues, grid, horizontalInequalities, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, outsideClues, parityMarks, puzzleType, rossiniArrows, skyscraperClues, verticalInequalities, vudokuCorners, xvHorizontalMarks, xvVerticalMarks],
+        () => findConstraintConflicts(grid, puzzleType, horizontalInequalities, verticalInequalities, vudokuCorners, rossiniArrows, xvHorizontalMarks, xvVerticalMarks, kropkiHorizontalDots, kropkiVerticalDots, chainGrid, skyscraperClues, frameClues, outsideClues, sandwichClues, littleKillerClues, parityMarks),
+        [chainGrid, frameClues, grid, horizontalInequalities, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, outsideClues, parityMarks, puzzleType, rossiniArrows, sandwichClues, skyscraperClues, verticalInequalities, vudokuCorners, xvHorizontalMarks, xvVerticalMarks],
     );
     const visibleConflictMessages = constraintConflicts.messages.slice(0, 4);
 
@@ -2951,6 +3062,7 @@ function GridPuzzleWorkbenchApp({
         setSkyscraperClues(normalizeSkyscraperClues(snapshot?.skyscraper ?? snapshot?.skyscraperClues));
         setFrameClues(normalizeFrameClues(snapshot?.frame ?? snapshot?.frameClues));
         setOutsideClues(normalizeOutsideClues(snapshot?.outside ?? snapshot?.outsideClues));
+        setSandwichClues(normalizeSandwichClues(snapshot?.sandwich ?? snapshot?.sandwichClues));
         setLittleKillerClues(normalizeLittleKillerClues(snapshot?.littleKiller ?? snapshot?.little_killer ?? snapshot?.littleKillerClues));
         setRossiniArrows(normalizeRossiniArrows(snapshot?.rossini ?? snapshot?.rossiniArrows));
         setGodokuAlphabet(normalizeGodokuAlphabet(snapshot?.godokuAlphabet ?? snapshot?.alphabet));
@@ -3043,6 +3155,7 @@ function GridPuzzleWorkbenchApp({
                     skyscraper: skyscraperClues,
                     frame: frameClues,
                     outside: outsideClues,
+                    sandwich: sandwichClues,
                     littleKiller: littleKillerClues,
                     rossini: rossiniArrows,
                     godokuAlphabet,
@@ -3087,6 +3200,7 @@ function GridPuzzleWorkbenchApp({
         puzzleType,
         quickText,
         rossiniArrows,
+        sandwichClues,
         skyscraperClues,
         solveState.result,
         timeoutMs,
@@ -3217,6 +3331,17 @@ function GridPuzzleWorkbenchApp({
         const value = normalizeOutsideClue(rawValue);
         setOutsideClues(previous => {
             const next = cloneOutsideClues(previous);
+            next[side][index] = value;
+            return next;
+        });
+        setSolveState({ running: false });
+        markDirty();
+    }, [markDirty]);
+
+    const updateSandwichClue = React.useCallback((side: SkyscraperSide, index: number, rawValue: string) => {
+        const value = normalizeSandwichClue(rawValue);
+        setSandwichClues(previous => {
+            const next = cloneSandwichClues(previous);
             next[side][index] = value;
             return next;
         });
@@ -3496,6 +3621,7 @@ function GridPuzzleWorkbenchApp({
             || value === 'sudoku_skyscraper'
             || value === 'sudoku_frame'
             || value === 'sudoku_outside'
+            || value === 'sudoku_sandwich'
             || value === 'sudoku_little_killer'
             || value === 'sudoku_little_unique_killer'
             || value === 'sudoku_godoku'
@@ -3552,6 +3678,7 @@ function GridPuzzleWorkbenchApp({
         setSkyscraperClues(emptySkyscraperClues());
         setFrameClues(emptyFrameClues());
         setOutsideClues(emptyOutsideClues());
+        setSandwichClues(emptySandwichClues());
         setLittleKillerClues(emptyLittleKillerClues());
         setRossiniArrows(emptyRossiniArrows());
         setWatchCells([]);
@@ -3603,6 +3730,7 @@ function GridPuzzleWorkbenchApp({
                 skyscraper: isSkyscraper ? skyscraperClues : undefined,
                 frame: isFrame ? frameClues : undefined,
                 outside: isOutside ? outsideClues : undefined,
+                sandwich: isSandwich ? activeSandwichClues(sandwichClues) : undefined,
                 little_killer: isLittleKiller ? littleKillerClues : undefined,
                 alphabet: isGodoku && godokuAlphabet ? godokuAlphabet : undefined,
                 parity: isEvenOdd ? { grid: parityMarks } : undefined,
@@ -3625,7 +3753,7 @@ function GridPuzzleWorkbenchApp({
                 error: error instanceof Error ? error.message : String(error),
             });
         }
-    }, [areChainsComplete, chainConfig?.size, chainGrid, constraintConflicts.messages.length, frameClues, geocacheId, godokuAlphabet, grid, horizontalInequalities, isChain, isEvenOdd, isFrame, isGodoku, isKropki, isLittleKiller, isOutside, isRossini, isSkyscraper, isTripod, isVudoku, isXv, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, maxSolutions, outsideClues, parityMarks, pluginsService, puzzleType, rossiniArrows, saveState, skyscraperClues, timeoutMs, tripodDots, verticalInequalities, vudokuCorners, watchCells, xvHorizontalMarks, xvVerticalMarks]);
+    }, [areChainsComplete, chainConfig?.size, chainGrid, constraintConflicts.messages.length, frameClues, geocacheId, godokuAlphabet, grid, horizontalInequalities, isChain, isEvenOdd, isFrame, isGodoku, isKropki, isLittleKiller, isOutside, isRossini, isSandwich, isSkyscraper, isTripod, isVudoku, isXv, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, maxSolutions, outsideClues, parityMarks, pluginsService, puzzleType, rossiniArrows, sandwichClues, saveState, skyscraperClues, timeoutMs, tripodDots, verticalInequalities, vudokuCorners, watchCells, xvHorizontalMarks, xvVerticalMarks]);
 
     const useSolvedGrid = React.useCallback(() => {
         if (solvedGrid) {
@@ -3651,7 +3779,7 @@ function GridPuzzleWorkbenchApp({
                 gridRow: String(rowIndex * 2 + 1),
             };
         }
-        if (isRossini || isSkyscraper || isFrame || isOutside || isLittleKiller) {
+        if (isRossini || isSkyscraper || isFrame || isOutside || isSandwich || isLittleKiller) {
             return {
                 gridColumn: String(colIndex + 2),
                 gridRow: String(rowIndex + 2),
@@ -4174,6 +4302,48 @@ function GridPuzzleWorkbenchApp({
         );
     };
 
+    const renderSandwichControls = (readonly = false): React.ReactNode => {
+        if (!isSandwich) {
+            return null;
+        }
+
+        const renderInput = (side: SkyscraperSide, index: number, style: React.CSSProperties) => {
+            const value = sandwichClues[side][index];
+            const label = `${skyscraperSideLabel(side)} ${index + 1}`;
+            return (
+                <input
+                    key={`sandwich-${side}-${index}`}
+                    className={[
+                        'sandwich-clue',
+                        value !== '' ? 'active' : '',
+                    ].filter(Boolean).join(' ')}
+                    style={style}
+                    aria-label={`Somme Sandwich ${label}`}
+                    title={`Somme Sandwich ${label} - somme entre 1 et 9`}
+                    value={value}
+                    disabled={readonly}
+                    inputMode='numeric'
+                    maxLength={2}
+                    placeholder='0'
+                    onChange={event => updateSandwichClue(side, index, event.currentTarget.value)}
+                />
+            );
+        };
+
+        return (
+            <>
+                {sandwichClues.top.map((_value, index) => renderInput('top', index, {
+                    gridColumn: String(index + 2),
+                    gridRow: '1',
+                }))}
+                {sandwichClues.left.map((_value, index) => renderInput('left', index, {
+                    gridColumn: '1',
+                    gridRow: String(index + 2),
+                }))}
+            </>
+        );
+    };
+
     const renderLittleKillerControls = (readonly = false): React.ReactNode => {
         if (!isLittleKiller) {
             return null;
@@ -4366,6 +4536,7 @@ function GridPuzzleWorkbenchApp({
                         <option value='sudoku_skyscraper'>Skyscraper</option>
                         <option value='sudoku_frame'>Frame</option>
                         <option value='sudoku_outside'>Outside</option>
+                        <option value='sudoku_sandwich'>Sandwich</option>
                         <option value='sudoku_little_killer'>Little Killer</option>
                         <option value='sudoku_little_unique_killer'>Little Unique Killer</option>
                         <option value='sudoku_godoku'>Godoku</option>
@@ -4405,6 +4576,7 @@ function GridPuzzleWorkbenchApp({
                             isSkyscraper ? 'skyscraper-board' : '',
                             isFrame ? 'frame-board' : '',
                             isOutside ? 'outside-board' : '',
+                            isSandwich ? 'sandwich-board' : '',
                             isLittleKiller ? 'little-killer-board' : '',
                             isTripod ? 'tripod-board' : '',
                             isSujiken ? 'sujiken-board' : '',
@@ -4453,6 +4625,7 @@ function GridPuzzleWorkbenchApp({
                         {renderSkyscraperControls()}
                         {renderFrameControls()}
                         {renderOutsideControls()}
+                        {renderSandwichControls()}
                         {renderLittleKillerControls()}
                         {renderTripodDotControls()}
                     </div>
@@ -4468,6 +4641,7 @@ function GridPuzzleWorkbenchApp({
                         {isSkyscraper ? ' Renseignez les indices exterieurs visibles depuis chaque cote de la grille.' : ''}
                         {isFrame ? ' Renseignez les sommes exterieures des trois cases les plus proches du bord.' : ''}
                         {isOutside ? ' Renseignez les chiffres exterieurs : ils doivent apparaitre dans les trois premieres cases vues depuis ce cote. Plusieurs chiffres peuvent partager un meme indice.' : ''}
+                        {isSandwich ? ' Renseignez les sommes en haut et a gauche : chaque nombre est la somme des chiffres situes entre le 1 et le 9 de la colonne ou de la ligne.' : ''}
                         {isLittleKiller ? ` Renseignez les sommes Little Killer et cliquez la fleche pour choisir la diagonale visee.${isLittleUniqueKiller ? ' Les diagonales flechees ne peuvent pas contenir de doublon.' : ''}` : ''}
                         {isGodoku ? ' Saisissez les lettres directement dans la grille. L alphabet peut etre renseigne dans les options si la grille ne montre pas les 9 lettres.' : ''}
                         {sizedSudokuConfig || tripodConfig || chainConfig ? ` Symboles utilises : ${sudokuSymbolsForSize((sizedSudokuConfig || tripodConfig || chainConfig)!.size).join(' ')}.` : ''}
@@ -4530,6 +4704,7 @@ function GridPuzzleWorkbenchApp({
                                     isSkyscraper ? 'skyscraper-board' : '',
                                     isFrame ? 'frame-board' : '',
                                     isOutside ? 'outside-board' : '',
+                                    isSandwich ? 'sandwich-board' : '',
                                     isLittleKiller ? 'little-killer-board' : '',
                                     isTripod ? 'tripod-board' : '',
                                     isSujiken ? 'sujiken-board' : '',
@@ -4581,6 +4756,7 @@ function GridPuzzleWorkbenchApp({
                                 {renderSkyscraperControls(true)}
                                 {renderFrameControls(true)}
                                 {renderOutsideControls(true)}
+                                {renderSandwichControls(true)}
                                 {renderLittleKillerControls(true)}
                                 {renderTripodDotControls(true)}
                             </div>

@@ -63,6 +63,9 @@ Generic finite-domain grid solver powered by Z3.
 - `sudoku_outside`: classic 9x9 Sudoku plus outside digit clues. Each outside
   digit must appear in the first three cells seen from that side; multiple
   digits can be given for the same row or column side.
+- `sudoku_sandwich`: classic 9x9 Sudoku plus outside sum clues. Each clue
+  gives the sum of the digits strictly between `1` and `9` in the corresponding
+  row or column; `0` is a valid clue when `1` and `9` are adjacent.
 - `sudoku_little_killer`: classic 9x9 Sudoku plus diagonal outside sum clues.
   Each clue gives the sum of the cells on the indicated diagonal; repeats are
   allowed along that diagonal.
@@ -127,6 +130,7 @@ Sudoku is just the first builder on top of a generic CSP model:
 - visibility count constraints (`visible_count`) for outside-clue variants such
   as Skyscraper Sudoku;
 - contains-value constraints (`contains_value`) for Outside Sudoku;
+- sandwich sum constraints (`sandwich_sum`) for sums between `1` and `9`;
 - diagonal outside sum constraints for Little Killer and Little Unique Killer
   Sudoku;
 - parity constraints (`parity`) for variants such as Even-Odd Sudoku;
@@ -155,7 +159,7 @@ the Theia "Grilles" workbench:
   Anti Diagonal, Center Dot, Windoku, Girandola, Asterisk, Sujiken, Samurai Sudoku,
   Flower Sudoku,
   Sohei Sudoku, Kazaguruma, Greater Than, Vudoku, Rossini, Sudoku XV, Kropki,
-  Skyscraper, Frame, Outside, Little Killer, Little Unique Killer, Godoku, Even-Odd,
+  Skyscraper, Frame, Outside, Sandwich, Little Killer, Little Unique Killer, Godoku, Even-Odd,
   Non-Consecutive and Tripod 4x4 through 8x8;
 - Sudoku Mine entry using clue digits and solved mine markers;
 - editable outside digit clues for Outside Sudoku;
@@ -168,6 +172,7 @@ the Theia "Grilles" workbench:
 - editable chain colors for Chain Sudoku / Strimko;
 - editable outside visibility clues for Skyscraper Sudoku;
 - editable outside three-cell sum clues for Frame Sudoku;
+- editable outside sandwich sums for Sandwich Sudoku;
 - editable diagonal outside sum clues for Little Killer and Little Unique
   Killer Sudoku;
 - letter entry and optional alphabet field for Godoku / Wordoku;

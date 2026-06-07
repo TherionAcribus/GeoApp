@@ -1505,6 +1505,68 @@ def test_outside_rejects_missing_edge_digit():
     assert result["summary"] == "Aucune solution compatible avec les contraintes"
 
 
+def test_sandwich_accepts_matching_sums_including_zero():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "sudoku_sandwich",
+            "grid": """
+                534678912
+                672195348
+                198342567
+                859761423
+                426853791
+                713924856
+                961537284
+                287419635
+                345286179
+            """,
+            "sandwich": {
+                "top": [19, 7, 9, 18, 20, 14, 35, 12, 15],
+                "bottom": [19, 7, 9, 18, 20, 14, 35, 12, 15],
+                "left": [0, 0, 0, 13, 0, 3, 6, 0, 7],
+                "right": [0, 0, 0, 13, 0, 3, 6, 0, 7],
+            },
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["unique"] is True
+    assert result["metadata"]["variant"] == "sudoku_sandwich"
+    assert result["metadata"]["constraint_count"] == 63
+
+
+def test_sandwich_rejects_contradictory_sum():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "sandwich",
+            "grid": """
+                534678912
+                672195348
+                198342567
+                859761423
+                426853791
+                713924856
+                961537284
+                287419635
+                345286179
+            """,
+            "sandwich": {
+                "top": [18, 7, 9, 18, 20, 14, 35, 12, 15],
+            },
+            "max_solutions": 1,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+    assert result["summary"] == "Aucune solution compatible avec les contraintes"
+
+
 def test_little_killer_accepts_matching_diagonal_sums():
     plugin = load_plugin()
 

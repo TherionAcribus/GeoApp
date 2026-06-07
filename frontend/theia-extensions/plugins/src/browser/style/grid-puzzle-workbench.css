@@ -163,6 +163,14 @@
     background: transparent;
 }
 
+.sudoku-board.sandwich-board {
+    grid-template-columns: 34px repeat(9, 44px);
+    grid-template-rows: 34px repeat(9, 44px);
+    gap: 0;
+    border: 0;
+    background: transparent;
+}
+
 .sudoku-board.outside-board {
     grid-template-columns: 52px repeat(9, 44px) 52px;
     grid-template-rows: 46px repeat(9, 44px) 46px;
@@ -875,6 +883,42 @@
     opacity: 1;
 }
 
+.grid-puzzle-workbench .sandwich-clue {
+    width: 34px;
+    height: 28px;
+    min-height: 0;
+    padding: 0;
+    align-self: center;
+    justify-self: center;
+    text-align: center;
+    color: var(--theia-descriptionForeground);
+    background: color-mix(in srgb, var(--theia-editor-background) 88%, var(--theia-descriptionForeground));
+    border: 1px dashed color-mix(in srgb, var(--theia-panel-border) 65%, var(--theia-descriptionForeground));
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 1;
+}
+
+.grid-puzzle-workbench .sandwich-clue:hover,
+.grid-puzzle-workbench .sandwich-clue:focus {
+    color: var(--theia-input-foreground);
+    background: var(--theia-input-background);
+    border-color: var(--theia-focusBorder);
+    outline: none;
+}
+
+.grid-puzzle-workbench .sandwich-clue.active {
+    color: #06b6d4;
+    background: color-mix(in srgb, var(--theia-input-background) 78%, #06b6d4);
+    border-style: solid;
+    border-color: #06b6d4;
+}
+
+.grid-puzzle-workbench .sandwich-clue:disabled {
+    opacity: 1;
+}
+
 .grid-puzzle-workbench .outside-clue {
     width: 48px;
     height: 28px;
@@ -1379,6 +1423,11 @@
         grid-template-rows: 28px repeat(9, minmax(28px, 1fr)) 28px;
     }
 
+    .sudoku-board.sandwich-board {
+        grid-template-columns: 28px repeat(9, minmax(28px, 1fr));
+        grid-template-rows: 28px repeat(9, minmax(28px, 1fr));
+    }
+
     .sudoku-board.outside-board {
         grid-template-columns: 40px repeat(9, minmax(28px, 1fr)) 40px;
         grid-template-rows: 36px repeat(9, minmax(28px, 1fr)) 36px;
@@ -1452,6 +1501,7 @@
     .rossini-control,
     .skyscraper-clue,
     .frame-clue,
+    .sandwich-clue,
     .outside-clue,
     .little-killer-clue {
         width: 100%;

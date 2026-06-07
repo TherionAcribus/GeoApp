@@ -436,6 +436,23 @@ class GridpuzzlesolverPlugin:
                     outside=inputs.get("outside") or inputs.get("outside_clues") or inputs.get("clues") or {},
                     include_outside=True,
                 )
+            elif puzzle_type in {"sudoku_sandwich", "sandwich", "sandwich_sudoku"}:
+                puzzle_text = self._first_non_empty(
+                    inputs.get("grid"),
+                    inputs.get("puzzle"),
+                    inputs.get("text"),
+                )
+                problem = self._build_sudoku_problem(
+                    puzzle_text,
+                    include_diagonals=False,
+                    include_center_dot=False,
+                    include_windoku=False,
+                    include_girandola=False,
+                    include_asterisk=False,
+                    variant="sudoku_sandwich",
+                    sandwich=inputs.get("sandwich") or inputs.get("sandwich_sums") or inputs.get("clues") or {},
+                    include_sandwich=True,
+                )
             elif puzzle_type in {"sudoku_little_killer", "little_killer", "little_killer_sudoku"}:
                 puzzle_text = self._first_non_empty(
                     inputs.get("grid"),
@@ -642,6 +659,8 @@ class GridpuzzlesolverPlugin:
         include_frame: bool = False,
         outside: Any = None,
         include_outside: bool = False,
+        sandwich: Any = None,
+        include_sandwich: bool = False,
         little_killer: Any = None,
         include_little_killer: bool = False,
         include_little_killer_unique: bool = False,
@@ -776,6 +795,8 @@ class GridpuzzlesolverPlugin:
             constraints.extend(self._parse_frame_constraints(frame))
         if include_outside:
             constraints.extend(self._parse_outside_constraints(outside))
+        if include_sandwich:
+            constraints.extend(self._parse_sandwich_constraints(sandwich))
         if include_little_killer:
             constraints.extend(
                 self._parse_little_killer_constraints(
@@ -1548,6 +1569,40 @@ class GridpuzzlesolverPlugin:
                 )
                 == constraint.total
             )
+            return
+
+        if kind == "sandwich_sum":
+            if constraint.total is None:
+                raise ValueError("La contrainte sandwich_sum attend un total")
+            if len(cells) != 9:
+                raise ValueError("La contrainte sandwich_sum attend une ligne ou colonne de 9 cellules")
+            if "1" not in symbol_to_index or "9" not in symbol_to_index:
+                raise ValueError("La contrainte sandwich_sum requiert les symboles 1 et 9")
+            options = []
+            for first_index in range(len(cells)):
+                for second_index in range(len(cells)):
+                    if first_index == second_index:
+                        continue
+                    start = min(first_index, second_index) + 1
+                    end = max(first_index, second_index)
+                    between_total = z3.Sum(
+                        *(
+                            self._numeric_value_expr(
+                                variables[cells[index]],
+                                problem.symbols,
+                                problem.numeric_values,
+                            )
+                            for index in range(start, end)
+                        )
+                    ) if start < end else 0
+                    options.append(
+                        z3.And(
+                            variables[cells[first_index]] == symbol_to_index["1"],
+                            variables[cells[second_index]] == symbol_to_index["9"],
+                            between_total == constraint.total,
+                        )
+                    )
+            solver.add(z3.Or(*options))
             return
 
         if kind in {"sum_not_in", "sum_not_equal"}:
@@ -2541,6 +2596,69 @@ class GridpuzzlesolverPlugin:
         if side == "bottom":
             return ((8, index), (7, index), (6, index))
         raise ValueError(f"Cote Outside inconnu: {side}")
+
+    def _parse_sandwich_constraints(self, raw_sandwich: Any) -> List[GridConstraint]:
+        if raw_sandwich in (None, "", []):
+            raw_sandwich = {}
+        if isinstance(raw_sandwich, str):
+            text = raw_sandwich.strip()
+            if text:
+                try:
+                    raw_sandwich = json.loads(text)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(f"Sandwich JSON invalide: {exc.msg}") from exc
+            else:
+                raw_sandwich = {}
+        if not isinstance(raw_sandwich, dict):
+            raise ValueError("Format sandwich non supporte")
+
+        side_specs = (
+            ("top", raw_sandwich.get("top") or raw_sandwich.get("t")),
+            ("bottom", raw_sandwich.get("bottom") or raw_sandwich.get("b")),
+            ("left", raw_sandwich.get("left") or raw_sandwich.get("l")),
+            ("right", raw_sandwich.get("right") or raw_sandwich.get("r")),
+        )
+
+        constraints: List[GridConstraint] = []
+        for side, raw_values in side_specs:
+            values = self._parse_sandwich_side(raw_values, side)
+            for index, clue in enumerate(values):
+                if clue is None:
+                    continue
+                constraints.append(
+                    GridConstraint("sandwich_sum", self._skyscraper_cells(side, index), total=clue)
+                )
+        return constraints
+
+    def _parse_sandwich_side(self, raw_values: Any, side: str) -> List[Optional[int]]:
+        if raw_values in (None, ""):
+            return [None] * 9
+        if isinstance(raw_values, str):
+            values = [
+                value for value in re.split(r"[\s,;|]+", raw_values.strip())
+                if value
+            ]
+            if len(values) == 1 and len(values[0]) == 9 and all(char.isdigit() or char in "._-?" for char in values[0]):
+                values = list(values[0])
+        elif isinstance(raw_values, list):
+            values = list(raw_values)
+        else:
+            raise ValueError(f"sandwich.{side} doit etre une liste ou une chaine")
+
+        if len(values) != 9:
+            raise ValueError(f"sandwich.{side} doit contenir 9 valeurs")
+
+        parsed: List[Optional[int]] = []
+        for raw_value in values:
+            text = str(raw_value if raw_value is not None else "").strip()
+            if text in {"", ".", "_", "-", "?"}:
+                parsed.append(None)
+                continue
+            clue = int(text) if text.isdigit() else -1
+            if clue < 0 or clue > 35:
+                raise ValueError(f"Somme Sandwich non supportee sur {side}: {raw_value}")
+            parsed.append(clue)
+        return parsed
 
     def _parse_little_killer_constraints(
         self,
