@@ -156,7 +156,7 @@ const STATIC_TOOL_METADATA: Record<string, Omit<GeoAppAiToolMetadata, 'publicNam
     'formula-solver.search-answer': {
         registryId: 'formula-solver.search-answer',
         category: 'web',
-        risk: 'network',
+        risk: 'read_only',
         workflowKinds: ['general', 'secret_code', 'formula', 'checker', 'hidden_content', 'image_puzzle'],
         network: true,
         defaultEnabled: true,
@@ -164,7 +164,7 @@ const STATIC_TOOL_METADATA: Record<string, Omit<GeoAppAiToolMetadata, 'publicNam
     'formula-solver.fetch-url': {
         registryId: 'formula-solver.fetch-url',
         category: 'web',
-        risk: 'network',
+        risk: 'read_only',
         workflowKinds: ['general', 'secret_code', 'formula', 'checker', 'hidden_content', 'image_puzzle'],
         network: true,
         defaultEnabled: true,

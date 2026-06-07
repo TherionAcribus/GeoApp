@@ -20,6 +20,7 @@ import { AiQuestionDiscovery } from './strategies/ai-question-discovery';
 import { AiBulkAnswering } from './strategies/ai-bulk-answering';
 import { AiPerQuestionAnswering } from './strategies/ai-per-question-answering';
 import { BackendWebSearchAnswering } from './strategies/backend-web-search-answering';
+import { FormulaSolverToolsManager } from './formula-solver-tools';
 import { FrontendApplicationContribution, WidgetFactory } from '@theia/core/lib/browser';
 import { CommandContribution, MenuContribution } from '@theia/core/lib/common';
 import { TabBarToolbarContribution } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
@@ -72,6 +73,10 @@ export default new ContainerModule(bind => {
     // Agents IA (fast/strong/web) configurables comme OCR
     bind(GeoAppFormulaSolverAgentsContribution).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(GeoAppFormulaSolverAgentsContribution);
+
+    // Tools IA exposés au Chat GeoApp (search_answer_online, fetch_url, etc.)
+    bind(FormulaSolverToolsManager).toSelf().inSingletonScope();
+    bind(FrontendApplicationContribution).toService(FormulaSolverToolsManager);
 
     console.log('[FORMULA-SOLVER] Formula Solver Extension (with AI) registered successfully');
 });

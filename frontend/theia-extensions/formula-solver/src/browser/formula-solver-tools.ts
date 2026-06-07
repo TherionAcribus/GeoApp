@@ -285,12 +285,10 @@ export class FormulaSolverToolsManager implements FrontendApplicationContributio
                 return { error: data.error };
             }
 
-            return {
-                content: JSON.stringify({
+            return JSON.stringify({
                     formulas: data.formulas,
                     context: data.context
-                }, null, 2)
-            };
+                }, null, 2);
         } catch (error: any) {
             console.error('[FORMULA-SOLVER-TOOLS] Erreur detect_formula:', error);
             return { error: error.message || 'Erreur lors de la détection de formule' };
@@ -313,13 +311,11 @@ export class FormulaSolverToolsManager implements FrontendApplicationContributio
                 return { error: data.error };
             }
 
-            return {
-                content: JSON.stringify({
+            return JSON.stringify({
                     questions: data.questions,
                     found_count: data.found_count,
                     missing: data.missing
-                }, null, 2)
-            };
+                }, null, 2);
         } catch (error: any) {
             console.error('[FORMULA-SOLVER-TOOLS] Erreur find_questions:', error);
             return { error: error.message || 'Erreur lors de la recherche de questions' };
@@ -345,12 +341,10 @@ export class FormulaSolverToolsManager implements FrontendApplicationContributio
                 return { error: data.error };
             }
 
-            return {
-                content: JSON.stringify({
+            return JSON.stringify({
                     results: data.results,
                     best_answer: data.best_answer
-                }, null, 2)
-            };
+                }, null, 2);
         } catch (error: any) {
             console.error('[FORMULA-SOLVER-TOOLS] Erreur search_answer:', error);
             return { error: error.message || 'Erreur lors de la recherche web' };
@@ -373,14 +367,12 @@ export class FormulaSolverToolsManager implements FrontendApplicationContributio
                 return { error: data.error || 'Impossible de lire la page' };
             }
 
-            return {
-                content: JSON.stringify({
+            return JSON.stringify({
                     url: data.url,
                     title: data.title,
                     text: data.text,
                     truncated: data.truncated
-                }, null, 2)
-            };
+                }, null, 2);
         } catch (error: any) {
             console.error('[FORMULA-SOLVER-TOOLS] Erreur fetch_url:', error);
             return { error: error.message || 'Erreur lors de la lecture de la page web' };
@@ -421,13 +413,11 @@ export class FormulaSolverToolsManager implements FrontendApplicationContributio
                     return { error: `Type de calcul inconnu: ${type}` };
             }
 
-            return {
-                content: JSON.stringify({
+            return JSON.stringify({
                     answer: answer,
                     type: type,
                     result: result
-                }, null, 2)
-            };
+                }, null, 2);
         } catch (error: any) {
             console.error('[FORMULA-SOLVER-TOOLS] Erreur calculate_value:', error);
             return { error: error.message || 'Erreur lors du calcul de valeur' };
@@ -456,13 +446,11 @@ export class FormulaSolverToolsManager implements FrontendApplicationContributio
                 return { error: data.error };
             }
 
-            return {
-                content: JSON.stringify({
+            return JSON.stringify({
                     coordinates: data.coordinates,
                     distance: data.distance,
                     calculation_steps: data.calculation_steps
-                }, null, 2)
-            };
+                }, null, 2);
         } catch (error: any) {
             console.error('[FORMULA-SOLVER-TOOLS] Erreur calculate_coordinates:', error);
             return { error: error.message || 'Erreur lors du calcul de coordonnées' };

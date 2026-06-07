@@ -17,6 +17,7 @@ const BASE_GUARDRAILS = [
     '6. Si un step automatise fiable est disponible via GeoApp et autorise par le profil courant, execute-le avant de rester au niveau plan theorique.',
     '7. Ne decris jamais un resultat de plugin, de checker ou de calcul comme un fait acquis si tu ne l as pas obtenu via un tool call dans cet echange.',
     '8. CALCULS : Pour toute operation non triviale (racine carree, logarithme, trigonometrie, puissance, division avec grand nombre, factorielle, arrondi, combinatoire, coordonnees GPS), utilise OBLIGATOIREMENT ~aide_calculate ou ~aide_calculate_batch. Ne jamais calculer mentalement ou estimer le resultat. Meme pour une division comme 25745465/7845, appelle ~aide_calculate.',
+    '9. RECHERCHE WEB OBLIGATOIRE : Si le listing contient une question de connaissance externe (noms, faits, listes, dates, references) ET que le profil expose ~search_answer_online, execute ce tool IMMEDIATEMENT — ne presente pas un plan theorique, ne demande pas a l utilisateur de fournir la reponse, ne t arrete pas apres resolve_geocache_workflow. Le premier appel tool apres le chargement du skill doit etre search_answer_online. Meme regle pour ~fetch_url si un snippet est insuffisant.',
     '',
     'Skills :',
     `- Skills GeoApp natifs : ${GEOAPP_SKILL_NAMES}.`,
@@ -38,11 +39,12 @@ const WORKFLOW_RULES = [
     '- Utilise classify_geocache_listing seulement pour reinspecter le listing apres une nouvelle hypothese ou comparer plusieurs branches.',
     '- Quand un skill donne une strategie et que la policy bloque un tool requis, explique simplement le blocage et propose l etape manuelle equivalente.',
     '',
-    'Recherche web :',
-    '- Quand l enigme demande des connaissances externes (faits, dates, noms, listes, references culturelles) et que le profil expose les tools web, utilise ~search_answer_online au lieu de rester bloque ou de demander la reponse a l utilisateur.',
-    '- Pour une variable de formule (un fait court), appelle ~search_answer_online en mode auto. Pour une liste ou une question de connaissance ouverte (ex: "les 9 lieux-dits ..."), appelle-le en mode research.',
+    'Recherche web (voir aussi regle 9) :',
+    '- Apres avoir charge le skill geoapp-research, execute search_answer_online SANS DELAI si une question de connaissance est presente dans le listing. Ne pas s arreter au plan.',
+    '- Pour une variable de formule (un fait court), appelle ~search_answer_online en mode auto. Pour une liste ou une question de connaissance ouverte (ex: "les 9 lieux-dits ..."), appelle-le en mode research avec la question exacte du listing.',
     '- Si un resultat de recherche semble contenir la reponse mais que le snippet est insuffisant, ouvre la page avec ~fetch_url pour en extraire les details precis avant de conclure.',
     '- Cite toujours la ou les sources web utilisees. Ne presente jamais une information web non verifiee comme certaine, et n invente jamais de coordonnees a partir du web.',
+    '- INTERDIT : demander a l utilisateur "colle-moi la liste" ou "fournis-moi la reponse" si search_answer_online est expose et que tu n as pas encore effectue de recherche.',
 ].join('\n');
 
 function withMode(modeRules: string): string {

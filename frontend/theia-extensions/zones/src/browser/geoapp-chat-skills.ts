@@ -285,6 +285,18 @@ Use this skill when solving the cache requires external knowledge rather than (o
 - Use this skill when the listing asks a knowledge question that cannot be answered from the listing text alone (for example "name the 9 places", "what year did X happen", "who wrote Y").
 - Only use the web tools that the active policy exposes (search_answer_online, fetch_url). If they are blocked, explain the missing step instead of guessing.
 
+## Immediate Action — Do NOT Skip
+
+**As soon as this skill is loaded and a knowledge question is identified in the listing, your very next action MUST be a tool call to search_answer_online. Do not write a plan and stop. Do not ask the user to provide the answer. Execute the search now.**
+
+Step-by-step (no deviations):
+1. **Call search_answer_online immediately** — use the exact knowledge question from the listing as the \`question\` parameter. Pass \`geocache_id\` so the cache name enriches the context. Use \`mode: "research"\` for lists or open questions, \`mode: "auto"\` for a single short fact.
+2. **Read the snippets.** If a snippet contains a promising but incomplete answer, call fetch_url on that source URL to read the full page content.
+3. **Cross-check** the extracted result against the listing constraints (count, format, alphabetical order). If count or format does not match, search again with refined keywords.
+4. **Present** the sourced result with its URL and your confidence level, then move to validation (checker) if one is referenced.
+
+If none of the search results is useful after two queries, say so explicitly with the most specific search terms the user could try — but never ask the user to supply the answer before having searched.
+
 ## Search Strategy
 
 - For a single short fact (one value, one name, one date), call search_answer_online in mode auto.

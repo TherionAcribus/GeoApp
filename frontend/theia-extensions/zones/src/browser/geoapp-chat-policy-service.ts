@@ -403,7 +403,7 @@ export class GeoAppChatPolicyService {
 
         return {
             enabled: entry.defaultEnabled,
-            confirm: entry.risk !== 'read_only' || entry.network === true || entry.writesLocal === true || entry.requiresAuth === true,
+            confirm: entry.risk !== 'read_only' || entry.writesLocal === true || entry.requiresAuth === true,
         };
     }
 

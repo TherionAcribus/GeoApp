@@ -96,7 +96,7 @@ function testGuidedProfileEnablesDefaultsAndConfirmsRiskyTools(): void {
     ]);
     assert.equal(policy.confirmToolIds.has('geoapp.checkers.run'), true);
     assert.equal(policy.confirmToolIds.has('geoapp.coordinates.save-found'), true);
-    assert.equal(policy.confirmToolIds.has('formula-solver.search-answer'), true);
+    assert.equal(policy.confirmToolIds.has('formula-solver.search-answer'), false);
     assert.equal(policy.confirmToolIds.has('geoapp.plugins.workflow.run-step'), true);
     assert.equal(policy.confirmToolIds.has('plugin.coordinate_projection'), false);
     assert.equal(policy.skillPack, 'workflow');
@@ -194,7 +194,7 @@ function testWorkflowSpecificBehaviorProfile(): void {
 }
 
 function testGeoAppSkillDefinitionsAreValid(): void {
-    assert.equal(GeoAppChatSkills.length, 5);
+    assert.equal(GeoAppChatSkills.length, 6);
     for (const skill of GeoAppChatSkills) {
         assert.ok(skill.content.includes(`name: ${skill.name}`));
         assert.ok(skill.content.includes('allowedTools:'));
