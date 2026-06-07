@@ -192,6 +192,13 @@
     background: transparent;
 }
 
+.sudoku-board.hoshi-board {
+    position: relative;
+    display: block;
+    border: 0;
+    background: transparent;
+}
+
 .sudoku-board.samurai-board {
     grid-template-columns: repeat(21, 26px);
     grid-template-rows: repeat(21, 26px);
@@ -266,6 +273,29 @@
     border-color: #111827;
     font-weight: 800;
 }
+
+.sudoku-cell.hoshi-cell {
+    position: absolute;
+    padding: 7px 0 0;
+    border: 1px solid color-mix(in srgb, var(--theia-panel-border) 72%, #111827);
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 1;
+    z-index: 1;
+}
+
+.sudoku-cell.hoshi-cell:focus {
+    z-index: 3;
+    outline: 2px solid var(--theia-focusBorder);
+    outline-offset: 1px;
+}
+
+.sudoku-cell.hoshi-region-1 { background: color-mix(in srgb, var(--theia-input-background) 70%, #f0abfc); }
+.sudoku-cell.hoshi-region-2 { background: color-mix(in srgb, var(--theia-input-background) 70%, #fed7aa); }
+.sudoku-cell.hoshi-region-3 { background: color-mix(in srgb, var(--theia-input-background) 70%, #fde68a); }
+.sudoku-cell.hoshi-region-4 { background: color-mix(in srgb, var(--theia-input-background) 70%, #d9f99d); }
+.sudoku-cell.hoshi-region-5 { background: color-mix(in srgb, var(--theia-input-background) 70%, #86efac); }
+.sudoku-cell.hoshi-region-6 { background: color-mix(in srgb, var(--theia-input-background) 70%, #93c5fd); }
 
 .sudoku-cell.chain-cell {
     position: relative;

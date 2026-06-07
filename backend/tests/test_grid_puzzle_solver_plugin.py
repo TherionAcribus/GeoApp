@@ -591,6 +591,52 @@ def test_sujiken_rejects_repeated_column_value():
     assert result["summary"] == "Aucune solution compatible avec les contraintes"
 
 
+def test_hoshi_accepts_complete_solution():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "sudoku_hoshi",
+            "grid": """
+                123456789
+                568794312
+                713458269
+                587694312
+                243157869
+                562891347
+            """,
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["unique"] is True
+    assert result["metadata"]["variant"] == "sudoku_hoshi"
+
+
+def test_hoshi_rejects_repeated_value_in_triangle():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "hoshi",
+            "grid": """
+                123456781
+                568794312
+                713458269
+                587694312
+                243157869
+                562891347
+            """,
+            "max_solutions": 1,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+    assert result["summary"] == "Aucune solution compatible avec les contraintes"
+
+
 def test_samurai_sudoku_accepts_complete_solution():
     plugin = load_plugin()
 

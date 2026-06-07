@@ -31,6 +31,8 @@ Generic finite-domain grid solver powered by Z3.
   Asterisk region. The interactive UI highlights those cells in magenta.
 - `sujiken`: triangular 45-cell Sudoku. Rows, columns, diagonals and the six
   thick-line regions all reject repeated digits.
+- `sudoku_hoshi`: star-shaped 54-cell Sudoku. The six large triangles contain
+  digits `1-9`, and every line of the star rejects repeated digits.
 - `samurai_sudoku`: five overlapping 9x9 Sudoku grids in the classic Gattai-5
   21x21 layout.
 - `flower_sudoku`: five heavily overlapping 9x9 Sudoku grids in the compact
@@ -115,6 +117,7 @@ Sudoku is just the first builder on top of a generic CSP model:
 - all-different regions, including configurable Sudoku rows, columns and
   boxes for 4x4 through 16x16 presets;
 - chain regions for Strimko / Chain Sudoku presets;
+- generated triangular regions and star-line constraints for Hoshi;
 - partial marked diagonals for variants such as Argyle;
 - declarative constraints (`all_different`, `equals`, `not_equal`, `sum`);
 - comparison constraints (`greater_than`, `less_than`) for adjacent-cell
@@ -156,12 +159,14 @@ the Theia "Grilles" workbench:
 - quick paste textarea for fast Sudoku import;
 - variant selector for classic Sudoku in multiple sizes, Sudoku X, Argyle,
   Chain / Strimko,
-  Anti Diagonal, Center Dot, Windoku, Girandola, Asterisk, Sujiken, Samurai Sudoku,
+  Anti Diagonal, Center Dot, Windoku, Girandola, Asterisk, Sujiken, Hoshi, Samurai Sudoku,
   Flower Sudoku,
   Sohei Sudoku, Kazaguruma, Greater Than, Vudoku, Rossini, Sudoku XV, Kropki,
   Skyscraper, Frame, Outside, Sandwich, Little Killer, Little Unique Killer, Godoku, Even-Odd,
   Non-Consecutive and Tripod 4x4 through 8x8;
 - Sudoku Mine entry using clue digits and solved mine markers;
+- Hoshi entry as a colored star made of 54 triangular cells, with quick paste
+  support as six lines of nine cells or 54 compact characters;
 - editable outside digit clues for Outside Sudoku;
 - editable Tripod dots at grid intersections;
 - editable `>` / `<` borders for Greater Than / Compdoku;

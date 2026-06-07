@@ -63,6 +63,28 @@ SIZED_SUDOKU_CONFIGS: Dict[str, Tuple[int, int, int]] = {
     "sudoku_16x16": (16, 4, 4),
 }
 CHAIN_SUDOKU_SIZES = frozenset(range(4, 10))
+HOSHI_TRIANGLES = 6
+HOSHI_CELLS_PER_TRIANGLE = 9
+HOSHI_CELL_DEFINITIONS: Tuple[Tuple[int, int, str, int], ...] = (
+    (0, 0, "d", 0), (0, 0, "u", 0), (1, 0, "d", 0),
+    (1, 0, "u", 0), (2, 0, "u", 0), (0, 1, "d", 0),
+    (0, 1, "u", 0), (1, 1, "u", 0), (0, 2, "u", 0),
+    (3, -1, "d", 1), (2, 0, "d", 1), (3, 0, "d", 1),
+    (3, 0, "u", 1), (1, 1, "d", 1), (2, 1, "d", 1),
+    (2, 1, "u", 1), (3, 1, "d", 1), (3, 1, "u", 1),
+    (2, 2, "d", 2), (2, 2, "u", 2), (3, 2, "d", 2),
+    (3, 2, "u", 2), (4, 2, "u", 2), (2, 3, "d", 2),
+    (2, 3, "u", 2), (3, 3, "u", 2), (2, 4, "u", 2),
+    (1, 3, "d", 3), (0, 4, "d", 3), (1, 4, "d", 3),
+    (1, 4, "u", 3), (-1, 5, "d", 3), (0, 5, "d", 3),
+    (0, 5, "u", 3), (1, 5, "d", 3), (1, 5, "u", 3),
+    (-2, 4, "d", 4), (-2, 4, "u", 4), (-1, 4, "d", 4),
+    (-1, 4, "u", 4), (0, 4, "u", 4), (-2, 5, "d", 4),
+    (-2, 5, "u", 4), (-1, 5, "u", 4), (-2, 6, "u", 4),
+    (-1, 1, "d", 5), (-2, 2, "d", 5), (-1, 2, "d", 5),
+    (-1, 2, "u", 5), (-3, 3, "d", 5), (-2, 3, "d", 5),
+    (-2, 3, "u", 5), (-1, 3, "d", 5), (-1, 3, "u", 5),
+)
 
 
 @dataclass(frozen=True)
@@ -87,6 +109,56 @@ class GridCspProblem:
     constraints: List[GridConstraint] = field(default_factory=list)
     numeric_values: Dict[str, int] = field(default_factory=dict)
     variant: str = "custom_spec"
+
+
+def _hoshi_cell_vertices(axial_x: int, axial_y: int, orientation: str) -> Tuple[Cell, Cell, Cell]:
+    if orientation == "u":
+        return (
+            (axial_x, axial_y),
+            (axial_x + 1, axial_y),
+            (axial_x, axial_y + 1),
+        )
+    return (
+        (axial_x + 1, axial_y),
+        (axial_x, axial_y + 1),
+        (axial_x + 1, axial_y + 1),
+    )
+
+
+def _build_hoshi_geometry() -> Tuple[List[List[Cell]], List[Tuple[Cell, ...]]]:
+    triangle_regions: List[List[Cell]] = [[] for _ in range(HOSHI_TRIANGLES)]
+    coordinate_by_definition: Dict[Tuple[int, int, str], Cell] = {}
+    for axial_x, axial_y, orientation, region in HOSHI_CELL_DEFINITIONS:
+        coordinate = (region, len(triangle_regions[region]))
+        coordinate_by_definition[(axial_x, axial_y, orientation)] = coordinate
+        triangle_regions[region].append(coordinate)
+
+    line_constraints: List[Tuple[Cell, ...]] = []
+    seen_lines = set()
+    line_keys = (
+        lambda vertices: min(vertex[0] for vertex in vertices),
+        lambda vertices: min(vertex[1] for vertex in vertices),
+        lambda vertices: min(vertex[0] + vertex[1] for vertex in vertices),
+    )
+    for key_func in line_keys:
+        grouped: Dict[int, List[Tuple[int, int, str]]] = {}
+        for axial_x, axial_y, orientation, _region in HOSHI_CELL_DEFINITIONS:
+            vertices = _hoshi_cell_vertices(axial_x, axial_y, orientation)
+            grouped.setdefault(key_func(vertices), []).append((axial_x, axial_y, orientation))
+        for definitions in grouped.values():
+            if len(definitions) < 2:
+                continue
+            line = tuple(coordinate_by_definition[definition] for definition in definitions)
+            signature = frozenset(line)
+            if signature in seen_lines:
+                continue
+            seen_lines.add(signature)
+            line_constraints.append(line)
+
+    return triangle_regions, line_constraints
+
+
+HOSHI_TRIANGLE_REGIONS, HOSHI_LINE_REGIONS = _build_hoshi_geometry()
 
 
 class GridpuzzlesolverPlugin:
@@ -273,6 +345,13 @@ class GridpuzzlesolverPlugin:
                     inputs.get("text"),
                 )
                 problem = self._build_sujiken_problem(puzzle_text)
+            elif puzzle_type in {"sudoku_hoshi", "hoshi", "hoshi_sudoku"}:
+                puzzle_text = self._first_non_empty(
+                    inputs.get("grid"),
+                    inputs.get("puzzle"),
+                    inputs.get("text"),
+                )
+                problem = self._build_hoshi_problem(puzzle_text)
             elif puzzle_type in {"samurai_sudoku", "samurai", "gattai_5", "gattai5"}:
                 puzzle_text = self._first_non_empty(
                     inputs.get("grid"),
@@ -925,6 +1004,41 @@ class GridpuzzlesolverPlugin:
             constraints=constraints,
             numeric_values={symbol: int(symbol) for symbol in symbols},
             variant="sujiken",
+        )
+
+    def _build_hoshi_problem(self, puzzle_text: str) -> GridCspProblem:
+        symbols = [str(value) for value in range(1, 10)]
+        tokens = self._parse_hoshi_tokens(puzzle_text, symbols)
+
+        active_cells = [
+            (region, local_index)
+            for region in range(HOSHI_TRIANGLES)
+            for local_index in range(HOSHI_CELLS_PER_TRIANGLE)
+        ]
+        givens: Dict[Cell, str] = {}
+        for index, token in enumerate(tokens):
+            if token in symbols:
+                givens[(index // HOSHI_CELLS_PER_TRIANGLE, index % HOSHI_CELLS_PER_TRIANGLE)] = token
+
+        constraints: List[GridConstraint] = []
+        constraints.extend(
+            GridConstraint("all_different", tuple(region))
+            for region in HOSHI_TRIANGLE_REGIONS
+        )
+        constraints.extend(
+            GridConstraint("all_different", tuple(line))
+            for line in HOSHI_LINE_REGIONS
+        )
+
+        return GridCspProblem(
+            rows=HOSHI_TRIANGLES,
+            cols=HOSHI_CELLS_PER_TRIANGLE,
+            symbols=symbols,
+            active_cells=active_cells,
+            givens=givens,
+            constraints=constraints,
+            numeric_values={symbol: int(symbol) for symbol in symbols},
+            variant="sudoku_hoshi",
         )
 
     def _build_samurai_sudoku_problem(self, puzzle_text: str) -> GridCspProblem:
@@ -3266,6 +3380,41 @@ class GridpuzzlesolverPlugin:
         if len(tokens) != 45:
             raise ValueError(
                 f"Une grille Sujiken doit contenir 45 cases actives, {len(tokens)} detectees"
+            )
+        return tokens
+
+    def _parse_hoshi_tokens(self, text: str, symbols: Sequence[str]) -> List[str]:
+        if not text or not str(text).strip():
+            raise ValueError("Aucune grille Hoshi fournie")
+
+        blank_tokens = {"0", ".", "_"}
+        symbol_set = set(symbols)
+        parsed_rows: List[List[str]] = []
+
+        for raw_line in str(text).splitlines():
+            line = raw_line.strip()
+            if not line or SEPARATOR_LINE_RE.fullmatch(line):
+                continue
+            row_tokens = [
+                char for char in line if char in symbol_set or char in blank_tokens
+            ]
+            if row_tokens:
+                parsed_rows.append(row_tokens)
+
+        if len(parsed_rows) == HOSHI_TRIANGLES and all(
+            len(row) >= HOSHI_CELLS_PER_TRIANGLE for row in parsed_rows
+        ):
+            return [
+                token
+                for row in parsed_rows
+                for token in row[:HOSHI_CELLS_PER_TRIANGLE]
+            ]
+
+        tokens = [token for row in parsed_rows for token in row]
+        expected = HOSHI_TRIANGLES * HOSHI_CELLS_PER_TRIANGLE
+        if len(tokens) != expected:
+            raise ValueError(
+                f"Une grille Hoshi doit contenir {expected} cellules triangulaires, {len(tokens)} detectees"
             )
         return tokens
 

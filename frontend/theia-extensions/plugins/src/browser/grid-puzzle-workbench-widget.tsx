@@ -10,7 +10,7 @@ import './style/grid-puzzle-workbench.css';
 type Grid = string[][];
 type RegionGrid = number[][];
 type WorkMode = 'edit' | 'watch' | 'parity' | 'chain';
-type SudokuVariant = 'sudoku_classic' | 'sudoku_4x4' | 'sudoku_6x6' | 'sudoku_8x8' | 'sudoku_10x10' | 'sudoku_12x12' | 'sudoku_15x15' | 'sudoku_16x16' | 'sudoku_x' | 'sudoku_argyle' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_vudoku' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_kropki' | 'chain_sudoku_4x4' | 'chain_sudoku_5x5' | 'chain_sudoku_6x6' | 'chain_sudoku_7x7' | 'chain_sudoku_8x8' | 'chain_sudoku_9x9' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_outside' | 'sudoku_sandwich' | 'sudoku_little_killer' | 'sudoku_little_unique_killer' | 'sudoku_godoku' | 'sudoku_even_odd' | 'sudoku_non_consecutive' | 'sudoku_mine' | 'sudoku_mine_6x6' | 'sudoku_tripod' | 'sudoku_tripod_4x4' | 'sudoku_tripod_5x5' | 'sudoku_tripod_6x6' | 'sudoku_tripod_7x7' | 'sudoku_tripod_8x8';
+type SudokuVariant = 'sudoku_classic' | 'sudoku_4x4' | 'sudoku_6x6' | 'sudoku_8x8' | 'sudoku_10x10' | 'sudoku_12x12' | 'sudoku_15x15' | 'sudoku_16x16' | 'sudoku_x' | 'sudoku_argyle' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'sudoku_hoshi' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_vudoku' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_kropki' | 'chain_sudoku_4x4' | 'chain_sudoku_5x5' | 'chain_sudoku_6x6' | 'chain_sudoku_7x7' | 'chain_sudoku_8x8' | 'chain_sudoku_9x9' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_outside' | 'sudoku_sandwich' | 'sudoku_little_killer' | 'sudoku_little_unique_killer' | 'sudoku_godoku' | 'sudoku_even_odd' | 'sudoku_non_consecutive' | 'sudoku_mine' | 'sudoku_mine_6x6' | 'sudoku_tripod' | 'sudoku_tripod_4x4' | 'sudoku_tripod_5x5' | 'sudoku_tripod_6x6' | 'sudoku_tripod_7x7' | 'sudoku_tripod_8x8';
 type InequalitySymbol = '' | '>' | '<';
 type InequalityGrid = InequalitySymbol[][];
 type VudokuSymbol = '' | 'tl' | 'tr' | 'bl' | 'br';
@@ -88,7 +88,28 @@ interface ConflictHighlights {
     messages: string[];
 }
 
+interface HoshiCellLayout {
+    row: number;
+    col: number;
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+    clipPath: string;
+}
+
+interface HoshiCellDefinition {
+    axialX: number;
+    axialY: number;
+    orientation: 'u' | 'd';
+    region: number;
+}
+
 const SIZE = 9;
+const HOSHI_TRIANGLES = 6;
+const HOSHI_CELLS_PER_TRIANGLE = 9;
+const HOSHI_CELL_UNIT = 34;
+const HOSHI_PADDING = 8;
 const FLOWER_SIZE = 15;
 const SAMURAI_SIZE = 21;
 const KAZAGURUMA_COLS = 21;
@@ -174,6 +195,63 @@ const EMPTY_ROSSINI_ARROWS: RossiniArrows = {
 };
 const QUICK_TEXT_PLACEHOLDER = '0'.repeat(SIZE).concat('\n').repeat(SIZE).trim();
 const SUJIKEN_TEXT_PLACEHOLDER = Array.from({ length: SIZE }, (_row, index) => '0'.repeat(index + 1)).join('\n');
+const HOSHI_TEXT_PLACEHOLDER = Array.from({ length: HOSHI_TRIANGLES }, () => '0'.repeat(HOSHI_CELLS_PER_TRIANGLE)).join('\n');
+const HOSHI_CELL_DEFINITIONS: HoshiCellDefinition[] = [
+    { axialX: 0, axialY: 0, orientation: 'd', region: 0 },
+    { axialX: 0, axialY: 0, orientation: 'u', region: 0 },
+    { axialX: 1, axialY: 0, orientation: 'd', region: 0 },
+    { axialX: 1, axialY: 0, orientation: 'u', region: 0 },
+    { axialX: 2, axialY: 0, orientation: 'u', region: 0 },
+    { axialX: 0, axialY: 1, orientation: 'd', region: 0 },
+    { axialX: 0, axialY: 1, orientation: 'u', region: 0 },
+    { axialX: 1, axialY: 1, orientation: 'u', region: 0 },
+    { axialX: 0, axialY: 2, orientation: 'u', region: 0 },
+    { axialX: 3, axialY: -1, orientation: 'd', region: 1 },
+    { axialX: 2, axialY: 0, orientation: 'd', region: 1 },
+    { axialX: 3, axialY: 0, orientation: 'd', region: 1 },
+    { axialX: 3, axialY: 0, orientation: 'u', region: 1 },
+    { axialX: 1, axialY: 1, orientation: 'd', region: 1 },
+    { axialX: 2, axialY: 1, orientation: 'd', region: 1 },
+    { axialX: 2, axialY: 1, orientation: 'u', region: 1 },
+    { axialX: 3, axialY: 1, orientation: 'd', region: 1 },
+    { axialX: 3, axialY: 1, orientation: 'u', region: 1 },
+    { axialX: 2, axialY: 2, orientation: 'd', region: 2 },
+    { axialX: 2, axialY: 2, orientation: 'u', region: 2 },
+    { axialX: 3, axialY: 2, orientation: 'd', region: 2 },
+    { axialX: 3, axialY: 2, orientation: 'u', region: 2 },
+    { axialX: 4, axialY: 2, orientation: 'u', region: 2 },
+    { axialX: 2, axialY: 3, orientation: 'd', region: 2 },
+    { axialX: 2, axialY: 3, orientation: 'u', region: 2 },
+    { axialX: 3, axialY: 3, orientation: 'u', region: 2 },
+    { axialX: 2, axialY: 4, orientation: 'u', region: 2 },
+    { axialX: 1, axialY: 3, orientation: 'd', region: 3 },
+    { axialX: 0, axialY: 4, orientation: 'd', region: 3 },
+    { axialX: 1, axialY: 4, orientation: 'd', region: 3 },
+    { axialX: 1, axialY: 4, orientation: 'u', region: 3 },
+    { axialX: -1, axialY: 5, orientation: 'd', region: 3 },
+    { axialX: 0, axialY: 5, orientation: 'd', region: 3 },
+    { axialX: 0, axialY: 5, orientation: 'u', region: 3 },
+    { axialX: 1, axialY: 5, orientation: 'd', region: 3 },
+    { axialX: 1, axialY: 5, orientation: 'u', region: 3 },
+    { axialX: -2, axialY: 4, orientation: 'd', region: 4 },
+    { axialX: -2, axialY: 4, orientation: 'u', region: 4 },
+    { axialX: -1, axialY: 4, orientation: 'd', region: 4 },
+    { axialX: -1, axialY: 4, orientation: 'u', region: 4 },
+    { axialX: 0, axialY: 4, orientation: 'u', region: 4 },
+    { axialX: -2, axialY: 5, orientation: 'd', region: 4 },
+    { axialX: -2, axialY: 5, orientation: 'u', region: 4 },
+    { axialX: -1, axialY: 5, orientation: 'u', region: 4 },
+    { axialX: -2, axialY: 6, orientation: 'u', region: 4 },
+    { axialX: -1, axialY: 1, orientation: 'd', region: 5 },
+    { axialX: -2, axialY: 2, orientation: 'd', region: 5 },
+    { axialX: -1, axialY: 2, orientation: 'd', region: 5 },
+    { axialX: -1, axialY: 2, orientation: 'u', region: 5 },
+    { axialX: -3, axialY: 3, orientation: 'd', region: 5 },
+    { axialX: -2, axialY: 3, orientation: 'd', region: 5 },
+    { axialX: -2, axialY: 3, orientation: 'u', region: 5 },
+    { axialX: -1, axialY: 3, orientation: 'd', region: 5 },
+    { axialX: -1, axialY: 3, orientation: 'u', region: 5 },
+];
 const FLOWER_TEXT_PLACEHOLDER = Array.from({ length: FLOWER_SIZE }, (_row, rowIndex) => (
     Array.from({ length: FLOWER_SIZE }, (_col, colIndex) => (
         isFlowerCell(rowIndex, colIndex) ? '0' : '.'
@@ -194,6 +272,59 @@ const KAZAGURUMA_TEXT_PLACEHOLDER = Array.from({ length: SAMURAI_SIZE }, (_row, 
         isKazagurumaCell(rowIndex, colIndex) ? '0' : '.'
     )).join('')
 )).join('\n');
+
+function hoshiAxialToXy(point: [number, number]): [number, number] {
+    const [x, y] = point;
+    return [x + (0.5 * y), (Math.sqrt(3) / 2) * y];
+}
+
+function hoshiCellVertices(definition: HoshiCellDefinition): Array<[number, number]> {
+    const { axialX, axialY, orientation } = definition;
+    if (orientation === 'u') {
+        return [[axialX, axialY], [axialX + 1, axialY], [axialX, axialY + 1]];
+    }
+    return [[axialX + 1, axialY], [axialX, axialY + 1], [axialX + 1, axialY + 1]];
+}
+
+function createHoshiLayout(): HoshiCellLayout[] {
+    const allPoints = HOSHI_CELL_DEFINITIONS.flatMap(cell => hoshiCellVertices(cell).map(hoshiAxialToXy));
+    const minX = Math.min(...allPoints.map(([x]) => x));
+    const minY = Math.min(...allPoints.map(([_x, y]) => y));
+    const toPixel = (point: [number, number]): [number, number] => {
+        const [x, y] = hoshiAxialToXy(point);
+        return [
+            ((x - minX) * HOSHI_CELL_UNIT) + HOSHI_PADDING,
+            ((y - minY) * HOSHI_CELL_UNIT) + HOSHI_PADDING,
+        ];
+    };
+    const localIndexes = Array<number>(HOSHI_TRIANGLES).fill(0);
+    return HOSHI_CELL_DEFINITIONS.map(definition => {
+        const row = definition.region;
+        const col = localIndexes[row];
+        localIndexes[row] += 1;
+        const points = hoshiCellVertices(definition).map(toPixel);
+        const minCellX = Math.min(...points.map(([x]) => x));
+        const maxCellX = Math.max(...points.map(([x]) => x));
+        const minCellY = Math.min(...points.map(([_x, y]) => y));
+        const maxCellY = Math.max(...points.map(([_x, y]) => y));
+        const width = maxCellX - minCellX;
+        const height = maxCellY - minCellY;
+        return {
+            row,
+            col,
+            left: minCellX,
+            top: minCellY,
+            width,
+            height,
+            clipPath: `polygon(${points.map(([x, y]) => `${((x - minCellX) / width) * 100}% ${((y - minCellY) / height) * 100}%`).join(', ')})`,
+        };
+    });
+}
+
+const HOSHI_CELL_LAYOUT = createHoshiLayout();
+const HOSHI_LAYOUT_BY_REF = new Map(HOSHI_CELL_LAYOUT.map(cell => [`${cell.row}:${cell.col}`, cell]));
+const HOSHI_BOARD_WIDTH = Math.max(...HOSHI_CELL_LAYOUT.map(cell => cell.left + cell.width)) + HOSHI_PADDING;
+const HOSHI_BOARD_HEIGHT = Math.max(...HOSHI_CELL_LAYOUT.map(cell => cell.top + cell.height)) + HOSHI_PADDING;
 
 function sizedSudokuTextPlaceholder(size: number): string {
     return Array.from({ length: size }, () => '0'.repeat(size)).join('\n');
@@ -350,6 +481,9 @@ function getVariantLabel(puzzleType: SudokuVariant): string {
     }
     if (puzzleType === 'sujiken') {
         return 'Sujiken';
+    }
+    if (puzzleType === 'sudoku_hoshi') {
+        return 'Hoshi';
     }
     if (puzzleType === 'samurai_sudoku') {
         return 'Samurai Sudoku';
@@ -554,6 +688,9 @@ function gridSizeForVariant(puzzleType: SudokuVariant): number {
     if (puzzleType === 'flower_sudoku') {
         return FLOWER_SIZE;
     }
+    if (puzzleType === 'sudoku_hoshi') {
+        return SIZE;
+    }
     const tripodConfig = getTripodConfig(puzzleType);
     if (tripodConfig) {
         return tripodConfig.size;
@@ -572,6 +709,9 @@ function gridSizeForVariant(puzzleType: SudokuVariant): number {
 function isActiveCellForVariant(puzzleType: SudokuVariant, row: number, col: number): boolean {
     if (puzzleType === 'sujiken') {
         return isSujikenCell(row, col);
+    }
+    if (puzzleType === 'sudoku_hoshi') {
+        return row >= 0 && row < HOSHI_TRIANGLES && col >= 0 && col < HOSHI_CELLS_PER_TRIANGLE;
     }
     if (puzzleType === 'samurai_sudoku') {
         return isSamuraiCell(row, col);
@@ -686,6 +826,11 @@ function getAllDifferentRegions(puzzleType: SudokuVariant): ConstraintRegion[] {
     }
     const regions = puzzleType === 'sujiken'
         ? getSujikenRegions()
+        : puzzleType === 'sudoku_hoshi'
+            ? Array.from({ length: HOSHI_TRIANGLES }, (_unused, region) => ({
+                label: `Hoshi triangle ${region + 1}`,
+                cells: Array.from({ length: HOSHI_CELLS_PER_TRIANGLE }, (_cell, localIndex): CellCoord => [region, localIndex]),
+            }))
         : puzzleType === 'samurai_sudoku'
             ? buildCompositeSudokuRegions([
                 [0, 0, 'Samurai haut gauche'],
@@ -2386,6 +2531,12 @@ function gridToText(grid: Grid, puzzleType: SudokuVariant = 'sudoku_classic'): s
         )).join('\n');
     }
 
+    if (puzzleType === 'sudoku_hoshi') {
+        return Array.from({ length: HOSHI_TRIANGLES }, (_row, rowIndex) => (
+            Array.from({ length: HOSHI_CELLS_PER_TRIANGLE }, (_col, colIndex) => grid[rowIndex]?.[colIndex] || '0').join('')
+        )).join('\n');
+    }
+
     if (puzzleType === 'samurai_sudoku') {
         return Array.from({ length: SAMURAI_SIZE }, (_row, rowIndex) => (
             Array.from({ length: SAMURAI_SIZE }, (_col, colIndex) => (
@@ -2424,6 +2575,25 @@ function gridToText(grid: Grid, puzzleType: SudokuVariant = 'sudoku_classic'): s
 }
 
 function parseGridText(text: string, puzzleType: SudokuVariant = 'sudoku_classic'): Grid | null {
+    if (puzzleType === 'sudoku_hoshi') {
+        const tokens: string[] = [];
+        for (const char of text) {
+            if (/[1-9]/.test(char)) {
+                tokens.push(char);
+            } else if (char === '0' || char === '.' || char === '_') {
+                tokens.push('');
+            }
+        }
+        if (tokens.length !== HOSHI_TRIANGLES * HOSHI_CELLS_PER_TRIANGLE) {
+            return null;
+        }
+        const grid = createEmptyGrid(SIZE);
+        tokens.forEach((value, index) => {
+            grid[Math.floor(index / HOSHI_CELLS_PER_TRIANGLE)][index % HOSHI_CELLS_PER_TRIANGLE] = value;
+        });
+        return grid;
+    }
+
     const config = getSizedSudokuConfig(puzzleType) || getTripodConfig(puzzleType) || getChainConfig(puzzleType) || { size: SIZE };
     const symbols = sudokuSymbolsForSize(config.size);
     const symbolSet = new Set(symbols);
@@ -2757,6 +2927,23 @@ function normalizeGrid(value: unknown, puzzleType: SudokuVariant): Grid | undefi
         return parsePuzzleText(value, puzzleType) || undefined;
     }
 
+    if (puzzleType === 'sudoku_hoshi') {
+        if (!Array.isArray(value) || value.length < HOSHI_TRIANGLES) {
+            return undefined;
+        }
+        const normalized = createEmptyGrid(SIZE);
+        for (let rowIndex = 0; rowIndex < HOSHI_TRIANGLES; rowIndex += 1) {
+            const row = value[rowIndex];
+            if (!Array.isArray(row) || row.length < HOSHI_CELLS_PER_TRIANGLE) {
+                return undefined;
+            }
+            for (let colIndex = 0; colIndex < HOSHI_CELLS_PER_TRIANGLE; colIndex += 1) {
+                normalized[rowIndex][colIndex] = String(row[colIndex] ?? '').replace(/[^1-9]/g, '').slice(-1);
+            }
+        }
+        return normalized;
+    }
+
     const size = gridSizeForVariant(puzzleType);
     const requiredCols = puzzleType === 'kazaguruma_sudoku' ? KAZAGURUMA_COLS : size;
     const symbolConfig = getSizedSudokuConfig(puzzleType) || getTripodConfig(puzzleType) || getChainConfig(puzzleType);
@@ -2942,6 +3129,7 @@ function GridPuzzleWorkbenchApp({
     const isChain = Boolean(chainConfig);
     const sizedSudokuConfig = getSizedSudokuConfig(puzzleType);
     const isSujiken = puzzleType === 'sujiken';
+    const isHoshi = puzzleType === 'sudoku_hoshi';
     const isSamurai = puzzleType === 'samurai_sudoku';
     const isFlower = puzzleType === 'flower_sudoku';
     const isSohei = puzzleType === 'sohei_sudoku';
@@ -2960,6 +3148,9 @@ function GridPuzzleWorkbenchApp({
         gridTemplateColumns: `repeat(${variableGridConfig.size}, ${sizedCellSize}px)`,
         gridTemplateRows: `repeat(${variableGridConfig.size}, ${sizedCellSize}px)`,
     } : undefined;
+    const boardStyle: React.CSSProperties | undefined = isHoshi
+        ? { width: HOSHI_BOARD_WIDTH, height: HOSHI_BOARD_HEIGHT }
+        : sizedBoardStyle;
     const chainCounts = React.useMemo(() => {
         return Array.from({ length: chainConfig?.size || 0 }, (_unused, index) => chainPaths[index]?.length || 0);
     }, [chainConfig?.size, chainPaths]);
@@ -2970,6 +3161,8 @@ function GridPuzzleWorkbenchApp({
     );
     const quickTextPlaceholder = isSujiken
         ? SUJIKEN_TEXT_PLACEHOLDER
+        : isHoshi
+            ? HOSHI_TEXT_PLACEHOLDER
         : mineConfig
             ? mineTextPlaceholder(mineConfig.size)
         : variableGridConfig
@@ -3550,6 +3743,8 @@ function GridPuzzleWorkbenchApp({
             messageService.error(
                 puzzleType === 'sujiken'
                     ? 'La saisie rapide Sujiken doit contenir 45 cases actives.'
+                    : puzzleType === 'sudoku_hoshi'
+                        ? 'La saisie rapide Hoshi doit contenir 54 cellules triangulaires, ou 6 lignes de 9.'
                     : sizedSudokuConfig
                         ? `La saisie rapide ${sizedSudokuConfig.label} doit contenir exactement ${sizedSudokuConfig.size * sizedSudokuConfig.size} cases, avec symboles ${sudokuSymbolsForSize(sizedSudokuConfig.size).join('')} ou cases vides.`
                     : tripodConfig
@@ -3603,6 +3798,7 @@ function GridPuzzleWorkbenchApp({
             || value === 'sudoku_girandola'
             || value === 'sudoku_asterisk'
             || value === 'sujiken'
+            || value === 'sudoku_hoshi'
             || value === 'samurai_sudoku'
             || value === 'flower_sudoku'
             || value === 'sohei_sudoku'
@@ -3779,6 +3975,20 @@ function GridPuzzleWorkbenchApp({
                 gridRow: String(rowIndex * 2 + 1),
             };
         }
+        if (isHoshi) {
+            const layout = HOSHI_LAYOUT_BY_REF.get(`${rowIndex}:${colIndex}`);
+            if (!layout) {
+                return undefined;
+            }
+            return {
+                position: 'absolute',
+                left: layout.left,
+                top: layout.top,
+                width: layout.width,
+                height: layout.height,
+                clipPath: layout.clipPath,
+            };
+        }
         if (isRossini || isSkyscraper || isFrame || isOutside || isSandwich || isLittleKiller) {
             return {
                 gridColumn: String(colIndex + 2),
@@ -3816,7 +4026,7 @@ function GridPuzzleWorkbenchApp({
         extraClasses: string[] = [],
     ): string => {
         const ref = cellRef(rowIndex, colIndex);
-        const blockConfig = isTripod || isChain ? undefined : mineConfig || getSingleGridSudokuConfig(puzzleType);
+        const blockConfig = isTripod || isChain || isHoshi ? undefined : mineConfig || getSingleGridSudokuConfig(puzzleType);
         const isCompositeSudoku = puzzleType === 'samurai_sudoku'
             || puzzleType === 'flower_sudoku'
             || puzzleType === 'sohei_sudoku'
@@ -3848,6 +4058,7 @@ function GridPuzzleWorkbenchApp({
             isChain ? 'chain-cell' : '',
             isChain ? `chain-${chainGrid[rowIndex]?.[colIndex] || 0}` : '',
             isChain && mode === 'chain' && chainGrid[rowIndex]?.[colIndex] === activeChain ? 'chain-active' : '',
+            isHoshi ? `hoshi-cell hoshi-region-${rowIndex + 1}` : '',
             puzzleType === 'sujiken' ? 'sujiken-cell' : '',
             puzzleType === 'samurai_sudoku' ? 'samurai-cell' : '',
             puzzleType === 'flower_sudoku' ? 'flower-cell' : '',
@@ -4518,6 +4729,7 @@ function GridPuzzleWorkbenchApp({
                         <option value='sudoku_girandola'>Girandola</option>
                         <option value='sudoku_asterisk'>Asterisk</option>
                         <option value='sujiken'>Sujiken</option>
+                        <option value='sudoku_hoshi'>Hoshi</option>
                         <option value='samurai_sudoku'>Samurai Sudoku</option>
                         <option value='flower_sudoku'>Flower Sudoku</option>
                         <option value='sohei_sudoku'>Sohei Sudoku</option>
@@ -4579,13 +4791,14 @@ function GridPuzzleWorkbenchApp({
                             isSandwich ? 'sandwich-board' : '',
                             isLittleKiller ? 'little-killer-board' : '',
                             isTripod ? 'tripod-board' : '',
+                            isHoshi ? 'hoshi-board' : '',
                             isSujiken ? 'sujiken-board' : '',
                             isSamurai ? 'samurai-board' : '',
                             isFlower ? 'flower-board' : '',
                             isSohei ? 'sohei-board' : '',
                             isKazaguruma ? 'kazaguruma-board' : '',
                         ].filter(Boolean).join(' ')}
-                        style={sizedBoardStyle}
+                        style={boardStyle}
                         aria-label='Grille Sudoku interactive'
                     >
                         {renderChainConnectors()}
@@ -4652,6 +4865,7 @@ function GridPuzzleWorkbenchApp({
                         {isTripod ? ` Cliquez les intersections pour placer les points noirs Tripod (${tripodConfig?.size}x${tripodConfig?.size}). Le moteur reconstruit ensuite les regions.` : ''}
                         {puzzleType === 'sudoku_anti_diagonal' ? ' Anti Diagonal limite chaque grande diagonale a trois chiffres differents.' : ''}
                         {isSujiken ? ' Sujiken utilise les 45 cases du triangle.' : ''}
+                        {isHoshi ? ' Hoshi utilise 54 cellules triangulaires reparties en six grands triangles. Les chiffres ne se repetent pas dans un grand triangle ni sur une ligne de l etoile.' : ''}
                         {isSamurai ? ' Samurai utilise les 369 cases actives des cinq grilles 9x9.' : ''}
                         {isFlower ? ' Flower utilise les 189 cases actives des cinq grilles 9x9.' : ''}
                         {isSohei ? ' Sohei utilise les 288 cases actives des quatre grilles 9x9.' : ''}
@@ -4707,13 +4921,14 @@ function GridPuzzleWorkbenchApp({
                                     isSandwich ? 'sandwich-board' : '',
                                     isLittleKiller ? 'little-killer-board' : '',
                                     isTripod ? 'tripod-board' : '',
+                                    isHoshi ? 'hoshi-board' : '',
                                     isSujiken ? 'sujiken-board' : '',
                                     isSamurai ? 'samurai-board' : '',
                                     isFlower ? 'flower-board' : '',
                                     isSohei ? 'sohei-board' : '',
                                     isKazaguruma ? 'kazaguruma-board' : '',
                                 ].filter(Boolean).join(' ')}
-                                style={sizedBoardStyle}
+                                style={boardStyle}
                                 aria-label='Solution Sudoku'
                             >
                                 {renderChainConnectors()}
