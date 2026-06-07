@@ -1,0 +1,86 @@
+{
+  "name": "wherigo_analyzer",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Analyse les cartouches Wherigo (.gwc) et scripts Lua pour extraire zones, médias, inputs, réponses et métadonnées.",
+  "author": "GeoApp",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": ["Analysis", "Geolocation", "Wherigo"],
+  "kinds": ["analyze", "geo", "solver"],
+  "brute_force": false,
+  "enable_scoring": false,
+  "accept_accents": true,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": true,
+  "timeout_seconds": 60,
+  "capabilities": {
+    "analyze": true,
+    "decode": false,
+    "encode": false
+  },
+  "defaults": {
+    "include_in_analysis": false,
+    "include_in_decode": false
+  },
+  "input_types": {
+    "file_path": {
+      "type": "string",
+      "label": "Chemin du fichier",
+      "required": false,
+      "description": "Chemin vers le fichier .gwc ou .lua"
+    },
+    "file_content": {
+      "type": "string",
+      "label": "Contenu du fichier (base64)",
+      "required": false,
+      "hidden": true,
+      "description": "Contenu encodé en base64 (alternatif au chemin)"
+    },
+    "filename": {
+      "type": "string",
+      "label": "Nom du fichier",
+      "required": false,
+      "description": "Nom original du fichier (avec extension)"
+    },
+    "analyze_mode": {
+      "type": "select",
+      "label": "Mode d'analyse",
+      "options": ["auto", "gwc", "lua"],
+      "default": "auto",
+      "required": false,
+      "description": "Auto: détection automatique du type de fichier"
+    },
+    "extract_media": {
+      "type": "checkbox",
+      "label": "Extraire les médias",
+      "default": true,
+      "required": false,
+      "description": "Extraire les fichiers médias des cartouches .gwc"
+    }
+  },
+  "output_types": {
+    "wherigo_data": {
+      "type": "object",
+      "label": "Données Wherigo complètes (JSON)"
+    },
+    "zones": {
+      "type": "array",
+      "label": "Zones détectées"
+    },
+    "inputs": {
+      "type": "array",
+      "label": "Inputs et réponses"
+    },
+    "media": {
+      "type": "array",
+      "label": "Fichiers médias"
+    },
+    "geojson": {
+      "type": "object",
+      "label": "Zones au format GeoJSON"
+    }
+  }
+}
