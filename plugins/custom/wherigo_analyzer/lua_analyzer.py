@@ -235,15 +235,43 @@ class LuaAnalyzer:
         ),
     }
 
-    # Message patterns
+    # Message patterns - simplified, just to find the start of calls
     MESSAGE_PATTERNS = {
         'messagebox': re.compile(
-            r'Wherigo\.MessageBox\s*\(\s*\{([^}]+)\}\s*\)',
-            re.IGNORECASE | re.DOTALL
+            r'Wherigo\.MessageBox\s*\(\s*\{',
+            re.IGNORECASE
         ),
         'dialog': re.compile(
-            r'Wherigo\.Dialog\s*\(\s*\{([^}]+)\}\s*\)',
-            re.IGNORECASE | re.DOTALL
+            r'Wherigo\.Dialog\s*\(\s*\{',
+            re.IGNORECASE
+        ),
+    }
+
+    # Additional patterns for extracting message properties
+    MESSAGE_PROPERTY_PATTERNS = {
+        'text': re.compile(
+            r'(?:^|,|\{)\s*Text\s*=\s*"([^"]*)"',
+            re.IGNORECASE
+        ),
+        'text_obfuscated': re.compile(
+            r'(?:^|,|\{)\s*Text\s*=\s*_m9REO\s*\(\s*"([^"]+)"\s*\)',
+            re.IGNORECASE
+        ),
+        'title': re.compile(
+            r'(?:^|,|\{)\s*Title\s*=\s*"([^"]*)"',
+            re.IGNORECASE
+        ),
+        'title_obfuscated': re.compile(
+            r'(?:^|,|\{)\s*Title\s*=\s*_m9REO\s*\(\s*"([^"]+)"\s*\)',
+            re.IGNORECASE
+        ),
+        'media': re.compile(
+            r'(?:^|,|\{)\s*Media\s*=\s*([A-Za-z_][A-Za-z0-9_]*)',
+            re.IGNORECASE
+        ),
+        'buttons': re.compile(
+            r'(?:^|,|\{)\s*Buttons\s*=\s*\{([^}]+)\}',
+            re.IGNORECASE
         ),
     }
 
@@ -747,35 +775,155 @@ class LuaAnalyzer:
 
         return answers
 
+    def _find_wherigo_calls(self, content: str, call_type: str = "MessageBox") -> List[Tuple[int, int, str]]:
+        """Find Wherigo calls with balanced brace counting.
+
+        Args:
+            content: Lua source code
+            call_type: "MessageBox" or "Dialog"
+
+        Returns:
+            List of (start_pos, end_pos, call_content) tuples
+        """
+        results = []
+        pattern = self.MESSAGE_PATTERNS.get(call_type.lower(), self.MESSAGE_PATTERNS['messagebox'])
+
+        for match in pattern.finditer(content):
+            start_pos = match.start()
+            # Find the opening brace position (after "Wherigo.Call("
+            open_brace_pos = content.find('{', match.end() - 1)
+            if open_brace_pos == -1:
+                continue
+
+            # Count braces to find the matching closing brace
+            brace_count = 1
+            pos = open_brace_pos + 1
+
+            while pos < len(content) and brace_count > 0:
+                char = content[pos]
+                if char == '{':
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+                elif char == '"':
+                    # Skip string literals
+                    pos += 1
+                    while pos < len(content) and content[pos] != '"':
+                        if content[pos] == '\\' and pos + 1 < len(content):
+                            pos += 2
+                        else:
+                            pos += 1
+                    # Skip past the closing quote
+                    if pos < len(content) and content[pos] == '"':
+                        pos += 1
+                    continue
+                pos += 1
+
+            if brace_count == 0:
+                # Found the matching closing brace
+                # Include the closing parenthesis of the function call
+                end_pos = pos
+                while end_pos < len(content) and content[end_pos] in ' \t\n)':
+                    if content[end_pos] == ')':
+                        end_pos += 1
+                        break
+                    end_pos += 1
+
+                call_content = content[open_brace_pos:pos-1]  # Content inside the braces
+                results.append((start_pos, end_pos, call_content))
+
+        return results
+
+    def _extract_buttons(self, buttons_content: str) -> List[str]:
+        """Extract button labels from Buttons table content."""
+        buttons = []
+        # Match quoted strings in the buttons table
+        for match in re.finditer(r'"([^"]*)"', buttons_content):
+            buttons.append(match.group(1))
+        # Also match _m9REO calls for obfuscated buttons
+        for match in re.finditer(r'_m9REO\s*\(\s*"([^"]+)"\s*\)', buttons_content):
+            obfuscated = match.group(1)
+            # Try to decode if we can
+            buttons.append(f"[obfuscated:{obfuscated[:20]}...]")
+        return buttons
+
     def _extract_messages(self, content: str) -> List[WherigoMessage]:
-        """Extract MessageBox and Dialog calls."""
+        """Extract MessageBox and Dialog calls using balanced brace parsing."""
         messages = []
 
         # Extract MessageBox calls
-        for match in self.MESSAGE_PATTERNS['messagebox'].finditer(content):
-            msg_content = match.group(1)
-            msg = WherigoMessage(type="messagebox", raw=match.group(0)[:200])
+        for start_pos, end_pos, msg_content in self._find_wherigo_calls(content, "MessageBox"):
+            msg = WherigoMessage(type="messagebox", raw=content[start_pos:end_pos][:200])
 
-            # Extract Text
-            text_match = self.PROPERTY_PATTERNS['text'].search(msg_content)
+            # Extract Text (plain or obfuscated)
+            text_match = self.MESSAGE_PROPERTY_PATTERNS['text'].search(msg_content)
             if text_match:
                 msg.text = text_match.group(1).replace('\\n', '\n')
+            else:
+                text_obf_match = self.MESSAGE_PROPERTY_PATTERNS['text_obfuscated'].search(msg_content)
+                if text_obf_match:
+                    encoded = text_obf_match.group(1)
+                    decoded = self._decode_obfuscated(content, encoded)
+                    msg.text = decoded
+
+            # Extract Title (plain or obfuscated)
+            title_match = self.MESSAGE_PROPERTY_PATTERNS['title'].search(msg_content)
+            if title_match:
+                msg.title = title_match.group(1).replace('\\n', '\n')
+            else:
+                title_obf_match = self.MESSAGE_PROPERTY_PATTERNS['title_obfuscated'].search(msg_content)
+                if title_obf_match:
+                    encoded = title_obf_match.group(1)
+                    decoded = self._decode_obfuscated(content, encoded)
+                    msg.title = decoded
 
             # Extract Media
-            media_match = self.PROPERTY_PATTERNS['media'].search(msg_content)
+            media_match = self.MESSAGE_PROPERTY_PATTERNS['media'].search(msg_content)
             if media_match:
                 msg.media = media_match.group(1)
 
+            # Extract Buttons
+            buttons_match = self.MESSAGE_PROPERTY_PATTERNS['buttons'].search(msg_content)
+            if buttons_match:
+                msg.buttons = self._extract_buttons(buttons_match.group(1))
+
             messages.append(msg)
 
-        # Extract Dialog calls (simplified)
-        for match in self.MESSAGE_PATTERNS['dialog'].finditer(content):
-            msg_content = match.group(1)
-            msg = WherigoMessage(type="dialog", raw=match.group(0)[:200])
+        # Extract Dialog calls
+        for start_pos, end_pos, msg_content in self._find_wherigo_calls(content, "Dialog"):
+            msg = WherigoMessage(type="dialog", raw=content[start_pos:end_pos][:200])
 
-            text_match = self.PROPERTY_PATTERNS['text'].search(msg_content)
+            # Extract Text (plain or obfuscated)
+            text_match = self.MESSAGE_PROPERTY_PATTERNS['text'].search(msg_content)
             if text_match:
                 msg.text = text_match.group(1).replace('\\n', '\n')
+            else:
+                text_obf_match = self.MESSAGE_PROPERTY_PATTERNS['text_obfuscated'].search(msg_content)
+                if text_obf_match:
+                    encoded = text_obf_match.group(1)
+                    decoded = self._decode_obfuscated(content, encoded)
+                    msg.text = decoded
+
+            # Extract Title (plain or obfuscated)
+            title_match = self.MESSAGE_PROPERTY_PATTERNS['title'].search(msg_content)
+            if title_match:
+                msg.title = title_match.group(1).replace('\\n', '\n')
+            else:
+                title_obf_match = self.MESSAGE_PROPERTY_PATTERNS['title_obfuscated'].search(msg_content)
+                if title_obf_match:
+                    encoded = title_obf_match.group(1)
+                    decoded = self._decode_obfuscated(content, encoded)
+                    msg.title = decoded
+
+            # Extract Media
+            media_match = self.MESSAGE_PROPERTY_PATTERNS['media'].search(msg_content)
+            if media_match:
+                msg.media = media_match.group(1)
+
+            # Extract Buttons
+            buttons_match = self.MESSAGE_PROPERTY_PATTERNS['buttons'].search(msg_content)
+            if buttons_match:
+                msg.buttons = self._extract_buttons(buttons_match.group(1))
 
             messages.append(msg)
 

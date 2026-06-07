@@ -359,6 +359,21 @@ class WherigoAnalyzerPlugin:
                 for answer in inp.answers:
                     lines.append(f"    Answer: {answer.value} ({answer.method})")
 
+        lines.append("")
+        lines.append(f"Messages: {len(result.messages)}")
+        for msg in result.messages:
+            msg_title = msg.title or "(no title)"
+            lines.append(f"  - [{msg.type}] {msg_title}")
+            if msg.text:
+                text_preview = msg.text[:60].replace('\n', ' ')
+                if len(msg.text) > 60:
+                    text_preview += "..."
+                lines.append(f"    Text: {text_preview}")
+            if msg.buttons:
+                lines.append(f"    Buttons: {', '.join(msg.buttons)}")
+            if msg.media:
+                lines.append(f"    Media: {msg.media}")
+
         return "\n".join(lines)
 
     def _extract_coordinates(self, result: WherigoAnalysisResult) -> Optional[Dict[str, Any]]:
