@@ -358,6 +358,18 @@ class WherigoAnalyzerPlugin:
             if inp.answers:
                 for answer in inp.answers:
                     lines.append(f"    Answer: {answer.value} ({answer.method})")
+                    # Show brute force candidates for hashed answers
+                    if answer.method == "urwigo_hash" and answer.candidates:
+                        numeric = answer.candidates.get('numeric', [])
+                        alpha = answer.candidates.get('alpha', [])
+                        alphanumeric = answer.candidates.get('alphanumeric', [])
+                        if numeric:
+                            lines.append(f"      Numeric candidates: {', '.join(numeric[:5])}")
+                        if alpha:
+                            lines.append(f"      Alpha candidates: {', '.join(alpha[:5])}")
+                        if alphanumeric:
+                            lines.append(f"      Alphanumeric candidates: {', '.join(alphanumeric[:5])}")
+                        lines.append("      Note: collisions possibles, réponse non garantie")
 
         lines.append("")
         lines.append(f"Messages: {len(result.messages)}")

@@ -13,6 +13,14 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Import deobfuscator
+try:
+    from .deobfuscators import UrwigoDeobfuscator
+    from .urwigo_hash import brute_force_urwigo_common
+except ImportError:
+    from deobfuscators import UrwigoDeobfuscator
+    from urwigo_hash import brute_force_urwigo_common
+
 try:
     from .models import (
         WherigoAnalysisResult,
@@ -320,6 +328,19 @@ class LuaAnalyzer:
             status="ok"
         )
         result.lua = LuaInfo(available=True, decompiled=True, decompiler="manual")
+
+        # Store original content for debug
+        original_content = content
+
+        # Step 1: Apply Urwigo deobfuscation
+        deobfuscator = UrwigoDeobfuscator()
+        content, deobf_report = deobfuscator.deobfuscate(content)
+
+        if deobf_report.strings_decoded > 0:
+            logger.info(f"Deobfuscated {deobf_report.strings_decoded} strings using {deobf_report.function_name}")
+            result.source.warnings.append(
+                f"Deobfuscated {deobf_report.strings_decoded} Urwigo strings (function: {deobf_report.function_name})"
+            )
 
         # Debug: log content preview
         content_preview = content[:200].replace('\n', ' ')
@@ -765,12 +786,20 @@ class LuaAnalyzer:
 
         # Extract Urwigo hash comparisons (hash protected)
         for match in self.ANSWER_PATTERNS['urwigo_hash'].finditer(handler_content):
-            hash_value = match.group(1)
+            hash_value_str = match.group(1)
+            try:
+                hash_int = int(hash_value_str)
+                # Run brute force to find candidates
+                candidates = brute_force_urwigo_common(hash_int)
+            except (ValueError, TypeError):
+                candidates = {}
+
             answers.append(DetectedAnswer(
-                value=f"[HASH:{hash_value}]",
+                value=f"[HASH:{hash_value_str}]",
                 method="urwigo_hash",
                 confidence="low",  # Hash cannot be reversed easily
-                source=f"{input_name}:OnGetInput: Urwigo.Hash protected"
+                source=f"{input_name}:OnGetInput: Urwigo.Hash protected",
+                candidates=candidates
             ))
 
         return answers

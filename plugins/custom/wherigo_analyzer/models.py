@@ -28,14 +28,18 @@ class DetectedAnswer:
     method: str = "unknown"  # plain_text, nocase, numeric, hash, unknown
     confidence: str = "medium"  # high, medium, low
     source: str = ""  # Function or line where detected
+    candidates: Dict[str, Any] = field(default_factory=dict)  # Brute force candidates for hashes
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        result = {
             "value": self.value,
             "method": self.method,
             "confidence": self.confidence,
             "source": self.source
         }
+        if self.candidates:
+            result["candidates"] = self.candidates
+        return result
 
 
 @dataclass

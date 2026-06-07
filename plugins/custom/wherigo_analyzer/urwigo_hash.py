@@ -1,13 +1,138 @@
 """Urwigo hash module.
 
-Provides interface for Urwigo hash functions.
-Full bruteforce implementation planned for future releases.
+Provides interface for Urwigo hash functions with bruteforce support.
+Implements RSHash algorithm used by Urwigo.
 """
 
 from __future__ import annotations
 
 import re
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List, Iterator
+
+
+# Constants for Urwigo RSHash algorithm
+URWIGO_A_INIT = 63689
+URWIGO_B = 378551
+URWIGO_MOD = 65535
+
+
+def urwigo_hash(s: str, lowercase: bool = True) -> int:
+    """
+    Compute Urwigo RSHash modulo 65535.
+
+    Algorithm:
+    a = 63689
+    b = 378551
+    hash = 0
+    for each character:
+        hash = hash * a + ord(char)
+        hash %= 65535
+        a *= b
+        a %= 65535
+
+    Args:
+        s: String to hash
+        lowercase: Convert to lowercase before hashing (default True)
+
+    Returns:
+        Hash value (0-65535)
+    """
+    if lowercase:
+        s = s.lower()
+
+    a = URWIGO_A_INIT
+    h = 0
+
+    for char in s:
+        h = (h * a + ord(char)) % URWIGO_MOD
+        a = (a * URWIGO_B) % URWIGO_MOD
+
+    return h
+
+
+def brute_force_hash(
+    target_hash: int,
+    alphabet: str,
+    min_len: int,
+    max_len: int,
+    lowercase: bool = True,
+    limit: int = 20
+) -> List[str]:
+    """
+    Brute force search for strings that produce a given hash.
+
+    Args:
+        target_hash: Target hash value to find
+        alphabet: Characters to use in search
+        min_len: Minimum string length
+        max_len: Maximum string length
+        lowercase: Convert to lowercase before hashing
+        limit: Maximum number of candidates to return
+
+    Returns:
+        List of candidate strings (may include collisions)
+    """
+    candidates = []
+
+    def generate_strings(length: int, prefix: str = "") -> Iterator[str]:
+        """Generate all strings of given length from alphabet."""
+        if length == 0:
+            yield prefix
+            return
+        for char in alphabet:
+            yield from generate_strings(length - 1, prefix + char)
+
+    # Search by increasing length
+    for length in range(min_len, max_len + 1):
+        for s in generate_strings(length):
+            if urwigo_hash(s, lowercase) == target_hash:
+                candidates.append(s)
+                if len(candidates) >= limit:
+                    return candidates
+
+    return candidates
+
+
+def brute_force_numeric(target_hash: int, min_digits: int = 1, max_digits: int = 6, limit: int = 20) -> List[str]:
+    """Brute force numeric candidates (0-9)."""
+    return brute_force_hash(target_hash, "0123456789", min_digits, max_digits, lowercase=False, limit=limit)
+
+
+def brute_force_alpha(target_hash: int, min_len: int = 1, max_len: int = 5, limit: int = 20) -> List[str]:
+    """Brute force alphabetic candidates (a-z)."""
+    return brute_force_hash(target_hash, "abcdefghijklmnopqrstuvwxyz", min_len, max_len, lowercase=True, limit=limit)
+
+
+def brute_force_alphanumeric(target_hash: int, min_len: int = 1, max_len: int = 4, limit: int = 20) -> List[str]:
+    """Brute force alphanumeric candidates (a-z, 0-9)."""
+    return brute_force_hash(
+        target_hash,
+        "abcdefghijklmnopqrstuvwxyz0123456789",
+        min_len, max_len,
+        lowercase=True,
+        limit=limit
+    )
+
+
+def brute_force_urwigo_common(target_hash: int) -> dict:
+    """
+    Brute force common patterns for Urwigo hashes.
+
+    Args:
+        target_hash: Target hash value
+
+    Returns:
+        Dict with categories and candidate lists:
+        - numeric: 0-9 length 1-6
+        - alpha: a-z length 1-5
+        - alphanumeric: a-z0-9 length 1-4
+    """
+    return {
+        "numeric": brute_force_numeric(target_hash, 1, 6, 10),
+        "alpha": brute_force_alpha(target_hash, 1, 5, 10),
+        "alphanumeric": brute_force_alphanumeric(target_hash, 1, 4, 10),
+        "note": "collisions possibles, réponse non garantie"
+    }
 
 
 class UrwigoHash:
