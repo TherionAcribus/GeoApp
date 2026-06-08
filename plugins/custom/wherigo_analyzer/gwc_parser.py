@@ -41,9 +41,8 @@ class GWCMediaFile:
 class GWCParser:
     """Parser for Wherigo GWC files."""
 
-    # GWC file signature - "\x02\nCART" (6 bytes)
-    # Based on real GWC files: 020a43415254
-    GWC_SIGNATURE = b'\x02\x0a\x43\x41\x52\x54'  # \x02\nCART
+    # GWC file signature - 7 bytes: 0x02, 0x0a, "CART", 0x00
+    GWC_SIGNATURE = b'\x02\x0a\x43\x41\x52\x54\x00'  # \x02\nCART\x00
 
     def __init__(self):
         self.warnings: List[str] = []
@@ -113,62 +112,255 @@ class GWCParser:
             return None, None, source
 
     def _parse_gwc_data(self, data: bytes, source: SourceInfo) -> Tuple[Optional[WherigoCartridge], Optional[bytes]]:
-        """Internal GWC parsing logic."""
+        """Internal GWC parsing logic following correct GWC format specification."""
         cartridge = WherigoCartridge()
         lua_bytecode: Optional[bytes] = None
 
         try:
-            # GWC format is based on Pocket PC/Windows Mobile file format
-            # Offset 0: signature (6 bytes: \x02\nCART) - already checked
-            # Offset 6: number of objects (4 bytes, little-endian)
-            offset = 6
+            # GWC Format Specification:
+            # Offset 0-6: signature (7 bytes: 0x02, 0x0a, "CART", 0x00)
+            # Offset 7-8: NumberOfObjects (USHORT little-endian, 2 bytes)
+            # Offset 9: Object table starts
+            #   Each entry: USHORT object_id (2 bytes) + INT object_address (4 bytes) = 6 bytes total
+            # Header starts at: offset 9 + NumberOfObjects * 6
 
-            if len(data) < offset + 4:
-                source.warnings.append("File too short to read object count")
+            offset = 7  # After signature
+
+            if len(data) < offset + 2:
+                source.status = "error"
+                source.errors.append("File too short to read object count")
                 return cartridge, None
 
-            num_objects = struct.unpack('<I', data[offset:offset+4])[0]
-            offset += 4
+            num_objects = struct.unpack('<H', data[offset:offset+2])[0]  # USHORT
+            offset += 2
 
-            # Object table follows
-            objects = []
+            # Sanity check for num_objects
+            if num_objects > 10000 or num_objects < 0:
+                source.status = "error"
+                source.errors.append(f"Invalid number of objects: {num_objects}")
+                return cartridge, None
+
+            # Read object table at offset 9
+            objects = []  # List of (object_id, object_address)
+            object_table_offset = 9
+
             for i in range(num_objects):
-                if offset + 8 > len(data):
-                    source.warnings.append(f"Truncated object table at object {i}")
+                entry_offset = object_table_offset + i * 6
+                if entry_offset + 6 > len(data):
+                    source.warnings.append(f"Truncated object table at entry {i}")
                     break
 
-                obj_type = struct.unpack('<I', data[offset:offset+4])[0]
-                obj_offset = struct.unpack('<I', data[offset+4:offset+8])[0]
-                objects.append((obj_type, obj_offset))
-                offset += 8
+                object_id = struct.unpack('<H', data[entry_offset:entry_offset+2])[0]  # USHORT
+                object_address = struct.unpack('<i', data[entry_offset+2:entry_offset+6])[0]  # INT (signed)
+                objects.append((object_id, object_address))
 
-            # Parse each object
-            for obj_type, obj_offset in objects:
-                if obj_offset >= len(data):
-                    source.warnings.append(f"Invalid object offset: {obj_offset}")
+            # Header starts after object table
+            header_offset = object_table_offset + len(objects) * 6
+
+            # Parse header first
+            if header_offset + 4 <= len(data):
+                try:
+                    self._parse_header(data, header_offset, cartridge, source)
+                except Exception as e:
+                    source.warnings.append(f"Error parsing header: {e}")
+
+            # Parse objects
+            invalid_offsets_count = 0
+            for object_id, object_address in objects:
+                # Check if address is valid
+                if object_address < 0 or object_address >= len(data):
+                    invalid_offsets_count += 1
                     continue
 
                 try:
-                    self._parse_object(data, obj_offset, obj_type, cartridge, source)
+                    if object_id == 0:
+                        # Lua bytecode
+                        lua_bytecode = self._parse_lua_object(data, object_address, source)
+                    else:
+                        # Media object
+                        media = self._parse_media_object_v2(data, object_address, object_id, source)
+                        if media:
+                            self.media_files.append(media)
                 except Exception as e:
-                    source.warnings.append(f"Error parsing object type {obj_type}: {e}")
+                    # Limit error messages
+                    if len(source.warnings) < 10:
+                        source.warnings.append(f"Error parsing object {object_id}: {e}")
 
-            # Extract Lua bytecode from the LUA object if found
-            lua_bytecode = self._extract_lua_bytecode(data, objects)
+            if invalid_offsets_count > 0:
+                if invalid_offsets_count > 10:
+                    source.warnings.append(f"{invalid_offsets_count} objects had invalid offsets (skipped)")
+                else:
+                    source.warnings.append(f"{invalid_offsets_count} invalid object offsets detected")
 
+            # Try to extract completion code from bytecode
             if lua_bytecode:
-                # Try to extract completion code from bytecode
                 completion_code = self._extract_completion_code_from_bytecode(lua_bytecode)
                 if completion_code:
                     cartridge.completion_code = completion_code
 
-            source.status = "ok"
+            source.status = "ok" if not source.errors else "partial"
             return cartridge, lua_bytecode
 
         except Exception as e:
-            source.warnings.append(f"Error during parsing: {e}")
-            source.status = "partial"
+            source.errors.append(f"Critical error during parsing: {e}")
+            source.status = "error"
             return cartridge, lua_bytecode
+
+    def _parse_header(self, data: bytes, offset: int, cartridge: WherigoCartridge, source: SourceInfo) -> None:
+        """Parse GWC header at specified offset.
+
+        Header format:
+        - INT HeaderLength
+        - DOUBLE latitude
+        - DOUBLE longitude
+        - DOUBLE altitude
+        - LONG date_of_creation (8 bytes)
+        - LONG unknown (8 bytes)
+        - SHORT splashscreen object id
+        - SHORT icon object id
+        - ASCIIZ type_of_cartridge
+        - ASCIIZ player
+        - LONG player_id
+        - LONG unknown/player_id duplicate
+        - ASCIIZ cartridge_name
+        - ASCIIZ cartridge_guid
+        - ASCIIZ cartridge_description
+        - ASCIIZ starting_location_description
+        - ASCIIZ version
+        - ASCIIZ author
+        - ASCIIZ company
+        - ASCIIZ recommended_device
+        - INT length_of_completion_code
+        - ASCIIZ completion_code
+        """
+        try:
+            if offset + 4 > len(data):
+                return
+
+            header_length = struct.unpack('<i', data[offset:offset+4])[0]
+            if header_length <= 0 or offset + header_length > len(data):
+                source.warnings.append(f"Invalid header length: {header_length}")
+                return
+
+            pos = offset + 4
+
+            # Read coordinates (3 doubles = 24 bytes)
+            if pos + 24 <= len(data):
+                latitude = struct.unpack('<d', data[pos:pos+8])[0]
+                longitude = struct.unpack('<d', data[pos+8:pos+16])[0]
+                altitude = struct.unpack('<d', data[pos+16:pos+24])[0]
+                cartridge.start = WherigoPoint(lat=latitude, lon=longitude)
+                pos += 24
+
+            # Skip date fields (2 longs = 16 bytes)
+            pos += 16
+
+            # Skip splashscreen and icon ids (2 shorts = 4 bytes)
+            pos += 4
+
+            # Read ASCIIZ strings
+            def read_asciiz():
+                nonlocal pos
+                end = data.find(b'\x00', pos)
+                if end == -1 or end > offset + header_length:
+                    end = min(len(data), offset + header_length)
+                result = data[pos:end].decode('latin-1', errors='replace')
+                pos = end + 1
+                return result
+
+            cartridge.type = read_asciiz()
+            cartridge.player = read_asciiz()
+
+            # Skip player_id fields (2 longs = 8 bytes)
+            pos += 8
+
+            # Read metadata strings
+            cartridge.name = read_asciiz()
+            cartridge.guid = read_asciiz()
+            cartridge.description = read_asciiz()
+            cartridge.starting_location = read_asciiz()
+            cartridge.version = read_asciiz()
+            cartridge.author = read_asciiz()
+            cartridge.company = read_asciiz()
+            cartridge.recommended_device = read_asciiz()
+
+            # Read completion code
+            if pos + 4 <= len(data) and pos + 4 <= offset + header_length:
+                completion_len = struct.unpack('<i', data[pos:pos+4])[0]
+                pos += 4
+                if completion_len > 0 and pos + completion_len <= len(data) and pos + completion_len <= offset + header_length:
+                    cartridge.completion_code = data[pos:pos+completion_len].decode('latin-1', errors='replace')
+
+        except Exception as e:
+            source.warnings.append(f"Error parsing header: {e}")
+
+    def _parse_lua_object(self, data: bytes, offset: int, source: SourceInfo) -> Optional[bytes]:
+        """Parse Lua bytecode object.
+
+        Format:
+        - INT length
+        - BYTE[length] lua_bytecode
+        """
+        try:
+            if offset + 4 > len(data):
+                return None
+
+            length = struct.unpack('<i', data[offset:offset+4])[0]
+            if length <= 0 or offset + 4 + length > len(data):
+                return None
+
+            return data[offset+4:offset+4+length]
+        except Exception:
+            return None
+
+    def _parse_media_object_v2(self, data: bytes, offset: int, media_id: int, source: SourceInfo) -> Optional[GWCMediaFile]:
+        """Parse media object with ValidObject byte.
+
+        Format:
+        - BYTE valid_object (0 = deleted/absent, non-zero = valid)
+        - If valid:
+          - INT media_type
+          - INT length
+          - BYTE[length] media_content
+        """
+        try:
+            if offset + 1 > len(data):
+                return None
+
+            valid_object = data[offset]
+            if valid_object == 0:
+                # Media deleted/absent
+                return None
+
+            offset += 1
+
+            if offset + 8 > len(data):
+                return None
+
+            media_type = struct.unpack('<I', data[offset:offset+4])[0]
+            media_size = struct.unpack('<I', data[offset+4:offset+8])[0]
+            offset += 8
+
+            if offset + media_size > len(data):
+                if len(source.warnings) < 5:
+                    source.warnings.append(f"Media {media_id}: truncated data")
+                return None
+
+            media_data = data[offset:offset+media_size]
+
+            mime_type = self._get_mime_type(media_type, media_data)
+            filename = f"media_{media_id}{self._get_extension(mime_type)}"
+
+            return GWCMediaFile(
+                id=media_id,
+                filename=filename,
+                mime_type=mime_type,
+                data=media_data
+            )
+        except Exception as e:
+            if len(source.warnings) < 10:
+                source.warnings.append(f"Error parsing media {media_id}: {e}")
+            return None
 
     def _parse_object(self, data: bytes, offset: int, obj_type: int, cartridge: WherigoCartridge, source: SourceInfo) -> None:
         """Parse a single GWC object."""

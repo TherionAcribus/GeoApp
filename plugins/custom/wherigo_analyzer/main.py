@@ -349,7 +349,8 @@ class WherigoAnalyzerPlugin:
             coord_str = ""
             if zone.original_point.lat is not None:
                 coord_str = f" ({zone.original_point.lat:.6f}, {zone.original_point.lon:.6f})"
-            lines.append(f"  - {zone.name or zone.internal_name}{coord_str}")
+            media_str = f" [Media: {zone.media}]" if zone.media else ""
+            lines.append(f"  - {zone.name or zone.internal_name}{coord_str}{media_str}")
 
         lines.append("")
         lines.append(f"Inputs: {len(result.inputs)}")
@@ -377,8 +378,8 @@ class WherigoAnalyzerPlugin:
             msg_title = msg.title or "(no title)"
             lines.append(f"  - [{msg.type}] {msg_title}")
             if msg.text:
-                text_preview = msg.text[:60].replace('\n', ' ')
-                if len(msg.text) > 60:
+                text_preview = msg.text[:500].replace('\n', ' ')
+                if len(msg.text) > 500:
                     text_preview += "..."
                 lines.append(f"    Text: {text_preview}")
             if msg.buttons:

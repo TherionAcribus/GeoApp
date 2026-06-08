@@ -256,9 +256,10 @@ class LuaAnalyzer:
     }
 
     # Additional patterns for extracting message properties
+    # Patterns handle escaped quotes \" within strings
     MESSAGE_PROPERTY_PATTERNS = {
         'text': re.compile(
-            r'(?:^|,|\{)\s*Text\s*=\s*"([^"]*)"',
+            r'(?:^|,|\{)\s*Text\s*=\s*"((?:[^"\\]|\\.)*)"',
             re.IGNORECASE
         ),
         'text_obfuscated': re.compile(
@@ -266,7 +267,7 @@ class LuaAnalyzer:
             re.IGNORECASE
         ),
         'title': re.compile(
-            r'(?:^|,|\{)\s*Title\s*=\s*"([^"]*)"',
+            r'(?:^|,|\{)\s*Title\s*=\s*"((?:[^"\\]|\\.)*)"',
             re.IGNORECASE
         ),
         'title_obfuscated': re.compile(
@@ -876,9 +877,177 @@ class LuaAnalyzer:
             buttons.append(f"[obfuscated:{obfuscated[:20]}...]")
         return buttons
 
+    def _decode_lua_string(self, s: str) -> str:
+        """
+        Decode a Lua string literal, handling escape sequences.
+
+        Supports: \\n, \\r, \\t, \\a, \\b, \\f, \\v, \\\\, \", \\xNN, \\NNN
+        Also handles UTF-8 multi-byte sequences properly.
+        """
+        import re
+
+        # Build a bytes array first to properly handle UTF-8 sequences
+        bytes_array = []
+        i = 0
+        while i < len(s):
+            if s[i] == '\\' and i + 1 < len(s):
+                next_char = s[i + 1]
+
+                # \" -> "
+                if next_char == '"':
+                    bytes_array.append(ord('"'))
+                    i += 2
+                    continue
+                # \\ -> \
+                elif next_char == '\\':
+                    bytes_array.append(ord('\\'))
+                    i += 2
+                    continue
+                # \n -> newline
+                elif next_char == 'n':
+                    bytes_array.append(ord('\n'))
+                    i += 2
+                    continue
+                # \r -> carriage return
+                elif next_char == 'r':
+                    bytes_array.append(ord('\r'))
+                    i += 2
+                    continue
+                # \t -> tab
+                elif next_char == 't':
+                    bytes_array.append(ord('\t'))
+                    i += 2
+                    continue
+                # \a -> bell (0x07)
+                elif next_char == 'a':
+                    bytes_array.append(0x07)
+                    i += 2
+                    continue
+                # \b -> backspace (0x08)
+                elif next_char == 'b':
+                    bytes_array.append(0x08)
+                    i += 2
+                    continue
+                # \f -> form feed (0x0c)
+                elif next_char == 'f':
+                    bytes_array.append(0x0c)
+                    i += 2
+                    continue
+                # \v -> vertical tab (0x0b)
+                elif next_char == 'v':
+                    bytes_array.append(0x0b)
+                    i += 2
+                    continue
+                # \xNN -> hex byte
+                elif next_char == 'x' and i + 3 < len(s):
+                    hex_val = s[i+2:i+4]
+                    if all(c in '0123456789abcdefABCDEF' for c in hex_val):
+                        bytes_array.append(int(hex_val, 16))
+                        i += 4
+                        continue
+                # \NNN -> octal byte (up to 3 digits, value <= 255)
+                elif next_char in '01234567':
+                    oct_digits = [next_char]
+                    j = i + 2
+                    while j < len(s) and s[j] in '01234567' and len(oct_digits) < 3:
+                        oct_digits.append(s[j])
+                        j += 1
+                    try:
+                        val = int(''.join(oct_digits), 8)
+                        if val <= 255:
+                            bytes_array.append(val)
+                            i += len(oct_digits) + 1
+                            continue
+                    except:
+                        pass
+
+            # Regular character
+            bytes_array.append(ord(s[i]))
+            i += 1
+
+        # Decode bytes as UTF-8
+        try:
+            return bytes(bytes_array).decode('utf-8', errors='replace')
+        except:
+            # Fallback: decode as latin-1 (never fails, 1:1 mapping)
+            return bytes(bytes_array).decode('latin-1', errors='replace')
+
+    def _extract_dialog_entries(self, content: str) -> List[WherigoMessage]:
+        """Extract dialog entry tables that define Text, Media, Buttons."""
+        entries = []
+
+        # Find all Text = "..." occurrences and extract their containing table
+        text_pattern = re.compile(
+            r'Text\s*=\s*"((?:[^"\\]|\\.)*)"',
+            re.DOTALL | re.IGNORECASE
+        )
+
+        for match in text_pattern.finditer(content):
+            raw_text = match.group(1)
+            text = self._decode_lua_string(raw_text)
+
+            # Only process if text is substantial (not empty, not just whitespace)
+            if len(text.strip()) < 3:
+                continue
+
+            # Find the containing table by looking backward for '{' and forward for matching '}'
+            start_pos = match.start()
+            brace_count = 0
+            table_start = -1
+
+            # Find opening brace
+            for i in range(start_pos, -1, -1):
+                if content[i] == '}':
+                    brace_count += 1
+                elif content[i] == '{':
+                    if brace_count == 0:
+                        table_start = i
+                        break
+                    brace_count -= 1
+
+            if table_start == -1:
+                continue
+
+            # Find closing brace
+            brace_count = 1
+            table_end = -1
+            for i in range(table_start + 1, len(content)):
+                if content[i] == '{':
+                    brace_count += 1
+                elif content[i] == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        table_end = i
+                        break
+
+            if table_end == -1:
+                continue
+
+            table_content = content[table_start:table_end+1]
+
+            # Check if this table has a Media field
+            entry = WherigoMessage(type="messagebox")
+            entry.text = text
+
+            media_match = re.search(r'Media\s*=\s*([A-Za-z_][A-Za-z0-9_]*)', table_content, re.IGNORECASE)
+            if media_match:
+                entry.media = media_match.group(1)
+
+            buttons_match = re.search(r'Buttons\s*=\s*\{([^}]*)\}', table_content, re.IGNORECASE)
+            if buttons_match:
+                entry.buttons = self._extract_buttons(buttons_match.group(1))
+
+            entries.append(entry)
+
+        return entries
+
     def _extract_messages(self, content: str) -> List[WherigoMessage]:
         """Extract MessageBox and Dialog calls using balanced brace parsing."""
         messages = []
+
+        # First, extract dialog entry tables (for cartridges using entry.Text variables)
+        dialog_entries = self._extract_dialog_entries(content)
+        messages.extend(dialog_entries)
 
         # Extract MessageBox calls
         for start_pos, end_pos, msg_content in self._find_wherigo_calls(content, "MessageBox"):
@@ -887,7 +1056,8 @@ class LuaAnalyzer:
             # Extract Text (plain or obfuscated)
             text_match = self.MESSAGE_PROPERTY_PATTERNS['text'].search(msg_content)
             if text_match:
-                msg.text = text_match.group(1).replace('\\n', '\n')
+                raw_text = text_match.group(1)
+                msg.text = self._decode_lua_string(raw_text)
             else:
                 text_obf_match = self.MESSAGE_PROPERTY_PATTERNS['text_obfuscated'].search(msg_content)
                 if text_obf_match:
@@ -898,7 +1068,8 @@ class LuaAnalyzer:
             # Extract Title (plain or obfuscated)
             title_match = self.MESSAGE_PROPERTY_PATTERNS['title'].search(msg_content)
             if title_match:
-                msg.title = title_match.group(1).replace('\\n', '\n')
+                raw_title = title_match.group(1)
+                msg.title = self._decode_lua_string(raw_title)
             else:
                 title_obf_match = self.MESSAGE_PROPERTY_PATTERNS['title_obfuscated'].search(msg_content)
                 if title_obf_match:
@@ -925,7 +1096,8 @@ class LuaAnalyzer:
             # Extract Text (plain or obfuscated)
             text_match = self.MESSAGE_PROPERTY_PATTERNS['text'].search(msg_content)
             if text_match:
-                msg.text = text_match.group(1).replace('\\n', '\n')
+                raw_text = text_match.group(1)
+                msg.text = self._decode_lua_string(raw_text)
             else:
                 text_obf_match = self.MESSAGE_PROPERTY_PATTERNS['text_obfuscated'].search(msg_content)
                 if text_obf_match:
@@ -936,7 +1108,8 @@ class LuaAnalyzer:
             # Extract Title (plain or obfuscated)
             title_match = self.MESSAGE_PROPERTY_PATTERNS['title'].search(msg_content)
             if title_match:
-                msg.title = title_match.group(1).replace('\\n', '\n')
+                raw_title = title_match.group(1)
+                msg.title = self._decode_lua_string(raw_title)
             else:
                 title_obf_match = self.MESSAGE_PROPERTY_PATTERNS['title_obfuscated'].search(msg_content)
                 if title_obf_match:
@@ -956,7 +1129,16 @@ class LuaAnalyzer:
 
             messages.append(msg)
 
-        return messages
+        # Deduplicate messages by (text, media) tuple
+        seen = set()
+        unique_messages = []
+        for msg in messages:
+            key = (msg.text or "", msg.media or "")
+            if key not in seen:
+                seen.add(key)
+                unique_messages.append(msg)
+
+        return unique_messages
 
     def _extract_cartridge_metadata(self, content: str) -> WherigoCartridge:
         """Extract cartridge metadata from Lua content."""
