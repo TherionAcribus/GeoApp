@@ -13,10 +13,37 @@ from dataclasses import dataclass, field
 
 @dataclass
 class DeobfuscationResult:
-    """Result of deobfuscation detection."""
+    """Result of obfuscation detection."""
     detected: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
     obfuscated_strings: List[Dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass
+class DeobfuscationReport:
+    """Report for deobfuscation operations."""
+    function_name: Optional[str] = None
+    dtable_size: int = 0
+    methods_detected: List[str] = field(default_factory=list)
+    strings_decoded_by_function: int = 0
+    strings_decoded_by_best_effort: int = 0
+    samples: List[Dict[str, Any]] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "function_name": self.function_name,
+            "dtable_size": self.dtable_size,
+            "methods_detected": self.methods_detected,
+            "strings_decoded_by_function": self.strings_decoded_by_function,
+            "strings_decoded_by_best_effort": self.strings_decoded_by_best_effort,
+            "samples": self.samples[:10],
+            "warnings": self.warnings
+        }
+
+
+# WWB/gsub_wig translation table
+WWB_TABLE = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@.-~"
 
 
 def detect_obfuscation(lua_content: str) -> DeobfuscationResult:
@@ -171,11 +198,26 @@ def try_simple_deobfuscation(lua_content: str) -> str:
 @dataclass
 class UrwigoDeobfuscationReport:
     """Report of Urwigo deobfuscation operations."""
-    function_name: str = ""  # Name of the obfuscation function detected
-    dtable_size: int = 0     # Size of the deobfuscation table
-    strings_decoded: int = 0  # Number of strings decoded
-    errors: List[str] = field(default_factory=list)
-    samples: List[Dict[str, str]] = field(default_factory=list)  # Before/after samples
+    function_name: Optional[str] = None
+    dtable: Optional[str] = None  # The actual dtable content
+    dtable_size: int = 0
+    methods_detected: List[str] = field(default_factory=list)
+    strings_decoded_by_function: int = 0  # Renamed from strings_decoded
+    strings_decoded_by_best_effort: int = 0
+    samples: List[Dict[str, Any]] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "function_name": self.function_name,
+            "dtable_size": self.dtable_size,
+            "methods_detected": self.methods_detected,
+            "strings_decoded_by_function": self.strings_decoded_by_function,
+            "strings_decoded_by_best_effort": self.strings_decoded_by_best_effort,
+            "samples": self.samples[:10],
+            "warnings": self.warnings
+        }
 
 
 class UrwigoDeobfuscator:
@@ -352,6 +394,65 @@ class UrwigoDeobfuscator:
 
         return ''.join(result)
 
+    def _decode_wwb_gsub_string(self, encoded: str, table: str = WWB_TABLE) -> str:
+        """
+        Decode WWB_deobf or gsub_wig obfuscated string.
+        Uses the fixed table: ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@.-~
+        """
+        try:
+            result = []
+            for c in encoded:
+                try:
+                    idx = table.index(c)
+                    result.append(chr(idx + 1))
+                except ValueError:
+                    result.append(c)
+            return ''.join(result)
+        except:
+            return encoded
+
+    def _process_wwb_gsub_patterns(self, lua_content: str) -> Tuple[str, int]:
+        """
+        Find and decode WWB_deobf("...") and gsub_wig("...") patterns.
+        Returns (modified_content, count_replaced).
+        """
+        result = lua_content
+        count = 0
+
+        # Pattern for WWB_deobf("...") or WWB_deobf('...')
+        wwb_pattern = re.compile(
+            r'WWB_deobf\s*\(\s*(["\'])((?:(?!\1).|\\.)*)\1\s*\)',
+            re.IGNORECASE
+        )
+
+        # Pattern for gsub_wig("...") or gsub_wig('...')
+        gsub_pattern = re.compile(
+            r'gsub_wig\s*\(\s*(["\'])((?:(?!\1).|\\.)*)\1\s*\)',
+            re.IGNORECASE
+        )
+
+        # Process WWB_deobf
+        for match in wwb_pattern.finditer(lua_content):
+            encoded_escaped = match.group(2)
+            encoded = self._decode_lua_escapes(encoded_escaped)
+            decoded = self._decode_wwb_gsub_string(encoded)
+            if decoded != encoded:
+                result = result[:match.start()] + f'"{decoded}"' + result[match.end():]
+                count += 1
+                self.report.methods_detected.append("WWB_deobf")
+
+        # Process gsub_wig
+        for match in gsub_pattern.finditer(result):
+            encoded_escaped = match.group(2)
+            encoded = self._decode_lua_escapes(encoded_escaped)
+            decoded = self._decode_wwb_gsub_string(encoded)
+            if decoded != encoded:
+                result = result[:match.start()] + f'"{decoded}"' + result[match.end():]
+                count += 1
+                self.report.methods_detected.append("gsub_wig")
+
+        return result, count
+
     def deobfuscate(self, lua_content: str) -> Tuple[str, UrwigoDeobfuscationReport]:
         """
         Deobfuscate Urwigo-encoded Lua content.
@@ -403,7 +504,7 @@ class UrwigoDeobfuscator:
             # Update offset for subsequent replacements
             offset += len(replacement) - (match_end - match_start)
 
-            self.report.strings_decoded += 1
+            self.report.strings_decoded_by_function += 1
 
             # Keep samples (first 5)
             if len(self.report.samples) < 5:
@@ -412,8 +513,9 @@ class UrwigoDeobfuscator:
                     'decoded': decoded[:50] + '...' if len(decoded) > 50 else decoded
                 })
 
-        # Step 3: Optionally comment out or mark the deobfuscation function as processed
-        # (We leave it in place for reference)
+        # Step 3: Process WWB/gsub patterns
+        result, wwb_count = self._process_wwb_gsub_patterns(result)
+        self.report.strings_decoded_by_function += wwb_count
 
         return (result, self.report)
 

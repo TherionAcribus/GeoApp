@@ -17,9 +17,11 @@ logger = logging.getLogger(__name__)
 try:
     from .deobfuscators import UrwigoDeobfuscator
     from .urwigo_hash import brute_force_urwigo_common
+    from .deobfuscation_utils import DeobfuscationContext, TextDecoder, decode_all_text_properties, is_internal_identifier
 except ImportError:
     from deobfuscators import UrwigoDeobfuscator
     from urwigo_hash import brute_force_urwigo_common
+    from deobfuscation_utils import DeobfuscationContext, TextDecoder, decode_all_text_properties, is_internal_identifier
 
 try:
     from .models import (
@@ -356,10 +358,16 @@ class LuaAnalyzer:
         deobfuscator = UrwigoDeobfuscator()
         content, deobf_report = deobfuscator.deobfuscate(content)
 
-        if deobf_report.strings_decoded > 0:
-            logger.info(f"Deobfuscated {deobf_report.strings_decoded} strings using {deobf_report.function_name}")
-            result.source.warnings.append(
-                f"Deobfuscated {deobf_report.strings_decoded} Urwigo strings (function: {deobf_report.function_name})"
+        # Store deobfuscation report in result
+        result.deobfuscation_report = deobf_report.to_dict() if hasattr(deobf_report, 'to_dict') else {
+            'function_name': getattr(deobf_report, 'function_name', None),
+            'strings_decoded': getattr(deobf_report, 'strings_decoded_by_function', 0),
+        }
+
+        if getattr(deobf_report, 'strings_decoded_by_function', 0) > 0:
+            logger.info(f"Deobfuscated {deobf_report.strings_decoded_by_function} strings using {deobf_report.function_name}")
+            self.warnings.append(
+                f"Deobfuscated {deobf_report.strings_decoded_by_function} Urwigo strings (function: {deobf_report.function_name})"
             )
 
         # Debug: log content preview
@@ -415,8 +423,17 @@ class LuaAnalyzer:
             result.source.status = "partial"
             self.warnings.append("No Wherigo objects detected in the Lua file")
 
+        # Merge warnings from deobfuscation
+        if hasattr(deobf_report, 'warnings'):
+            for warning in deobf_report.warnings:
+                if warning not in self.warnings:
+                    self.warnings.append(warning)
+
         result.source.warnings = self.warnings
         result.source.errors = self.errors
+
+        # Step 2: Apply best-effort decoding to all text properties
+        self._apply_best_effort_decoding(result, deobf_report)
 
         return result
 
@@ -1158,6 +1175,52 @@ class LuaAnalyzer:
                 unique_messages.append(msg)
 
         return unique_messages
+
+    def _apply_best_effort_decoding(self, result: WherigoAnalysisResult, deobf_report) -> None:
+        """
+        Apply best-effort text decoding to all text properties in the result.
+        This handles obfuscated strings that weren't caught by function replacement.
+        """
+        # Create context from deobfuscation report
+        context = DeobfuscationContext(
+            urwigo_function_name=getattr(deobf_report, 'function_name', None),
+            urwigo_dtable=getattr(deobf_report, 'dtable', None),
+            methods_detected=getattr(deobf_report, 'methods_detected', []),
+            strings_decoded_by_function=getattr(deobf_report, 'strings_decoded_by_function', 0)
+        )
+
+        # Decode cartridge properties
+        if result.cartridge:
+            decode_all_text_properties(result.cartridge, context)
+
+        # Decode zone properties
+        for zone in result.zones:
+            decode_all_text_properties(zone, context)
+
+        # Decode media properties
+        for media in result.media:
+            decode_all_text_properties(media, context)
+
+        # Decode input properties
+        for input_obj in result.inputs:
+            decode_all_text_properties(input_obj, context)
+
+        # Decode message properties
+        for message in result.messages:
+            decode_all_text_properties(message, context)
+
+        # Update report with best-effort stats
+        if hasattr(result, 'deobfuscation_report') and result.deobfuscation_report:
+            result.deobfuscation_report['strings_decoded_by_best_effort'] = context.strings_decoded_by_best_effort
+            result.deobfuscation_report['samples'].extend(context.samples)
+            result.deobfuscation_report['warnings'].extend(context.warnings)
+
+        # Log progress
+        if context.strings_decoded_by_best_effort > 0:
+            logger.info(f"Best-effort decoding decoded {context.strings_decoded_by_best_effort} additional strings")
+            self.warnings.append(
+                f"Best-effort decoding decoded {context.strings_decoded_by_best_effort} additional strings"
+            )
 
     def _extract_cartridge_metadata(self, content: str) -> WherigoCartridge:
         """Extract cartridge metadata from Lua content."""
