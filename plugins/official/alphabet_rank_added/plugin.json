@@ -1,0 +1,109 @@
+{
+  "name": "alphabet_rank_added",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Rang alphabetique additionne : variante A1Z26 cumulative ou chaque rang de lettre est ajoute a la valeur precedente.",
+  "author": "MysterAI Team",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": ["NumbersDecryption", "Substitution", "Polyalphabetic"],
+  "kinds": ["code", "calculator", "text"],
+  "brute_force": false,
+  "enable_scoring": true,
+  "accept_accents": true,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "text": {
+      "type": "textarea",
+      "label": "Texte ou liste de nombres",
+      "placeholder": "Decode: 4,7,22,26,31 | Encode: DCODE",
+      "required": true,
+      "description": "En decode, saisir les nombres cumules. En encode, saisir le texte clair a transformer."
+    },
+    "mode": {
+      "type": "select",
+      "label": "Action",
+      "options": ["decode", "encode", "detect"],
+      "default": "decode",
+      "required": true
+    },
+    "alphabet": {
+      "type": "string",
+      "label": "Alphabet",
+      "placeholder": "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+      "default": "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+      "description": "Alphabet utilise pour convertir les rangs en lettres. Les doublons sont ignores."
+    },
+    "rank_base": {
+      "type": "select",
+      "label": "Base des rangs",
+      "options": [1, 0],
+      "default": 1,
+      "description": "1 = A=1, B=2... variante la plus courante. 0 = A=0, B=1..."
+    },
+    "use_modulo": {
+      "type": "boolean",
+      "label": "Utiliser le modulo au decodage",
+      "default": false,
+      "description": "Si une difference sort de l'alphabet, la ramene circulairement dans 1..26 ou 0..25."
+    },
+    "separator": {
+      "type": "select",
+      "label": "Separateur en encodage",
+      "options": ["space", "comma", "semicolon", "newline"],
+      "default": "space"
+    },
+    "strict": {
+      "type": "select",
+      "label": "Mode strict",
+      "options": ["strict", "smooth"],
+      "default": "smooth",
+      "description": "En decode, strict renvoie une erreur si une difference ne correspond pas a une lettre."
+    },
+    "enable_scoring": {
+      "type": "boolean",
+      "label": "Scoring (legacy)",
+      "default": true,
+      "hidden": true
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Resultat"
+    }
+  },
+  "text_handling": {
+    "fields": ["text", "alphabet"],
+    "allowed_ranges": ["0030-0039", "0041-005A", "0061-007A"],
+    "allowed_characters": " \t\r\n.,;:_-'\"!?+-",
+    "unknown_char_policy": "warn_keep",
+    "normalize": {
+      "remove_diacritics": true,
+      "case": "upper",
+      "map_characters": {}
+    }
+  },
+  "metasolver": {
+    "eligible": true,
+    "input_charset": "digits",
+    "tags": ["frequent", "numeral", "substitution", "no_key"],
+    "priority": 78,
+    "family": "numeral",
+    "preferred_when": ["digits_only", "digit_groups", "grouped_input"],
+    "supports_grouped_input": true
+  }
+}
