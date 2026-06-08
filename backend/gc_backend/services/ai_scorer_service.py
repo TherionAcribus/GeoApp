@@ -37,53 +37,95 @@ logger = logging.getLogger(__name__)
 # ──────────────────────────────────────────────────────────────────────────────
 
 AI_SCORER_SYSTEM_PROMPT = """\
-Tu es un expert en cryptographie, en langues et en géocaching. \
-Tu reçois une liste de textes candidats issus du déchiffrement de codes secrets. \
-Ton rôle est d'analyser chaque texte et de déterminer s'il forme un texte lisible, \
-quelle que soit la langue (français, anglais, allemand, espagnol, etc.) \
+Tu es un expert en cryptographie, en langues et en géocaching.
+Tu reçois une liste de textes candidats issus du déchiffrement de codes secrets.
+Ton rôle est d'analyser chaque texte et de déterminer s'il forme un texte lisible,
+quelle que soit la langue (français, anglais, allemand, espagnol, etc.)
 et quelle que soit la forme (mots collés, abréviations, coordonnées GPS en toutes lettres, etc.).
 
 Pour chaque texte, tu dois :
 1. Évaluer s'il contient du langage naturel plausible (même partiel).
 2. Attribuer un score de confiance entre 0.0 et 1.0 :
-   - 0.0 : bruit pur, séquence aléatoire, suite de chiffres sans sens.
+   - 0.0 : bruit pur, séquence aléatoire.
    - 0.3-0.5 : quelques mots reconnaissables mais beaucoup de bruit.
    - 0.6-0.79 : majoritairement lisible mais incertain.
    - 0.8-1.0 : clairement du texte naturel, phrase ou coordonnées explicites.
 3. Extraire les coordonnées GPS si présentes (en chiffres OU en toutes lettres).
-   Exemples de coordonnées en toutes lettres :
-   - "nord quarante huit virgule trois" → N 48.3
-   - "N quarante-huit degrés trente-neuf virgule deux cent quatre-vingt-six" → N 48° 39.286'
-   - "nord 48 trente neuf point 786 est 6 onze virgule 685"
-4. Fournir une brève explication (max 20 mots) justifiant le score.
+
+FORMATS DE COORDONNÉES EN TOUTES LETTRES — règles de conversion :
+Les coordonnées GPS en toutes lettres suivent le format DDM (degrés minutes décimales).
+La structure est toujours : DIRECTION DEGRÉS MINUTES PARTIE_DÉCIMALE_MINUTES
+
+Exemples canoniques (à mémoriser) :
+  "nord quarante-huit degrés trente-neuf virgule deux cent quatre-vingt-six"
+   → N 48° 39.286'   (decimal: 48.65477)
+
+  "est six degrés onze virgule six cent quatre-vingt-cinq"
+   → E 006° 11.685'  (decimal: 6.19475)
+
+  "nord quarante quatre cinquante neuf quatre vingt deux"
+   → N 44° 59.082'   (decimal: 44.98470)
+   RÈGLE : après les degrés, les premiers chiffres = minutes entières,
+           les suivants = partie décimale. "quatre vingt deux" = 082.
+
+  "ouest zéro trente huit deux cent quatre vingt"
+   → W 000° 38.280'  (decimal: -0.63800)
+   RÈGLE : "zéro" = 0 degrés. "deux cent quatre vingt" = 280 (partie décimale).
+
+  "nord 48 trente neuf point 786 est 6 onze virgule 685"
+   → N 48° 39.786' E 006° 11.685'
+
+Directions reconnues :
+  nord/north/N → N
+  sud/south/S  → S
+  est/east/E   → E
+  ouest/west/W → W
+
+Nombres en toutes lettres fréquents :
+  zéro=0, un=1, deux=2, trois=3, quatre=4, cinq=5, six=6, sept=7, huit=8, neuf=9,
+  dix=10, onze=11, douze=12, treize=13, quatorze=14, quinze=15, seize=16,
+  vingt=20, trente=30, quarante=40, cinquante=50, soixante=60,
+  soixante-dix=70, quatre-vingts=80, quatre-vingt-dix=90, cent=100, deux cents=200.
+  "quatre vingt deux" = 82, "deux cent quatre vingt" = 280.
+
+IMPORTANT : si le texte contient des indications comme "nord", "est", "ouest", "sud"
+suivies de nombres (en lettres ou en chiffres), c'est TRÈS probablement des coordonnées.
+Même intégrées dans une phrase littéraire, extrais-les.
+
+4. Fournir une brève explication (max 25 mots) justifiant le score.
 
 Réponds UNIQUEMENT en JSON valide, sans markdown, sans commentaire, avec ce format exact :
 {
   "results": [
     {
       "index": 0,
-      "confidence": 0.85,
+      "confidence": 0.92,
       "language": "fr",
       "readable": true,
-      "explanation": "Phrase française lisible avec une direction géographique.",
+      "explanation": "Phrase française avec coordonnées DDM en toutes lettres.",
       "coordinates": {
         "exist": true,
-        "ddm_lat": "N 48° 39.286'",
-        "ddm_lon": "E 006° 11.685'",
-        "ddm": "N 48° 39.286' E 006° 11.685'",
-        "decimal_latitude": 48.654767,
-        "decimal_longitude": 6.194750,
-        "confidence": 0.92,
+        "ddm_lat": "N 44° 59.082'",
+        "ddm_lon": "W 000° 38.280'",
+        "ddm": "N 44° 59.082' W 000° 38.280'",
+        "decimal_latitude": 44.98470,
+        "decimal_longitude": -0.63800,
+        "confidence": 0.90,
         "source": "ai_written"
       }
     }
   ]
 }
-Si aucune coordonnée n'est trouvée, omets le champ "coordinates" ou mets "coordinates": {"exist": false}.
+Si aucune coordonnée n'est trouvée : "coordinates": {"exist": false}.
 """
 
 AI_SCORER_USER_TEMPLATE = """\
 Analyse les {count} texte(s) candidat(s) suivants. Contexte : plugin "{plugin_name}".
+
+Pour chaque texte :
+- Score de lisibilité (0.0 à 1.0).
+- Détecte toute coordonnée GPS (en chiffres OU en toutes lettres, même dispersée dans le texte).
+- Si tu vois "nord/sud/est/ouest" suivi de nombres (lettres ou chiffres), c'est une coordonnée : convertis-la en DDM.
 
 {texts_block}
 """
@@ -146,6 +188,7 @@ def _call_openai_compatible(
     text = strip_thinking_blocks(text)
     if not text:
         raise RuntimeError("[ai_scorer] Réponse vide du LLM")
+    logger.debug("[ai_scorer] Réponse brute LLM (500 premiers chars): %s", text[:500])
     return text
 
 
@@ -298,11 +341,18 @@ def ai_score_results(
         batch = enriched[batch_start:batch_start + batch_size]
         texts = [str(it.get("text_output") or "").strip() for it in batch]
 
-        # Construire le bloc texte pour le prompt
+        # Construire le bloc texte pour le prompt.
+        # Les sauts de ligne sont remplacés par des espaces pour que les séquences
+        # de coordonnées en toutes lettres réparties sur plusieurs lignes restent
+        # lisibles en une seule séquence continue (ex: "nord quarante quatre\n
+        # cinquante neuf\nquatre vingt deux" → "nord quarante quatre cinquante neuf quatre vingt deux").
         texts_block_lines = []
         for local_idx, text in enumerate(texts):
             global_idx = batch_start + local_idx
-            display = (text[:500] + "…") if len(text) > 500 else text
+            # Aplatir : remplacer \r\n, \n, \r par un espace, puis dédoublonner les espaces
+            flat = re.sub(r'[\r\n]+', ' ', text)
+            flat = re.sub(r' {2,}', ' ', flat).strip()
+            display = (flat[:600] + "…") if len(flat) > 600 else flat
             texts_block_lines.append(f"[{local_idx}] (global index {global_idx})\n{display}")
         texts_block = "\n\n".join(texts_block_lines)
 

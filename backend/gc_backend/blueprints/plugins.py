@@ -1,4 +1,4 @@
-﻿"""
+"""
 Blueprint pour les endpoints API des plugins.
 
 Ce module expose les routes REST pour :
@@ -6115,14 +6115,31 @@ def ai_score_endpoint():
 
     try:
         from ..utils.preferences import get_value_or_default
-        pref_provider = get_value_or_default('geoApp.ocr.visionProvider', 'lmstudio')
+        # Fournisseur dedie AI Scorer (priorite sur le fournisseur OCR)
+        scorer_provider_pref = get_value_or_default('geoApp.aiScorer.provider', 'auto')
+        if scorer_provider_pref == 'auto':
+            # Si une cle OpenRouter est configuree, on l'utilise pour le scorer
+            # (le scorer est un LLM texte, pas une vision - OpenRouter est preferable si disponible)
+            or_api_key = get_value_or_default('geoApp.ai.openRouter.apiKey', '')
+            if or_api_key and or_api_key.strip():
+                pref_provider = 'openrouter'
+            else:
+                pref_provider = get_value_or_default('geoApp.ocr.visionProvider', 'lmstudio')
+        else:
+            pref_provider = scorer_provider_pref
         if pref_provider == 'openrouter':
             pref_base_url = get_value_or_default('geoApp.ai.openRouter.baseUrl', 'https://openrouter.ai/api/v1')
-            pref_model = get_value_or_default('geoApp.ai.openRouter.model.fast', 'openai/gpt-4o-mini')
+            pref_model = (
+                get_value_or_default('geoApp.aiScorer.openRouter.model', '')
+                or get_value_or_default('geoApp.ai.openRouter.model.strong', 'openai/gpt-4o')
+            )
             pref_api_key = get_value_or_default('geoApp.ai.openRouter.apiKey', '')
         else:
-            pref_base_url = 'http://localhost:1234'
-            pref_model = ''
+            pref_base_url = get_value_or_default('geoApp.ocr.lmstudio.baseUrl', 'http://localhost:1234')
+            pref_model = (
+                get_value_or_default('geoApp.aiScorer.lmstudio.model', '')
+                or get_value_or_default('geoApp.ocr.lmstudio.model', '')
+            )
             pref_api_key = ''
     except Exception:
         pref_provider = 'lmstudio'
@@ -6132,13 +6149,33 @@ def ai_score_endpoint():
 
     provider = str(data.get('provider') or pref_provider)
     base_url = str(data.get('base_url') or pref_base_url)
-    model = str(data.get('model') or pref_model or '')
+    model = str(data.get('model') or pref_model or '').strip()
     api_key = str(data.get('api_key') or pref_api_key or '')
+
+    # En mode LMStudio, si le modele n'est pas configure, interroger /v1/models
+    # pour recuperer le premier modele charge (comportement par defaut de LMStudio)
+    if not model and provider != 'openrouter':
+        try:
+            import requests as _req
+            from ..services.ocr.lmstudio_vision_service import normalize_openai_compatible_base_url
+            v1 = normalize_openai_compatible_base_url(base_url, 'http://localhost:1234')
+            r = _req.get(f"{v1}/models", timeout=3)
+            if r.ok:
+                models_data = r.json().get('data') or []
+                if models_data:
+                    model = models_data[0].get('id', '')
+                    logger.info("[ai_scorer] Modele LMStudio auto-detecte: %s", model)
+        except Exception as _me:
+            logger.warning("[ai_scorer] Impossible d'auto-detecter le modele LMStudio: %s", _me)
 
     if not model:
         return jsonify({
             'error': 'Modele manquant',
-            'message': "Fournissez 'model' dans le body ou configurez les preferences IA.",
+            'message': (
+                "Aucun modele configure. "
+                "Pour LMStudio : chargez un modele dans LMStudio ou configurez geoApp.ocr.lmstudio.model. "
+                "Pour OpenRouter : configurez geoApp.ocr.visionProvider = openrouter."
+            ),
         }), 400
 
     try:

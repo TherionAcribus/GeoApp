@@ -279,6 +279,7 @@ export class PluginsServiceImpl implements IPluginsService {
     
     /**
      * Analyse et score des resultats de plugin via le LLM AI Scorer.
+     * Si provider/model ne sont pas fournis, les lit depuis les preferences geoApp.aiScorer.*
      */
     async aiScoreItems(request: {
         items: any[];
@@ -295,8 +296,59 @@ export class PluginsServiceImpl implements IPluginsService {
         provider: string;
         model: string;
     }> {
+        // Resoudre provider/model depuis les preferences (le frontend a toujours les vraies valeurs)
+        const payload = { ...request };
+
+        // 1. Determiner le provider effectif
+        let resolvedProvider = payload.provider || '';
+        if (!resolvedProvider) {
+            const scorerProv = String(this.preferenceService.get('geoApp.aiScorer.provider', 'auto') || 'auto');
+            if (scorerProv !== 'auto') {
+                resolvedProvider = scorerProv;
+            } else {
+                // auto : OpenRouter si API key disponible, sinon LMStudio
+                const orKey = String(this.preferenceService.get('geoApp.ai.openRouter.apiKey', '') || '');
+                resolvedProvider = orKey.trim() ? 'openrouter' : 'lmstudio';
+            }
+        }
+        payload.provider = resolvedProvider;
+
+        // 2. Resoudre model / base_url / api_key si pas deja fournis
+        if (resolvedProvider === 'openrouter') {
+            if (!payload.model) {
+                payload.model = String(
+                    this.preferenceService.get('geoApp.aiScorer.openRouter.model', '')
+                    || this.preferenceService.get('geoApp.ai.openRouter.model.strong', 'openai/gpt-4o')
+                );
+            }
+            if (!payload.base_url) {
+                payload.base_url = String(
+                    this.preferenceService.get('geoApp.ai.openRouter.baseUrl', 'https://openrouter.ai/api/v1')
+                );
+            }
+            if (!payload.api_key) {
+                payload.api_key = String(
+                    this.preferenceService.get('geoApp.ai.openRouter.apiKey', '')
+                );
+            }
+        } else {
+            if (!payload.model) {
+                payload.model = String(
+                    this.preferenceService.get('geoApp.aiScorer.lmstudio.model', '')
+                    || this.preferenceService.get('geoApp.ocr.lmstudio.model', '')
+                    || ''
+                );
+            }
+            if (!payload.base_url) {
+                payload.base_url = String(
+                    this.preferenceService.get('geoApp.ocr.lmstudio.baseUrl', 'http://localhost:1234')
+                );
+            }
+        }
+
+
         try {
-            const response = await this.client.post('/api/plugins/ai-score', request, {
+            const response = await this.client.post('/api/plugins/ai-score', payload, {
                 timeout: ((request.timeout_sec || 90) + 10) * 1000,
             });
             return response.data;

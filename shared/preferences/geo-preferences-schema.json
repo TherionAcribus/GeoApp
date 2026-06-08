@@ -2036,7 +2036,57 @@
         "vision"
       ]
     },
-    "geoApp.search.autoRefreshDelay": {
+    "geoApp.aiScorer.provider": {
+      "type": "string",
+      "enum": ["auto", "lmstudio", "openrouter"],
+      "default": "auto",
+      "title": "AI Scorer - Fournisseur LLM",
+      "description": "Fournisseur LLM utilise par l'AI Scorer (analyse des resultats de plugins). 'auto' = meme fournisseur que le plugin OCR.",
+      "x-ui": {
+        "section": "AI Scorer",
+        "label": "Fournisseur AI Scorer",
+        "order": 150,
+        "enumLabels": {
+          "auto": "Automatique (suit OCR)",
+          "lmstudio": "LM Studio local",
+          "openrouter": "OpenRouter"
+        }
+      },
+      "x-category": "ocr",
+      "x-targets": ["frontend", "backend"],
+      "x-tags": ["ai", "scorer"]
+    },
+    "geoApp.aiScorer.openRouter.model": {
+      "type": "string",
+      "default": "openai/gpt-4o",
+      "title": "AI Scorer OpenRouter - Modele",
+      "description": "Identifiant du modele OpenRouter utilise par l'AI Scorer. Par defaut le meme que le modele 'strong'.",
+      "x-ui": {
+        "section": "AI Scorer",
+        "label": "Modele OpenRouter (Scorer)",
+        "advanced": true,
+        "order": 155
+      },
+      "x-category": "ocr",
+      "x-targets": ["frontend", "backend"],
+      "x-tags": ["openrouter", "scorer"]
+    },
+    "geoApp.aiScorer.lmstudio.model": {
+      "type": "string",
+      "default": "",
+      "title": "AI Scorer LM Studio - Modele",
+      "description": "Identifiant du modele LMStudio utilise par l'AI Scorer. Laisser vide pour auto-detection.",
+      "x-ui": {
+        "section": "AI Scorer",
+        "label": "Modele LM Studio (Scorer)",
+        "advanced": true,
+        "order": 160
+      },
+      "x-category": "ocr",
+      "x-targets": ["frontend", "backend"],
+      "x-tags": ["lmstudio", "scorer"]
+    },
+        "geoApp.search.autoRefreshDelay": {
       "type": "integer",
       "minimum": 5,
       "maximum": 120,

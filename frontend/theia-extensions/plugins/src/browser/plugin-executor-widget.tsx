@@ -877,13 +877,28 @@ const PluginExecutorComponent: React.FC<{
         if (!result.results || result.results.length === 0) {
             return;
         }
-        const items = result.results.filter(item => typeof item.text_output === 'string' && item.text_output.trim());
+        // Filtrer, trier par confiance et limiter au top 30 pour éviter les timeouts
+        // (un modèle lent comme Gemma :free prend ~35s/batch de 20 items)
+        const AI_SCORER_MAX_ITEMS = 30;
+        const AI_SCORER_MIN_CONFIDENCE = 0.05;
+        const allCandidates = result.results.filter(
+            item => typeof item.text_output === 'string' && item.text_output.trim()
+                && (item.confidence ?? 0) >= AI_SCORER_MIN_CONFIDENCE
+        );
+        // Trier par confidence décroissante et prendre les N meilleurs
+        const items = [...allCandidates]
+            .sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0))
+            .slice(0, AI_SCORER_MAX_ITEMS);
         if (items.length === 0) {
             return;
         }
-        console.log('[AI Scorer] Analyse de', items.length, 'résultat(s) via LLM');
+        console.log('[AI Scorer] Analyse de', items.length, '/', allCandidates.length, 'résultat(s) (top par confiance) via LLM');
         try {
-            const aiResult = await pluginsService.aiScoreItems({ items, plugin_name: pluginName });
+            const aiResult = await pluginsService.aiScoreItems({
+                items,
+                plugin_name: pluginName,
+                timeout_sec: 120,
+            });
             if (!aiResult || !Array.isArray(aiResult.items)) {
                 return;
             }
