@@ -273,10 +273,12 @@ class UrwigoDeobfuscator:
         """
         # Pattern 1: Find function followed by dtable (Lua functions don't use braces)
         # Match function declaration, then any content until dtable=, then until 'end'
+        # More flexible: allows any whitespace after function declaration
+        # dtable string can contain actual newlines (from decompiler)
         func_pattern = re.compile(
-            r'function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)\s*\n'  # function name(params)\n
-            r'(?:(?!\bend\b)[\s\S])*?'  # any content except 'end' (non-greedy)
-            r'local\s+dtable\s*=\s*"((?:[^"\\]|\\.)*)"'  # local dtable = "..."
+            r'function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)\s*'  # function name(params) + whitespace
+            r'(?:local\s+\w+\s*=\s*"[^"]*"\s*)*'  # optional local declarations with strings
+            r'local\s+dtable\s*=\s*"((?:[^"]|\\.)*)"'  # local dtable = "..." (can have newlines)
             r'[\s\S]*?\bend\b',  # rest until 'end'
             re.IGNORECASE
         )
@@ -306,6 +308,23 @@ class UrwigoDeobfuscator:
 
             if len(decoded_dtable) >= 64:
                 return (func_name, decoded_dtable)
+
+        # Pattern 3: Find dtable by string pattern alone (fallback)
+        dtable_only_pattern = re.compile(
+            r'local\s+dtable\s*=\s*"((?:[^"\\]|\\.){64,200})"',
+            re.IGNORECASE
+        )
+        for match in dtable_only_pattern.finditer(lua_content):
+            raw_dtable = match.group(1)
+            decoded_dtable = self._decode_lua_escapes(raw_dtable)
+            if len(decoded_dtable) >= 64:
+                # Try to find function name nearby (up to 10 lines before)
+                start_pos = max(0, match.start() - 500)
+                context = lua_content[start_pos:match.start()]
+                func_match = re.search(r'function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)', context)
+                if func_match:
+                    return (func_match.group(1), decoded_dtable)
+                return ("_decode", decoded_dtable)  # generic name
 
         return None
 
@@ -356,9 +375,10 @@ class UrwigoDeobfuscator:
         self.report.dtable_size = len(self.dtable)
 
         # Step 2: Find and replace all obfuscated string calls
-        # Pattern: function_name("encoded_string") - handles escaped quotes \"
+        # Pattern: function_name("encoded_string") or function_name('encoded_string')
+        # Handles both single and double quotes, with escaped quotes inside
         call_pattern = re.compile(
-            rf'{re.escape(self.function_name)}\s*\(\s*"((?:[^"\\]|\\.)*)"\s*\)'
+            rf'{re.escape(self.function_name)}\s*\(\s*(["\'])((?:(?!\1).|\\.)*)\1\s*\)'
         )
 
         result = lua_content
@@ -366,7 +386,7 @@ class UrwigoDeobfuscator:
 
         for match in call_pattern.finditer(lua_content):
             # Get the encoded string with escapes
-            encoded_escaped = match.group(1)
+            encoded_escaped = match.group(2)  # group 2 is the content, group 1 is the quote char
 
             # Decode Lua escapes in the encoded string
             encoded = self._decode_lua_escapes(encoded_escaped)
@@ -374,7 +394,7 @@ class UrwigoDeobfuscator:
             # Decode using the dtable
             decoded = self._decode_urwigo_string(encoded)
 
-            # Replace in result
+            # Replace in result - always use double quotes for consistency
             match_start = match.start() + offset
             match_end = match.end() + offset
             replacement = f'"{decoded}"'

@@ -217,3 +217,24 @@ class LuaDecompiler:
         finally:
             # Cleanup temp file
             Path(tmp_path).unlink(missing_ok=True)
+
+
+# Standalone function for convenience
+def decompile_bytecode(bytecode: bytes) -> Optional[str]:
+    """
+    Decompile Lua bytecode to source code.
+
+    Args:
+        bytecode: Raw Lua bytecode bytes
+
+    Returns:
+        Decompiled source code, or None if decompilation failed
+    """
+    decompiler = LuaDecompiler()
+    if not decompiler.is_available():
+        return None
+
+    success, result = decompiler.decompile_bytes(bytecode)
+    if success:
+        return result
+    return None

@@ -7,7 +7,7 @@ inputs, messages, and probable answers.
 from __future__ import annotations
 
 import re
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any, Union
 from pathlib import Path
 import logging
 
@@ -320,8 +320,8 @@ class LuaAnalyzer:
         except Exception as e:
             return self._error_result(f"Error reading file: {e}")
 
-    def analyze_content(self, content: str, filename: str = "script.lua") -> WherigoAnalysisResult:
-        """Analyze Lua content directly."""
+    def analyze_content(self, content: Union[str, bytes], filename: str = "script.lua") -> WherigoAnalysisResult:
+        """Analyze Lua content directly. Accepts either source code (str) or bytecode (bytes)."""
         result = WherigoAnalysisResult()
         result.source = SourceInfo(
             filename=filename,
@@ -329,6 +329,25 @@ class LuaAnalyzer:
             status="ok"
         )
         result.lua = LuaInfo(available=True, decompiled=True, decompiler="manual")
+
+        # Check if content is bytecode (Lua 5.1 bytecode starts with 0x1B "Lua")
+        if isinstance(content, bytes):
+            if content[:4] == b'\x1bLua':
+                # It's Lua bytecode - try to decompile
+                try:
+                    from .lua_decompiler import decompile_bytecode
+                except ImportError:
+                    from lua_decompiler import decompile_bytecode
+                decompiled = decompile_bytecode(content)
+                if decompiled:
+                    content = decompiled
+                    result.lua.decompiler = "unluac"
+                else:
+                    result.source.warnings.append("Failed to decompile Lua bytecode")
+                    content = content.decode('latin-1', errors='replace')
+            else:
+                # Not bytecode, decode as text
+                content = content.decode('utf-8', errors='replace')
 
         # Store original content for debug
         original_content = content
