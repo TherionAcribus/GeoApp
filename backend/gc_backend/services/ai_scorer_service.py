@@ -39,9 +39,13 @@ logger = logging.getLogger(__name__)
 AI_SCORER_SYSTEM_PROMPT = """\
 Tu es un expert en cryptographie, en langues et en géocaching.
 Tu reçois une liste de textes candidats issus du déchiffrement de codes secrets.
-Ton rôle est d'analyser chaque texte et de déterminer s'il forme un texte lisible,
+Ton rôle est d'analyser CHAQUE texte INDÉPENDAMMENT des autres et de déterminer s'il forme un texte lisible,
 quelle que soit la langue (français, anglais, allemand, espagnol, etc.)
 et quelle que soit la forme (mots collés, abréviations, coordonnées GPS en toutes lettres, etc.).
+
+RÈGLE ABSOLUE : Analyse chaque texte ISOLEMENT. Ne déduis JAMAIS de coordonnées d'un texte à partir d'un autre texte.
+Si le texte [0] contient des coordonnées mais le texte [1] est juste une version inversée/encodée du même texte,
+le texte [1] n'a PAS de coordonnées (car il est illisible directement).
 
 Pour chaque texte, tu dois :
 1. Évaluer s'il contient du langage naturel plausible (même partiel).
@@ -122,10 +126,14 @@ Si aucune coordonnée n'est trouvée : "coordinates": {"exist": false}.
 AI_SCORER_USER_TEMPLATE = """\
 Analyse les {count} texte(s) candidat(s) suivants. Contexte : plugin "{plugin_name}".
 
+INSTRUCTION CRITIQUE : Chaque texte est analysé SEUL, sans référence aux autres.
+Si un texte est une version codée/inversée/encodée d'un autre, il n'a PAS de coordonnées directement lisibles.
+
 Pour chaque texte :
-- Score de lisibilité (0.0 à 1.0).
-- Détecte toute coordonnée GPS (en chiffres OU en toutes lettres, même dispersée dans le texte).
-- Si tu vois "nord/sud/est/ouest" suivi de nombres (lettres ou chiffres), c'est une coordonnée : convertis-la en DDM.
+- Score de lisibilité (0.0 à 1.0) basé UNIQUEMENT sur ce texte spécifique.
+- Détecte toute coordonnée GPS présente DANS CE TEXTE SEUL (en chiffres OU en toutes lettres).
+- Si tu vois "nord/sud/est/ouest" suivi de nombres (lettres ou chiffres) DANS CE TEXTE, convertis en DDM.
+- Si le texte est illisible, inversé, ou encodé → pas de coordonnées ("exist": false).
 
 {texts_block}
 """
@@ -250,7 +258,15 @@ def _parse_ai_response(raw: str, count: int) -> List[Dict[str, Any]]:
         logger.warning("[ai_scorer] Réponse IA non parseable : %s", raw[:200])
         return [_build_fallback_item(i, "", "réponse non parseable") for i in range(count)]
 
+    # Debug: log chaque item pour diagnostic
     ai_results = parsed["results"]
+    for r in ai_results:
+        if isinstance(r, dict):
+            idx = r.get("index", "?")
+            coords = r.get("coordinates", {})
+            expl = r.get("explanation", "")[:50]
+            logger.debug("[ai_scorer] Item[%s] exist=%s expl=%s", idx, coords.get("exist") if isinstance(coords, dict) else "N/A", expl)
+
     normalized: List[Dict[str, Any]] = []
 
     for i in range(count):
@@ -416,7 +432,13 @@ def ai_score_results(
             item_metadata.setdefault("scoring", {})["score"] = ai_confidence
 
             # Mise à jour des coordonnées si l'IA en a trouvé
-            if ai_coords.get("exist"):
+            # SEULEMENT si le texte est lisible ET que l'IA a une confiance élevée dans les coordonnées
+            ai_readable = ai_item.get("readable", False)
+            ai_text_confidence = ai_item.get("confidence", 0.0)
+            ai_coord_confidence = ai_coords.get("confidence", 0.0) if isinstance(ai_coords, dict) else 0.0
+
+            # Ne pas accepter les coordonnées si le texte n'est pas lisible ou si la confiance est faible
+            if ai_coords.get("exist") and ai_readable and ai_text_confidence >= 0.7 and ai_coord_confidence >= 0.7:
                 # On garde aussi le format compatible "coordinates" existant
                 existing_coords = item.get("coordinates") or {}
                 if isinstance(existing_coords, dict) and not existing_coords.get("exist"):
@@ -426,6 +448,9 @@ def ai_score_results(
                     item["coordinates"] = ai_coords
                 # Sinon on enrichit avec ai_coordinates pour ne pas écraser les coords algo
                 item_metadata["ai_coordinates"] = ai_coords
+            elif ai_coords.get("exist") and not ai_readable:
+                # L'IA dit qu'il y a des coordonnées mais le texte n'est pas lisible → ignorer
+                logger.debug("[ai_scorer] Ignoring coordinates for index %s: text not readable", global_idx)
 
     return enriched
 
