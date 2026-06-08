@@ -1,0 +1,90 @@
+{
+  "name": "text_reversal",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Inverse les lettres d'un texte : par mot en conservant l'ordre des mots, ou sur tout le texte complet.",
+  "author": "MysterAI Team",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": ["Transposition", "Text", "Geocaching"],
+  "kinds": ["code", "text"],
+  "brute_force": false,
+  "enable_scoring": true,
+  "accept_accents": true,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "text": {
+      "type": "textarea",
+      "label": "Texte a inverser",
+      "placeholder": "Ex: tnennerp ou ruojnoB ednom",
+      "required": true,
+      "description": "Saisir un mot, une phrase ou un texte complet. L'operation est reversible."
+    },
+    "mode": {
+      "type": "select",
+      "label": "Action",
+      "options": ["decode", "encode", "detect"],
+      "default": "decode",
+      "required": true,
+      "description": "decode et encode appliquent la meme inversion, car l'operation est symetrique."
+    },
+    "reversal_scope": {
+      "type": "select",
+      "label": "Type d'inversion",
+      "options": ["words", "words_with_punctuation", "full"],
+      "default": "words",
+      "description": "words inverse seulement les lettres de chaque mot. full inverse toute la chaine. words_with_punctuation inverse chaque bloc separe par espace."
+    },
+    "preserve_punctuation": {
+      "type": "boolean",
+      "label": "Conserver la ponctuation en bord de mot",
+      "default": true,
+      "description": "Utilise avec words_with_punctuation: garde !, ?, virgules, etc. a leur place autour du mot."
+    },
+    "enable_scoring": {
+      "type": "boolean",
+      "label": "Scoring (legacy)",
+      "default": true,
+      "hidden": true
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Resultat"
+    }
+  },
+  "text_handling": {
+    "fields": ["text"],
+    "allowed_ranges": ["0009-000D", "0020-007E", "00A0-00FF"],
+    "allowed_characters": "",
+    "unknown_char_policy": "warn_keep",
+    "normalize": {
+      "remove_diacritics": false,
+      "case": "preserve",
+      "map_characters": {}
+    }
+  },
+  "metasolver": {
+    "eligible": true,
+    "input_charset": "mixed",
+    "tags": ["frequent", "transposition", "no_key"],
+    "priority": 72,
+    "family": "text_reversal",
+    "preferred_when": ["letters_only", "words"],
+    "supports_grouped_input": true
+  }
+}
