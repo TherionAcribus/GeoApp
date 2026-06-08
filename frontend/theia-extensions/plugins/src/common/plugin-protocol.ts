@@ -824,6 +824,7 @@ export interface PluginsService {
         model?: string;
         api_key?: string;
         timeout_sec?: number;
+        signal?: AbortSignal;
     }): Promise<{
         status: string;
         items: PluginResultItem[];

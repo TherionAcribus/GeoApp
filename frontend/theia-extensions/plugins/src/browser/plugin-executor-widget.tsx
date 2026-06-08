@@ -137,6 +137,13 @@ export interface CoordsDetectionProgress {
     phase: 'running' | 'done';
 }
 
+export interface AIScoringProgress {
+    isScoring: boolean;
+    itemsCount: number;
+    processedCount: number;
+    message?: string;
+}
+
 /**
  * État du composant d'exécution
  */
@@ -167,7 +174,49 @@ interface ExecutorState {
 
     // Détection de coordonnées post-exécution
     coordsDetectionProgress: CoordsDetectionProgress | null;
+
+    // Scoring IA via LLM
+    aiScoringProgress: AIScoringProgress | null;
 }
+
+/**
+ * Composant de spinner anime pour le scoring IA
+ * Utilise React state pour animer la rotation (compatible Theia)
+ */
+const AIScoringSpinner: React.FC = () => {
+    const [rotation, setRotation] = React.useState(0);
+
+    React.useEffect(() => {
+        let animationFrameId: number;
+        let startTime: number | null = null;
+
+        const animate = (timestamp: number) => {
+            if (!startTime) startTime = timestamp;
+            const elapsed = timestamp - startTime;
+            // 360 degres en 1000ms = 1 tour par seconde
+            const newRotation = (elapsed / 1000) * 360;
+            setRotation(newRotation % 360);
+            animationFrameId = requestAnimationFrame(animate);
+        };
+
+        animationFrameId = requestAnimationFrame(animate);
+
+        return () => {
+            cancelAnimationFrame(animationFrameId);
+        };
+    }, []);
+
+    return (
+        <div style={{
+            width: '20px',
+            height: '20px',
+            border: '2px solid var(--theia-descriptionForeground, #ccc)',
+            borderTop: '2px solid var(--theia-focusBorder, #007fd4)',
+            borderRadius: '50%',
+            transform: 'rotate(' + rotation + 'deg)',
+        }} />
+    );
+};
 
 @injectable()
 export class PluginExecutorWidget extends ReactWidget implements StatefulWidget {
@@ -453,7 +502,8 @@ const PluginExecutorComponent: React.FC<{
             streamingProgress: null,
             streamingVerbosity: 'normal',
             isStreaming: false,
-            coordsDetectionProgress: null
+            coordsDetectionProgress: null,
+            aiScoringProgress: null,
         };
     });
     
@@ -462,6 +512,9 @@ const PluginExecutorComponent: React.FC<{
     const pauseResolverRef = React.useRef<(() => void) | null>(null);
     const isPausedRef = React.useRef(false);
     const [isPaused, setIsPaused] = React.useState(false);
+
+    // Contrôle du scoring IA
+    const aiScoringAbortControllerRef = React.useRef<AbortController | null>(null);
 
     // État pour savoir si on charge le plugin initial (mode PLUGIN uniquement)
     const [isLoadingInitial, setIsLoadingInitial] = React.useState<boolean>(
@@ -499,7 +552,8 @@ const PluginExecutorComponent: React.FC<{
             streamingProgress: null,
             streamingVerbosity: prev.streamingVerbosity,
             isStreaming: false,
-            coordsDetectionProgress: null
+            coordsDetectionProgress: null,
+            aiScoringProgress: null,
         }));
         
         setIsLoadingInitial(config.mode === 'plugin' && !!config.pluginName);
@@ -872,6 +926,7 @@ const PluginExecutorComponent: React.FC<{
     /**
      * Score les résultats d'un plugin via le LLM AI Scorer.
      * Fusionne confidence, metadata.ai_scoring et coordinates dans chaque item.
+     * Supporte l'annulation via AbortController.
      */
     const aiScoreResultItems = async (result: PluginResult, pluginName: string): Promise<void> => {
         if (!result.results || result.results.length === 0) {
@@ -893,15 +948,50 @@ const PluginExecutorComponent: React.FC<{
             return;
         }
         console.log('[AI Scorer] Analyse de', items.length, '/', allCandidates.length, 'résultat(s) (top par confiance) via LLM');
+
+        // Créer un AbortController pour cette session de scoring
+        const abortController = new AbortController();
+        aiScoringAbortControllerRef.current = abortController;
+
+        // Mettre à jour l'état de progression
+        setState(prev => ({
+            ...prev,
+            aiScoringProgress: {
+                isScoring: true,
+                itemsCount: items.length,
+                processedCount: 0,
+                message: `Analyse IA de ${items.length} résultat(s)...`,
+            },
+        }));
+
         try {
             const aiResult = await pluginsService.aiScoreItems({
                 items,
                 plugin_name: pluginName,
                 timeout_sec: 120,
+                signal: abortController.signal,
             });
+
+            if (abortController.signal.aborted) {
+                console.log('[AI Scorer] Scoring annulé par l\'utilisateur');
+                return;
+            }
+
             if (!aiResult || !Array.isArray(aiResult.items)) {
                 return;
             }
+
+            // Mettre à jour la progression
+            setState(prev => ({
+                ...prev,
+                aiScoringProgress: {
+                    isScoring: true,
+                    itemsCount: items.length,
+                    processedCount: aiResult.items.length,
+                    message: 'Fusion des résultats...',
+                },
+            }));
+
             // Fusionner les résultats scorés dans les items originaux (par index)
             aiResult.items.forEach((scored: any, idx: number) => {
                 if (!result.results || !result.results[idx]) { return; }
@@ -918,8 +1008,18 @@ const PluginExecutorComponent: React.FC<{
                 }
             });
             console.log('[AI Scorer] Scoring terminé —', aiResult.provider, '/', aiResult.model);
-        } catch (error) {
-            console.error('[AI Scorer] Erreur:', error);
+        } catch (error: any) {
+            if (error?.name === 'AbortError' || error?.message?.includes('aborted')) {
+                console.log('[AI Scorer] Scoring annulé par l\'utilisateur');
+            } else {
+                console.error('[AI Scorer] Erreur:', error);
+            }
+        } finally {
+            aiScoringAbortControllerRef.current = null;
+            setState(prev => ({
+                ...prev,
+                aiScoringProgress: prev.aiScoringProgress ? { ...prev.aiScoringProgress, isScoring: false } : null,
+            }));
         }
     };
 
@@ -1143,6 +1243,7 @@ const PluginExecutorComponent: React.FC<{
             streamingProgress: null,
             isStreaming: false,
             coordsDetectionProgress: null,
+            aiScoringProgress: null,
         }));
 
         try {
@@ -1367,6 +1468,22 @@ const PluginExecutorComponent: React.FC<{
             isPausedRef.current = true;
             setIsPaused(true);
             console.log('[Plugin Executor] Pause demandée');
+        }
+    };
+
+    /**
+     * Arrête le scoring IA en cours
+     */
+    const handleStopAIScoring = () => {
+        if (aiScoringAbortControllerRef.current) {
+            console.log('[AI Scorer] Arrêt demandé par l\'utilisateur');
+            aiScoringAbortControllerRef.current.abort();
+            setState(prev => ({
+                ...prev,
+                aiScoringProgress: prev.aiScoringProgress
+                    ? { ...prev.aiScoringProgress, isScoring: false, message: 'Analyse IA annulée' }
+                    : null,
+            }));
         }
     };
 
@@ -2121,6 +2238,49 @@ const PluginExecutorComponent: React.FC<{
                     verbosity={state.streamingVerbosity}
                     coordsDetectionProgress={state.coordsDetectionProgress}
                 />
+            )}
+
+            {/* Indicateur de progression du scoring IA */}
+            {state.aiScoringProgress?.isScoring && (
+                <div style={{
+                    margin: '10px 0',
+                    padding: '12px 15px',
+                    background: 'var(--theia-editor-inactiveSelectionBackground, #264f78)',
+                    borderRadius: '6px',
+                    border: '1px solid var(--theia-focusBorder, #007fd4)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '12px',
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
+                        {/* Spinner animation - using inline rotation */}
+                        <AIScoringSpinner />
+                        <div>
+                            <div style={{ fontWeight: 500, fontSize: '14px' }}>
+                                🤖 Scoring IA en cours...
+                            </div>
+                            <div style={{ fontSize: '12px', opacity: 0.8, marginTop: '2px' }}>
+                                {state.aiScoringProgress.message}
+                                {state.aiScoringProgress.itemsCount > 0 && (
+                                    <span> ({state.aiScoringProgress.itemsCount} items)</span>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                    <button
+                        className='theia-button secondary'
+                        onClick={handleStopAIScoring}
+                        title={"Arrêter l'analyse IA"}
+                        style={{
+                            padding: '6px 12px',
+                            fontSize: '12px',
+                            whiteSpace: 'nowrap',
+                        }}
+                    >
+                        Arrêter
+                    </button>
+                </div>
             )}
 
             {/* Affichage des résultats */}

@@ -289,6 +289,7 @@ export class PluginsServiceImpl implements IPluginsService {
         model?: string;
         api_key?: string;
         timeout_sec?: number;
+        signal?: AbortSignal;
     }): Promise<{
         status: string;
         items: any[];
@@ -297,7 +298,9 @@ export class PluginsServiceImpl implements IPluginsService {
         model: string;
     }> {
         // Resoudre provider/model depuis les preferences (le frontend a toujours les vraies valeurs)
-        const payload = { ...request };
+        const payload: any = { ...request };
+        // Ne pas envoyer le signal au backend
+        delete payload.signal;
 
         // 1. Determiner le provider effectif
         let resolvedProvider = payload.provider || '';
@@ -350,6 +353,7 @@ export class PluginsServiceImpl implements IPluginsService {
         try {
             const response = await this.client.post('/api/plugins/ai-score', payload, {
                 timeout: ((request.timeout_sec || 90) + 10) * 1000,
+                signal: request.signal,
             });
             return response.data;
         } catch (error) {
