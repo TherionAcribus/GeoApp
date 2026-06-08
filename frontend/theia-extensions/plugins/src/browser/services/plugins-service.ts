@@ -278,6 +278,35 @@ export class PluginsServiceImpl implements IPluginsService {
     }
     
     /**
+     * Analyse et score des resultats de plugin via le LLM AI Scorer.
+     */
+    async aiScoreItems(request: {
+        items: any[];
+        plugin_name?: string;
+        provider?: string;
+        base_url?: string;
+        model?: string;
+        api_key?: string;
+        timeout_sec?: number;
+    }): Promise<{
+        status: string;
+        items: any[];
+        count: number;
+        provider: string;
+        model: string;
+    }> {
+        try {
+            const response = await this.client.post('/api/plugins/ai-score', request, {
+                timeout: ((request.timeout_sec || 90) + 10) * 1000,
+            });
+            return response.data;
+        } catch (error) {
+            console.error('[PluginsService] Erreur AI scorer:', error);
+            throw new Error(`AI Scorer: ${this.getErrorMessage(error)}`);
+        }
+    }
+
+    /**
      * Détecte les coordonnées GPS dans un texte.
      */
     async detectCoordinates(text: string, options?: {

@@ -67,6 +67,7 @@ export class PluginToolsManager implements FrontendApplicationContribution {
             toolRequests.unshift(this.createWorkflowResolutionTool());
             toolRequests.unshift(this.createListingClassificationTool());
             toolRequests.unshift(this.createMetasolverRecommendationTool());
+            toolRequests.unshift(this.createAiScoreTool());
 
             const registeredTools = [];
             for (const tool of toolRequests) {
@@ -913,6 +914,82 @@ export class PluginToolsManager implements FrontendApplicationContribution {
             2
         );
     }
+
+    protected createAiScoreTool(): ToolRequest {
+        return {
+            id: 'geoapp.plugins.ai.score',
+            name: 'ai_score_plugin_results',
+            description:
+                'Analyse et score une liste de resultats de plugin via un LLM. ' +
+                'Detecte le langage naturel, les mots colles et les coordonnees GPS (numeriques ou en toutes lettres) ' +
+                'dans les textes candidats issus du decodage. ' +
+                'Retourne les items enrichis avec un score de confiance IA (0-1) et les coordonnees detectees.',
+            providerName: PluginToolsManager.PROVIDER_NAME,
+            parameters: {
+                type: 'object',
+                properties: {
+                    items: {
+                        type: 'array',
+                        description: 'Liste de resultats a scorer. Chaque item doit avoir text_output (string).',
+                        items: {
+                            type: 'object',
+                            additionalProperties: true,
+                            properties: {
+                                text_output: { type: 'string', description: 'Texte candidat a analyser.' }
+                            },
+                            required: ['text_output']
+                        }
+                    },
+                    plugin_name: {
+                        type: 'string',
+                        description: 'Nom du plugin source. Ex: "metasolver", "cesar".'
+                    },
+                    provider: {
+                        type: 'string',
+                        description: 'Fournisseur LLM: "lmstudio" ou "openrouter".'
+                    },
+                    model: {
+                        type: 'string',
+                        description: 'Modele LLM. Utilise les preferences si absent.'
+                    }
+                },
+                required: ['items'],
+                additionalProperties: false
+            } as ToolRequestParameters,
+            handler: async (argString: string) => this.handleAiScore(argString)
+        };
+    }
+
+    protected async handleAiScore(argString: string): Promise<any> {
+        const args = this.parseArguments(argString);
+        const items = args.items as any[];
+        if (!Array.isArray(items) || items.length === 0) {
+            return JSON.stringify({ error: 'items (liste non vide) requis.' });
+        }
+        try {
+            const result = await this.pluginsService.aiScoreItems({
+                items,
+                plugin_name: typeof args.plugin_name === 'string' ? args.plugin_name : undefined,
+                provider: typeof args.provider === 'string' ? args.provider : undefined,
+                model: typeof args.model === 'string' ? args.model : undefined,
+            });
+            return JSON.stringify({
+                status: result.status,
+                count: result.count,
+                provider: result.provider,
+                model: result.model,
+                items: result.items.map((item: any) => ({
+                    text_output: item.text_output,
+                    confidence: item.confidence,
+                    ai_scoring: item.metadata?.ai_scoring,
+                    coordinates: item.coordinates,
+                })),
+            }, null, 2);
+        } catch (error) {
+            return JSON.stringify({ error: String(error) });
+        }
+    }
+
 
     /**
      * Vérifie le statut des tools IA enregistrés.

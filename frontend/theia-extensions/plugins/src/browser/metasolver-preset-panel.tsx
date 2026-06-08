@@ -834,6 +834,8 @@ export const MetasolverPresetPanel: React.FC<{
     detectCoordinates: boolean;
     detectWrittenCoordinates: boolean;
     writtenCoordinatesLanguage: string;
+    enableScoring: boolean;
+    enableAiScoring: boolean;
     streamingVerbosity: 'minimal' | 'normal' | 'detailed';
     keys?: unknown;
     geocacheContext?: GeocacheContext;
@@ -855,6 +857,8 @@ export const MetasolverPresetPanel: React.FC<{
     detectCoordinates,
     detectWrittenCoordinates,
     writtenCoordinatesLanguage,
+    enableScoring,
+    enableAiScoring,
     streamingVerbosity,
     keys,
     geocacheContext,
@@ -2011,28 +2015,53 @@ export const MetasolverPresetPanel: React.FC<{
                             style={{ width: '100%', boxSizing: 'border-box' }}
                         />
                     </label>
-                    <label
-                        style={{
-                            display: 'flex',
-                            gap: '6px',
-                            alignItems: 'center',
-                            fontSize: '12px',
-                            marginBottom: '4px',
-                            minHeight: '24px',
-                            whiteSpace: 'nowrap',
-                            minWidth: 0
-                        }}
-                        title='Chercher des coordonnees GPS dans les resultats produits par les plugins'
+                    <label style={{ display: 'grid', gap: '3px', fontSize: '11px', minWidth: 0 }}
+                        title="Mode d'analyse des reponses des plugins"
                     >
-                        <input
-                            type='checkbox'
-                            checked={detectCoordinates}
-                            onChange={event => onSettingChange('detect_coordinates', event.target.checked)}
+                        Analyse
+                        <select
+                            className='theia-select'
+                            value={enableAiScoring ? 'ai' : enableScoring ? 'algo' : 'none'}
+                            onChange={event => {
+                                const v = event.target.value;
+                                onSettingChange('enable_scoring', v === 'algo');
+                                onSettingChange('enable_ai_scoring', v === 'ai');
+                                if (v === 'ai') {
+                                    onSettingChange('detect_coordinates', false);
+                                }
+                            }}
                             disabled={disabled}
-                        />
-                        Detecter coordonnees GPS
+                            style={{ width: '100%' }}
+                        >
+                            <option value='none'>Aucune</option>
+                            <option value='algo'>Par algo</option>
+                            <option value='ai'>Par IA</option>
+                        </select>
                     </label>
-                    {detectCoordinates ? (
+                    {!enableAiScoring ? (
+                        <label
+                            style={{
+                                display: 'flex',
+                                gap: '6px',
+                                alignItems: 'center',
+                                fontSize: '12px',
+                                marginBottom: '4px',
+                                minHeight: '24px',
+                                whiteSpace: 'nowrap',
+                                minWidth: 0
+                            }}
+                            title='Chercher des coordonnees GPS dans les resultats produits par les plugins'
+                        >
+                            <input
+                                type='checkbox'
+                                checked={detectCoordinates}
+                                onChange={event => onSettingChange('detect_coordinates', event.target.checked)}
+                                disabled={disabled}
+                            />
+                            Detecter coords GPS
+                        </label>
+                    ) : null}
+                    {!enableAiScoring && detectCoordinates ? (
                         <label
                             style={{
                                 display: 'flex',
@@ -2052,10 +2081,10 @@ export const MetasolverPresetPanel: React.FC<{
                                 onChange={event => onSettingChange('detect_written_coordinates', event.target.checked)}
                                 disabled={disabled}
                             />
-                            Inclure coordonnees ecrites
+                            Inclure mots
                         </label>
                     ) : null}
-                    {detectCoordinates && detectWrittenCoordinates ? (
+                    {!enableAiScoring && detectCoordinates && detectWrittenCoordinates ? (
                         <label style={{ display: 'grid', gap: '3px', fontSize: '11px', minWidth: 0 }}>
                             Langue mots
                             <select

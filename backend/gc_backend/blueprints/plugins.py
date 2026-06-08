@@ -6080,6 +6080,90 @@ def score_text_endpoint():
         }), 500
 
 
+
+# =============================================================================
+# Route AI Scorer
+# =============================================================================
+
+@bp.route('/ai-score', methods=['POST'])
+def ai_score_endpoint():
+    """Analyse et score des resultats de plugin via un LLM OpenAI-compatible.
+
+    Body JSON: {items: [{text_output: str, ...}, ...], plugin_name, provider,
+    base_url, model, api_key, timeout_sec}
+    """
+    try:
+        data = request.get_json(force=True)
+    except Exception as exc:
+        return jsonify({'error': 'JSON invalide', 'message': str(exc)}), 400
+
+    if not data or not isinstance(data, dict):
+        return jsonify({'error': 'Requete invalide', 'message': 'Body JSON attendu'}), 400
+
+    items = data.get('items')
+    if not isinstance(items, list) or not items:
+        return jsonify({'error': 'Requete invalide', 'message': "Le champ 'items' (liste) est requis"}), 400
+
+    for i, item in enumerate(items):
+        if not isinstance(item, dict):
+            return jsonify({'error': 'Requete invalide', 'message': f'items[{i}] doit etre un objet'}), 400
+        if not isinstance(item.get('text_output'), str):
+            return jsonify({'error': 'Requete invalide', 'message': f'items[{i}].text_output (string) requis'}), 400
+
+    plugin_name = str(data.get('plugin_name') or 'unknown')
+    timeout_sec = int(data.get('timeout_sec') or 90)
+
+    try:
+        from ..utils.preferences import get_value_or_default
+        pref_provider = get_value_or_default('geoApp.ocr.visionProvider', 'lmstudio')
+        if pref_provider == 'openrouter':
+            pref_base_url = get_value_or_default('geoApp.ai.openRouter.baseUrl', 'https://openrouter.ai/api/v1')
+            pref_model = get_value_or_default('geoApp.ai.openRouter.model.fast', 'openai/gpt-4o-mini')
+            pref_api_key = get_value_or_default('geoApp.ai.openRouter.apiKey', '')
+        else:
+            pref_base_url = 'http://localhost:1234'
+            pref_model = ''
+            pref_api_key = ''
+    except Exception:
+        pref_provider = 'lmstudio'
+        pref_base_url = 'http://localhost:1234'
+        pref_model = ''
+        pref_api_key = ''
+
+    provider = str(data.get('provider') or pref_provider)
+    base_url = str(data.get('base_url') or pref_base_url)
+    model = str(data.get('model') or pref_model or '')
+    api_key = str(data.get('api_key') or pref_api_key or '')
+
+    if not model:
+        return jsonify({
+            'error': 'Modele manquant',
+            'message': "Fournissez 'model' dans le body ou configurez les preferences IA.",
+        }), 400
+
+    try:
+        from ..services.ai_scorer_service import ai_score_results
+        enriched = ai_score_results(
+            items,
+            base_url=base_url,
+            model=model,
+            api_key=api_key if api_key else None,
+            provider=provider,
+            plugin_name=plugin_name,
+            timeout_sec=timeout_sec,
+        )
+        return jsonify({
+            'status': 'ok',
+            'items': enriched,
+            'count': len(enriched),
+            'provider': provider,
+            'model': model,
+        }), 200
+    except Exception as exc:
+        logger.error('Erreur ai-score: %s', exc, exc_info=True)
+        return jsonify({'error': 'Erreur AI scorer', 'message': str(exc)}), 500
+
+
 # =============================================================================
 # Routes de listage et informations
 # =============================================================================
@@ -6739,6 +6823,28 @@ def execute_plugin(plugin_name: str):
                         result['results'] = items
         except Exception as e:
             logger.warning(f"Scoring integration error for {plugin_name}: {e}")
+
+        # Scoring IA (enable_ai_scoring) - optionnel, ne bloque jamais
+        try:
+            enable_ai_scoring = bool(inputs.get('enable_ai_scoring', False))
+            if enable_ai_scoring and isinstance(result, dict) and isinstance(result.get('results'), list):
+                ai_items = [item for item in result['results'] if isinstance(item, dict) and item.get('text_output')]
+                if ai_items:
+                    from gc_backend.services.ai_scorer_service import AIScorer
+                    scorer = AIScorer()
+                    scored = scorer.ai_score_results(ai_items, plugin_name=plugin_name)
+                    if scored:
+                        # Fusionner les items scores dans leur position d'origine
+                        ai_idx = 0
+                        for item in result['results']:
+                            if isinstance(item, dict) and item.get('text_output') and ai_idx < len(scored):
+                                for key in ('confidence', 'metadata', 'coordinates'):
+                                    if key in scored[ai_idx]:
+                                        item[key] = scored[ai_idx][key]
+                                ai_idx += 1
+                        logger.info(f"[AI Scorer] {len(scored)} items scores pour {plugin_name}")
+        except Exception as ai_exc:
+            logger.warning(f"AI Scoring integration error for {plugin_name}: {ai_exc}")
          
         # Tracking : si le plugin s'exécute avec succès sur une géocache, enregistrer dans l'archive
         try:

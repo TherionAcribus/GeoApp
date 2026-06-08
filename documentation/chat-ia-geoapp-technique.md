@@ -98,6 +98,51 @@ Agents disponibles :
 
 Chaque agent partage la même base technique via `BaseGeoAppChatAgent`.
 
+### Agents internes spécialisés (non-chat)
+
+Ces agents ne participent pas au Chat IA : ils permettent uniquement d'assigner un modèle LLM dédié à une tâche spécifique via les réglages Theia.
+
+| Agent | ID | Fichier | Usage |
+|---|---|---|---|
+| GeoApp OCR | `geoapp-ocr` | `geoapp-ocr-agent.ts` | OCR vision Cloud (galerie d'images). |
+| GeoApp Traduction | `geoapp-translate-description` | `geoapp-translate-description-agent.ts` | Traduction HTML des descriptions de géocaches. |
+| GeoApp Logs Analyzer | `geoapp-logs-analyzer` | `geoapp-logs-analyzer-agent.ts` | Analyse des logs de géocaches. |
+| GeoApp Log Writer | `geoapp-log-writer` | `geoapp-log-writer-agent.ts` | Rédaction de logs de géocaches. |
+| GeoApp AI Scorer | `geoapp-ai-scorer` | `geoapp-ai-scorer-agent.ts` | Scoring IA des résultats de plugins. |
+
+### AI Scorer - Architecture
+
+L'**AI Scorer** (`geoapp-ai-scorer`) est un agent interne qui permet d'assigner un modèle LLM dédié au scoring des résultats de plugins.
+
+**Problème résolu :** Le scoring algorithmique (scorer.py) peut échouer sur des textes inhabituels : mots collés, langues rares, coordonnées en toutes lettres. L'IA détecte ces cas là où les quadgrammes et les regex échouent.
+
+**Flux :**
+
+```
+PluginResultDisplay (bouton Analyser avec IA)
+  -> PluginsService.aiScoreItems()
+  -> POST /api/plugins/ai-score
+  -> ai_scorer_service.py (prompt + LLM + parsing JSON)
+  -> LLM assigné a geoapp-ai-scorer
+```
+
+**Sortie :** identique au scoring algorithmique - `confidence` (0-1), `metadata.ai_scoring`, `coordinates` si détectées.
+
+**Tool Chat :** `geoapp.plugins.ai.score` (nom: `ai_score_plugin_results`) - permet au Chat IA de déclencher l'analyse sur une liste de résultats.
+
+**Fichiers :**
+
+| Fichier | Rôle |
+|---|---|
+| `backend/gc_backend/services/ai_scorer_service.py` | Service Python : prompt, appel LLM, parsing. |
+| `backend/gc_backend/blueprints/plugins.py` | Endpoint `POST /api/plugins/ai-score`. |
+| `frontend/.../geoapp-ai-scorer-agent.ts` | Déclaration agent Theia. |
+| `frontend/.../plugin-tools-manager.ts` | Tool `ai_score_plugin_results` + handler. |
+| `frontend/.../plugins-service.ts` | Méthode `aiScoreItems()`. |
+| `frontend/.../plugin-result-display.tsx` | Bouton Analyser avec IA dans le panneau. |
+| `frontend/.../geoapp-chat-tool-catalog.ts` | Entrée catalogue `geoapp.plugins.ai.score`. |
+| `frontend/.../zones-frontend-module.ts` | Binding Inversify. |
+
 ### Enregistrement dans Theia
 
 `GeoAppChatAgentContribution.onStart()` :
@@ -312,6 +357,7 @@ Les principaux tools déclarés statiquement :
 | `formula-solver.search-answer` | `web` | `network` |
 | `formula-solver.calculate-value` | `formula` | `read_only` |
 | `formula-solver.calculate-coordinates` | `formula` | `read_only` |
+| `geoapp.plugins.ai.score` | `plugins` | `network` |
 
 ### Plugins dynamiques
 

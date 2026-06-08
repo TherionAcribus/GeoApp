@@ -40,6 +40,8 @@ export const PluginResultDisplay: React.FC<{
     const [verifyingCoordinates, setVerifyingCoordinates] = React.useState<Record<string, boolean>>({});
     const [detectingCoordinates, setDetectingCoordinates] = React.useState<Record<string, boolean>>({});
     const [manualDetectedCoordinates, setManualDetectedCoordinates] = React.useState<Record<string, { latitude?: string; longitude?: string; formatted?: string }>>({});
+    const [analyzingWithAi, setAnalyzingWithAi] = React.useState<Record<string, boolean>>({});
+    const [aiScoredItems, setAiScoredItems] = React.useState<Record<string, any>>({});
     const dispatchedCoordinatesRef = React.useRef<Set<string>>(new Set());
 
     // Vérifications de sécurité
@@ -505,6 +507,52 @@ export const PluginResultDisplay: React.FC<{
                                                     style={{ position: 'absolute', top: '5px', right: '45px', padding: '4px 8px' }}
                                                 >
                                                     {detectingCoordinates[itemKey] ? '⏳' : '📍'}
+                                                </button>
+                                                <button
+                                                    className='theia-button secondary'
+                                                    onClick={async () => {
+                                                        const text = item.text_output ? String(item.text_output) : '';
+                                                        if (!text.trim()) { return; }
+                                                        setAnalyzingWithAi(prev => ({ ...prev, [itemKey]: true }));
+                                                        try {
+                                                            const aiResult = await pluginsService.aiScoreItems({
+                                                                items: [{ ...item }],
+                                                                plugin_name: pluginName || 'unknown',
+                                                            });
+                                                            if (aiResult && aiResult.items && aiResult.items.length > 0) {
+                                                                const scored = aiResult.items[0];
+                                                                setAiScoredItems(prev => ({ ...prev, [itemKey]: scored }));
+                                                                // Mettre a jour les coords si l'IA en a trouve
+                                                                const aiCoords = scored.coordinates;
+                                                                if (aiCoords && aiCoords.exist && (aiCoords.ddm_lat || aiCoords.decimal_latitude)) {
+                                                                    setManualDetectedCoordinates(prev => ({
+                                                                        ...prev,
+                                                                        [itemKey]: {
+                                                                            latitude: aiCoords.ddm_lat || String(aiCoords.decimal_latitude || ''),
+                                                                            longitude: aiCoords.ddm_lon || String(aiCoords.decimal_longitude || ''),
+                                                                            formatted: aiCoords.ddm || '',
+                                                                        }
+                                                                    }));
+                                                                    messageService.info('IA: coordonnees detectees dans le resultat.');
+                                                                } else {
+                                                                    const aiInfo = scored.metadata?.ai_scoring;
+                                                                    const msg = aiInfo
+                                                                        ? `IA: score ${Math.round((scored.confidence || 0) * 100)}% - ${aiInfo.explanation || 'analyse terminee'}`
+                                                                        : 'IA: analyse terminee.';
+                                                                    messageService.info(msg);
+                                                                }
+                                                            }
+                                                        } catch (e) {
+                                                            messageService.error(`Erreur AI scorer: ${String(e)}`);
+                                                        } finally {
+                                                            setAnalyzingWithAi(prev => ({ ...prev, [itemKey]: false }));
+                                                        }
+                                                    }}
+                                                    title='Analyser avec IA (scoring + coordonnees)'
+                                                    disabled={!!analyzingWithAi[itemKey]}
+                                                    style={{ position: 'absolute', top: '5px', right: '88px', padding: '4px 8px' }}
+                                                >
+                                                    {analyzingWithAi[itemKey] ? '⏳' : '🤖'}
                                                 </button>
                                                 <button
                                                     className='theia-button secondary'

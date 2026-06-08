@@ -651,11 +651,21 @@ export interface PluginResultItem {
     /** Texte résultat */
     text_output?: string;
     
-    /** Coordonnées résultats */
+    /** Coordonnées résultats (format algo ou format AI scorer) */
     coordinates?: {
-        latitude: number | string;
-        longitude: number | string;
+        /** Format algo */
+        latitude?: number | string;
+        longitude?: number | string;
         formatted?: string;
+        /** Format AI scorer */
+        exist?: boolean;
+        ddm_lat?: string;
+        ddm_lon?: string;
+        ddm?: string;
+        decimal_latitude?: number;
+        decimal_longitude?: number;
+        confidence?: number;
+        source?: string;
     };
     
     /** Score de confiance (0-1) */
@@ -802,6 +812,26 @@ export interface PluginsService {
     resolveWorkflow(request: ResolutionWorkflowRequest): Promise<ResolutionWorkflowResponse>;
     runWorkflowStep(request: ResolutionWorkflowStepRunRequest): Promise<ResolutionWorkflowStepRunResponse>;
     
+    /**
+     * Analyse et score des resultats de plugin via un LLM (AI scorer).
+     * Retourne les items enrichis avec confidence, metadata.ai_scoring et coordinates.
+     */
+    aiScoreItems(request: {
+        items: PluginResultItem[];
+        plugin_name?: string;
+        provider?: string;
+        base_url?: string;
+        model?: string;
+        api_key?: string;
+        timeout_sec?: number;
+    }): Promise<{
+        status: string;
+        items: PluginResultItem[];
+        count: number;
+        provider: string;
+        model: string;
+    }>;
+
     /**
      * Détecte les coordonnées GPS dans un texte.
      */

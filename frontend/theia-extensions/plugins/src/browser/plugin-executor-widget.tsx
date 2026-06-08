@@ -869,6 +869,45 @@ const PluginExecutorComponent: React.FC<{
         }));
     };
 
+    /**
+     * Score les résultats d'un plugin via le LLM AI Scorer.
+     * Fusionne confidence, metadata.ai_scoring et coordinates dans chaque item.
+     */
+    const aiScoreResultItems = async (result: PluginResult, pluginName: string): Promise<void> => {
+        if (!result.results || result.results.length === 0) {
+            return;
+        }
+        const items = result.results.filter(item => typeof item.text_output === 'string' && item.text_output.trim());
+        if (items.length === 0) {
+            return;
+        }
+        console.log('[AI Scorer] Analyse de', items.length, 'résultat(s) via LLM');
+        try {
+            const aiResult = await pluginsService.aiScoreItems({ items, plugin_name: pluginName });
+            if (!aiResult || !Array.isArray(aiResult.items)) {
+                return;
+            }
+            // Fusionner les résultats scorés dans les items originaux (par index)
+            aiResult.items.forEach((scored: any, idx: number) => {
+                if (!result.results || !result.results[idx]) { return; }
+                const target = result.results[idx];
+                if (typeof scored.confidence === 'number') {
+                    target.confidence = scored.confidence;
+                }
+                if (scored.metadata?.ai_scoring) {
+                    if (!target.metadata) { target.metadata = {}; }
+                    (target.metadata as any).ai_scoring = scored.metadata.ai_scoring;
+                }
+                if (scored.coordinates?.exist) {
+                    target.coordinates = scored.coordinates;
+                }
+            });
+            console.log('[AI Scorer] Scoring terminé —', aiResult.provider, '/', aiResult.model);
+        } catch (error) {
+            console.error('[AI Scorer] Erreur:', error);
+        }
+    };
+
     const normalizeInputsForPlugin = (inputs: Record<string, any>, details: PluginDetails): { normalizedInputs: Record<string, any>; warnings: string[] } => {
         const textHandling = (details.metadata as any)?.text_handling;
         if (!textHandling) {
@@ -1197,6 +1236,10 @@ const PluginExecutorComponent: React.FC<{
                     if (state.formInputs.detect_coordinates && finalResult.results) {
                         await detectCoordinatesInResults(finalResult, abortController.signal);
                     }
+                    // Scoring IA si l'option est activée
+                    if (state.formInputs.enable_ai_scoring && finalResult.results) {
+                        await aiScoreResultItems(finalResult, state.selectedPlugin || 'metasolver');
+                    }
                     if (abortController.signal.aborted) {
                         setState(prev => ({
                             ...prev,
@@ -1235,6 +1278,10 @@ const PluginExecutorComponent: React.FC<{
                 if (state.formInputs.detect_coordinates && result.results) {
                     console.log('[Coordinates Detection] Détection activée, analyse des résultats...');
                     await detectCoordinatesInResults(result, abortController.signal);
+                }
+                // Scoring IA si l'option est activée
+                if (state.formInputs.enable_ai_scoring && result.results) {
+                    await aiScoreResultItems(result, state.selectedPlugin || 'unknown');
                 }
                 
                 if (abortController.signal.aborted) {
@@ -1831,6 +1878,8 @@ const PluginExecutorComponent: React.FC<{
                     detectCoordinates={state.formInputs.detect_coordinates !== false}
                     detectWrittenCoordinates={state.formInputs.detect_written_coordinates === true}
                     writtenCoordinatesLanguage={String(state.formInputs.written_coordinates_language || 'auto')}
+                    enableScoring={state.formInputs.enable_scoring !== false}
+                    enableAiScoring={state.formInputs.enable_ai_scoring === true}
                     streamingVerbosity={state.streamingVerbosity}
                     keys={state.formInputs.metasolver_keys}
                     geocacheContext={config?.geocacheContext}

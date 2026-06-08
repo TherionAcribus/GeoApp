@@ -197,6 +197,14 @@ const STATIC_TOOL_METADATA: Record<string, Omit<GeoAppAiToolMetadata, 'publicNam
         workflowKinds: ['general', 'secret_code', 'formula', 'checker', 'hidden_content', 'image_puzzle'],
         defaultEnabled: true,
     },
+    'geoapp.plugins.ai.score': {
+        registryId: 'geoapp.plugins.ai.score',
+        category: 'plugins',
+        risk: 'network',
+        workflowKinds: ['general', 'secret_code', 'formula', 'hidden_content'],
+        network: true,
+        defaultEnabled: false,
+    },
 };
 
 @injectable()
