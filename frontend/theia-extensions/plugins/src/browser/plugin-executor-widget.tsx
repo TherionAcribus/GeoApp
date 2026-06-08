@@ -1896,11 +1896,11 @@ const PluginExecutorComponent: React.FC<{
                 />
             )}
             
-            {/* Options avancées : Brute-force et Scoring */}
-            {state.pluginDetails && state.selectedPlugin !== 'metasolver' && (state.pluginDetails.metadata?.brute_force || state.pluginDetails.metadata?.enable_scoring) && (
+            {/* Options avancées : Brute-force, Analyse, Coordonnées */}
+            {state.pluginDetails && state.selectedPlugin !== 'metasolver' && (
                 <div className='plugin-form'>
                     <h4>🔧 Options avancées</h4>
-                    
+
                     {/* Option Brute-force */}
                     {state.pluginDetails.metadata?.brute_force && (
                         <div className='form-field' style={{ marginBottom: '10px' }}>
@@ -1919,76 +1919,95 @@ const PluginExecutorComponent: React.FC<{
                             </div>
                         </div>
                     )}
-                    
-                    {/* Option Scoring */}
-                    {state.pluginDetails.metadata?.enable_scoring && (
-                        <div className='form-field'>
-                            <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
-                                <input
-                                    type='checkbox'
-                                    checked={state.formInputs.enable_scoring !== false}
-                                    onChange={(e) => handleInputChange('enable_scoring', e.target.checked)}
-                                    disabled={state.isExecuting}
-                                    style={{ marginRight: '8px' }}
-                                />
-                                <span>🎯 Activer le scoring automatique</span>
-                            </label>
-                            <div className='field-description' style={{ marginLeft: '24px', fontSize: '12px', opacity: 0.7 }}>
-                                Évalue et classe les résultats par pertinence
-                            </div>
-                        </div>
-                    )}
-                    
-                    {/* Option Détection de coordonnées */}
-                    <div className='form-field' style={{ marginTop: '10px' }}>
-                        <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
-                            <input
-                                type='checkbox'
-                                checked={state.formInputs.detect_coordinates || false}
-                                onChange={(e) => handleInputChange('detect_coordinates', e.target.checked)}
+
+                    {/* Select Analyse */}
+                    <div className='form-field' style={{ marginBottom: '10px' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                            <span>🔍 Analyse des réponses</span>
+                            <select
+                                value={state.formInputs.enable_ai_scoring ? 'ai' : (state.formInputs.enable_scoring !== false && state.pluginDetails.metadata?.enable_scoring) ? 'algo' : 'none'}
+                                onChange={(e) => {
+                                    const v = e.target.value;
+                                    handleInputChange('enable_scoring', v === 'algo');
+                                    handleInputChange('enable_ai_scoring', v === 'ai');
+                                    if (v === 'ai') {
+                                        handleInputChange('detect_coordinates', false);
+                                    }
+                                }}
                                 disabled={state.isExecuting}
-                                style={{ marginRight: '8px' }}
-                            />
-                            <span>📍 Détecter les coordonnées GPS</span>
-                        </label>
-                        <div className='field-description' style={{ marginLeft: '24px', fontSize: '12px', opacity: 0.7 }}>
-                            Recherche automatique de coordonnées dans les résultats (peut ralentir l'affichage)
-                        </div>
-
-                        {state.formInputs.detect_coordinates && (
-                            <div style={{ marginLeft: '24px', marginTop: '8px' }}>
-                                <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
-                                    <input
-                                        type='checkbox'
-                                        checked={state.formInputs.detect_written_coordinates || false}
-                                        onChange={(e) => handleInputChange('detect_written_coordinates', e.target.checked)}
-                                        disabled={state.isExecuting}
-                                        style={{ marginRight: '8px' }}
-                                    />
-                                    <span>📝 Inclure coordonnées écrites (mots)</span>
-                                </label>
-
-                                {state.formInputs.detect_written_coordinates && (
-                                    <div style={{ marginTop: '6px' }}>
-                                        <label style={{ fontSize: '12px', opacity: 0.8, display: 'block', marginBottom: '4px' }}>
-                                            Langue (simple)
-                                        </label>
-                                        <select
-                                            value={String(state.formInputs.written_coordinates_language || 'auto')}
-                                            onChange={(e) => handleInputChange('written_coordinates_language', e.target.value)}
-                                            disabled={state.isExecuting}
-                                            style={{ width: '220px' }}
-                                        >
-                                            <option value='auto'>Auto</option>
-                                            <option value='fr'>FR</option>
-                                            <option value='en'>EN</option>
-                                            <option value='fr,en'>FR + EN</option>
-                                        </select>
-                                    </div>
+                                style={{ marginLeft: '4px' }}
+                            >
+                                <option value='none'>Aucune</option>
+                                {state.pluginDetails.metadata?.enable_scoring && (
+                                    <option value='algo'>Par algo</option>
                                 )}
+                                <option value='ai'>Par IA</option>
+                            </select>
+                        </label>
+                        {state.formInputs.enable_ai_scoring && (
+                            <div className='field-description' style={{ marginLeft: '24px', fontSize: '12px', opacity: 0.7 }}>
+                                Le LLM analyse les résultats, score leur pertinence et détecte les coordonnées (y compris en toutes lettres)
+                            </div>
+                        )}
+                        {!state.formInputs.enable_ai_scoring && state.formInputs.enable_scoring && state.pluginDetails.metadata?.enable_scoring && (
+                            <div className='field-description' style={{ marginLeft: '24px', fontSize: '12px', opacity: 0.7 }}>
+                                Évalue et classe les résultats par pertinence (scoring algorithmique)
                             </div>
                         )}
                     </div>
+
+                    {/* Option Détection de coordonnées — masquée si mode IA actif */}
+                    {!state.formInputs.enable_ai_scoring && (
+                        <div className='form-field' style={{ marginTop: '4px' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+                                <input
+                                    type='checkbox'
+                                    checked={state.formInputs.detect_coordinates || false}
+                                    onChange={(e) => handleInputChange('detect_coordinates', e.target.checked)}
+                                    disabled={state.isExecuting}
+                                    style={{ marginRight: '8px' }}
+                                />
+                                <span>📍 Détecter les coordonnées GPS</span>
+                            </label>
+                            <div className='field-description' style={{ marginLeft: '24px', fontSize: '12px', opacity: 0.7 }}>
+                                Recherche automatique de coordonnées dans les résultats (peut ralentir l'affichage)
+                            </div>
+
+                            {state.formInputs.detect_coordinates && (
+                                <div style={{ marginLeft: '24px', marginTop: '8px' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+                                        <input
+                                            type='checkbox'
+                                            checked={state.formInputs.detect_written_coordinates || false}
+                                            onChange={(e) => handleInputChange('detect_written_coordinates', e.target.checked)}
+                                            disabled={state.isExecuting}
+                                            style={{ marginRight: '8px' }}
+                                        />
+                                        <span>📝 Inclure coordonnées écrites (mots)</span>
+                                    </label>
+
+                                    {state.formInputs.detect_written_coordinates && (
+                                        <div style={{ marginTop: '6px' }}>
+                                            <label style={{ fontSize: '12px', opacity: 0.8, display: 'block', marginBottom: '4px' }}>
+                                                Langue (simple)
+                                            </label>
+                                            <select
+                                                value={String(state.formInputs.written_coordinates_language || 'auto')}
+                                                onChange={(e) => handleInputChange('written_coordinates_language', e.target.value)}
+                                                disabled={state.isExecuting}
+                                                style={{ width: '220px' }}
+                                            >
+                                                <option value='auto'>Auto</option>
+                                                <option value='fr'>FR</option>
+                                                <option value='en'>EN</option>
+                                                <option value='fr,en'>FR + EN</option>
+                                            </select>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
             )}
 
