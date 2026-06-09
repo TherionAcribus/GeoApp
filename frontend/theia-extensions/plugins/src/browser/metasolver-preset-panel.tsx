@@ -103,13 +103,12 @@ const normalizeMetasolverKeys = (rawValue: unknown): MetasolverKeyEntry[] => {
     return [];
 };
 
-const serializeMetasolverKeys = (entries: MetasolverKeyEntry[]): Array<{ field: string; value: string }> =>
-    entries
-        .map(entry => ({
-            field: 'key',
-            value: entry.value,
-        }))
-        .filter(entry => entry.value.trim());
+const serializeMetasolverKeys = (entries: MetasolverKeyEntry[]): Array<{ id: string; field: string; value: string }> =>
+    entries.map(entry => ({
+        id: entry.id,
+        field: 'key',
+        value: entry.value,
+    }));
 
 const buildSignatureBadges = (signature: MetasolverSignature): string[] => {
     const badges: string[] = [
