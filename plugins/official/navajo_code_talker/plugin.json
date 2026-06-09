@@ -1,0 +1,103 @@
+{
+  "name": "navajo_code_talker",
+  "version": "1.0.1",
+  "plugin_api_version": "2.0",
+  "description": "Code Talker Navajo alphabetique : encode/decode les lettres A-Z avec les mots-codes navajos, variantes alphabetiques incluses, sans nomenclature militaire anglaise.",
+  "author": "MysterAI Team",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": ["Substitution", "Historical", "Geocaching"],
+  "kinds": ["code", "text"],
+  "brute_force": false,
+  "enable_scoring": true,
+  "accept_accents": true,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "text": {
+      "type": "textarea",
+      "label": "Texte ou mots-codes navajos",
+      "placeholder": "Decode: Wol-la-chee Shush Moasi | Encode: ABC",
+      "required": true,
+      "description": "Decode accepte les graphies historiques et modernes des mots-codes navajos. Les mots anglais comme Ant/Bear/Cat ne sont pas utilises."
+    },
+    "mode": {
+      "type": "select",
+      "label": "Action",
+      "options": ["decode", "encode", "detect"],
+      "default": "decode",
+      "required": true
+    },
+    "spelling": {
+      "type": "select",
+      "label": "Graphie en encodage",
+      "options": ["historical", "modern"],
+      "default": "historical",
+      "description": "historical produit les formes du code d'origine, ex: Wol-la-chee. modern produit une graphie modernisee sans signes diacritiques complexes."
+    },
+    "keep_word_spaces": {
+      "type": "boolean",
+      "label": "Conserver les espaces entre mots",
+      "default": true,
+      "description": "En encodage, remplace les espaces du texte clair par le separateur choisi."
+    },
+    "word_separator": {
+      "type": "string",
+      "label": "Separateur de mots",
+      "placeholder": "/",
+      "default": "/",
+      "description": "Utilise pour marquer les espaces entre mots en encodage et en decodage."
+    },
+    "strict": {
+      "type": "select",
+      "label": "Mode strict",
+      "options": ["strict", "smooth"],
+      "default": "smooth",
+      "description": "strict renvoie une erreur si un mot-code inconnu est rencontre."
+    },
+    "enable_scoring": {
+      "type": "boolean",
+      "label": "Scoring (legacy)",
+      "default": true,
+      "hidden": true
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Resultat"
+    }
+  },
+  "text_handling": {
+    "fields": ["text"],
+    "allowed_ranges": ["0041-005A", "0061-007A", "00C0-024F"],
+    "allowed_characters": " \t\r\n-/'’ʼ|.,;:_",
+    "unknown_char_policy": "warn_keep",
+    "normalize": {
+      "remove_diacritics": false,
+      "case": "preserve",
+      "map_characters": {}
+    }
+  },
+  "metasolver": {
+    "eligible": true,
+    "input_charset": "words",
+    "tags": ["historical", "substitution", "no_key"],
+    "priority": 55,
+    "family": "word_substitution",
+    "preferred_when": ["words", "grouped_input"],
+    "supports_grouped_input": true
+  }
+}
