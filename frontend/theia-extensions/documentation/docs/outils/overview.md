@@ -23,3 +23,4 @@ GeoApp propose plusieurs outils pour explorer les enigmes de geocaching : plugin
 
 - [Formula Solver](./formula-solver.md) : resoudre les formules de coordonnees GPS des geocaches Mystery, repondre aux questions avec l'IA ou Internet, et calculer les coordonnees finales.
 - [Utiliser MetaSolver](./metasolver.md) : lancer plusieurs plugins de decodage sur un fragment de code, appliquer une recommandation et comprendre les options.
+- [Utiliser les Alphabets](./alphabets.md) : rechercher un alphabet de symboles, ouvrir son viewer, transcrire un message visuel et enchainer avec les autres outils.
