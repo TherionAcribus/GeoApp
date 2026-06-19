@@ -5,12 +5,35 @@ Réimplémentation pour Theia - API REST uniquement.
 import os
 import json
 import mimetypes
+import re
+import unicodedata
+from functools import lru_cache
 from flask import Blueprint, jsonify, send_file, request, current_app
 
 alphabets_bp = Blueprint('alphabets', __name__)
 
 # Fallback si accédé hors contexte Flask (ne devrait pas arriver en pratique)
 _DEFAULT_ALPHABETS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), 'alphabets')
+
+SEARCH_SYNONYMS = {
+    'alien': ['extraterrestre', 'fiction', 'sf', 'science fiction', 'aurebesh', 'kryptonian', 'borg', 'fremen', 'romulan'],
+    'ancien': ['antique', 'rune', 'runique', 'templier', 'theban', 'malachim', 'enochian', 'futhark'],
+    'aveugle': ['braille', 'tactile', 'relief', 'malvoyant'],
+    'binaire': ['binary', 'bits', 'zero un', 'informatique'],
+    'chiffre': ['nombre', 'numero', 'numeral', 'numeric', 'cistercien'],
+    'cochon': ['pigpen', 'pig pen', 'parc a cochons', 'franc macon', 'maconnique'],
+    'couleur': ['color', 'couleurs', 'resistor', 'resistance', 'ohm', 'hexahue'],
+    'drapeau': ['flag', 'flags', 'maritime', 'naval', 'semaphore', 'signal'],
+    'jeu': ['game', 'video game', 'jeu video', 'space invaders', 'pokemon', 'zelda', 'final fantasy'],
+    'marin': ['maritime', 'naval', 'drapeau', 'drapeaux', 'semaphore', 'signal'],
+    'morse': ['telegraphe', 'telegraph', 'signal', 'radio', 'sos'],
+    'musique': ['music', 'notes', 'partition'],
+    'rune': ['runique', 'runes', 'futhark', 'hobbit', 'ancien'],
+    'runique': ['rune', 'runes', 'futhark', 'hobbit', 'ancien'],
+    'signal': ['signaux', 'communication', 'morse', 'semaphore', 'drapeau', 'telegraphe'],
+    'symbole': ['symboles', 'glyphes', 'pictogramme', 'icone'],
+    'telegraphe': ['telegraph', 'morse', 'chappe', 'signal', 'communication'],
+}
 
 
 def _get_alphabets_dir():
@@ -88,6 +111,7 @@ def normalize_alphabet_config(config):
     return config
 
 
+@lru_cache(maxsize=512)
 def load_alphabet_readme(alphabet_id):
     """Charge le contenu du README d'un alphabet s'il existe."""
     alphabet_dir = os.path.join(_get_alphabets_dir(), alphabet_id)
@@ -104,7 +128,133 @@ def load_alphabet_readme(alphabet_id):
     return ""
 
 
+def normalize_search_text(value):
+    """Normalise un texte pour une recherche insensible aux accents et a la casse."""
+    normalized = unicodedata.normalize('NFD', str(value or ''))
+    without_accents = ''.join(char for char in normalized if unicodedata.category(char) != 'Mn')
+    return re.sub(r'\s+', ' ', without_accents.lower()).strip()
+
+
+def expand_search_terms(query):
+    """Ajoute des synonymes utiles en contexte geocaching sans perdre la requete brute."""
+    normalized_query = normalize_search_text(query)
+    terms = [normalized_query]
+    words = [word for word in re.split(r'[^a-z0-9]+', normalized_query) if len(word) >= 2]
+
+    for word in words:
+        if word not in terms:
+            terms.append(word)
+        for synonym in SEARCH_SYNONYMS.get(word, []):
+            normalized_synonym = normalize_search_text(synonym)
+            if normalized_synonym and normalized_synonym not in terms:
+                terms.append(normalized_synonym)
+
+    return terms
+
+
+def score_text_field(field_value, terms, exact_score, related_score):
+    haystack = normalize_search_text(field_value)
+    if not haystack:
+        return 0
+
+    score = 0
+    for index, term in enumerate(terms):
+        if term and term in haystack:
+            score += exact_score if index == 0 else related_score
+    return score
+
+
+def get_search_blob(alphabet):
+    tags = alphabet.get('tags', [])
+    if not isinstance(tags, list):
+        tags = []
+    return ' '.join([
+        alphabet.get('id', ''),
+        alphabet.get('name', ''),
+        alphabet.get('description', ''),
+        alphabet.get('category', ''),
+        alphabet.get('type', ''),
+        alphabet.get('source', ''),
+        ' '.join(str(tag) for tag in tags),
+    ])
+
+
+def search_alphabets_ranked(query, alphabets, search_in_name=True, search_in_tags=True, search_in_readme=True):
+    """Recherche enrichie: accents, synonymes, tags, README et metadonnees."""
+    if not query or query.strip() == "":
+        return alphabets
+
+    query_terms = expand_search_terms(query)
+    primary_query = query_terms[0]
+    results = []
+
+    for alphabet in alphabets:
+        score = 0
+        matches = []
+
+        if search_in_name:
+            name_score = score_text_field(alphabet.get('name', ''), query_terms, 14, 4)
+            if name_score > 0:
+                score += name_score
+                matches.append(f"nom: {alphabet.get('name', '')}")
+
+            description_score = score_text_field(alphabet.get('description', ''), query_terms, 8, 2)
+            if description_score > 0:
+                score += description_score
+                matches.append(f"description: {alphabet.get('description', '')}")
+
+            for value in [alphabet.get('id', ''), alphabet.get('category', ''), alphabet.get('type', ''), alphabet.get('source', '')]:
+                score += score_text_field(value, query_terms, 5, 1)
+
+        if search_in_tags:
+            tags = alphabet.get('tags', [])
+            if isinstance(tags, list):
+                for tag in tags:
+                    tag_score = score_text_field(tag, query_terms, 10, 3)
+                    if tag_score > 0:
+                        score += tag_score
+                        matches.append(f"tag: {tag}")
+
+        if search_in_readme:
+            readme_score = score_text_field(load_alphabet_readme(alphabet.get('id', '')), query_terms, 4, 1)
+            if readme_score > 0:
+                score += readme_score
+                matches.append("description longue (README)")
+
+        if search_in_name or search_in_tags or search_in_readme:
+            for word in primary_query.split():
+                if len(word) >= 3:
+                    if search_in_name:
+                        if word in normalize_search_text(alphabet.get('name', '')):
+                            score += 2
+                        if word in normalize_search_text(alphabet.get('description', '')):
+                            score += 1
+                    if search_in_tags:
+                        tags = alphabet.get('tags', [])
+                        if isinstance(tags, list):
+                            for tag in tags:
+                                if word in normalize_search_text(tag):
+                                    score += 1
+
+        search_blob = get_search_blob(alphabet)
+        matched_synonyms = [
+            term for term in query_terms[1:]
+            if term and score_text_field(search_blob, [term], 1, 1) > 0
+        ]
+        if matched_synonyms:
+            matches.append(f"synonyme: {', '.join(matched_synonyms[:3])}")
+
+        if score > 0:
+            alphabet['search_score'] = score
+            alphabet['search_matches'] = list(dict.fromkeys(matches))
+            results.append(alphabet)
+
+    results.sort(key=lambda item: item.get('search_score', 0), reverse=True)
+    return results
+
+
 def search_alphabets(query, alphabets, search_in_name=True, search_in_tags=True, search_in_readme=True):
+    return search_alphabets_ranked(query, alphabets, search_in_name, search_in_tags, search_in_readme)
     """
     Recherche dans les alphabets selon une requête et les préférences de recherche.
     Recherche dans : nom, tags, et contenu README selon les préférences.

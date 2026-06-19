@@ -54,6 +54,13 @@ Conseils :
 - cherchez le nom si vous le connaissez : `aurebesh`, `runes`, `drapeaux` ;
 - cherchez un univers ou une famille : `hobbit`, `star wars`, `maritime` ;
 - cherchez une caracteristique : `symboles`, `police`, `images`.
+- essayez des mots descriptifs : `marin`, `alien`, `runique`, `telegraphe`,
+  `couleur`, `cochon`.
+
+La recherche comprend aussi plusieurs synonymes utiles en geocaching. Par
+exemple, `marin` peut faire remonter les drapeaux maritimes et le semaphore,
+`runique` peut faire remonter les runes ou le futhark, et `cochon` peut aider a
+retrouver Pigpen/Pig Pen.
 
 Quand une recherche est active, GeoApp conserve l'ordre de pertinence renvoye par le backend. Les meilleurs resultats apparaissent en premier.
 
@@ -220,4 +227,3 @@ Quand vous aidez un utilisateur avec les Alphabets :
 - si des coordonnees apparaissent, recommandez de les verifier avec la distance et un checker.
 
 Exemple de consigne utile : "Ouvre le panneau Alphabets, cherche `drapeaux`, ouvre Drapeaux maritimes, puis clique les symboles dans l'ordre de ton image. Une fois le texte obtenu, copie le fragment dans MetaSolver si cela ressemble encore a un code."
-

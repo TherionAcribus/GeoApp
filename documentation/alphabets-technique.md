@@ -196,6 +196,13 @@ Quand une recherche est active, le backend ajoute :
 Les resultats sont tries par `search_score` decroissant. Le frontend doit
 preserver cet ordre.
 
+La recherche backend normalise la casse et les accents, puis enrichit la
+requete avec des synonymes metier (`SEARCH_SYNONYMS`). Cela permet a des termes
+utilisateur comme `marin`, `runique`, `alien`, `cochon`, `telegraphe` ou
+`couleur` de retrouver des alphabets pertinents meme si le mot exact n'est pas
+present dans le nom. Le README est lu via un cache `lru_cache` pour eviter de
+relire les fichiers lors de recherches repetees.
+
 ---
 
 ## 5. Contrat `alphabet.json`
@@ -752,4 +759,3 @@ Pistes futures sans changer le contrat actuel :
 - precharger les premieres images visibles dans la liste pour reduire le
   scintillement ;
 - ajouter un mode edition d'alphabet avec validation immediate.
-
