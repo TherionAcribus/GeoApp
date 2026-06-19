@@ -1901,12 +1901,14 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
         
         if (char.match(/[a-z]/)) {
             // Lettre minuscule
-            const suffix = config.lowercaseSuffix || 'lowercase';
-            filename = `${char}_${suffix}.${format}`;
+            filename = config.lowercaseSuffix
+                ? `${char}_${config.lowercaseSuffix}.${format}`
+                : `${char}.${format}`;
         } else if (char.match(/[A-Z]/)) {
             // Lettre majuscule
-            const suffix = config.uppercaseSuffix || 'uppercase';
-            filename = `${char.toLowerCase()}_${suffix}.${format}`;
+            filename = config.uppercaseSuffix
+                ? `${char.toLowerCase()}_${config.uppercaseSuffix}.${format}`
+                : `${char}.${format}`;
         } else if (char.match(/[0-9]/)) {
             // Chiffre
             filename = `${char}.${format}`;
