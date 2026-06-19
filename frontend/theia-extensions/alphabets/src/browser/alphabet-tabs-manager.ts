@@ -77,9 +77,7 @@ export class AlphabetTabsManager {
             this.tabs.push(targetEntry);
         } else {
             targetEntry.alphabetId = alphabetId;
-            if (typeof (targetEntry.widget as any).setAlphabet === 'function') {
-                (targetEntry.widget as any).setAlphabet(alphabetId);
-            }
+            targetEntry.widget.setAlphabet(alphabetId);
             targetEntry.isPinned = false;
         }
 

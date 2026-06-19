@@ -56,7 +56,6 @@ export class AlphabetsListContribution
      * Ouvre le widget de visualisation pour un alphabet.
      */
     async openAlphabetViewer(alphabetId: string): Promise<AlphabetViewerWidget> {
-        console.log('AlphabetsListContribution: openAlphabetViewer called with:', alphabetId);
         return this.alphabetTabsManager.openAlphabet({ alphabetId });
     }
 
@@ -108,11 +107,9 @@ export class AlphabetsListContribution
         // Commande pour ouvrir un alphabet
         registry.registerCommand(AlphabetsCommands.OPEN_VIEWER, {
             execute: async (alphabetId?: string) => {
-                console.log('AlphabetsCommands.OPEN_VIEWER: execute called with:', alphabetId);
                 if (alphabetId) {
                     try {
                         await this.openAlphabetViewer(alphabetId);
-                        console.log('AlphabetsCommands.OPEN_VIEWER: openAlphabetViewer completed');
                     } catch (error) {
                         console.error('AlphabetsCommands.OPEN_VIEWER: Error:', error);
                     }

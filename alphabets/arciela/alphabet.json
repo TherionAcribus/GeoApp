@@ -4,7 +4,10 @@
   "type": "alphabet",
   "category": "alphabets",
   "version": "1.0.0",
-  "tags": ["jeu video", "Exa Pico"],
+  "tags": [
+    "jeu video",
+    "Exa Pico"
+  ],
   "alphabetConfig": {
     "type": "font",
     "fontFile": "fonts/arciela.ttf",
@@ -12,9 +15,8 @@
     "upperCaseOnly": false,
     "characters": {
       "letters": "all",
-      "numbers": "",
-      "special": {
-      }
+      "numbers": [],
+      "special": {}
     }
   }
 }

@@ -30,7 +30,53 @@ def load_alphabet_config(alphabet_id):
         config = json.load(f)
         # Ajouter l'ID de l'alphabet (nom du dossier)
         config['id'] = alphabet_id
-        return config
+        return normalize_alphabet_config(config)
+
+
+def normalize_character_list(value):
+    """Normalise une définition de caractères vers "all" ou une liste."""
+    if value == 'all':
+        return 'all'
+    if value is None or value is False:
+        return []
+    if isinstance(value, str):
+        if value.strip() == '' or value.strip().lower() == 'false':
+            return []
+        return [value]
+    if isinstance(value, list):
+        return [str(item) for item in value if item is not None and str(item) != '']
+    return []
+
+
+def normalize_special_map(value):
+    """Normalise la table caractère -> ressource des symboles spéciaux."""
+    if not isinstance(value, dict):
+        return {}
+    return {
+        str(char): str(resource)
+        for char, resource in value.items()
+        if char is not None and resource is not None
+    }
+
+
+def normalize_alphabet_config(config):
+    """Normalise un alphabet pour garder l'API compatible avec les anciens JSON."""
+    alphabet_config = config.setdefault('alphabetConfig', {})
+    characters = alphabet_config.setdefault('characters', {})
+
+    legacy_special = normalize_special_map(alphabet_config.pop('special', {}))
+    current_special = normalize_special_map(characters.get('special', {}))
+
+    characters['letters'] = normalize_character_list(characters.get('letters', []))
+    characters['numbers'] = normalize_character_list(characters.get('numbers', []))
+
+    merged_special = {**legacy_special, **current_special}
+    if merged_special:
+        characters['special'] = merged_special
+    else:
+        characters.pop('special', None)
+
+    return config
 
 
 def load_alphabet_readme(alphabet_id):

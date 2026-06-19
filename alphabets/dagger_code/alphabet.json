@@ -6,7 +6,7 @@
   "version": "1.0.0",
   "alphabetConfig": {
     "type": "font",
-    "fontFile": "fonts/dagger_code.ttf",
+    "fontFile": "fonts/dagger.ttf",
     "hasUpperCase": false,
     "upperCaseOnly": false,
     "characters": {

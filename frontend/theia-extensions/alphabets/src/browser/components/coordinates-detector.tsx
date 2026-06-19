@@ -29,6 +29,7 @@ export const CoordinatesDetector: React.FC<CoordinatesDetectorProps> = ({
     const timerRef = React.useRef<NodeJS.Timeout | null>(null);
     const lastAnalyzedTextRef = React.useRef<string>('');
     const lastAnalyzedOriginRef = React.useRef<string>('');
+    const analysisSeqRef = React.useRef(0);
 
     // Détection automatique avec debouncing intelligent
     React.useEffect(() => {
@@ -45,6 +46,7 @@ export const CoordinatesDetector: React.FC<CoordinatesDetectorProps> = ({
                              (currentTextKey && currentOriginKey !== lastAnalyzedOriginRef.current);
 
         if (!currentTextKey) {
+            analysisSeqRef.current++;
             // Texte vide : réinitialiser tout
             setCoordinates(null);
             setDistance(null);
@@ -66,14 +68,17 @@ export const CoordinatesDetector: React.FC<CoordinatesDetectorProps> = ({
         lastAnalyzedTextRef.current = currentTextKey;
         lastAnalyzedOriginRef.current = currentOriginKey;
 
+        const analysisSeq = ++analysisSeqRef.current;
+
         timerRef.current = setTimeout(async () => {
             try {
                 setDetecting(true);
                 setError(null);
 
-                console.log('[CoordinatesDetector] Analyse du texte:', currentTextKey.substring(0, 50) + '...');
-
                 const detected = await alphabetsService.detectCoordinates(text, originCoords);
+                if (analysisSeq !== analysisSeqRef.current) {
+                    return;
+                }
                 setCoordinates(detected);
                 if (onCoordinatesDetected) {
                     onCoordinatesDetected(detected && detected.exist ? detected : null);
@@ -88,6 +93,9 @@ export const CoordinatesDetector: React.FC<CoordinatesDetectorProps> = ({
                             detected.ddm_lat,
                             detected.ddm_lon
                         );
+                        if (analysisSeq !== analysisSeqRef.current) {
+                            return;
+                        }
                         setDistance(dist);
                         if (onDistanceCalculated) {
                             onDistanceCalculated(dist);
@@ -101,8 +109,10 @@ export const CoordinatesDetector: React.FC<CoordinatesDetectorProps> = ({
                 }
 
                 setDetecting(false);
-                console.log('[CoordinatesDetector] Analyse terminée:', detected.exist ? 'Coordonnées trouvées' : 'Aucune coordonnée');
             } catch (err: any) {
+                if (analysisSeq !== analysisSeqRef.current) {
+                    return;
+                }
                 console.error('[CoordinatesDetector] Error detecting coordinates:', err);
                 setError(err.message || 'Erreur lors de la détection');
                 setCoordinates(null);

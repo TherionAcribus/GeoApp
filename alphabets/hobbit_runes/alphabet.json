@@ -10,17 +10,18 @@
     "imageDir": "images",
     "hasUpperCase": false,
     "characters": {
-      "letters": "all"
-    },
-    "special": {
-      "d_": "d_",
-      "ea": "ea",
-      "ee": "ee",
-      "eo": "eo",
-      "ng": "ng",
-      "oo": "oo",
-      "st": "st",
-      "th": "th"
+      "letters": "all",
+      "numbers": [],
+      "special": {
+        "d_": "d_",
+        "ea": "ea",
+        "ee": "ee",
+        "eo": "eo",
+        "ng": "ng",
+        "oo": "oo",
+        "st": "st",
+        "th": "th"
+      }
     }
   }
 }

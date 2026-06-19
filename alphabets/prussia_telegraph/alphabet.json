@@ -15,10 +15,10 @@
       "numbers": "all",
       "special": {
         "10": "10",
-        "AE_umlaut": "ä",
-        "OE_umlaut": "ö",
-        "UE_umlaut": "ü",
-        "dot": "."        
+        "ä": "AE_umlaut",
+        "ö": "OE_umlaut",
+        "ü": "UE_umlaut",
+        ".": "dot"
       }
     }
   }

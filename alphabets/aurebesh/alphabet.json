@@ -4,7 +4,10 @@
   "type": "alphabet",
   "category": "alphabets",
   "version": "1.0.0",
-  "tags": ["film", "Star Wars"],
+  "tags": [
+    "film",
+    "Star Wars"
+  ],
   "alphabetConfig": {
     "type": "font",
     "fontFile": "fonts/aurebesh.ttf",
@@ -12,7 +15,7 @@
     "upperCaseOnly": false,
     "characters": {
       "letters": "all",
-      "numbers": "",
+      "numbers": [],
       "special": {
         "$": "$"
       }

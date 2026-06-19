@@ -11,6 +11,8 @@ export interface Alphabet {
     name: string;
     description: string;
     type: string;
+    category?: string;
+    version?: string;
     tags?: string[];
     sources?: AlphabetSource[];
     alphabetConfig: AlphabetConfig;
@@ -30,6 +32,7 @@ export interface AlphabetConfig {
     lowercaseSuffix?: string;
     uppercaseSuffix?: string;
     hasUpperCase: boolean;
+    upperCaseOnly?: boolean;
     characters: AlphabetCharacters;
 }
 

@@ -4,17 +4,19 @@
   "type": "alphabet",
   "category": "alphabets",
   "version": "1.0.0",
-  "tags": ["jeu video", "Skies of Arcadia"],
+  "tags": [
+    "jeu video",
+    "Skies of Arcadia"
+  ],
   "alphabetConfig": {
     "type": "font",
     "fontFile": "fonts/arcadia.ttf",
     "hasUpperCase": false,
     "upperCaseOnly": false,
     "characters": {
-      "letters": "false",
-      "numbers": "",
-      "special": {
-      }
+      "letters": [],
+      "numbers": [],
+      "special": {}
     }
   }
 }

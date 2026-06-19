@@ -4,7 +4,11 @@
   "type": "alphabet",
   "category": "alphabets",
   "version": "1.0.0",
-  "tags": ["manga", "Crest of the Stars","Banner of the Stars"],
+  "tags": [
+    "manga",
+    "Crest of the Stars",
+    "Banner of the Stars"
+  ],
   "alphabetConfig": {
     "type": "font",
     "fontFile": "fonts/Baronh.ttf",
@@ -12,7 +16,7 @@
     "upperCaseOnly": true,
     "characters": {
       "letters": "all",
-      "numbers": "",
+      "numbers": [],
       "special": {
         ".": "point",
         ",": "virgule",

@@ -4,8 +4,10 @@
  */
 import * as React from '@theia/core/shared/react';
 import { AssociatedGeocache, DistanceInfo } from '../../common/alphabet-protocol';
+import { AlphabetsService } from '../services/alphabets-service';
 
 export interface GeocacheAssociationProps {
+    alphabetsService: AlphabetsService;
     associatedGeocache?: AssociatedGeocache;
     onAssociate: (geocache: AssociatedGeocache) => void;
     onClear: () => void;
@@ -14,6 +16,7 @@ export interface GeocacheAssociationProps {
 }
 
 export const GeocacheAssociation: React.FC<GeocacheAssociationProps> = ({
+    alphabetsService,
     associatedGeocache,
     onAssociate,
     onClear,
@@ -34,29 +37,12 @@ export const GeocacheAssociation: React.FC<GeocacheAssociationProps> = ({
             setLoading(true);
             setError(null);
 
-            // Appeler l'API pour récupérer les infos de la géocache
-            const response = await fetch(`http://127.0.0.1:8000/api/geocaches/by-code/${gcCode.toUpperCase()}`);
-            
-            if (!response.ok) {
-                throw new Error('Géocache non trouvée');
-            }
-
-            const data = await response.json();
-            
-            const geocacheData = {
-                id: data.id,
-                databaseId: data.database_id,
-                code: data.gc_code,
-                name: data.name,
-                gc_lat: data.gc_lat,
-                gc_lon: data.gc_lon
-            };
+            const geocacheData = await alphabetsService.getGeocacheByCode(gcCode);
 
             onAssociate(geocacheData);
 
             // Ouvrir automatiquement la carte après l'association
             if (onShowMap) {
-                console.log('[GeocacheAssociation] Ouverture automatique de la carte pour la nouvelle géocache associée');
                 onShowMap(geocacheData);
             }
 
@@ -97,7 +83,11 @@ export const GeocacheAssociation: React.FC<GeocacheAssociationProps> = ({
                             placeholder='Code géocache (ex: GC12345)'
                             value={gcCode}
                             onChange={e => setGcCode(e.target.value)}
-                            onKeyPress={e => e.key === 'Enter' && handleAssociate()}
+                            onKeyDown={e => {
+                                if (e.key === 'Enter') {
+                                    void handleAssociate();
+                                }
+                            }}
                             disabled={loading}
                             style={{
                                 flex: 1,

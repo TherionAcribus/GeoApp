@@ -6,7 +6,7 @@
   "version": "1.0.0",
   "alphabetConfig": {
     "type": "font",
-    "fontFile": "fonts/space_invaders.ttf",
+    "fontFile": "fonts/spaceinvaders.ttf",
     "hasUpperCase": false,
     "upperCaseOnly": false,
     "characters": {

@@ -1,19 +1,45 @@
 /**
  * Service pour communiquer avec l'API Backend des alphabets.
  */
-import { injectable } from '@theia/core/shared/inversify';
-import { Alphabet, AlphabetSearchOptions, DetectedCoordinates, DistanceInfo } from '../../common/alphabet-protocol';
-import axios from 'axios';
+import { inject, injectable } from '@theia/core/shared/inversify';
+import { PreferenceChange, PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
+import { Alphabet, AlphabetSearchOptions, AssociatedGeocache, DetectedCoordinates, DistanceInfo } from '../../common/alphabet-protocol';
+import axios, { AxiosInstance } from 'axios';
 
-const API_BASE_URL = 'http://127.0.0.1:8000';
+const BACKEND_BASE_URL_PREF = 'geoApp.backend.apiBaseUrl';
+const DEFAULT_API_BASE_URL = 'http://localhost:8000';
+
+interface BackendGeocache {
+    id?: string;
+    database_id?: number;
+    gc_code: string;
+    name: string;
+    gc_lat?: string;
+    gc_lon?: string;
+}
 
 @injectable()
 export class AlphabetsService {
-    
+
+    private client: AxiosInstance;
+    private baseUrl: string;
     private cache: Map<string, Alphabet> = new Map();
     private listCache: Alphabet[] | null = null;
     private cacheTimeout: number = 5 * 60 * 1000; // 5 minutes
     private lastCacheTime: number = 0;
+
+    constructor(
+        @inject(PreferenceService) private readonly preferenceService: PreferenceService
+    ) {
+        this.baseUrl = this.normalizeBaseUrl(this.getBackendBaseUrl());
+        this.client = this.createClient(this.baseUrl);
+
+        this.preferenceService.onPreferenceChanged((event: PreferenceChange) => {
+            if (event.preferenceName === BACKEND_BASE_URL_PREF) {
+                this.updateBaseUrl(this.getBackendBaseUrl());
+            }
+        });
+    }
 
     /**
      * Récupère la liste de tous les alphabets disponibles.
@@ -26,7 +52,7 @@ export class AlphabetsService {
                 return this.listCache;
             }
 
-            const params: any = {};
+            const params: Record<string, string | boolean> = {};
             if (searchOptions) {
                 if (searchOptions.query) {
                     params.search = searchOptions.query;
@@ -42,7 +68,7 @@ export class AlphabetsService {
                 }
             }
 
-            const response = await axios.get<Alphabet[]>(`${API_BASE_URL}/api/alphabets`, { params });
+            const response = await this.client.get<Alphabet[]>('/api/alphabets', { params });
             
             // Mettre en cache uniquement si pas de recherche
             if (!searchOptions) {
@@ -67,7 +93,7 @@ export class AlphabetsService {
                 return this.cache.get(alphabetId)!;
             }
 
-            const response = await axios.get<Alphabet>(`${API_BASE_URL}/api/alphabets/${alphabetId}`);
+            const response = await this.client.get<Alphabet>(`/api/alphabets/${encodeURIComponent(alphabetId)}`);
             
             // Mettre en cache
             this.cache.set(alphabetId, response.data);
@@ -83,14 +109,15 @@ export class AlphabetsService {
      * Récupère l'URL complète d'une police d'alphabet.
      */
     getFontUrl(alphabetId: string): string {
-        return `${API_BASE_URL}/api/alphabets/${alphabetId}/font`;
+        return `${this.baseUrl}/api/alphabets/${encodeURIComponent(alphabetId)}/font`;
     }
 
     /**
      * Récupère l'URL complète d'une ressource (image) d'alphabet.
      */
     getResourceUrl(alphabetId: string, resourcePath: string): string {
-        return `${API_BASE_URL}/api/alphabets/${alphabetId}/resource/${resourcePath}`;
+        const encodedPath = resourcePath.split('/').map(part => encodeURIComponent(part)).join('/');
+        return `${this.baseUrl}/api/alphabets/${encodeURIComponent(alphabetId)}/resource/${encodedPath}`;
     }
 
     /**
@@ -98,8 +125,8 @@ export class AlphabetsService {
      */
     async discoverAlphabets(): Promise<{ count: number; alphabets: Alphabet[] }> {
         try {
-            const response = await axios.post<{ status: string; count: number; alphabets: Alphabet[] }>(
-                `${API_BASE_URL}/api/alphabets/discover`
+            const response = await this.client.post<{ status: string; count: number; alphabets: Alphabet[] }>(
+                '/api/alphabets/discover'
             );
             
             // Invalider le cache
@@ -124,7 +151,7 @@ export class AlphabetsService {
         originCoords?: { ddm_lat: string; ddm_lon: string }
     ): Promise<DetectedCoordinates> {
         try {
-            const payload: any = {
+            const payload: Record<string, unknown> = {
                 text,
                 include_numeric_only: true,
                 include_written: true
@@ -134,8 +161,8 @@ export class AlphabetsService {
                 payload.origin_coords = originCoords;
             }
 
-            const response = await axios.post<DetectedCoordinates>(
-                `${API_BASE_URL}/api/detect_coordinates`,
+            const response = await this.client.post<DetectedCoordinates>(
+                '/api/detect_coordinates',
                 payload
             );
             
@@ -156,8 +183,8 @@ export class AlphabetsService {
         destLon: string
     ): Promise<DistanceInfo> {
         try {
-            const response = await axios.post<any>(
-                `${API_BASE_URL}/api/calculate_coordinates`,
+            const response = await this.client.post<any>(
+                '/api/calculate_coordinates',
                 {
                     formula: `${destLat} ${destLon}`,  // Format factice pour l'API
                     origin_lat: originLat,
@@ -187,6 +214,44 @@ export class AlphabetsService {
             this.cache.clear();
             this.listCache = null;
         }
+    }
+
+    async getGeocacheByCode(code: string): Promise<AssociatedGeocache> {
+        const normalizedCode = code.trim().toUpperCase();
+        const response = await this.client.get<BackendGeocache>(
+            `/api/geocaches/by-code/${encodeURIComponent(normalizedCode)}`
+        );
+        const data = response.data;
+        return {
+            id: data.id,
+            databaseId: data.database_id,
+            code: data.gc_code,
+            name: data.name,
+            gc_lat: data.gc_lat,
+            gc_lon: data.gc_lon
+        };
+    }
+
+    private createClient(baseUrl: string): AxiosInstance {
+        return axios.create({
+            baseURL: baseUrl,
+            timeout: 30000
+        });
+    }
+
+    private updateBaseUrl(url: string): void {
+        this.baseUrl = this.normalizeBaseUrl(url);
+        this.client = this.createClient(this.baseUrl);
+        this.invalidateCache();
+    }
+
+    private normalizeBaseUrl(url: string): string {
+        const trimmed = (url || '').trim();
+        return (trimmed || DEFAULT_API_BASE_URL).replace(/\/+$/, '');
+    }
+
+    private getBackendBaseUrl(): string {
+        return String(this.preferenceService.get(BACKEND_BASE_URL_PREF, DEFAULT_API_BASE_URL) || DEFAULT_API_BASE_URL);
     }
 }
 

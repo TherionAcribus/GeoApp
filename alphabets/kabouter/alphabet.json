@@ -10,9 +10,9 @@
     "imageDir": "images",
     "hasUpperCase": false,
     "characters": {
-      "letters": "all"
-    },
-    "special": {
+      "letters": "all",
+      "numbers": [],
+      "special": {}
     }
   }
 }

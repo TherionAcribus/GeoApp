@@ -13,8 +13,9 @@ import { AlphabetsService } from './services/alphabets-service';
 import { Alphabet, ZoomState, PinnedState, AssociatedGeocache, DistanceInfo, DetectedCoordinates } from '../common/alphabet-protocol';
 import { CoordinatesDetector } from './components/coordinates-detector';
 import { GeocacheAssociation } from './components/geocache-association';
-import { SymbolItem } from './components/symbol-item';
 import { SymbolContextMenu } from './components/symbol-context-menu';
+import { ResolvedSymbolItem } from './components/resolved-symbol-item';
+import { getAlphabetLetters, getAlphabetNumbers, getSpecialCharactersMap } from './alphabet-symbol-resolver';
 import './font-api';
 
 const PREF_AVAILABLE_SYMBOLS_SHOW_VALUE = 'geoApp.alphabets.availableSymbols.showValue';
@@ -91,12 +92,13 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
     } | null = null;
 
     // Historique pour undo/redo
-    private history: string[][] = [];
-    private historyIndex: number = -1;
+    private history: string[][] = [[]];
+    private historyIndex: number = 0;
     private maxHistorySize: number = 50;
 
     private interactionTimerId: number | undefined;
     private lastAccessTimestamp: number = Date.now();
+    private loadRequestSeq: number = 0;
 
     private readonly handleContentClick = (): void => {
         this.emitInteraction('click');
@@ -108,14 +110,11 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
 
     constructor(@inject('alphabetId') alphabetId: string) {
         super();
-        console.log('AlphabetViewerWidget: constructor called with alphabetId:', alphabetId);
         this.alphabetId = alphabetId;
     }
 
     @postConstruct()
     protected init(): void {
-        console.log('AlphabetViewerWidget: init called for:', this.alphabetId);
-        console.log('AlphabetViewerWidget: Widget ID is:', this.id);
         this.title.closable = true;
         this.title.iconClass = 'fa fa-language';
 
@@ -133,7 +132,6 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
         }));
 
         this.update();
-        console.log('AlphabetViewerWidget: Initial update called');
 
         // Initialiser de manière asynchrone sans bloquer la construction
         this.initializeAsync();
@@ -304,7 +302,6 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
     private async initializeAsync(): Promise<void> {
         try {
             await this.loadAlphabet();
-            console.log('AlphabetViewerWidget: loadAlphabet completed');
         } catch (error) {
             console.error('AlphabetViewerWidget: Error during async initialization:', error);
         }
@@ -314,47 +311,52 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
      * Charge l'alphabet depuis le backend.
      */
     private async loadAlphabet(): Promise<void> {
-        console.log('AlphabetViewerWidget: loadAlphabet started for:', this.alphabetId);
+        const requestSeq = ++this.loadRequestSeq;
+        const alphabetId = this.alphabetId;
         try {
             this.loading = true;
             this.update();
-            console.log('AlphabetViewerWidget: Set loading=true and updated');
-            
-            this.alphabet = await this.alphabetsService.getAlphabet(this.alphabetId);
-            console.log('AlphabetViewerWidget: Alphabet loaded:', this.alphabet);
+
+            const alphabet = await this.alphabetsService.getAlphabet(alphabetId);
+            if (requestSeq !== this.loadRequestSeq) {
+                return;
+            }
+
+            this.alphabet = alphabet;
             this.title.label = this.alphabet.name;
             this.title.caption = this.alphabet.description;
-            console.log('AlphabetViewerWidget: Title set to:', this.alphabet.name);
             
             // Si alphabet basé sur police, charger la police
             if (this.alphabet.alphabetConfig.type === 'font') {
-                console.log('AlphabetViewerWidget: Loading font...');
-                await this.loadFont();
+                await this.loadFont(alphabetId);
+                if (requestSeq !== this.loadRequestSeq) {
+                    return;
+                }
             } else {
-                console.log('AlphabetViewerWidget: No font to load (images type)');
                 this.fontLoaded = true;
             }
             
             this.loading = false;
             this.update();
-            console.log('AlphabetViewerWidget: Loading complete, updated widget');
             this.setupMinOpenTimeTimer();
         } catch (error) {
+            if (requestSeq !== this.loadRequestSeq) {
+                return;
+            }
             console.error('AlphabetViewerWidget: Error loading alphabet:', error);
-            this.messageService.error(`Erreur lors du chargement de l'alphabet ${this.alphabetId}`);
+            this.messageService.error(`Erreur lors du chargement de l'alphabet ${alphabetId}`);
             this.loading = false;
             this.update();
         }
     }
 
     public setAlphabet(alphabetId: string): void {
-        console.log('AlphabetViewerWidget: setAlphabet called with:', alphabetId);
         this.alphabetId = alphabetId;
         this.lastAccessTimestamp = Date.now();
         this.alphabet = null;
+        this.fontLoaded = false;
         this.enteredChars = [];
-        this.history = [];
-        this.historyIndex = -1;
+        this.resetHistory();
         this.detectedCoordinates = null;
         this.associatedGeocache = undefined;
         this.distance = undefined;
@@ -367,16 +369,16 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
     /**
      * Charge la police d'un alphabet basé sur police.
      */
-    private async loadFont(): Promise<void> {
+    private async loadFont(alphabetId: string = this.alphabetId): Promise<void> {
         if (!this.alphabet || this.alphabet.alphabetConfig.type !== 'font') {
             return;
         }
 
-        const fontUrl = this.alphabetsService.getFontUrl(this.alphabetId);
-        const fontName = `Alphabet-${this.alphabetId}`;
+        const fontUrl = this.alphabetsService.getFontUrl(alphabetId);
+        const fontName = `Alphabet-${alphabetId}`;
 
         // Créer un élément style pour @font-face
-        const styleId = `font-style-${this.alphabetId}`;
+        const styleId = `font-style-${alphabetId}`;
         let styleElement = document.getElementById(styleId) as HTMLStyleElement;
         
         if (!styleElement) {
@@ -460,13 +462,35 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
         }
     }
 
+    private resetHistory(): void {
+        this.history = [[]];
+        this.historyIndex = 0;
+    }
+
+    private areCharsEqual(left: string[], right: string[]): boolean {
+        if (left.length !== right.length) {
+            return false;
+        }
+        return left.every((char, index) => char === right[index]);
+    }
+
+    private commitEnteredChars(nextChars: string[], saveHistory: boolean = true): void {
+        if (this.areCharsEqual(this.enteredChars, nextChars)) {
+            return;
+        }
+
+        this.enteredChars = [...nextChars];
+        if (saveHistory) {
+            this.saveState();
+        }
+        this.update();
+    }
+
     /**
      * Ajoute un symbole aux symboles entrés.
      */
     private addSymbol(char: string): void {
-        this.enteredChars.push(char);
-        this.saveState();
-        this.update();
+        this.commitEnteredChars([...this.enteredChars, char]);
     }
 
     /**
@@ -474,9 +498,7 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
      */
     public deleteLastSymbol(): void {
         if (this.enteredChars.length > 0) {
-            this.enteredChars.pop();
-            this.saveState();
-            this.update();
+            this.commitEnteredChars(this.enteredChars.slice(0, -1));
         }
     }
 
@@ -484,9 +506,7 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
      * Efface tous les symboles.
      */
     private clearSymbols(): void {
-        this.enteredChars = [];
-        this.saveState();
-        this.update();
+        this.commitEnteredChars([]);
     }
 
     /**
@@ -561,9 +581,9 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
      * Supprime un symbole à l'index donné.
      */
     private deleteSymbol = (index: number): void => {
-        this.enteredChars.splice(index, 1);
-        this.saveState();
-        this.update();
+        const nextChars = [...this.enteredChars];
+        nextChars.splice(index, 1);
+        this.commitEnteredChars(nextChars);
     };
 
     /**
@@ -571,27 +591,27 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
      */
     private duplicateSymbol = (index: number): void => {
         const char = this.enteredChars[index];
-        this.enteredChars.splice(index + 1, 0, char);
-        this.saveState();
-        this.update();
+        const nextChars = [...this.enteredChars];
+        nextChars.splice(index + 1, 0, char);
+        this.commitEnteredChars(nextChars);
     };
 
     /**
      * Insère un espace avant le symbole à l'index donné.
      */
     private insertBefore = (index: number): void => {
-        this.enteredChars.splice(index, 0, ' ');
-        this.saveState();
-        this.update();
+        const nextChars = [...this.enteredChars];
+        nextChars.splice(index, 0, ' ');
+        this.commitEnteredChars(nextChars);
     };
 
     /**
      * Insère un espace après le symbole à l'index donné.
      */
     private insertAfter = (index: number): void => {
-        this.enteredChars.splice(index + 1, 0, ' ');
-        this.saveState();
-        this.update();
+        const nextChars = [...this.enteredChars];
+        nextChars.splice(index + 1, 0, ' ');
+        this.commitEnteredChars(nextChars);
     };
 
     // =================== Historique (Undo/Redo) ===================
@@ -600,18 +620,23 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
      * Sauvegarde l'état actuel dans l'historique.
      */
     private saveState(): void {
+        const currentState = [...this.enteredChars];
+        const previousState = this.history[this.historyIndex];
+        if (previousState && this.areCharsEqual(previousState, currentState)) {
+            return;
+        }
+
         // Supprimer tout l'historique après l'index actuel
         this.history = this.history.slice(0, this.historyIndex + 1);
         
         // Ajouter le nouvel état
-        this.history.push([...this.enteredChars]);
+        this.history.push(currentState);
         
         // Limiter la taille de l'historique
         if (this.history.length > this.maxHistorySize) {
             this.history.shift();
-        } else {
-            this.historyIndex++;
         }
+        this.historyIndex = this.history.length - 1;
     }
 
     /**
@@ -695,12 +720,11 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
                 }
                 
                 // Restaurer l'état
-                this.enteredChars = state.enteredChars || [];
                 this.zoomState = { ...this.zoomState, ...state.zoomState };
                 this.pinnedState = { ...this.pinnedState, ...state.pinnedState };
                 this.associatedGeocache = state.associatedGeocache;
+                this.commitEnteredChars(state.enteredChars || []);
                 
-                this.saveState();
                 this.saveZoomState();
                 this.update();
                 
@@ -918,7 +942,6 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
      */
     private handleShowMap = async (geocache: AssociatedGeocache): Promise<void> => {
         try {
-            console.log('[AlphabetViewerWidget] Ouverture carte pour géocache:', geocache.code);
             this.lastOpenedGeocacheCode = geocache.code;
 
             // Convertir les données AssociatedGeocache vers le format attendu par l'événement
@@ -938,11 +961,7 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
                 waypoints: []
             };
 
-            console.log('[AlphabetViewerWidget] Données géocache préparées:', geocacheData);
-
             // Approche alternative : utiliser window.postMessage pour communiquer entre extensions
-            console.log('[AlphabetViewerWidget] Utilisation de window.postMessage pour communiquer avec l\'extension zones');
-
             window.postMessage({
                 type: 'open-geocache-map',
                 geocache: geocacheData,
@@ -950,10 +969,7 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
             }, '*');
 
             // Fallback : événement avec délai plus long
-            console.log('[AlphabetViewerWidget] Fallback vers événement avec délai de 2 secondes');
-
             setTimeout(() => {
-                console.log('[AlphabetViewerWidget] Dispatch de l\'événement open-geocache-map (fallback)');
                 const event = new CustomEvent('open-geocache-map', {
                     detail: { geocache: geocacheData },
                     bubbles: true,
@@ -972,8 +988,6 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
                 if (document.documentElement) {
                     result = result || document.documentElement.dispatchEvent(event);
                 }
-
-                console.log('[AlphabetViewerWidget] Événement dispatché sur tous les contextes, result:', result);
             }, 2000); // Délai plus long
 
             this.messageService.info(`Ouverture de la carte pour ${geocache.code}...`);
@@ -1019,6 +1033,7 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
         return (
             <div style={{ padding: '16px' }}>
                 <GeocacheAssociation
+                    alphabetsService={this.alphabetsService}
                     associatedGeocache={this.associatedGeocache}
                     onAssociate={(geocache) => {
                         this.associatedGeocache = geocache;
@@ -1171,8 +1186,11 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
                         </span>
                     ) : (
                         this.enteredChars.map((char, idx) => (
-                            <SymbolItem
+                            <ResolvedSymbolItem
                                 key={`entered-${idx}`}
+                                alphabetId={this.alphabetId}
+                                alphabetConfig={this.alphabet!.alphabetConfig}
+                                alphabetsService={this.alphabetsService}
                                 char={char}
                                 index={idx}
                                 scale={scale}
@@ -1261,16 +1279,7 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
                     value={decodedText}
                     onChange={e => {
                         // Synchroniser le textarea avec le tableau des caractères
-                        this.enteredChars = e.target.value.split('');
-                        this.saveState();
-                        this.update();
-                    }}
-                    onKeyDown={(e) => {
-                        // Sauvegarder l'état pour undo/redo lors de modifications
-                        if (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Delete') {
-                            // Délayer la sauvegarde pour permettre au onChange de se déclencher d'abord
-                            setTimeout(() => this.saveState(), 0);
-                        }
+                        this.commitEnteredChars(e.target.value.split(''));
                     }}
                     placeholder='Le texte décodé apparaîtra ici...'
                     style={{
@@ -1535,12 +1544,6 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
         const decimalDisplay = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
         const note = this.buildDetectedWaypointNote(coords, ddmDisplay, decimalDisplay);
 
-        console.log('[AlphabetViewerWidget] Highlight des coordonnées détectées sur la carte', {
-            lat,
-            lon,
-            gc: this.associatedGeocache?.code || 'general'
-        });
-
         try {
             window.dispatchEvent(new CustomEvent('geoapp-map-highlight-coordinate', {
                 detail: {
@@ -1574,13 +1577,11 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
             return;
         }
 
-        console.log('[AlphabetViewerWidget] Ouverture forcée de la carte géocache pour highlight', geocache.code);
         this.lastOpenedGeocacheCode = geocache.code;
         void this.handleShowMap(geocache);
     }
 
     private ensureGeneralMapOpen(): void {
-        console.log('[AlphabetViewerWidget] Demande d\'ouverture de la carte générale');
         this.requestGeneralMapOpen();
     }
 
@@ -1818,17 +1819,17 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
                 </div>
 
                 {/* Lettres minuscules */}
-                {this.renderSymbolSection('Lettres minuscules', this.getLetters(false), scale)}
+                {!config.upperCaseOnly && this.renderSymbolSection('Lettres minuscules', this.getLetters(false), scale)}
 
                 {/* Lettres majuscules (si disponibles) */}
-                {config.hasUpperCase && this.renderSymbolSection('Lettres majuscules', this.getLetters(true), scale)}
+                {(config.hasUpperCase || config.upperCaseOnly) && this.renderSymbolSection('Lettres majuscules', this.getLetters(true), scale)}
 
                 {/* Chiffres */}
                 {this.renderSymbolSection('Chiffres', this.getNumbers(), scale)}
 
                 {/* Symboles spéciaux */}
-                {config.characters.special && Object.keys(config.characters.special).length > 0 && 
-                    this.renderSymbolSection('Symboles spéciaux', Object.keys(config.characters.special), scale)}
+                {Object.keys(getSpecialCharactersMap(config)).length > 0 &&
+                    this.renderSymbolSection('Symboles spéciaux', Object.keys(getSpecialCharactersMap(config)), scale)}
             </div>
         );
     }
@@ -1868,13 +1869,15 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
                     gap: `${12 * scale}px`
                 }}>
                     {chars.map((char, idx) => (
-                        <SymbolItem
+                        <ResolvedSymbolItem
                             key={`available-${title}-${char}`}
+                            alphabetId={this.alphabetId}
+                            alphabetConfig={this.alphabet!.alphabetConfig}
+                            alphabetsService={this.alphabetsService}
                             char={char}
                             index={idx}
                             scale={scale}
                             fontFamily={fontName}
-                            imagePath={config?.type === 'images' ? this.getImageUrl(char) : undefined}
                             isDraggable={false}
                             showIndex={false}
                             showValue={showValue}
@@ -1887,55 +1890,11 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
     }
 
     /**
-     * Obtient l'URL d'une image de symbole.
-     */
-    private getImageUrl(char: string): string {
-        if (!this.alphabet) return '';
-
-        const config = this.alphabet.alphabetConfig;
-        const imageDir = config.imageDir || 'images';
-        const format = config.imageFormat || 'png';
-
-        // Déterminer le nom du fichier
-        let filename: string;
-        
-        if (char.match(/[a-z]/)) {
-            // Lettre minuscule
-            filename = config.lowercaseSuffix
-                ? `${char}_${config.lowercaseSuffix}.${format}`
-                : `${char}.${format}`;
-        } else if (char.match(/[A-Z]/)) {
-            // Lettre majuscule
-            filename = config.uppercaseSuffix
-                ? `${char.toLowerCase()}_${config.uppercaseSuffix}.${format}`
-                : `${char}.${format}`;
-        } else if (char.match(/[0-9]/)) {
-            // Chiffre
-            filename = `${char}.${format}`;
-        } else {
-            // Symbole spécial
-            const specialName = config.characters.special?.[char] || char;
-            filename = `${specialName}.${format}`;
-        }
-
-        return this.alphabetsService.getResourceUrl(this.alphabetId, `${imageDir}/${filename}`);
-    }
-
-    /**
      * Obtient la liste des lettres.
      */
     private getLetters(uppercase: boolean): string[] {
         if (!this.alphabet) return [];
-
-        const config = this.alphabet.alphabetConfig;
-        const letters = config.characters.letters;
-
-        if (letters === 'all') {
-            const start = uppercase ? 'A'.charCodeAt(0) : 'a'.charCodeAt(0);
-            return Array.from({ length: 26 }, (_, i) => String.fromCharCode(start + i));
-        } else {
-            return uppercase ? letters.map(l => l.toUpperCase()) : letters;
-        }
+        return getAlphabetLetters(this.alphabet.alphabetConfig, uppercase);
     }
 
     /**
@@ -1943,15 +1902,7 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
      */
     private getNumbers(): string[] {
         if (!this.alphabet) return [];
-
-        const config = this.alphabet.alphabetConfig;
-        const numbers = config.characters.numbers;
-
-        if (numbers === 'all') {
-            return Array.from({ length: 10 }, (_, i) => String(i));
-        } else {
-            return numbers;
-        }
+        return getAlphabetNumbers(this.alphabet.alphabetConfig);
     }
 
     /**

@@ -13,7 +13,7 @@
       "letters": "all",
       "numbers": "all",
       "special": {
-        ",": "virgule",
+        ",": ",",
         "espace": "espace",
         "debut_paragraphe": "debut_paragraphe",
         "debut_phrase": "debut_phrase"

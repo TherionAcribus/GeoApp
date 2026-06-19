@@ -11,9 +11,8 @@
     "hasUpperCase": false,
     "characters": {
       "letters": "all",
-      "numbers": ""
-    },
-    "special": {
+      "numbers": [],
+      "special": {}
     }
   }
 }

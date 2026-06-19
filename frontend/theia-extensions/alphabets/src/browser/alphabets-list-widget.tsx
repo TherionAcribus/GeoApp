@@ -8,6 +8,11 @@ import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService, CommandService } from '@theia/core';
 import { AlphabetsService } from './services/alphabets-service';
 import { Alphabet, AlphabetsCommands } from '../common/alphabet-protocol';
+import {
+    getFontFamily,
+    getImageResourcePathCandidates,
+    resolveAlphabetImageSource
+} from './alphabet-symbol-resolver';
 
 const PRESET_EXAMPLE_OPTIONS: Array<{ label: string; value: string }> = [
     { label: 'ABC…', value: 'ABCDEFGHIJKLM' },
@@ -18,7 +23,6 @@ const PRESET_EXAMPLE_OPTIONS: Array<{ label: string; value: string }> = [
 
 const MAX_FONT_PREVIEW_LENGTH = 40;
 const IMAGE_PREVIEW_LENGTH = 10;
-const FONT_FAMILY_PREFIX = 'alphabet-font-';
 const CISTERCIAN_TOOL_ID = '__geoapp_cistercian_numerals_tool__';
 
 const CISTERCIAN_TOOL_ALPHABET: Alphabet = {
@@ -39,147 +43,8 @@ const CISTERCIAN_TOOL_ALPHABET: Alphabet = {
     source: 'official'
 };
 
-const sanitizeAlphabetId = (alphabetId: string): string =>
-    alphabetId.replace(/[^a-zA-Z0-9_-]/g, '-');
-
-const getFontFamily = (alphabetId: string): string =>
-    `${FONT_FAMILY_PREFIX}${sanitizeAlphabetId(alphabetId)}`;
-
-const isConfiguredCharacterSupported = (configuredCharacters: unknown, char: string): boolean => {
-    if (configuredCharacters === 'all') {
-        return true;
-    }
-
-    if (!Array.isArray(configuredCharacters)) {
-        return false;
-    }
-
-    return configuredCharacters.some(candidate =>
-        typeof candidate === 'string' && candidate.toLowerCase() === char.toLowerCase()
-    );
-};
-
-const getSpecialCharactersMap = (alphabetConfig: Alphabet['alphabetConfig']): Record<string, string> => {
-    const specialCharacters = alphabetConfig.characters?.special;
-    if (!specialCharacters || typeof specialCharacters !== 'object') {
-        return {};
-    }
-    return specialCharacters;
-};
-
-const getPreviewImageResourcePaths = (
-    alphabetConfig: Alphabet['alphabetConfig'],
-    char: string
-): string[] => {
-    const { imageDir, imageFormat, hasUpperCase } = alphabetConfig;
-    if (!imageDir || !imageFormat || !char) {
-        return [];
-    }
-
-    const specialCharacters = getSpecialCharactersMap(alphabetConfig);
-    const specialResourceName = specialCharacters[char];
-    if (specialResourceName) {
-        return [`${imageDir}/${specialResourceName}.${imageFormat}`];
-    }
-
-    if (/^[0-9]$/.test(char) && isConfiguredCharacterSupported(alphabetConfig.characters?.numbers, char)) {
-        return [`${imageDir}/${char}.${imageFormat}`];
-    }
-
-    if (/^[a-zA-Z]$/.test(char) && isConfiguredCharacterSupported(alphabetConfig.characters?.letters, char)) {
-        const lowerChar = char.toLowerCase();
-        const upperChar = char.toUpperCase();
-        const lowercaseSuffix = alphabetConfig.lowercaseSuffix || 'lowercase';
-        const uppercaseSuffix = alphabetConfig.uppercaseSuffix || 'uppercase';
-        const candidates = hasUpperCase && char === upperChar
-            ? [
-                `${imageDir}/${upperChar}.${imageFormat}`,
-                `${imageDir}/${lowerChar}.${imageFormat}`,
-                `${imageDir}/${upperChar}_${uppercaseSuffix}.${imageFormat}`,
-                `${imageDir}/${lowerChar}_${uppercaseSuffix}.${imageFormat}`
-            ]
-            : [
-                `${imageDir}/${lowerChar}.${imageFormat}`,
-                `${imageDir}/${upperChar}.${imageFormat}`,
-                `${imageDir}/${lowerChar}_${lowercaseSuffix}.${imageFormat}`,
-                `${imageDir}/${upperChar}_${lowercaseSuffix}.${imageFormat}`
-            ];
-
-        return Array.from(new Set(candidates));
-    }
-
-    return [];
-};
-
 const loadedFonts = new Set<string>();
 const loadingFonts: Map<string, Promise<void>> = new Map();
-const previewImageAvailabilityCache: Map<string, boolean> = new Map();
-const previewImageAvailabilityLoading: Map<string, Promise<boolean>> = new Map();
-const resolvedPreviewImageCache: Map<string, string | null> = new Map();
-const resolvingPreviewImageCache: Map<string, Promise<string | null>> = new Map();
-
-const probeImageUrl = (src: string): Promise<boolean> => {
-    if (previewImageAvailabilityCache.has(src)) {
-        return Promise.resolve(previewImageAvailabilityCache.get(src)!);
-    }
-
-    if (previewImageAvailabilityLoading.has(src)) {
-        return previewImageAvailabilityLoading.get(src)!;
-    }
-
-    if (typeof Image === 'undefined') {
-        return Promise.resolve(false);
-    }
-
-    const loadPromise = new Promise<boolean>(resolve => {
-        const image = new Image();
-        image.onload = () => resolve(true);
-        image.onerror = () => resolve(false);
-        image.src = src;
-    }).then(isAvailable => {
-        previewImageAvailabilityCache.set(src, isAvailable);
-        return isAvailable;
-    }).finally(() => {
-        previewImageAvailabilityLoading.delete(src);
-    });
-
-    previewImageAvailabilityLoading.set(src, loadPromise);
-    return loadPromise;
-};
-
-const getResolvedPreviewImage = async (
-    alphabetId: string,
-    resourcePaths: string[],
-    alphabetsService: AlphabetsService
-): Promise<string | null> => {
-    const cacheKey = `${alphabetId}:${resourcePaths.join('|')}`;
-
-    if (resolvedPreviewImageCache.has(cacheKey)) {
-        return resolvedPreviewImageCache.get(cacheKey)!;
-    }
-
-    if (resolvingPreviewImageCache.has(cacheKey)) {
-        return resolvingPreviewImageCache.get(cacheKey)!;
-    }
-
-    const resolvePromise = (async () => {
-        for (const resourcePath of resourcePaths) {
-            const src = alphabetsService.getResourceUrl(alphabetId, resourcePath);
-            if (await probeImageUrl(src)) {
-                resolvedPreviewImageCache.set(cacheKey, src);
-                return src;
-            }
-        }
-
-        resolvedPreviewImageCache.set(cacheKey, null);
-        return null;
-    })().finally(() => {
-        resolvingPreviewImageCache.delete(cacheKey);
-    });
-
-    resolvingPreviewImageCache.set(cacheKey, resolvePromise);
-    return resolvePromise;
-};
 
 interface AlphabetPreviewProps {
     alphabet: Alphabet;
@@ -213,7 +78,7 @@ const AlphabetPreview: React.FC<AlphabetPreviewProps> = React.memo(
             return characterArray.slice(0, IMAGE_PREVIEW_LENGTH).map((char, index) => ({
                 key: `${alphabet.id}-${index}-${char}`,
                 char,
-                resourcePaths: getPreviewImageResourcePaths(alphabetConfig, char)
+                resourcePaths: getImageResourcePathCandidates(alphabetConfig, char)
             }));
         }, [alphabet.id, alphabetConfig, characterArray]);
 
@@ -231,7 +96,7 @@ const AlphabetPreview: React.FC<AlphabetPreviewProps> = React.memo(
                     return;
                 }
 
-                void getResolvedPreviewImage(alphabet.id, entry.resourcePaths, alphabetsService)
+                void resolveAlphabetImageSource(alphabet.id, alphabetConfig, entry.char, alphabetsService)
                     .then(resolvedSource => {
                         if (cancelled) {
                             return;
@@ -425,6 +290,7 @@ export class AlphabetsListWidget extends ReactWidget {
     private exampleTextOption: string = PRESET_EXAMPLE_OPTIONS[0].value;
     private customExampleText: string = '';
     private fontSize: number = 32;
+    private loadRequestSeq: number = 0;
 
     @postConstruct()
     protected init(): void {
@@ -442,6 +308,7 @@ export class AlphabetsListWidget extends ReactWidget {
      * Charge la liste des alphabets depuis le backend.
      */
     private async loadAlphabets(): Promise<void> {
+        const requestSeq = ++this.loadRequestSeq;
         try {
             this.loading = true;
             this.update();
@@ -454,14 +321,25 @@ export class AlphabetsListWidget extends ReactWidget {
                     search_in_tags: this.searchInTags,
                     search_in_readme: this.searchInReadme
                 };
-                this.alphabets = await this.alphabetsService.listAlphabets(searchOptions);
+                const alphabets = await this.alphabetsService.listAlphabets(searchOptions);
+                if (requestSeq !== this.loadRequestSeq) {
+                    return;
+                }
+                this.alphabets = alphabets;
             } else {
-                this.alphabets = await this.alphabetsService.listAlphabets();
+                const alphabets = await this.alphabetsService.listAlphabets();
+                if (requestSeq !== this.loadRequestSeq) {
+                    return;
+                }
+                this.alphabets = alphabets;
             }
             
             this.loading = false;
             this.update();
         } catch (error) {
+            if (requestSeq !== this.loadRequestSeq) {
+                return;
+            }
             console.error('Error loading alphabets:', error);
             this.messageService.error('Erreur lors du chargement des alphabets');
             this.loading = false;
@@ -562,7 +440,7 @@ export class AlphabetsListWidget extends ReactWidget {
                             this.update();
                             this.performSearch();
                         }}
-                        onKeyPress={e => {
+                        onKeyDown={e => {
                             if (e.key === 'Enter') {
                                 // Recherche immédiate sur Enter
                                 if (this.debounceTimer) {
@@ -975,10 +853,8 @@ export class AlphabetsListWidget extends ReactWidget {
             return;
         }
 
-        console.log('AlphabetsListWidget: Opening alphabet:', alphabet.id);
         try {
             this.commandService.executeCommand(AlphabetsCommands.OPEN_VIEWER.id, alphabet.id)
-                .then(() => console.log('AlphabetsListWidget: Command executed successfully'))
                 .catch(err => console.error('AlphabetsListWidget: Error executing command:', err));
         } catch (error) {
             console.error('AlphabetsListWidget: Error calling executeCommand:', error);
@@ -995,13 +871,16 @@ export class AlphabetsListWidget extends ReactWidget {
     }
 
     private getDisplayedAlphabets(): Alphabet[] {
-        const entries = [...this.alphabets, CISTERCIAN_TOOL_ALPHABET];
         const query = this.searchQuery.trim().toLowerCase();
-        const filtered = query
-            ? entries.filter(alphabet => this.matchesLocalSearch(alphabet, query))
-            : entries;
+        if (query) {
+            const cistercianMatches = this.matchesLocalSearch(CISTERCIAN_TOOL_ALPHABET, query)
+                ? [CISTERCIAN_TOOL_ALPHABET]
+                : [];
+            return [...this.alphabets, ...cistercianMatches];
+        }
 
-        return filtered.sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }));
+        return [...this.alphabets, CISTERCIAN_TOOL_ALPHABET]
+            .sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }));
     }
 
     private matchesLocalSearch(alphabet: Alphabet, query: string): boolean {
