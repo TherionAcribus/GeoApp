@@ -25,6 +25,12 @@ const PRESET_EXAMPLE_OPTIONS: Array<{ label: string; value: string }> = [
 const MAX_FONT_PREVIEW_LENGTH = 40;
 const IMAGE_PREVIEW_LENGTH = 10;
 const CISTERCIAN_TOOL_ID = '__geoapp_cistercian_numerals_tool__';
+const LIST_PREFERENCES_STORAGE_KEY = 'geoapp.alphabets.list.preferences';
+
+type AlphabetTypeFilter = 'all' | 'font' | 'images' | 'tool';
+type AlphabetCapabilityFilter = 'all' | 'letters' | 'numbers' | 'special';
+type AlphabetViewMode = 'compact' | 'detailed';
+type AlphabetPreviewMode = 'hover' | 'always';
 
 const CISTERCIAN_TOOL_ALPHABET: Alphabet = {
     id: CISTERCIAN_TOOL_ID,
@@ -292,6 +298,11 @@ export class AlphabetsListWidget extends ReactWidget {
     private exampleTextOption: string = PRESET_EXAMPLE_OPTIONS[0].value;
     private customExampleText: string = '';
     private fontSize: number = 32;
+    private typeFilter: AlphabetTypeFilter = 'all';
+    private capabilityFilter: AlphabetCapabilityFilter = 'all';
+    private viewMode: AlphabetViewMode = 'detailed';
+    private previewMode: AlphabetPreviewMode = 'hover';
+    private hoveredAlphabetId: string | null = null;
     private loadRequestSeq: number = 0;
 
     @postConstruct()
@@ -302,6 +313,7 @@ export class AlphabetsListWidget extends ReactWidget {
         this.title.closable = true;
         this.title.iconClass = 'fa fa-language'; // Icône pour les alphabets
         
+        this.loadListPreferences();
         this.update();
         this.loadAlphabets();
     }
@@ -362,6 +374,61 @@ export class AlphabetsListWidget extends ReactWidget {
         this.debounceTimer = setTimeout(async () => {
             await this.loadAlphabets();
         }, 500); // 500ms de debounce
+    }
+
+    private loadListPreferences(): void {
+        try {
+            const saved = localStorage.getItem(LIST_PREFERENCES_STORAGE_KEY);
+            if (!saved) {
+                return;
+            }
+            const preferences = JSON.parse(saved);
+            this.showExamples = Boolean(preferences.showExamples);
+            this.exampleTextOption = typeof preferences.exampleTextOption === 'string'
+                ? preferences.exampleTextOption
+                : this.exampleTextOption;
+            this.customExampleText = typeof preferences.customExampleText === 'string'
+                ? preferences.customExampleText
+                : '';
+            this.fontSize = typeof preferences.fontSize === 'number' ? preferences.fontSize : this.fontSize;
+            this.typeFilter = this.isTypeFilter(preferences.typeFilter) ? preferences.typeFilter : this.typeFilter;
+            this.capabilityFilter = this.isCapabilityFilter(preferences.capabilityFilter)
+                ? preferences.capabilityFilter
+                : this.capabilityFilter;
+            this.viewMode = preferences.viewMode === 'compact' || preferences.viewMode === 'detailed'
+                ? preferences.viewMode
+                : this.viewMode;
+            this.previewMode = preferences.previewMode === 'always' || preferences.previewMode === 'hover'
+                ? preferences.previewMode
+                : this.previewMode;
+        } catch (error) {
+            console.warn('AlphabetsListWidget: unable to load list preferences', error);
+        }
+    }
+
+    private saveListPreferences(): void {
+        try {
+            localStorage.setItem(LIST_PREFERENCES_STORAGE_KEY, JSON.stringify({
+                showExamples: this.showExamples,
+                exampleTextOption: this.exampleTextOption,
+                customExampleText: this.customExampleText,
+                fontSize: this.fontSize,
+                typeFilter: this.typeFilter,
+                capabilityFilter: this.capabilityFilter,
+                viewMode: this.viewMode,
+                previewMode: this.previewMode
+            }));
+        } catch (error) {
+            console.warn('AlphabetsListWidget: unable to save list preferences', error);
+        }
+    }
+
+    private isTypeFilter(value: unknown): value is AlphabetTypeFilter {
+        return value === 'all' || value === 'font' || value === 'images' || value === 'tool';
+    }
+
+    private isCapabilityFilter(value: unknown): value is AlphabetCapabilityFilter {
+        return value === 'all' || value === 'letters' || value === 'numbers' || value === 'special';
     }
 
     /**
@@ -566,10 +633,130 @@ export class AlphabetsListWidget extends ReactWidget {
                     </label>
                 </div>
 
+                {this.renderQuickFilters()}
+
                 <div style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)' }}>
                     {this.getDisplayedAlphabets().length} alphabet(s) disponible(s)
                 </div>
             </div>
+        );
+    }
+
+    private renderQuickFilters(): React.ReactNode {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', margin: '10px 0' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                    {this.renderFilterButton('Tous', this.typeFilter === 'all', () => {
+                        this.typeFilter = 'all';
+                        this.saveListPreferences();
+                        this.update();
+                    })}
+                    {this.renderFilterButton('Polices', this.typeFilter === 'font', () => {
+                        this.typeFilter = 'font';
+                        this.saveListPreferences();
+                        this.update();
+                    })}
+                    {this.renderFilterButton('Images', this.typeFilter === 'images', () => {
+                        this.typeFilter = 'images';
+                        this.saveListPreferences();
+                        this.update();
+                    })}
+                    {this.renderFilterButton('Outils', this.typeFilter === 'tool', () => {
+                        this.typeFilter = 'tool';
+                        this.saveListPreferences();
+                        this.update();
+                    })}
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                    {this.renderFilterButton('Tout contenu', this.capabilityFilter === 'all', () => {
+                        this.capabilityFilter = 'all';
+                        this.saveListPreferences();
+                        this.update();
+                    })}
+                    {this.renderFilterButton('Lettres', this.capabilityFilter === 'letters', () => {
+                        this.capabilityFilter = 'letters';
+                        this.saveListPreferences();
+                        this.update();
+                    })}
+                    {this.renderFilterButton('Chiffres', this.capabilityFilter === 'numbers', () => {
+                        this.capabilityFilter = 'numbers';
+                        this.saveListPreferences();
+                        this.update();
+                    })}
+                    {this.renderFilterButton('Speciaux', this.capabilityFilter === 'special', () => {
+                        this.capabilityFilter = 'special';
+                        this.saveListPreferences();
+                        this.update();
+                    })}
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
+                    <select
+                        value={this.viewMode}
+                        onChange={e => {
+                            this.viewMode = e.target.value === 'compact' ? 'compact' : 'detailed';
+                            this.saveListPreferences();
+                            this.update();
+                        }}
+                        title='Densite de la liste'
+                        style={{
+                            flex: '1 1 120px',
+                            minWidth: '120px',
+                            padding: '4px 8px',
+                            borderRadius: '3px',
+                            backgroundColor: 'var(--theia-input-background)',
+                            color: 'var(--theia-input-foreground)',
+                            border: '1px solid var(--theia-input-border)',
+                            fontSize: '11px'
+                        }}
+                    >
+                        <option value='detailed'>Vue detaillee</option>
+                        <option value='compact'>Vue compacte</option>
+                    </select>
+                    <select
+                        value={this.previewMode}
+                        onChange={e => {
+                            this.previewMode = e.target.value === 'always' ? 'always' : 'hover';
+                            this.saveListPreferences();
+                            this.update();
+                        }}
+                        disabled={!this.showExamples}
+                        title='Chargement des exemples'
+                        style={{
+                            flex: '1 1 120px',
+                            minWidth: '120px',
+                            padding: '4px 8px',
+                            borderRadius: '3px',
+                            backgroundColor: 'var(--theia-input-background)',
+                            color: 'var(--theia-input-foreground)',
+                            border: '1px solid var(--theia-input-border)',
+                            fontSize: '11px',
+                            opacity: this.showExamples ? 1 : 0.6
+                        }}
+                    >
+                        <option value='hover'>Preview au survol</option>
+                        <option value='always'>Preview partout</option>
+                    </select>
+                </div>
+            </div>
+        );
+    }
+
+    private renderFilterButton(label: string, active: boolean, onClick: () => void): React.ReactNode {
+        return (
+            <button
+                onClick={onClick}
+                style={{
+                    border: `1px solid ${active ? 'var(--theia-focusBorder)' : 'var(--theia-input-border)'}`,
+                    backgroundColor: active ? 'var(--theia-button-background)' : 'var(--theia-input-background)',
+                    color: active ? 'var(--theia-button-foreground)' : 'var(--theia-input-foreground)',
+                    borderRadius: '3px',
+                    padding: '3px 7px',
+                    cursor: 'pointer',
+                    fontSize: '11px'
+                }}
+            >
+                {label}
+            </button>
         );
     }
 
@@ -601,6 +788,7 @@ export class AlphabetsListWidget extends ReactWidget {
                         value={this.showExamples ? 'true' : 'false'}
                         onChange={e => {
                             this.showExamples = e.target.value === 'true';
+                            this.saveListPreferences();
                             this.update();
                         }}
                         style={{
@@ -630,6 +818,7 @@ export class AlphabetsListWidget extends ReactWidget {
                             value={this.exampleTextOption}
                             onChange={e => {
                                 this.exampleTextOption = e.target.value;
+                                this.saveListPreferences();
                                 this.update();
                             }}
                             disabled={controlsDisabled}
@@ -659,6 +848,7 @@ export class AlphabetsListWidget extends ReactWidget {
                                 value={this.customExampleText}
                                 onChange={e => {
                                     this.customExampleText = e.target.value;
+                                    this.saveListPreferences();
                                     this.update();
                                 }}
                                 placeholder='Saisissez votre texte...'
@@ -688,6 +878,7 @@ export class AlphabetsListWidget extends ReactWidget {
                             onChange={e => {
                                 const value = parseInt(e.target.value, 10);
                                 this.fontSize = Number.isNaN(value) ? 32 : value;
+                                this.saveListPreferences();
                                 this.update();
                             }}
                             disabled={controlsDisabled}
@@ -756,14 +947,21 @@ export class AlphabetsListWidget extends ReactWidget {
             alphabet.search_matches &&
             alphabet.search_matches.length > 0
         );
+        const isCompact = this.viewMode === 'compact';
+        const shouldShowPreview = Boolean(
+            previewText &&
+            !isCistercianTool &&
+            this.viewMode === 'detailed' &&
+            (this.previewMode === 'always' || this.hoveredAlphabetId === alphabet.id)
+        );
 
         return (
             <div
                 key={alphabet.id}
                 onClick={() => this.openAlphabet(alphabet)}
                 style={{
-                    padding: '10px',
-                    marginBottom: '8px',
+                    padding: isCompact ? '7px 8px' : '10px',
+                    marginBottom: isCompact ? '5px' : '8px',
                     backgroundColor: 'var(--theia-list-activeSelectionBackground)',
                     border: '1px solid var(--theia-list-inactiveSelectionBackground)',
                     borderRadius: '4px',
@@ -771,28 +969,40 @@ export class AlphabetsListWidget extends ReactWidget {
                     transition: 'all 0.2s'
                 }}
                 onMouseEnter={e => {
+                    this.hoveredAlphabetId = alphabet.id;
                     e.currentTarget.style.backgroundColor = 'var(--theia-list-hoverBackground)';
+                    if (this.previewMode === 'hover' && this.showExamples && this.viewMode === 'detailed') {
+                        this.update();
+                    }
                 }}
                 onMouseLeave={e => {
+                    this.hoveredAlphabetId = null;
                     e.currentTarget.style.backgroundColor = 'var(--theia-list-activeSelectionBackground)';
+                    if (this.previewMode === 'hover' && this.showExamples && this.viewMode === 'detailed') {
+                        this.update();
+                    }
                 }}
             >
-                <div style={{ marginBottom: '4px' }}>
+                <div style={{ marginBottom: isCompact ? '2px' : '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                     {isCistercianTool && <i className='fa fa-calculator' style={{ marginRight: '8px' }} />}
                     <span style={{
                         fontWeight: 'bold',
+                        flex: 1,
                         color: 'var(--theia-foreground)'
                     }}>
                         {alphabet.name}
                     </span>
+                    {this.renderAlphabetBadges(alphabet)}
                 </div>
-                <div style={{ 
-                    fontSize: '11px',
-                    color: 'var(--theia-descriptionForeground)',
-                    marginBottom: '4px'
-                }}>
-                    {alphabet.description}
-                </div>
+                {!isCompact && (
+                    <div style={{
+                        fontSize: '11px',
+                        color: 'var(--theia-descriptionForeground)',
+                        marginBottom: '4px'
+                    }}>
+                        {alphabet.description}
+                    </div>
+                )}
                 {hasSearchMatches && (
                     <div style={{ marginBottom: '4px' }}>
                         <div style={{ color: 'var(--theia-linkForeground)', fontSize: '10px', fontWeight: 600 }}>
@@ -816,7 +1026,7 @@ export class AlphabetsListWidget extends ReactWidget {
                         </div>
                     </div>
                 )}
-                {alphabet.tags && alphabet.tags.length > 0 && (
+                {!isCompact && alphabet.tags && alphabet.tags.length > 0 && (
                     <div style={{ 
                         fontSize: '10px',
                         color: 'var(--theia-descriptionForeground)'
@@ -834,7 +1044,7 @@ export class AlphabetsListWidget extends ReactWidget {
                         ))}
                     </div>
                 )}
-                {previewText && !isCistercianTool && (
+                {shouldShowPreview && (
                     <AlphabetPreview
                         alphabet={alphabet}
                         previewText={previewText}
@@ -843,6 +1053,46 @@ export class AlphabetsListWidget extends ReactWidget {
                     />
                 )}
             </div>
+        );
+    }
+
+    private renderAlphabetBadges(alphabet: Alphabet): React.ReactNode {
+        const badges: string[] = [];
+        if (alphabet.id === CISTERCIAN_TOOL_ID) {
+            badges.push('outil');
+        } else {
+            badges.push(alphabet.alphabetConfig.type === 'font' ? 'font' : 'images');
+        }
+
+        if (this.hasLetters(alphabet)) {
+            badges.push('A-Z');
+        }
+        if (this.hasNumbers(alphabet)) {
+            badges.push('0-9');
+        }
+        if (this.hasSpecialCharacters(alphabet)) {
+            badges.push('special');
+        }
+
+        return (
+            <span style={{ display: 'flex', flexWrap: 'wrap', gap: '3px', justifyContent: 'flex-end' }}>
+                {badges.map(badge => (
+                    <span
+                        key={`${alphabet.id}-badge-${badge}`}
+                        style={{
+                            padding: '1px 4px',
+                            borderRadius: '2px',
+                            backgroundColor: 'var(--theia-badge-background)',
+                            color: 'var(--theia-badge-foreground)',
+                            fontSize: '9px',
+                            lineHeight: 1.4,
+                            whiteSpace: 'nowrap'
+                        }}
+                    >
+                        {badge}
+                    </span>
+                ))}
+            </span>
         );
     }
 
@@ -878,11 +1128,52 @@ export class AlphabetsListWidget extends ReactWidget {
             const cistercianMatches = this.matchesLocalSearch(CISTERCIAN_TOOL_ALPHABET, query)
                 ? [CISTERCIAN_TOOL_ALPHABET]
                 : [];
-            return [...this.alphabets, ...cistercianMatches];
+            return [...this.alphabets, ...cistercianMatches]
+                .filter(alphabet => this.matchesActiveFilters(alphabet));
         }
 
         return [...this.alphabets, CISTERCIAN_TOOL_ALPHABET]
+            .filter(alphabet => this.matchesActiveFilters(alphabet))
             .sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }));
+    }
+
+    private matchesActiveFilters(alphabet: Alphabet): boolean {
+        if (this.typeFilter === 'tool' && alphabet.id !== CISTERCIAN_TOOL_ID) {
+            return false;
+        }
+        if (this.typeFilter === 'font' && alphabet.alphabetConfig.type !== 'font') {
+            return false;
+        }
+        if (this.typeFilter === 'images' && (alphabet.id === CISTERCIAN_TOOL_ID || alphabet.alphabetConfig.type !== 'images')) {
+            return false;
+        }
+
+        if (this.capabilityFilter === 'letters' && !this.hasLetters(alphabet)) {
+            return false;
+        }
+        if (this.capabilityFilter === 'numbers' && !this.hasNumbers(alphabet)) {
+            return false;
+        }
+        if (this.capabilityFilter === 'special' && !this.hasSpecialCharacters(alphabet)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private hasLetters(alphabet: Alphabet): boolean {
+        const letters = alphabet.alphabetConfig.characters?.letters;
+        return letters === 'all' || (Array.isArray(letters) && letters.length > 0);
+    }
+
+    private hasNumbers(alphabet: Alphabet): boolean {
+        const numbers = alphabet.alphabetConfig.characters?.numbers;
+        return numbers === 'all' || (Array.isArray(numbers) && numbers.length > 0);
+    }
+
+    private hasSpecialCharacters(alphabet: Alphabet): boolean {
+        const special = alphabet.alphabetConfig.characters?.special;
+        return Boolean(special && Object.keys(special).length > 0);
     }
 
     private matchesLocalSearch(alphabet: Alphabet, query: string): boolean {
