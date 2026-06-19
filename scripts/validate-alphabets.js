@@ -6,6 +6,8 @@ const path = require('path');
 const repoRoot = path.resolve(__dirname, '..');
 const alphabetsRoot = path.join(repoRoot, 'alphabets');
 const errors = [];
+const FONT_EXTENSIONS = new Set(['.ttf', '.otf', '.woff', '.woff2']);
+const SFNT_REQUIRED_TABLES = ['cmap', 'head', 'hhea', 'hmtx', 'maxp', 'name'];
 
 function addError(alphabetId, message) {
     errors.push(`${alphabetId}: ${message}`);
@@ -50,6 +52,149 @@ function getLetterImageCandidates(config, char) {
 
 function hasAnyImage(alphabetDir, candidates) {
     return candidates.some(candidate => fileExists(alphabetDir, candidate));
+}
+
+function readUInt16(buffer, offset) {
+    return buffer.readUInt16BE(offset);
+}
+
+function readUInt32(buffer, offset) {
+    return buffer.readUInt32BE(offset);
+}
+
+function readTag(buffer, offset) {
+    return buffer.toString('ascii', offset, offset + 4);
+}
+
+function validateSfntFont(alphabetId, relativeFontPath, buffer) {
+    if (buffer.length < 12) {
+        addError(alphabetId, `font file is too small: ${relativeFontPath}`);
+        return;
+    }
+
+    const signature = readTag(buffer, 0);
+    const sfntVersion = readUInt32(buffer, 0);
+    const isTrueType = sfntVersion === 0x00010000 || signature === 'true';
+    const isOpenType = signature === 'OTTO';
+    if (!isTrueType && !isOpenType) {
+        addError(alphabetId, `font file has invalid SFNT signature: ${relativeFontPath}`);
+        return;
+    }
+
+    const numTables = readUInt16(buffer, 4);
+    const tableDirectoryEnd = 12 + numTables * 16;
+    if (numTables <= 0 || tableDirectoryEnd > buffer.length) {
+        addError(alphabetId, `font file has invalid table directory: ${relativeFontPath}`);
+        return;
+    }
+
+    const tables = new Map();
+    for (let index = 0; index < numTables; index += 1) {
+        const offset = 12 + index * 16;
+        const tag = readTag(buffer, offset);
+        const tableOffset = readUInt32(buffer, offset + 8);
+        const tableLength = readUInt32(buffer, offset + 12);
+        if (tableOffset <= 0 || tableLength <= 0 || tableOffset + tableLength > buffer.length) {
+            addError(alphabetId, `font table ${tag} points outside file: ${relativeFontPath}`);
+            return;
+        }
+        tables.set(tag, { offset: tableOffset, length: tableLength });
+    }
+
+    for (const table of SFNT_REQUIRED_TABLES) {
+        if (!tables.has(table)) {
+            addError(alphabetId, `font file is missing required table "${table}": ${relativeFontPath}`);
+        }
+    }
+
+    if (isTrueType && (!tables.has('glyf') || !tables.has('loca'))) {
+        addError(alphabetId, `TrueType font must contain glyf and loca tables: ${relativeFontPath}`);
+    }
+    if (isOpenType && !tables.has('CFF ') && !tables.has('CFF2')) {
+        addError(alphabetId, `OpenType font must contain CFF or CFF2 table: ${relativeFontPath}`);
+    }
+}
+
+function validateWoffFont(alphabetId, relativeFontPath, buffer) {
+    if (buffer.length < 44) {
+        addError(alphabetId, `WOFF font file is too small: ${relativeFontPath}`);
+        return;
+    }
+    const flavor = readUInt32(buffer, 4);
+    const length = readUInt32(buffer, 8);
+    const numTables = readUInt16(buffer, 12);
+    if (length !== buffer.length) {
+        addError(alphabetId, `WOFF declared length does not match file size: ${relativeFontPath}`);
+    }
+    if (numTables <= 0) {
+        addError(alphabetId, `WOFF font has no table entries: ${relativeFontPath}`);
+    }
+    if (flavor !== 0x00010000 && flavor !== 0x4f54544f) {
+        addError(alphabetId, `WOFF font has unsupported flavor: ${relativeFontPath}`);
+    }
+}
+
+function validateWoff2Font(alphabetId, relativeFontPath, buffer) {
+    if (buffer.length < 48) {
+        addError(alphabetId, `WOFF2 font file is too small: ${relativeFontPath}`);
+        return;
+    }
+    const flavor = readUInt32(buffer, 4);
+    const length = readUInt32(buffer, 8);
+    const numTables = readUInt16(buffer, 12);
+    if (length !== buffer.length) {
+        addError(alphabetId, `WOFF2 declared length does not match file size: ${relativeFontPath}`);
+    }
+    if (numTables <= 0) {
+        addError(alphabetId, `WOFF2 font has no table entries: ${relativeFontPath}`);
+    }
+    if (flavor !== 0x00010000 && flavor !== 0x4f54544f) {
+        addError(alphabetId, `WOFF2 font has unsupported flavor: ${relativeFontPath}`);
+    }
+}
+
+function validateFontFile(alphabetId, alphabetDir, relativeFontPath) {
+    const extension = path.extname(relativeFontPath).toLowerCase();
+    if (!FONT_EXTENSIONS.has(extension)) {
+        addError(alphabetId, `font file must use .ttf, .otf, .woff or .woff2: ${relativeFontPath}`);
+        return;
+    }
+
+    const fontPath = path.join(alphabetDir, relativeFontPath);
+    if (!fs.existsSync(fontPath)) {
+        addError(alphabetId, `font file not found: ${relativeFontPath}`);
+        return;
+    }
+    if (!fs.statSync(fontPath).isFile()) {
+        addError(alphabetId, `font path is not a file: ${relativeFontPath}`);
+        return;
+    }
+
+    const buffer = fs.readFileSync(fontPath);
+    if (buffer.length < 4) {
+        addError(alphabetId, `font file is empty or too small: ${relativeFontPath}`);
+        return;
+    }
+
+    const signature = readTag(buffer, 0);
+    if (extension === '.woff') {
+        if (signature !== 'wOFF') {
+            addError(alphabetId, `font extension .woff does not match file signature: ${relativeFontPath}`);
+            return;
+        }
+        validateWoffFont(alphabetId, relativeFontPath, buffer);
+        return;
+    }
+    if (extension === '.woff2') {
+        if (signature !== 'wOF2') {
+            addError(alphabetId, `font extension .woff2 does not match file signature: ${relativeFontPath}`);
+            return;
+        }
+        validateWoff2Font(alphabetId, relativeFontPath, buffer);
+        return;
+    }
+
+    validateSfntFont(alphabetId, relativeFontPath, buffer);
 }
 
 function validateImages(alphabetId, alphabetDir, config, characters) {
@@ -135,8 +280,8 @@ for (const alphabetId of fs.readdirSync(alphabetsRoot)) {
     if (config.type === 'font') {
         if (!config.fontFile || typeof config.fontFile !== 'string') {
             addError(alphabetId, 'alphabetConfig.fontFile is required for font alphabets');
-        } else if (!fileExists(alphabetDir, config.fontFile)) {
-            addError(alphabetId, `font file not found: ${config.fontFile}`);
+        } else {
+            validateFontFile(alphabetId, alphabetDir, config.fontFile);
         }
     } else if (config.type === 'images') {
         validateImages(alphabetId, alphabetDir, config, characters);

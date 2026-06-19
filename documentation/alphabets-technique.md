@@ -578,6 +578,11 @@ Le validateur echoue si :
 - `characters.letters` ou `characters.numbers` n'est ni `"all"` ni `string[]` ;
 - `characters.special` n'est pas un objet ;
 - une police referencee est absente ;
+- une police referencee a une extension non supportee ;
+- une police referencee a une signature binaire incompatible avec son extension ;
+- une police TTF/OTF n'expose pas un repertoire SFNT valide ou les tables
+  minimales attendues ;
+- une police WOFF/WOFF2 a un header incoherent ;
 - un dossier ou format image est absent ;
 - une image attendue pour une lettre, un chiffre ou un special est absente ;
 - un special pointe vers une ressource vide.
