@@ -2626,6 +2626,33 @@
         "frontend"
       ]
     },
+    "geoApp.alphabets.listPreferences": {
+      "type": "object",
+      "default": {},
+      "title": "Preferences de liste des alphabets",
+      "description": "Etat d'affichage de la liste Alphabets: filtres, famille, mode compact/detaille et options de previsualisation.",
+      "x-ui": {
+        "section": "Alphabets",
+        "label": "Etat de la liste",
+        "advanced": true,
+        "order": 15,
+        "keywords": [
+          "alphabet",
+          "liste",
+          "filtres",
+          "previsualisation"
+        ]
+      },
+      "x-category": "alphabets",
+      "x-targets": [
+        "frontend",
+        "backend"
+      ],
+      "x-tags": [
+        "ui",
+        "persistence"
+      ]
+    },
     "geoApp.alphabets.favoriteIds": {
       "type": "array",
       "default": [],

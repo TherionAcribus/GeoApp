@@ -26,15 +26,29 @@ const MAX_FONT_PREVIEW_LENGTH = 40;
 const IMAGE_PREVIEW_LENGTH = 10;
 const CISTERCIAN_TOOL_ID = '__geoapp_cistercian_numerals_tool__';
 const LIST_PREFERENCES_STORAGE_KEY = 'geoapp.alphabets.list.preferences';
+const LIST_PREFERENCES_PREF = 'geoApp.alphabets.listPreferences';
 const FAVORITE_ALPHABETS_PREF = 'geoApp.alphabets.favoriteIds';
 const RECENT_ALPHABETS_PREF = 'geoApp.alphabets.recentIds';
 const MAX_RECENT_ALPHABETS = 8;
+const PERSIST_LIST_PREFERENCES_DELAY_MS = 800;
 
 type AlphabetFamilyFilter = 'all' | 'fiction' | 'runes' | 'communication' | 'numeric' | 'tactile' | 'visual';
 type AlphabetCapabilityFilter = 'all' | 'letters' | 'numbers' | 'special';
 type AlphabetScopeFilter = 'all' | 'favorites' | 'recent';
 type AlphabetViewMode = 'compact' | 'detailed';
 type AlphabetPreviewMode = 'hover' | 'always';
+
+interface AlphabetListPreferencesPayload {
+    showExamples?: boolean;
+    exampleTextOption?: string;
+    customExampleText?: string;
+    fontSize?: number;
+    scopeFilter?: AlphabetScopeFilter;
+    familyFilter?: AlphabetFamilyFilter;
+    capabilityFilter?: AlphabetCapabilityFilter;
+    viewMode?: AlphabetViewMode;
+    previewMode?: AlphabetPreviewMode;
+}
 
 const FAMILY_FILTERS: Array<{ id: AlphabetFamilyFilter; label: string; keywords: string[] }> = [
     { id: 'all', label: 'Toutes familles', keywords: [] },
@@ -344,6 +358,7 @@ export class AlphabetsListWidget extends ReactWidget {
     private recentAlphabetIds: string[] = [];
     private hoveredAlphabetId: string | null = null;
     private loadRequestSeq: number = 0;
+    private persistListPreferencesTimer: NodeJS.Timeout | null = null;
 
     @postConstruct()
     protected init(): void {
@@ -455,31 +470,31 @@ export class AlphabetsListWidget extends ReactWidget {
     private saveListPreferences(): void {
         try {
             localStorage.setItem(LIST_PREFERENCES_STORAGE_KEY, JSON.stringify({
-                showExamples: this.showExamples,
-                exampleTextOption: this.exampleTextOption,
-                customExampleText: this.customExampleText,
-                fontSize: this.fontSize,
-                scopeFilter: this.scopeFilter,
-                familyFilter: this.familyFilter,
-                capabilityFilter: this.capabilityFilter,
-                viewMode: this.viewMode,
-                previewMode: this.previewMode,
+                ...this.getListPreferencesPayload(),
                 favoriteAlphabetIds: this.favoriteAlphabetIds,
                 recentAlphabetIds: this.recentAlphabetIds
             }));
         } catch (error) {
             console.warn('AlphabetsListWidget: unable to save list preferences', error);
         }
+        this.schedulePersistentListPreferencesSave();
     }
 
     private async loadPersistentAlphabetState(): Promise<void> {
         const localFavorites = [...this.favoriteAlphabetIds];
         const localRecents = [...this.recentAlphabetIds];
 
-        const [storedFavorites, storedRecents] = await Promise.all([
+        const [storedListPreferences, storedFavorites, storedRecents] = await Promise.all([
+            this.alphabetsService.getPreference<Record<string, unknown>>(LIST_PREFERENCES_PREF, {}),
             this.alphabetsService.getPreference<string[]>(FAVORITE_ALPHABETS_PREF, []),
             this.alphabetsService.getPreference<string[]>(RECENT_ALPHABETS_PREF, [])
         ]);
+
+        if (this.isRecord(storedListPreferences) && Object.keys(storedListPreferences).length > 0) {
+            this.applyListPreferences(storedListPreferences);
+        } else {
+            void this.savePersistentListPreferences();
+        }
 
         const remoteFavorites = this.normalizeStoredIds(storedFavorites);
         const remoteRecents = this.normalizeStoredIds(storedRecents).slice(0, MAX_RECENT_ALPHABETS);
@@ -506,6 +521,68 @@ export class AlphabetsListWidget extends ReactWidget {
         });
     }
 
+    private getListPreferencesPayload(): AlphabetListPreferencesPayload {
+        return {
+            showExamples: this.showExamples,
+            exampleTextOption: this.exampleTextOption,
+            customExampleText: this.customExampleText,
+            fontSize: this.fontSize,
+            scopeFilter: this.scopeFilter,
+            familyFilter: this.familyFilter,
+            capabilityFilter: this.capabilityFilter,
+            viewMode: this.viewMode,
+            previewMode: this.previewMode
+        };
+    }
+
+    private applyListPreferences(preferences: Record<string, unknown>): void {
+        if ('showExamples' in preferences) {
+            this.showExamples = Boolean(preferences.showExamples);
+        }
+        if (typeof preferences.exampleTextOption === 'string') {
+            this.exampleTextOption = preferences.exampleTextOption;
+        }
+        if (typeof preferences.customExampleText === 'string') {
+            this.customExampleText = preferences.customExampleText;
+        }
+        if (typeof preferences.fontSize === 'number') {
+            this.fontSize = preferences.fontSize;
+        }
+        if (this.isScopeFilter(preferences.scopeFilter)) {
+            this.scopeFilter = preferences.scopeFilter;
+        }
+        if (this.isFamilyFilter(preferences.familyFilter)) {
+            this.familyFilter = preferences.familyFilter;
+        }
+        if (this.isCapabilityFilter(preferences.capabilityFilter)) {
+            this.capabilityFilter = preferences.capabilityFilter;
+        }
+        if (preferences.viewMode === 'compact' || preferences.viewMode === 'detailed') {
+            this.viewMode = preferences.viewMode;
+        }
+        if (preferences.previewMode === 'always' || preferences.previewMode === 'hover') {
+            this.previewMode = preferences.previewMode;
+        }
+    }
+
+    private schedulePersistentListPreferencesSave(): void {
+        if (this.persistListPreferencesTimer) {
+            clearTimeout(this.persistListPreferencesTimer);
+        }
+        this.persistListPreferencesTimer = setTimeout(() => {
+            this.persistListPreferencesTimer = null;
+            void this.savePersistentListPreferences();
+        }, PERSIST_LIST_PREFERENCES_DELAY_MS);
+    }
+
+    private savePersistentListPreferences(): Promise<void> {
+        return this.alphabetsService.updatePreferences({
+            [LIST_PREFERENCES_PREF]: this.getListPreferencesPayload()
+        }).catch(error => {
+            console.warn('AlphabetsListWidget: unable to persist list preferences', error);
+        });
+    }
+
     private isFamilyFilter(value: unknown): value is AlphabetFamilyFilter {
         return FAMILY_FILTERS.some(filter => filter.id === value);
     }
@@ -522,6 +599,10 @@ export class AlphabetsListWidget extends ReactWidget {
         return Array.isArray(value)
             ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
             : [];
+    }
+
+    private isRecord(value: unknown): value is Record<string, unknown> {
+        return typeof value === 'object' && value !== null && !Array.isArray(value);
     }
 
     /**

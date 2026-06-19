@@ -460,6 +460,8 @@ Regles importantes :
 - preserve l'ordre `search_score` quand une recherche est active ;
 - ajoute localement le faux item `Chiffres cisterciens` uniquement s'il matche ;
 - affiche les previews avec la meme logique image/font que le viewer ;
+- persiste favoris, recents et preferences d'affichage via les preferences
+  backend GeoApp, avec `localStorage` comme cache/fallback ;
 - ignore les reponses obsoletes via un compteur de requete.
 
 ### 7.5 Viewer alphabet
