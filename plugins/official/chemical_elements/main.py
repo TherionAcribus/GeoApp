@@ -14,6 +14,15 @@ import re
 import time
 from typing import Any, Dict, List, Optional
 
+try:
+    from gc_backend.plugins.code_solving import WordCodec, normalize_allowed_chars
+except ImportError:  # execution standalone / tests hors backend
+    import pathlib
+    import sys
+
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.code_solving import WordCodec, normalize_allowed_chars
+
 
 DEFAULT_ALLOWED_CHARS = " \t\r\n.:;,_-°"
 NON_BREAKING_WHITESPACES = "\u00a0\u202f"
@@ -147,6 +156,16 @@ class ChemicalElementsPlugin:
 
         self.number_to_element: Dict[int, str] = {v: k for k, v in self.element_to_number.items()}
 
+        # Logique strict/embedded/allowed_chars partagee. Chaque "mot" doit etre
+        # un symbole chimique connu (sensible a la casse) ; en strict, tous les
+        # mots doivent l'etre.
+        self._codec = WordCodec(
+            validate_word=lambda word: word in self.element_to_number,
+            case="keep",
+            strict_mode="per_word",
+            strict_require="all",
+        )
+
     def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         start_time = time.time()
 
@@ -244,55 +263,15 @@ class ChemicalElementsPlugin:
 
     def check_code(self, text: str, strict: bool = False, allowed_chars: Optional[str] = None, embedded: bool = False) -> Dict[str, Any]:
         allowed_chars = self._prepare_allowed_chars(allowed_chars)
-
-        if strict:
-            if embedded:
-                return self._extract_elements(text, allowed_chars)
-
-            esc_punct = re.escape(allowed_chars)
-            words = re.split(f"[{esc_punct}]+", text)
-            words = [w for w in words if w]
-            if not words:
-                return {"is_match": False, "fragments": [], "score": 0.0}
-
-            fragments: List[Dict[str, Any]] = []
-            for word in words:
-                if word in self.element_to_number:
-                    start = text.find(word)
-                    fragments.append({"value": word, "start": start, "end": start + len(word)})
-                else:
-                    return {"is_match": False, "fragments": [], "score": 0.0}
-
-            return {"is_match": bool(fragments), "fragments": fragments, "score": 1.0 if fragments else 0.0}
-
-        return self._extract_elements(text, allowed_chars)
+        return self._codec.check(
+            text,
+            strict=strict,
+            embedded=embedded,
+            allowed_chars=allowed_chars,
+        )
 
     def _prepare_allowed_chars(self, allowed_chars: Optional[Any]) -> str:
-        if allowed_chars is None:
-            allowed_chars = DEFAULT_ALLOWED_CHARS
-        if isinstance(allowed_chars, list):
-            allowed_chars = "".join(allowed_chars)
-        allowed_chars = str(allowed_chars)
-
-        for char in NON_BREAKING_WHITESPACES:
-            if char not in allowed_chars:
-                allowed_chars += char
-
-        return allowed_chars
-
-    def _extract_elements(self, text: str, allowed_chars: Optional[str]) -> Dict[str, Any]:
-        allowed_chars = self._prepare_allowed_chars(allowed_chars)
-        esc_punct = re.escape(allowed_chars)
-        pattern = f"[^{esc_punct}]+"
-
-        fragments: List[Dict[str, Any]] = []
-        for match in re.finditer(pattern, text):
-            word = match.group(0)
-            start, end = match.span()
-            if word in self.element_to_number:
-                fragments.append({"value": word, "start": start, "end": end})
-
-        return {"is_match": bool(fragments), "fragments": fragments, "score": 1.0 if fragments else 0.0}
+        return normalize_allowed_chars(allowed_chars, default=DEFAULT_ALLOWED_CHARS)
 
     def decode_fragments(self, text: str, fragments: List[Dict[str, Any]]) -> str:
         sorted_fragments = sorted(fragments, key=lambda f: f["start"], reverse=True)

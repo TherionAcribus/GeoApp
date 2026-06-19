@@ -4,6 +4,18 @@ import re
 import time
 from typing import Any, Dict, List
 
+try:
+    from gc_backend.plugins.code_solving import WordCodec, normalize_allowed_chars
+except ImportError:  # execution standalone / tests hors backend
+    import pathlib
+    import sys
+
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.code_solving import WordCodec, normalize_allowed_chars
+
+DEFAULT_ALLOWED_CHARS = " \t\r\n.:;,_-°"
+ROMAN_CHARS = "IVXLCDM"
+
 
 class RomanCodePlugin:
     def __init__(self) -> None:
@@ -19,6 +31,14 @@ class RomanCodePlugin:
         except Exception:
             self._score_text = None
             self._scoring_available = False
+
+        # Logique strict/embedded/allowed_chars partagee. Un "mot" est un code
+        # romain valide s'il n'est compose que de symboles IVXLCDM.
+        self._codec = WordCodec(
+            validate_word=lambda word: bool(word) and all(c in ROMAN_CHARS for c in word),
+            case="upper",
+            charset=ROMAN_CHARS,
+        )
 
     def encode_roman(self, number: int) -> str:
         if number <= 0:
@@ -74,70 +94,14 @@ class RomanCodePlugin:
 
         return total
 
-    def _extract_roman_fragments(self, text: str, allowed_chars: str) -> dict:
-        roman_chars = "IVXLCDM"
-        esc_punct = re.escape(allowed_chars)
-        pattern = f"([^{esc_punct}]+)|([{esc_punct}]+)"
-        fragments = []
-
-        for match in re.finditer(pattern, text.upper()):
-            block = match.group(0)
-            start, end = match.span()
-            if re.match(f"^[{esc_punct}]+$", block):
-                continue
-            if all(char in roman_chars for char in block):
-                try:
-                    self.decode_roman(block)
-                    fragments.append({"value": text[start:end], "start": start, "end": end})
-                except ValueError:
-                    continue
-
-        score = 1.0 if fragments else 0.0
-        return {"is_match": bool(fragments), "fragments": fragments, "score": score}
-
     def check_code(self, text: str, strict: bool = False, allowed_chars: str | None = None, embedded: bool = False) -> dict:
-        if allowed_chars is not None and isinstance(allowed_chars, list):
-            allowed_chars = "".join(allowed_chars)
-        # Normalize empty/None to default set to avoid invalid regex like "[]".
-        if not allowed_chars:
-            allowed_chars = " \t\r\n.:;,_-°"
-
-        roman_chars = "IVXLCDM"
-
-        if strict:
-            if embedded:
-                return self._extract_roman_fragments(text, allowed_chars)
-
-            esc_punct = re.escape(allowed_chars)
-            pattern_str = f"^[{roman_chars}{esc_punct}]*$"
-            if not re.match(pattern_str, text.upper()):
-                return {"is_match": False, "fragments": [], "score": 0.0}
-
-            roman_chars_found = re.sub(f"[{esc_punct}]", "", text.upper())
-            if not roman_chars_found:
-                return {"is_match": False, "fragments": [], "score": 0.0}
-
-            clean_text = re.sub(f"[{esc_punct}]", "", text.upper())
-            try:
-                self.decode_roman(clean_text)
-            except ValueError:
-                return {"is_match": False, "fragments": [], "score": 0.0}
-
-            stripped_text = text.strip(allowed_chars)
-            start_index = text.find(stripped_text)
-            return {
-                "is_match": True,
-                "fragments": [
-                    {
-                        "value": stripped_text,
-                        "start": start_index,
-                        "end": start_index + len(stripped_text),
-                    }
-                ],
-                "score": 1.0,
-            }
-
-        return self._extract_roman_fragments(text, allowed_chars)
+        allowed_chars = normalize_allowed_chars(allowed_chars, default=DEFAULT_ALLOWED_CHARS)
+        return self._codec.check(
+            text,
+            strict=strict,
+            embedded=embedded,
+            allowed_chars=allowed_chars,
+        )
 
     def decode_fragments(self, text: str, fragments: List[Dict[str, Any]]) -> str:
         result = list(text)

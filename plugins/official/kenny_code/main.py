@@ -4,6 +4,17 @@ import re
 import time
 from typing import Any, Dict, List, Optional
 
+try:
+    from gc_backend.plugins.code_solving import WordCodec, normalize_allowed_chars
+except ImportError:  # execution standalone / tests hors backend
+    import pathlib
+    import sys
+
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.code_solving import WordCodec, normalize_allowed_chars
+
+DEFAULT_ALLOWED_CHARS = " \t\r\n.:;,_-°"
+
 
 class KennyCodePlugin:
     def __init__(self) -> None:
@@ -39,6 +50,20 @@ class KennyCodePlugin:
             "z": "ffp",
         }
         self.decode_table: Dict[str, str] = {v: k for k, v in self.encode_table.items()}
+
+        # Logique strict/embedded/allowed_chars partagee. Un "mot" Kenny est
+        # valide des qu'il contient au moins un triplet ("mpf") connu.
+        self._codec = WordCodec(
+            validate_word=self._has_valid_triplet,
+            case="lower",
+            charset="mpf",
+        )
+
+    def _has_valid_triplet(self, word: str) -> bool:
+        return any(
+            word[i:i + 3] in self.decode_table
+            for i in range(0, len(word) - 2, 3)
+        )
 
     def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         start_time = time.time()
@@ -218,74 +243,13 @@ class KennyCodePlugin:
         allowed_chars: Optional[str] = None,
         embedded: bool = False,
     ) -> Dict[str, Any]:
-        if allowed_chars is None:
-            allowed_chars = " \t\r\n.:;,_-°"
-
-        if not text:
-            return {"is_match": False, "fragments": [], "score": 0.0}
-
-        if strict:
-            if embedded:
-                return self._extract_kenny_fragments(text, allowed_chars)
-
-            esc_punct = re.escape(allowed_chars)
-            pattern_str = f"^[mpf{esc_punct}]*$"
-            if not re.match(pattern_str, text.lower()):
-                return {"is_match": False, "fragments": [], "score": 0.0}
-
-            kenny_chars_found = re.sub(f"[{esc_punct}]", "", text.lower())
-            if not kenny_chars_found:
-                return {"is_match": False, "fragments": [], "score": 0.0}
-
-            clean_text = re.sub(f"[{esc_punct}]", "", text.lower())
-            valid_triplets = []
-            for i in range(0, len(clean_text), 3):
-                if i + 3 <= len(clean_text):
-                    triplet = clean_text[i : i + 3]
-                    if triplet in self.decode_table:
-                        valid_triplets.append(triplet)
-
-            if not valid_triplets:
-                return {"is_match": False, "fragments": [], "score": 0.0}
-
-            stripped_text = text.strip(allowed_chars)
-            start = text.find(stripped_text)
-            fragment = {"value": stripped_text, "start": start, "end": start + len(stripped_text)}
-
-            return {
-                "is_match": True,
-                "fragments": [fragment],
-                "score": 1.0,
-                "full_match": bool(start == 0 and len(stripped_text) == len(text)),
-            }
-
-        return self._extract_kenny_fragments(text, allowed_chars)
-
-    def _extract_kenny_fragments(self, text: str, allowed_chars: str) -> Dict[str, Any]:
-        kenny_chars = "mpf"
-        esc_punct = re.escape(allowed_chars)
-        pattern = f"([^{esc_punct}]+)|([{esc_punct}]+)"
-        fragments: List[Dict[str, Any]] = []
-
-        for m in re.finditer(pattern, text.lower()):
-            block = m.group(0)
-            start, end = m.span()
-
-            if re.match(f"^[{esc_punct}]+$", block):
-                continue
-
-            valid_triplets = []
-            for i in range(0, len(block), 3):
-                if i + 3 <= len(block):
-                    triplet = block[i : i + 3]
-                    if triplet in self.decode_table:
-                        valid_triplets.append(triplet)
-
-            if valid_triplets:
-                fragments.append({"value": text[start:end], "start": start, "end": end})
-
-        score = 1.0 if fragments else 0.0
-        return {"is_match": bool(fragments), "fragments": fragments, "score": score}
+        allowed_chars = normalize_allowed_chars(allowed_chars, default=DEFAULT_ALLOWED_CHARS)
+        return self._codec.check(
+            text,
+            strict=strict,
+            embedded=embedded,
+            allowed_chars=allowed_chars,
+        )
 
     def decode_fragments(self, text: str, fragments: List[Dict[str, Any]]) -> str:
         sorted_fragments = sorted(fragments, key=lambda x: x.get("start", 0))

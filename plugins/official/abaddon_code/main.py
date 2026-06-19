@@ -9,6 +9,25 @@ import re
 import time
 from typing import Any, Dict, List, Optional
 
+try:
+    from gc_backend.plugins.code_solving import (
+        WordCodec,
+        fixed_width_tokenizer,
+        normalize_allowed_chars,
+    )
+except ImportError:  # execution standalone / tests hors backend
+    import pathlib
+    import sys
+
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.code_solving import (
+        WordCodec,
+        fixed_width_tokenizer,
+        normalize_allowed_chars,
+    )
+
+DEFAULT_ALLOWED_CHARS = " \t\r\n.:;,_-°"
+
 
 class AbaddonCodePlugin:
     def __init__(self) -> None:
@@ -46,13 +65,19 @@ class AbaddonCodePlugin:
         }
         self.code_to_letter = {v: k for k, v in self.letter_to_code.items()}
 
+        # Logique strict/embedded/allowed_chars partagee (triplets de "þµ¥").
+        self._codec = WordCodec(
+            validate_word=lambda token: token in self.code_to_letter,
+            charset="þµ¥",
+            tokenizer=fixed_width_tokenizer(3),
+            strict_mode="strip_all",
+        )
+
     def normalize_text(self, text: str) -> str:
         return text.replace("μ", "µ")
 
     def _get_allowed_chars(self, allowed_chars: Optional[str]) -> str:
-        if allowed_chars is None:
-            return " \t\r\n.:;,_-°"
-        return str(allowed_chars)
+        return normalize_allowed_chars(allowed_chars, default=DEFAULT_ALLOWED_CHARS)
 
     def _strip_allowed_chars(self, text: str, allowed_chars: str) -> str:
         if not allowed_chars:
@@ -85,46 +110,6 @@ class AbaddonCodePlugin:
 
         return "".join(output)
 
-    def _extract_triplets(self, text: str, allowed_chars: str) -> Dict[str, Any]:
-        abaddon_chars = "þµ¥"
-
-        fragments: List[Dict[str, Any]] = []
-
-        if allowed_chars:
-            esc_punct = re.escape(allowed_chars)
-            pattern = f"([^{esc_punct}]+)|([{esc_punct}]+)"
-
-            for match in re.finditer(pattern, text):
-                block = match.group(0)
-                start, _end = match.span()
-
-                if re.match(f"^[{esc_punct}]+$", block):
-                    continue
-
-                for i in range(0, len(block), 3):
-                    if i + 3 > len(block):
-                        break
-
-                    triplet = block[i : i + 3]
-                    if all(c in abaddon_chars for c in triplet) and triplet in self.code_to_letter:
-                        fragments.append(
-                            {
-                                "value": triplet,
-                                "start": start + i,
-                                "end": start + i + 3,
-                            }
-                        )
-        else:
-            for i in range(0, len(text), 3):
-                if i + 3 > len(text):
-                    break
-                triplet = text[i : i + 3]
-                if all(c in abaddon_chars for c in triplet) and triplet in self.code_to_letter:
-                    fragments.append({"value": triplet, "start": i, "end": i + 3})
-
-        score = 1.0 if fragments else 0.0
-        return {"is_match": bool(fragments), "fragments": fragments, "score": score}
-
     def check_code(
         self,
         text: str,
@@ -134,51 +119,12 @@ class AbaddonCodePlugin:
         embedded: bool,
     ) -> Dict[str, Any]:
         allowed_chars = self._get_allowed_chars(allowed_chars)
-
-        abaddon_chars = "þµ¥"
-
-        if strict:
-            if embedded:
-                return self._extract_triplets(text, allowed_chars)
-
-            if allowed_chars:
-                esc_punct = re.escape(allowed_chars)
-                pattern_str = f"^[{abaddon_chars}{esc_punct}]*$"
-                if not re.match(pattern_str, text):
-                    return {"is_match": False, "fragments": [], "score": 0.0}
-                abaddon_chars_found = re.sub(f"[{esc_punct}]", "", text)
-            else:
-                pattern_str = f"^[{abaddon_chars}]*$"
-                if not re.match(pattern_str, text):
-                    return {"is_match": False, "fragments": [], "score": 0.0}
-                abaddon_chars_found = text
-
-            if not abaddon_chars_found:
-                return {"is_match": False, "fragments": [], "score": 0.0}
-
-            if len(abaddon_chars_found) % 3 != 0:
-                return {"is_match": False, "fragments": [], "score": 0.0}
-
-            for i in range(0, len(abaddon_chars_found), 3):
-                triplet = abaddon_chars_found[i : i + 3]
-                if triplet not in self.code_to_letter:
-                    return {"is_match": False, "fragments": [], "score": 0.0}
-
-            stripped_text = text.strip(allowed_chars) if allowed_chars else text
-            start = text.find(stripped_text) if stripped_text else 0
-            return {
-                "is_match": True,
-                "fragments": [
-                    {
-                        "value": stripped_text,
-                        "start": start,
-                        "end": start + len(stripped_text),
-                    }
-                ],
-                "score": 1.0,
-            }
-
-        return self._extract_triplets(text, allowed_chars)
+        return self._codec.check(
+            text,
+            strict=strict,
+            embedded=embedded,
+            allowed_chars=allowed_chars,
+        )
 
     def decode_fragments(self, text: str, fragments: List[Dict[str, Any]]) -> str:
         result = text

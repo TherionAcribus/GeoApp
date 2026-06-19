@@ -5,6 +5,23 @@ import time
 import unicodedata
 from typing import Any, Dict, List, Optional, Tuple
 
+try:
+    from gc_backend.plugins.code_solving import (
+        confidence_from_fragments,
+        extract_digit_fragments,
+    )
+except ImportError:  # execution standalone / tests hors backend
+    import pathlib
+    import sys
+
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.code_solving import (
+        confidence_from_fragments,
+        extract_digit_fragments,
+    )
+
+MORBIT_DIGITS = "123456789"
+
 
 class MorbitCipherPlugin:
     """Encode and decode the Morbit cipher.
@@ -293,29 +310,13 @@ class MorbitCipherPlugin:
         return decoded_text, fragments
 
     def _extract_digit_fragments(self, text: str, allowed_chars: str) -> List[Dict[str, Any]]:
-        sep_class = re.escape(allowed_chars)
-        if sep_class:
-            pattern = rf"[1-9](?:[{sep_class}]*[1-9])+"
-        else:
-            pattern = r"[1-9]{2,}"
-
-        fragments: List[Dict[str, Any]] = []
-        for match in re.finditer(pattern, text):
-            value = match.group(0)
-            digits = re.sub(r"[^1-9]", "", value)
-            if len(digits) < 2:
-                continue
-            fragments.append(
-                {
-                    "start": match.start(),
-                    "end": match.end(),
-                    "value": value,
-                    "digits": digits,
-                    "digits_count": len(digits),
-                    "type": "morbit_cipher",
-                }
-            )
-        return fragments
+        return extract_digit_fragments(
+            text,
+            digit_chars=MORBIT_DIGITS,
+            allowed_chars=allowed_chars,
+            min_digits=2,
+            fragment_type="morbit_cipher",
+        )
 
     def _derive_key_maps(self, key: str) -> Tuple[Dict[str, str], Dict[str, str], str]:
         permutation = self._derive_permutation(key)
@@ -363,10 +364,7 @@ class MorbitCipherPlugin:
         return " ".join(digits[i : i + group_size] for i in range(0, len(digits), group_size))
 
     def _confidence_from_fragments(self, text: str, fragments: List[Dict[str, Any]]) -> float:
-        if not fragments:
-            return 0.0
-        covered = sum(int(fragment["end"]) - int(fragment["start"]) for fragment in fragments)
-        return min(1.0, 0.35 + 0.65 * (covered / max(1, len(text))))
+        return confidence_from_fragments(text, fragments, base=0.35, scale=0.65)
 
     def _parse_bool(self, value: Any, default: bool = False) -> bool:
         if value is None:

@@ -53,3 +53,31 @@ def test_decode_handles_non_breaking_space() -> None:
     result: Dict[str, Any] = plugin.execute({"mode": "decode", "text": text, "strict": "smooth", "embedded": True})
     assert result["status"] == "ok"
     assert "104" in result["results"][0]["text_output"]
+
+
+def _frags(result):
+    return [(f["value"], f["start"], f["end"]) for f in result["fragments"]]
+
+
+def test_check_code_smooth_per_word() -> None:
+    plugin = _load_plugin_class()()
+    r = plugin.check_code("He Na", strict=False, allowed_chars=None, embedded=False)
+    assert _frags(r) == [("He", 0, 2), ("Na", 3, 5)]
+
+
+def test_check_code_strict_all_valid() -> None:
+    plugin = _load_plugin_class()()
+    r = plugin.check_code("He Na", strict=True, allowed_chars=None, embedded=False)
+    assert r["is_match"] is True and _frags(r) == [("He", 0, 2), ("Na", 3, 5)]
+
+
+def test_check_code_strict_rejects_if_any_word_invalid() -> None:
+    plugin = _load_plugin_class()()
+    r = plugin.check_code("He Zz", strict=True, allowed_chars=None, embedded=False)
+    assert r["is_match"] is False and r["fragments"] == []
+
+
+def test_check_code_strict_embedded_keeps_only_valid() -> None:
+    plugin = _load_plugin_class()()
+    r = plugin.check_code("go He then", strict=True, allowed_chars=None, embedded=True)
+    assert _frags(r) == [("He", 3, 5)]
