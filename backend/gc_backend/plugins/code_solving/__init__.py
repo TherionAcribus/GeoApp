@@ -40,9 +40,11 @@ from .params import (
     DEFAULT_ALLOWED_CHARS,
     NON_BREAKING_WHITESPACES,
     ModeParams,
+    is_alpha_strict,
     normalize_allowed_chars,
     parse_bool,
     parse_mode_params,
+    remove_diacritics,
 )
 
 __all__ = [
@@ -50,9 +52,11 @@ __all__ = [
     "DEFAULT_ALLOWED_CHARS",
     "NON_BREAKING_WHITESPACES",
     "ModeParams",
+    "is_alpha_strict",
     "normalize_allowed_chars",
     "parse_bool",
     "parse_mode_params",
+    "remove_diacritics",
     # fragments
     "Fragment",
     "apply_case",

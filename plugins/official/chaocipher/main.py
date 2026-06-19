@@ -2,8 +2,14 @@ from __future__ import annotations
 
 import re
 import time
-import unicodedata
 from typing import Any, Dict, List, Tuple
+
+try:
+    from gc_backend.plugins.code_solving import is_alpha_strict, parse_bool, remove_diacritics
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.code_solving import is_alpha_strict, parse_bool, remove_diacritics
 
 
 class ChaocipherPlugin:
@@ -28,10 +34,10 @@ class ChaocipherPlugin:
         text = inputs.get("text", "")
         mode = str(inputs.get("mode", "decode")).lower()
         strict_mode = str(inputs.get("strict", "smooth")).lower() == "strict"
-        embedded = self._parse_bool(inputs.get("embedded", False), default=False)
+        embedded = parse_bool(inputs.get("embedded", False), default=False)
         allowed_chars = str(inputs.get("allowed_chars", " \t\r\n.:;,_-'\"!?") or "")
-        preserve_case = self._parse_bool(inputs.get("preserve_case", True), default=True)
-        advance_on_nonletters = self._parse_bool(inputs.get("advance_on_nonletters", False), default=False)
+        preserve_case = parse_bool(inputs.get("preserve_case", True), default=True)
+        advance_on_nonletters = parse_bool(inputs.get("advance_on_nonletters", False), default=False)
 
         if not isinstance(text, str) or not text.strip():
             return self._error_response("Aucun texte fourni", start_time)
@@ -67,7 +73,7 @@ class ChaocipherPlugin:
             return self._error_response(f"Mode inconnu: {mode}", start_time)
 
         if strict_mode and not embedded:
-            ok, reason = self._is_text_strictly_compatible(text, allowed_chars=allowed_chars)
+            ok, reason = is_alpha_strict(text, allowed_chars)
             if not ok:
                 return self._error_response(f"Texte incompatible avec Chaocipher (strict): {reason}", start_time)
 
@@ -106,7 +112,7 @@ class ChaocipherPlugin:
     ) -> Tuple[str, Dict[str, Any]]:
         left = self._validate_alphabet(left_alphabet, "alphabet gauche")
         right = self._validate_alphabet(right_alphabet, "alphabet droit")
-        normalized = self._remove_diacritics(text)
+        normalized = remove_diacritics(text)
 
         output: List[str] = []
         processed_chars = 0
@@ -167,13 +173,13 @@ class ChaocipherPlugin:
         return left, right
 
     def detect(self, text: str, strict_mode: bool, allowed_chars: str) -> Tuple[bool, float, Dict[str, Any]]:
-        normalized = self._remove_diacritics(text)
+        normalized = remove_diacritics(text)
         letters = sum(1 for ch in normalized.upper() if ch in self.ALPHABET)
         if letters == 0:
             return False, 0.0, {"is_match": False, "letters_count": 0}
 
         if strict_mode:
-            ok, _reason = self._is_text_strictly_compatible(text, allowed_chars=allowed_chars)
+            ok, _reason = is_alpha_strict(text, allowed_chars)
             if not ok:
                 return False, 0.0, {"is_match": False, "letters_count": letters, "strict_compatible": False}
 
@@ -224,38 +230,8 @@ class ChaocipherPlugin:
             raise ValueError(f"{label} invalide: il doit contenir les 26 lettres A-Z une seule fois")
         return cleaned
 
-    def _is_text_strictly_compatible(self, text: str, allowed_chars: str) -> Tuple[bool, str]:
-        normalized = self._remove_diacritics(text)
-        allowed = set(allowed_chars)
-        has_letter = False
-        for ch in normalized:
-            if ch.upper() in self.ALPHABET:
-                has_letter = True
-                continue
-            if ch in allowed:
-                continue
-            return False, f"caractere non autorise: {ch!r}"
-        if not has_letter:
-            return False, "aucune lettre detectee"
-        return True, ""
-
     def _clean_letters(self, text: str) -> str:
-        return re.sub(r"[^A-Z]", "", self._remove_diacritics(text).upper())
-
-    def _remove_diacritics(self, text: str) -> str:
-        decomposed = unicodedata.normalize("NFKD", str(text))
-        return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
-
-    def _parse_bool(self, value: Any, default: bool = False) -> bool:
-        if value is None:
-            return default
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return bool(value)
-        if isinstance(value, str):
-            return value.strip().lower() in {"true", "1", "yes", "on"}
-        return default
+        return re.sub(r"[^A-Z]", "", remove_diacritics(text).upper())
 
     def _success_response(
         self,

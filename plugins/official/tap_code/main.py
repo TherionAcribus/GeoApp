@@ -13,6 +13,13 @@ except Exception:  # pragma: no cover - optional dependency
     score_text = None
     _SCORING_AVAILABLE = False
 
+try:
+    from gc_backend.plugins.code_solving import parse_bool, parse_mode_params
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.code_solving import parse_bool, parse_mode_params
+
 
 class TapCodePlugin:
     def __init__(self) -> None:
@@ -41,14 +48,6 @@ class TapCodePlugin:
 
         # K is merged with C
         self.char_to_coords["K"] = self.char_to_coords["C"]
-
-    @staticmethod
-    def _is_truthy(value: Any) -> bool:
-        if isinstance(value, bool):
-            return value
-        if value is None:
-            return False
-        return str(value).strip().lower() in {"true", "1", "yes", "on"}
 
     def _format_tap_coordinates(self, row: int, col: int, output_format: str) -> str:
         if output_format == "dots":
@@ -195,13 +194,14 @@ class TapCodePlugin:
 
     def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         start_time = time.time()
-        mode = str(inputs.get("mode", "decode")).lower()
+        params = parse_mode_params(inputs, default_mode="decode", default_allowed_chars=" ,.;:!?-_")
+        mode = params.mode
         text = inputs.get("text", "")
         output_format = str(inputs.get("output_format", "taps")).lower()
-        strict_mode = str(inputs.get("strict", "smooth")).lower() == "strict"
-        allowed_chars = inputs.get("allowed_chars")
-        embedded = self._is_truthy(inputs.get("embedded", False))
-        enable_scoring = self._is_truthy(inputs.get("enable_scoring", True))
+        strict_mode = params.strict
+        allowed_chars = params.allowed_chars
+        embedded = params.embedded
+        enable_scoring = parse_bool(inputs.get("enable_scoring", True), default=True)
         context = inputs.get("context", {})
 
         standardized_response = {

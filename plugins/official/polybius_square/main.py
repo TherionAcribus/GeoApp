@@ -5,6 +5,13 @@ import string
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
+try:
+    from gc_backend.plugins.code_solving import parse_bool, parse_mode_params
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.code_solving import parse_bool, parse_mode_params
+
 
 class PolybiusSquarePlugin:
     def __init__(self) -> None:
@@ -336,15 +343,16 @@ class PolybiusSquarePlugin:
     def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         start_time = time.time()
 
-        mode = str(inputs.get("mode", "decode")).lower()
+        params = parse_mode_params(inputs, default_mode="decode", default_allowed_chars=" ,.;:!?-_")
+        mode = params.mode
         text = inputs.get("text", "")
         key = inputs.get("key", "")
         grid_size = inputs.get("grid_size", "5x5")
         alphabet_mode = inputs.get("alphabet_mode", "I=J")
         output_format = inputs.get("output_format", "numbers").lower()
-        strict_mode = str(inputs.get("strict", "")).lower() == "strict"
-        allowed_chars = inputs.get("allowed_chars", " ,.;:!?-_")
-        embedded = bool(inputs.get("embedded", False))
+        strict_mode = params.strict
+        allowed_chars = params.allowed_chars
+        embedded = params.embedded
         enable_scoring = bool(inputs.get("enable_scoring", False))
         context = inputs.get("context", {})
 

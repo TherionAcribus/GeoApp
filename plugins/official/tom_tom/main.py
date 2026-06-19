@@ -12,6 +12,14 @@ except Exception:  # pragma: no cover - optional dependency
     score_text = None
     _SCORING_AVAILABLE = False
 
+try:
+    from gc_backend.plugins.code_solving import parse_bool, parse_mode_params
+except ImportError:
+    import sys as _sys
+    import pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.code_solving import parse_bool, parse_mode_params
+
 
 class TomTomPlugin:
     def __init__(self) -> None:
@@ -48,14 +56,6 @@ class TomTomPlugin:
             "Z": "/\\/\\",
         }
         self.decode_table = {value: key for key, value in self.encode_table.items()}
-
-    @staticmethod
-    def _is_truthy(value: Any) -> bool:
-        if isinstance(value, bool):
-            return value
-        if value is None:
-            return False
-        return str(value).strip().lower() in {"true", "1", "yes", "on"}
 
     def _split_by_separators(self, text: str, separators: str) -> List[str]:
         esc_sep = re.escape(separators)
@@ -179,12 +179,13 @@ class TomTomPlugin:
 
     def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         start_time = time.time()
-        mode = str(inputs.get("mode", "decode")).lower()
+        params = parse_mode_params(inputs, default_mode="decode", default_allowed_chars=self.default_separators)
+        mode = params.mode
         text = inputs.get("text", "")
-        strict_mode = str(inputs.get("strict", "smooth")).lower() == "strict"
-        allowed_chars = inputs.get("allowed_chars", self.default_separators)
-        embedded = self._is_truthy(inputs.get("embedded", False))
-        enable_scoring = self._is_truthy(inputs.get("enable_scoring", True))
+        strict_mode = params.strict
+        allowed_chars = params.allowed_chars
+        embedded = params.embedded
+        enable_scoring = parse_bool(inputs.get("enable_scoring", True), default=True)
         context = inputs.get("context", {})
 
         standardized_response = {

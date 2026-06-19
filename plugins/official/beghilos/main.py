@@ -2,8 +2,14 @@ from __future__ import annotations
 
 import re
 import time
-import unicodedata
 from typing import Any, Dict, List, Tuple
+
+try:
+    from gc_backend.plugins.code_solving import parse_bool, remove_diacritics
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.code_solving import parse_bool, remove_diacritics
 
 
 class BeghilosPlugin:
@@ -50,10 +56,10 @@ class BeghilosPlugin:
         text = inputs.get("text", "")
         mode = str(inputs.get("mode", "decode")).lower()
         strict_mode = str(inputs.get("strict", "smooth")).lower() == "strict"
-        embedded = self._parse_bool(inputs.get("embedded", False), default=False)
+        embedded = parse_bool(inputs.get("embedded", False), default=False)
         allowed_chars = str(inputs.get("allowed_chars", " \t\r\n.:;,_-'\"!?") or "")
         letter_style = str(inputs.get("letter_style", "upper")).lower()
-        case_sensitive_b = self._parse_bool(inputs.get("case_sensitive_b", False), default=False)
+        case_sensitive_b = parse_bool(inputs.get("case_sensitive_b", False), default=False)
 
         if not isinstance(text, str) or not text.strip():
             return self._error_response("Aucun texte fourni", start_time)
@@ -121,7 +127,7 @@ class BeghilosPlugin:
         return self._error_response(f"Mode inconnu: {mode}", start_time)
 
     def encode(self, text: str, case_sensitive_b: bool = False) -> Tuple[str, Dict[str, Any]]:
-        normalized = self._remove_diacritics(text)
+        normalized = remove_diacritics(text)
         char_map = self.encode_map_case_sensitive if case_sensitive_b else self.encode_map_upper
         encoded_chars: List[str] = []
         unsupported_chars: List[str] = []
@@ -178,7 +184,7 @@ class BeghilosPlugin:
         digits = [ch for ch in text if ch.isdigit()]
         valid_digits = [ch for ch in digits if ch in self.valid_digits]
         if not digits:
-            letters = [ch for ch in self._remove_diacritics(text).upper() if "A" <= ch <= "Z"]
+            letters = [ch for ch in remove_diacritics(text).upper() if "A" <= ch <= "Z"]
             valid_letters = [ch for ch in letters if ch in self.encode_map_upper]
             score = len(valid_letters) / len(letters) if letters else 0.0
             return score >= 0.4, float(score), {
@@ -210,7 +216,7 @@ class BeghilosPlugin:
         }
 
     def _is_strict_plaintext(self, text: str, allowed_chars: str, case_sensitive_b: bool) -> Tuple[bool, str]:
-        normalized = self._remove_diacritics(text)
+        normalized = remove_diacritics(text)
         has_valid = False
         allowed = set(allowed_chars)
         char_map = self.encode_map_case_sensitive if case_sensitive_b else self.encode_map_upper
@@ -253,21 +259,6 @@ class BeghilosPlugin:
             "B": "8",
             "b": "9",
         }
-
-    def _remove_diacritics(self, text: str) -> str:
-        decomposed = unicodedata.normalize("NFKD", str(text))
-        return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
-
-    def _parse_bool(self, value: Any, default: bool = False) -> bool:
-        if value is None:
-            return default
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return bool(value)
-        if isinstance(value, str):
-            return value.strip().lower() in {"true", "1", "yes", "on"}
-        return default
 
     def _success_response(
         self,

@@ -10,8 +10,9 @@ d'un plugin a l'autre.
 
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Optional, Tuple
 
 # Jeu de caracteres "perturbateurs" tolere par defaut dans les codes secrets
 # (espaces, ponctuation usuelle, degre). C'est le defaut le plus repandu dans
@@ -107,3 +108,42 @@ def parse_mode_params(
         extra=extra_allowed_chars,
     )
     return ModeParams(mode=mode, strict=strict, embedded=embedded, allowed_chars=allowed_chars)
+
+
+# ---------------------------------------------------------------------------
+# Utilitaires pour les plugins chiffrement naturel (Beaufort, Chaocipher, ...)
+# ---------------------------------------------------------------------------
+
+def remove_diacritics(text: str) -> str:
+    """Supprime les diacritiques (accents) via la decomposition NFKD Unicode.
+
+    Remplace `_remove_diacritics` copie-colle dans Malespin, Beaufort,
+    Chaocipher, Playfair, Beghilos, etc.
+    """
+    decomposed = unicodedata.normalize("NFKD", str(text))
+    return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+
+
+def is_alpha_strict(text: str, allowed_chars: str) -> Tuple[bool, str]:
+    """Verifie que `text` ne contient que des lettres A-Z et `allowed_chars`.
+
+    Retire d'abord les diacritiques, puis valide caractere par caractere.
+    Renvoie ``(True, "")`` si OK, ou ``(False, raison)`` sinon.
+
+    Remplace `_is_text_strictly_compatible` copie-colle dans Malespin,
+    Beaufort (classic), Chaocipher, etc.
+    """
+    normalized = remove_diacritics(text)
+    allowed = set(allowed_chars)
+    has_letter = False
+    for ch in normalized:
+        upper = ch.upper()
+        if "A" <= upper <= "Z":
+            has_letter = True
+            continue
+        if ch in allowed:
+            continue
+        return False, f"caractere non autorise: {ch!r}"
+    if not has_letter:
+        return False, "aucune lettre detectee"
+    return True, ""

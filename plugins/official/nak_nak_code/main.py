@@ -4,6 +4,14 @@ import re
 import time
 from typing import Any, Dict, List, Optional
 
+try:
+    from gc_backend.plugins.code_solving import normalize_allowed_chars, parse_bool, parse_mode_params
+except ImportError:
+    import sys as _sys
+    import pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.code_solving import normalize_allowed_chars, parse_bool, parse_mode_params
+
 
 class NakNakCodePlugin:
     def __init__(self) -> None:
@@ -52,12 +60,13 @@ class NakNakCodePlugin:
     def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         start_time = time.time()
 
-        mode = str(inputs.get("mode", "encode")).lower()
+        params = parse_mode_params(inputs, default_mode="encode", default_allowed_chars=" \t\r\n.:;,_-°")
+        mode = params.mode
         text = inputs.get("text", "")
-        strict_mode = str(inputs.get("strict", "")).lower() == "strict"
-        allowed_chars = inputs.get("allowed_chars", " \t\r\n.:;,_-°")
-        embedded = bool(inputs.get("embedded", False))
-        enable_scoring = bool(inputs.get("enable_scoring", True))
+        strict_mode = params.strict
+        allowed_chars = params.allowed_chars
+        embedded = params.embedded
+        enable_scoring = parse_bool(inputs.get("enable_scoring", True), default=True)
         context = inputs.get("context", {})
 
         result = {
@@ -165,11 +174,7 @@ class NakNakCodePlugin:
         allowed_chars: Optional[str] = None,
         embedded: bool = False,
     ) -> Dict[str, Any]:
-        if allowed_chars is not None and isinstance(allowed_chars, list):
-            allowed_chars = "".join(allowed_chars)
-
-        if allowed_chars is None:
-            allowed_chars = " \t\r\n.:;,_-°"
+        allowed_chars = normalize_allowed_chars(allowed_chars, default=" \t\r\n.:;,_-°")
 
         nak_pattern = r"(?:Na(?:k|\?)\??)"
 
@@ -178,23 +183,17 @@ class NakNakCodePlugin:
                 return self._extract_nak_nak_fragments(text, allowed_chars)
 
             esc_punct = re.escape(allowed_chars)
-            words = re.split(f"[{esc_punct}]+", text)
-            valid_words: List[str] = []
+            fragments = []
 
-            for word in words:
+            for m in re.finditer(f"[^{esc_punct}]+", text):
+                word = m.group(0)
                 if not word:
                     continue
                 if word in self.decode_table or re.match(f"^({nak_pattern})+$", word, re.IGNORECASE):
-                    valid_words.append(word)
+                    fragments.append({"value": word, "start": m.start(), "end": m.end()})
 
-            if not valid_words:
+            if not fragments:
                 return {"is_match": False, "fragments": [], "score": 0.0}
-
-            fragments = []
-            for word in valid_words:
-                start = text.find(word)
-                if start != -1:
-                    fragments.append({"value": word, "start": start, "end": start + len(word)})
 
             return {
                 "is_match": True,

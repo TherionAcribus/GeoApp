@@ -3,8 +3,14 @@ from __future__ import annotations
 import re
 import string
 import time
-import unicodedata
 from typing import Any, Dict, List, Optional, Tuple
+
+try:
+    from gc_backend.plugins.code_solving import is_alpha_strict, parse_bool, remove_diacritics
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.code_solving import is_alpha_strict, parse_bool, remove_diacritics
 
 try:
     from gc_backend.plugins.scoring import score_text, score_text_fast
@@ -38,14 +44,14 @@ class BeaufortCipherPlugin:
         key = str(inputs.get("key", "") or "")
         variant = str(inputs.get("variant", "classic")).lower()
         strict_mode = str(inputs.get("strict", "smooth")).lower() == "strict"
-        embedded = self._parse_bool(inputs.get("embedded", False), default=False)
+        embedded = parse_bool(inputs.get("embedded", False), default=False)
         allowed_chars = str(inputs.get("allowed_chars", " \t\r\n.:;,_-'\"!?") or "")
-        preserve_case = self._parse_bool(inputs.get("preserve_case", True), default=True)
-        enable_scoring = self._parse_bool(inputs.get("enable_scoring", True), default=True)
+        preserve_case = parse_bool(inputs.get("preserve_case", True), default=True)
+        enable_scoring = parse_bool(inputs.get("enable_scoring", True), default=True)
         context = inputs.get("context", {})
         candidate_keys = self._parse_candidate_keys(inputs.get("candidate_keys"))
         max_results = min(max(int(inputs.get("max_results", 10) or 10), 1), 50)
-        do_bruteforce = mode == "bruteforce" or self._parse_bool(inputs.get("bruteforce", False), default=False)
+        do_bruteforce = mode == "bruteforce" or parse_bool(inputs.get("bruteforce", False), default=False)
 
         if not isinstance(text, str) or not text:
             return self._error_response("Aucun texte fourni", start_time)
@@ -74,7 +80,7 @@ class BeaufortCipherPlugin:
             }
 
         if strict_mode and not embedded:
-            ok, reason = self._is_text_strictly_compatible(text, allowed_chars=allowed_chars)
+            ok, reason = is_alpha_strict(text, allowed_chars)
             if not ok:
                 return self._error_response(f"Texte incompatible avec Beaufort (strict): {reason}", start_time)
 
@@ -145,7 +151,7 @@ class BeaufortCipherPlugin:
             raise ValueError("La cle doit contenir au moins une lettre A-Z")
 
         canonical_variant = self._canonical_variant(variant)
-        normalized = self._remove_diacritics(text)
+        normalized = remove_diacritics(text)
         letters_count = sum(1 for ch in normalized.upper() if ch in self._alphabet)
         full_key = self._full_key(clean_key, letters_count)
 
@@ -182,13 +188,13 @@ class BeaufortCipherPlugin:
         return "".join(output), processed
 
     def detect(self, text: str, strict_mode: bool, allowed_chars: str) -> Tuple[bool, float, Dict[str, Any]]:
-        normalized = self._remove_diacritics(text)
+        normalized = remove_diacritics(text)
         letters = sum(1 for ch in normalized.upper() if ch in self._alphabet)
         if letters == 0:
             return False, 0.0, {"is_match": False, "letters_count": 0}
 
         if strict_mode:
-            ok, _reason = self._is_text_strictly_compatible(text, allowed_chars=allowed_chars)
+            ok, _reason = is_alpha_strict(text, allowed_chars)
             if not ok:
                 return False, 0.0, {"is_match": False, "letters_count": letters, "strict_compatible": False}
 
@@ -273,31 +279,11 @@ class BeaufortCipherPlugin:
         return "C = P - K" if encode else "P = C + K"
 
     def _clean_key(self, key: str) -> str:
-        normalized = self._remove_diacritics(key)
+        normalized = remove_diacritics(key)
         return "".join(ch for ch in normalized.upper() if ch in self._alphabet)
 
     def _full_key(self, cleaned_key: str, letters_count: int) -> str:
         return (cleaned_key * (letters_count // len(cleaned_key) + 1))[:letters_count]
-
-    def _is_text_strictly_compatible(self, text: str, allowed_chars: str) -> Tuple[bool, str]:
-        allowed_set = set(allowed_chars)
-        has_letter = False
-        normalized = self._remove_diacritics(text)
-        for ch in normalized:
-            up = ch.upper()
-            if up in self._alphabet:
-                has_letter = True
-                continue
-            if ch in allowed_set:
-                continue
-            return False, f"caractere non autorise: {ch!r}"
-        if not has_letter:
-            return False, "aucune lettre detectee"
-        return True, ""
-
-    def _remove_diacritics(self, text: str) -> str:
-        decomposed = unicodedata.normalize("NFKD", str(text))
-        return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
 
     def _parse_candidate_keys(self, keys_input: Any) -> List[str]:
         if not keys_input:
@@ -307,17 +293,6 @@ class BeaufortCipherPlugin:
         else:
             raw = re.split(r"[;,\n\r]+", str(keys_input))
         return [str(key).strip() for key in raw if str(key).strip()]
-
-    def _parse_bool(self, value: Any, default: bool = False) -> bool:
-        if value is None:
-            return default
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return bool(value)
-        if isinstance(value, str):
-            return value.strip().lower() in {"true", "1", "yes", "on"}
-        return default
 
     def _get_score(self, text: str, context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if not _SCORING_AVAILABLE or not score_text:

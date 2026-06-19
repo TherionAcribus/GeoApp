@@ -2,8 +2,14 @@ from __future__ import annotations
 
 import re
 import time
-import unicodedata
 from typing import Any, Dict, List, Tuple
+
+try:
+    from gc_backend.plugins.code_solving import parse_bool, remove_diacritics
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.code_solving import parse_bool, remove_diacritics
 
 
 class PlayfairCipherPlugin:
@@ -22,8 +28,8 @@ class PlayfairCipherPlugin:
         alphabet_mode = str(inputs.get("alphabet_mode", "I=J"))
         filler = str(inputs.get("filler", "X") or "X").upper()[:1]
         alternate_filler = str(inputs.get("alternate_filler", "Q") or "Q").upper()[:1]
-        cleanup_fillers = self._parse_bool(inputs.get("cleanup_fillers", True), default=True)
-        group_output = self._parse_bool(inputs.get("group_output", True), default=True)
+        cleanup_fillers = parse_bool(inputs.get("cleanup_fillers", True), default=True)
+        group_output = parse_bool(inputs.get("group_output", True), default=True)
         strict_mode = str(inputs.get("strict", "smooth")).lower() == "strict"
         allowed_chars = str(inputs.get("allowed_chars", " \t\r\n.:;,_-'\"!?") or "")
 
@@ -236,7 +242,7 @@ class PlayfairCipherPlugin:
 
     def detect(self, text: str, strict_mode: bool, allowed_chars: str) -> Tuple[bool, float, Dict[str, Any]]:
         ok, _reason = self._is_strict_ciphertext(text, allowed_chars)
-        clean = re.sub(r"[^A-Z]", "", self._remove_diacritics(text).upper().replace("J", "I"))
+        clean = re.sub(r"[^A-Z]", "", remove_diacritics(text).upper().replace("J", "I"))
         if not clean:
             return False, 0.0, {"is_match": False, "letters_count": 0}
 
@@ -277,7 +283,7 @@ class PlayfairCipherPlugin:
     def _is_strict_ciphertext(self, text: str, allowed_chars: str) -> Tuple[bool, str]:
         allowed = set(allowed_chars)
         letters = 0
-        for ch in self._remove_diacritics(text).upper():
+        for ch in remove_diacritics(text).upper():
             if "A" <= ch <= "Z":
                 letters += 1
                 continue
@@ -291,7 +297,7 @@ class PlayfairCipherPlugin:
         return True, ""
 
     def _normalize_text(self, text: str, alphabet_mode: str) -> str:
-        normalized = self._remove_diacritics(text).upper()
+        normalized = remove_diacritics(text).upper()
         letters = re.sub(r"[^A-Z]", "", normalized)
         if alphabet_mode.upper() == "I=J":
             letters = letters.replace("J", "I")
@@ -304,11 +310,7 @@ class PlayfairCipherPlugin:
         return normalized[:1]
 
     def _clean_letters(self, text: str) -> str:
-        return re.sub(r"[^A-Z]", "", self._remove_diacritics(text).upper())
-
-    def _remove_diacritics(self, text: str) -> str:
-        decomposed = unicodedata.normalize("NFKD", text)
-        return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+        return re.sub(r"[^A-Z]", "", remove_diacritics(text).upper())
 
     def _group_text(self, text: str, group_size: int) -> str:
         return " ".join(text[i : i + group_size] for i in range(0, len(text), group_size))
@@ -342,17 +344,6 @@ class PlayfairCipherPlugin:
         if square.get("used_default_key"):
             metadata["warning"] = "Aucun mot-cle Playfair fourni: la grille alphabetique par defaut est utilisee."
         return metadata
-
-    def _parse_bool(self, value: Any, default: bool = False) -> bool:
-        if value is None:
-            return default
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return bool(value)
-        if isinstance(value, str):
-            return value.strip().lower() in {"true", "1", "yes", "on"}
-        return default
 
     def _success_response(
         self,

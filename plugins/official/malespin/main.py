@@ -2,8 +2,14 @@ from __future__ import annotations
 
 import re
 import time
-import unicodedata
 from typing import Any, Dict, List, Tuple
+
+try:
+    from gc_backend.plugins.code_solving import is_alpha_strict, parse_bool, remove_diacritics
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.code_solving import is_alpha_strict, parse_bool, remove_diacritics
 
 
 class MalespinPlugin:
@@ -27,7 +33,7 @@ class MalespinPlugin:
         text = inputs.get("text", "")
         mode = str(inputs.get("mode", "decode")).lower()
         strict_mode = str(inputs.get("strict", "smooth")).lower() == "strict"
-        embedded = self._parse_bool(inputs.get("embedded", False), default=False)
+        embedded = parse_bool(inputs.get("embedded", False), default=False)
         allowed_chars = str(inputs.get("allowed_chars", " \t\r\n.:;,_-'\"!?¿¡") or "")
 
         if not isinstance(text, str) or not text.strip():
@@ -59,7 +65,7 @@ class MalespinPlugin:
             return self._error_response(f"Mode inconnu: {mode}", start_time)
 
         if strict_mode and not embedded:
-            ok, reason = self._is_text_strictly_compatible(text, allowed_chars)
+            ok, reason = is_alpha_strict(text, allowed_chars)
             if not ok:
                 return self._error_response(f"Texte incompatible avec Malespin (strict): {reason}", start_time)
 
@@ -84,7 +90,7 @@ class MalespinPlugin:
         }
 
     def transform(self, text: str) -> Tuple[str, Dict[str, Any]]:
-        normalized = self._remove_diacritics(text)
+        normalized = remove_diacritics(text)
         output: List[str] = []
         processed_chars = 0
         swapped_chars = 0
@@ -112,13 +118,13 @@ class MalespinPlugin:
         }
 
     def detect(self, text: str, strict_mode: bool, allowed_chars: str) -> Tuple[bool, float, Dict[str, Any]]:
-        normalized = self._remove_diacritics(text)
+        normalized = remove_diacritics(text)
         letters = [ch for ch in normalized.upper() if "A" <= ch <= "Z"]
         if not letters:
             return False, 0.0, {"is_match": False, "letters_count": 0, "swappable_count": 0}
 
         if strict_mode:
-            ok, _reason = self._is_text_strictly_compatible(text, allowed_chars)
+            ok, _reason = is_alpha_strict(text, allowed_chars)
             if not ok:
                 return False, 0.0, {"is_match": False, "letters_count": len(letters), "swappable_count": 0}
 
@@ -133,37 +139,6 @@ class MalespinPlugin:
             "detection_score": float(score),
             "warning": "Detection heuristique: Malespin est reversible et ressemble a du texte naturel.",
         }
-
-    def _is_text_strictly_compatible(self, text: str, allowed_chars: str) -> Tuple[bool, str]:
-        allowed = set(allowed_chars)
-        has_letter = False
-        normalized = self._remove_diacritics(text)
-        for ch in normalized:
-            upper = ch.upper()
-            if "A" <= upper <= "Z":
-                has_letter = True
-                continue
-            if ch in allowed:
-                continue
-            return False, f"caractere non autorise: {ch!r}"
-        if not has_letter:
-            return False, "aucune lettre detectee"
-        return True, ""
-
-    def _remove_diacritics(self, text: str) -> str:
-        decomposed = unicodedata.normalize("NFKD", text)
-        return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
-
-    def _parse_bool(self, value: Any, default: bool = False) -> bool:
-        if value is None:
-            return default
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return bool(value)
-        if isinstance(value, str):
-            return value.strip().lower() in {"true", "1", "yes", "on"}
-        return default
 
     def _get_plugin_info(self, start_time: float) -> Dict[str, Any]:
         execution_time = (time.time() - start_time) * 1000
