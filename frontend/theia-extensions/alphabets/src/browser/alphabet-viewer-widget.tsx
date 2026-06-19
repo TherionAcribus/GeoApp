@@ -381,28 +381,11 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
         }
 
         try {
-            const fontUrl = this.alphabetsService.getFontUrl(alphabetId);
-            console.info('[AlphabetsFont]', 'viewer loadFont start', {
-                alphabetId,
-                widgetId: this.id,
-                fontUrl,
-                fontFile: this.alphabet.alphabetConfig.fontFile
-            });
-            await ensureAlphabetFontLoaded(alphabetId, fontUrl);
-            console.info('[AlphabetsFont]', 'viewer loadFont success', {
-                alphabetId,
-                widgetId: this.id
-            });
+            await ensureAlphabetFontLoaded(alphabetId, this.alphabetsService.getFontUrl(alphabetId));
             this.fontLoaded = true;
             this.update();
         } catch (error) {
-            console.error('[AlphabetsFont] viewer loadFont failed', {
-                alphabetId,
-                widgetId: this.id,
-                errorName: error?.name,
-                errorMessage: error?.message,
-                error
-            });
+            console.error('Error loading font:', error);
             this.messageService.warn('Impossible de charger la police, affichage en texte brut');
             this.fontLoaded = true; // Continuer quand même
             this.update();

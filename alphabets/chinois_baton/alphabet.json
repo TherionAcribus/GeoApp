@@ -18,5 +18,10 @@
         "?": "question"
       }
     }
-  }
+  },
+  "tags": [
+    "nombres",
+    "chinois",
+    "batons"
+  ]
 }

@@ -16,5 +16,9 @@
         ".": "point"
       }
     }
-  }
+  },
+  "tags": [
+    "graphique",
+    "personnages"
+  ]
 }

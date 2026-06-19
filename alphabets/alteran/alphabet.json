@@ -4,7 +4,11 @@
   "type": "alphabet",
   "category": "alphabets",
   "version": "1.0.0",
-  "tags": ["série télé", "Stargate"],
+  "tags": [
+    "série télé",
+    "Stargate",
+    "fiction"
+  ],
   "alphabetConfig": {
     "type": "font",
     "fontFile": "fonts/alteran.ttf",
@@ -13,8 +17,7 @@
     "characters": {
       "letters": "all",
       "numbers": "all",
-      "special": {
-      }
+      "special": {}
     }
   }
 }

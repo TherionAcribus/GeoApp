@@ -4,7 +4,17 @@
   "type": "alphabet",
   "category": "alphabets",
   "version": "1.0.0",
-  "tags": ["ballet", "danse", "danseuse", "personnage", "élégant", "artistique", "thématique", "personnages"],
+  "tags": [
+    "ballet",
+    "danse",
+    "danseuse",
+    "personnage",
+    "élégant",
+    "artistique",
+    "thématique",
+    "personnages",
+    "graphique"
+  ],
   "alphabetConfig": {
     "type": "font",
     "fontFile": "fonts/ballet.ttf",
@@ -12,16 +22,26 @@
     "upperCaseOnly": false,
     "characters": {
       "letters": "all",
-      "numbers": ["1", "2", "3", "4", "5", "6", "7", "8", "9"],
+      "numbers": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9"
+      ],
       "special": {
         "!": "!",
         "#": "#",
-         "$": "$",
-         "%": "%",
-         "&": "&",
-         "'": "'",
-         "(": "(",
-         ")": ")"
+        "$": "$",
+        "%": "%",
+        "&": "&",
+        "'": "'",
+        "(": "(",
+        ")": ")"
       }
     }
   }

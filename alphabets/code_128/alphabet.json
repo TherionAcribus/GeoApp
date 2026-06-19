@@ -18,5 +18,10 @@
         "?": "question"
       }
     }
-  }
+  },
+  "tags": [
+    "code barre",
+    "nombres",
+    "standard"
+  ]
 }

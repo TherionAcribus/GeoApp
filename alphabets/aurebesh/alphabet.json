@@ -6,7 +6,8 @@
   "version": "1.0.0",
   "tags": [
     "film",
-    "Star Wars"
+    "Star Wars",
+    "fiction"
   ],
   "alphabetConfig": {
     "type": "font",

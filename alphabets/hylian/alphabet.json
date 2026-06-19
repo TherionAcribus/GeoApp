@@ -12,8 +12,12 @@
     "characters": {
       "letters": "all",
       "numbers": "all",
-      "special": {
-      }
+      "special": {}
     }
-  }
+  },
+  "tags": [
+    "fiction",
+    "jeu video",
+    "zelda"
+  ]
 }

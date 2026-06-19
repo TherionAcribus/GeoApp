@@ -4,7 +4,13 @@
   "type": "alphabet",
   "category": "electronics",
   "version": "1.0.0",
-  "tags": ["électronique", "résistance", "code couleur", "ohm"],
+  "tags": [
+    "électronique",
+    "résistance",
+    "code couleur",
+    "ohm",
+    "nombres"
+  ],
   "sources": [
     {
       "type": "reference",
@@ -19,7 +25,18 @@
     "hasUpperCase": false,
     "characters": {
       "letters": [],
-      "numbers": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
+      "numbers": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9"
+      ],
       "special": {}
     }
   }

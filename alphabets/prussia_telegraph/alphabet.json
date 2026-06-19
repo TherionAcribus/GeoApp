@@ -21,5 +21,10 @@
         ".": "dot"
       }
     }
-  }
+  },
+  "tags": [
+    "signaux",
+    "telegraphe",
+    "communication"
+  ]
 }

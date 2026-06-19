@@ -18,5 +18,10 @@
         "?": "question"
       }
     }
-  }
+  },
+  "tags": [
+    "graphique",
+    "circulaire",
+    "symboles"
+  ]
 }

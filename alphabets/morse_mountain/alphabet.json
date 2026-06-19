@@ -19,5 +19,10 @@
         "?": "question"
       }
     }
-  }
+  },
+  "tags": [
+    "signaux",
+    "morse",
+    "communication"
+  ]
 }

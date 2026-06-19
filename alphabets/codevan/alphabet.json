@@ -18,5 +18,9 @@
         "?": "question"
       }
     }
-  }
+  },
+  "tags": [
+    "code barre",
+    "nombres"
+  ]
 }

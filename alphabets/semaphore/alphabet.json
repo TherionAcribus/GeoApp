@@ -4,7 +4,17 @@
   "type": "alphabet",
   "category": "alphabets",
   "version": "1.0.0",
-  "tags": ["sémaphore", "signalisation", "maritime", "drapeaux", "bras", "visuel", "communication", "navire"],
+  "tags": [
+    "sémaphore",
+    "signalisation",
+    "maritime",
+    "drapeaux",
+    "bras",
+    "visuel",
+    "communication",
+    "navire",
+    "signaux"
+  ],
   "alphabetConfig": {
     "type": "images",
     "imageFormat": "png",

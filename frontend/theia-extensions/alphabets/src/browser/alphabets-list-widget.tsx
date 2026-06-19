@@ -27,10 +27,61 @@ const IMAGE_PREVIEW_LENGTH = 10;
 const CISTERCIAN_TOOL_ID = '__geoapp_cistercian_numerals_tool__';
 const LIST_PREFERENCES_STORAGE_KEY = 'geoapp.alphabets.list.preferences';
 
-type AlphabetTypeFilter = 'all' | 'font' | 'images' | 'tool';
+type AlphabetFamilyFilter = 'all' | 'fiction' | 'runes' | 'communication' | 'numeric' | 'tactile' | 'visual';
 type AlphabetCapabilityFilter = 'all' | 'letters' | 'numbers' | 'special';
 type AlphabetViewMode = 'compact' | 'detailed';
 type AlphabetPreviewMode = 'hover' | 'always';
+
+const FAMILY_FILTERS: Array<{ id: AlphabetFamilyFilter; label: string; keywords: string[] }> = [
+    { id: 'all', label: 'Toutes familles', keywords: [] },
+    {
+        id: 'fiction',
+        label: 'Fiction',
+        keywords: [
+            'fiction', 'star wars', 'stargate', 'futurama', 'dune', 'fremen', 'hobbit', 'kryptonian',
+            'romulan', 'wakanda', 'matoran', 'pokemon', 'zentradi', 'aurebesh', 'borg',
+            'autobot', 'mandolarian', 'daedrique', 'skies of arcadia', 'final fantasy',
+            'banner of the stars', 'crest of the stars', 'jeu video', 'film', 'manga',
+            'serie tele', 'série télé'
+        ]
+    },
+    {
+        id: 'runes',
+        label: 'Runes / ancien',
+        keywords: ['ancien', 'rune', 'runes', 'futhark', 'hobbit', 'templier', 'theban', 'malachim', 'enochian', 'pictish']
+    },
+    {
+        id: 'communication',
+        label: 'Signaux',
+        keywords: [
+            'signaux', 'morse', 'semaphore', 'sémaphore', 'drapeaux', 'maritime', 'navire',
+            'telegraphe', 'télégraphe', 'chappe', 'radio', 'sos', 'signalisation',
+            'communication'
+        ]
+    },
+    {
+        id: 'numeric',
+        label: 'Nombres',
+        keywords: [
+            'numeral', 'numeric', 'number', 'nombres', 'chiffres', 'cistercien',
+            'chinese_numbers', 'resistor', 'résistance', 'ohm', 'code couleur'
+        ]
+    },
+    {
+        id: 'tactile',
+        label: 'Tactile',
+        keywords: ['braille', 'aveugle', 'malvoyant', 'accessibilite', 'accessibilité', 'relief', 'tactile']
+    },
+    {
+        id: 'visual',
+        label: 'Graphiques',
+        keywords: [
+            'graphique', 'graphiques', 'visuel', 'artistique', 'ballet', 'danse', 'danseuse', 'circle', 'circulaire',
+            'points', 'traits', 'labyrinthe', 'personnage', 'personnages', 'hexahue',
+            'puzzle', 'pigpen'
+        ]
+    }
+];
 
 const CISTERCIAN_TOOL_ALPHABET: Alphabet = {
     id: CISTERCIAN_TOOL_ID,
@@ -132,29 +183,11 @@ const AlphabetPreview: React.FC<AlphabetPreviewProps> = React.memo(
             }
             try {
                 const fontUrl = alphabetsService.getFontUrl(alphabet.id);
-                console.info('[AlphabetsFont]', 'list preview load start', {
-                    alphabetId: alphabet.id,
-                    fontFamily,
-                    fontUrl,
-                    fontFile: alphabetConfig.fontFile
-                });
                 void ensureAlphabetFontLoaded(alphabet.id, fontUrl).catch(error =>
-                    console.error('[AlphabetsFont] list preview load failed', {
-                        alphabetId: alphabet.id,
-                        fontFamily,
-                        errorName: error?.name,
-                        errorMessage: error?.message,
-                        error
-                    })
+                    console.error(`AlphabetsListWidget: Erreur de chargement de police ${alphabet.id}`, error)
                 );
             } catch (error) {
-                console.error('[AlphabetsFont] list preview load setup failed', {
-                    alphabetId: alphabet.id,
-                    fontFamily,
-                    errorName: error?.name,
-                    errorMessage: error?.message,
-                    error
-                });
+                console.error(`AlphabetsListWidget: FontFace non disponible pour ${alphabet.id}`, error);
             }
         }, [alphabet.id, alphabetConfig.type, previewText, alphabetsService, fontFamily]);
 
@@ -298,7 +331,7 @@ export class AlphabetsListWidget extends ReactWidget {
     private exampleTextOption: string = PRESET_EXAMPLE_OPTIONS[0].value;
     private customExampleText: string = '';
     private fontSize: number = 32;
-    private typeFilter: AlphabetTypeFilter = 'all';
+    private familyFilter: AlphabetFamilyFilter = 'all';
     private capabilityFilter: AlphabetCapabilityFilter = 'all';
     private viewMode: AlphabetViewMode = 'detailed';
     private previewMode: AlphabetPreviewMode = 'hover';
@@ -391,7 +424,9 @@ export class AlphabetsListWidget extends ReactWidget {
                 ? preferences.customExampleText
                 : '';
             this.fontSize = typeof preferences.fontSize === 'number' ? preferences.fontSize : this.fontSize;
-            this.typeFilter = this.isTypeFilter(preferences.typeFilter) ? preferences.typeFilter : this.typeFilter;
+            this.familyFilter = this.isFamilyFilter(preferences.familyFilter)
+                ? preferences.familyFilter
+                : this.familyFilter;
             this.capabilityFilter = this.isCapabilityFilter(preferences.capabilityFilter)
                 ? preferences.capabilityFilter
                 : this.capabilityFilter;
@@ -413,7 +448,7 @@ export class AlphabetsListWidget extends ReactWidget {
                 exampleTextOption: this.exampleTextOption,
                 customExampleText: this.customExampleText,
                 fontSize: this.fontSize,
-                typeFilter: this.typeFilter,
+                familyFilter: this.familyFilter,
                 capabilityFilter: this.capabilityFilter,
                 viewMode: this.viewMode,
                 previewMode: this.previewMode
@@ -423,8 +458,8 @@ export class AlphabetsListWidget extends ReactWidget {
         }
     }
 
-    private isTypeFilter(value: unknown): value is AlphabetTypeFilter {
-        return value === 'all' || value === 'font' || value === 'images' || value === 'tool';
+    private isFamilyFilter(value: unknown): value is AlphabetFamilyFilter {
+        return FAMILY_FILTERS.some(filter => filter.id === value);
     }
 
     private isCapabilityFilter(value: unknown): value is AlphabetCapabilityFilter {
@@ -646,26 +681,11 @@ export class AlphabetsListWidget extends ReactWidget {
         return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', margin: '10px 0' }}>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                    {this.renderFilterButton('Tous', this.typeFilter === 'all', () => {
-                        this.typeFilter = 'all';
+                    {FAMILY_FILTERS.map(filter => this.renderFilterButton(filter.label, this.familyFilter === filter.id, () => {
+                        this.familyFilter = filter.id;
                         this.saveListPreferences();
                         this.update();
-                    })}
-                    {this.renderFilterButton('Polices', this.typeFilter === 'font', () => {
-                        this.typeFilter = 'font';
-                        this.saveListPreferences();
-                        this.update();
-                    })}
-                    {this.renderFilterButton('Images', this.typeFilter === 'images', () => {
-                        this.typeFilter = 'images';
-                        this.saveListPreferences();
-                        this.update();
-                    })}
-                    {this.renderFilterButton('Outils', this.typeFilter === 'tool', () => {
-                        this.typeFilter = 'tool';
-                        this.saveListPreferences();
-                        this.update();
-                    })}
+                    }))}
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
                     {this.renderFilterButton('Tout contenu', this.capabilityFilter === 'all', () => {
@@ -1138,13 +1158,7 @@ export class AlphabetsListWidget extends ReactWidget {
     }
 
     private matchesActiveFilters(alphabet: Alphabet): boolean {
-        if (this.typeFilter === 'tool' && alphabet.id !== CISTERCIAN_TOOL_ID) {
-            return false;
-        }
-        if (this.typeFilter === 'font' && alphabet.alphabetConfig.type !== 'font') {
-            return false;
-        }
-        if (this.typeFilter === 'images' && (alphabet.id === CISTERCIAN_TOOL_ID || alphabet.alphabetConfig.type !== 'images')) {
+        if (!this.matchesFamilyFilter(alphabet)) {
             return false;
         }
 
@@ -1159,6 +1173,41 @@ export class AlphabetsListWidget extends ReactWidget {
         }
 
         return true;
+    }
+
+    private matchesFamilyFilter(alphabet: Alphabet): boolean {
+        if (this.familyFilter === 'all') {
+            return true;
+        }
+
+        const family = FAMILY_FILTERS.find(filter => filter.id === this.familyFilter);
+        if (!family) {
+            return true;
+        }
+
+        const haystack = this.getAlphabetFamilyHaystack(alphabet);
+        return family.keywords.some(keyword => haystack.includes(this.normalizeFamilyText(keyword)));
+    }
+
+    private getAlphabetFamilyHaystack(alphabet: Alphabet): string {
+        return [
+            alphabet.id,
+            alphabet.name,
+            alphabet.description,
+            alphabet.category,
+            alphabet.type,
+            ...(alphabet.tags || [])
+        ]
+            .filter(Boolean)
+            .map(value => this.normalizeFamilyText(String(value)))
+            .join(' ');
+    }
+
+    private normalizeFamilyText(value: string): string {
+        return value
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase();
     }
 
     private hasLetters(alphabet: Alphabet): boolean {
