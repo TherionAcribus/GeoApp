@@ -2626,6 +2626,66 @@
         "frontend"
       ]
     },
+    "geoApp.alphabets.favoriteIds": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true,
+      "title": "Alphabets favoris",
+      "description": "Identifiants des alphabets favoris affiches dans la liste Alphabets.",
+      "x-ui": {
+        "section": "Alphabets",
+        "label": "Favoris",
+        "advanced": true,
+        "order": 20,
+        "keywords": [
+          "alphabet",
+          "favoris",
+          "etoile"
+        ]
+      },
+      "x-category": "alphabets",
+      "x-targets": [
+        "frontend",
+        "backend"
+      ],
+      "x-tags": [
+        "ui",
+        "persistence"
+      ]
+    },
+    "geoApp.alphabets.recentIds": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true,
+      "title": "Alphabets recents",
+      "description": "Identifiants des derniers alphabets ouverts dans la liste Alphabets.",
+      "x-ui": {
+        "section": "Alphabets",
+        "label": "Recents",
+        "advanced": true,
+        "order": 30,
+        "keywords": [
+          "alphabet",
+          "recents",
+          "historique"
+        ]
+      },
+      "x-category": "alphabets",
+      "x-targets": [
+        "frontend",
+        "backend"
+      ],
+      "x-tags": [
+        "ui",
+        "persistence"
+      ]
+    },
     "geoApp.alphabets.availableSymbols.showValue": {
       "type": "boolean",
       "default": false,

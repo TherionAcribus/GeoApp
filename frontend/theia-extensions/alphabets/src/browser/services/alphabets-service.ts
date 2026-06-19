@@ -18,6 +18,11 @@ interface BackendGeocache {
     gc_lon?: string;
 }
 
+interface BackendPreferenceResponse<T> {
+    key: string;
+    value: T;
+}
+
 @injectable()
 export class AlphabetsService {
 
@@ -230,6 +235,22 @@ export class AlphabetsService {
             gc_lat: data.gc_lat,
             gc_lon: data.gc_lon
         };
+    }
+
+    async getPreference<T>(key: string, fallback: T): Promise<T> {
+        try {
+            const response = await this.client.get<BackendPreferenceResponse<T>>(
+                `/api/preferences/${encodeURIComponent(key)}`
+            );
+            return response.data.value ?? fallback;
+        } catch (error) {
+            console.warn(`AlphabetsService: preference ${key} unavailable`, error);
+            return fallback;
+        }
+    }
+
+    async updatePreferences(values: Record<string, unknown>): Promise<void> {
+        await this.client.patch('/api/preferences', { values });
     }
 
     private createClient(baseUrl: string): AxiosInstance {

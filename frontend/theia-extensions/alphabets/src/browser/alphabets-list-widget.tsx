@@ -26,9 +26,13 @@ const MAX_FONT_PREVIEW_LENGTH = 40;
 const IMAGE_PREVIEW_LENGTH = 10;
 const CISTERCIAN_TOOL_ID = '__geoapp_cistercian_numerals_tool__';
 const LIST_PREFERENCES_STORAGE_KEY = 'geoapp.alphabets.list.preferences';
+const FAVORITE_ALPHABETS_PREF = 'geoApp.alphabets.favoriteIds';
+const RECENT_ALPHABETS_PREF = 'geoApp.alphabets.recentIds';
+const MAX_RECENT_ALPHABETS = 8;
 
 type AlphabetFamilyFilter = 'all' | 'fiction' | 'runes' | 'communication' | 'numeric' | 'tactile' | 'visual';
 type AlphabetCapabilityFilter = 'all' | 'letters' | 'numbers' | 'special';
+type AlphabetScopeFilter = 'all' | 'favorites' | 'recent';
 type AlphabetViewMode = 'compact' | 'detailed';
 type AlphabetPreviewMode = 'hover' | 'always';
 
@@ -331,10 +335,13 @@ export class AlphabetsListWidget extends ReactWidget {
     private exampleTextOption: string = PRESET_EXAMPLE_OPTIONS[0].value;
     private customExampleText: string = '';
     private fontSize: number = 32;
+    private scopeFilter: AlphabetScopeFilter = 'all';
     private familyFilter: AlphabetFamilyFilter = 'all';
     private capabilityFilter: AlphabetCapabilityFilter = 'all';
     private viewMode: AlphabetViewMode = 'detailed';
     private previewMode: AlphabetPreviewMode = 'hover';
+    private favoriteAlphabetIds: string[] = [];
+    private recentAlphabetIds: string[] = [];
     private hoveredAlphabetId: string | null = null;
     private loadRequestSeq: number = 0;
 
@@ -347,6 +354,7 @@ export class AlphabetsListWidget extends ReactWidget {
         this.title.iconClass = 'fa fa-language'; // Icône pour les alphabets
         
         this.loadListPreferences();
+        void this.loadPersistentAlphabetState();
         this.update();
         this.loadAlphabets();
     }
@@ -424,6 +432,7 @@ export class AlphabetsListWidget extends ReactWidget {
                 ? preferences.customExampleText
                 : '';
             this.fontSize = typeof preferences.fontSize === 'number' ? preferences.fontSize : this.fontSize;
+            this.scopeFilter = this.isScopeFilter(preferences.scopeFilter) ? preferences.scopeFilter : this.scopeFilter;
             this.familyFilter = this.isFamilyFilter(preferences.familyFilter)
                 ? preferences.familyFilter
                 : this.familyFilter;
@@ -436,6 +445,8 @@ export class AlphabetsListWidget extends ReactWidget {
             this.previewMode = preferences.previewMode === 'always' || preferences.previewMode === 'hover'
                 ? preferences.previewMode
                 : this.previewMode;
+            this.favoriteAlphabetIds = this.normalizeStoredIds(preferences.favoriteAlphabetIds);
+            this.recentAlphabetIds = this.normalizeStoredIds(preferences.recentAlphabetIds).slice(0, MAX_RECENT_ALPHABETS);
         } catch (error) {
             console.warn('AlphabetsListWidget: unable to load list preferences', error);
         }
@@ -448,22 +459,69 @@ export class AlphabetsListWidget extends ReactWidget {
                 exampleTextOption: this.exampleTextOption,
                 customExampleText: this.customExampleText,
                 fontSize: this.fontSize,
+                scopeFilter: this.scopeFilter,
                 familyFilter: this.familyFilter,
                 capabilityFilter: this.capabilityFilter,
                 viewMode: this.viewMode,
-                previewMode: this.previewMode
+                previewMode: this.previewMode,
+                favoriteAlphabetIds: this.favoriteAlphabetIds,
+                recentAlphabetIds: this.recentAlphabetIds
             }));
         } catch (error) {
             console.warn('AlphabetsListWidget: unable to save list preferences', error);
         }
     }
 
+    private async loadPersistentAlphabetState(): Promise<void> {
+        const localFavorites = [...this.favoriteAlphabetIds];
+        const localRecents = [...this.recentAlphabetIds];
+
+        const [storedFavorites, storedRecents] = await Promise.all([
+            this.alphabetsService.getPreference<string[]>(FAVORITE_ALPHABETS_PREF, []),
+            this.alphabetsService.getPreference<string[]>(RECENT_ALPHABETS_PREF, [])
+        ]);
+
+        const remoteFavorites = this.normalizeStoredIds(storedFavorites);
+        const remoteRecents = this.normalizeStoredIds(storedRecents).slice(0, MAX_RECENT_ALPHABETS);
+        const shouldMigrateLocalState = remoteFavorites.length === 0 && remoteRecents.length === 0
+            && (localFavorites.length > 0 || localRecents.length > 0);
+
+        if (shouldMigrateLocalState) {
+            void this.savePersistentAlphabetState();
+            return;
+        }
+
+        this.favoriteAlphabetIds = remoteFavorites;
+        this.recentAlphabetIds = remoteRecents;
+        this.saveListPreferences();
+        this.update();
+    }
+
+    private savePersistentAlphabetState(): Promise<void> {
+        return this.alphabetsService.updatePreferences({
+            [FAVORITE_ALPHABETS_PREF]: this.favoriteAlphabetIds,
+            [RECENT_ALPHABETS_PREF]: this.recentAlphabetIds
+        }).catch(error => {
+            console.warn('AlphabetsListWidget: unable to persist alphabet favorites/recent state', error);
+        });
+    }
+
     private isFamilyFilter(value: unknown): value is AlphabetFamilyFilter {
         return FAMILY_FILTERS.some(filter => filter.id === value);
     }
 
+    private isScopeFilter(value: unknown): value is AlphabetScopeFilter {
+        return value === 'all' || value === 'favorites' || value === 'recent';
+    }
+
     private isCapabilityFilter(value: unknown): value is AlphabetCapabilityFilter {
         return value === 'all' || value === 'letters' || value === 'numbers' || value === 'special';
+    }
+
+    private normalizeStoredIds(value: unknown): string[] {
+        return Array.isArray(value)
+            ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+            : [];
     }
 
     /**
@@ -677,9 +735,65 @@ export class AlphabetsListWidget extends ReactWidget {
         );
     }
 
+    private renderFavoriteButton(alphabet: Alphabet): React.ReactNode {
+        const isFavorite = this.isFavorite(alphabet.id);
+        return (
+            <button
+                onClick={event => {
+                    event.stopPropagation();
+                    this.toggleFavorite(alphabet.id);
+                }}
+                title={isFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+                style={{
+                    border: 'none',
+                    background: 'transparent',
+                    color: isFavorite ? 'var(--theia-button-background)' : 'var(--theia-descriptionForeground)',
+                    cursor: 'pointer',
+                    padding: '0 2px',
+                    fontSize: '14px',
+                    lineHeight: 1
+                }}
+            >
+                <i className={isFavorite ? 'fa fa-star' : 'fa fa-star-o'} />
+            </button>
+        );
+    }
+
+    private isFavorite(alphabetId: string): boolean {
+        return this.favoriteAlphabetIds.includes(alphabetId);
+    }
+
+    private toggleFavorite(alphabetId: string): void {
+        if (this.isFavorite(alphabetId)) {
+            this.favoriteAlphabetIds = this.favoriteAlphabetIds.filter(id => id !== alphabetId);
+        } else {
+            this.favoriteAlphabetIds = [alphabetId, ...this.favoriteAlphabetIds];
+        }
+        this.saveListPreferences();
+        void this.savePersistentAlphabetState();
+        this.update();
+    }
+
     private renderQuickFilters(): React.ReactNode {
         return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', margin: '10px 0' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                    {this.renderFilterButton('Tous', this.scopeFilter === 'all', () => {
+                        this.scopeFilter = 'all';
+                        this.saveListPreferences();
+                        this.update();
+                    })}
+                    {this.renderFilterButton(`Favoris (${this.favoriteAlphabetIds.length})`, this.scopeFilter === 'favorites', () => {
+                        this.scopeFilter = 'favorites';
+                        this.saveListPreferences();
+                        this.update();
+                    })}
+                    {this.renderFilterButton(`Recents (${this.recentAlphabetIds.length})`, this.scopeFilter === 'recent', () => {
+                        this.scopeFilter = 'recent';
+                        this.saveListPreferences();
+                        this.update();
+                    })}
+                </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
                     {FAMILY_FILTERS.map(filter => this.renderFilterButton(filter.label, this.familyFilter === filter.id, () => {
                         this.familyFilter = filter.id;
@@ -1005,6 +1119,7 @@ export class AlphabetsListWidget extends ReactWidget {
             >
                 <div style={{ marginBottom: isCompact ? '2px' : '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                     {isCistercianTool && <i className='fa fa-calculator' style={{ marginRight: '8px' }} />}
+                    {this.renderFavoriteButton(alphabet)}
                     <span style={{
                         fontWeight: 'bold',
                         flex: 1,
@@ -1121,16 +1236,28 @@ export class AlphabetsListWidget extends ReactWidget {
      */
     private openAlphabet(alphabet: Alphabet): void {
         if (alphabet.id === CISTERCIAN_TOOL_ID) {
+            this.markRecentAlphabet(alphabet.id);
             this.openCistercianTool();
             return;
         }
 
         try {
+            this.markRecentAlphabet(alphabet.id);
             this.commandService.executeCommand(AlphabetsCommands.OPEN_VIEWER.id, alphabet.id)
                 .catch(err => console.error('AlphabetsListWidget: Error executing command:', err));
         } catch (error) {
             console.error('AlphabetsListWidget: Error calling executeCommand:', error);
         }
+    }
+
+    private markRecentAlphabet(alphabetId: string): void {
+        this.recentAlphabetIds = [
+            alphabetId,
+            ...this.recentAlphabetIds.filter(id => id !== alphabetId)
+        ].slice(0, MAX_RECENT_ALPHABETS);
+        this.saveListPreferences();
+        void this.savePersistentAlphabetState();
+        this.update();
     }
 
     private openCistercianTool(): void {
@@ -1154,10 +1281,17 @@ export class AlphabetsListWidget extends ReactWidget {
 
         return [...this.alphabets, CISTERCIAN_TOOL_ALPHABET]
             .filter(alphabet => this.matchesActiveFilters(alphabet))
-            .sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }));
+            .sort((a, b) => this.compareDisplayedAlphabets(a, b));
     }
 
     private matchesActiveFilters(alphabet: Alphabet): boolean {
+        if (this.scopeFilter === 'favorites' && !this.isFavorite(alphabet.id)) {
+            return false;
+        }
+        if (this.scopeFilter === 'recent' && !this.recentAlphabetIds.includes(alphabet.id)) {
+            return false;
+        }
+
         if (!this.matchesFamilyFilter(alphabet)) {
             return false;
         }
@@ -1173,6 +1307,26 @@ export class AlphabetsListWidget extends ReactWidget {
         }
 
         return true;
+    }
+
+    private compareDisplayedAlphabets(a: Alphabet, b: Alphabet): number {
+        if (this.scopeFilter === 'recent') {
+            const aIndex = this.recentAlphabetIds.indexOf(a.id);
+            const bIndex = this.recentAlphabetIds.indexOf(b.id);
+            if (aIndex !== bIndex) {
+                return aIndex - bIndex;
+            }
+        }
+
+        if (this.scopeFilter === 'favorites') {
+            const aIndex = this.favoriteAlphabetIds.indexOf(a.id);
+            const bIndex = this.favoriteAlphabetIds.indexOf(b.id);
+            if (aIndex !== bIndex) {
+                return aIndex - bIndex;
+            }
+        }
+
+        return a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' });
     }
 
     private matchesFamilyFilter(alphabet: Alphabet): boolean {

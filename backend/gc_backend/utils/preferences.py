@@ -96,6 +96,14 @@ def _normalize_value(definition: Dict[str, Any], value: Any) -> Any:
             normalized = float(value)
         except (TypeError, ValueError):
             raise ValueError('Valeur numérique attendue')
+    elif pref_type == 'array':
+        if not isinstance(value, list):
+            raise ValueError('Valeur tableau attendue')
+        normalized = _normalize_array_value(definition, value)
+    elif pref_type == 'object':
+        if not isinstance(value, dict):
+            raise ValueError('Valeur objet attendue')
+        normalized = value
     else:
         normalized = str(value) if value is not None else None
 
@@ -112,6 +120,50 @@ def _normalize_value(definition: Dict[str, Any], value: Any) -> Any:
         raise ValueError(f"Valeur minimale {minimum}")
     if maximum is not None and normalized > maximum:
         raise ValueError(f"Valeur maximale {maximum}")
+
+    return normalized
+
+
+def _normalize_array_value(definition: Dict[str, Any], value: list[Any]) -> list[Any]:
+    item_definition = definition.get('items') or {}
+    item_type = item_definition.get('type')
+    enum_values = item_definition.get('enum')
+    normalized: list[Any] = []
+
+    for item in value:
+        if item is None:
+            continue
+
+        if item_type == 'string':
+            normalized_item = str(item)
+        elif item_type == 'integer':
+            try:
+                normalized_item = int(item)
+            except (TypeError, ValueError):
+                raise ValueError('Valeur entière attendue dans le tableau')
+        elif item_type == 'number':
+            try:
+                normalized_item = float(item)
+            except (TypeError, ValueError):
+                raise ValueError('Valeur numérique attendue dans le tableau')
+        elif item_type == 'boolean':
+            if not isinstance(item, bool):
+                raise ValueError('Valeur booléenne attendue dans le tableau')
+            normalized_item = item
+        else:
+            normalized_item = item
+
+        if enum_values and normalized_item not in enum_values:
+            raise ValueError(f"Valeur invalide dans le tableau. Options: {enum_values}")
+
+        normalized.append(normalized_item)
+
+    if definition.get('uniqueItems'):
+        deduplicated: list[Any] = []
+        for item in normalized:
+            if item not in deduplicated:
+                deduplicated.append(item)
+        return deduplicated
 
     return normalized
 
