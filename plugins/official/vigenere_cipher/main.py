@@ -14,6 +14,13 @@ except Exception:  # pragma: no cover - optional dependency
     score_text_fast = None
     _SCORING_AVAILABLE = False
 
+try:
+    from gc_backend.plugins.code_solving import parse_bool
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.code_solving import parse_bool
+
 
 class VigenereCipherPlugin:
     """Encode/decode using Vigenère cipher."""
@@ -68,14 +75,6 @@ class VigenereCipherPlugin:
         return "".join(result)
 
     @staticmethod
-    def _is_truthy(value: Any) -> bool:
-        if isinstance(value, bool):
-            return value
-        if value is None:
-            return False
-        return str(value).strip().lower() in {"true", "1", "yes", "on"}
-
-    @staticmethod
     def _parse_candidate_keys(keys_input: Any) -> List[str]:
         if not keys_input:
             return []
@@ -111,11 +110,11 @@ class VigenereCipherPlugin:
         text = inputs.get("text", "")
         key = inputs.get("key", "")
         strict_mode = str(inputs.get("strict", "smooth")).lower() == "strict"
-        enable_scoring = self._is_truthy(inputs.get("enable_scoring", True))
+        enable_scoring = parse_bool(inputs.get("enable_scoring", True))
         context = inputs.get("context", {})
         candidate_keys = self._parse_candidate_keys(inputs.get("candidate_keys"))
         max_results = min(int(inputs.get("max_results", 10) or 10), 50)
-        do_bruteforce = mode == "bruteforce" or self._is_truthy(inputs.get("bruteforce", False))
+        do_bruteforce = mode == "bruteforce" or parse_bool(inputs.get("bruteforce", False))
 
         response = {
             "status": "success",

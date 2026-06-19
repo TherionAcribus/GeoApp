@@ -4,6 +4,13 @@ import re
 import time
 from typing import Any, Dict, List, Tuple
 
+try:
+    from gc_backend.plugins.code_solving import parse_bool
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.code_solving import parse_bool
+
 
 class GeocacheCodePlugin:
     """Convert between geocaching.com numeric IDs and GC codes.
@@ -34,9 +41,9 @@ class GeocacheCodePlugin:
         output_format = str(inputs.get("output_format", "decimal")).lower()
         scheme = str(inputs.get("scheme", "auto")).lower()
         strict_mode = str(inputs.get("strict", "smooth")).lower() == "strict"
-        embedded = self._parse_bool(inputs.get("embedded", False), default=False)
-        include_prefix = self._parse_bool(inputs.get("include_prefix", True), default=True)
-        uppercase = self._parse_bool(inputs.get("uppercase", True), default=True)
+        embedded = parse_bool(inputs.get("embedded", False), default=False)
+        include_prefix = parse_bool(inputs.get("include_prefix", True), default=True)
+        uppercase = parse_bool(inputs.get("uppercase", True), default=True)
 
         if text is None or str(text).strip() == "":
             return self._error_response("Aucune valeur fournie", start_time)
@@ -305,17 +312,6 @@ class GeocacheCodePlugin:
             return True
         except ValueError:
             return False
-
-    def _parse_bool(self, value: Any, default: bool = False) -> bool:
-        if value is None:
-            return default
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return bool(value)
-        if isinstance(value, str):
-            return value.strip().lower() in {"true", "1", "yes", "on"}
-        return default
 
     def _success_response(self, summary: str, results: List[Dict[str, Any]], start_time: float) -> Dict[str, Any]:
         return {

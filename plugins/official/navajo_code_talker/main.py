@@ -5,6 +5,13 @@ import time
 import unicodedata
 from typing import Any, Dict, List, Tuple
 
+try:
+    from gc_backend.plugins.code_solving import parse_bool
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.code_solving import parse_bool
+
 
 class NavajoCodeTalkerPlugin:
     """Navajo Code Talker alphabet-only encoder/decoder."""
@@ -108,7 +115,7 @@ class NavajoCodeTalkerPlugin:
         text = inputs.get("text", "")
         mode = str(inputs.get("mode", "decode") or "decode").lower()
         spelling = str(inputs.get("spelling", "historical") or "historical").lower()
-        keep_word_spaces = self._parse_bool(inputs.get("keep_word_spaces", True), default=True)
+        keep_word_spaces = parse_bool(inputs.get("keep_word_spaces", True), default=True)
         word_separator = str(inputs.get("word_separator", "/") or "/")
         strict = str(inputs.get("strict", "smooth") or "smooth").lower() == "strict"
 
@@ -319,17 +326,6 @@ class NavajoCodeTalkerPlugin:
         if spelling == "modern":
             return 2
         raise ValueError("Graphie inconnue: utilisez historical ou modern")
-
-    def _parse_bool(self, value: Any, default: bool = False) -> bool:
-        if value is None:
-            return default
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return bool(value)
-        if isinstance(value, str):
-            return value.strip().lower() in {"true", "1", "yes", "on"}
-        return default
 
     def _success_response(
         self,

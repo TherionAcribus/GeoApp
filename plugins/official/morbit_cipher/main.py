@@ -9,6 +9,7 @@ try:
     from gc_backend.plugins.code_solving import (
         confidence_from_fragments,
         extract_digit_fragments,
+        parse_bool,
     )
 except ImportError:  # execution standalone / tests hors backend
     import pathlib
@@ -18,6 +19,7 @@ except ImportError:  # execution standalone / tests hors backend
     from gc_backend.plugins.code_solving import (
         confidence_from_fragments,
         extract_digit_fragments,
+        parse_bool,
     )
 
 MORBIT_DIGITS = "123456789"
@@ -83,9 +85,9 @@ class MorbitCipherPlugin:
         mode = str(inputs.get("mode", "decode")).lower()
         key = str(inputs.get("key", "") or "")
         strict_mode = str(inputs.get("strict", "smooth")).lower() == "strict"
-        embedded = self._parse_bool(inputs.get("embedded", False), default=False)
+        embedded = parse_bool(inputs.get("embedded", False), default=False)
         allowed_chars = str(inputs.get("allowed_chars", " \t\r\n") or "")
-        group_output = self._parse_bool(inputs.get("group_output", True), default=True)
+        group_output = parse_bool(inputs.get("group_output", True), default=True)
 
         if not isinstance(text, str) or not text.strip():
             return self._error_response("Aucun texte fourni", start_time)
@@ -365,17 +367,6 @@ class MorbitCipherPlugin:
 
     def _confidence_from_fragments(self, text: str, fragments: List[Dict[str, Any]]) -> float:
         return confidence_from_fragments(text, fragments, base=0.35, scale=0.65)
-
-    def _parse_bool(self, value: Any, default: bool = False) -> bool:
-        if value is None:
-            return default
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return bool(value)
-        if isinstance(value, str):
-            return value.strip().lower() in {"true", "1", "yes", "on"}
-        return default
 
     def _success_response(
         self,

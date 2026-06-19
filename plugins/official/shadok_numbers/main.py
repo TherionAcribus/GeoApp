@@ -12,6 +12,13 @@ except Exception:  # pragma: no cover - optional dependency
     score_text = None
     _SCORING_AVAILABLE = False
 
+try:
+    from gc_backend.plugins.code_solving import parse_bool
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.code_solving import parse_bool
+
 
 class ShadokNumbersPlugin:
     DIGIT_TO_SYLLABLE = {"0": "GA", "1": "BU", "2": "ZO", "3": "MEU"}
@@ -88,13 +95,6 @@ class ShadokNumbersPlugin:
         decoded_numbers = [self._decode_token(tok) for tok in tokens if tok]
         return " ".join(decoded_numbers)
 
-    def _is_truthy(self, value: Any) -> bool:
-        if isinstance(value, bool):
-            return value
-        if value is None:
-            return False
-        return str(value).strip().lower() in {"true", "1", "yes", "on"}
-
     def _detect_fragments(self, text: str) -> Dict[str, Any]:
         """Find Shadok sequences and decode them for reference."""
         if not text:
@@ -137,7 +137,7 @@ class ShadokNumbersPlugin:
         mode = str(inputs.get("mode", "encode")).lower()
         text = inputs.get("text", "")
         context = inputs.get("context", {})
-        enable_scoring = self._is_truthy(inputs.get("enable_scoring", True))
+        enable_scoring = parse_bool(inputs.get("enable_scoring", True))
 
         standardized_response = {
             "status": "success",

@@ -5,6 +5,13 @@ import string
 import time
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+try:
+    from gc_backend.plugins.code_solving import parse_bool
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.code_solving import parse_bool
+
 
 class LetterValuePlugin:
     def __init__(self) -> None:
@@ -302,17 +309,6 @@ class LetterValuePlugin:
 
         return results
 
-    def _parse_bool(self, value: Any, default: bool = False) -> bool:
-        if value is None:
-            return default
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return bool(value)
-        if isinstance(value, str):
-            return value.strip().lower() in {"true", "1", "yes", "on"}
-        return default
-
     def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         start_time = time.time()
 
@@ -320,10 +316,10 @@ class LetterValuePlugin:
         text = inputs.get("text", "")
         strict_mode = str(inputs.get("strict", "smooth")).lower() == "strict"
         allowed_chars = str(inputs.get("allowed_chars", " ,.°"))
-        embedded = self._parse_bool(inputs.get("embedded", True), default=True)
+        embedded = parse_bool(inputs.get("embedded", True), default=True)
         output_format = str(inputs.get("format", "combined")).lower()
-        use_checksum = self._parse_bool(inputs.get("checksum", False), default=False)
-        bruteforce = self._parse_bool(inputs.get("bruteforce", False), default=False) or self._parse_bool(
+        use_checksum = parse_bool(inputs.get("checksum", False), default=False)
+        bruteforce = parse_bool(inputs.get("bruteforce", False), default=False) or parse_bool(
             inputs.get("brute_force", False),
             default=False,
         )

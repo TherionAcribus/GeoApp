@@ -5,6 +5,13 @@ import time
 import unicodedata
 from typing import Any, Dict, List, Tuple
 
+try:
+    from gc_backend.plugins.code_solving import parse_bool
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.code_solving import parse_bool
+
 
 class StraddlingCheckerboardPlugin:
     """Encode/decode a straddling checkerboard as digit groups.
@@ -34,7 +41,7 @@ class StraddlingCheckerboardPlugin:
         numeric_mode = str(inputs.get("numeric_mode", "single_escape") or "single_escape").lower()
         numeric_key = str(inputs.get("numeric_key", "") or "")
         output_format = str(inputs.get("output_format", "digits") or "digits").lower()
-        group_output = self._parse_bool(inputs.get("group_output", False), default=False)
+        group_output = parse_bool(inputs.get("group_output", False), default=False)
         group_size = self._parse_int(inputs.get("group_size", 5), default=5)
 
         if text is None or str(text).strip() == "":
@@ -414,17 +421,6 @@ class StraddlingCheckerboardPlugin:
             if ch not in output:
                 output.append(ch)
         return output
-
-    def _parse_bool(self, value: Any, default: bool = False) -> bool:
-        if value is None:
-            return default
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return bool(value)
-        if isinstance(value, str):
-            return value.strip().lower() in {"true", "1", "yes", "on"}
-        return default
 
     def _parse_int(self, value: Any, default: int) -> int:
         try:

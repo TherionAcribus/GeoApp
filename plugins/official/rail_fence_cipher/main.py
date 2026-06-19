@@ -4,6 +4,13 @@ import re
 import time
 from typing import Any, Dict, List
 
+try:
+    from gc_backend.plugins.code_solving import parse_bool
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.code_solving import parse_bool
+
 
 class RailFenceCipherPlugin:
     def __init__(self) -> None:
@@ -95,13 +102,6 @@ class RailFenceCipherPlugin:
             return 0.6
         return 0.4
 
-    def _is_truthy(self, value: Any) -> bool:
-        if isinstance(value, bool):
-            return value
-        if value is None:
-            return False
-        return str(value).lower() in {"true", "on", "1", "yes"}
-
     def encode(self, text: str, key: int, from_top: bool) -> str:
         return self._encode_rail_fence(text, key, from_top)
 
@@ -125,10 +125,10 @@ class RailFenceCipherPlugin:
         start_direction = str(inputs.get("start_direction", "top")).lower()
         from_top = start_direction != "bottom"
         max_key = int(inputs.get("max_key", 10) or 10)
-        enable_scoring = self._is_truthy(inputs.get("enable_scoring", True))
+        enable_scoring = parse_bool(inputs.get("enable_scoring", True))
         context = inputs.get("context", {})
 
-        bruteforce_flag = self._is_truthy(inputs.get("bruteforce", False)) or self._is_truthy(
+        bruteforce_flag = parse_bool(inputs.get("bruteforce", False)) or parse_bool(
             inputs.get("brute_force", False)
         )
         do_bruteforce = mode == "bruteforce" or bruteforce_flag

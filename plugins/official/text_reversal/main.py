@@ -4,6 +4,13 @@ import re
 import time
 from typing import Any, Dict, List
 
+try:
+    from gc_backend.plugins.code_solving import parse_bool
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.code_solving import parse_bool
+
 
 class TextReversalPlugin:
     """Reverse a whole text or each word independently."""
@@ -20,7 +27,7 @@ class TextReversalPlugin:
         text = inputs.get("text", "")
         mode = str(inputs.get("mode", "decode") or "decode").lower()
         reversal_scope = str(inputs.get("reversal_scope", "words") or "words").lower()
-        preserve_punctuation = self._parse_bool(inputs.get("preserve_punctuation", True), default=True)
+        preserve_punctuation = parse_bool(inputs.get("preserve_punctuation", True), default=True)
 
         if text is None or str(text) == "":
             return self._error_response("Aucun texte fourni", start_time)
@@ -143,17 +150,6 @@ class TextReversalPlugin:
         common_endings = ("ent", "tion", "ment", "que", "ant", "eur", "oir", "er", "es", "re")
         common_starts_reversed = tuple(ending[::-1] for ending in common_endings)
         return lowered.startswith(common_starts_reversed) or reversed_lowered.endswith(common_endings)
-
-    def _parse_bool(self, value: Any, default: bool = False) -> bool:
-        if value is None:
-            return default
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return bool(value)
-        if isinstance(value, str):
-            return value.strip().lower() in {"true", "1", "yes", "on"}
-        return default
 
     def _success_response(
         self,

@@ -13,6 +13,13 @@ except Exception:  # pragma: no cover - optional dependency
     score_text_fast = None
     _SCORING_AVAILABLE = False
 
+try:
+    from gc_backend.plugins.code_solving import parse_bool
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.code_solving import parse_bool
+
 
 class WolseleyCipherPlugin:
     """Encode/decode using the Wolseley cipher (reversible substitution)."""
@@ -71,14 +78,6 @@ class WolseleyCipherPlugin:
     @staticmethod
     def _clean_text(text: str) -> str:
         return re.sub(r"[^A-Z]", "", text.upper())
-
-    @staticmethod
-    def _is_truthy(value: Any) -> bool:
-        if isinstance(value, bool):
-            return value
-        if value is None:
-            return False
-        return str(value).strip().lower() in {"true", "1", "yes", "on"}
 
     @staticmethod
     def _parse_candidate_keys(keys_input: Any) -> List[str]:
@@ -151,10 +150,10 @@ class WolseleyCipherPlugin:
         text = inputs.get("text", "")
         key = inputs.get("key", "")
         removed_letter = str(inputs.get("removed_letter", "J"))
-        enable_scoring = self._is_truthy(inputs.get("enable_scoring", True))
+        enable_scoring = parse_bool(inputs.get("enable_scoring", True))
         context = inputs.get("context", {})
         max_results = min(int(inputs.get("max_results", 10) or 10), 50)
-        do_bruteforce = mode == "bruteforce" or self._is_truthy(inputs.get("bruteforce", False))
+        do_bruteforce = mode == "bruteforce" or parse_bool(inputs.get("bruteforce", False))
         candidate_keys = self._parse_candidate_keys(inputs.get("candidate_keys"))
 
         response = {

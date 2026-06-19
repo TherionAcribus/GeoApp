@@ -4,6 +4,13 @@ import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
+try:
+    from gc_backend.plugins.code_solving import parse_bool
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.code_solving import parse_bool
+
 
 class BrainfuckPlugin:
     """Brainfuck interpreter for geocaching puzzle decoding."""
@@ -26,7 +33,7 @@ class BrainfuckPlugin:
         tape_size = self._parse_int(inputs.get("tape_size", 30000), default=30000, minimum=1, maximum=1_000_000)
         max_steps = self._parse_int(inputs.get("max_steps", 1_000_000), default=1_000_000, minimum=1, maximum=10_000_000)
         output_limit = self._parse_int(inputs.get("output_limit", 10000), default=10000, minimum=1, maximum=100000)
-        allow_tape_growth = self._parse_bool(inputs.get("allow_tape_growth", False), default=False)
+        allow_tape_growth = parse_bool(inputs.get("allow_tape_growth", False), default=False)
         strict = str(inputs.get("strict", "smooth") or "smooth").lower() == "strict"
 
         if text is None or str(text).strip() == "":
@@ -295,17 +302,6 @@ class BrainfuckPlugin:
             except ValueError:
                 pass
         return "\uFFFD"
-
-    def _parse_bool(self, value: Any, default: bool = False) -> bool:
-        if value is None:
-            return default
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return bool(value)
-        if isinstance(value, str):
-            return value.strip().lower() in {"true", "1", "yes", "on"}
-        return default
 
     def _parse_int(self, value: Any, default: int, minimum: int, maximum: int) -> int:
         try:

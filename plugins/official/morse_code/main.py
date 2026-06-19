@@ -5,6 +5,13 @@ import string
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
+try:
+    from gc_backend.plugins.code_solving import parse_bool
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.code_solving import parse_bool
+
 
 class MorseCodePlugin:
     def __init__(self) -> None:
@@ -60,7 +67,7 @@ class MorseCodePlugin:
         mode = str(inputs.get("mode", "decode")).lower()
 
         strict_mode = str(inputs.get("strict", "smooth")).lower() == "strict"
-        embedded = self._parse_bool(inputs.get("embedded", False), default=False)
+        embedded = parse_bool(inputs.get("embedded", False), default=False)
         allowed_chars = inputs.get("allowed_chars", "")
         if allowed_chars is None:
             allowed_chars = ""
@@ -358,17 +365,6 @@ class MorseCodePlugin:
             return 0.3
         ratio = min(1.0, total_len / max(1, len(text)))
         return 0.4 + 0.6 * ratio
-
-    def _parse_bool(self, value: Any, default: bool = False) -> bool:
-        if value is None:
-            return default
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return bool(value)
-        if isinstance(value, str):
-            return value.strip().lower() in {"true", "1", "yes", "on"}
-        return default
 
     def _get_plugin_info(self, start_time: float) -> Dict[str, Any]:
         execution_time = (time.time() - start_time) * 1000

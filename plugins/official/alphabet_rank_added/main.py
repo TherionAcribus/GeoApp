@@ -5,6 +5,13 @@ import time
 import unicodedata
 from typing import Any, Dict, List, Tuple
 
+try:
+    from gc_backend.plugins.code_solving import parse_bool
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.code_solving import parse_bool
+
 
 class AlphabetRankAddedPlugin:
     """A1Z26 cumulative/additive rank cipher."""
@@ -22,7 +29,7 @@ class AlphabetRankAddedPlugin:
         mode = str(inputs.get("mode", "decode") or "decode").lower()
         alphabet = self._normalize_alphabet(str(inputs.get("alphabet", self.DEFAULT_ALPHABET) or self.DEFAULT_ALPHABET))
         rank_base = self._parse_rank_base(inputs.get("rank_base", 1))
-        use_modulo = self._parse_bool(inputs.get("use_modulo", False), default=False)
+        use_modulo = parse_bool(inputs.get("use_modulo", False), default=False)
         separator = str(inputs.get("separator", "space") or "space").lower()
         strict = str(inputs.get("strict", "smooth") or "smooth").lower() == "strict"
 
@@ -248,17 +255,6 @@ class AlphabetRankAddedPlugin:
         if parsed not in {0, 1}:
             raise ValueError("La base de rang doit etre 0 ou 1")
         return parsed
-
-    def _parse_bool(self, value: Any, default: bool = False) -> bool:
-        if value is None:
-            return default
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return bool(value)
-        if isinstance(value, str):
-            return value.strip().lower() in {"true", "1", "yes", "on"}
-        return default
 
     def _success_response(
         self,

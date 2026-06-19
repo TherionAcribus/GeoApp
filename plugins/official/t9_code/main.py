@@ -14,6 +14,13 @@ except Exception:  # pragma: no cover - optional dependency
     score_text_fast = None
     _SCORING_AVAILABLE = False
 
+try:
+    from gc_backend.plugins.code_solving import parse_bool
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.code_solving import parse_bool
+
 
 class T9CodePlugin:
     """T9 encode/decode with safe bruteforce and optional scoring."""
@@ -46,14 +53,6 @@ class T9CodePlugin:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
-    @staticmethod
-    def _is_truthy(value: Any) -> bool:
-        if isinstance(value, bool):
-            return value
-        if value is None:
-            return False
-        return str(value).strip().lower() in {"true", "1", "yes", "on"}
-
     def _encode_text(self, text: str) -> str:
         if len(text) > 50:
             text = text[:50]
@@ -266,8 +265,8 @@ class T9CodePlugin:
         language = str(inputs.get("language", "auto"))
         max_results = min(int(inputs.get("max_results", 10)), self.MAX_FINAL_CANDIDATES)
         context = inputs.get("context", {})
-        enable_scoring = self._is_truthy(inputs.get("enable_scoring", True))
-        bruteforce_flag = self._is_truthy(inputs.get("bruteforce", False)) or mode == "bruteforce"
+        enable_scoring = parse_bool(inputs.get("enable_scoring", True))
+        bruteforce_flag = parse_bool(inputs.get("bruteforce", False)) or mode == "bruteforce"
 
         standardized_response = {
             "status": "success",

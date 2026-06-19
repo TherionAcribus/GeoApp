@@ -6,6 +6,13 @@ import time
 import unicodedata
 from typing import Any, Dict, List, Optional, Tuple
 
+try:
+    from gc_backend.plugins.code_solving import parse_bool
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.code_solving import parse_bool
+
 
 class VicCipherPlugin:
     """Practical VIC cipher helper.
@@ -45,8 +52,8 @@ class VicCipherPlugin:
         personal_number_raw = inputs.get("personal_number", 0)
         checkerboard_mnemonic = str(inputs.get("checkerboard_mnemonic", "AT ONE SIR") or "AT ONE SIR")
         transposition_mode = str(inputs.get("transposition_mode", "double")).lower()
-        insert_keygroup = self._parse_bool(inputs.get("insert_keygroup", True), default=True)
-        group_output = self._parse_bool(inputs.get("group_output", True), default=True)
+        insert_keygroup = parse_bool(inputs.get("insert_keygroup", True), default=True)
+        group_output = parse_bool(inputs.get("group_output", True), default=True)
 
         try:
             personal_number = int(personal_number_raw)
@@ -114,7 +121,7 @@ class VicCipherPlugin:
         spare_positions = str(inputs.get("spare_positions", "26") or "26")
         numeric_key = str(inputs.get("numeric_key", "") or "")
         output_format = str(inputs.get("output_format", "digits") or "digits").lower()
-        group_output = self._parse_bool(inputs.get("group_output", True), default=True)
+        group_output = parse_bool(inputs.get("group_output", True), default=True)
 
         try:
             checkerboard = self.build_simple_checkerboard(
@@ -872,17 +879,6 @@ class VicCipherPlugin:
     def _clean_simple_symbols(self, text: str) -> str:
         normalized = self._normalize_text(text)
         return "".join(ch for ch in normalized if ("A" <= ch <= "Z") or ch in "./")
-
-    def _parse_bool(self, value: Any, default: bool = False) -> bool:
-        if value is None:
-            return default
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return bool(value)
-        if isinstance(value, str):
-            return value.strip().lower() in {"true", "1", "yes", "on"}
-        return default
 
     def _success_response(
         self,

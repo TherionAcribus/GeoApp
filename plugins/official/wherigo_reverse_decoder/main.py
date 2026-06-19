@@ -4,6 +4,13 @@ import re
 import time
 from typing import Any, Dict, List, Tuple
 
+try:
+    from gc_backend.plugins.code_solving import parse_bool
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.code_solving import parse_bool
+
 
 class WherigoReverseDecoderPlugin:
     """Decode Wherigo Reverse three-number codes into geocaching coordinates."""
@@ -17,8 +24,8 @@ class WherigoReverseDecoderPlugin:
 
         text = str(inputs.get("text", "") or "").strip()
         mode = str(inputs.get("mode", "decode") or "decode").lower()
-        strict_mode = self._parse_bool(inputs.get("strict", True), default=True)
-        embedded_mode = self._parse_bool(inputs.get("embedded", True), default=True)
+        strict_mode = parse_bool(inputs.get("strict", True), default=True)
+        embedded_mode = parse_bool(inputs.get("embedded", True), default=True)
 
         if not text:
             return self._error_response("Aucun texte fourni pour l'analyse.", start_time)
@@ -215,17 +222,6 @@ class WherigoReverseDecoderPlugin:
             "version": self.version,
             "execution_time_ms": round((time.time() - start_time) * 1000, 2),
         }
-
-    def _parse_bool(self, value: Any, default: bool = False) -> bool:
-        if value is None:
-            return default
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return bool(value)
-        if isinstance(value, str):
-            return value.strip().lower() in {"true", "1", "yes", "on"}
-        return default
 
 
 plugin = WherigoReverseDecoderPlugin()

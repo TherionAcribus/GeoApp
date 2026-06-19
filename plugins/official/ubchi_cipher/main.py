@@ -15,6 +15,13 @@ except Exception:  # pragma: no cover - optional dependency
     score_text_fast = None
     _SCORING_AVAILABLE = False
 
+try:
+    from gc_backend.plugins.code_solving import parse_bool
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.code_solving import parse_bool
+
 
 class UbchiCipherPlugin:
     """Ubchi cipher (double columnar transposition with null letters)."""
@@ -119,14 +126,6 @@ class UbchiCipherPlugin:
         except Exception:
             return 0.3
 
-    @staticmethod
-    def _is_truthy(value: Any) -> bool:
-        if isinstance(value, bool):
-            return value
-        if value is None:
-            return False
-        return str(value).strip().lower() in {"true", "1", "yes", "on"}
-
     # ------------------------------------------------------------------
     # Execute
     # ------------------------------------------------------------------
@@ -137,8 +136,8 @@ class UbchiCipherPlugin:
         keyword = str(inputs.get("keyword", "UBER"))
         null_letters = int(inputs.get("null_letters", 1) or 1)
         context = inputs.get("context", {})
-        enable_scoring = self._is_truthy(inputs.get("enable_scoring", True))
-        do_bruteforce = mode == "bruteforce" or self._is_truthy(inputs.get("bruteforce", False))
+        enable_scoring = parse_bool(inputs.get("enable_scoring", True))
+        do_bruteforce = mode == "bruteforce" or parse_bool(inputs.get("bruteforce", False))
 
         response = {
             "status": "success",

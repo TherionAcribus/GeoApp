@@ -14,6 +14,13 @@ except Exception:  # pragma: no cover - optional dependency
     score_text_fast = None
     _SCORING_AVAILABLE = False
 
+try:
+    from gc_backend.plugins.code_solving import parse_bool
+except ImportError:
+    import sys as _sys, pathlib as _pathlib
+    _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
+    from gc_backend.plugins.code_solving import parse_bool
+
 
 class ModuloCipherPlugin:
     def __init__(self) -> None:
@@ -33,7 +40,7 @@ class ModuloCipherPlugin:
         if modulo is None:
             return self._error_response("Le modulo doit être un nombre", start_time)
 
-        brute_force = self._parse_bool(inputs.get("brute_force", False))
+        brute_force = parse_bool(inputs.get("brute_force", False))
 
         if not isinstance(text, str) or not text.strip():
             return self._error_response("Aucun texte fourni", start_time)
@@ -281,17 +288,6 @@ class ModuloCipherPlugin:
         valid = sum(1 for c in decoded_text if c in self._alphabet)
         ratio = valid / len(decoded_text) if decoded_text else 0.0
         return max(0.1, min(1.0, base * ratio))
-
-    def _parse_bool(self, value: Any, default: bool = False) -> bool:
-        if value is None:
-            return default
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return bool(value)
-        if isinstance(value, str):
-            return value.strip().lower() in {"true", "1", "yes", "on"}
-        return default
 
     def _coerce_int(self, value: Any, default: Optional[int] = None) -> Optional[int]:
         if value is None:

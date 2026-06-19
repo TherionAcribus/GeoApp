@@ -5,13 +5,13 @@ import time
 from typing import Any, Dict, List
 
 try:
-    from gc_backend.plugins.code_solving import WordCodec, normalize_allowed_chars
+    from gc_backend.plugins.code_solving import WordCodec, normalize_allowed_chars, parse_bool
 except ImportError:  # execution standalone / tests hors backend
     import pathlib
     import sys
 
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "backend"))
-    from gc_backend.plugins.code_solving import WordCodec, normalize_allowed_chars
+    from gc_backend.plugins.code_solving import WordCodec, normalize_allowed_chars, parse_bool
 
 DEFAULT_ALLOWED_CHARS = " \t\r\n.:;,_-°"
 ROMAN_CHARS = "IVXLCDM"
@@ -124,14 +124,6 @@ class RomanCodePlugin:
         except Exception:
             return None
 
-    @staticmethod
-    def _is_truthy(value: Any) -> bool:
-        if isinstance(value, bool):
-            return value
-        if value is None:
-            return False
-        return str(value).strip().lower() in {"true", "1", "yes", "on"}
-
     def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         start_time = time.time()
 
@@ -139,8 +131,8 @@ class RomanCodePlugin:
         text = inputs.get("text", inputs.get("value", ""))
         strict_mode = str(inputs.get("strict", "smooth")).lower() == "strict"
         allowed_chars = inputs.get("allowed_chars")
-        embedded = self._is_truthy(inputs.get("embedded", False))
-        enable_scoring = self._is_truthy(inputs.get("enable_scoring", True))
+        embedded = parse_bool(inputs.get("embedded", False))
+        enable_scoring = parse_bool(inputs.get("enable_scoring", True))
         context = inputs.get("context", {})
 
         standardized_response = {
