@@ -9,6 +9,7 @@ import { MessageService, CommandService } from '@theia/core';
 import { AlphabetsService } from './services/alphabets-service';
 import { Alphabet, AlphabetsCommands } from '../common/alphabet-protocol';
 import {
+    ensureAlphabetFontLoaded,
     getFontFamily,
     getImageResourcePathCandidates,
     resolveAlphabetImageSource
@@ -42,9 +43,6 @@ const CISTERCIAN_TOOL_ALPHABET: Alphabet = {
     },
     source: 'official'
 };
-
-const loadedFonts = new Set<string>();
-const loadingFonts: Map<string, Promise<void>> = new Map();
 
 interface AlphabetPreviewProps {
     alphabet: Alphabet;
@@ -126,27 +124,31 @@ const AlphabetPreview: React.FC<AlphabetPreviewProps> = React.memo(
             if (!previewText || alphabetConfig.type !== 'font') {
                 return;
             }
-            if (loadedFonts.has(fontFamily) || loadingFonts.has(fontFamily)) {
-                return;
-            }
             try {
                 const fontUrl = alphabetsService.getFontUrl(alphabet.id);
-                const fontFace = new FontFace(fontFamily, `url(${fontUrl})`);
-                const loadPromise = fontFace
-                    .load()
-                    .then(loadedFace => {
-                        document.fonts.add(loadedFace);
-                        loadedFonts.add(fontFamily);
+                console.info('[AlphabetsFont]', 'list preview load start', {
+                    alphabetId: alphabet.id,
+                    fontFamily,
+                    fontUrl,
+                    fontFile: alphabetConfig.fontFile
+                });
+                void ensureAlphabetFontLoaded(alphabet.id, fontUrl).catch(error =>
+                    console.error('[AlphabetsFont] list preview load failed', {
+                        alphabetId: alphabet.id,
+                        fontFamily,
+                        errorName: error?.name,
+                        errorMessage: error?.message,
+                        error
                     })
-                    .catch(error =>
-                        console.error(`AlphabetsListWidget: Erreur de chargement de police ${alphabet.id}`, error)
-                    )
-                    .finally(() => {
-                        loadingFonts.delete(fontFamily);
-                    });
-                loadingFonts.set(fontFamily, loadPromise);
+                );
             } catch (error) {
-                console.error(`AlphabetsListWidget: FontFace non disponible pour ${alphabet.id}`, error);
+                console.error('[AlphabetsFont] list preview load setup failed', {
+                    alphabetId: alphabet.id,
+                    fontFamily,
+                    errorName: error?.name,
+                    errorMessage: error?.message,
+                    error
+                });
             }
         }, [alphabet.id, alphabetConfig.type, previewText, alphabetsService, fontFamily]);
 

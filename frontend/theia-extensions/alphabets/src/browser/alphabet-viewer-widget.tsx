@@ -15,7 +15,13 @@ import { CoordinatesDetector } from './components/coordinates-detector';
 import { GeocacheAssociation } from './components/geocache-association';
 import { SymbolContextMenu } from './components/symbol-context-menu';
 import { ResolvedSymbolItem } from './components/resolved-symbol-item';
-import { getAlphabetLetters, getAlphabetNumbers, getSpecialCharactersMap } from './alphabet-symbol-resolver';
+import {
+    ensureAlphabetFontLoaded,
+    getAlphabetLetters,
+    getAlphabetNumbers,
+    getFontFamily,
+    getSpecialCharactersMap
+} from './alphabet-symbol-resolver';
 import './font-api';
 
 const PREF_AVAILABLE_SYMBOLS_SHOW_VALUE = 'geoApp.alphabets.availableSymbols.showValue';
@@ -374,36 +380,29 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
             return;
         }
 
-        const fontUrl = this.alphabetsService.getFontUrl(alphabetId);
-        const fontName = `Alphabet-${alphabetId}`;
-
-        // Créer un élément style pour @font-face
-        const styleId = `font-style-${alphabetId}`;
-        let styleElement = document.getElementById(styleId) as HTMLStyleElement;
-        
-        if (!styleElement) {
-            styleElement = document.createElement('style');
-            styleElement.id = styleId;
-            document.head.appendChild(styleElement);
-        }
-
-        styleElement.textContent = `
-            @font-face {
-                font-family: "${fontName}";
-                src: url("${fontUrl}") format("truetype");
-                font-display: block;
-            }
-        `;
-
-        // Attendre le chargement de la police
         try {
-            const font = new FontFace(fontName, `url(${fontUrl})`);
-            await font.load();
-            document.fonts.add(font);
+            const fontUrl = this.alphabetsService.getFontUrl(alphabetId);
+            console.info('[AlphabetsFont]', 'viewer loadFont start', {
+                alphabetId,
+                widgetId: this.id,
+                fontUrl,
+                fontFile: this.alphabet.alphabetConfig.fontFile
+            });
+            await ensureAlphabetFontLoaded(alphabetId, fontUrl);
+            console.info('[AlphabetsFont]', 'viewer loadFont success', {
+                alphabetId,
+                widgetId: this.id
+            });
             this.fontLoaded = true;
             this.update();
         } catch (error) {
-            console.error('Error loading font:', error);
+            console.error('[AlphabetsFont] viewer loadFont failed', {
+                alphabetId,
+                widgetId: this.id,
+                errorName: error?.name,
+                errorMessage: error?.message,
+                error
+            });
             this.messageService.warn('Impossible de charger la police, affichage en texte brut');
             this.fontLoaded = true; // Continuer quand même
             this.update();
@@ -1105,7 +1104,7 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
     private renderEnteredSymbols(isPinned: boolean): React.ReactNode {
         const scale = isPinned ? this.zoomState.pinnedSymbols : this.zoomState.enteredSymbols;
         const fontName = this.alphabet?.alphabetConfig?.type === 'font' 
-            ? `Alphabet-${this.alphabetId}` 
+            ? getFontFamily(this.alphabetId)
             : undefined;
 
         return (
@@ -1854,7 +1853,7 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
 
         const config = this.alphabet?.alphabetConfig;
         const fontName = config?.type === 'font' 
-            ? `Alphabet-${this.alphabetId}` 
+            ? getFontFamily(this.alphabetId)
             : undefined;
         const showValue = this.preferenceService.get(PREF_AVAILABLE_SYMBOLS_SHOW_VALUE, false) as boolean;
 
@@ -1965,12 +1964,6 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
      * Cleanup lors de la destruction du widget.
      */
     dispose(): void {
-        // Supprimer le style de police si présent
-        const styleId = `font-style-${this.alphabetId}`;
-        const styleElement = document.getElementById(styleId);
-        if (styleElement) {
-            styleElement.remove();
-        }
         super.dispose();
     }
 }

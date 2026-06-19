@@ -6,7 +6,7 @@
   "version": "1.0.0",
   "alphabetConfig": {
     "type": "font",
-    "fontFile": "fonts/fremen.ttf",
+    "fontFile": "fonts/fremen.woff2",
     "hasUpperCase": false,
     "upperCaseOnly": false,
     "characters": {

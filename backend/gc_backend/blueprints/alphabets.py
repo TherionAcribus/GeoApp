@@ -4,6 +4,7 @@ Réimplémentation pour Theia - API REST uniquement.
 """
 import os
 import json
+import mimetypes
 from flask import Blueprint, jsonify, send_file, request, current_app
 
 alphabets_bp = Blueprint('alphabets', __name__)
@@ -18,6 +19,14 @@ def _get_alphabets_dir():
         return current_app.config.get('ALPHABETS_DIR') or _DEFAULT_ALPHABETS_DIR
     except RuntimeError:
         return _DEFAULT_ALPHABETS_DIR
+
+
+def send_alphabet_file(path, **kwargs):
+    """Sert une ressource d'alphabet avec les headers requis par les webfonts."""
+    response = send_file(path, **kwargs)
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Cross-Origin-Resource-Policy'] = 'cross-origin'
+    return response
 
 
 def load_alphabet_config(alphabet_id):
@@ -248,7 +257,7 @@ def get_alphabet_resource(alphabet_id, resource_path):
         current_app.logger.error(f"Resource not found: {resource_full_path}")
         return jsonify({"error": f"Resource {resource_path} not found"}), 404
         
-    return send_file(resource_full_path)
+    return send_alphabet_file(resource_full_path)
 
 
 @alphabets_bp.route('/api/alphabets/<alphabet_id>/font')
@@ -274,7 +283,17 @@ def get_alphabet_font(alphabet_id):
         current_app.logger.error(f"Font file not found: {font_path}")
         return jsonify({"error": f"Police {config['alphabetConfig']['fontFile']} non trouvée"}), 404
     
-    return send_file(font_path, mimetype='font/ttf')
+    mimetype = mimetypes.guess_type(font_path)[0]
+    if font_path.lower().endswith('.ttf'):
+        mimetype = 'font/ttf'
+    elif font_path.lower().endswith('.otf'):
+        mimetype = 'font/otf'
+    elif font_path.lower().endswith('.woff'):
+        mimetype = 'font/woff'
+    elif font_path.lower().endswith('.woff2'):
+        mimetype = 'font/woff2'
+
+    return send_alphabet_file(font_path, mimetype=mimetype)
 
 
 @alphabets_bp.route('/api/alphabets/<alphabet_id>/sources', methods=['GET'])

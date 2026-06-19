@@ -5,6 +5,9 @@ const previewImageAvailabilityCache: Map<string, boolean> = new Map();
 const previewImageAvailabilityLoading: Map<string, Promise<boolean>> = new Map();
 const resolvedImageCache: Map<string, string | null> = new Map();
 const resolvingImageCache: Map<string, Promise<string | null>> = new Map();
+const loadedFontFamilies: Set<string> = new Set();
+const loadingFontFamilies: Map<string, Promise<void>> = new Map();
+const FONT_DEBUG_PREFIX = '[AlphabetsFont]';
 
 export const FONT_FAMILY_PREFIX = 'alphabet-font-';
 
@@ -13,6 +16,148 @@ export const sanitizeAlphabetId = (alphabetId: string): string =>
 
 export const getFontFamily = (alphabetId: string): string =>
     `${FONT_FAMILY_PREFIX}${sanitizeAlphabetId(alphabetId)}`;
+
+export const ensureAlphabetFontLoaded = (
+    alphabetId: string,
+    fontUrl: string
+): Promise<void> => {
+    const fontFamily = getFontFamily(alphabetId);
+    console.info(FONT_DEBUG_PREFIX, 'ensure start', { alphabetId, fontFamily, fontUrl });
+
+    if (loadedFontFamilies.has(fontFamily)) {
+        console.info(FONT_DEBUG_PREFIX, 'already loaded', { alphabetId, fontFamily });
+        return Promise.resolve();
+    }
+
+    if (loadingFontFamilies.has(fontFamily)) {
+        console.info(FONT_DEBUG_PREFIX, 'already loading', { alphabetId, fontFamily });
+        return loadingFontFamilies.get(fontFamily)!;
+    }
+
+    if (typeof document === 'undefined' || typeof FontFace === 'undefined') {
+        console.warn(FONT_DEBUG_PREFIX, 'Font Loading API unavailable', {
+            alphabetId,
+            hasDocument: typeof document !== 'undefined',
+            hasFontFace: typeof FontFace !== 'undefined'
+        });
+        return Promise.resolve();
+    }
+
+    const styleId = `font-style-${sanitizeAlphabetId(alphabetId)}`;
+    let styleElement = document.getElementById(styleId) as HTMLStyleElement | null;
+
+    if (!styleElement) {
+        styleElement = document.createElement('style');
+        styleElement.id = styleId;
+        document.head.appendChild(styleElement);
+    }
+
+    styleElement.textContent = `
+        @font-face {
+            font-family: "${fontFamily}";
+            src: url("${fontUrl}");
+            font-display: block;
+        }
+    `;
+    console.info(FONT_DEBUG_PREFIX, 'style injected', {
+        alphabetId,
+        fontFamily,
+        styleId,
+        css: styleElement.textContent.trim()
+    });
+
+    const loadPromise = inspectFontResponse(alphabetId, fontUrl)
+        .then(() => new FontFace(fontFamily, `url("${fontUrl}")`).load())
+        .then(loadedFace => {
+            document.fonts.add(loadedFace);
+            console.info(FONT_DEBUG_PREFIX, 'FontFace.load success', {
+                alphabetId,
+                fontFamily,
+                status: loadedFace.status,
+                documentCheck: document.fonts.check(`16px "${fontFamily}"`, 'ABC123')
+            });
+        })
+        .catch(async fontFaceError => {
+            console.warn(FONT_DEBUG_PREFIX, 'FontFace.load failed, trying CSS font load fallback', {
+                alphabetId,
+                fontFamily,
+                errorName: fontFaceError?.name,
+                errorMessage: fontFaceError?.message,
+                error: fontFaceError
+            });
+            try {
+                const loadedFaces = await document.fonts.load(`16px "${fontFamily}"`, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789');
+                console.info(FONT_DEBUG_PREFIX, 'document.fonts.load fallback result', {
+                    alphabetId,
+                    fontFamily,
+                    loadedCount: loadedFaces.length,
+                    statuses: loadedFaces.map(face => face.status),
+                    documentCheck: document.fonts.check(`16px "${fontFamily}"`, 'ABC123')
+                });
+            } catch (fallbackError) {
+                console.error(FONT_DEBUG_PREFIX, 'document.fonts.load fallback failed', {
+                    alphabetId,
+                    fontFamily,
+                    fallbackErrorName: fallbackError?.name,
+                    fallbackErrorMessage: fallbackError?.message,
+                    fallbackError
+                });
+                throw fontFaceError;
+            }
+        })
+        .then(() => {
+            loadedFontFamilies.add(fontFamily);
+            console.info(FONT_DEBUG_PREFIX, 'ensure success', {
+                alphabetId,
+                fontFamily,
+                finalCheck: document.fonts.check(`16px "${fontFamily}"`, 'ABC123'),
+                loadedFontFamilies: Array.from(loadedFontFamilies)
+            });
+        })
+        .finally(() => {
+            console.info(FONT_DEBUG_PREFIX, 'ensure finished', { alphabetId, fontFamily });
+            loadingFontFamilies.delete(fontFamily);
+        });
+
+    loadingFontFamilies.set(fontFamily, loadPromise);
+    return loadPromise;
+};
+
+const inspectFontResponse = async (alphabetId: string, fontUrl: string): Promise<void> => {
+    if (typeof fetch === 'undefined') {
+        console.info(FONT_DEBUG_PREFIX, 'fetch unavailable for font inspection', { alphabetId, fontUrl });
+        return;
+    }
+
+    try {
+        const response = await fetch(fontUrl, { method: 'GET', cache: 'no-store' });
+        const buffer = await response.clone().arrayBuffer();
+        const firstBytes = Array.from(new Uint8Array(buffer.slice(0, 8)))
+            .map(byte => byte.toString(16).padStart(2, '0'))
+            .join(' ');
+
+        console.info(FONT_DEBUG_PREFIX, 'font response inspection', {
+            alphabetId,
+            fontUrl,
+            ok: response.ok,
+            status: response.status,
+            statusText: response.statusText,
+            contentType: response.headers.get('content-type'),
+            contentLength: response.headers.get('content-length'),
+            accessControlAllowOrigin: response.headers.get('access-control-allow-origin'),
+            byteLength: buffer.byteLength,
+            firstBytes
+        });
+    } catch (error) {
+        console.warn(FONT_DEBUG_PREFIX, 'font response inspection failed', {
+            alphabetId,
+            fontUrl,
+            errorName: error?.name,
+            errorMessage: error?.message,
+            error
+        });
+    }
+};
 
 export const getSpecialCharactersMap = (alphabetConfig: AlphabetConfig): Record<string, string> => {
     const specialCharacters = alphabetConfig.characters?.special;
