@@ -5,13 +5,13 @@ import time
 from typing import Any, Dict, List, Optional
 
 try:
-    from gc_backend.plugins.code_solving import WordCodec, normalize_allowed_chars
+    from gc_backend.plugins.code_solving import WordCodec, normalize_allowed_chars, parse_bool, parse_mode_params
 except ImportError:  # execution standalone / tests hors backend
     import pathlib
     import sys
 
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "backend"))
-    from gc_backend.plugins.code_solving import WordCodec, normalize_allowed_chars
+    from gc_backend.plugins.code_solving import WordCodec, normalize_allowed_chars, parse_bool, parse_mode_params
 
 DEFAULT_ALLOWED_CHARS = " \t\r\n.:;,_-°"
 
@@ -68,18 +68,15 @@ class KennyCodePlugin:
     def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         start_time = time.time()
 
-        mode = str(inputs.get("mode", "decode")).lower()
+        params = parse_mode_params(inputs, default_mode="decode", default_allowed_chars=" \t\r\n.:;,_-°")
+        mode = params.mode
+        strict_mode = params.strict
+        embedded = params.embedded
+        allowed_chars = params.allowed_chars
         text = inputs.get("text", "")
-        strict = str(inputs.get("strict", "smooth")).lower()
-        embedded = bool(inputs.get("embedded", False))
-        allowed_chars = inputs.get("allowed_chars", " \t\r\n.:;,_-°")
 
         if not isinstance(text, str) or text == "":
             return self._error_response("Aucun texte fourni", start_time)
-        if strict not in {"strict", "smooth"}:
-            return self._error_response(f"Mode strict invalide: {strict}", start_time)
-        if not isinstance(allowed_chars, str):
-            return self._error_response("allowed_chars doit être une chaîne", start_time)
 
         try:
             if mode == "encode":
@@ -100,8 +97,6 @@ class KennyCodePlugin:
                 }
 
             if mode == "decode":
-                strict_mode = strict == "strict"
-
                 if strict_mode:
                     check = self.check_code(text, strict=True, allowed_chars=allowed_chars, embedded=embedded)
                     if not check["is_match"]:
@@ -169,7 +164,7 @@ class KennyCodePlugin:
                 }
 
             if mode == "detect":
-                check = self.check_code(text, strict=(strict == "strict"), allowed_chars=allowed_chars, embedded=embedded)
+                check = self.check_code(text, strict=strict_mode, allowed_chars=allowed_chars, embedded=embedded)
                 score = float(check.get("score", 0.0) or 0.0)
                 is_match = bool(check.get("is_match"))
 
@@ -181,7 +176,7 @@ class KennyCodePlugin:
                             "id": "result_1",
                             "text_output": f"Probabilité Kenny: {score:.2%}",
                             "confidence": score,
-                            "parameters": {"mode": "detect", "strict": strict, "embedded": embedded},
+                            "parameters": {"mode": "detect", "strict": "strict" if strict_mode else "smooth", "embedded": embedded},
                             "metadata": {
                                 "is_match": is_match,
                                 "detection_score": score,

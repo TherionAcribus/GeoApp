@@ -5,11 +5,11 @@ import time
 from typing import Any, Dict, List, Tuple
 
 try:
-    from gc_backend.plugins.code_solving import parse_bool, remove_diacritics
+    from gc_backend.plugins.code_solving import parse_bool, parse_mode_params, remove_diacritics
 except ImportError:
     import sys as _sys, pathlib as _pathlib
     _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
-    from gc_backend.plugins.code_solving import parse_bool, remove_diacritics
+    from gc_backend.plugins.code_solving import parse_bool, parse_mode_params, remove_diacritics
 
 
 class PlayfairCipherPlugin:
@@ -23,15 +23,17 @@ class PlayfairCipherPlugin:
         start_time = time.time()
 
         text = inputs.get("text", "")
-        mode = str(inputs.get("mode", "decode")).lower()
+        params = parse_mode_params(inputs, default_mode="decode", default_allowed_chars=" \t\r\n.:;,_-'\"!?")
+        mode = params.mode
+        strict_mode = params.strict
+        embedded = params.embedded
+        allowed_chars = params.allowed_chars
         key = str(inputs.get("key", "") or "")
         alphabet_mode = str(inputs.get("alphabet_mode", "I=J"))
         filler = str(inputs.get("filler", "X") or "X").upper()[:1]
         alternate_filler = str(inputs.get("alternate_filler", "Q") or "Q").upper()[:1]
         cleanup_fillers = parse_bool(inputs.get("cleanup_fillers", True), default=True)
         group_output = parse_bool(inputs.get("group_output", True), default=True)
-        strict_mode = str(inputs.get("strict", "smooth")).lower() == "strict"
-        allowed_chars = str(inputs.get("allowed_chars", " \t\r\n.:;,_-'\"!?") or "")
 
         if not isinstance(text, str) or not text.strip():
             return self._error_response("Aucun texte fourni", start_time)

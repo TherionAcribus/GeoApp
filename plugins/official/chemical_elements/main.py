@@ -15,13 +15,13 @@ import time
 from typing import Any, Dict, List, Optional
 
 try:
-    from gc_backend.plugins.code_solving import WordCodec, normalize_allowed_chars
+    from gc_backend.plugins.code_solving import WordCodec, normalize_allowed_chars, parse_bool, parse_mode_params
 except ImportError:  # execution standalone / tests hors backend
     import pathlib
     import sys
 
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "backend"))
-    from gc_backend.plugins.code_solving import WordCodec, normalize_allowed_chars
+    from gc_backend.plugins.code_solving import WordCodec, normalize_allowed_chars, parse_bool, parse_mode_params
 
 
 DEFAULT_ALLOWED_CHARS = " \t\r\n.:;,_-°"
@@ -169,13 +169,12 @@ class ChemicalElementsPlugin:
     def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         start_time = time.time()
 
-        mode = str(inputs.get("mode", "decode")).lower()
+        params = parse_mode_params(inputs, default_mode="decode", default_allowed_chars=" \t\r\n.:;,_-°")
+        mode = params.mode
+        strict_mode = params.strict
+        embedded = params.embedded
+        allowed_chars = params.allowed_chars
         text = inputs.get("text", "")
-        strict_mode = str(inputs.get("strict", "smooth")).lower() == "strict"
-
-        allowed_chars = self._prepare_allowed_chars(inputs.get("allowed_chars"))
-
-        embedded = bool(inputs.get("embedded", True))
 
         if not isinstance(text, str) or text == "":
             return self._error_response("Aucun texte fourni à traiter.", start_time)

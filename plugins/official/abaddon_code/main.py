@@ -14,6 +14,7 @@ try:
         WordCodec,
         fixed_width_tokenizer,
         normalize_allowed_chars,
+        parse_mode_params,
     )
 except ImportError:  # execution standalone / tests hors backend
     import pathlib
@@ -24,6 +25,7 @@ except ImportError:  # execution standalone / tests hors backend
         WordCodec,
         fixed_width_tokenizer,
         normalize_allowed_chars,
+        parse_mode_params,
     )
 
 DEFAULT_ALLOWED_CHARS = " \t\r\n.:;,_-°"
@@ -188,13 +190,12 @@ class AbaddonCodePlugin:
     def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         start_time = time.time()
 
-        mode = str(inputs.get("mode", "decode")).lower()
+        params = parse_mode_params(inputs, default_mode="decode", default_allowed_chars=" \t\r\n.:;,_-°")
+        mode = params.mode
+        strict_mode = params.strict
+        embedded = params.embedded
+        allowed_chars_str = params.allowed_chars
         text = self.normalize_text(str(inputs.get("text", "")))
-
-        strict_mode = str(inputs.get("strict", "smooth")).lower() == "strict"
-        embedded = bool(inputs.get("embedded", False))
-        allowed_chars = inputs.get("allowed_chars")
-        allowed_chars_str = self._get_allowed_chars(allowed_chars)
 
         if not text:
             return {

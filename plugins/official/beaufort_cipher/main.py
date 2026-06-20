@@ -6,11 +6,11 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 try:
-    from gc_backend.plugins.code_solving import is_alpha_strict, parse_bool, remove_diacritics
+    from gc_backend.plugins.code_solving import is_alpha_strict, parse_bool, parse_mode_params, remove_diacritics
 except ImportError:
     import sys as _sys, pathlib as _pathlib
     _sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parents[3] / "backend"))
-    from gc_backend.plugins.code_solving import is_alpha_strict, parse_bool, remove_diacritics
+    from gc_backend.plugins.code_solving import is_alpha_strict, parse_bool, parse_mode_params, remove_diacritics
 
 try:
     from gc_backend.plugins.scoring import score_text, score_text_fast
@@ -39,13 +39,14 @@ class BeaufortCipherPlugin:
     def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         start_time = time.time()
 
+        params = parse_mode_params(inputs, default_mode="decode", default_allowed_chars=" \t\r\n.:;,_-'\"!?")
         text = inputs.get("text", "")
-        mode = str(inputs.get("mode", "decode")).lower()
+        mode = params.mode
         key = str(inputs.get("key", "") or "")
         variant = str(inputs.get("variant", "classic")).lower()
-        strict_mode = str(inputs.get("strict", "smooth")).lower() == "strict"
-        embedded = parse_bool(inputs.get("embedded", False), default=False)
-        allowed_chars = str(inputs.get("allowed_chars", " \t\r\n.:;,_-'\"!?") or "")
+        strict_mode = params.strict
+        embedded = params.embedded
+        allowed_chars = params.allowed_chars
         preserve_case = parse_bool(inputs.get("preserve_case", True), default=True)
         enable_scoring = parse_bool(inputs.get("enable_scoring", True), default=True)
         context = inputs.get("context", {})

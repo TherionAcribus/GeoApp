@@ -10,6 +10,7 @@ try:
         confidence_from_fragments,
         extract_digit_fragments,
         parse_bool,
+        parse_mode_params,
     )
 except ImportError:  # execution standalone / tests hors backend
     import pathlib
@@ -20,6 +21,7 @@ except ImportError:  # execution standalone / tests hors backend
         confidence_from_fragments,
         extract_digit_fragments,
         parse_bool,
+        parse_mode_params,
     )
 
 MORBIT_DIGITS = "123456789"
@@ -81,12 +83,13 @@ class MorbitCipherPlugin:
     def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         start_time = time.time()
 
+        params = parse_mode_params(inputs, default_mode="decode", default_allowed_chars=" \t\r\n")
         text = inputs.get("text", "")
-        mode = str(inputs.get("mode", "decode")).lower()
+        mode = params.mode
         key = str(inputs.get("key", "") or "")
-        strict_mode = str(inputs.get("strict", "smooth")).lower() == "strict"
-        embedded = parse_bool(inputs.get("embedded", False), default=False)
-        allowed_chars = str(inputs.get("allowed_chars", " \t\r\n") or "")
+        strict_mode = params.strict
+        embedded = params.embedded
+        allowed_chars = params.allowed_chars
         group_output = parse_bool(inputs.get("group_output", True), default=True)
 
         if not isinstance(text, str) or not text.strip():
