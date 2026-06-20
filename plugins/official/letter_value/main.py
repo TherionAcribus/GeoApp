@@ -249,14 +249,13 @@ class LetterValuePlugin:
         return False
 
     def format_coordinates(self, text: str) -> str:
-        pattern = r"(\d+)°\s*(\d+)\.(\d+)"
-        match = re.search(pattern, text)
-        if match:
-            degrees = match.group(1)
-            minutes = match.group(2)
-            seconds = match.group(3)
-            return f"{degrees}° {minutes}.{seconds}"
-        return text
+        # Utilise re.sub pour normaliser le format des coordonnées tout en préservant
+        # le reste du texte (ex : "14 48° 51.400" → "14 48° 51.400").
+        return re.sub(
+            r"(\d+)°\s*(\d+)\.(\d+)",
+            lambda m: f"{m.group(1)}° {m.group(2)}.{m.group(3)}",
+            text,
+        )
 
     def get_bruteforce_results(
         self,
@@ -360,7 +359,10 @@ class LetterValuePlugin:
             if mode == "decode":
                 # Si on reçoit une sortie encodée (chiffres), on tente de reconstituer le texte.
                 # Si ça ne change rien, on retombe sur le comportement legacy (lettres -> nombres).
-                if self._looks_like_numeric_code(text):
+                # En mode embedded avec des lettres présentes, on passe directement au chemin legacy
+                # pour ne pas décoder des chiffres de coordonnées (ex: "N 48° 51.400").
+                _has_letters = bool(re.search(r"[A-Za-z]", text))
+                if not (embedded and _has_letters) and self._looks_like_numeric_code(text):
                     decoded_text = self._decode_numbers_in_text(text, strict_mode=strict_mode)
                     if decoded_text != text:
                         formatted = self.format_coordinates(decoded_text)
