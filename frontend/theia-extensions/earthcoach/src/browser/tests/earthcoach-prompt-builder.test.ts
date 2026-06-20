@@ -12,6 +12,7 @@ import { GeoImage, UserObservation } from '../earthcoach-types';
 import { EarthCoachNoteTools } from '../earthcoach-note-tools';
 import { EarthCoachReferenceTools } from '../earthcoach-reference-tools';
 import {
+    EARTHCOACH_RESPONSE_VERBOSITY_PREF,
     EARTHCOACH_REFERENCES_ALLOWED_SOURCES_PREF,
     EARTHCOACH_REFERENCES_LANGUAGE_PREF,
     EARTHCOACH_REFERENCES_MAX_ARTICLES_PREF,
@@ -63,10 +64,14 @@ function testSystemPromptModes(): void {
     assert.match(coachPrompt, /earthcoach_search_reference/);
     assert.match(coachPrompt, /earthcoach_save_note/);
     assert.match(coachPrompt, /educational_reference/);
+    assert.match(coachPrompt, /tres brievement/);
 
     const resolverPrompt = buildEarthCoachSystemPrompt('resolver');
     assert.match(resolverPrompt, /Mode courant: resolver/);
     assert.match(resolverPrompt, /Ne remplis jamais un detail terrain absent/);
+
+    const detailedPrompt = buildEarthCoachSystemPrompt('coach', 'detailed');
+    assert.match(detailedPrompt, /niveau de detail utile/);
 }
 
 function testReferenceToolShape(): void {
@@ -241,6 +246,31 @@ function testPromptIncludesImageOriginsAndObservations(): void {
     assert.match(prompt, /\[educational_reference\] ref-1/);
     assert.match(prompt, /note #7/);
     assert.match(prompt, /Mode: coach/);
+}
+
+function testPromptHonorsCompactVerbosity(): void {
+    assert.equal(EARTHCOACH_RESPONSE_VERBOSITY_PREF, 'geoApp.earthCoach.response.verbosity');
+
+    const longDescription = `<p>${'Observer les strates et expliquer leur formation. '.repeat(80)}</p>`;
+    const prompt = buildEarthCoachPrompt({
+        geocache: {
+            id: 1,
+            gc_code: 'GC123',
+            name: 'Earth test',
+            type: 'EarthCache',
+            description_html: longDescription,
+        },
+        mode: 'coach',
+        action: 'understand',
+        verbosity: 'compact',
+        observations: [],
+        images: [],
+    });
+
+    assert.match(prompt, /Verbosite: compact/);
+    assert.match(prompt, /compte rendu rapide du listing/);
+    assert.match(prompt, /5 puces maximum/);
+    assert.ok(prompt.length < longDescription.length);
 }
 
 function testPromptIncludesStructuredObservationMetadata(): void {
@@ -432,6 +462,7 @@ async function run(): Promise<void> {
     testReferenceToolShape();
     testNoteToolShape();
     testPromptIncludesImageOriginsAndObservations();
+    testPromptHonorsCompactVerbosity();
     testPromptIncludesStructuredObservationMetadata();
     testObservationActionInstruction();
     testObservationInputBuilder();

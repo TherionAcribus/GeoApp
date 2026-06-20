@@ -15,7 +15,7 @@ import {
 } from '@theia/ai-chat/lib/common/chat-agents';
 import { MutableChatRequestModel } from '@theia/ai-chat/lib/common/chat-model';
 import { LanguageModelMessage } from '@theia/ai-core/lib/common/language-model';
-import { EarthCoachAgentId, EarthCoachMode } from './earthcoach-types';
+import { EarthCoachAgentId, EarthCoachMode, EarthCoachVerbosity } from './earthcoach-types';
 import { buildEarthCoachSystemPrompt } from './earthcoach-prompts';
 import { EarthCoachNoteTools } from './earthcoach-note-tools';
 import { EarthCoachReferenceTools } from './earthcoach-reference-tools';
@@ -72,13 +72,20 @@ export class EarthCoachAgent extends AbstractStreamParsingChatAgent {
     }
 
     protected override async getSystemMessageDescription(context: AIVariableContext): Promise<SystemMessageDescription | undefined> {
-        return { text: buildEarthCoachSystemPrompt(this.readMode(context)) };
+        return { text: buildEarthCoachSystemPrompt(this.readMode(context), this.readVerbosity(context)) };
     }
 
     protected readMode(context: AIVariableContext): EarthCoachMode {
         const request = ChatSessionContext.is(context) ? context.request : undefined;
         const commonSettings = request?.session?.settings?.commonSettings as { geoapp?: { earthcoachMode?: unknown } } | undefined;
         return commonSettings?.geoapp?.earthcoachMode === 'resolver' ? 'resolver' : 'coach';
+    }
+
+    protected readVerbosity(context: AIVariableContext): EarthCoachVerbosity {
+        const request = ChatSessionContext.is(context) ? context.request : undefined;
+        const commonSettings = request?.session?.settings?.commonSettings as { geoapp?: { earthcoachVerbosity?: unknown } } | undefined;
+        const value = commonSettings?.geoapp?.earthcoachVerbosity;
+        return value === 'normal' || value === 'detailed' ? value : 'compact';
     }
 }
 

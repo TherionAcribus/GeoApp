@@ -42,6 +42,7 @@ interface GeoAppOpenChatRequestDetail {
     preferredBehaviorProfile?: GeoAppChatWorkflowBehaviorProfile | string;
     preferredAgentId?: string;
     earthcoachMode?: string;
+    earthcoachVerbosity?: string;
     resumeState?: Record<string, unknown>;
     sessionKind?: GeoAppChatSessionKind;
 }
@@ -204,6 +205,7 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
         this.setDefined(nextGeoapp, 'preferredBehaviorProfile', preferredBehaviorProfile);
         this.setDefined(nextGeoapp, 'preferredAgentId', detail.preferredAgentId);
         this.setDefined(nextGeoapp, 'earthcoachMode', detail.earthcoachMode);
+        this.setDefined(nextGeoapp, 'earthcoachVerbosity', detail.earthcoachVerbosity);
         this.setDefined(nextGeoapp, 'sessionKind', detail.sessionKind ?? 'auto');
 
         modelWithSettings.setSettings(sanitizeGeoAppSessionSettings({

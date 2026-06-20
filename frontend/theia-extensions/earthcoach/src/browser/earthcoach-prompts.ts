@@ -1,4 +1,4 @@
-import { EarthCoachMode } from './earthcoach-types';
+import { EarthCoachMode, EarthCoachVerbosity } from './earthcoach-types';
 
 const SHARED_RULES = [
     'Tu es EarthCoach, un assistant pedagogique integre a GeoApp pour les EarthCaches.',
@@ -68,12 +68,22 @@ const RESOLVER_RULES = [
     '- Ne dis jamais que la proposition est certaine sans preuve dans le contexte.',
 ].join('\n');
 
-export function buildEarthCoachSystemPrompt(mode: EarthCoachMode): string {
+function buildResponseStyleRule(verbosity: EarthCoachVerbosity): string {
+    if (verbosity === 'detailed') {
+        return 'Reponds en francais, avec le niveau de detail utile, sans inventer de terrain.';
+    }
+    if (verbosity === 'normal') {
+        return 'Reponds en francais, de facon pratique et concise, sans cours general inutile.';
+    }
+    return 'Reponds en francais, tres brievement par defaut: privilegie un compte rendu rapide en quelques puces.';
+}
+
+export function buildEarthCoachSystemPrompt(mode: EarthCoachMode, verbosity: EarthCoachVerbosity = 'compact'): string {
     return [
         SHARED_RULES,
         '',
         mode === 'resolver' ? RESOLVER_RULES : COACH_RULES,
         '',
-        'Reponds en francais, de facon pratique et concise.',
+        buildResponseStyleRule(verbosity),
     ].join('\n');
 }

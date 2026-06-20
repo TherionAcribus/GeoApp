@@ -229,6 +229,7 @@ function testOpenChatDetailBuilder(): void {
         preferredBehaviorProfile: undefined,
         preferredAgentId: undefined,
         earthcoachMode: undefined,
+        earthcoachVerbosity: undefined,
         resumeState: undefined,
         sessionKind: undefined,
     });
@@ -280,6 +281,7 @@ function testDispatchGeoAppOpenChatRequest(): void {
         preferredBehaviorProfile: undefined,
         preferredAgentId: undefined,
         earthcoachMode: undefined,
+        earthcoachVerbosity: undefined,
         resumeState: undefined,
         sessionKind: undefined,
     });

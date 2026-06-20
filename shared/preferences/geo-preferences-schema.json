@@ -3282,6 +3282,42 @@
         "web"
       ]
     },
+    "geoApp.earthCoach.response.verbosity": {
+      "type": "string",
+      "enum": [
+        "compact",
+        "normal",
+        "detailed"
+      ],
+      "default": "compact",
+      "title": "EarthCoach - Verbosite des reponses",
+      "description": "Controle la longueur des premiers comptes rendus EarthCoach. Compact privilegie un resume rapide du listing; detaille autorise davantage d'explications geologiques.",
+      "x-ui": {
+        "section": "Reponse",
+        "label": "Verbosite",
+        "order": 5,
+        "enumLabels": {
+          "compact": "Compacte",
+          "normal": "Normale",
+          "detailed": "Detaillee"
+        },
+        "keywords": [
+          "longueur",
+          "resume",
+          "synthese",
+          "listing"
+        ]
+      },
+      "x-category": "earthcoach",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "earthcoach",
+        "chat",
+        "verbosity"
+      ]
+    },
     "geoApp.earthCoach.references.language": {
       "type": "string",
       "enum": [

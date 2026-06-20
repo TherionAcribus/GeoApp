@@ -3,9 +3,61 @@ import {
     EarthCoachMode,
     EarthCoachPromptInput,
     EarthCoachQuickAction,
+    EarthCoachVerbosity,
     GeoImage,
     UserObservation,
 } from './earthcoach-types';
+
+interface EarthCoachPromptLimits {
+    description: number;
+    hints: number;
+    waypointNote: number;
+    note: number;
+    observation: number;
+    waypoints: number;
+    observations: number;
+    images: number;
+}
+
+const PROMPT_LIMITS_BY_VERBOSITY: Record<EarthCoachVerbosity, EarthCoachPromptLimits> = {
+    compact: {
+        description: 900,
+        hints: 350,
+        waypointNote: 120,
+        note: 450,
+        observation: 450,
+        waypoints: 5,
+        observations: 5,
+        images: 6,
+    },
+    normal: {
+        description: 1800,
+        hints: 700,
+        waypointNote: 180,
+        note: 800,
+        observation: 800,
+        waypoints: 8,
+        observations: 8,
+        images: 10,
+    },
+    detailed: {
+        description: 3200,
+        hints: 1200,
+        waypointNote: 260,
+        note: 1200,
+        observation: 1200,
+        waypoints: 12,
+        observations: 12,
+        images: 12,
+    },
+};
+
+function normalizeVerbosity(value?: EarthCoachVerbosity): EarthCoachVerbosity {
+    if (value === 'normal' || value === 'detailed') {
+        return value;
+    }
+    return 'compact';
+}
 
 function truncateText(value: string, maxLength: number): string {
     if (value.length <= maxLength) {
@@ -40,13 +92,13 @@ function getDecodedHints(data: EarthCoachGeocacheData): string | undefined {
     return data.hints;
 }
 
-function buildWaypointsBlock(data: EarthCoachGeocacheData): string[] {
+function buildWaypointsBlock(data: EarthCoachGeocacheData, limits: EarthCoachPromptLimits): string[] {
     const waypoints = data.waypoints || [];
     if (!waypoints.length) {
         return [];
     }
     const lines = ['Waypoints:'];
-    for (const waypoint of waypoints.slice(0, 8)) {
+    for (const waypoint of waypoints.slice(0, limits.waypoints)) {
         const title = [waypoint.prefix, waypoint.lookup, waypoint.name].filter(Boolean).join(' / ') || 'Waypoint';
         const coords = waypoint.gc_coords || (
             waypoint.latitude != null && waypoint.longitude != null
@@ -55,34 +107,41 @@ function buildWaypointsBlock(data: EarthCoachGeocacheData): string[] {
         );
         lines.push(`- ${title}${waypoint.type ? ` (${waypoint.type})` : ''}${coords ? ` - ${coords}` : ''}`);
         if (waypoint.note) {
-            lines.push(`  Note: ${truncateText(waypoint.note.replace(/\s+/g, ' '), 180)}`);
+            lines.push(`  Note: ${truncateText(waypoint.note.replace(/\s+/g, ' '), limits.waypointNote)}`);
         }
     }
-    if (waypoints.length > 8) {
-        lines.push(`- ... ${waypoints.length - 8} waypoint(s) supplementaire(s) non inclus.`);
+    if (waypoints.length > limits.waypoints) {
+        lines.push(`- ... ${waypoints.length - limits.waypoints} waypoint(s) supplementaire(s) non inclus.`);
     }
     return lines;
 }
 
-function buildImagesBlock(images: GeoImage[]): string[] {
+function buildImagesBlock(images: GeoImage[], limits: EarthCoachPromptLimits): string[] {
     if (!images.length) {
         return ['Images: aucune image transmise.'];
     }
     const lines = ['Images transmises:'];
-    for (const image of images.slice(0, 10)) {
+    for (const image of images.slice(0, limits.images)) {
         const label = image.label ? ` - ${image.label}` : '';
         const description = image.description ? ` (${image.description})` : '';
         lines.push(`- [${image.origin}] ${image.id}${label}${description}`);
     }
+    if (images.length > limits.images) {
+        lines.push(`- ... ${images.length - limits.images} image(s) supplementaire(s) non incluses.`);
+    }
     return lines;
 }
 
-function buildObservationsBlock(observations: UserObservation[], gcPersonalNote?: string | null): string[] {
+function buildObservationsBlock(
+    observations: UserObservation[],
+    limits: EarthCoachPromptLimits,
+    gcPersonalNote?: string | null
+): string[] {
     const lines = ['Observations et notes utilisateur:'];
     if (gcPersonalNote?.trim()) {
-        lines.push(`- Note personnelle Geocaching.com: ${truncateText(gcPersonalNote.trim().replace(/\s+/g, ' '), 800)}`);
+        lines.push(`- Note personnelle Geocaching.com: ${truncateText(gcPersonalNote.trim().replace(/\s+/g, ' '), limits.note)}`);
     }
-    for (const observation of observations.slice(0, 8)) {
+    for (const observation of observations.slice(0, limits.observations)) {
         const source = observation.sourceNoteId ? `note #${observation.sourceNoteId}` : observation.id;
         const details = [
             observation.source === 'structured' ? `type=${observation.observationType || 'observation'}` : undefined,
@@ -94,19 +153,22 @@ function buildObservationsBlock(observations: UserObservation[], gcPersonalNote?
                 : undefined,
             observation.images.length ? `images=${observation.images.map(image => `${image.id}:${image.origin}`).join(', ')}` : undefined,
         ].filter(Boolean).join('; ');
-        lines.push(`- ${source}${details ? ` (${details})` : ''}: ${truncateText(observation.note.replace(/\s+/g, ' '), 800)}`);
+        lines.push(`- ${source}${details ? ` (${details})` : ''}: ${truncateText(observation.note.replace(/\s+/g, ' '), limits.observation)}`);
     }
     if (!gcPersonalNote?.trim() && observations.length === 0) {
         lines.push('- Aucune observation personnelle structuree dans GeoApp pour l instant.');
     }
-    if (observations.length > 8) {
-        lines.push(`- ... ${observations.length - 8} note(s) supplementaire(s) non incluses.`);
+    if (observations.length > limits.observations) {
+        lines.push(`- ... ${observations.length - limits.observations} note(s) supplementaire(s) non incluses.`);
     }
     return lines;
 }
 
-function buildActionInstruction(action: EarthCoachQuickAction, mode: EarthCoachMode): string {
+function buildActionInstruction(action: EarthCoachQuickAction, mode: EarthCoachMode, verbosity: EarthCoachVerbosity): string {
     if (action === 'prepare_visit') {
+        if (verbosity === 'compact') {
+            return 'Action demandee: preparer la visite. Fournis une checklist courte et actionnable, centree sur observer, mesurer, photographier.';
+        }
         return 'Action demandee: preparer la visite. Fournis une checklist terrain centree sur ce qu il faut observer, mesurer ou photographier.';
     }
     if (action === 'field_checklist') {
@@ -119,6 +181,9 @@ function buildActionInstruction(action: EarthCoachQuickAction, mode: EarthCoachM
         return 'Action demandee: galerie images. Distingue strictement images du listing, photos utilisateur et references pedagogiques.';
     }
     if (action === 'explain_word') {
+        if (verbosity === 'compact') {
+            return 'Action demandee: expliquer un mot. Donne une definition breve, contextualisee, sans cours general.';
+        }
         return 'Action demandee: expliquer un mot. Demande le terme a expliquer si aucun terme precis n est fourni, puis explique-le simplement dans le contexte EarthCache.';
     }
     if (action === 'illustrate_term') {
@@ -128,14 +193,48 @@ function buildActionInstruction(action: EarthCoachQuickAction, mode: EarthCoachM
         return 'Action demandee: analyser les observations personnelles. Separe observation, interpretation et hypothese; signale ce qui manque.';
     }
     if (action === 'resolve' || mode === 'resolver') {
+        if (verbosity === 'compact') {
+            return 'Action demandee: aider a resoudre avec les observations disponibles, sans inventer le terrain. Propose une synthese courte, avec champs a completer si le terrain manque.';
+        }
         return 'Action demandee: aider a resoudre avec les observations disponibles, sans inventer le terrain. Propose une synthese exploitable, mais laisse clairement a completer toute observation absente.';
     }
-    return 'Action demandee: comprendre cette EarthCache. Explique le but geologique, les notions utiles et les questions a se poser.';
+    if (verbosity === 'compact') {
+        return 'Action demandee: faire un compte rendu rapide du listing. Resume le but geologique, les questions et les points a verifier; evite le cours general sur le concept d EarthCache.';
+    }
+    if (verbosity === 'detailed') {
+        return 'Action demandee: comprendre cette EarthCache. Explique le but geologique, les notions utiles, les indices du listing et les questions a se poser.';
+    }
+    return 'Action demandee: comprendre cette EarthCache. Resume le but geologique, les notions utiles et les questions a se poser.';
+}
+
+function buildVerbosityInstruction(verbosity: EarthCoachVerbosity): string[] {
+    if (verbosity === 'compact') {
+        return [
+            '--- STYLE DE REPONSE ---',
+            'Verbosite: compact.',
+            'Pour le premier compte rendu, vise 5 puces maximum ou un tres court paragraphe.',
+            'Commence par ce qui sert a comprendre le listing; n explique le concept general d EarthCache que si le listing le rend indispensable.',
+        ];
+    }
+    if (verbosity === 'detailed') {
+        return [
+            '--- STYLE DE REPONSE ---',
+            'Verbosite: detaillee.',
+            'Tu peux developper davantage les notions geologiques utiles, tout en restant fonde sur le listing et les observations fournies.',
+        ];
+    }
+    return [
+        '--- STYLE DE REPONSE ---',
+        'Verbosite: normale.',
+        'Fais une synthese lisible et pratique, sans cours general inutile.',
+    ];
 }
 
 export function buildEarthCoachPrompt(input: EarthCoachPromptInput): string {
+    const verbosity = normalizeVerbosity(input.verbosity);
+    const limits = PROMPT_LIMITS_BY_VERBOSITY[verbosity];
     const data = input.geocache;
-    const description = sanitizeRichText(data.description_html || data.description_raw, 2200);
+    const description = sanitizeRichText(data.description_html || data.description_raw, limits.description);
     const hints = getDecodedHints(data);
     const lines: string[] = [
         '--- CONTEXTE EARTHCACHE ---',
@@ -150,17 +249,19 @@ export function buildEarthCoachPrompt(input: EarthCoachPromptInput): string {
         description ? 'Description du listing (extrait):' : undefined,
         description || undefined,
         hints ? '' : undefined,
-        hints ? `Indices (extrait): ${truncateText(hints.trim(), 700)}` : undefined,
+        hints ? `Indices (extrait): ${truncateText(hints.trim(), limits.hints)}` : undefined,
         '',
-        ...buildWaypointsBlock(data),
+        ...buildWaypointsBlock(data, limits),
         '',
-        ...buildImagesBlock(input.images),
+        ...buildImagesBlock(input.images, limits),
         '',
-        ...buildObservationsBlock(input.observations, input.gcPersonalNote),
+        ...buildObservationsBlock(input.observations, limits, input.gcPersonalNote),
         '',
         '--- MODE EARTHCOACH ---',
         `Mode: ${input.mode}`,
-        buildActionInstruction(input.action, input.mode),
+        buildActionInstruction(input.action, input.mode, verbosity),
+        '',
+        ...buildVerbosityInstruction(verbosity),
         '',
         'Rappel: ne jamais inventer une observation terrain. Si une reponse depend du terrain, indique exactement quoi verifier.',
     ].filter((value): value is string => value !== undefined);

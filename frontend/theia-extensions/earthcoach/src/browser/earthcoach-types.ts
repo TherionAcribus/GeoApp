@@ -2,6 +2,8 @@ export const EarthCoachAgentId = 'earthcoach';
 
 export type EarthCoachMode = 'coach' | 'resolver';
 
+export type EarthCoachVerbosity = 'compact' | 'normal' | 'detailed';
+
 export type EarthCoachQuickAction =
     | 'understand'
     | 'prepare_visit'
@@ -87,6 +89,7 @@ export interface EarthCoachPromptInput {
     geocache: EarthCoachGeocacheData;
     mode: EarthCoachMode;
     action: EarthCoachQuickAction;
+    verbosity?: EarthCoachVerbosity;
     observations: UserObservation[];
     gcPersonalNote?: string | null;
     images: GeoImage[];

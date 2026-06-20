@@ -146,6 +146,7 @@ Les reglages se trouvent dans **Preferences GeoApp > EarthCoach**.
 
 | Preference | Effet |
 |---|---|
+| **EarthCoach - Verbosite des reponses** | Regle la longueur des premiers comptes rendus : `compact`, `normal` ou `detailed`. Le mode `compact` privilegie un resume rapide du listing. |
 | **EarthCoach - Recherches externes** | Active ou desactive les appels Wikipedia/Wikimedia. |
 | **EarthCoach - Langue des references** | Choisit `fr` ou `en` par defaut. |
 | **EarthCoach - Articles maximum** | Limite le nombre d'articles Wikipedia retournes. |
@@ -160,6 +161,7 @@ Vous pouvez aussi demander a `@Aide` :
 @Aide ouvre les preferences EarthCoach
 @Aide liste les preferences de la categorie earthcoach
 @Aide desactive les recherches externes EarthCoach
+@Aide regle EarthCoach en reponses compactes
 ```
 
 ## Notes GeoApp

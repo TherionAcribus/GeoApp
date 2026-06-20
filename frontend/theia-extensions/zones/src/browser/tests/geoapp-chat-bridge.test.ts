@@ -321,6 +321,7 @@ async function testPreferredAgentIdWinsOverWorkflowProfile(): Promise<void> {
         workflowKind: 'formula',
         preferredAgentId: 'earthcoach',
         earthcoachMode: 'resolver',
+        earthcoachVerbosity: 'compact',
         sessionKind: 'earthcoach',
     });
 
@@ -335,6 +336,7 @@ async function testPreferredAgentIdWinsOverWorkflowProfile(): Promise<void> {
                 workflowKind: 'formula',
                 preferredAgentId: 'earthcoach',
                 earthcoachMode: 'resolver',
+                earthcoachVerbosity: 'compact',
                 sessionKind: 'earthcoach',
             },
         },

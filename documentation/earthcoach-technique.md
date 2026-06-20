@@ -108,6 +108,20 @@ commonSettings.geoapp.earthcoachMode
 
 L'agent le relit dans `readMode()`.
 
+La verbosite des reponses EarthCoach est aussi transmise par le bridge :
+
+```ts
+commonSettings.geoapp.earthcoachVerbosity
+```
+
+Valeurs supportees :
+
+- `compact` : defaut, compte rendu rapide du listing ;
+- `normal` : synthese pratique ;
+- `detailed` : autorise davantage d'explications geologiques.
+
+L'agent relit cette valeur dans `readVerbosity()` et adapte le prompt systeme.
+
 ## Actions rapides
 
 Les actions sont definies par :
@@ -280,6 +294,7 @@ Champs importants :
 | `preferredAgentId: 'earthcoach'` | Force l'agent `@EarthCoach`. |
 | `sessionKind: 'earthcoach'` | Evite la reutilisation d'une session GeoApp classique. |
 | `earthcoachMode` | Transmet `coach` ou `resolver`. |
+| `earthcoachVerbosity` | Transmet `compact`, `normal` ou `detailed` pour aligner le prompt systeme avec la preference utilisateur. |
 | `imageContexts` | Transporte les images avec leur origine. |
 | `resumeState.earthcoach` | Stocke mode, action et origines images dans l'etat de reprise. |
 
@@ -367,6 +382,7 @@ Preferences associees :
 | Cle | Defaut | Role |
 |---|---|---|
 | `geoApp.earthCoach.references.web.enabled` | `true` | Active ou desactive la recherche externe. |
+| `geoApp.earthCoach.response.verbosity` | `compact` | Controle la longueur des premiers comptes rendus EarthCoach : `compact`, `normal` ou `detailed`. |
 | `geoApp.earthCoach.references.language` | `fr` | Langue par defaut : `fr` ou `en`. |
 | `geoApp.earthCoach.references.maxArticles` | `3` | Limite articles Wikipedia. |
 | `geoApp.earthCoach.references.maxImages` | `5` | Limite images Wikimedia. |
@@ -506,6 +522,7 @@ Ils verifient notamment :
 - presence de `earthcoach_search_reference` ;
 - presence de `earthcoach_save_note` ;
 - prompt systeme `coach` et `resolver` ;
+- verbosite compacte des premiers comptes rendus ;
 - separation des origines d'images ;
 - mapping observations structurees vers contexte EarthCoach ;
 - fallback notes existantes vers observations ;

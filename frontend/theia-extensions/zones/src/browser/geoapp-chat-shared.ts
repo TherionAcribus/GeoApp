@@ -91,6 +91,7 @@ export interface GeoAppOpenChatRequestDetailPayload {
     preferredBehaviorProfile?: GeoAppChatWorkflowBehaviorProfile | string;
     preferredAgentId?: string;
     earthcoachMode?: string;
+    earthcoachVerbosity?: string;
     resumeState?: Record<string, unknown>;
     sessionKind?: GeoAppChatSessionKind;
 }
@@ -358,6 +359,7 @@ export function buildGeoAppOpenChatRequestDetail(
         preferredBehaviorProfile: detail.preferredBehaviorProfile,
         preferredAgentId: detail.preferredAgentId,
         earthcoachMode: detail.earthcoachMode,
+        earthcoachVerbosity: detail.earthcoachVerbosity,
         resumeState: detail.resumeState,
         sessionKind: detail.sessionKind,
     };

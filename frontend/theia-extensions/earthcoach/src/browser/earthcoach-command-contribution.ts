@@ -8,6 +8,7 @@ import {
 } from '@theia/core/lib/common';
 import { ApplicationShell, CommonMenus, WidgetManager } from '@theia/core/lib/browser';
 import { QuickInputService, QuickPickValue } from '@theia/core/lib/common/quick-pick-service';
+import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import {
     buildGeoAppOpenChatRequestDetail,
     dispatchGeoAppOpenChatRequest,
@@ -21,6 +22,7 @@ import {
 import { EarthCoachContextService } from './earthcoach-context-service';
 import {
     EarthCoachAgentId,
+    EarthCoachVerbosity,
     EarthCoachOpenRequest,
     EarthCoachQuickAction,
 } from './earthcoach-types';
@@ -29,6 +31,7 @@ import { EarthCoachFieldChecklistWidget } from './earthcoach-field-checklist-wid
 import { EarthCoachImageGalleryWidget } from './earthcoach-image-gallery-widget';
 import { EarthCoachObservationsWidget } from './earthcoach-observations-widget';
 import { EarthCoachReferenceWidget } from './earthcoach-reference-widget';
+import { EARTHCOACH_RESPONSE_VERBOSITY_PREF } from './earthcoach-preferences';
 
 export namespace EarthCoachCommands {
     export const OPEN = {
@@ -107,6 +110,9 @@ export class EarthCoachCommandContribution implements CommandContribution, MenuC
     @inject(EarthCoachContextService)
     protected readonly contextService!: EarthCoachContextService;
 
+    @inject(PreferenceService)
+    protected readonly preferenceService!: PreferenceService;
+
     registerCommands(registry: CommandRegistry): void {
         registry.registerCommand(EarthCoachCommands.OPEN, {
             execute: (request?: EarthCoachOpenRequest) => this.openEarthCoach(request),
@@ -181,6 +187,7 @@ export class EarthCoachCommandContribution implements CommandContribution, MenuC
             return;
         }
         const mode = action === 'resolve' ? 'resolver' : 'coach';
+        const verbosity = this.readResponseVerbosity();
         const selectedImages = selectEarthCoachImagesForChat(
             context.images,
             5,
@@ -190,6 +197,7 @@ export class EarthCoachCommandContribution implements CommandContribution, MenuC
             geocache: context.geocacheData,
             mode,
             action,
+            verbosity,
             observations: context.observations,
             gcPersonalNote: context.gcPersonalNote,
             images: selectedImages,
@@ -214,12 +222,14 @@ export class EarthCoachCommandContribution implements CommandContribution, MenuC
                 preferredProfile: mode === 'resolver' ? 'strong' : undefined,
                 preferredAgentId: EarthCoachAgentId,
                 earthcoachMode: mode,
+                earthcoachVerbosity: verbosity,
                 sessionKind: 'earthcoach',
                 imageContexts: selectedImages.map(toImageContext),
                 resumeState: {
                     earthcoach: {
                         mode,
                         action,
+                        verbosity,
                         imageOrigins: selectedImages.map(image => ({
                             id: image.id,
                             origin: image.origin,
@@ -229,6 +239,11 @@ export class EarthCoachCommandContribution implements CommandContribution, MenuC
                 },
             })
         );
+    }
+
+    protected readResponseVerbosity(): EarthCoachVerbosity {
+        const value = this.preferenceService.get(EARTHCOACH_RESPONSE_VERBOSITY_PREF, 'compact');
+        return value === 'normal' || value === 'detailed' ? value : 'compact';
     }
 
     protected readGalleryImageSelection(geocacheId?: number): string[] {
