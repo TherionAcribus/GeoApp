@@ -16,6 +16,32 @@ from sqlalchemy import text
 formula_solver_bp = Blueprint('formula_solver', __name__, url_prefix='/api/formula-solver')
 
 
+def _is_formula_parser_unavailable(result) -> bool:
+    if not isinstance(result, dict) or result.get('status') != 'error':
+        return False
+
+    message = " ".join(
+        str(result.get(key) or '')
+        for key in ('error', 'summary')
+    ).lower()
+    return 'formula_parser' in message and (
+        'non disponible' in message or 'non trouvé' in message
+    )
+
+
+def _execute_formula_parser(text: str):
+    plugin_manager = getattr(current_app, 'plugin_manager', None)
+    if plugin_manager:
+        result = plugin_manager.execute_plugin('formula_parser', {'text': text})
+        if not _is_formula_parser_unavailable(result):
+            return result
+        logger.warning("Plugin formula_parser indisponible via PluginManager, fallback direct")
+
+    from plugins.official.formula_parser.main import execute as execute_formula_parser
+
+    return execute_formula_parser({'text': text})
+
+
 def _get_geocache_text(geocache, include_waypoints: bool = True) -> str:
     """
     Extrait le texte exploitable d'une géocache (description + waypoints).
@@ -108,8 +134,7 @@ def detect_formulas():
             logger.info(f"Détection de formules pour geocache {geocache.gc_code} (id={geocache_id})")
         
         # Appeler le plugin formula_parser
-        plugin_manager = current_app.plugin_manager
-        result = plugin_manager.execute_plugin('formula_parser', {'text': text})
+        result = _execute_formula_parser(text)
         
         if result.get('status') == 'error':
             return jsonify({
@@ -276,7 +301,7 @@ def calculate_coordinates():
         
         north_formula = data.get('north_formula')
         east_formula = data.get('east_formula')
-        values = data.get('values', {})
+        values = data.get('values')
         origin_lat = data.get('origin_lat')
         origin_lon = data.get('origin_lon')
         
@@ -287,10 +312,13 @@ def calculate_coordinates():
                 'error': 'Paramètres north_formula et east_formula requis'
             }), 400
         
-        if not values:
+        if values is None:
+            values = {}
+
+        if not isinstance(values, dict):
             return jsonify({
                 'status': 'error',
-                'error': 'Paramètre values requis (dictionnaire lettre -> valeur)'
+                'error': 'Paramètre values doit être un dictionnaire lettre -> valeur'
             }), 400
         
         logger.info(f"Calcul de coordonnées : N={north_formula}, E={east_formula}, values={values}")

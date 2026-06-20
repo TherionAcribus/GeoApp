@@ -7,6 +7,7 @@ import json
 from gc_backend import create_app
 from gc_backend.database import db
 from gc_backend.geocaches.models import Geocache
+from gc_backend.models import Zone
 
 
 @pytest.fixture
@@ -33,11 +34,15 @@ def client(app):
 def sample_geocache(app):
     """Crée une géocache de test dans la DB"""
     with app.app_context():
+        zone = Zone(name='test', description='Test zone')
+        db.session.add(zone)
+        db.session.flush()
+
         geocache = Geocache(
             gc_code='GC12345',
             name='Test Mystery',
             type='Mystery',
-            description="""
+            description_html="""
                 <h1>Énigme Test</h1>
                 <p>Pour trouver les coordonnées finales:</p>
                 <ul>
@@ -46,12 +51,20 @@ def sample_geocache(app):
                 </ul>
                 <p>Les coordonnées sont: N 47° 5E.AB E 006° 5C.DE</p>
             """,
+            description_raw="""
+                Énigme Test
+                Pour trouver les coordonnées finales:
+                A. Nombre de fenêtres sur la façade
+                B. Année de construction - 1900
+                Les coordonnées sont: N 47° 5E.AB E 006° 5C.DE
+            """,
             latitude=47.123,
             longitude=6.456,
             difficulty=3.0,
             terrain=2.5,
             owner='TestOwner',
-            size='Regular'
+            size='Regular',
+            zone_id=zone.id
         )
         db.session.add(geocache)
         db.session.commit()
@@ -258,6 +271,20 @@ class TestCalculateRoute:
         assert data['status'] == 'success'
         # 5+3 = 8, donc N 47° 08.00
         # 10-2 = 8, donc E 006° 08.50
+
+    def test_calculate_without_values_field(self, client):
+        """Test : Calcul sans variables et sans champ values"""
+        response = client.post(
+            '/api/formula-solver/calculate',
+            json={
+                'north_formula': 'N 47° 50.000',
+                'east_formula': 'E 006° 10.000'
+            }
+        )
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data['status'] == 'success'
     
     def test_calculate_with_distance(self, client):
         """Test : Calcul avec distance depuis origine"""

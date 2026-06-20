@@ -5,7 +5,7 @@ Parse et évalue les formules de coordonnées avec variables
 
 import re
 import math
-from typing import Dict, Any, Tuple
+from typing import Dict, Any
 from loguru import logger
 
 
@@ -43,7 +43,8 @@ class CoordinateCalculator:
             
             logger.debug(f"Formules substituées: N={north_substituted}, E={east_substituted}")
             
-            # Parser et calculer
+            # Parser et calculer. Le cardinal réel de chaque coordonnée est
+            # relu ici (S/W/O inclus) pour ne pas forcer le résultat en N/E.
             lat = self._parse_coordinate(north_substituted, 'N')
             lon = self._parse_coordinate(east_substituted, 'E')
             
@@ -166,7 +167,7 @@ class CoordinateCalculator:
                 formula = formula[:match.start()] + str(result) + formula[match.end():]
             except Exception as e:
                 logger.warning(f"Impossible d'évaluer l'expression '{expr}': {e}")
-                break
+                raise ValueError(str(e)) from e
         
         # 2. Gérer les cas comme "5E.FTN" -> "58.195" si E=8, F=1, T=9, N=5
         # Remplacer les chiffres/lettres consécutifs par leur concaténation
@@ -241,24 +242,37 @@ class CoordinateCalculator:
             ValueError: Si format invalide
         """
         # Pattern pour DDM: N 47° 53.900
-        pattern = r'[NSEW]?\s*(\d{1,3})\s*°\s*(\d{1,2}(?:\.\d+)?)'
+        pattern = r'([NSEWO])?\s*(\d{1,3})\s*[\u00b0\u00ba]\s*(\d{1,2}(?:\.\d+)?)'
         
         match = re.search(pattern, coord_str)
         if not match:
             raise ValueError(f"Format de coordonnée invalide: {coord_str}")
         
-        degrees = int(match.group(1))
-        minutes = float(match.group(2))
+        detected_hemisphere = (match.group(1) or hemisphere).upper()
+        if detected_hemisphere == 'O':
+            detected_hemisphere = 'W'
+
+        expected_axis = 'lat' if hemisphere in ['N', 'S'] else 'lon'
+        actual_axis = 'lat' if detected_hemisphere in ['N', 'S'] else 'lon'
+        if actual_axis != expected_axis:
+            expected_label = 'latitude' if expected_axis == 'lat' else 'longitude'
+            raise ValueError(f"Cardinal inattendu pour {expected_label}: {match.group(1)}")
+
+        degrees = int(match.group(2))
+        minutes = float(match.group(3))
+
+        if not 0 <= minutes < 60:
+            raise ValueError(f"Minutes hors limites: {minutes}")
         
         # Convertir en décimal
         decimal = degrees + (minutes / 60.0)
         
         # Appliquer le signe selon l'hémisphère
-        if hemisphere in ['S', 'W']:
+        if detected_hemisphere in ['S', 'W']:
             decimal = -decimal
         
         # Valider les limites
-        if hemisphere in ['N', 'S']:
+        if detected_hemisphere in ['N', 'S']:
             if not -90 <= decimal <= 90:
                 raise ValueError(f"Latitude hors limites: {decimal}")
         else:  # E, W
@@ -278,17 +292,8 @@ class CoordinateCalculator:
         Returns:
             Chaîne formatée (ex: "N 47° 53.900 E 006° 05.000")
         """
-        # Latitude
-        lat_hem = 'N' if lat >= 0 else 'S'
-        lat_abs = abs(lat)
-        lat_deg = int(lat_abs)
-        lat_min = (lat_abs - lat_deg) * 60
-        
-        # Longitude
-        lon_hem = 'E' if lon >= 0 else 'W'
-        lon_abs = abs(lon)
-        lon_deg = int(lon_abs)
-        lon_min = (lon_abs - lon_deg) * 60
+        lat_hem, lat_deg, lat_min = self._split_ddm(lat, positive='N', negative='S')
+        lon_hem, lon_deg, lon_min = self._split_ddm(lon, positive='E', negative='W')
         
         return f"{lat_hem} {lat_deg:02d}° {lat_min:06.3f} {lon_hem} {lon_deg:03d}° {lon_min:06.3f}"
     
@@ -303,23 +308,39 @@ class CoordinateCalculator:
         Returns:
             Chaîne formatée (ex: "N 47° 53' 54.0\" E 006° 05' 00.0\"")
         """
-        # Latitude
-        lat_hem = 'N' if lat >= 0 else 'S'
-        lat_abs = abs(lat)
-        lat_deg = int(lat_abs)
-        lat_min_dec = (lat_abs - lat_deg) * 60
-        lat_min = int(lat_min_dec)
-        lat_sec = (lat_min_dec - lat_min) * 60
-        
-        # Longitude
-        lon_hem = 'E' if lon >= 0 else 'W'
-        lon_abs = abs(lon)
-        lon_deg = int(lon_abs)
-        lon_min_dec = (lon_abs - lon_deg) * 60
-        lon_min = int(lon_min_dec)
-        lon_sec = (lon_min_dec - lon_min) * 60
+        lat_hem, lat_deg, lat_min, lat_sec = self._split_dms(lat, positive='N', negative='S')
+        lon_hem, lon_deg, lon_min, lon_sec = self._split_dms(lon, positive='E', negative='W')
         
         return f"{lat_hem} {lat_deg:02d}° {lat_min:02d}' {lat_sec:04.1f}\" {lon_hem} {lon_deg:03d}° {lon_min:02d}' {lon_sec:04.1f}\""
+
+    def _split_ddm(self, value: float, positive: str, negative: str) -> tuple[str, int, float]:
+        hem = positive if value >= 0 else negative
+        abs_value = abs(value)
+        degrees = int(abs_value)
+        minutes = round((abs_value - degrees) * 60, 3)
+
+        if minutes >= 60:
+            degrees += 1
+            minutes = 0.0
+
+        return hem, degrees, minutes
+
+    def _split_dms(self, value: float, positive: str, negative: str) -> tuple[str, int, int, float]:
+        hem = positive if value >= 0 else negative
+        abs_value = abs(value)
+        degrees = int(abs_value)
+        minutes_decimal = (abs_value - degrees) * 60
+        minutes = int(minutes_decimal)
+        seconds = round((minutes_decimal - minutes) * 60, 1)
+
+        if seconds >= 60:
+            seconds = 0.0
+            minutes += 1
+        if minutes >= 60:
+            minutes = 0
+            degrees += 1
+
+        return hem, degrees, minutes, seconds
     
     def calculate_distance(
         self,

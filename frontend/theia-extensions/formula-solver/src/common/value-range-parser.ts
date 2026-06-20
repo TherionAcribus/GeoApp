@@ -201,7 +201,7 @@ export class CombinationGenerator {
      * Exemple :
      * A: [1, 2], B: [3, 4] => [{A:1, B:3}, {A:1, B:4}, {A:2, B:3}, {A:2, B:4}]
      */
-    static generateCombinations(ranges: Map<string, number[]>): Array<Record<string, number>> {
+    static generateCombinations(ranges: Map<string, number[]>, limit: number = this.getMaxCombinations()): Array<Record<string, number>> {
         const letters = Array.from(ranges.keys());
         const combinations: Array<Record<string, number>> = [];
         
@@ -211,6 +211,10 @@ export class CombinationGenerator {
         
         // Fonction récursive pour générer les combinaisons
         const generate = (index: number, current: Record<string, number>) => {
+            if (combinations.length >= limit) {
+                return;
+            }
+
             if (index === letters.length) {
                 combinations.push({ ...current });
                 return;

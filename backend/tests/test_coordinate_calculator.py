@@ -87,6 +87,29 @@ class TestCoordinateCalculator:
         
         lon = self.calc._parse_coordinate("W 006° 05.000", 'W')
         assert lon < 0
+
+    def test_calculate_coordinates_south_west(self):
+        """Test : Calcul complet en hémisphères Sud/Ouest"""
+        result = self.calc.calculate_coordinates(
+            north_formula="S 47° 53.900",
+            east_formula="W 006° 05.000",
+            values={}
+        )
+
+        assert result['status'] == 'success'
+        assert result['coordinates']['latitude'] < 0
+        assert result['coordinates']['longitude'] < 0
+        assert result['coordinates']['ddm'].startswith('S 47° 53.900 W 006° 05.000')
+
+    def test_parse_coordinate_french_west_cardinal(self):
+        """Test : Cardinal O interprété comme Ouest"""
+        lon = self.calc._parse_coordinate("O 006° 05.000", 'E')
+        assert lon < 0
+
+    def test_parse_coordinate_rejects_invalid_minutes(self):
+        """Test : Les minutes DDM doivent rester entre 0 et 59.999"""
+        with pytest.raises(ValueError, match="Minutes hors limites"):
+            self.calc._parse_coordinate("N 47° 99.000", 'N')
     
     def test_parse_coordinate_invalid(self):
         """Test : Format invalide rejeté"""
@@ -109,6 +132,7 @@ class TestCoordinateCalculator:
         assert 'N 47°' in result
         assert 'E 006°' in result
         assert '"' in result  # Symbole des secondes
+        assert '60.0"' not in result
     
     def test_calculate_distance(self):
         """Test : Calcul de distance Haversine"""

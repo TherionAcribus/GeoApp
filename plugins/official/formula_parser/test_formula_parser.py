@@ -3,7 +3,14 @@ Tests pour le plugin Formula Parser
 """
 
 import pytest
-from gc_backend.plugins.official.formula_parser.main import FormulaParserPlugin
+import sys
+from pathlib import Path
+
+ROOT_DIR = Path(__file__).resolve().parents[3]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from plugins.official.formula_parser.main import FormulaParserPlugin
 
 
 class TestFormulaParser:
@@ -121,6 +128,29 @@ class TestFormulaParser:
         if len(result["results"]) > 1:
             ids = [r["id"] for r in result["results"]]
             assert len(ids) == len(set(ids))  # Tous les IDs sont uniques
+
+    def test_detecte_plusieurs_formules(self):
+        """Test : plusieurs formules successives sont toutes retournées"""
+        text = """
+        Première formule : N 47° 5A.BC E 006° 5D.EF
+        Deuxième formule : N 48° 6G.HI E 007° 6J.KL
+        """
+        result = self.plugin.execute({"text": text})
+
+        assert result["status"] == "success"
+        assert len(result["results"]) == 2
+        assert result["results"][0]["east"] == "E 006° 5D.EF"
+        assert result["results"][1]["north"] == "N 48° 6G.HI"
+        assert result["results"][1]["east"] == "E 007° 6J.KL"
+
+    def test_detecte_cardinal_ouest_francais(self):
+        """Test : le cardinal O est accepté pour Ouest"""
+        text = "Final : N 47° 12.ABC O 006° 34.DEF"
+        result = self.plugin.execute({"text": text})
+
+        assert result["status"] == "success"
+        assert len(result["results"]) == 1
+        assert result["results"][0]["east"] == "O 006° 34.DEF"
     
     def test_formule_incomplete_nord_seulement(self):
         """Test 11 : Formule incomplète (seulement Nord)"""

@@ -19,6 +19,7 @@ import { Formula, Question, LetterValue, FormulaSolverState } from '../common/ty
 import { FormulaSessionManager, SessionIndex } from './formula-solver-session-manager';
 import { parseValueList } from './utils/value-parser';
 import { ensureFormulaFragments } from './utils/formula-fragments';
+import { extractVariablesFromFormula as extractFormulaVariables } from './utils/formula-variables';
 import { CoordinatePreviewEngine } from './preview/coordinate-preview-engine';
 import {
     DetectedFormulasComponent,
@@ -919,9 +920,14 @@ export class FormulaSolverWidget extends ReactWidget {
      * Extrait les variables (lettres) d'une formule
      */
     protected extractVariablesFromFormula(north: string, east: string): string[] {
-        const allText = `${north} ${east}`;
-        const matches = allText.match(/[A-Z]/g) || [];
-        return [...new Set(matches)].sort();
+        return extractFormulaVariables({
+            id: 'temporary',
+            north,
+            east,
+            source: 'manual',
+            text_output: `${north} ${east}`,
+            confidence: 1
+        });
     }
 
     /**
@@ -1403,7 +1409,9 @@ export class FormulaSolverWidget extends ReactWidget {
             const result = await this.formulaSolverService.calculateCoordinates({
                 northFormula: this.state.selectedFormula.north,
                 eastFormula: this.state.selectedFormula.east,
-                values
+                values,
+                originLat: this.state.originLat,
+                originLon: this.state.originLon
             });
 
             if (result.status === 'success') {
@@ -1422,6 +1430,7 @@ export class FormulaSolverWidget extends ReactWidget {
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Erreur inconnue';
             this.messageService.error(`Erreur : ${message}`);
+            this.updateState({ loading: false, error: message });
         }
     }
 
@@ -1525,16 +1534,17 @@ export class FormulaSolverWidget extends ReactWidget {
             }
         }
 
-        const combinations = this.generateCombinations(letterValuesMap);
+        const totalCombinations = Object.values(letterValuesMap).reduce((total, values) => total * values.length, 1);
+        const maxCombinations = 1000;
+        const combinations = this.generateCombinations(letterValuesMap, maxCombinations);
         
         if (combinations.length === 0) {
             this.messageService.warn('Aucune combinaison à tester');
             return;
         }
 
-        if (combinations.length > 1000) {
-            this.messageService.warn(`${combinations.length} combinaisons détectées. Limité à 1000 pour éviter les calculs trop longs.`);
-            combinations.splice(1000);
+        if (totalCombinations > maxCombinations) {
+            this.messageService.warn(`${totalCombinations} combinaisons détectées. Limité à ${maxCombinations} pour éviter les calculs trop longs.`);
         }
 
         this.bruteForceMode = true;
@@ -1599,7 +1609,7 @@ export class FormulaSolverWidget extends ReactWidget {
     /**
      * Génère toutes les combinaisons possibles à partir d'un mapping de valeurs
      */
-    protected generateCombinations(letterValuesMap: Record<string, number[]>): Record<string, number>[] {
+    protected generateCombinations(letterValuesMap: Record<string, number[]>, limit: number = 1000): Record<string, number>[] {
         const letters = Object.keys(letterValuesMap);
         
         if (letters.length === 0) {
@@ -1609,6 +1619,10 @@ export class FormulaSolverWidget extends ReactWidget {
         const combinations: Record<string, number>[] = [];
         
         const generate = (index: number, current: Record<string, number>) => {
+            if (combinations.length >= limit) {
+                return;
+            }
+
             if (index === letters.length) {
                 combinations.push({ ...current });
                 return;
