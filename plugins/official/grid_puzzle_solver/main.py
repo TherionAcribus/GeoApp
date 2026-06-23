@@ -168,7 +168,7 @@ class GridpuzzlesolverPlugin:
 
     def __init__(self) -> None:
         self.name = "grid_puzzle_solver"
-        self.version = "0.2.0"
+        self.version = "0.3.0"
 
     def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         start_time = time.time()
@@ -678,6 +678,16 @@ class GridpuzzlesolverPlugin:
                     ),
                     grid=inputs.get("grid") or inputs.get("givens") or inputs.get("puzzle"),
                     clue_spec=inputs.get("clues") or inputs.get("spec"),
+                )
+            elif puzzle_type in {"kakuro", "cross_sums", "crosssum", "cross_sum"}:
+                problem = self._build_kakuro_problem(
+                    layout=(
+                        inputs.get("kakuro")
+                        or inputs.get("layout")
+                        or inputs.get("puzzle")
+                        or inputs.get("spec")
+                    ),
+                    grid=inputs.get("grid") or inputs.get("givens"),
                 )
             elif (tripod_size := self._tripod_size(puzzle_type)) is not None:
                 puzzle_text = self._first_non_empty(
@@ -1379,6 +1389,224 @@ class GridpuzzlesolverPlugin:
             numeric_values={".": 0, "#": 1},
             variant="nonogram",
         )
+
+    def _build_kakuro_problem(self, layout: Any, grid: Any = None) -> GridCspProblem:
+        raw_layout = self._parse_optional_json(layout)
+        if isinstance(raw_layout, dict):
+            raw_cells = (
+                raw_layout.get("cells")
+                or raw_layout.get("layout")
+                or raw_layout.get("matrix")
+            )
+            if grid in (None, "", [], {}):
+                grid = raw_layout.get("givens") or raw_layout.get("grid") or raw_layout.get("values")
+        else:
+            raw_cells = raw_layout
+
+        if not isinstance(raw_cells, list) or not raw_cells:
+            raise ValueError("Un Kakuro attend une matrice non vide de cellules dans le champ kakuro ou layout")
+        if any(not isinstance(row, list) for row in raw_cells):
+            raise ValueError("Chaque ligne du Kakuro doit etre une liste de cellules")
+
+        rows = len(raw_cells)
+        cols = len(raw_cells[0]) if raw_cells else 0
+        if rows < 2 or cols < 2 or any(len(row) != cols for row in raw_cells):
+            raise ValueError("La matrice Kakuro doit etre rectangulaire et faire au moins 2 x 2")
+
+        cell_kinds: List[List[str]] = []
+        clue_data: Dict[Cell, Tuple[Optional[int], Optional[int]]] = {}
+        layout_givens: Dict[Cell, str] = {}
+        for row_index, raw_row in enumerate(raw_cells):
+            kinds_row: List[str] = []
+            for col_index, raw_cell in enumerate(raw_row):
+                kind, across, down, given = self._parse_kakuro_cell(
+                    raw_cell,
+                    f"r{row_index + 1}c{col_index + 1}",
+                )
+                kinds_row.append(kind)
+                if kind == "clue":
+                    clue_data[(row_index, col_index)] = (across, down)
+                if given is not None:
+                    layout_givens[(row_index, col_index)] = given
+            cell_kinds.append(kinds_row)
+
+        active_cells = [
+            (row, col)
+            for row in range(rows)
+            for col in range(cols)
+            if cell_kinds[row][col] == "white"
+        ]
+        if not active_cells:
+            raise ValueError("Un Kakuro doit contenir au moins une case blanche")
+
+        constraints: List[GridConstraint] = []
+        across_owners: Dict[Cell, Cell] = {}
+        down_owners: Dict[Cell, Cell] = {}
+        for clue_cell, (across, down) in clue_data.items():
+            if across is not None:
+                cells = self._kakuro_run_cells(cell_kinds, clue_cell, 0, 1)
+                self._validate_kakuro_run(across, cells, f"horizontale depuis {self._format_cell_ref(clue_cell)}")
+                self._register_kakuro_run(across_owners, cells, clue_cell, "horizontale")
+                constraints.extend((
+                    GridConstraint("sum", tuple(cells), total=across),
+                    GridConstraint("all_different", tuple(cells)),
+                ))
+            if down is not None:
+                cells = self._kakuro_run_cells(cell_kinds, clue_cell, 1, 0)
+                self._validate_kakuro_run(down, cells, f"verticale depuis {self._format_cell_ref(clue_cell)}")
+                self._register_kakuro_run(down_owners, cells, clue_cell, "verticale")
+                constraints.extend((
+                    GridConstraint("sum", tuple(cells), total=down),
+                    GridConstraint("all_different", tuple(cells)),
+                ))
+
+        for cell in active_cells:
+            if cell not in across_owners or cell not in down_owners:
+                raise ValueError(
+                    f"La case blanche {self._format_cell_ref(cell)} doit appartenir a une somme horizontale et verticale"
+                )
+
+        givens = dict(layout_givens)
+        givens.update(self._parse_kakuro_givens(grid, rows, cols, set(active_cells)))
+        return GridCspProblem(
+            rows=rows,
+            cols=cols,
+            symbols=list("123456789"),
+            active_cells=active_cells,
+            givens=givens,
+            constraints=constraints,
+            numeric_values={str(value): value for value in range(1, 10)},
+            variant="kakuro",
+        )
+
+    def _parse_kakuro_cell(
+        self,
+        raw_cell: Any,
+        label: str,
+    ) -> Tuple[str, Optional[int], Optional[int], Optional[str]]:
+        if isinstance(raw_cell, dict):
+            kind_raw = raw_cell.get("kind", raw_cell.get("type", raw_cell.get("state", "")))
+            across_raw = raw_cell.get(
+                "across",
+                raw_cell.get("right", raw_cell.get("horizontal", raw_cell.get("sum_right"))),
+            )
+            down_raw = raw_cell.get(
+                "down",
+                raw_cell.get("bottom", raw_cell.get("vertical", raw_cell.get("sum_down"))),
+            )
+            given_raw = raw_cell.get("value", raw_cell.get("given"))
+            kind_text = str(kind_raw or "").strip().lower()
+            if kind_text in {"black", "block", "inactive", "#", "x"}:
+                return "black", None, None, None
+            if kind_text in {"clue", "sum", "hint"} or across_raw not in (None, "") or down_raw not in (None, ""):
+                return "clue", self._parse_kakuro_total(across_raw, f"somme horizontale {label}"), self._parse_kakuro_total(down_raw, f"somme verticale {label}"), None
+            return "white", None, None, self._parse_kakuro_given(given_raw, label)
+
+        text = str(raw_cell or "").strip().lower()
+        if text in {"#", "x", "black", "block", "inactive"}:
+            return "black", None, None, None
+        if text in {"clue", "sum", "hint"}:
+            return "clue", None, None, None
+        return "white", None, None, self._parse_kakuro_given(raw_cell, label)
+
+    def _parse_kakuro_total(self, raw_value: Any, label: str) -> Optional[int]:
+        if raw_value in (None, "", ".", "-", "_", 0, "0"):
+            return None
+        try:
+            total = int(raw_value)
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"{label} invalide: {raw_value}") from error
+        if total < 1:
+            raise ValueError(f"{label} doit etre positive")
+        return total
+
+    def _parse_kakuro_given(self, raw_value: Any, label: str) -> Optional[str]:
+        if raw_value in (None, "", ".", "-", "_", "?", 0, "0"):
+            return None
+        value = str(raw_value).strip()
+        if value not in set("123456789"):
+            raise ValueError(f"Valeur Kakuro invalide dans {label}: {raw_value}")
+        return value
+
+    def _kakuro_run_cells(
+        self,
+        cell_kinds: Sequence[Sequence[str]],
+        clue_cell: Cell,
+        row_delta: int,
+        col_delta: int,
+    ) -> List[Cell]:
+        cells: List[Cell] = []
+        row, col = clue_cell[0] + row_delta, clue_cell[1] + col_delta
+        while 0 <= row < len(cell_kinds) and 0 <= col < len(cell_kinds[0]) and cell_kinds[row][col] == "white":
+            cells.append((row, col))
+            row += row_delta
+            col += col_delta
+        return cells
+
+    def _validate_kakuro_run(self, total: int, cells: Sequence[Cell], label: str) -> None:
+        length = len(cells)
+        if length < 2:
+            raise ValueError(f"La somme {label} doit couvrir au moins deux cases blanches")
+        if length > 9:
+            raise ValueError(f"La somme {label} ne peut pas couvrir plus de neuf cases")
+        minimum = length * (length + 1) // 2
+        maximum = sum(range(10 - length, 10))
+        if not minimum <= total <= maximum:
+            raise ValueError(
+                f"La somme {total} est impossible pour {length} cases dans la serie {label} (entre {minimum} et {maximum})"
+            )
+
+    def _register_kakuro_run(
+        self,
+        owners: Dict[Cell, Cell],
+        cells: Sequence[Cell],
+        clue_cell: Cell,
+        direction: str,
+    ) -> None:
+        for cell in cells:
+            if cell in owners:
+                raise ValueError(
+                    f"La case {self._format_cell_ref(cell)} appartient a deux sommes {direction}s"
+                )
+            owners[cell] = clue_cell
+
+    def _parse_kakuro_givens(
+        self,
+        raw_grid: Any,
+        rows: int,
+        cols: int,
+        active_cells: set,
+    ) -> Dict[Cell, str]:
+        raw_grid = self._parse_optional_json(raw_grid)
+        if raw_grid in (None, "", [], {}):
+            return {}
+        if isinstance(raw_grid, dict):
+            raw_grid = raw_grid.get("givens") or raw_grid.get("grid") or raw_grid.get("values")
+        if isinstance(raw_grid, str):
+            raw_rows: List[Any] = [line.split() for line in raw_grid.strip().splitlines() if line.strip()]
+        elif isinstance(raw_grid, list):
+            raw_rows = raw_grid
+        else:
+            raise ValueError("Format de valeurs Kakuro non supporte")
+        if len(raw_rows) != rows:
+            raise ValueError(f"La grille Kakuro doit contenir {rows} lignes, {len(raw_rows)} detectees")
+
+        givens: Dict[Cell, str] = {}
+        for row_index, raw_row in enumerate(raw_rows):
+            values = raw_row if isinstance(raw_row, list) else str(raw_row).split()
+            if len(values) != cols:
+                raise ValueError(
+                    f"La ligne Kakuro {row_index + 1} doit contenir {cols} cases, {len(values)} detectees"
+                )
+            for col_index, raw_value in enumerate(values):
+                given = self._parse_kakuro_given(raw_value, f"r{row_index + 1}c{col_index + 1}")
+                cell = (row_index, col_index)
+                if given is None:
+                    continue
+                if cell not in active_cells:
+                    raise ValueError(f"La case {self._format_cell_ref(cell)} n'est pas une case blanche Kakuro")
+                givens[cell] = given
+        return givens
 
     # ------------------------------------------------------------------
     # Z3 solving

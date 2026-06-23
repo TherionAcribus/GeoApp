@@ -1975,6 +1975,63 @@ def test_nonogram_rejects_contradictory_given_cell():
     assert result["summary"] == "Aucune solution compatible avec les contraintes"
 
 
+KAKURO_TWO_BY_TWO_LAYOUT = {
+    "cells": [
+        ["#", {"kind": "clue", "down": 4}, {"kind": "clue", "down": 4}],
+        [{"kind": "clue", "across": 4}, {"kind": "white"}, {"kind": "white"}],
+        [{"kind": "clue", "across": 4}, {"kind": "white"}, {"kind": "white"}],
+    ]
+}
+
+
+def test_kakuro_solves_cross_sums_with_distinct_digits():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "kakuro",
+            "kakuro": KAKURO_TWO_BY_TWO_LAYOUT,
+            "grid": [
+                ["", "", ""],
+                ["", "1", ""],
+                ["", "", ""],
+            ],
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["unique"] is True
+    assert result["metadata"]["variant"] == "kakuro"
+    assert result["metadata"]["constraint_count"] == 8
+    assert result["results"][0]["grid"] == [
+        [None, None, None],
+        [None, "1", "3"],
+        [None, "3", "1"],
+    ]
+
+
+def test_kakuro_rejects_repeated_digit_in_a_sum():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "cross_sums",
+            "layout": KAKURO_TWO_BY_TWO_LAYOUT,
+            "grid": [
+                ["", "", ""],
+                ["", "1", "1"],
+                ["", "", ""],
+            ],
+            "max_solutions": 1,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+    assert result["summary"] == "Aucune solution compatible avec les contraintes"
+
+
 def mine_clue_grid(solution):
     size = len(solution)
     rows = []

@@ -10,7 +10,9 @@ import './style/grid-puzzle-workbench.css';
 type Grid = string[][];
 type RegionGrid = number[][];
 type WorkMode = 'edit' | 'watch' | 'parity' | 'chain';
-type SudokuVariant = 'sudoku_classic' | 'sudoku_4x4' | 'sudoku_6x6' | 'sudoku_8x8' | 'sudoku_10x10' | 'sudoku_12x12' | 'sudoku_15x15' | 'sudoku_16x16' | 'sudoku_x' | 'sudoku_argyle' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'sudoku_hoshi' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_vudoku' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_kropki' | 'chain_sudoku_4x4' | 'chain_sudoku_5x5' | 'chain_sudoku_6x6' | 'chain_sudoku_7x7' | 'chain_sudoku_8x8' | 'chain_sudoku_9x9' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_outside' | 'sudoku_sandwich' | 'sudoku_little_killer' | 'sudoku_little_unique_killer' | 'sudoku_godoku' | 'sudoku_even_odd' | 'sudoku_non_consecutive' | 'sudoku_mine' | 'sudoku_mine_6x6' | 'sudoku_tripod' | 'sudoku_tripod_4x4' | 'sudoku_tripod_5x5' | 'sudoku_tripod_6x6' | 'sudoku_tripod_7x7' | 'sudoku_tripod_8x8' | 'nonogram';
+type SudokuVariant = 'sudoku_classic' | 'sudoku_4x4' | 'sudoku_6x6' | 'sudoku_8x8' | 'sudoku_10x10' | 'sudoku_12x12' | 'sudoku_15x15' | 'sudoku_16x16' | 'sudoku_x' | 'sudoku_argyle' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'sudoku_hoshi' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_vudoku' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_kropki' | 'chain_sudoku_4x4' | 'chain_sudoku_5x5' | 'chain_sudoku_6x6' | 'chain_sudoku_7x7' | 'chain_sudoku_8x8' | 'chain_sudoku_9x9' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_outside' | 'sudoku_sandwich' | 'sudoku_little_killer' | 'sudoku_little_unique_killer' | 'sudoku_godoku' | 'sudoku_even_odd' | 'sudoku_non_consecutive' | 'sudoku_mine' | 'sudoku_mine_6x6' | 'sudoku_tripod' | 'sudoku_tripod_4x4' | 'sudoku_tripod_5x5' | 'sudoku_tripod_6x6' | 'sudoku_tripod_7x7' | 'sudoku_tripod_8x8' | 'nonogram' | 'kakuro';
+type KakuroCellKind = 'black' | 'clue' | 'white';
+type KakuroTool = KakuroCellKind;
 type InequalitySymbol = '' | '>' | '<';
 type InequalityGrid = InequalitySymbol[][];
 type VudokuSymbol = '' | 'tl' | 'tr' | 'bl' | 'br';
@@ -87,6 +89,14 @@ interface ConflictHighlights {
     cells: Set<string>;
     messages: string[];
 }
+
+interface KakuroCell {
+    kind: KakuroCellKind;
+    across: string;
+    down: string;
+}
+
+type KakuroLayout = KakuroCell[][];
 
 interface HoshiCellLayout {
     row: number;
@@ -359,6 +369,189 @@ function cloneGrid(grid: Grid): Grid {
     return grid.map(row => [...row]);
 }
 
+function kakuroCell(kind: KakuroCellKind, across = '', down = ''): KakuroCell {
+    return { kind, across, down };
+}
+
+function cloneKakuroLayout(layout: KakuroLayout): KakuroLayout {
+    return layout.map(row => row.map(cell => ({ ...cell })));
+}
+
+function createKakuroStarterLayout(): KakuroLayout {
+    return [
+        [kakuroCell('black'), kakuroCell('clue'), kakuroCell('clue')],
+        [kakuroCell('clue'), kakuroCell('white'), kakuroCell('white')],
+        [kakuroCell('clue'), kakuroCell('white'), kakuroCell('white')],
+    ];
+}
+
+function defaultKakuroCell(row: number, col: number): KakuroCell {
+    if (row === 0 && col === 0) {
+        return kakuroCell('black');
+    }
+    if (row === 0) {
+        return kakuroCell('clue', '', '');
+    }
+    if (col === 0) {
+        return kakuroCell('clue', '', '');
+    }
+    return kakuroCell('white');
+}
+
+function resizeKakuroLayout(layout: KakuroLayout, rows: number, cols: number): KakuroLayout {
+    return Array.from({ length: rows }, (_row, rowIndex) => (
+        Array.from({ length: cols }, (_col, colIndex) => (
+            layout[rowIndex]?.[colIndex]
+                ? { ...layout[rowIndex][colIndex] }
+                : defaultKakuroCell(rowIndex, colIndex)
+        ))
+    ));
+}
+
+function normalizeKakuroValue(rawValue: unknown): string {
+    const values = String(rawValue ?? '').match(/[1-9]/g);
+    return values?.[values.length - 1] || '';
+}
+
+function resizeKakuroGrid(grid: Grid, layout: KakuroLayout): Grid {
+    return layout.map((row, rowIndex) => row.map((cell, colIndex) => (
+        cell.kind === 'white' ? normalizeKakuroValue(grid[rowIndex]?.[colIndex]) : ''
+    )));
+}
+
+function normalizeKakuroTotal(rawValue: unknown): string {
+    const digits = String(rawValue ?? '').replace(/[^0-9]/g, '').slice(0, 2);
+    return digits === '0' ? '' : digits;
+}
+
+function normalizeKakuroLayout(value: unknown): KakuroLayout | undefined {
+    if (!Array.isArray(value) || value.length < 2 || value.some(row => !Array.isArray(row))) {
+        return undefined;
+    }
+    const cols = value[0].length;
+    if (cols < 2 || value.some(row => row.length !== cols)) {
+        return undefined;
+    }
+    return value.map(row => row.map((rawCell: unknown) => {
+        if (typeof rawCell === 'object' && rawCell !== null) {
+            const cell = rawCell as Record<string, unknown>;
+            const kind = cell.kind === 'black' || cell.kind === 'clue' || cell.kind === 'white'
+                ? cell.kind
+                : cell.type === 'black' || cell.type === 'clue' || cell.type === 'white'
+                    ? cell.type
+                    : 'white';
+            return kakuroCell(
+                kind,
+                normalizeKakuroTotal(cell.across ?? cell.right ?? cell.horizontal),
+                normalizeKakuroTotal(cell.down ?? cell.bottom ?? cell.vertical),
+            );
+        }
+        const text = String(rawCell ?? '').trim().toLowerCase();
+        return text === '#' || text === 'black'
+            ? kakuroCell('black')
+            : text === 'clue' || text === 'sum'
+                ? kakuroCell('clue')
+                : kakuroCell('white');
+    }));
+}
+
+function normalizeKakuroGrid(value: unknown, layout: KakuroLayout): Grid {
+    if (!Array.isArray(value)) {
+        return resizeKakuroGrid([], layout);
+    }
+    const rawGrid = value.map(row => Array.isArray(row) ? row.map(cell => String(cell ?? '')) : []);
+    return resizeKakuroGrid(rawGrid, layout);
+}
+
+function kakuroRunCells(layout: KakuroLayout, row: number, col: number, direction: 'across' | 'down'): CellCoord[] {
+    const rowStep = direction === 'down' ? 1 : 0;
+    const colStep = direction === 'across' ? 1 : 0;
+    const cells: CellCoord[] = [];
+    let nextRow = row + rowStep;
+    let nextCol = col + colStep;
+    while (layout[nextRow]?.[nextCol]?.kind === 'white') {
+        cells.push([nextRow, nextCol]);
+        nextRow += rowStep;
+        nextCol += colStep;
+    }
+    return cells;
+}
+
+function kakuroClueError(rawTotal: string, cells: CellCoord[]): string | undefined {
+    if (!rawTotal) {
+        return undefined;
+    }
+    const total = Number(rawTotal);
+    const length = cells.length;
+    if (!Number.isInteger(total) || total < 1) {
+        return 'La somme doit etre un entier positif.';
+    }
+    if (length < 2) {
+        return 'Une somme Kakuro doit couvrir au moins deux cases blanches.';
+    }
+    if (length > 9) {
+        return 'Une somme Kakuro ne peut pas couvrir plus de neuf cases.';
+    }
+    const minimum = length * (length + 1) / 2;
+    const maximum = Array.from({ length }, (_unused, index) => 9 - index).reduce((sum, value) => sum + value, 0);
+    if (total < minimum || total > maximum) {
+        return `Somme impossible pour ${length} cases : entre ${minimum} et ${maximum}.`;
+    }
+    return undefined;
+}
+
+function findKakuroConflicts(layout: KakuroLayout, grid: Grid): ConflictHighlights {
+    const cells = new Set<string>();
+    const messages: string[] = [];
+    layout.forEach((row, rowIndex) => row.forEach((cell, colIndex) => {
+        if (cell.kind !== 'clue') {
+            return;
+        }
+        (['across', 'down'] as const).forEach(direction => {
+            const runCells = kakuroRunCells(layout, rowIndex, colIndex, direction);
+            const clueError = kakuroClueError(cell[direction], runCells);
+            if (clueError) {
+                messages.push(`Somme ${direction === 'across' ? 'horizontale' : 'verticale'} ${cellRef(rowIndex, colIndex)} : ${clueError}`);
+                return;
+            }
+            const total = Number(cell[direction]);
+            if (!Number.isInteger(total) || total < 1 || runCells.length < 1) {
+                return;
+            }
+            const valuesByDigit = new Map<string, string[]>();
+            let sum = 0;
+            let filledCount = 0;
+            runCells.forEach(([runRow, runCol]) => {
+                const value = grid[runRow]?.[runCol] || '';
+                if (!value) {
+                    return;
+                }
+                const ref = cellRef(runRow, runCol);
+                sum += Number(value);
+                filledCount += 1;
+                const refs = valuesByDigit.get(value) || [];
+                refs.push(ref);
+                valuesByDigit.set(value, refs);
+            });
+            valuesByDigit.forEach((refs, digit) => {
+                if (refs.length > 1) {
+                    refs.forEach(ref => cells.add(ref));
+                    messages.push(`Doublon ${digit} dans la somme ${direction === 'across' ? 'horizontale' : 'verticale'} ${cellRef(rowIndex, colIndex)}.`);
+                }
+            });
+            if (sum > total || (filledCount === runCells.length && sum !== total)) {
+                runCells.forEach(([runRow, runCol]) => {
+                    if (grid[runRow]?.[runCol]) {
+                        cells.add(cellRef(runRow, runCol));
+                    }
+                });
+                messages.push(`La somme ${direction === 'across' ? 'horizontale' : 'verticale'} ${cellRef(rowIndex, colIndex)} ne correspond pas a ${total}.`);
+            }
+        });
+    }));
+    return { cells, messages: [...new Set(messages)] };
+}
+
 function cloneInequalityGrid(grid: InequalityGrid): InequalityGrid {
     return grid.map(row => [...row]);
 }
@@ -545,6 +738,9 @@ function getVariantLabel(puzzleType: SudokuVariant): string {
     if (puzzleType === 'nonogram') {
         return 'Nonogram / Picross';
     }
+    if (puzzleType === 'kakuro') {
+        return 'Kakuro / Cross Sums';
+    }
     return 'Sudoku classique';
 }
 
@@ -672,7 +868,7 @@ function getMineConfig(
 }
 
 function getSingleGridSudokuConfig(puzzleType: SudokuVariant): { size: number; boxRows: number; boxCols: number; label: string } | undefined {
-    if (puzzleType === 'nonogram') {
+    if (puzzleType === 'nonogram' || puzzleType === 'kakuro') {
         return undefined;
     }
     return getSizedSudokuConfig(puzzleType) || {
@@ -709,14 +905,14 @@ function gridSizeForVariant(puzzleType: SudokuVariant): number {
     if (mineConfig) {
         return mineConfig.size;
     }
-    if (puzzleType === 'nonogram') {
+    if (puzzleType === 'nonogram' || puzzleType === 'kakuro') {
         return SIZE;
     }
     return getSingleGridSudokuConfig(puzzleType)?.size || SIZE;
 }
 
 function isActiveCellForVariant(puzzleType: SudokuVariant, row: number, col: number): boolean {
-    if (puzzleType === 'nonogram') {
+    if (puzzleType === 'nonogram' || puzzleType === 'kakuro') {
         return row >= 0 && col >= 0;
     }
     if (puzzleType === 'sujiken') {
@@ -1021,7 +1217,7 @@ function findConstraintConflicts(
     const cells = new Set<string>();
     const messages: string[] = [];
 
-    if (puzzleType === 'nonogram') {
+    if (puzzleType === 'nonogram' || puzzleType === 'kakuro') {
         return { cells, messages };
     }
 
@@ -3200,6 +3396,8 @@ function GridPuzzleWorkbenchApp({
     const [nonogramRowClues, setNonogramRowClues] = React.useState('');
     const [nonogramColumnClues, setNonogramColumnClues] = React.useState('');
     const [nonogramClueDrafts, setNonogramClueDrafts] = React.useState<Record<string, string>>({});
+    const [kakuroLayout, setKakuroLayout] = React.useState<KakuroLayout>(() => createKakuroStarterLayout());
+    const [kakuroTool, setKakuroTool] = React.useState<KakuroTool>('white');
     const [watchCells, setWatchCells] = React.useState<string[]>([]);
     const [mode, setMode] = React.useState<WorkMode>('edit');
     const [maxSolutions, setMaxSolutions] = React.useState(2);
@@ -3242,6 +3440,7 @@ function GridPuzzleWorkbenchApp({
     const isEvenOdd = puzzleType === 'sudoku_even_odd';
     const isNonConsecutive = puzzleType === 'sudoku_non_consecutive';
     const isNonogram = puzzleType === 'nonogram';
+    const isKakuro = puzzleType === 'kakuro';
     const mineConfig = getMineConfig(puzzleType);
     const isMine = Boolean(mineConfig);
     const tripodConfig = getTripodConfig(puzzleType);
@@ -3282,6 +3481,8 @@ function GridPuzzleWorkbenchApp({
     );
     const nonogramRows = nonogramRowClueLines.length;
     const nonogramCols = nonogramColumnClueLines.length;
+    const kakuroRows = kakuroLayout.length;
+    const kakuroCols = kakuroLayout[0]?.length || 0;
     const nonogramMaxColumnClues = Math.max(
         1,
         ...nonogramColumnClueLines.map(nonogramClueValueCount),
@@ -3294,6 +3495,10 @@ function GridPuzzleWorkbenchApp({
     const nonogramSolutionBoardStyle: React.CSSProperties | undefined = isNonogram ? {
         gridTemplateColumns: `repeat(${solvedGrid?.[0]?.length || nonogramCols}, 28px)`,
         gridTemplateRows: `repeat(${solvedGrid?.length || nonogramRows}, 28px)`,
+    } : undefined;
+    const kakuroBoardStyle: React.CSSProperties | undefined = isKakuro ? {
+        gridTemplateColumns: `repeat(${kakuroCols}, 52px)`,
+        gridTemplateRows: `repeat(${kakuroRows}, 52px)`,
     } : undefined;
     const solutionBoardStyle = isNonogram ? nonogramSolutionBoardStyle : boardStyle;
     const chainCounts = React.useMemo(() => {
@@ -3322,8 +3527,10 @@ function GridPuzzleWorkbenchApp({
             ? SAMURAI_TEXT_PLACEHOLDER
             : QUICK_TEXT_PLACEHOLDER;
     const constraintConflicts = React.useMemo(
-        () => findConstraintConflicts(grid, puzzleType, horizontalInequalities, verticalInequalities, vudokuCorners, rossiniArrows, xvHorizontalMarks, xvVerticalMarks, kropkiHorizontalDots, kropkiVerticalDots, chainGrid, skyscraperClues, frameClues, outsideClues, sandwichClues, littleKillerClues, parityMarks),
-        [chainGrid, frameClues, grid, horizontalInequalities, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, outsideClues, parityMarks, puzzleType, rossiniArrows, sandwichClues, skyscraperClues, verticalInequalities, vudokuCorners, xvHorizontalMarks, xvVerticalMarks],
+        () => isKakuro
+            ? findKakuroConflicts(kakuroLayout, grid)
+            : findConstraintConflicts(grid, puzzleType, horizontalInequalities, verticalInequalities, vudokuCorners, rossiniArrows, xvHorizontalMarks, xvVerticalMarks, kropkiHorizontalDots, kropkiVerticalDots, chainGrid, skyscraperClues, frameClues, outsideClues, sandwichClues, littleKillerClues, parityMarks),
+        [chainGrid, frameClues, grid, horizontalInequalities, isKakuro, kakuroLayout, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, outsideClues, parityMarks, puzzleType, rossiniArrows, sandwichClues, skyscraperClues, verticalInequalities, vudokuCorners, xvHorizontalMarks, xvVerticalMarks],
     );
     const visibleConflictMessages = constraintConflicts.messages.slice(0, 4);
 
@@ -3347,6 +3554,22 @@ function GridPuzzleWorkbenchApp({
             );
         }));
     }, [isNonogram, nonogramCols, nonogramRows]);
+
+    React.useEffect(() => {
+        if (!isKakuro) {
+            return;
+        }
+        setGrid(previous => resizeKakuroGrid(previous, kakuroLayout));
+        setWatchCells(previous => previous.filter(ref => {
+            const match = ref.match(/^r(\d+)c(\d+)$/i);
+            return Boolean(
+                match
+                && Number(match[1]) <= kakuroRows
+                && Number(match[2]) <= kakuroCols
+                && kakuroLayout[Number(match[1]) - 1]?.[Number(match[2]) - 1]?.kind === 'white',
+            );
+        }));
+    }, [isKakuro, kakuroCols, kakuroLayout, kakuroRows]);
 
     const markDirty = React.useCallback(() => {
         if (!geocacheId) {
@@ -3418,6 +3641,71 @@ function GridPuzzleWorkbenchApp({
         markDirty();
     }, [markDirty, nonogramColumnClues, nonogramRowClues]);
 
+    const updateKakuroCellKind = React.useCallback((row: number, col: number, kind: KakuroCellKind) => {
+        const nextLayout = cloneKakuroLayout(kakuroLayout);
+        const current = nextLayout[row]?.[col];
+        if (!current || current.kind === kind) {
+            return;
+        }
+        nextLayout[row][col] = kakuroCell(kind);
+        setKakuroLayout(nextLayout);
+        setGrid(previous => resizeKakuroGrid(previous, nextLayout));
+        setSolveState({ running: false });
+        markDirty();
+    }, [kakuroLayout, markDirty]);
+
+    const updateKakuroClue = React.useCallback((row: number, col: number, direction: 'across' | 'down', rawValue: string) => {
+        const nextLayout = cloneKakuroLayout(kakuroLayout);
+        const current = nextLayout[row]?.[col];
+        if (!current || current.kind !== 'clue') {
+            return;
+        }
+        current[direction] = normalizeKakuroTotal(rawValue);
+        setKakuroLayout(nextLayout);
+        setSolveState({ running: false });
+        markDirty();
+    }, [kakuroLayout, markDirty]);
+
+    const updateKakuroValue = React.useCallback((row: number, col: number, rawValue: string) => {
+        setGrid(previous => {
+            const next = resizeKakuroGrid(previous, kakuroLayout);
+            next[row][col] = normalizeKakuroValue(rawValue);
+            return next;
+        });
+        setSolveState({ running: false });
+        markDirty();
+    }, [kakuroLayout, markDirty]);
+
+    const setKakuroDimension = React.useCallback((axis: 'row' | 'column', rawValue: number) => {
+        const size = Number.isFinite(rawValue)
+            ? Math.min(20, Math.max(2, Math.floor(rawValue)))
+            : 2;
+        const nextLayout = resizeKakuroLayout(
+            kakuroLayout,
+            axis === 'row' ? size : kakuroRows,
+            axis === 'column' ? size : kakuroCols,
+        );
+        setKakuroLayout(nextLayout);
+        setGrid(previous => resizeKakuroGrid(previous, nextLayout));
+        setSolveState({ running: false });
+        markDirty();
+    }, [kakuroCols, kakuroLayout, kakuroRows, markDirty]);
+
+    const clearKakuroValues = React.useCallback(() => {
+        setGrid(previous => resizeKakuroGrid(createEmptyRectGrid(previous.length, previous[0]?.length || 0), kakuroLayout));
+        setSolveState({ running: false });
+        markDirty();
+    }, [kakuroLayout, markDirty]);
+
+    const resetKakuroLayout = React.useCallback(() => {
+        const nextLayout = createKakuroStarterLayout();
+        setKakuroLayout(nextLayout);
+        setGrid(resizeKakuroGrid([], nextLayout));
+        setKakuroTool('white');
+        setSolveState({ running: false });
+        markDirty();
+    }, [markDirty]);
+
     const updateNonogramCell = React.useCallback((row: number, col: number, value: string) => {
         setGrid(previous => {
             const next = resizeNonogramGrid(previous, nonogramRows, nonogramCols);
@@ -3476,7 +3764,11 @@ function GridPuzzleWorkbenchApp({
 
     const applyStateSnapshot = React.useCallback((snapshot: Record<string, any> | undefined) => {
         const variantSize = gridSizeForVariant(puzzleType);
-        const restoredGrid = normalizeGrid(snapshot?.grid, puzzleType) || createEmptyGrid(variantSize);
+        const restoredKakuroLayout = normalizeKakuroLayout(snapshot?.kakuro?.layout ?? snapshot?.kakuroLayout)
+            || createKakuroStarterLayout();
+        const restoredGrid = puzzleType === 'kakuro'
+            ? normalizeKakuroGrid(snapshot?.grid, restoredKakuroLayout)
+            : normalizeGrid(snapshot?.grid, puzzleType) || createEmptyGrid(variantSize);
         const restoredChainGrid = normalizeChainGrid(snapshot?.chains ?? snapshot?.chainGrid, variantSize);
         const restoredResult = snapshot?.lastResult && typeof snapshot.lastResult === 'object'
             ? snapshot.lastResult as PluginResult
@@ -3485,6 +3777,11 @@ function GridPuzzleWorkbenchApp({
         if (puzzleType === 'nonogram') {
             setGrid(restoredGrid);
             setQuickText(normalizeMultilineText(snapshot?.quickText ?? snapshot?.knownGrid ?? snapshot?.known_grid));
+        } else if (puzzleType === 'kakuro') {
+            setKakuroLayout(restoredKakuroLayout);
+            setKakuroTool('white');
+            setGrid(restoredGrid);
+            setQuickText('');
         } else {
             setGridAndQuickText(restoredGrid);
         }
@@ -3607,6 +3904,9 @@ function GridPuzzleWorkbenchApp({
                         rowClues: nonogramRowClues,
                         columnClues: nonogramColumnClues,
                     },
+                    kakuro: {
+                        layout: kakuroLayout,
+                    },
                     watchCells,
                     maxSolutions,
                     solverTimeoutMs: timeoutMs,
@@ -3637,6 +3937,7 @@ function GridPuzzleWorkbenchApp({
         godokuAlphabet,
         grid,
         horizontalInequalities,
+        kakuroLayout,
         kropkiHorizontalDots,
         kropkiVerticalDots,
         littleKillerClues,
@@ -4157,9 +4458,12 @@ function GridPuzzleWorkbenchApp({
             || value === 'sudoku_tripod_7x7'
             || value === 'sudoku_tripod_8x8'
             || value === 'nonogram'
+            || value === 'kakuro'
             ? value
             : 'sudoku_classic';
-        const nextGrid = resizeGrid(grid, gridSizeForVariant(nextPuzzleType));
+        const nextGrid = nextPuzzleType === 'kakuro'
+            ? resizeKakuroGrid(puzzleType === 'kakuro' ? grid : [], kakuroLayout)
+            : resizeGrid(grid, gridSizeForVariant(nextPuzzleType));
         setGrid(nextGrid);
         setPuzzleType(nextPuzzleType);
         if (nextPuzzleType !== 'sudoku_even_odd' && mode === 'parity') {
@@ -4167,6 +4471,10 @@ function GridPuzzleWorkbenchApp({
         }
         if (!getChainConfig(nextPuzzleType) && mode === 'chain') {
             setMode('edit');
+        }
+        if (nextPuzzleType === 'kakuro') {
+            setMode('edit');
+            setKakuroTool('white');
         }
         if (getTripodConfig(nextPuzzleType)) {
             setTripodDots(emptyTripodDots(gridSizeForVariant(nextPuzzleType)));
@@ -4178,10 +4486,10 @@ function GridPuzzleWorkbenchApp({
             setActiveChain(1);
             setMode('chain');
         }
-        setQuickText(nextPuzzleType === 'nonogram' ? '' : gridToText(nextGrid, nextPuzzleType));
+        setQuickText(nextPuzzleType === 'nonogram' || nextPuzzleType === 'kakuro' ? '' : gridToText(nextGrid, nextPuzzleType));
         setSolveState({ running: false });
         markDirty();
-    }, [grid, markDirty, mode]);
+    }, [grid, kakuroLayout, markDirty, mode]);
 
     const clearGrid = React.useCallback(() => {
         if (isNonogram) {
@@ -4189,6 +4497,9 @@ function GridPuzzleWorkbenchApp({
             setQuickText('');
             setNonogramRowClues('');
             setNonogramColumnClues('');
+        } else if (isKakuro) {
+            setGrid(resizeKakuroGrid([], kakuroLayout));
+            setQuickText('');
         } else {
             setGridAndQuickText(createEmptyGrid(gridSizeForVariant(puzzleType)));
         }
@@ -4213,7 +4524,7 @@ function GridPuzzleWorkbenchApp({
         setWatchCells([]);
         setSolveState({ running: false });
         markDirty();
-    }, [isNonogram, markDirty, puzzleType, setGridAndQuickText]);
+    }, [isKakuro, isNonogram, kakuroLayout, markDirty, puzzleType, setGridAndQuickText]);
 
     const solve = React.useCallback(async () => {
         if (constraintConflicts.messages.length > 0) {
@@ -4235,9 +4546,12 @@ function GridPuzzleWorkbenchApp({
         try {
             const result = await pluginsService.executePlugin('grid_puzzle_solver', {
                 puzzle_type: puzzleType,
-                grid: isNonogram
-                    ? gridToText(resizeNonogramGrid(grid, nonogramRows, nonogramCols), puzzleType)
-                    : gridToText(grid, puzzleType),
+                grid: isKakuro
+                    ? resizeKakuroGrid(grid, kakuroLayout)
+                    : isNonogram
+                        ? gridToText(resizeNonogramGrid(grid, nonogramRows, nonogramCols), puzzleType)
+                        : gridToText(grid, puzzleType),
+                kakuro: isKakuro ? { cells: kakuroLayout } : undefined,
                 row_clues: isNonogram ? serializeNonogramClueLines(nonogramRowClueLines) : undefined,
                 column_clues: isNonogram ? serializeNonogramClueLines(nonogramColumnClueLines) : undefined,
                 watched_cells: watchCells.join(' '),
@@ -4286,15 +4600,19 @@ function GridPuzzleWorkbenchApp({
                 error: error instanceof Error ? error.message : String(error),
             });
         }
-    }, [areChainsComplete, chainConfig?.size, chainGrid, constraintConflicts.messages.length, frameClues, geocacheId, godokuAlphabet, grid, horizontalInequalities, isChain, isEvenOdd, isFrame, isGodoku, isKropki, isLittleKiller, isNonogram, isOutside, isRossini, isSandwich, isSkyscraper, isTripod, isVudoku, isXv, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, maxSolutions, nonogramCols, nonogramColumnClueLines, nonogramRows, nonogramRowClueLines, outsideClues, parityMarks, pluginsService, puzzleType, rossiniArrows, sandwichClues, saveState, skyscraperClues, timeoutMs, tripodDots, verticalInequalities, vudokuCorners, watchCells, xvHorizontalMarks, xvVerticalMarks]);
+    }, [areChainsComplete, chainConfig?.size, chainGrid, constraintConflicts.messages.length, frameClues, geocacheId, godokuAlphabet, grid, horizontalInequalities, isChain, isEvenOdd, isFrame, isGodoku, isKakuro, isKropki, isLittleKiller, isNonogram, isOutside, isRossini, isSandwich, isSkyscraper, isTripod, isVudoku, isXv, kakuroLayout, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, maxSolutions, nonogramCols, nonogramColumnClueLines, nonogramRows, nonogramRowClueLines, outsideClues, parityMarks, pluginsService, puzzleType, rossiniArrows, sandwichClues, saveState, skyscraperClues, timeoutMs, tripodDots, verticalInequalities, vudokuCorners, watchCells, xvHorizontalMarks, xvVerticalMarks]);
 
     const useSolvedGrid = React.useCallback(() => {
         if (solvedGrid) {
-            setGridAndQuickText(solvedGrid);
+            if (isKakuro) {
+                setGrid(resizeKakuroGrid(solvedGrid, kakuroLayout));
+            } else {
+                setGridAndQuickText(solvedGrid);
+            }
             setSolveState({ running: false });
             markDirty();
         }
-    }, [markDirty, setGridAndQuickText, solvedGrid]);
+    }, [isKakuro, kakuroLayout, markDirty, setGridAndQuickText, solvedGrid]);
 
     const cellStyle = (rowIndex: number, colIndex: number): React.CSSProperties | undefined => {
         if (variableGridConfig) {
@@ -5099,6 +5417,7 @@ function GridPuzzleWorkbenchApp({
                         <option value='sudoku_tripod_7x7'>Tripod 7x7</option>
                         <option value='sudoku_tripod_8x8'>Tripod 8x8</option>
                         <option value='nonogram'>Nonogram / Picross</option>
+                        <option value='kakuro'>Kakuro / Cross Sums</option>
                     </select>
                     <button onClick={solve} disabled={solveState.running}>
                         {solveState.running ? 'Resolution...' : 'Resoudre'}
@@ -5241,6 +5560,209 @@ function GridPuzzleWorkbenchApp({
                                 <button type='button' onClick={clearGrid}>Reinitialiser</button>
                             </div>
                         </div>
+                    ) : isKakuro ? (
+                        <div className='kakuro-editor'>
+                            <div className='kakuro-toolbar'>
+                                <label>
+                                    Lignes
+                                    <input
+                                        type='number'
+                                        min={2}
+                                        max={20}
+                                        value={kakuroRows}
+                                        aria-label='Nombre de lignes Kakuro'
+                                        title='Nombre de lignes Kakuro'
+                                        onFocus={event => event.currentTarget.select()}
+                                        onChange={event => setKakuroDimension('row', Number(event.currentTarget.value))}
+                                    />
+                                </label>
+                                <span aria-hidden='true'>x</span>
+                                <label>
+                                    Colonnes
+                                    <input
+                                        type='number'
+                                        min={2}
+                                        max={20}
+                                        value={kakuroCols}
+                                        aria-label='Nombre de colonnes Kakuro'
+                                        title='Nombre de colonnes Kakuro'
+                                        onFocus={event => event.currentTarget.select()}
+                                        onChange={event => setKakuroDimension('column', Number(event.currentTarget.value))}
+                                    />
+                                </label>
+                                <div className='kakuro-toolset' role='toolbar' aria-label='Outil Kakuro'>
+                                    <button
+                                        type='button'
+                                        className={kakuroTool === 'white' ? 'active' : ''}
+                                        onClick={() => setKakuroTool('white')}
+                                    >
+                                        Chiffre
+                                    </button>
+                                    <button
+                                        type='button'
+                                        className={kakuroTool === 'black' ? 'active' : ''}
+                                        onClick={() => setKakuroTool('black')}
+                                    >
+                                        Noire
+                                    </button>
+                                    <button
+                                        type='button'
+                                        className={kakuroTool === 'clue' ? 'active' : ''}
+                                        onClick={() => setKakuroTool('clue')}
+                                    >
+                                        Somme
+                                    </button>
+                                </div>
+                            </div>
+                            <div className='kakuro-board' style={kakuroBoardStyle} aria-label='Grille Kakuro interactive'>
+                                {kakuroLayout.map((row, rowIndex) => row.map((cell, colIndex) => {
+                                    const ref = cellRef(rowIndex, colIndex);
+                                    if (cell.kind === 'black') {
+                                        return (
+                                            <button
+                                                key={`kakuro-${ref}`}
+                                                type='button'
+                                                className='kakuro-cell black'
+                                                aria-label={`${ref}, case noire`}
+                                                title={kakuroTool === 'black' ? 'Case noire' : `Transformer en case ${kakuroTool === 'clue' ? 'somme' : 'blanche'}`}
+                                                onClick={() => updateKakuroCellKind(rowIndex, colIndex, kakuroTool)}
+                                            />
+                                        );
+                                    }
+                                    if (cell.kind === 'clue') {
+                                        const acrossError = kakuroClueError(cell.across, kakuroRunCells(kakuroLayout, rowIndex, colIndex, 'across'));
+                                        const downError = kakuroClueError(cell.down, kakuroRunCells(kakuroLayout, rowIndex, colIndex, 'down'));
+                                        return (
+                                            <div
+                                                key={`kakuro-${ref}`}
+                                                className='kakuro-cell clue'
+                                                role='button'
+                                                tabIndex={0}
+                                                aria-label={`${ref}, case somme`}
+                                                title={kakuroTool === 'clue' ? 'Somme horizontale en haut a droite, verticale en bas a gauche' : `Transformer en case ${kakuroTool === 'black' ? 'noire' : 'blanche'}`}
+                                                onClick={() => {
+                                                    if (kakuroTool !== 'clue') {
+                                                        updateKakuroCellKind(rowIndex, colIndex, kakuroTool);
+                                                    }
+                                                }}
+                                                onKeyDown={event => {
+                                                    if ((event.key === 'Enter' || event.key === ' ') && kakuroTool !== 'clue') {
+                                                        event.preventDefault();
+                                                        updateKakuroCellKind(rowIndex, colIndex, kakuroTool);
+                                                    }
+                                                }}
+                                            >
+                                                <input
+                                                    className={`kakuro-clue-value across${acrossError ? ' invalid' : ''}`}
+                                                    value={cell.across}
+                                                    inputMode='numeric'
+                                                    maxLength={2}
+                                                    aria-label={`Somme horizontale ${ref}`}
+                                                    aria-invalid={Boolean(acrossError)}
+                                                    title={acrossError || 'Somme horizontale'}
+                                                    onClick={event => event.stopPropagation()}
+                                                    onChange={event => updateKakuroClue(rowIndex, colIndex, 'across', event.currentTarget.value)}
+                                                />
+                                                <input
+                                                    className={`kakuro-clue-value down${downError ? ' invalid' : ''}`}
+                                                    value={cell.down}
+                                                    inputMode='numeric'
+                                                    maxLength={2}
+                                                    aria-label={`Somme verticale ${ref}`}
+                                                    aria-invalid={Boolean(downError)}
+                                                    title={downError || 'Somme verticale'}
+                                                    onClick={event => event.stopPropagation()}
+                                                    onChange={event => updateKakuroClue(rowIndex, colIndex, 'down', event.currentTarget.value)}
+                                                />
+                                            </div>
+                                        );
+                                    }
+                                    return (
+                                        <input
+                                            key={`kakuro-${ref}`}
+                                            className={`kakuro-cell white${watchCells.includes(ref) ? ' watched' : ''}${constraintConflicts.cells.has(ref) ? ' conflict' : ''}`}
+                                            value={grid[rowIndex]?.[colIndex] || ''}
+                                            inputMode='numeric'
+                                            maxLength={1}
+                                            aria-label={ref}
+                                            title={mode === 'watch' ? `${ref}, cliquez pour surveiller cette case.` : ref}
+                                            onPointerDown={event => {
+                                                if (mode === 'watch') {
+                                                    event.preventDefault();
+                                                    return;
+                                                }
+                                                if (kakuroTool !== 'white') {
+                                                    event.preventDefault();
+                                                    updateKakuroCellKind(rowIndex, colIndex, kakuroTool);
+                                                }
+                                            }}
+                                            onClick={event => {
+                                                if (mode === 'watch' || event.ctrlKey || event.metaKey) {
+                                                    event.preventDefault();
+                                                    toggleWatchCell(ref);
+                                                }
+                                            }}
+                                            onChange={event => updateKakuroValue(rowIndex, colIndex, event.currentTarget.value)}
+                                        />
+                                    );
+                                }))}
+                            </div>
+                            <div className='grid-puzzle-actions inline'>
+                                <button type='button' onClick={clearKakuroValues}>Effacer les chiffres</button>
+                                <button type='button' onClick={resetKakuroLayout}>Gabarit vierge</button>
+                            </div>
+                            {visibleConflictMessages.length > 0 ? (
+                                <div className='grid-puzzle-conflicts'>
+                                    {visibleConflictMessages.map(message => (
+                                        <div key={message}>{message}</div>
+                                    ))}
+                                    {constraintConflicts.messages.length > visibleConflictMessages.length ? (
+                                        <div>+{constraintConflicts.messages.length - visibleConflictMessages.length} autre(s) conflit(s).</div>
+                                    ) : null}
+                                </div>
+                            ) : null}
+                            {solvedGrid ? (
+                                <div className='grid-puzzle-solution'>
+                                    <div className='grid-puzzle-section-title'>
+                                        <strong>
+                                            Solution {solutionResults.length > 1 ? `${activeSolutionIndex + 1}/${solutionResults.length}` : ''}
+                                        </strong>
+                                        <div className='solution-actions'>
+                                            {solutionResults.length > 1 ? (
+                                                <select
+                                                    value={activeSolutionIndex}
+                                                    onChange={event => setSelectedSolutionIndex(Number(event.currentTarget.value) || 0)}
+                                                    aria-label='Solution affichee'
+                                                >
+                                                    {solutionResults.map((_solution, index) => (
+                                                        <option key={`solution-option-${index}`} value={index}>
+                                                            Solution {index + 1}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            ) : null}
+                                            <button onClick={useSolvedGrid}>Reprendre dans la grille</button>
+                                        </div>
+                                    </div>
+                                    <div className='kakuro-board solved' style={kakuroBoardStyle} aria-label='Solution Kakuro'>
+                                        {kakuroLayout.map((row, rowIndex) => row.map((cell, colIndex) => (
+                                            cell.kind === 'black' ? (
+                                                <div key={`solved-kakuro-${rowIndex}-${colIndex}`} className='kakuro-cell black' />
+                                            ) : cell.kind === 'clue' ? (
+                                                <div key={`solved-kakuro-${rowIndex}-${colIndex}`} className='kakuro-cell clue'>
+                                                    <span className='kakuro-clue-display across'>{cell.across}</span>
+                                                    <span className='kakuro-clue-display down'>{cell.down}</span>
+                                                </div>
+                                            ) : (
+                                                <div key={`solved-kakuro-${rowIndex}-${colIndex}`} className='kakuro-cell white'>
+                                                    {solvedGrid[rowIndex]?.[colIndex] || ''}
+                                                </div>
+                                            )
+                                        )))}
+                                    </div>
+                                </div>
+                            ) : null}
+                        </div>
                     ) : (
                         <>
                     <div
@@ -5351,7 +5873,7 @@ function GridPuzzleWorkbenchApp({
                         </>
                     )}
 
-                    {solvedGrid && (
+                    {solvedGrid && !isKakuro && (
                         <div className='grid-puzzle-solution'>
                             <div className='grid-puzzle-section-title'>
                                 <strong>
@@ -5455,7 +5977,7 @@ function GridPuzzleWorkbenchApp({
                 </section>
 
                 <aside className='grid-puzzle-side'>
-                    {!isNonogram ? (
+                    {!isNonogram && !isKakuro ? (
                     <section>
                         <div className='grid-puzzle-section-title'>
                             <strong>Saisie rapide</strong>

@@ -368,6 +368,168 @@
     outline-offset: -2px;
 }
 
+.kakuro-editor {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.kakuro-toolbar {
+    display: flex;
+    align-items: end;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.kakuro-toolbar > label {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    color: var(--theia-descriptionForeground);
+    font-size: 10px;
+    line-height: 1;
+}
+
+.kakuro-toolbar > span {
+    margin-bottom: 4px;
+    color: var(--theia-descriptionForeground);
+    font-weight: 700;
+}
+
+.grid-puzzle-workbench .kakuro-toolbar > label > input {
+    box-sizing: border-box;
+    width: 52px;
+    min-width: 0;
+    height: 24px;
+    padding: 1px 2px;
+    border-radius: 2px;
+    font-size: 11px;
+    text-align: center;
+}
+
+.kakuro-toolset {
+    display: flex;
+    gap: 2px;
+    margin-left: 6px;
+}
+
+.kakuro-toolset button.active {
+    color: var(--theia-button-foreground);
+    background: var(--theia-button-background);
+}
+
+.kakuro-board {
+    display: grid;
+    width: max-content;
+    max-width: 100%;
+    overflow: auto;
+    border: 2px solid var(--theia-foreground);
+    background: var(--theia-panel-border);
+}
+
+.kakuro-cell {
+    box-sizing: border-box;
+    width: 52px;
+    height: 52px;
+    min-width: 52px;
+    min-height: 52px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 0;
+}
+
+.kakuro-cell.black {
+    padding: 0;
+    background: #181818;
+    border-color: #181818;
+}
+
+.kakuro-cell.black:hover {
+    background: #333333;
+}
+
+.kakuro-cell.clue {
+    position: relative;
+    overflow: hidden;
+    padding: 0;
+    background:
+        linear-gradient(to bottom left, transparent calc(50% - 1px), #d4d4d4 calc(50% - 1px), #d4d4d4 calc(50% + 1px), transparent calc(50% + 1px)),
+        #262626;
+    border-color: #181818;
+}
+
+.kakuro-cell.white {
+    padding: 0;
+    color: var(--theia-input-foreground);
+    background: var(--theia-input-background);
+    border-color: var(--theia-panel-border);
+    font-size: 20px;
+    font-weight: 600;
+    text-align: center;
+}
+
+input.kakuro-cell.white:focus {
+    position: relative;
+    z-index: 2;
+    outline: 2px solid var(--theia-focusBorder);
+    outline-offset: -2px;
+}
+
+.kakuro-cell.white.watched {
+    outline: 2px solid #f59e0b;
+    outline-offset: -3px;
+}
+
+.kakuro-cell.white.conflict {
+    color: var(--theia-errorForeground, #f14c4c);
+    background: color-mix(in srgb, var(--theia-input-background) 84%, #f14c4c);
+}
+
+.kakuro-clue-value,
+.kakuro-clue-display {
+    position: absolute;
+    box-sizing: border-box;
+    width: 23px;
+    height: 16px;
+    padding: 0 1px;
+    color: #f5f5f5;
+    background: transparent;
+    border: 0;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 16px;
+}
+
+.kakuro-clue-value:focus {
+    background: color-mix(in srgb, #ffffff 18%, transparent);
+    outline: 1px solid var(--theia-focusBorder);
+}
+
+.kakuro-clue-value.invalid {
+    color: #ff8a8a;
+}
+
+.kakuro-clue-value.across,
+.kakuro-clue-display.across {
+    top: 2px;
+    right: 2px;
+    text-align: right;
+}
+
+.kakuro-clue-value.down,
+.kakuro-clue-display.down {
+    bottom: 2px;
+    left: 2px;
+    text-align: left;
+}
+
+.kakuro-board.solved .kakuro-cell.white {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
 .sudoku-cell {
     width: 44px;
     height: 44px;

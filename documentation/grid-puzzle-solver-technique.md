@@ -30,6 +30,7 @@ Les objectifs actuels sont :
 - resoudre un Greater Than Sudoku / Compdoku avec contraintes `>` et `<`
   entre cases adjacentes ;
 - resoudre un Nonogram / Picross avec indices de blocs par ligne et colonne ;
+- resoudre un Kakuro / Cross Sums avec sommes horizontales et verticales ;
 - permettre une saisie interactive dans une grille Theia ;
 - permettre l'edition visuelle des bords d'inegalite pour Compdoku ;
 - synchroniser une saisie rapide textuelle avec la grille ;
@@ -153,6 +154,7 @@ Entrées principales :
 | `rows` | string/list | vide | Alias de `row_clues` pour Nonogram. |
 | `column_clues` | string/list | vide | Indices de colonnes Nonogram, une ligne par colonne ou JSON. |
 | `col_clues`, `cols`, `columns` | string/list | vide | Alias de `column_clues` pour Nonogram. |
+| `kakuro`, `layout` | object/string JSON | vide | Matrice Kakuro de cellules `black`, `white` et `clue`. |
 | `watched_cells` | string/list | vide | Cellules a extraire apres resolution. |
 | `watch_cells` | string/list | vide | Alias de `watched_cells`. |
 
@@ -198,6 +200,7 @@ Valeurs supportees pour `puzzle_type` :
 | `sudoku_mine_6x6` | `mine_sudoku_6x6`, `minesudoku_6x6` | Sudoku Mine 6x6 : 2 mines par ligne, colonne et region 2x3, indices adjacents. |
 | `sudoku_tripod_4x4` a `sudoku_tripod_8x8` | `tripod`, `tripod_sudoku`, `sudoku_tripod` pour 5x5 | Tripod NxN avec regions reconstruites depuis les points noirs aux intersections. |
 | `nonogram` | `picross`, `griddlers`, `hanjie` | Nonogram classique : les indices de lignes et colonnes decrivent les blocs noircis. |
+| `kakuro` | `cross_sums`, `crosssum`, `cross_sum` | Kakuro : sommes de series de chiffres 1-9 sans repetition. |
 | `custom_spec` | `custom`, `json_spec` | Probleme CSP decrit en JSON. |
 
 Format de grille Sudoku :
@@ -1881,6 +1884,43 @@ brouillon de geocache. Le mode `Surveiller` continue de servir a selectionner
 les cases de reponse. Un indice qui ne peut pas tenir dans la ligne ou colonne
 correspondante est affiche en rouge pendant la saisie.
 
+### Kakuro / Cross Sums
+
+`puzzle_type = kakuro`
+
+Alias :
+
+```text
+cross_sums
+crosssum
+cross_sum
+```
+
+Le champ `kakuro` (ou `layout`) contient une matrice JSON. Une cellule est
+`black`, `white` ou `clue`. Dans une cellule `clue`, `across` indique la somme
+de la serie blanche vers la droite et `down` la somme de la serie blanche vers
+le bas.
+
+```json
+{
+  "cells": [
+    ["#", {"down": 4}, {"down": 4}],
+    [{"across": 4}, {"kind": "white"}, {"kind": "white"}],
+    [{"across": 4}, {"kind": "white"}, {"kind": "white"}]
+  ]
+}
+```
+
+La grille optionnelle `grid` alignee sur cette matrice donne les chiffres deja
+poses. Chaque serie impose une contrainte `sum` et `all_different` : les
+chiffres vont de 1 a 9, ne se repetent pas, et chaque case blanche appartient
+a une unique somme horizontale et une unique somme verticale.
+
+L'atelier Theia affiche les cases noires, les diagonales de sommes et les
+cases blanches dans une grille editable. Les outils permettent de convertir une
+case en noire, somme ou blanche. Les doublons et les sommes deja depassees sont
+colores en rouge avant l'appel au solveur.
+
 ### Non-Consecutive Sudoku
 
 `puzzle_type = sudoku_non_consecutive`
@@ -2173,6 +2213,7 @@ Fonctionnalites actuelles :
 - points d'intersection cliquables en mode Tripod ;
 - indices lignes/colonnes editables autour de la grille Nonogram ;
 - marquage manuel des cases inconnues, noircies ou blanches en mode Nonogram ;
+- editeur de cases noires, sommes diagonales et chiffres en mode Kakuro ;
 - affichage de la premiere solution ;
 - reprise de la solution dans la grille ;
 - extraction des cellules surveillees ;
@@ -2184,7 +2225,7 @@ Fonctionnalites actuelles :
 |---|---|---|
 | `grid` | `string[][]` | Valeurs courantes de la grille. |
 | `quickText` | `string` | Representation texte de la grille. |
-| `puzzleType` | `sudoku_classic`, variantes classiques `sudoku_4x4` a `sudoku_16x16`, `chain_sudoku_4x4` a `chain_sudoku_9x9`, `sudoku_x`, `sudoku_argyle`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_vudoku`, `sudoku_rossini`, `sudoku_xv`, `sudoku_kropki`, `sudoku_skyscraper`, `sudoku_frame`, `sudoku_outside`, `sudoku_little_killer`, `sudoku_little_unique_killer`, `sudoku_godoku`, `sudoku_even_odd`, `sudoku_non_consecutive`, `sudoku_mine`, `sudoku_mine_6x6`, `nonogram` ou `sudoku_tripod_4x4` a `sudoku_tripod_8x8` | Variante active. |
+| `puzzleType` | `sudoku_classic`, variantes classiques `sudoku_4x4` a `sudoku_16x16`, `chain_sudoku_4x4` a `chain_sudoku_9x9`, `sudoku_x`, `sudoku_argyle`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_vudoku`, `sudoku_rossini`, `sudoku_xv`, `sudoku_kropki`, `sudoku_skyscraper`, `sudoku_frame`, `sudoku_outside`, `sudoku_little_killer`, `sudoku_little_unique_killer`, `sudoku_godoku`, `sudoku_even_odd`, `sudoku_non_consecutive`, `sudoku_mine`, `sudoku_mine_6x6`, `nonogram`, `kakuro` ou `sudoku_tripod_4x4` a `sudoku_tripod_8x8` | Variante active. |
 | `horizontalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme ligne. |
 | `verticalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme colonne. |
 | `vudokuCorners` | `string[][]` | Coins Vudoku 8x8 : `tl`, `tr`, `bl`, `br` ou vide. |
@@ -2200,6 +2241,7 @@ Fonctionnalites actuelles :
 | `godokuAlphabet` | string | Alphabet de 9 lettres pour Godoku. |
 | `nonogramRowClues` | string | Indices de lignes Nonogram, une entree par ligne. |
 | `nonogramColumnClues` | string | Indices de colonnes Nonogram, une entree par colonne. |
+| `kakuroLayout` | `KakuroCell[][]` | Cases `black`, `clue` (sommes `across` / `down`) et `white` du Kakuro. |
 | `parityMarks` | `string[][]` | Marques `even` / `odd` par cellule pour Even-Odd. |
 | `tripodDots` | `boolean[][]` | Points noirs (N+1)x(N+1) aux intersections pour Tripod. |
 | `chainGrid` | `number[][]` | Affectation des chaines Chain / Strimko. |
@@ -2544,6 +2586,8 @@ Couverture actuelle :
 - Non-Consecutive refuse une grille avec voisins consecutifs ;
 - Nonogram valide un Picross 5x5 unique ;
 - Nonogram refuse une case donnee contradictoire ;
+- Kakuro resout des sommes croisees avec chiffres distincts ;
+- Kakuro refuse un doublon dans une meme somme ;
 - Tripod valide avec reconstruction de regions ;
 - Tripod refuse un point noir impossible ;
 - extraction des cellules surveillees ;

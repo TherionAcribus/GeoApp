@@ -149,8 +149,29 @@ Sudoku is just the first builder on top of a generic CSP model:
 - watched cells (`watched_cells`) so an interactive UI can extract answer
   fragments after solving.
 
-This keeps the future path open for irregular Sudoku, killer Sudoku, kakuro-like
-sum grids, black-cell grids, and eventually word grids with richer constraints.
+This keeps the future path open for irregular Sudoku, killer Sudoku, Hitori,
+additional black-cell grids, and eventually word grids with richer constraints.
+
+## Kakuro / Cross Sums
+
+Use `puzzle_type=kakuro` (aliases: `cross_sums`, `crosssum`, `cross_sum`) with
+a `kakuro` or `layout` JSON matrix. Cells are `black`, `white`, or `clue`.
+For a clue cell, `across` is the sum of the white cells to its right and `down`
+is the sum of the white cells below it.
+
+```json
+{
+  "cells": [
+    ["#", {"down": 4}, {"down": 4}],
+    [{"across": 4}, {"kind": "white"}, {"kind": "white"}],
+    [{"across": 4}, {"kind": "white"}, {"kind": "white"}]
+  ]
+}
+```
+
+The optional `grid` is an aligned value matrix. White cells use digits `1` to
+`9`; all digits in a horizontal or vertical sum must be different. Every white
+cell must belong to exactly one horizontal clue and one vertical clue.
 
 ## Nonogram / Picross
 
@@ -212,6 +233,7 @@ the Theia "Grilles" workbench:
 - editable parity marks for Even-Odd Sudoku;
 - editable row and column clues around a Nonogram / Picross grid, with manual
   filled, empty and unknown cell states;
+- editable black cells, diagonal sum cells and digit cells for Kakuro;
 - watch mode to mark answer cells;
 - solve action calling this plugin;
 - extracted watched values returned as `watched_values` and `watched_text`.
