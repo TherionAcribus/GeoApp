@@ -12,6 +12,7 @@ import json
 import re
 import time
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 try:
@@ -97,6 +98,7 @@ class GridConstraint:
     total: Optional[int] = None
     limit: Optional[int] = None
     forbidden_totals: Tuple[int, ...] = ()
+    clues: Tuple[int, ...] = ()
 
 
 @dataclass
@@ -166,7 +168,7 @@ class GridpuzzlesolverPlugin:
 
     def __init__(self) -> None:
         self.name = "grid_puzzle_solver"
-        self.version = "0.1.0"
+        self.version = "0.2.0"
 
     def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         start_time = time.time()
@@ -658,6 +660,24 @@ class GridpuzzlesolverPlugin:
                     box_cols=3,
                     mines_per_unit=2,
                     variant="sudoku_mine_6x6",
+                )
+            elif puzzle_type in {"nonogram", "picross", "griddlers", "hanjie"}:
+                problem = self._build_nonogram_problem(
+                    row_clues=(
+                        inputs.get("row_clues")
+                        or inputs.get("rows")
+                        or inputs.get("nonogram_rows")
+                        or inputs.get("line_clues")
+                    ),
+                    column_clues=(
+                        inputs.get("column_clues")
+                        or inputs.get("col_clues")
+                        or inputs.get("cols")
+                        or inputs.get("columns")
+                        or inputs.get("nonogram_columns")
+                    ),
+                    grid=inputs.get("grid") or inputs.get("givens") or inputs.get("puzzle"),
+                    clue_spec=inputs.get("clues") or inputs.get("spec"),
                 )
             elif (tripod_size := self._tripod_size(puzzle_type)) is not None:
                 puzzle_text = self._first_non_empty(
@@ -1292,6 +1312,74 @@ class GridpuzzlesolverPlugin:
             variant=variant,
         )
 
+    def _build_nonogram_problem(
+        self,
+        row_clues: Any,
+        column_clues: Any,
+        grid: Any = None,
+        clue_spec: Any = None,
+    ) -> GridCspProblem:
+        clue_data = self._parse_optional_json(clue_spec)
+        if isinstance(clue_data, dict):
+            if row_clues in (None, "", []):
+                row_clues = (
+                    clue_data.get("row_clues")
+                    or clue_data.get("rows")
+                    or clue_data.get("lines")
+                )
+            if column_clues in (None, "", []):
+                column_clues = (
+                    clue_data.get("column_clues")
+                    or clue_data.get("col_clues")
+                    or clue_data.get("cols")
+                    or clue_data.get("columns")
+                )
+            if grid in (None, "", []):
+                grid = clue_data.get("grid") or clue_data.get("givens")
+
+        parsed_rows = self._parse_nonogram_clues(row_clues, "row_clues")
+        parsed_cols = self._parse_nonogram_clues(column_clues, "column_clues")
+        row_count = len(parsed_rows)
+        col_count = len(parsed_cols)
+        if row_count < 1 or col_count < 1:
+            raise ValueError("Un Nonogram attend au moins une ligne et une colonne d'indices")
+
+        for index, clues in enumerate(parsed_rows, start=1):
+            self._validate_nonogram_clues_fit(clues, col_count, f"ligne {index}")
+        for index, clues in enumerate(parsed_cols, start=1):
+            self._validate_nonogram_clues_fit(clues, row_count, f"colonne {index}")
+
+        symbols = [".", "#"]
+        active_cells = [(row, col) for row in range(row_count) for col in range(col_count)]
+        constraints: List[GridConstraint] = []
+        for row, clues in enumerate(parsed_rows):
+            constraints.append(
+                GridConstraint(
+                    "nonogram_line",
+                    tuple((row, col) for col in range(col_count)),
+                    clues=clues,
+                )
+            )
+        for col, clues in enumerate(parsed_cols):
+            constraints.append(
+                GridConstraint(
+                    "nonogram_line",
+                    tuple((row, col) for row in range(row_count)),
+                    clues=clues,
+                )
+            )
+
+        return GridCspProblem(
+            rows=row_count,
+            cols=col_count,
+            symbols=symbols,
+            active_cells=active_cells,
+            givens=self._parse_nonogram_givens(grid, row_count, col_count),
+            constraints=constraints,
+            numeric_values={".": 0, "#": 1},
+            variant="nonogram",
+        )
+
     # ------------------------------------------------------------------
     # Z3 solving
     # ------------------------------------------------------------------
@@ -1557,6 +1645,30 @@ class GridpuzzlesolverPlugin:
 
         for cell in cells:
             self._require_active_cell(cell, active_set)
+
+        if kind == "nonogram_line":
+            if len(cells) < 1:
+                raise ValueError("La contrainte nonogram_line attend au moins une cellule")
+            if "." not in symbol_to_index or "#" not in symbol_to_index:
+                raise ValueError("La contrainte nonogram_line requiert les symboles '.' et '#'")
+            patterns = self._nonogram_line_patterns(len(cells), tuple(constraint.clues))
+            if not patterns:
+                solver.add(z3.BoolVal(False))
+                return
+            empty_index = symbol_to_index["."]
+            filled_index = symbol_to_index["#"]
+            options = []
+            for pattern in patterns:
+                options.append(
+                    z3.And(
+                        *(
+                            variables[cell] == (filled_index if filled else empty_index)
+                            for cell, filled in zip(cells, pattern)
+                        )
+                    )
+                )
+            solver.add(options[0] if len(options) == 1 else z3.Or(*options))
+            return
 
         if kind == "all_different":
             if len(cells) > 1:
@@ -1835,9 +1947,174 @@ class GridpuzzlesolverPlugin:
             grid[cell[0]][cell[1]] = problem.symbols[index]
         return grid
 
+    @staticmethod
+    @lru_cache(maxsize=2048)
+    def _nonogram_line_patterns(length: int, clues: Tuple[int, ...]) -> Tuple[Tuple[int, ...], ...]:
+        if not clues:
+            return (tuple(0 for _ in range(length)),)
+
+        patterns: List[Tuple[int, ...]] = []
+
+        def minimum_remaining(start_index: int) -> int:
+            remaining = clues[start_index:]
+            if not remaining:
+                return 0
+            return sum(remaining) + len(remaining) - 1
+
+        def build(clue_index: int, position: int, current: List[int]) -> None:
+            if clue_index >= len(clues):
+                patterns.append(tuple(current + [0] * (length - position)))
+                return
+
+            run_length = clues[clue_index]
+            max_start = length - run_length - minimum_remaining(clue_index + 1)
+            for start in range(position, max_start + 1):
+                next_current = current + [0] * (start - position) + [1] * run_length
+                next_position = start + run_length
+                if clue_index < len(clues) - 1:
+                    next_current.append(0)
+                    next_position += 1
+                build(clue_index + 1, next_position, next_current)
+
+        build(0, 0, [])
+        return tuple(patterns)
+
     # ------------------------------------------------------------------
     # Input parsing
     # ------------------------------------------------------------------
+
+    def _parse_optional_json(self, raw_value: Any) -> Any:
+        if isinstance(raw_value, str):
+            text = raw_value.strip()
+            if not text:
+                return None
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                return raw_value
+        return raw_value
+
+    def _parse_nonogram_clues(self, raw_clues: Any, label: str) -> List[Tuple[int, ...]]:
+        if raw_clues in (None, "", []):
+            raise ValueError(f"Les indices {label} sont requis pour un Nonogram")
+
+        raw_clues = self._parse_optional_json(raw_clues)
+        if isinstance(raw_clues, dict):
+            raw_clues = (
+                raw_clues.get(label)
+                or raw_clues.get("clues")
+                or raw_clues.get("lines")
+                or raw_clues.get("rows")
+                or raw_clues.get("columns")
+            )
+
+        if isinstance(raw_clues, str):
+            lines = raw_clues.strip().splitlines()
+            raw_clues = lines
+
+        if not isinstance(raw_clues, list):
+            raise ValueError(f"Format {label} non supporte")
+
+        parsed = [
+            self._parse_nonogram_clue_line(entry, f"{label}[{index + 1}]")
+            for index, entry in enumerate(raw_clues)
+        ]
+        if not parsed:
+            raise ValueError(f"Les indices {label} sont requis pour un Nonogram")
+        return parsed
+
+    def _parse_nonogram_clue_line(self, raw_line: Any, label: str) -> Tuple[int, ...]:
+        if raw_line is None:
+            return ()
+
+        if isinstance(raw_line, int):
+            values = [raw_line]
+        elif isinstance(raw_line, (list, tuple)):
+            values = [
+                int(value)
+                for value in raw_line
+                if value is not None and str(value).strip() != ""
+            ]
+        else:
+            text = str(raw_line).strip()
+            if not text or text in {".", "-", "_"}:
+                return ()
+            values = [int(match) for match in re.findall(r"\d+", text)]
+            if not values:
+                raise ValueError(f"Indice Nonogram invalide pour {label}: {raw_line}")
+
+        if not values or values == [0]:
+            return ()
+        if any(value <= 0 for value in values):
+            raise ValueError(f"Les indices Nonogram doivent etre positifs pour {label}")
+        return tuple(values)
+
+    def _validate_nonogram_clues_fit(self, clues: Sequence[int], length: int, label: str) -> None:
+        required = sum(clues) + max(0, len(clues) - 1)
+        if required > length:
+            raise ValueError(
+                f"Indices Nonogram impossibles pour {label}: {list(clues) or [0]} requiert {required} cases sur {length}"
+            )
+
+    def _parse_nonogram_givens(self, raw_grid: Any, rows: int, cols: int) -> Dict[Cell, str]:
+        raw_grid = self._parse_optional_json(raw_grid)
+        if raw_grid in (None, "", [], {}):
+            return {}
+
+        symbols = [".", "#"]
+        if isinstance(raw_grid, dict):
+            if "givens" in raw_grid:
+                return self._parse_givens(raw_grid["givens"], rows, cols, symbols)
+            raw_grid = raw_grid.get("grid") or raw_grid.get("matrix")
+
+        if isinstance(raw_grid, str):
+            raw_rows: List[Any] = [
+                line for line in raw_grid.strip().splitlines()
+                if line.strip()
+            ]
+        elif isinstance(raw_grid, list):
+            raw_rows = raw_grid
+        else:
+            raise ValueError("Format de grille Nonogram non supporte")
+
+        if len(raw_rows) != rows:
+            raise ValueError(
+                f"La grille Nonogram optionnelle doit contenir {rows} lignes, {len(raw_rows)} detectees"
+            )
+
+        givens: Dict[Cell, str] = {}
+        for row_index, raw_row in enumerate(raw_rows):
+            values = self._parse_nonogram_given_row(raw_row)
+            if len(values) != cols:
+                raise ValueError(
+                    f"La ligne Nonogram {row_index + 1} doit contenir {cols} cases, {len(values)} detectees"
+                )
+            for col_index, value in enumerate(values):
+                if value is not None:
+                    givens[(row_index, col_index)] = value
+        return givens
+
+    def _parse_nonogram_given_row(self, raw_row: Any) -> List[Optional[str]]:
+        if isinstance(raw_row, list):
+            raw_values = raw_row
+        else:
+            raw_values = [
+                char for char in str(raw_row)
+                if not char.isspace() and char not in {"|", ","}
+            ]
+
+        values: List[Optional[str]] = []
+        for raw_value in raw_values:
+            text = str(raw_value).strip()
+            if text in {"#", "X", "x", "1"}:
+                values.append("#")
+            elif text in {".", "-", "0"}:
+                values.append(".")
+            elif text in {"", "?", "_"}:
+                values.append(None)
+            else:
+                raise ValueError(f"Case Nonogram non supportee: {raw_value}")
+        return values
 
     def _parse_sudoku_inequalities(self, raw_inequalities: Any) -> List[GridConstraint]:
         if raw_inequalities in (None, "", [], {}):
@@ -3552,6 +3829,11 @@ class GridpuzzlesolverPlugin:
                         if "limit" in raw_constraint and raw_constraint["limit"] is not None
                         else None
                     ),
+                    clues=(
+                        self._parse_nonogram_clue_line(raw_constraint["clues"], f"contrainte {kind}")
+                        if "clues" in raw_constraint
+                        else ()
+                    ),
                 )
             )
 
@@ -3755,7 +4037,7 @@ class GridpuzzlesolverPlugin:
             watched_values = self._extract_watched_values(grid, watched_cells)
             result = {
                 "id": f"solution_{index}",
-                "text_output": self._format_grid(grid),
+                "text_output": self._format_grid(grid, problem),
                 "confidence": 1.0,
                 "grid": grid,
                 "watched_values": watched_values,
@@ -3846,7 +4128,13 @@ class GridpuzzlesolverPlugin:
             },
         }
 
-    def _format_grid(self, grid: Sequence[Sequence[Optional[str]]]) -> str:
+    def _format_grid(
+        self,
+        grid: Sequence[Sequence[Optional[str]]],
+        problem: Optional[GridCspProblem] = None,
+    ) -> str:
+        if problem and problem.variant == "nonogram":
+            return "\n".join("".join(value or "." for value in row) for row in grid)
         return "\n".join(" ".join(value or "." for value in row) for row in grid)
 
 

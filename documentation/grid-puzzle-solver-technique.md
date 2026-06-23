@@ -29,6 +29,7 @@ Les objectifs actuels sont :
   moulin ;
 - resoudre un Greater Than Sudoku / Compdoku avec contraintes `>` et `<`
   entre cases adjacentes ;
+- resoudre un Nonogram / Picross avec indices de blocs par ligne et colonne ;
 - permettre une saisie interactive dans une grille Theia ;
 - permettre l'edition visuelle des bords d'inegalite pour Compdoku ;
 - synchroniser une saisie rapide textuelle avec la grille ;
@@ -148,6 +149,10 @@ Entrées principales :
 | `symbols` | string/list | vide | Alias accepte pour l'alphabet Godoku. |
 | `parity` | object/list/string | vide | Contraintes Pair/Impair Even-Odd. |
 | `even_odd` | object/list/string | vide | Alias de `parity`. |
+| `row_clues` | string/list | vide | Indices de lignes Nonogram, une ligne par ligne ou JSON. |
+| `rows` | string/list | vide | Alias de `row_clues` pour Nonogram. |
+| `column_clues` | string/list | vide | Indices de colonnes Nonogram, une ligne par colonne ou JSON. |
+| `col_clues`, `cols`, `columns` | string/list | vide | Alias de `column_clues` pour Nonogram. |
 | `watched_cells` | string/list | vide | Cellules a extraire apres resolution. |
 | `watch_cells` | string/list | vide | Alias de `watched_cells`. |
 
@@ -192,6 +197,7 @@ Valeurs supportees pour `puzzle_type` :
 | `sudoku_mine` | `mine_sudoku`, `minesudoku`, `sudoku_mine_9x9` | Sudoku Mine 9x9 : 3 mines par ligne, colonne et bloc 3x3, indices adjacents. |
 | `sudoku_mine_6x6` | `mine_sudoku_6x6`, `minesudoku_6x6` | Sudoku Mine 6x6 : 2 mines par ligne, colonne et region 2x3, indices adjacents. |
 | `sudoku_tripod_4x4` a `sudoku_tripod_8x8` | `tripod`, `tripod_sudoku`, `sudoku_tripod` pour 5x5 | Tripod NxN avec regions reconstruites depuis les points noirs aux intersections. |
+| `nonogram` | `picross`, `griddlers`, `hanjie` | Nonogram classique : les indices de lignes et colonnes decrivent les blocs noircis. |
 | `custom_spec` | `custom`, `json_spec` | Probleme CSP decrit en JSON. |
 
 Format de grille Sudoku :
@@ -318,6 +324,8 @@ class GridConstraint:
     value: Optional[str] = None
     total: Optional[int] = None
     limit: Optional[int] = None
+    forbidden_totals: Tuple[int, ...] = ()
+    clues: Tuple[int, ...] = ()
 ```
 
 Contraintes supportees :
@@ -343,6 +351,7 @@ Contraintes supportees :
 | `visible_count` | `cells`, `total` | Nombre de valeurs visibles depuis le debut de la sequence ordonnee. |
 | `parity` | `cells`, `value` | Une cellule est paire (`even`) ou impaire (`odd`). |
 | `non_consecutive` | `cells` | Deux cellules adjacentes ne peuvent pas differer de 1. |
+| `nonogram_line` | `cells`, `clues` | La sequence binaire des cellules doit correspondre aux blocs noircis indiques. |
 
 ### `GridCspProblem`
 
@@ -1812,6 +1821,66 @@ les cases impaires gardent une base claire avec un marqueur central. Les
 conflits locaux sont signales si une valeur deja saisie ne respecte pas la
 parite marquee.
 
+### Nonogram / Picross
+
+`puzzle_type = nonogram`
+
+Alias :
+
+```text
+picross
+griddlers
+hanjie
+```
+
+Contraintes :
+
+- chaque cellule contient soit une case blanche (`.`), soit une case noircie
+  (`#`) ;
+- chaque ligne doit correspondre exactement a ses blocs de cases noircies ;
+- chaque colonne doit correspondre exactement a ses blocs de cases noircies ;
+- une grille optionnelle peut imposer des cases deja connues.
+
+Format des indices :
+
+```json
+{
+  "row_clues": [[1], [3], [5], [3], [1]],
+  "column_clues": [[1], [3], [5], [3], [1]]
+}
+```
+
+Les champs `row_clues` et `column_clues` acceptent aussi un format texte, une
+ligne par ligne/colonne :
+
+```text
+1
+3
+5
+3
+1
+```
+
+Une ligne vide de blocs doit etre notee `0`, `.`, `-` ou `_`. La grille
+optionnelle accepte `#`, `X`, `1` pour une case noircie ; `.`, `-`, `0` pour
+une case blanche ; `?`, `_` pour une case inconnue.
+
+Le moteur encode chaque ligne/colonne comme une contrainte `nonogram_line`.
+Cette contrainte enumere les motifs binaires compatibles avec les indices puis
+laisse Z3 croiser les contraintes de lignes et de colonnes. Cette approche est
+suffisante pour les Nonograms classiques et garde le modele pret pour Hitori,
+Kakuro ou d'autres grilles a cellules noircies.
+
+L'atelier Theia expose un plateau Nonogram dynamique : le controle `Lignes x
+Colonnes` definit directement les dimensions et affiche leurs valeurs. Les
+indices de lignes et de colonnes sont saisis directement autour des cases et
+acceptent plusieurs nombres par indice. En mode `Saisie`, une case alterne
+entre inconnue, noircie et blanche ; les marques sont
+transmises au solveur comme donnees partielles et sont sauvegardees avec le
+brouillon de geocache. Le mode `Surveiller` continue de servir a selectionner
+les cases de reponse. Un indice qui ne peut pas tenir dans la ligne ou colonne
+correspondante est affiche en rouge pendant la saisie.
+
 ### Non-Consecutive Sudoku
 
 `puzzle_type = sudoku_non_consecutive`
@@ -2102,6 +2171,8 @@ Fonctionnalites actuelles :
 - mode `Parite` avec cases pair/impair en mode Even-Odd ;
 - detection locale des voisins consecutifs en mode Non-Consecutive ;
 - points d'intersection cliquables en mode Tripod ;
+- indices lignes/colonnes editables autour de la grille Nonogram ;
+- marquage manuel des cases inconnues, noircies ou blanches en mode Nonogram ;
 - affichage de la premiere solution ;
 - reprise de la solution dans la grille ;
 - extraction des cellules surveillees ;
@@ -2113,7 +2184,7 @@ Fonctionnalites actuelles :
 |---|---|---|
 | `grid` | `string[][]` | Valeurs courantes de la grille. |
 | `quickText` | `string` | Representation texte de la grille. |
-| `puzzleType` | `sudoku_classic`, variantes classiques `sudoku_4x4` a `sudoku_16x16`, `chain_sudoku_4x4` a `chain_sudoku_9x9`, `sudoku_x`, `sudoku_argyle`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_vudoku`, `sudoku_rossini`, `sudoku_xv`, `sudoku_kropki`, `sudoku_skyscraper`, `sudoku_frame`, `sudoku_outside`, `sudoku_little_killer`, `sudoku_little_unique_killer`, `sudoku_godoku`, `sudoku_even_odd`, `sudoku_non_consecutive`, `sudoku_mine`, `sudoku_mine_6x6` ou `sudoku_tripod_4x4` a `sudoku_tripod_8x8` | Variante active. |
+| `puzzleType` | `sudoku_classic`, variantes classiques `sudoku_4x4` a `sudoku_16x16`, `chain_sudoku_4x4` a `chain_sudoku_9x9`, `sudoku_x`, `sudoku_argyle`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_vudoku`, `sudoku_rossini`, `sudoku_xv`, `sudoku_kropki`, `sudoku_skyscraper`, `sudoku_frame`, `sudoku_outside`, `sudoku_little_killer`, `sudoku_little_unique_killer`, `sudoku_godoku`, `sudoku_even_odd`, `sudoku_non_consecutive`, `sudoku_mine`, `sudoku_mine_6x6`, `nonogram` ou `sudoku_tripod_4x4` a `sudoku_tripod_8x8` | Variante active. |
 | `horizontalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme ligne. |
 | `verticalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme colonne. |
 | `vudokuCorners` | `string[][]` | Coins Vudoku 8x8 : `tl`, `tr`, `bl`, `br` ou vide. |
@@ -2127,6 +2198,8 @@ Fonctionnalites actuelles :
 | `outsideClues` | object | Chiffres exterieurs `top`, `bottom`, `left`, `right` pour Outside. |
 | `littleKillerClues` | object | Sommes et directions diagonales `top`, `bottom`, `left`, `right` pour Little Killer. |
 | `godokuAlphabet` | string | Alphabet de 9 lettres pour Godoku. |
+| `nonogramRowClues` | string | Indices de lignes Nonogram, une entree par ligne. |
+| `nonogramColumnClues` | string | Indices de colonnes Nonogram, une entree par colonne. |
 | `parityMarks` | `string[][]` | Marques `even` / `odd` par cellule pour Even-Odd. |
 | `tripodDots` | `boolean[][]` | Points noirs (N+1)x(N+1) aux intersections pour Tripod. |
 | `chainGrid` | `number[][]` | Affectation des chaines Chain / Strimko. |
@@ -2469,6 +2542,8 @@ Couverture actuelle :
 - Even-Odd refuse une marque pair/impair contradictoire ;
 - Non-Consecutive valide une grille sans voisins consecutifs ;
 - Non-Consecutive refuse une grille avec voisins consecutifs ;
+- Nonogram valide un Picross 5x5 unique ;
+- Nonogram refuse une case donnee contradictoire ;
 - Tripod valide avec reconstruction de regions ;
 - Tripod refuse un point noir impossible ;
 - extraction des cellules surveillees ;
@@ -2604,6 +2679,8 @@ Limites connues :
 - les symboles UI sont limites aux chiffres `1-9` ;
 - une seule grille par variante est exposee dans l'UI (`state_key = default`) ;
 - pas encore d'editeur visuel pour regions irregulieres ;
+- la validation visuelle des indices Nonogram/Picross reste elementaire et ne
+  detecte pas encore toutes les contradictions entre les cases marquees ;
 - pas encore d'editeur de contraintes custom ;
 - les grilles de mots ou a noircir necessiteront probablement un nouveau mode
   UI au-dessus du meme stockage et/ou du meme moteur.

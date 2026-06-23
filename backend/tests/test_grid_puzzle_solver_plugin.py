@@ -1922,6 +1922,59 @@ def test_non_consecutive_rejects_adjacent_consecutive_values():
     assert result["summary"] == "Aucune solution compatible avec les contraintes"
 
 
+def test_nonogram_accepts_classic_picross_clues():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "nonogram",
+            "row_clues": "1\n3\n5\n3\n1",
+            "column_clues": [[1], [3], [5], [3], [1]],
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["unique"] is True
+    assert result["solution_count"] == 1
+    assert result["metadata"]["variant"] == "nonogram"
+    assert result["metadata"]["constraint_count"] == 10
+    assert result["results"][0]["text_output"].splitlines() == [
+        "..#..",
+        ".###.",
+        "#####",
+        ".###.",
+        "..#..",
+    ]
+    assert result["results"][0]["grid"][2] == ["#", "#", "#", "#", "#"]
+
+
+def test_nonogram_rejects_contradictory_given_cell():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "picross",
+            "clues": {
+                "rows": [[1], [3], [5], [3], [1]],
+                "columns": [[1], [3], [5], [3], [1]],
+            },
+            "grid": """
+                #????
+                ?????
+                ?????
+                ?????
+                ?????
+            """,
+            "max_solutions": 1,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+    assert result["summary"] == "Aucune solution compatible avec les contraintes"
+
+
 def mine_clue_grid(solution):
     size = len(solution)
     rows = []

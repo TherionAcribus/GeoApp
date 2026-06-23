@@ -10,7 +10,7 @@ import './style/grid-puzzle-workbench.css';
 type Grid = string[][];
 type RegionGrid = number[][];
 type WorkMode = 'edit' | 'watch' | 'parity' | 'chain';
-type SudokuVariant = 'sudoku_classic' | 'sudoku_4x4' | 'sudoku_6x6' | 'sudoku_8x8' | 'sudoku_10x10' | 'sudoku_12x12' | 'sudoku_15x15' | 'sudoku_16x16' | 'sudoku_x' | 'sudoku_argyle' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'sudoku_hoshi' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_vudoku' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_kropki' | 'chain_sudoku_4x4' | 'chain_sudoku_5x5' | 'chain_sudoku_6x6' | 'chain_sudoku_7x7' | 'chain_sudoku_8x8' | 'chain_sudoku_9x9' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_outside' | 'sudoku_sandwich' | 'sudoku_little_killer' | 'sudoku_little_unique_killer' | 'sudoku_godoku' | 'sudoku_even_odd' | 'sudoku_non_consecutive' | 'sudoku_mine' | 'sudoku_mine_6x6' | 'sudoku_tripod' | 'sudoku_tripod_4x4' | 'sudoku_tripod_5x5' | 'sudoku_tripod_6x6' | 'sudoku_tripod_7x7' | 'sudoku_tripod_8x8';
+type SudokuVariant = 'sudoku_classic' | 'sudoku_4x4' | 'sudoku_6x6' | 'sudoku_8x8' | 'sudoku_10x10' | 'sudoku_12x12' | 'sudoku_15x15' | 'sudoku_16x16' | 'sudoku_x' | 'sudoku_argyle' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'sudoku_hoshi' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_vudoku' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_kropki' | 'chain_sudoku_4x4' | 'chain_sudoku_5x5' | 'chain_sudoku_6x6' | 'chain_sudoku_7x7' | 'chain_sudoku_8x8' | 'chain_sudoku_9x9' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_outside' | 'sudoku_sandwich' | 'sudoku_little_killer' | 'sudoku_little_unique_killer' | 'sudoku_godoku' | 'sudoku_even_odd' | 'sudoku_non_consecutive' | 'sudoku_mine' | 'sudoku_mine_6x6' | 'sudoku_tripod' | 'sudoku_tripod_4x4' | 'sudoku_tripod_5x5' | 'sudoku_tripod_6x6' | 'sudoku_tripod_7x7' | 'sudoku_tripod_8x8' | 'nonogram';
 type InequalitySymbol = '' | '>' | '<';
 type InequalityGrid = InequalitySymbol[][];
 type VudokuSymbol = '' | 'tl' | 'tr' | 'bl' | 'br';
@@ -542,6 +542,9 @@ function getVariantLabel(puzzleType: SudokuVariant): string {
     if (puzzleType === 'sudoku_non_consecutive') {
         return 'Non-Consecutive';
     }
+    if (puzzleType === 'nonogram') {
+        return 'Nonogram / Picross';
+    }
     return 'Sudoku classique';
 }
 
@@ -669,6 +672,9 @@ function getMineConfig(
 }
 
 function getSingleGridSudokuConfig(puzzleType: SudokuVariant): { size: number; boxRows: number; boxCols: number; label: string } | undefined {
+    if (puzzleType === 'nonogram') {
+        return undefined;
+    }
     return getSizedSudokuConfig(puzzleType) || {
         size: SIZE,
         boxRows: 3,
@@ -703,10 +709,16 @@ function gridSizeForVariant(puzzleType: SudokuVariant): number {
     if (mineConfig) {
         return mineConfig.size;
     }
+    if (puzzleType === 'nonogram') {
+        return SIZE;
+    }
     return getSingleGridSudokuConfig(puzzleType)?.size || SIZE;
 }
 
 function isActiveCellForVariant(puzzleType: SudokuVariant, row: number, col: number): boolean {
+    if (puzzleType === 'nonogram') {
+        return row >= 0 && col >= 0;
+    }
     if (puzzleType === 'sujiken') {
         return isSujikenCell(row, col);
     }
@@ -1008,6 +1020,10 @@ function findConstraintConflicts(
 ): ConflictHighlights {
     const cells = new Set<string>();
     const messages: string[] = [];
+
+    if (puzzleType === 'nonogram') {
+        return { cells, messages };
+    }
 
     const chainConfig = getChainConfig(puzzleType);
     const regions = getAllDifferentRegions(puzzleType);
@@ -1808,9 +1824,22 @@ function createEmptyGrid(size: number): Grid {
     return Array.from({ length: size }, () => Array(size).fill(''));
 }
 
+function createEmptyRectGrid(rows: number, cols: number): Grid {
+    return Array.from({ length: rows }, () => Array(cols).fill(''));
+}
+
 function resizeGrid(grid: Grid, size: number): Grid {
     return Array.from({ length: size }, (_row, rowIndex) => (
         Array.from({ length: size }, (_col, colIndex) => grid[rowIndex]?.[colIndex] || '')
+    ));
+}
+
+function resizeNonogramGrid(grid: Grid, rows: number, cols: number): Grid {
+    return Array.from({ length: rows }, (_row, rowIndex) => (
+        Array.from({ length: cols }, (_col, colIndex) => {
+            const value = grid[rowIndex]?.[colIndex];
+            return value === '#' || value === '.' ? value : '';
+        })
     ));
 }
 
@@ -2511,6 +2540,10 @@ function cycleKropkiDot(value: KropkiSymbol): KropkiSymbol {
 }
 
 function gridToText(grid: Grid, puzzleType: SudokuVariant = 'sudoku_classic'): string {
+    if (puzzleType === 'nonogram') {
+        return grid.map(row => row.map(value => value === '#' ? '#' : value === '.' ? '.' : '?').join('')).join('\n');
+    }
+
     const mineConfig = getMineConfig(puzzleType);
     if (mineConfig) {
         return Array.from({ length: mineConfig.size }, (_row, rowIndex) => (
@@ -2923,6 +2956,29 @@ function parsePuzzleText(text: string, puzzleType: SudokuVariant): Grid | null {
 }
 
 function normalizeGrid(value: unknown, puzzleType: SudokuVariant): Grid | undefined {
+    if (puzzleType === 'nonogram') {
+        if (typeof value === 'string') {
+            const rows = value.trim().split(/\r?\n/).filter(Boolean);
+            if (!rows.length) {
+                return undefined;
+            }
+            const parsed = rows.map(row => Array.from(row).map(char => (
+                char === '#' || char === 'X' || char === 'x' || char === '1'
+                    ? '#'
+                    : char === '.' || char === '-' || char === '0'
+                        ? '.'
+                        : ''
+            )));
+            const cols = Math.max(...parsed.map(row => row.length));
+            return resizeNonogramGrid(parsed, parsed.length, cols);
+        }
+        if (!Array.isArray(value) || !value.length || value.some(row => !Array.isArray(row))) {
+            return undefined;
+        }
+        const cols = Math.max(...value.map(row => (row as unknown[]).length));
+        return resizeNonogramGrid(value as Grid, value.length, cols);
+    }
+
     if (typeof value === 'string') {
         return parsePuzzleText(value, puzzleType) || undefined;
     }
@@ -3024,6 +3080,66 @@ function normalizeGodokuAlphabet(value: unknown): string {
     return letters.join('');
 }
 
+function normalizeMultilineText(value: unknown): string {
+    return String(value ?? '').replace(/\r\n/g, '\n').trim();
+}
+
+function nonogramClueLines(text: string, fallbackCount = 5): string[] {
+    const normalized = String(text ?? '').replace(/\r\n/g, '\n');
+    if (!normalized.trim()) {
+        return Array<string>(fallbackCount).fill('0');
+    }
+    return normalized.split('\n').map(line => line.trim() || '0');
+}
+
+function serializeNonogramClueLines(lines: string[]): string {
+    return lines.map(line => line.trim() || '0').join('\n');
+}
+
+function normalizeNonogramClue(value: string): string {
+    const normalized = value
+        .replace(/[^0-9\s,;]+/g, ' ')
+        .replace(/[\s,;]+/g, ' ')
+        .trim();
+    return normalized || '0';
+}
+
+function nonogramClueValueCount(value: string): number {
+    return normalizeNonogramClue(value).split(' ').length;
+}
+
+function nonogramColumnClueEditorValue(value: string): string {
+    return normalizeNonogramClue(value).split(' ').join('\n');
+}
+
+function nonogramClueValidationError(value: string, lineLength: number): string | undefined {
+    const tokens = value.trim().split(/[\s,;]+/).filter(Boolean);
+    if (!tokens.length) {
+        return undefined;
+    }
+    if (tokens.some(token => !/^\d+$/.test(token))) {
+        return 'Utilisez uniquement des nombres separes par des espaces, virgules ou retours a la ligne.';
+    }
+    const clues = tokens.map(Number);
+    if (clues.length > 1 && clues.includes(0)) {
+        return '0 represente une ligne vide et ne peut pas etre associe a un autre nombre.';
+    }
+    if (clues.some(clue => clue <= 0)) {
+        return 'Chaque bloc doit etre strictement positif.';
+    }
+    const requiredLength = clues.reduce((total, clue) => total + clue, 0) + clues.length - 1;
+    if (requiredLength > lineLength) {
+        return `Ces blocs necessitent ${requiredLength} cases, mais cette ligne en compte ${lineLength}.`;
+    }
+    return undefined;
+}
+
+function cycleNonogramCell(value: string, direction = 1): string {
+    const states = ['', '#', '.'];
+    const currentIndex = Math.max(0, states.indexOf(value));
+    return states[(currentIndex + direction + states.length) % states.length];
+}
+
 function extractGridFromSolution(solution: unknown): Grid | undefined {
     const grid = (solution as { grid?: unknown } | undefined)?.grid;
     if (!Array.isArray(grid)) {
@@ -3081,6 +3197,9 @@ function GridPuzzleWorkbenchApp({
     const [littleKillerClues, setLittleKillerClues] = React.useState<LittleKillerClues>(() => emptyLittleKillerClues());
     const [rossiniArrows, setRossiniArrows] = React.useState<RossiniArrows>(() => emptyRossiniArrows());
     const [godokuAlphabet, setGodokuAlphabet] = React.useState('');
+    const [nonogramRowClues, setNonogramRowClues] = React.useState('');
+    const [nonogramColumnClues, setNonogramColumnClues] = React.useState('');
+    const [nonogramClueDrafts, setNonogramClueDrafts] = React.useState<Record<string, string>>({});
     const [watchCells, setWatchCells] = React.useState<string[]>([]);
     const [mode, setMode] = React.useState<WorkMode>('edit');
     const [maxSolutions, setMaxSolutions] = React.useState(2);
@@ -3095,6 +3214,7 @@ function GridPuzzleWorkbenchApp({
     const cellRefs = React.useRef<Array<Array<HTMLInputElement | null>>>(
         Array.from({ length: SAMURAI_SIZE }, () => Array<HTMLInputElement | null>(SAMURAI_SIZE).fill(null))
     );
+    const nonogramCellRefs = React.useRef<Array<Array<HTMLButtonElement | null>>>([]);
 
     const solutionResults = Array.isArray(solveState.result?.results) ? solveState.result.results : [];
     const activeSolutionIndex = solutionResults.length
@@ -3121,6 +3241,7 @@ function GridPuzzleWorkbenchApp({
     const isGodoku = puzzleType === 'sudoku_godoku';
     const isEvenOdd = puzzleType === 'sudoku_even_odd';
     const isNonConsecutive = puzzleType === 'sudoku_non_consecutive';
+    const isNonogram = puzzleType === 'nonogram';
     const mineConfig = getMineConfig(puzzleType);
     const isMine = Boolean(mineConfig);
     const tripodConfig = getTripodConfig(puzzleType);
@@ -3151,6 +3272,30 @@ function GridPuzzleWorkbenchApp({
     const boardStyle: React.CSSProperties | undefined = isHoshi
         ? { width: HOSHI_BOARD_WIDTH, height: HOSHI_BOARD_HEIGHT }
         : sizedBoardStyle;
+    const nonogramRowClueLines = React.useMemo(
+        () => nonogramClueLines(nonogramRowClues),
+        [nonogramRowClues],
+    );
+    const nonogramColumnClueLines = React.useMemo(
+        () => nonogramClueLines(nonogramColumnClues),
+        [nonogramColumnClues],
+    );
+    const nonogramRows = nonogramRowClueLines.length;
+    const nonogramCols = nonogramColumnClueLines.length;
+    const nonogramMaxColumnClues = Math.max(
+        1,
+        ...nonogramColumnClueLines.map(nonogramClueValueCount),
+    );
+    const nonogramHeaderHeight = Math.min(132, Math.max(44, nonogramMaxColumnClues * 18 + 10));
+    const nonogramEditorStyle: React.CSSProperties | undefined = isNonogram ? {
+        gridTemplateColumns: `minmax(128px, 196px) repeat(${nonogramCols}, 42px)`,
+        gridTemplateRows: `${nonogramHeaderHeight}px repeat(${nonogramRows}, 42px)`,
+    } : undefined;
+    const nonogramSolutionBoardStyle: React.CSSProperties | undefined = isNonogram ? {
+        gridTemplateColumns: `repeat(${solvedGrid?.[0]?.length || nonogramCols}, 28px)`,
+        gridTemplateRows: `repeat(${solvedGrid?.length || nonogramRows}, 28px)`,
+    } : undefined;
+    const solutionBoardStyle = isNonogram ? nonogramSolutionBoardStyle : boardStyle;
     const chainCounts = React.useMemo(() => {
         return Array.from({ length: chainConfig?.size || 0 }, (_unused, index) => chainPaths[index]?.length || 0);
     }, [chainConfig?.size, chainPaths]);
@@ -3188,6 +3333,21 @@ function GridPuzzleWorkbenchApp({
         }
     }, [isTripod, timeoutMs]);
 
+    React.useEffect(() => {
+        if (!isNonogram) {
+            return;
+        }
+        setGrid(previous => resizeNonogramGrid(previous, nonogramRows, nonogramCols));
+        setWatchCells(previous => previous.filter(ref => {
+            const match = ref.match(/^r(\d+)c(\d+)$/i);
+            return Boolean(
+                match
+                && Number(match[1]) <= nonogramRows
+                && Number(match[2]) <= nonogramCols,
+            );
+        }));
+    }, [isNonogram, nonogramCols, nonogramRows]);
+
     const markDirty = React.useCallback(() => {
         if (!geocacheId) {
             return;
@@ -3199,6 +3359,90 @@ function GridPuzzleWorkbenchApp({
             error: undefined,
         }));
     }, [geocacheId]);
+
+    const updateNonogramClue = React.useCallback((axis: 'row' | 'column', index: number, value: string) => {
+        const currentLines = axis === 'row'
+            ? nonogramClueLines(nonogramRowClues)
+            : nonogramClueLines(nonogramColumnClues);
+        currentLines[index] = normalizeNonogramClue(value);
+        const serialized = serializeNonogramClueLines(currentLines);
+        if (axis === 'row') {
+            setNonogramRowClues(serialized);
+        } else {
+            setNonogramColumnClues(serialized);
+        }
+        setSolveState({ running: false });
+        markDirty();
+    }, [markDirty, nonogramColumnClues, nonogramRowClues]);
+
+    const updateNonogramClueDraft = React.useCallback((axis: 'row' | 'column', index: number, value: string) => {
+        setNonogramClueDrafts(previous => ({
+            ...previous,
+            [`${axis}:${index}`]: value,
+        }));
+    }, []);
+
+    const commitNonogramClueDraft = React.useCallback((axis: 'row' | 'column', index: number) => {
+        const key = `${axis}:${index}`;
+        const value = nonogramClueDrafts[key];
+        if (value === undefined) {
+            return;
+        }
+        updateNonogramClue(axis, index, value);
+        setNonogramClueDrafts(previous => {
+            const next = { ...previous };
+            delete next[key];
+            return next;
+        });
+    }, [nonogramClueDrafts, updateNonogramClue]);
+
+    const setNonogramDimension = React.useCallback((axis: 'row' | 'column', rawValue: number) => {
+        const size = Number.isFinite(rawValue)
+            ? Math.min(50, Math.max(1, Math.floor(rawValue)))
+            : 1;
+        const currentLines = axis === 'row'
+            ? nonogramClueLines(nonogramRowClues)
+            : nonogramClueLines(nonogramColumnClues);
+        const nextLines = Array.from(
+            { length: size },
+            (_unused, index) => currentLines[index] || '0',
+        );
+        const serialized = serializeNonogramClueLines(nextLines);
+        if (axis === 'row') {
+            setNonogramRowClues(serialized);
+        } else {
+            setNonogramColumnClues(serialized);
+        }
+        setNonogramClueDrafts({});
+        setSolveState({ running: false });
+        markDirty();
+    }, [markDirty, nonogramColumnClues, nonogramRowClues]);
+
+    const updateNonogramCell = React.useCallback((row: number, col: number, value: string) => {
+        setGrid(previous => {
+            const next = resizeNonogramGrid(previous, nonogramRows, nonogramCols);
+            next[row][col] = value === '#' || value === '.' ? value : '';
+            return next;
+        });
+        setSolveState({ running: false });
+        markDirty();
+    }, [markDirty, nonogramCols, nonogramRows]);
+
+    const cycleNonogramGridCell = React.useCallback((row: number, col: number, direction = 1) => {
+        setGrid(previous => {
+            const next = resizeNonogramGrid(previous, nonogramRows, nonogramCols);
+            next[row][col] = cycleNonogramCell(next[row][col], direction);
+            return next;
+        });
+        setSolveState({ running: false });
+        markDirty();
+    }, [markDirty, nonogramCols, nonogramRows]);
+
+    const clearNonogramMarks = React.useCallback(() => {
+        setGrid(createEmptyRectGrid(nonogramRows, nonogramCols));
+        setSolveState({ running: false });
+        markDirty();
+    }, [markDirty, nonogramCols, nonogramRows]);
 
     const setGridAndQuickText = React.useCallback((nextGrid: Grid) => {
         setGrid(nextGrid);
@@ -3238,7 +3482,12 @@ function GridPuzzleWorkbenchApp({
             ? snapshot.lastResult as PluginResult
             : undefined;
 
-        setGridAndQuickText(restoredGrid);
+        if (puzzleType === 'nonogram') {
+            setGrid(restoredGrid);
+            setQuickText(normalizeMultilineText(snapshot?.quickText ?? snapshot?.knownGrid ?? snapshot?.known_grid));
+        } else {
+            setGridAndQuickText(restoredGrid);
+        }
         setWatchCells(normalizeWatchCells(snapshot?.watchCells ?? snapshot?.watchedCells));
         setHorizontalInequalities(normalizeInequalityGrid(snapshot?.inequalities?.horizontal, SIZE, SIZE - 1));
         setVerticalInequalities(normalizeInequalityGrid(snapshot?.inequalities?.vertical, SIZE - 1, SIZE));
@@ -3259,6 +3508,8 @@ function GridPuzzleWorkbenchApp({
         setLittleKillerClues(normalizeLittleKillerClues(snapshot?.littleKiller ?? snapshot?.little_killer ?? snapshot?.littleKillerClues));
         setRossiniArrows(normalizeRossiniArrows(snapshot?.rossini ?? snapshot?.rossiniArrows));
         setGodokuAlphabet(normalizeGodokuAlphabet(snapshot?.godokuAlphabet ?? snapshot?.alphabet));
+        setNonogramRowClues(normalizeMultilineText(snapshot?.nonogram?.rowClues ?? snapshot?.rowClues ?? snapshot?.row_clues));
+        setNonogramColumnClues(normalizeMultilineText(snapshot?.nonogram?.columnClues ?? snapshot?.columnClues ?? snapshot?.column_clues));
         setMaxSolutions(normalizeNumber(snapshot?.maxSolutions, 2, 1, 25));
         setTimeoutMs(normalizeNumber(snapshot?.solverTimeoutMs ?? snapshot?.timeoutMs, 10000, 1000, 120000));
         setSelectedSolutionIndex(0);
@@ -3352,6 +3603,10 @@ function GridPuzzleWorkbenchApp({
                     littleKiller: littleKillerClues,
                     rossini: rossiniArrows,
                     godokuAlphabet,
+                    nonogram: {
+                        rowClues: nonogramRowClues,
+                        columnClues: nonogramColumnClues,
+                    },
                     watchCells,
                     maxSolutions,
                     solverTimeoutMs: timeoutMs,
@@ -3387,6 +3642,8 @@ function GridPuzzleWorkbenchApp({
         littleKillerClues,
         maxSolutions,
         messageService,
+        nonogramColumnClues,
+        nonogramRowClues,
         outsideClues,
         parityMarks,
         pluginsService,
@@ -3709,6 +3966,69 @@ function GridPuzzleWorkbenchApp({
         markDirty();
     }, [markDirty]);
 
+    const focusNonogramCell = React.useCallback((row: number, col: number) => {
+        const targetRow = Math.max(0, Math.min(nonogramRows - 1, row));
+        const targetCol = Math.max(0, Math.min(nonogramCols - 1, col));
+        nonogramCellRefs.current[targetRow]?.[targetCol]?.focus();
+    }, [nonogramCols, nonogramRows]);
+
+    const handleNonogramCellClick = React.useCallback((row: number, col: number, event: React.MouseEvent<HTMLButtonElement>) => {
+        const ref = cellRef(row, col);
+        if (mode === 'watch' || event.ctrlKey || event.metaKey) {
+            event.preventDefault();
+            toggleWatchCell(ref);
+            return;
+        }
+        cycleNonogramGridCell(row, col);
+    }, [cycleNonogramGridCell, mode, toggleWatchCell]);
+
+    const handleNonogramCellContextMenu = React.useCallback((row: number, col: number, event: React.MouseEvent<HTMLButtonElement>) => {
+        event.preventDefault();
+        if (mode === 'watch') {
+            toggleWatchCell(cellRef(row, col));
+            return;
+        }
+        cycleNonogramGridCell(row, col, -1);
+    }, [cycleNonogramGridCell, mode, toggleWatchCell]);
+
+    const handleNonogramCellKeyDown = React.useCallback((row: number, col: number, event: React.KeyboardEvent<HTMLButtonElement>) => {
+        const moves: Record<string, [number, number]> = {
+            ArrowUp: [-1, 0],
+            ArrowDown: [1, 0],
+            ArrowLeft: [0, -1],
+            ArrowRight: [0, 1],
+        };
+        const move = moves[event.key];
+        if (move) {
+            event.preventDefault();
+            focusNonogramCell(row + move[0], col + move[1]);
+            return;
+        }
+        if (event.key === ' ' || event.key === 'Enter') {
+            event.preventDefault();
+            if (mode === 'watch') {
+                toggleWatchCell(cellRef(row, col));
+            } else {
+                cycleNonogramGridCell(row, col);
+            }
+            return;
+        }
+        if (event.key === '#' || event.key.toLowerCase() === 'x' || event.key === '1') {
+            event.preventDefault();
+            updateNonogramCell(row, col, '#');
+            return;
+        }
+        if (event.key === '.' || event.key === '-' || event.key === '0') {
+            event.preventDefault();
+            updateNonogramCell(row, col, '.');
+            return;
+        }
+        if (event.key === 'Backspace' || event.key === 'Delete') {
+            event.preventDefault();
+            updateNonogramCell(row, col, '');
+        }
+    }, [cycleNonogramGridCell, focusNonogramCell, mode, toggleWatchCell, updateNonogramCell]);
+
     const handleCellClick = React.useCallback((row: number, col: number, event: React.MouseEvent) => {
         const ref = cellRef(row, col);
         if (isEvenOdd && mode === 'parity') {
@@ -3774,13 +4094,18 @@ function GridPuzzleWorkbenchApp({
 
     const handleQuickTextChange = React.useCallback((text: string) => {
         setQuickText(text);
+        if (isNonogram) {
+            setSolveState({ running: false });
+            markDirty();
+            return;
+        }
         const parsed = parsePuzzleText(text, puzzleType);
         if (parsed) {
             setGrid(parsed);
             setSolveState({ running: false });
         }
         markDirty();
-    }, [markDirty, puzzleType]);
+    }, [isNonogram, markDirty, puzzleType]);
 
     const handlePuzzleTypeChange = React.useCallback((value: string) => {
         const nextPuzzleType = value === 'sudoku_4x4'
@@ -3831,6 +4156,7 @@ function GridPuzzleWorkbenchApp({
             || value === 'sudoku_tripod_6x6'
             || value === 'sudoku_tripod_7x7'
             || value === 'sudoku_tripod_8x8'
+            || value === 'nonogram'
             ? value
             : 'sudoku_classic';
         const nextGrid = resizeGrid(grid, gridSizeForVariant(nextPuzzleType));
@@ -3852,13 +4178,20 @@ function GridPuzzleWorkbenchApp({
             setActiveChain(1);
             setMode('chain');
         }
-        setQuickText(gridToText(nextGrid, nextPuzzleType));
+        setQuickText(nextPuzzleType === 'nonogram' ? '' : gridToText(nextGrid, nextPuzzleType));
         setSolveState({ running: false });
         markDirty();
     }, [grid, markDirty, mode]);
 
     const clearGrid = React.useCallback(() => {
-        setGridAndQuickText(createEmptyGrid(gridSizeForVariant(puzzleType)));
+        if (isNonogram) {
+            setGrid(createEmptyGrid(SIZE));
+            setQuickText('');
+            setNonogramRowClues('');
+            setNonogramColumnClues('');
+        } else {
+            setGridAndQuickText(createEmptyGrid(gridSizeForVariant(puzzleType)));
+        }
         setHorizontalInequalities(emptyHorizontalInequalities());
         setVerticalInequalities(emptyVerticalInequalities());
         setVudokuCorners(emptyVudokuCorners());
@@ -3880,7 +4213,7 @@ function GridPuzzleWorkbenchApp({
         setWatchCells([]);
         setSolveState({ running: false });
         markDirty();
-    }, [markDirty, puzzleType, setGridAndQuickText]);
+    }, [isNonogram, markDirty, puzzleType, setGridAndQuickText]);
 
     const solve = React.useCallback(async () => {
         if (constraintConflicts.messages.length > 0) {
@@ -3902,7 +4235,11 @@ function GridPuzzleWorkbenchApp({
         try {
             const result = await pluginsService.executePlugin('grid_puzzle_solver', {
                 puzzle_type: puzzleType,
-                grid: gridToText(grid, puzzleType),
+                grid: isNonogram
+                    ? gridToText(resizeNonogramGrid(grid, nonogramRows, nonogramCols), puzzleType)
+                    : gridToText(grid, puzzleType),
+                row_clues: isNonogram ? serializeNonogramClueLines(nonogramRowClueLines) : undefined,
+                column_clues: isNonogram ? serializeNonogramClueLines(nonogramColumnClueLines) : undefined,
                 watched_cells: watchCells.join(' '),
                 inequalities: {
                     horizontal: horizontalInequalities,
@@ -3949,7 +4286,7 @@ function GridPuzzleWorkbenchApp({
                 error: error instanceof Error ? error.message : String(error),
             });
         }
-    }, [areChainsComplete, chainConfig?.size, chainGrid, constraintConflicts.messages.length, frameClues, geocacheId, godokuAlphabet, grid, horizontalInequalities, isChain, isEvenOdd, isFrame, isGodoku, isKropki, isLittleKiller, isOutside, isRossini, isSandwich, isSkyscraper, isTripod, isVudoku, isXv, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, maxSolutions, outsideClues, parityMarks, pluginsService, puzzleType, rossiniArrows, sandwichClues, saveState, skyscraperClues, timeoutMs, tripodDots, verticalInequalities, vudokuCorners, watchCells, xvHorizontalMarks, xvVerticalMarks]);
+    }, [areChainsComplete, chainConfig?.size, chainGrid, constraintConflicts.messages.length, frameClues, geocacheId, godokuAlphabet, grid, horizontalInequalities, isChain, isEvenOdd, isFrame, isGodoku, isKropki, isLittleKiller, isNonogram, isOutside, isRossini, isSandwich, isSkyscraper, isTripod, isVudoku, isXv, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, maxSolutions, nonogramCols, nonogramColumnClueLines, nonogramRows, nonogramRowClueLines, outsideClues, parityMarks, pluginsService, puzzleType, rossiniArrows, sandwichClues, saveState, skyscraperClues, timeoutMs, tripodDots, verticalInequalities, vudokuCorners, watchCells, xvHorizontalMarks, xvVerticalMarks]);
 
     const useSolvedGrid = React.useCallback(() => {
         if (solvedGrid) {
@@ -4761,6 +5098,7 @@ function GridPuzzleWorkbenchApp({
                         <option value='sudoku_tripod_6x6'>Tripod 6x6</option>
                         <option value='sudoku_tripod_7x7'>Tripod 7x7</option>
                         <option value='sudoku_tripod_8x8'>Tripod 8x8</option>
+                        <option value='nonogram'>Nonogram / Picross</option>
                     </select>
                     <button onClick={solve} disabled={solveState.running}>
                         {solveState.running ? 'Resolution...' : 'Resoudre'}
@@ -4776,6 +5114,135 @@ function GridPuzzleWorkbenchApp({
 
             <div className='grid-puzzle-layout'>
                 <section className='grid-puzzle-main'>
+                    {isNonogram ? (
+                        <div className='nonogram-editor'>
+                            <div
+                                className='nonogram-board nonogram-editor-board'
+                                style={nonogramEditorStyle}
+                                aria-label='Grille Nonogram interactive'
+                            >
+                                <div className='nonogram-corner'>
+                                    <label>
+                                        Lignes
+                                        <input
+                                            type='number'
+                                            min={1}
+                                            max={50}
+                                            value={nonogramRows}
+                                            aria-label='Nombre de lignes Nonogram'
+                                            title='Nombre de lignes Nonogram'
+                                            onFocus={event => event.currentTarget.select()}
+                                            onChange={event => setNonogramDimension('row', Number(event.currentTarget.value))}
+                                        />
+                                    </label>
+                                    <span aria-hidden='true'>x</span>
+                                    <label>
+                                        Colonnes
+                                        <input
+                                            type='number'
+                                            min={1}
+                                            max={50}
+                                            value={nonogramCols}
+                                            aria-label='Nombre de colonnes Nonogram'
+                                            title='Nombre de colonnes Nonogram'
+                                            onFocus={event => event.currentTarget.select()}
+                                            onChange={event => setNonogramDimension('column', Number(event.currentTarget.value))}
+                                        />
+                                    </label>
+                                </div>
+                                {nonogramColumnClueLines.map((value, colIndex) => {
+                                    const inputValue = nonogramClueDrafts[`column:${colIndex}`] ?? nonogramColumnClueEditorValue(value);
+                                    const validationError = nonogramClueValidationError(inputValue, nonogramRows);
+                                    return (
+                                        <textarea
+                                            key={`nonogram-column-${colIndex}`}
+                                            className={`nonogram-clue-input column${validationError ? ' invalid' : ''}`}
+                                            style={{ gridColumn: String(colIndex + 2), gridRow: '1' }}
+                                            value={inputValue}
+                                            placeholder={'1\n2'}
+                                            rows={nonogramMaxColumnClues}
+                                            aria-label={`Indice colonne ${colIndex + 1}`}
+                                            aria-invalid={Boolean(validationError)}
+                                            title={validationError || `Indice colonne ${colIndex + 1}`}
+                                            onFocus={event => {
+                                                if (event.currentTarget.value === '0') {
+                                                    event.currentTarget.select();
+                                                }
+                                            }}
+                                            onChange={event => updateNonogramClueDraft('column', colIndex, event.currentTarget.value)}
+                                            onBlur={() => commitNonogramClueDraft('column', colIndex)}
+                                        />
+                                    );
+                                })}
+                                {nonogramRowClueLines.map((value, rowIndex) => {
+                                    const inputValue = nonogramClueDrafts[`row:${rowIndex}`] ?? value;
+                                    const validationError = nonogramClueValidationError(inputValue, nonogramCols);
+                                    return (
+                                        <textarea
+                                            key={`nonogram-row-${rowIndex}`}
+                                            className={`nonogram-clue-input row${validationError ? ' invalid' : ''}`}
+                                            style={{ gridColumn: '1', gridRow: String(rowIndex + 2) }}
+                                            value={inputValue}
+                                            placeholder='1 2'
+                                            rows={2}
+                                            aria-label={`Indice ligne ${rowIndex + 1}`}
+                                            aria-invalid={Boolean(validationError)}
+                                            title={validationError || `Indice ligne ${rowIndex + 1}`}
+                                            onFocus={event => {
+                                                if (event.currentTarget.value === '0') {
+                                                    event.currentTarget.select();
+                                                }
+                                            }}
+                                            onChange={event => updateNonogramClueDraft('row', rowIndex, event.currentTarget.value)}
+                                            onBlur={() => commitNonogramClueDraft('row', rowIndex)}
+                                        />
+                                    );
+                                })}
+                                {Array.from({ length: nonogramRows }, (_row, rowIndex) => (
+                                    Array.from({ length: nonogramCols }, (_col, colIndex) => {
+                                        const value = grid[rowIndex]?.[colIndex] || '';
+                                        const ref = cellRef(rowIndex, colIndex);
+                                        const stateLabel = value === '#'
+                                            ? 'noircie'
+                                            : value === '.'
+                                                ? 'blanche'
+                                                : 'inconnue';
+                                        return (
+                                            <button
+                                                key={`nonogram-cell-${ref}`}
+                                                type='button'
+                                                className={[
+                                                    'nonogram-manual-cell',
+                                                    value === '#' ? 'filled' : '',
+                                                    value === '.' ? 'empty' : '',
+                                                    !value ? 'unknown' : '',
+                                                    watchCells.includes(ref) ? 'watched' : '',
+                                                ].filter(Boolean).join(' ')}
+                                                style={{ gridColumn: String(colIndex + 2), gridRow: String(rowIndex + 2) }}
+                                                ref={element => {
+                                                    nonogramCellRefs.current[rowIndex] = nonogramCellRefs.current[rowIndex] || [];
+                                                    nonogramCellRefs.current[rowIndex][colIndex] = element;
+                                                }}
+                                                aria-label={`${ref}, ${stateLabel}`}
+                                                aria-pressed={value === '#'}
+                                                title={mode === 'watch'
+                                                    ? `${ref}, ${stateLabel}. Cliquez pour surveiller cette case.`
+                                                    : `${ref}, ${stateLabel}. Clic: noir, clic droit: etat precedent.`}
+                                                onClick={event => handleNonogramCellClick(rowIndex, colIndex, event)}
+                                                onContextMenu={event => handleNonogramCellContextMenu(rowIndex, colIndex, event)}
+                                                onKeyDown={event => handleNonogramCellKeyDown(rowIndex, colIndex, event)}
+                                            />
+                                        );
+                                    })
+                                ))}
+                            </div>
+                            <div className='grid-puzzle-actions inline'>
+                                <button type='button' onClick={clearNonogramMarks}>Effacer les marques</button>
+                                <button type='button' onClick={clearGrid}>Reinitialiser</button>
+                            </div>
+                        </div>
+                    ) : (
+                        <>
                     <div
                         className={[
                             'sudoku-board',
@@ -4881,6 +5348,8 @@ function GridPuzzleWorkbenchApp({
                             ) : null}
                         </div>
                     ) : null}
+                        </>
+                    )}
 
                     {solvedGrid && (
                         <div className='grid-puzzle-solution'>
@@ -4902,13 +5371,14 @@ function GridPuzzleWorkbenchApp({
                                             ))}
                                         </select>
                                     ) : null}
-                                    {!isMine ? <button onClick={useSolvedGrid}>Reprendre dans la grille</button> : null}
+                                    {!isMine && !isNonogram ? <button onClick={useSolvedGrid}>Reprendre dans la grille</button> : null}
                                 </div>
                             </div>
                             <div
                                 className={[
                                     'sudoku-board',
                                     'solved',
+                                    isNonogram ? 'nonogram-board' : '',
                                     isGreaterThan ? 'greater-than-board' : '',
                                     isVudoku ? 'vudoku-board' : '',
                                     isXv ? 'xv-board' : '',
@@ -4928,17 +5398,19 @@ function GridPuzzleWorkbenchApp({
                                     isSohei ? 'sohei-board' : '',
                                     isKazaguruma ? 'kazaguruma-board' : '',
                                 ].filter(Boolean).join(' ')}
-                                style={boardStyle}
-                                aria-label='Solution Sudoku'
+                                style={solutionBoardStyle}
+                                aria-label={isNonogram ? 'Solution Nonogram' : 'Solution Sudoku'}
                             >
-                                {renderChainConnectors()}
+                                {!isNonogram ? renderChainConnectors() : null}
                                 {solvedGrid.map((row, rowIndex) => (
                                     row.map((value, colIndex) => {
-                                        if (!isActiveCellForVariant(puzzleType, rowIndex, colIndex)) {
+                                        if (!isNonogram && !isActiveCellForVariant(puzzleType, rowIndex, colIndex)) {
                                             return null;
                                         }
                                         const ref = cellRef(rowIndex, colIndex);
-                                        const displayedValue = isMine
+                                        const displayedValue = isNonogram
+                                            ? ''
+                                            : isMine
                                             ? value === 'M'
                                                 ? 'M'
                                                 : grid[rowIndex]?.[colIndex] || ''
@@ -4949,37 +5421,41 @@ function GridPuzzleWorkbenchApp({
                                                 className={cellClassName(
                                                     rowIndex,
                                                     colIndex,
-                                                    grid[rowIndex][colIndex],
+                                                    isNonogram ? value : grid[rowIndex]?.[colIndex],
                                                     true,
                                                     [
                                                         ...tripodRegionBoundaryClasses(rowIndex, colIndex),
                                                         isMine && value === 'M' ? 'mine-solved' : '',
+                                                        isNonogram ? 'nonogram-cell' : '',
+                                                        isNonogram && value === '#' ? 'nonogram-filled' : '',
+                                                        isNonogram && value !== '#' ? 'nonogram-empty' : '',
                                                     ],
                                                 )}
-                                                style={cellStyle(rowIndex, colIndex)}
+                                                style={isNonogram ? undefined : cellStyle(rowIndex, colIndex)}
                                             >
                                                 {displayedValue}
                                             </div>
                                         );
                                     })
                                 ))}
-                                {renderInequalityControls(true)}
-                                {renderVudokuControls(true)}
-                                {renderXvControls(true)}
-                                {renderKropkiControls(true)}
-                                {renderRossiniControls(true)}
-                                {renderSkyscraperControls(true)}
-                                {renderFrameControls(true)}
-                                {renderOutsideControls(true)}
-                                {renderSandwichControls(true)}
-                                {renderLittleKillerControls(true)}
-                                {renderTripodDotControls(true)}
+                                {!isNonogram ? renderInequalityControls(true) : null}
+                                {!isNonogram ? renderVudokuControls(true) : null}
+                                {!isNonogram ? renderXvControls(true) : null}
+                                {!isNonogram ? renderKropkiControls(true) : null}
+                                {!isNonogram ? renderRossiniControls(true) : null}
+                                {!isNonogram ? renderSkyscraperControls(true) : null}
+                                {!isNonogram ? renderFrameControls(true) : null}
+                                {!isNonogram ? renderOutsideControls(true) : null}
+                                {!isNonogram ? renderSandwichControls(true) : null}
+                                {!isNonogram ? renderLittleKillerControls(true) : null}
+                                {!isNonogram ? renderTripodDotControls(true) : null}
                             </div>
                         </div>
                     )}
                 </section>
 
                 <aside className='grid-puzzle-side'>
+                    {!isNonogram ? (
                     <section>
                         <div className='grid-puzzle-section-title'>
                             <strong>Saisie rapide</strong>
@@ -4995,6 +5471,7 @@ function GridPuzzleWorkbenchApp({
                             <button onClick={clearGrid}>Vider</button>
                         </div>
                     </section>
+                    ) : null}
 
                     <section>
                         <strong>Options</strong>

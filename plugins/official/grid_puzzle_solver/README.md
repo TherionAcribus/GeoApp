@@ -89,6 +89,8 @@ Generic finite-domain grid solver powered by Z3.
   reconstructs N connected N-cell regions from the marked tripod dots, then
   applies row, column and region uniqueness. The legacy `sudoku_tripod` alias
   is treated as 5x5.
+- `nonogram`: classic Nonogram / Picross. Row and column clues describe runs
+  of filled cells; optional givens can force cells to filled or empty.
 - Empty cells can be written as `0`, `.`, or `_`.
 - Separators such as spaces, pipes, and row divider lines are ignored.
 
@@ -150,6 +152,32 @@ Sudoku is just the first builder on top of a generic CSP model:
 This keeps the future path open for irregular Sudoku, killer Sudoku, kakuro-like
 sum grids, black-cell grids, and eventually word grids with richer constraints.
 
+## Nonogram / Picross
+
+Use `puzzle_type=nonogram` (aliases: `picross`, `griddlers`, `hanjie`) with
+`row_clues` and `column_clues`.
+
+Clues can be text, one line per row/column:
+
+```text
+1
+3
+5
+3
+1
+```
+
+or JSON:
+
+```json
+[[1], [3], [5], [3], [1]]
+```
+
+Use `0`, an empty line value, `.`, `-`, or `_` for a line with no filled cells.
+The optional `grid` field can impose known cells: `#`, `X`, or `1` for filled;
+`.`, `-`, or `0` for empty; `?` or `_` for unknown. Nonogram solutions render
+compactly with `#` and `.`.
+
 ## UI direction
 
 The plugin is the engine, not the full user experience. The interactive layer is
@@ -182,6 +210,8 @@ the Theia "Grilles" workbench:
   Killer Sudoku;
 - letter entry and optional alphabet field for Godoku / Wordoku;
 - editable parity marks for Even-Odd Sudoku;
+- editable row and column clues around a Nonogram / Picross grid, with manual
+  filled, empty and unknown cell states;
 - watch mode to mark answer cells;
 - solve action calling this plugin;
 - extracted watched values returned as `watched_values` and `watched_text`.
