@@ -190,6 +190,18 @@ The solver shades enough repeated values to leave no duplicate unshaded number
 in a row or column. Shaded cells cannot share an edge, and all remaining white
 cells must stay orthogonally connected. Solutions use `#` for shaded cells.
 
+## Slither Link
+
+Use `puzzle_type=slitherlink` (aliases: `slither_link`, `slither`,
+`loop_the_loop`, `surizarinku`) with a rectangular `grid` of clues from `0` to
+`3`. Empty cells can be written as `.`, `-`, `_`, or an empty value. The
+optional `edges` object accepts `horizontal` with `(rows + 1) x cols` booleans
+and `vertical` with `rows x (cols + 1)` booleans to keep manually drawn lines.
+
+The solver creates one non-empty closed loop: each clue counts its four
+surrounding segments, each used dot has degree two, and disconnected loops are
+rejected. Each returned solution includes its loop in `edges`.
+
 ## Nonogram / Picross
 
 Use `puzzle_type=nonogram` (aliases: `picross`, `griddlers`, `hanjie`) with
@@ -252,6 +264,8 @@ the Theia "Grilles" workbench:
   filled, empty and unknown cell states;
 - editable black cells, diagonal sum cells and digit cells for Kakuro;
 - editable number cells and manual shaded cells for Hitori;
+- editable dimensions, clues and horizontal/vertical loop segments for Slither
+  Link;
 - watch mode to mark answer cells;
 - solve action calling this plugin;
 - extracted watched values returned as `watched_values` and `watched_text`.

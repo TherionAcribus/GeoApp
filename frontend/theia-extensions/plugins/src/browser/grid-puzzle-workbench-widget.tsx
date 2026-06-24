@@ -10,10 +10,14 @@ import './style/grid-puzzle-workbench.css';
 type Grid = string[][];
 type RegionGrid = number[][];
 type WorkMode = 'edit' | 'watch' | 'parity' | 'chain';
-type SudokuVariant = 'sudoku_classic' | 'sudoku_4x4' | 'sudoku_6x6' | 'sudoku_8x8' | 'sudoku_10x10' | 'sudoku_12x12' | 'sudoku_15x15' | 'sudoku_16x16' | 'sudoku_x' | 'sudoku_argyle' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'sudoku_hoshi' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_vudoku' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_kropki' | 'chain_sudoku_4x4' | 'chain_sudoku_5x5' | 'chain_sudoku_6x6' | 'chain_sudoku_7x7' | 'chain_sudoku_8x8' | 'chain_sudoku_9x9' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_outside' | 'sudoku_sandwich' | 'sudoku_little_killer' | 'sudoku_little_unique_killer' | 'sudoku_godoku' | 'sudoku_even_odd' | 'sudoku_non_consecutive' | 'sudoku_mine' | 'sudoku_mine_6x6' | 'sudoku_tripod' | 'sudoku_tripod_4x4' | 'sudoku_tripod_5x5' | 'sudoku_tripod_6x6' | 'sudoku_tripod_7x7' | 'sudoku_tripod_8x8' | 'nonogram' | 'kakuro' | 'hitori';
+type SudokuVariant = 'sudoku_classic' | 'sudoku_4x4' | 'sudoku_6x6' | 'sudoku_8x8' | 'sudoku_10x10' | 'sudoku_12x12' | 'sudoku_15x15' | 'sudoku_16x16' | 'sudoku_x' | 'sudoku_argyle' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'sudoku_hoshi' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_vudoku' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_kropki' | 'chain_sudoku_4x4' | 'chain_sudoku_5x5' | 'chain_sudoku_6x6' | 'chain_sudoku_7x7' | 'chain_sudoku_8x8' | 'chain_sudoku_9x9' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_outside' | 'sudoku_sandwich' | 'sudoku_little_killer' | 'sudoku_little_unique_killer' | 'sudoku_godoku' | 'sudoku_even_odd' | 'sudoku_non_consecutive' | 'sudoku_mine' | 'sudoku_mine_6x6' | 'sudoku_tripod' | 'sudoku_tripod_4x4' | 'sudoku_tripod_5x5' | 'sudoku_tripod_6x6' | 'sudoku_tripod_7x7' | 'sudoku_tripod_8x8' | 'nonogram' | 'kakuro' | 'hitori' | 'slitherlink';
 type KakuroCellKind = 'black' | 'clue' | 'white';
 type KakuroTool = KakuroCellKind;
 type HitoriTool = 'numbers' | 'shade';
+interface SlitherEdges {
+    horizontal: boolean[][];
+    vertical: boolean[][];
+}
 type InequalitySymbol = '' | '>' | '<';
 type InequalityGrid = InequalitySymbol[][];
 type VudokuSymbol = '' | 'tl' | 'tr' | 'bl' | 'br';
@@ -655,6 +659,65 @@ function findHitoriConflicts(grid: Grid, shaded: boolean[][]): ConflictHighlight
     return { cells, messages: [...new Set(messages)] };
 }
 
+function normalizeSlitherClue(rawValue: unknown): string {
+    const clue = String(rawValue ?? '').match(/[0-3]/g);
+    return clue?.[clue.length - 1] || '';
+}
+
+function resizeSlitherGrid(grid: Grid, rows: number, cols: number): Grid {
+    return Array.from({ length: rows }, (_row, rowIndex) => (
+        Array.from({ length: cols }, (_col, colIndex) => normalizeSlitherClue(grid[rowIndex]?.[colIndex]))
+    ));
+}
+
+function emptySlitherEdges(rows: number, cols: number): SlitherEdges {
+    return {
+        horizontal: Array.from({ length: rows + 1 }, () => Array<boolean>(cols).fill(false)),
+        vertical: Array.from({ length: rows }, () => Array<boolean>(cols + 1).fill(false)),
+    };
+}
+
+function cloneSlitherEdges(edges: SlitherEdges): SlitherEdges {
+    return {
+        horizontal: edges.horizontal.map(row => [...row]),
+        vertical: edges.vertical.map(row => [...row]),
+    };
+}
+
+function resizeSlitherEdges(edges: Partial<SlitherEdges> | undefined, rows: number, cols: number): SlitherEdges {
+    return {
+        horizontal: Array.from({ length: rows + 1 }, (_row, rowIndex) => (
+            Array.from({ length: cols }, (_col, colIndex) => Boolean(edges?.horizontal?.[rowIndex]?.[colIndex]))
+        )),
+        vertical: Array.from({ length: rows }, (_row, rowIndex) => (
+            Array.from({ length: cols + 1 }, (_col, colIndex) => Boolean(edges?.vertical?.[rowIndex]?.[colIndex]))
+        )),
+    };
+}
+
+function normalizeSlitherGrid(value: unknown, rows: number, cols: number): Grid {
+    if (typeof value === 'string') {
+        const parsed = value.split(/\r?\n/).filter(Boolean).map(line => {
+            const text = line.trim();
+            return /[\s,;|]/.test(text) ? text.split(/[\s,;|]+/) : Array.from(text);
+        });
+        return resizeSlitherGrid(parsed, rows, cols);
+    }
+    if (!Array.isArray(value)) {
+        return createEmptyRectGrid(rows, cols);
+    }
+    const parsed = value.map(row => Array.isArray(row) ? row.map(cell => String(cell ?? '')) : []);
+    return resizeSlitherGrid(parsed, rows, cols);
+}
+
+function normalizeSlitherEdges(value: unknown, rows: number, cols: number): SlitherEdges {
+    if (!value || typeof value !== 'object') {
+        return emptySlitherEdges(rows, cols);
+    }
+    const edges = value as Partial<SlitherEdges>;
+    return resizeSlitherEdges(edges, rows, cols);
+}
+
 function cloneInequalityGrid(grid: InequalityGrid): InequalityGrid {
     return grid.map(row => [...row]);
 }
@@ -847,6 +910,9 @@ function getVariantLabel(puzzleType: SudokuVariant): string {
     if (puzzleType === 'hitori') {
         return 'Hitori';
     }
+    if (puzzleType === 'slitherlink') {
+        return 'Slither Link';
+    }
     return 'Sudoku classique';
 }
 
@@ -974,7 +1040,7 @@ function getMineConfig(
 }
 
 function getSingleGridSudokuConfig(puzzleType: SudokuVariant): { size: number; boxRows: number; boxCols: number; label: string } | undefined {
-    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori') {
+    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori' || puzzleType === 'slitherlink') {
         return undefined;
     }
     return getSizedSudokuConfig(puzzleType) || {
@@ -1011,14 +1077,14 @@ function gridSizeForVariant(puzzleType: SudokuVariant): number {
     if (mineConfig) {
         return mineConfig.size;
     }
-    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori') {
+    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori' || puzzleType === 'slitherlink') {
         return SIZE;
     }
     return getSingleGridSudokuConfig(puzzleType)?.size || SIZE;
 }
 
 function isActiveCellForVariant(puzzleType: SudokuVariant, row: number, col: number): boolean {
-    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori') {
+    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori' || puzzleType === 'slitherlink') {
         return row >= 0 && col >= 0;
     }
     if (puzzleType === 'sujiken') {
@@ -1323,7 +1389,7 @@ function findConstraintConflicts(
     const cells = new Set<string>();
     const messages: string[] = [];
 
-    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori') {
+    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori' || puzzleType === 'slitherlink') {
         return { cells, messages };
     }
 
@@ -3508,6 +3574,9 @@ function GridPuzzleWorkbenchApp({
     const [hitoriCols, setHitoriCols] = React.useState(5);
     const [hitoriShaded, setHitoriShaded] = React.useState<boolean[][]>(() => resizeHitoriShaded([], 5, 5));
     const [hitoriTool, setHitoriTool] = React.useState<HitoriTool>('numbers');
+    const [slitherRows, setSlitherRows] = React.useState(5);
+    const [slitherCols, setSlitherCols] = React.useState(5);
+    const [slitherEdges, setSlitherEdges] = React.useState<SlitherEdges>(() => emptySlitherEdges(5, 5));
     const [watchCells, setWatchCells] = React.useState<string[]>([]);
     const [mode, setMode] = React.useState<WorkMode>('edit');
     const [maxSolutions, setMaxSolutions] = React.useState(2);
@@ -3524,6 +3593,7 @@ function GridPuzzleWorkbenchApp({
     );
     const nonogramCellRefs = React.useRef<Array<Array<HTMLButtonElement | null>>>([]);
     const hitoriCellRefs = React.useRef<Array<Array<HTMLElement | null>>>([]);
+    const slitherClueRefs = React.useRef<Array<Array<HTMLInputElement | null>>>([]);
 
     const solutionResults = Array.isArray(solveState.result?.results) ? solveState.result.results : [];
     const activeSolutionIndex = solutionResults.length
@@ -3553,6 +3623,10 @@ function GridPuzzleWorkbenchApp({
     const isNonogram = puzzleType === 'nonogram';
     const isKakuro = puzzleType === 'kakuro';
     const isHitori = puzzleType === 'hitori';
+    const isSlitherLink = puzzleType === 'slitherlink';
+    const solvedSlitherEdges = isSlitherLink
+        ? normalizeSlitherEdges(activeSolution?.edges, slitherRows, slitherCols)
+        : undefined;
     const mineConfig = getMineConfig(puzzleType);
     const isMine = Boolean(mineConfig);
     const tripodConfig = getTripodConfig(puzzleType);
@@ -3615,6 +3689,10 @@ function GridPuzzleWorkbenchApp({
     const hitoriBoardStyle: React.CSSProperties | undefined = isHitori ? {
         gridTemplateColumns: `repeat(${hitoriCols}, 46px)`,
         gridTemplateRows: `repeat(${hitoriRows}, 46px)`,
+    } : undefined;
+    const slitherBoardStyle: React.CSSProperties | undefined = isSlitherLink ? {
+        gridTemplateColumns: `repeat(${slitherCols}, 8px 46px) 8px`,
+        gridTemplateRows: `repeat(${slitherRows}, 8px 46px) 8px`,
     } : undefined;
     const solutionBoardStyle = isNonogram ? nonogramSolutionBoardStyle : boardStyle;
     const chainCounts = React.useMemo(() => {
@@ -3704,6 +3782,22 @@ function GridPuzzleWorkbenchApp({
             );
         }));
     }, [hitoriCols, hitoriRows, isHitori]);
+
+    React.useEffect(() => {
+        if (!isSlitherLink) {
+            return;
+        }
+        setGrid(previous => resizeSlitherGrid(previous, slitherRows, slitherCols));
+        setSlitherEdges(previous => resizeSlitherEdges(previous, slitherRows, slitherCols));
+        setWatchCells(previous => previous.filter(ref => {
+            const match = ref.match(/^r(\d+)c(\d+)$/i);
+            return Boolean(
+                match
+                && Number(match[1]) <= slitherRows
+                && Number(match[2]) <= slitherCols,
+            );
+        }));
+    }, [isSlitherLink, slitherCols, slitherRows]);
 
     const markDirty = React.useCallback(() => {
         if (!geocacheId) {
@@ -3888,6 +3982,53 @@ function GridPuzzleWorkbenchApp({
         markDirty();
     }, [hitoriCols, hitoriRows, markDirty]);
 
+    const setSlitherDimension = React.useCallback((axis: 'row' | 'column', rawValue: number) => {
+        const size = Number.isFinite(rawValue)
+            ? Math.min(20, Math.max(1, Math.floor(rawValue)))
+            : 1;
+        const rows = axis === 'row' ? size : slitherRows;
+        const cols = axis === 'column' ? size : slitherCols;
+        setSlitherRows(rows);
+        setSlitherCols(cols);
+        setGrid(previous => resizeSlitherGrid(previous, rows, cols));
+        setSlitherEdges(previous => resizeSlitherEdges(previous, rows, cols));
+        setSolveState({ running: false });
+        markDirty();
+    }, [markDirty, slitherCols, slitherRows]);
+
+    const updateSlitherClue = React.useCallback((row: number, col: number, rawValue: string) => {
+        setGrid(previous => {
+            const next = resizeSlitherGrid(previous, slitherRows, slitherCols);
+            next[row][col] = normalizeSlitherClue(rawValue);
+            return next;
+        });
+        setSolveState({ running: false });
+        markDirty();
+    }, [markDirty, slitherCols, slitherRows]);
+
+    const toggleSlitherEdge = React.useCallback((axis: 'horizontal' | 'vertical', row: number, col: number) => {
+        setSlitherEdges(previous => {
+            const next = cloneSlitherEdges(resizeSlitherEdges(previous, slitherRows, slitherCols));
+            next[axis][row][col] = !next[axis][row][col];
+            return next;
+        });
+        setSolveState({ running: false });
+        markDirty();
+    }, [markDirty, slitherCols, slitherRows]);
+
+    const clearSlitherEdges = React.useCallback(() => {
+        setSlitherEdges(emptySlitherEdges(slitherRows, slitherCols));
+        setSolveState({ running: false });
+        markDirty();
+    }, [markDirty, slitherCols, slitherRows]);
+
+    const clearSlither = React.useCallback(() => {
+        setGrid(createEmptyRectGrid(slitherRows, slitherCols));
+        setSlitherEdges(emptySlitherEdges(slitherRows, slitherCols));
+        setSolveState({ running: false });
+        markDirty();
+    }, [markDirty, slitherCols, slitherRows]);
+
     const updateNonogramCell = React.useCallback((row: number, col: number, value: string) => {
         setGrid(previous => {
             const next = resizeNonogramGrid(previous, nonogramRows, nonogramCols);
@@ -3950,12 +4091,16 @@ function GridPuzzleWorkbenchApp({
         const inferredHitoriCols = Array.isArray(snapshot?.grid) && Array.isArray(snapshot.grid[0]) ? snapshot.grid[0].length : 5;
         const restoredHitoriRows = normalizeNumber(snapshot?.hitori?.rows, inferredHitoriRows, 2, 20);
         const restoredHitoriCols = normalizeNumber(snapshot?.hitori?.cols, inferredHitoriCols, 2, 20);
+        const restoredSlitherRows = normalizeNumber(snapshot?.slither?.rows, inferredHitoriRows, 1, 20);
+        const restoredSlitherCols = normalizeNumber(snapshot?.slither?.cols, inferredHitoriCols, 1, 20);
         const restoredKakuroLayout = normalizeKakuroLayout(snapshot?.kakuro?.layout ?? snapshot?.kakuroLayout)
             || createKakuroStarterLayout();
         const restoredGrid = puzzleType === 'kakuro'
             ? normalizeKakuroGrid(snapshot?.grid, restoredKakuroLayout)
             : puzzleType === 'hitori'
                 ? normalizeHitoriGrid(snapshot?.grid, restoredHitoriRows, restoredHitoriCols)
+                : puzzleType === 'slitherlink'
+                    ? normalizeSlitherGrid(snapshot?.grid, restoredSlitherRows, restoredSlitherCols)
             : normalizeGrid(snapshot?.grid, puzzleType) || createEmptyGrid(variantSize);
         const restoredChainGrid = normalizeChainGrid(snapshot?.chains ?? snapshot?.chainGrid, variantSize);
         const restoredResult = snapshot?.lastResult && typeof snapshot.lastResult === 'object'
@@ -3975,6 +4120,12 @@ function GridPuzzleWorkbenchApp({
             setHitoriCols(restoredHitoriCols);
             setHitoriShaded(resizeHitoriShaded(snapshot?.hitori?.shaded ?? snapshot?.hitoriShaded ?? [], restoredHitoriRows, restoredHitoriCols));
             setHitoriTool('numbers');
+            setGrid(restoredGrid);
+            setQuickText('');
+        } else if (puzzleType === 'slitherlink') {
+            setSlitherRows(restoredSlitherRows);
+            setSlitherCols(restoredSlitherCols);
+            setSlitherEdges(normalizeSlitherEdges(snapshot?.slither?.edges ?? snapshot?.slitherEdges, restoredSlitherRows, restoredSlitherCols));
             setGrid(restoredGrid);
             setQuickText('');
         } else {
@@ -4107,6 +4258,11 @@ function GridPuzzleWorkbenchApp({
                         cols: hitoriCols,
                         shaded: hitoriShaded,
                     },
+                    slither: {
+                        rows: slitherRows,
+                        cols: slitherCols,
+                        edges: slitherEdges,
+                    },
                     watchCells,
                     maxSolutions,
                     solverTimeoutMs: timeoutMs,
@@ -4156,6 +4312,9 @@ function GridPuzzleWorkbenchApp({
         rossiniArrows,
         sandwichClues,
         skyscraperClues,
+        slitherCols,
+        slitherEdges,
+        slitherRows,
         solveState.result,
         timeoutMs,
         tripodDots,
@@ -4501,6 +4660,38 @@ function GridPuzzleWorkbenchApp({
         focusHitoriCell(row + move[0], col + move[1]);
     }, [focusHitoriCell]);
 
+    const focusSlitherClue = React.useCallback((row: number, col: number) => {
+        const targetRow = Math.max(0, Math.min(slitherRows - 1, row));
+        const targetCol = Math.max(0, Math.min(slitherCols - 1, col));
+        const target = slitherClueRefs.current[targetRow]?.[targetCol];
+        target?.focus();
+        target?.select();
+    }, [slitherCols, slitherRows]);
+
+    const handleSlitherClueKeyDown = React.useCallback((row: number, col: number, event: React.KeyboardEvent<HTMLInputElement>) => {
+        const moves: Record<string, [number, number]> = {
+            ArrowUp: [-1, 0],
+            ArrowDown: [1, 0],
+            ArrowLeft: [0, -1],
+            ArrowRight: [0, 1],
+        };
+        const move = moves[event.key];
+        if (move) {
+            event.preventDefault();
+            focusSlitherClue(row + move[0], col + move[1]);
+            return;
+        }
+        if (event.key === 'Backspace' || event.key === 'Delete' || event.key === '.' || event.key === '-') {
+            event.preventDefault();
+            updateSlitherClue(row, col, '');
+            return;
+        }
+        if (/^[0-3]$/.test(event.key)) {
+            event.preventDefault();
+            updateSlitherClue(row, col, event.key);
+        }
+    }, [focusSlitherClue, updateSlitherClue]);
+
     const handleNonogramCellClick = React.useCallback((row: number, col: number, event: React.MouseEvent<HTMLButtonElement>) => {
         const ref = cellRef(row, col);
         if (mode === 'watch' || event.ctrlKey || event.metaKey) {
@@ -4688,10 +4879,13 @@ function GridPuzzleWorkbenchApp({
             || value === 'nonogram'
             || value === 'kakuro'
             || value === 'hitori'
+            || value === 'slitherlink'
             ? value
             : 'sudoku_classic';
         const nextGrid = nextPuzzleType === 'hitori'
             ? resizeHitoriGrid(puzzleType === 'hitori' ? grid : [], hitoriRows, hitoriCols)
+            : nextPuzzleType === 'slitherlink'
+                ? resizeSlitherGrid(puzzleType === 'slitherlink' ? grid : [], slitherRows, slitherCols)
             : nextPuzzleType === 'kakuro'
                 ? resizeKakuroGrid(puzzleType === 'kakuro' ? grid : [], kakuroLayout)
                 : resizeGrid(grid, gridSizeForVariant(nextPuzzleType));
@@ -4712,6 +4906,10 @@ function GridPuzzleWorkbenchApp({
             setHitoriTool('numbers');
             setHitoriShaded(resizeHitoriShaded([], hitoriRows, hitoriCols));
         }
+        if (nextPuzzleType === 'slitherlink') {
+            setMode('edit');
+            setSlitherEdges(emptySlitherEdges(slitherRows, slitherCols));
+        }
         if (getTripodConfig(nextPuzzleType)) {
             setTripodDots(emptyTripodDots(gridSizeForVariant(nextPuzzleType)));
         }
@@ -4722,10 +4920,10 @@ function GridPuzzleWorkbenchApp({
             setActiveChain(1);
             setMode('chain');
         }
-        setQuickText(nextPuzzleType === 'nonogram' || nextPuzzleType === 'kakuro' || nextPuzzleType === 'hitori' ? '' : gridToText(nextGrid, nextPuzzleType));
+        setQuickText(nextPuzzleType === 'nonogram' || nextPuzzleType === 'kakuro' || nextPuzzleType === 'hitori' || nextPuzzleType === 'slitherlink' ? '' : gridToText(nextGrid, nextPuzzleType));
         setSolveState({ running: false });
         markDirty();
-    }, [grid, hitoriCols, hitoriRows, kakuroLayout, markDirty, mode, puzzleType]);
+    }, [grid, hitoriCols, hitoriRows, kakuroLayout, markDirty, mode, puzzleType, slitherCols, slitherRows]);
 
     const clearGrid = React.useCallback(() => {
         if (isNonogram) {
@@ -4739,6 +4937,10 @@ function GridPuzzleWorkbenchApp({
         } else if (isHitori) {
             setGrid(createEmptyRectGrid(hitoriRows, hitoriCols));
             setHitoriShaded(resizeHitoriShaded([], hitoriRows, hitoriCols));
+            setQuickText('');
+        } else if (isSlitherLink) {
+            setGrid(createEmptyRectGrid(slitherRows, slitherCols));
+            setSlitherEdges(emptySlitherEdges(slitherRows, slitherCols));
             setQuickText('');
         } else {
             setGridAndQuickText(createEmptyGrid(gridSizeForVariant(puzzleType)));
@@ -4764,7 +4966,7 @@ function GridPuzzleWorkbenchApp({
         setWatchCells([]);
         setSolveState({ running: false });
         markDirty();
-    }, [hitoriCols, hitoriRows, isHitori, isKakuro, isNonogram, kakuroLayout, markDirty, puzzleType, setGridAndQuickText]);
+    }, [hitoriCols, hitoriRows, isHitori, isKakuro, isNonogram, isSlitherLink, kakuroLayout, markDirty, puzzleType, setGridAndQuickText, slitherCols, slitherRows]);
 
     const solve = React.useCallback(async () => {
         if (constraintConflicts.messages.length > 0) {
@@ -4788,6 +4990,8 @@ function GridPuzzleWorkbenchApp({
                 puzzle_type: puzzleType,
                 grid: isHitori
                     ? resizeHitoriGrid(grid, hitoriRows, hitoriCols)
+                    : isSlitherLink
+                        ? resizeSlitherGrid(grid, slitherRows, slitherCols)
                     : isKakuro
                         ? resizeKakuroGrid(grid, kakuroLayout)
                         : isNonogram
@@ -4795,6 +4999,7 @@ function GridPuzzleWorkbenchApp({
                             : gridToText(grid, puzzleType),
                 kakuro: isKakuro ? { cells: kakuroLayout } : undefined,
                 shaded: isHitori ? hitoriShaded : undefined,
+                edges: isSlitherLink ? slitherEdges : undefined,
                 row_clues: isNonogram ? serializeNonogramClueLines(nonogramRowClueLines) : undefined,
                 column_clues: isNonogram ? serializeNonogramClueLines(nonogramColumnClueLines) : undefined,
                 watched_cells: watchCells.join(' '),
@@ -4843,12 +5048,14 @@ function GridPuzzleWorkbenchApp({
                 error: error instanceof Error ? error.message : String(error),
             });
         }
-    }, [areChainsComplete, chainConfig?.size, chainGrid, constraintConflicts.messages.length, frameClues, geocacheId, godokuAlphabet, grid, hitoriCols, hitoriRows, hitoriShaded, horizontalInequalities, isChain, isEvenOdd, isFrame, isGodoku, isHitori, isKakuro, isKropki, isLittleKiller, isNonogram, isOutside, isRossini, isSandwich, isSkyscraper, isTripod, isVudoku, isXv, kakuroLayout, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, maxSolutions, nonogramCols, nonogramColumnClueLines, nonogramRows, nonogramRowClueLines, outsideClues, parityMarks, pluginsService, puzzleType, rossiniArrows, sandwichClues, saveState, skyscraperClues, timeoutMs, tripodDots, verticalInequalities, vudokuCorners, watchCells, xvHorizontalMarks, xvVerticalMarks]);
+    }, [areChainsComplete, chainConfig?.size, chainGrid, constraintConflicts.messages.length, frameClues, geocacheId, godokuAlphabet, grid, hitoriCols, hitoriRows, hitoriShaded, horizontalInequalities, isChain, isEvenOdd, isFrame, isGodoku, isHitori, isKakuro, isKropki, isLittleKiller, isNonogram, isOutside, isRossini, isSandwich, isSkyscraper, isSlitherLink, isTripod, isVudoku, isXv, kakuroLayout, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, maxSolutions, nonogramCols, nonogramColumnClueLines, nonogramRows, nonogramRowClueLines, outsideClues, parityMarks, pluginsService, puzzleType, rossiniArrows, sandwichClues, saveState, skyscraperClues, slitherCols, slitherEdges, slitherRows, timeoutMs, tripodDots, verticalInequalities, vudokuCorners, watchCells, xvHorizontalMarks, xvVerticalMarks]);
 
     const useSolvedGrid = React.useCallback(() => {
         if (solvedGrid) {
             if (isHitori) {
                 setHitoriShaded(resizeHitoriShaded(solvedGrid.map(row => row.map(value => value === '#')), hitoriRows, hitoriCols));
+            } else if (isSlitherLink && solvedSlitherEdges) {
+                setSlitherEdges(solvedSlitherEdges);
             } else if (isKakuro) {
                 setGrid(resizeKakuroGrid(solvedGrid, kakuroLayout));
             } else {
@@ -4857,7 +5064,7 @@ function GridPuzzleWorkbenchApp({
             setSolveState({ running: false });
             markDirty();
         }
-    }, [hitoriCols, hitoriRows, isHitori, isKakuro, kakuroLayout, markDirty, setGridAndQuickText, solvedGrid]);
+    }, [hitoriCols, hitoriRows, isHitori, isKakuro, isSlitherLink, kakuroLayout, markDirty, setGridAndQuickText, solvedGrid, solvedSlitherEdges]);
 
     const cellStyle = (rowIndex: number, colIndex: number): React.CSSProperties | undefined => {
         if (variableGridConfig) {
@@ -5664,6 +5871,7 @@ function GridPuzzleWorkbenchApp({
                         <option value='nonogram'>Nonogram / Picross</option>
                         <option value='kakuro'>Kakuro / Cross Sums</option>
                         <option value='hitori'>Hitori</option>
+                        <option value='slitherlink'>Slither Link</option>
                     </select>
                     <button onClick={solve} disabled={solveState.running}>
                         {solveState.running ? 'Resolution...' : 'Resoudre'}
@@ -6173,6 +6381,186 @@ function GridPuzzleWorkbenchApp({
                                 </div>
                             ) : null}
                         </div>
+                    ) : isSlitherLink ? (
+                        <div className='slither-editor'>
+                            <div className='slither-toolbar'>
+                                <label>
+                                    Lignes
+                                    <input
+                                        type='number'
+                                        min={1}
+                                        max={20}
+                                        value={slitherRows}
+                                        aria-label='Nombre de lignes Slither Link'
+                                        title='Nombre de lignes Slither Link'
+                                        onFocus={event => event.currentTarget.select()}
+                                        onChange={event => setSlitherDimension('row', Number(event.currentTarget.value))}
+                                    />
+                                </label>
+                                <span aria-hidden='true'>x</span>
+                                <label>
+                                    Colonnes
+                                    <input
+                                        type='number'
+                                        min={1}
+                                        max={20}
+                                        value={slitherCols}
+                                        aria-label='Nombre de colonnes Slither Link'
+                                        title='Nombre de colonnes Slither Link'
+                                        onFocus={event => event.currentTarget.select()}
+                                        onChange={event => setSlitherDimension('column', Number(event.currentTarget.value))}
+                                    />
+                                </label>
+                            </div>
+                            <div className='slither-board' style={slitherBoardStyle} aria-label='Grille Slither Link interactive'>
+                                {Array.from({ length: slitherRows + 1 }, (_row, rowIndex) => (
+                                    Array.from({ length: slitherCols + 1 }, (_col, colIndex) => (
+                                        <span
+                                            key={`slither-dot-${rowIndex}-${colIndex}`}
+                                            className='slither-dot'
+                                            style={{ gridColumn: String(colIndex * 2 + 1), gridRow: String(rowIndex * 2 + 1) }}
+                                        />
+                                    ))
+                                ))}
+                                {Array.from({ length: slitherRows + 1 }, (_row, rowIndex) => (
+                                    Array.from({ length: slitherCols }, (_col, colIndex) => {
+                                        const drawn = Boolean(slitherEdges.horizontal[rowIndex]?.[colIndex]);
+                                        return (
+                                            <button
+                                                key={`slither-horizontal-${rowIndex}-${colIndex}`}
+                                                type='button'
+                                                className={`slither-edge horizontal${drawn ? ' drawn' : ''}`}
+                                                style={{ gridColumn: String(colIndex * 2 + 2), gridRow: String(rowIndex * 2 + 1) }}
+                                                aria-label={`Trait horizontal, ligne ${rowIndex + 1}, colonne ${colIndex + 1}${drawn ? ', trace' : ', absent'}`}
+                                                aria-pressed={drawn}
+                                                title='Cliquer pour poser ou retirer un trait horizontal'
+                                                onClick={() => toggleSlitherEdge('horizontal', rowIndex, colIndex)}
+                                            />
+                                        );
+                                    })
+                                ))}
+                                {Array.from({ length: slitherRows }, (_row, rowIndex) => (
+                                    Array.from({ length: slitherCols + 1 }, (_col, colIndex) => {
+                                        const drawn = Boolean(slitherEdges.vertical[rowIndex]?.[colIndex]);
+                                        return (
+                                            <button
+                                                key={`slither-vertical-${rowIndex}-${colIndex}`}
+                                                type='button'
+                                                className={`slither-edge vertical${drawn ? ' drawn' : ''}`}
+                                                style={{ gridColumn: String(colIndex * 2 + 1), gridRow: String(rowIndex * 2 + 2) }}
+                                                aria-label={`Trait vertical, ligne ${rowIndex + 1}, colonne ${colIndex + 1}${drawn ? ', trace' : ', absent'}`}
+                                                aria-pressed={drawn}
+                                                title='Cliquer pour poser ou retirer un trait vertical'
+                                                onClick={() => toggleSlitherEdge('vertical', rowIndex, colIndex)}
+                                            />
+                                        );
+                                    })
+                                ))}
+                                {Array.from({ length: slitherRows }, (_row, rowIndex) => (
+                                    Array.from({ length: slitherCols }, (_col, colIndex) => {
+                                        const ref = cellRef(rowIndex, colIndex);
+                                        return (
+                                            <input
+                                                key={`slither-clue-${ref}`}
+                                                className={`slither-clue${watchCells.includes(ref) ? ' watched' : ''}`}
+                                                style={{ gridColumn: String(colIndex * 2 + 2), gridRow: String(rowIndex * 2 + 2) }}
+                                                ref={element => {
+                                                    slitherClueRefs.current[rowIndex] = slitherClueRefs.current[rowIndex] || [];
+                                                    slitherClueRefs.current[rowIndex][colIndex] = element;
+                                                }}
+                                                value={grid[rowIndex]?.[colIndex] || ''}
+                                                inputMode='numeric'
+                                                maxLength={1}
+                                                aria-label={`Indice ${ref}`}
+                                                title={mode === 'watch' ? `${ref}, cliquez pour surveiller cette case.` : `${ref}, indice de 0 a 3.`}
+                                                onPointerDown={event => {
+                                                    if (mode === 'watch') {
+                                                        event.preventDefault();
+                                                    }
+                                                }}
+                                                onClick={event => {
+                                                    if (mode === 'watch' || event.ctrlKey || event.metaKey) {
+                                                        event.preventDefault();
+                                                        toggleWatchCell(ref);
+                                                    }
+                                                }}
+                                                onKeyDown={event => handleSlitherClueKeyDown(rowIndex, colIndex, event)}
+                                                onChange={event => updateSlitherClue(rowIndex, colIndex, event.currentTarget.value)}
+                                            />
+                                        );
+                                    })
+                                ))}
+                            </div>
+                            <div className='grid-puzzle-actions inline'>
+                                <button type='button' onClick={clearSlitherEdges}>Effacer les traits</button>
+                                <button type='button' onClick={clearSlither}>Reinitialiser</button>
+                            </div>
+                            {solvedGrid && solvedSlitherEdges ? (
+                                <div className='grid-puzzle-solution'>
+                                    <div className='grid-puzzle-section-title'>
+                                        <strong>
+                                            Solution {solutionResults.length > 1 ? `${activeSolutionIndex + 1}/${solutionResults.length}` : ''}
+                                        </strong>
+                                        <div className='solution-actions'>
+                                            {solutionResults.length > 1 ? (
+                                                <select
+                                                    value={activeSolutionIndex}
+                                                    onChange={event => setSelectedSolutionIndex(Number(event.currentTarget.value) || 0)}
+                                                    aria-label='Solution affichee'
+                                                >
+                                                    {solutionResults.map((_solution, index) => (
+                                                        <option key={`solution-option-${index}`} value={index}>
+                                                            Solution {index + 1}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            ) : null}
+                                            <button onClick={useSolvedGrid}>Reprendre dans la grille</button>
+                                        </div>
+                                    </div>
+                                    <div className='slither-board solved' style={slitherBoardStyle} aria-label='Solution Slither Link'>
+                                        {Array.from({ length: slitherRows + 1 }, (_row, rowIndex) => (
+                                            Array.from({ length: slitherCols + 1 }, (_col, colIndex) => (
+                                                <span
+                                                    key={`solved-slither-dot-${rowIndex}-${colIndex}`}
+                                                    className='slither-dot'
+                                                    style={{ gridColumn: String(colIndex * 2 + 1), gridRow: String(rowIndex * 2 + 1) }}
+                                                />
+                                            ))
+                                        ))}
+                                        {Array.from({ length: slitherRows + 1 }, (_row, rowIndex) => (
+                                            Array.from({ length: slitherCols }, (_col, colIndex) => (
+                                                <span
+                                                    key={`solved-slither-horizontal-${rowIndex}-${colIndex}`}
+                                                    className={`slither-edge horizontal${solvedSlitherEdges.horizontal[rowIndex]?.[colIndex] ? ' drawn' : ''}`}
+                                                    style={{ gridColumn: String(colIndex * 2 + 2), gridRow: String(rowIndex * 2 + 1) }}
+                                                />
+                                            ))
+                                        ))}
+                                        {Array.from({ length: slitherRows }, (_row, rowIndex) => (
+                                            Array.from({ length: slitherCols + 1 }, (_col, colIndex) => (
+                                                <span
+                                                    key={`solved-slither-vertical-${rowIndex}-${colIndex}`}
+                                                    className={`slither-edge vertical${solvedSlitherEdges.vertical[rowIndex]?.[colIndex] ? ' drawn' : ''}`}
+                                                    style={{ gridColumn: String(colIndex * 2 + 1), gridRow: String(rowIndex * 2 + 2) }}
+                                                />
+                                            ))
+                                        ))}
+                                        {Array.from({ length: slitherRows }, (_row, rowIndex) => (
+                                            Array.from({ length: slitherCols }, (_col, colIndex) => (
+                                                <span
+                                                    key={`solved-slither-clue-${rowIndex}-${colIndex}`}
+                                                    className='slither-clue'
+                                                    style={{ gridColumn: String(colIndex * 2 + 2), gridRow: String(rowIndex * 2 + 2) }}
+                                                >
+                                                    {grid[rowIndex]?.[colIndex] || ''}
+                                                </span>
+                                            ))
+                                        ))}
+                                    </div>
+                                </div>
+                            ) : null}
+                        </div>
                     ) : (
                         <>
                     <div
@@ -6283,7 +6671,7 @@ function GridPuzzleWorkbenchApp({
                         </>
                     )}
 
-                    {solvedGrid && !isKakuro && !isHitori && (
+                    {solvedGrid && !isKakuro && !isHitori && !isSlitherLink && (
                         <div className='grid-puzzle-solution'>
                             <div className='grid-puzzle-section-title'>
                                 <strong>
@@ -6387,7 +6775,7 @@ function GridPuzzleWorkbenchApp({
                 </section>
 
                 <aside className='grid-puzzle-side'>
-                    {!isNonogram && !isKakuro && !isHitori ? (
+                    {!isNonogram && !isKakuro && !isHitori && !isSlitherLink ? (
                     <section>
                         <div className='grid-puzzle-section-title'>
                             <strong>Saisie rapide</strong>

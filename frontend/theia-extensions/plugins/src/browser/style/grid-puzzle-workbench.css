@@ -642,6 +642,170 @@ input.hitori-cell:focus {
     justify-content: center;
 }
 
+.slither-editor {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.slither-toolbar {
+    display: flex;
+    align-items: end;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.slither-toolbar > label {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    color: var(--theia-descriptionForeground);
+    font-size: 10px;
+    line-height: 1;
+}
+
+.slither-toolbar > span {
+    margin-bottom: 4px;
+    color: var(--theia-descriptionForeground);
+    font-weight: 700;
+}
+
+.grid-puzzle-workbench .slither-toolbar > label > input {
+    box-sizing: border-box;
+    width: 52px;
+    min-width: 0;
+    height: 24px;
+    padding: 1px 2px;
+    border-radius: 2px;
+    font-size: 11px;
+    text-align: center;
+}
+
+.slither-board {
+    display: grid;
+    width: max-content;
+    max-width: 100%;
+    overflow: auto;
+    background: var(--theia-input-background);
+}
+
+.slither-dot {
+    align-self: center;
+    justify-self: center;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--theia-foreground);
+    pointer-events: none;
+    z-index: 3;
+}
+
+.slither-edge {
+    position: relative;
+    display: block;
+    box-sizing: border-box;
+    min-width: 0;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    cursor: pointer;
+    z-index: 2;
+}
+
+.grid-puzzle-workbench button.slither-edge {
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    padding: 0;
+    color: inherit;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+}
+
+.grid-puzzle-workbench button.slither-edge:hover {
+    background: transparent;
+}
+
+.slither-edge::after {
+    position: absolute;
+    display: block;
+    content: '';
+    border-radius: 1px;
+    background: transparent;
+}
+
+.slither-edge.horizontal::after {
+    top: 2px;
+    left: 0;
+    width: 100%;
+    height: 3px;
+}
+
+.slither-edge.vertical::after {
+    top: 0;
+    left: 2px;
+    width: 3px;
+    height: 100%;
+}
+
+.slither-edge.drawn::after {
+    background: var(--theia-foreground);
+}
+
+button.slither-edge:not(.drawn):hover::after {
+    background: color-mix(in srgb, var(--theia-focusBorder) 55%, transparent);
+}
+
+button.slither-edge:focus-visible {
+    outline: 2px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+}
+
+.slither-clue {
+    position: relative;
+    display: flex;
+    box-sizing: border-box;
+    align-items: center;
+    justify-content: center;
+    width: 46px;
+    height: 46px;
+    min-width: 46px;
+    min-height: 46px;
+    padding: 0;
+    color: var(--theia-input-foreground);
+    background: var(--theia-input-background);
+    border: 0;
+    border-radius: 0;
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1;
+    text-align: center;
+    z-index: 4;
+}
+
+input.slither-clue:focus {
+    position: relative;
+    z-index: 4;
+    outline: 2px solid var(--theia-focusBorder);
+    outline-offset: -2px;
+}
+
+.slither-clue.watched {
+    outline: 2px solid #f59e0b;
+    outline-offset: -3px;
+}
+
+.slither-board.solved .slither-edge {
+    cursor: default;
+    pointer-events: none;
+}
+
 .sudoku-cell {
     width: 44px;
     height: 44px;

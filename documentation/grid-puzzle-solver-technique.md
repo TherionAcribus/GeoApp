@@ -32,6 +32,7 @@ Les objectifs actuels sont :
 - resoudre un Nonogram / Picross avec indices de blocs par ligne et colonne ;
 - resoudre un Kakuro / Cross Sums avec sommes horizontales et verticales ;
 - resoudre un Hitori en rayant les doublons sans isoler les cases blanches ;
+- resoudre un Slither Link avec une boucle fermee unique ;
 - permettre une saisie interactive dans une grille Theia ;
 - permettre l'edition visuelle des bords d'inegalite pour Compdoku ;
 - synchroniser une saisie rapide textuelle avec la grille ;
@@ -157,6 +158,7 @@ Entrées principales :
 | `col_clues`, `cols`, `columns` | string/list | vide | Alias de `column_clues` pour Nonogram. |
 | `kakuro`, `layout` | object/string JSON | vide | Matrice Kakuro de cellules `black`, `white` et `clue`. |
 | `shaded`, `hitori_shaded`, `marks` | string/list | vide | Marques noires Hitori alignees sur la grille. |
+| `edges`, `lines`, `slither_edges` | object/string JSON | vide | Traits Slither Link `horizontal` et `vertical` deja traces. |
 | `watched_cells` | string/list | vide | Cellules a extraire apres resolution. |
 | `watch_cells` | string/list | vide | Alias de `watched_cells`. |
 
@@ -204,6 +206,7 @@ Valeurs supportees pour `puzzle_type` :
 | `nonogram` | `picross`, `griddlers`, `hanjie` | Nonogram classique : les indices de lignes et colonnes decrivent les blocs noircis. |
 | `kakuro` | `cross_sums`, `crosssum`, `cross_sum` | Kakuro : sommes de series de chiffres 1-9 sans repetition. |
 | `hitori` | `hitori_puzzle` | Hitori : doublons rayes, noirs non adjacents et blancs connectes. |
+| `slitherlink` | `slither_link`, `slither`, `loop_the_loop`, `surizarinku` | Slither Link : une boucle unique autour des indices 0-3. |
 | `custom_spec` | `custom`, `json_spec` | Probleme CSP decrit en JSON. |
 
 Format de grille Sudoku :
@@ -1953,6 +1956,36 @@ Les solutions utilisent `#` pour une case rayee. Dans l'atelier Theia, le mode
 manuelles. Les rayures adjacentes, les rayures inutiles et les blancs isoles
 sont affiches en rouge.
 
+### Slither Link
+
+`puzzle_type = slitherlink`
+
+Aliases :
+
+```text
+slither_link
+slither
+loop_the_loop
+surizarinku
+```
+
+La grille est une matrice rectangulaire d'indices `0` a `3`. Une case vide,
+`.`, `-` ou `_` n'impose aucun indice. L'objet optionnel `edges` contient les
+traits deja traces : `horizontal` a `(lignes + 1) x colonnes` et `vertical` a
+`lignes x (colonnes + 1)`.
+
+Le solveur applique les contraintes suivantes :
+
+- chaque indice egale le nombre de traits sur les quatre cotes de sa case ;
+- chaque point inutilise a degre `0`, chaque point de la boucle a degre `2` ;
+- une seule composante de points utilises est autorisee, donc une unique boucle
+  fermee non vide est produite.
+
+Les segments de chaque solution sont retournes dans `results[].edges`. Dans
+l'atelier Theia, les dimensions, les indices et les traits horizontaux ou
+verticaux sont tous editables. Les fleches du clavier parcourent les cases
+d'indices.
+
 ### Non-Consecutive Sudoku
 
 `puzzle_type = sudoku_non_consecutive`
@@ -2247,6 +2280,7 @@ Fonctionnalites actuelles :
 - marquage manuel des cases inconnues, noircies ou blanches en mode Nonogram ;
 - editeur de cases noires, sommes diagonales et chiffres en mode Kakuro ;
 - saisie des nombres et rayage manuel des cases en mode Hitori ;
+- dimensions, indices et traits manuels pour Slither Link ;
 - affichage de la premiere solution ;
 - reprise de la solution dans la grille ;
 - extraction des cellules surveillees ;
@@ -2258,7 +2292,7 @@ Fonctionnalites actuelles :
 |---|---|---|
 | `grid` | `string[][]` | Valeurs courantes de la grille. |
 | `quickText` | `string` | Representation texte de la grille. |
-| `puzzleType` | `sudoku_classic`, variantes classiques `sudoku_4x4` a `sudoku_16x16`, `chain_sudoku_4x4` a `chain_sudoku_9x9`, `sudoku_x`, `sudoku_argyle`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_vudoku`, `sudoku_rossini`, `sudoku_xv`, `sudoku_kropki`, `sudoku_skyscraper`, `sudoku_frame`, `sudoku_outside`, `sudoku_little_killer`, `sudoku_little_unique_killer`, `sudoku_godoku`, `sudoku_even_odd`, `sudoku_non_consecutive`, `sudoku_mine`, `sudoku_mine_6x6`, `nonogram`, `kakuro`, `hitori` ou `sudoku_tripod_4x4` a `sudoku_tripod_8x8` | Variante active. |
+| `puzzleType` | `sudoku_classic`, variantes classiques `sudoku_4x4` a `sudoku_16x16`, `chain_sudoku_4x4` a `chain_sudoku_9x9`, `sudoku_x`, `sudoku_argyle`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_vudoku`, `sudoku_rossini`, `sudoku_xv`, `sudoku_kropki`, `sudoku_skyscraper`, `sudoku_frame`, `sudoku_outside`, `sudoku_little_killer`, `sudoku_little_unique_killer`, `sudoku_godoku`, `sudoku_even_odd`, `sudoku_non_consecutive`, `sudoku_mine`, `sudoku_mine_6x6`, `nonogram`, `kakuro`, `hitori`, `slitherlink` ou `sudoku_tripod_4x4` a `sudoku_tripod_8x8` | Variante active. |
 | `horizontalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme ligne. |
 | `verticalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme colonne. |
 | `vudokuCorners` | `string[][]` | Coins Vudoku 8x8 : `tl`, `tr`, `bl`, `br` ou vide. |
@@ -2277,6 +2311,8 @@ Fonctionnalites actuelles :
 | `kakuroLayout` | `KakuroCell[][]` | Cases `black`, `clue` (sommes `across` / `down`) et `white` du Kakuro. |
 | `hitoriRows`, `hitoriCols` | number | Dimensions de la grille Hitori. |
 | `hitoriShaded` | `boolean[][]` | Cases rayees manuellement dans Hitori. |
+| `slitherRows`, `slitherCols` | number | Dimensions de la grille Slither Link. |
+| `slitherEdges` | object | Traits `horizontal` et `vertical` manuels du Slither Link. |
 | `parityMarks` | `string[][]` | Marques `even` / `odd` par cellule pour Even-Odd. |
 | `tripodDots` | `boolean[][]` | Points noirs (N+1)x(N+1) aux intersections pour Tripod. |
 | `chainGrid` | `number[][]` | Affectation des chaines Chain / Strimko. |
@@ -2625,6 +2661,8 @@ Couverture actuelle :
 - Kakuro refuse un doublon dans une meme somme ;
 - Hitori raye les doublons tout en gardant les blancs connectes ;
 - Hitori refuse deux rayures adjacentes ;
+- Slither Link resout une boucle unique et retourne ses segments ;
+- Slither Link refuse un trait force autour d'un indice `0` ;
 - Tripod valide avec reconstruction de regions ;
 - Tripod refuse un point noir impossible ;
 - extraction des cellules surveillees ;

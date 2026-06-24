@@ -168,7 +168,7 @@ class GridpuzzlesolverPlugin:
 
     def __init__(self) -> None:
         self.name = "grid_puzzle_solver"
-        self.version = "0.4.0"
+        self.version = "0.5.0"
 
     def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         start_time = time.time()
@@ -704,6 +704,32 @@ class GridpuzzlesolverPlugin:
                     problem,
                     hitori_values,
                     forced_shades,
+                    max_solutions,
+                    solver_timeout_ms,
+                )
+                return self._success_response(
+                    start_time,
+                    problem,
+                    solved,
+                    max_solutions,
+                    solver_timeout_ms,
+                    watched_cells,
+                )
+            elif puzzle_type in {"slitherlink", "slither_link", "slither", "loop_the_loop", "surizarinku"}:
+                problem, slither_clues, forced_edges = self._build_slitherlink_problem(
+                    clues=inputs.get("clues") or inputs.get("slither_clues") or inputs.get("grid") or inputs.get("puzzle"),
+                    edges=inputs.get("edges") or inputs.get("lines") or inputs.get("slither_edges"),
+                )
+                watched_cells = self._parse_watch_cells(
+                    watched_cells_input,
+                    problem.rows,
+                    problem.cols,
+                    set(problem.active_cells),
+                )
+                solved = self._solve_slitherlink_problem(
+                    problem,
+                    slither_clues,
+                    forced_edges,
                     max_solutions,
                     solver_timeout_ms,
                 )
@@ -1728,6 +1754,115 @@ class GridpuzzlesolverPlugin:
                     shaded.add((row_index, col_index))
         return shaded
 
+    def _build_slitherlink_problem(
+        self,
+        clues: Any,
+        edges: Any = None,
+    ) -> Tuple[GridCspProblem, List[List[Optional[int]]], Dict[str, List[List[bool]]]]:
+        raw_clues = self._parse_optional_json(clues)
+        if isinstance(raw_clues, dict):
+            if edges in (None, "", [], {}):
+                edges = raw_clues.get("edges") or raw_clues.get("lines")
+            raw_clues = raw_clues.get("clues") or raw_clues.get("grid") or raw_clues.get("matrix")
+        parsed_clues = self._parse_slitherlink_clues(raw_clues)
+        rows = len(parsed_clues)
+        cols = len(parsed_clues[0])
+        problem = GridCspProblem(
+            rows=rows,
+            cols=cols,
+            symbols=["0", "1", "2", "3"],
+            active_cells=[(row, col) for row in range(rows) for col in range(cols)],
+            variant="slitherlink",
+        )
+        return problem, parsed_clues, self._parse_slitherlink_edges(edges, rows, cols)
+
+    def _parse_slitherlink_clues(self, raw_clues: Any) -> List[List[Optional[int]]]:
+        if raw_clues in (None, "", [], {}):
+            raise ValueError("Une grille d'indices est requise pour Slither Link")
+        if isinstance(raw_clues, str):
+            raw_rows: List[Any] = [line for line in raw_clues.strip().splitlines() if line.strip()]
+        elif isinstance(raw_clues, list):
+            raw_rows = raw_clues
+        else:
+            raise ValueError("Format d'indices Slither Link non supporte")
+        if len(raw_rows) < 1:
+            raise ValueError("Slither Link attend au moins une ligne")
+
+        clues: List[List[Optional[int]]] = []
+        for row_index, raw_row in enumerate(raw_rows, start=1):
+            if isinstance(raw_row, list):
+                raw_values = raw_row
+            else:
+                text = str(raw_row).strip()
+                raw_values = re.findall(r"[^\s,;|]+", text) if re.search(r"[\s,;|]", text) else list(text)
+            if not raw_values:
+                raise ValueError(f"La ligne Slither Link {row_index} est vide")
+            row: List[Optional[int]] = []
+            for raw_value in raw_values:
+                text = str(raw_value).strip()
+                if text.lower() in {"", ".", "-", "_", "?"}:
+                    row.append(None)
+                    continue
+                try:
+                    clue = int(text)
+                except (TypeError, ValueError) as error:
+                    raise ValueError(f"Indice Slither Link invalide ligne {row_index}: {raw_value}") from error
+                if clue < 0 or clue > 3:
+                    raise ValueError(f"Les indices Slither Link doivent etre compris entre 0 et 3 (ligne {row_index})")
+                row.append(clue)
+            clues.append(row)
+
+        cols = len(clues[0])
+        if cols < 1 or any(len(row) != cols for row in clues):
+            raise ValueError("La grille Slither Link doit etre rectangulaire")
+        return clues
+
+    def _parse_slitherlink_edges(
+        self,
+        raw_edges: Any,
+        rows: int,
+        cols: int,
+    ) -> Dict[str, List[List[bool]]]:
+        defaults = {
+            "horizontal": [[False for _ in range(cols)] for _ in range(rows + 1)],
+            "vertical": [[False for _ in range(cols + 1)] for _ in range(rows)],
+        }
+        raw_edges = self._parse_optional_json(raw_edges)
+        if raw_edges in (None, "", [], {}):
+            return defaults
+        if not isinstance(raw_edges, dict):
+            raise ValueError("Les segments Slither Link doivent etre un objet horizontal/vertical")
+
+        parsed: Dict[str, List[List[bool]]] = {}
+        for direction, expected_rows, expected_cols in (("horizontal", rows + 1, cols), ("vertical", rows, cols + 1)):
+            raw_matrix = raw_edges.get(direction, raw_edges.get("h" if direction == "horizontal" else "v"))
+            if raw_matrix in (None, "", []):
+                parsed[direction] = defaults[direction]
+                continue
+            if isinstance(raw_matrix, str):
+                raw_rows: List[Any] = [line for line in raw_matrix.strip().splitlines() if line.strip()]
+            elif isinstance(raw_matrix, list):
+                raw_rows = raw_matrix
+            else:
+                raise ValueError(f"Format de segments {direction} non supporte")
+            if len(raw_rows) != expected_rows:
+                raise ValueError(f"Les segments {direction} doivent contenir {expected_rows} lignes")
+            matrix: List[List[bool]] = []
+            for row_index, raw_row in enumerate(raw_rows, start=1):
+                if isinstance(raw_row, list):
+                    raw_values = raw_row
+                else:
+                    text = str(raw_row).strip()
+                    raw_values = re.findall(r"[^\s,;|]+", text) if re.search(r"[\s,;|]", text) else list(text)
+                if len(raw_values) != expected_cols:
+                    raise ValueError(f"Segments {direction} ligne {row_index}: {expected_cols} valeurs attendues")
+                matrix.append([
+                    value is True or str(value).strip().lower() in {"#", "x", "1", "true", "line", "on"}
+                    for value in raw_values
+                ])
+            parsed[direction] = matrix
+        return parsed
+
     # ------------------------------------------------------------------
     # Z3 solving
     # ------------------------------------------------------------------
@@ -1889,6 +2024,154 @@ class GridpuzzlesolverPlugin:
 
         return {
             "solutions": solutions,
+            "exhausted": exhausted,
+            "truncated": not exhausted and len(solutions) >= max_solutions,
+        }
+
+    def _solve_slitherlink_problem(
+        self,
+        problem: GridCspProblem,
+        clues: Sequence[Sequence[Optional[int]]],
+        forced_edges: Mapping[str, Sequence[Sequence[bool]]],
+        max_solutions: int,
+        solver_timeout_ms: int,
+    ) -> Dict[str, Any]:
+        """Solve one non-empty, closed Slither Link loop.
+
+        Every used dot has degree two.  The depth constraints make all used
+        dots reachable from one selected root, which rules out disjoint loops.
+        """
+        solver = z3.Solver()
+        solver.set("timeout", solver_timeout_ms)
+        rows, cols = problem.rows, problem.cols
+        horizontal = {
+            (row, col): z3.Bool(f"slither_h_r{row + 1}c{col + 1}")
+            for row in range(rows + 1)
+            for col in range(cols)
+        }
+        vertical = {
+            (row, col): z3.Bool(f"slither_v_r{row + 1}c{col + 1}")
+            for row in range(rows)
+            for col in range(cols + 1)
+        }
+        all_edges = list(horizontal.values()) + list(vertical.values())
+
+        for row, values in enumerate(forced_edges["horizontal"]):
+            for col, is_drawn in enumerate(values):
+                if is_drawn:
+                    solver.add(horizontal[(row, col)])
+        for row, values in enumerate(forced_edges["vertical"]):
+            for col, is_drawn in enumerate(values):
+                if is_drawn:
+                    solver.add(vertical[(row, col)])
+
+        for row in range(rows):
+            for col in range(cols):
+                clue = clues[row][col]
+                if clue is None:
+                    continue
+                solver.add(
+                    z3.Sum(
+                        z3.If(horizontal[(row, col)], 1, 0),
+                        z3.If(horizontal[(row + 1, col)], 1, 0),
+                        z3.If(vertical[(row, col)], 1, 0),
+                        z3.If(vertical[(row, col + 1)], 1, 0),
+                    )
+                    == clue
+                )
+
+        vertices = [(row, col) for row in range(rows + 1) for col in range(cols + 1)]
+        depths = {
+            vertex: z3.Int(f"slither_depth_r{vertex[0] + 1}c{vertex[1] + 1}")
+            for vertex in vertices
+        }
+        active_vertices: Dict[Cell, Any] = {}
+        incident_edges: Dict[Cell, List[Any]] = {}
+        neighbors: Dict[Cell, List[Tuple[Cell, Any]]] = {}
+        for row, col in vertices:
+            vertex = (row, col)
+            incident: List[Any] = []
+            linked: List[Tuple[Cell, Any]] = []
+            if col > 0:
+                edge = horizontal[(row, col - 1)]
+                incident.append(edge)
+                linked.append(((row, col - 1), edge))
+            if col < cols:
+                edge = horizontal[(row, col)]
+                incident.append(edge)
+                linked.append(((row, col + 1), edge))
+            if row > 0:
+                edge = vertical[(row - 1, col)]
+                incident.append(edge)
+                linked.append(((row - 1, col), edge))
+            if row < rows:
+                edge = vertical[(row, col)]
+                incident.append(edge)
+                linked.append(((row + 1, col), edge))
+            incident_edges[vertex] = incident
+            neighbors[vertex] = linked
+            degree = z3.Sum(*(z3.If(edge, 1, 0) for edge in incident))
+            solver.add(z3.Or(degree == 0, degree == 2))
+            active_vertices[vertex] = degree == 2
+
+        root_terms = []
+        for vertex in vertices:
+            depth = depths[vertex]
+            solver.add(depth >= 0, depth <= len(vertices))
+            solver.add(z3.Implies(z3.Not(active_vertices[vertex]), depth == 0))
+            root_terms.append(z3.If(z3.And(active_vertices[vertex], depth == 0), 1, 0))
+            predecessor_terms = [
+                z3.And(edge, active_vertices[neighbor], depths[neighbor] == depth - 1)
+                for neighbor, edge in neighbors[vertex]
+            ]
+            solver.add(
+                z3.Implies(
+                    z3.And(active_vertices[vertex], depth > 0),
+                    z3.Or(*predecessor_terms),
+                )
+            )
+        solver.add(z3.Sum(*root_terms) == 1)
+
+        solutions: List[List[List[Optional[str]]]] = []
+        solution_edges: List[Dict[str, List[List[bool]]]] = []
+        exhausted = False
+        while len(solutions) < max_solutions:
+            check = solver.check()
+            if check == z3.unsat:
+                exhausted = True
+                break
+            if check == z3.unknown:
+                raise RuntimeError(self._z3_unknown_message(solver.reason_unknown(), solver_timeout_ms))
+
+            model = solver.model()
+            solutions.append([
+                ["" if clue is None else str(clue) for clue in row]
+                for row in clues
+            ])
+            solution_edges.append({
+                "horizontal": [
+                    [
+                        z3.is_true(model.eval(horizontal[(row, col)], model_completion=True))
+                        for col in range(cols)
+                    ]
+                    for row in range(rows + 1)
+                ],
+                "vertical": [
+                    [
+                        z3.is_true(model.eval(vertical[(row, col)], model_completion=True))
+                        for col in range(cols + 1)
+                    ]
+                    for row in range(rows)
+                ],
+            })
+            solver.add(z3.Or(*(
+                edge != model.eval(edge, model_completion=True)
+                for edge in all_edges
+            )))
+
+        return {
+            "solutions": solutions,
+            "solution_edges": solution_edges,
             "exhausted": exhausted,
             "truncated": not exhausted and len(solutions) >= max_solutions,
         }
@@ -4491,6 +4774,7 @@ class GridpuzzlesolverPlugin:
 
         results = []
         solution_regions = list(solved.get("solution_regions", []))
+        solution_edges = list(solved.get("solution_edges", []))
         for index, grid in enumerate(solutions, start=1):
             watched_values = self._extract_watched_values(grid, watched_cells)
             result = {
@@ -4514,6 +4798,8 @@ class GridpuzzlesolverPlugin:
             }
             if index <= len(solution_regions):
                 result["region_grid"] = solution_regions[index - 1]
+            if index <= len(solution_edges):
+                result["edges"] = solution_edges[index - 1]
             results.append(result)
 
         return {

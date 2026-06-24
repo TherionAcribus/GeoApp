@@ -2078,6 +2078,47 @@ def test_hitori_rejects_adjacent_shaded_cells():
     assert result["summary"] == "Aucune solution compatible avec les contraintes"
 
 
+def test_slitherlink_solves_a_single_cell_loop_and_returns_edges():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "slitherlink",
+            "grid": [[""]],
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["unique"] is True
+    assert result["metadata"]["variant"] == "slitherlink"
+    assert result["results"][0]["grid"] == [[""]]
+    assert result["results"][0]["edges"] == {
+        "horizontal": [[True], [True]],
+        "vertical": [[True, True]],
+    }
+
+
+def test_slitherlink_rejects_a_forced_edge_around_zero():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "loop_the_loop",
+            "grid": [[0]],
+            "edges": {
+                "horizontal": [[True], [False]],
+                "vertical": [[False, False]],
+            },
+            "max_solutions": 1,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+    assert result["summary"] == "Aucune solution compatible avec les contraintes"
+
+
 def mine_clue_grid(solution):
     size = len(solution)
     rows = []
