@@ -168,7 +168,7 @@ class GridpuzzlesolverPlugin:
 
     def __init__(self) -> None:
         self.name = "grid_puzzle_solver"
-        self.version = "0.3.0"
+        self.version = "0.4.0"
 
     def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         start_time = time.time()
@@ -688,6 +688,32 @@ class GridpuzzlesolverPlugin:
                         or inputs.get("spec")
                     ),
                     grid=inputs.get("grid") or inputs.get("givens"),
+                )
+            elif puzzle_type in {"hitori", "hitori_puzzle"}:
+                problem, hitori_values, forced_shades = self._build_hitori_problem(
+                    grid=inputs.get("grid") or inputs.get("puzzle") or inputs.get("text"),
+                    shaded=inputs.get("shaded") or inputs.get("hitori_shaded") or inputs.get("marks"),
+                )
+                watched_cells = self._parse_watch_cells(
+                    watched_cells_input,
+                    problem.rows,
+                    problem.cols,
+                    set(problem.active_cells),
+                )
+                solved = self._solve_hitori_problem(
+                    problem,
+                    hitori_values,
+                    forced_shades,
+                    max_solutions,
+                    solver_timeout_ms,
+                )
+                return self._success_response(
+                    start_time,
+                    problem,
+                    solved,
+                    max_solutions,
+                    solver_timeout_ms,
+                    watched_cells,
                 )
             elif (tripod_size := self._tripod_size(puzzle_type)) is not None:
                 puzzle_text = self._first_non_empty(
@@ -1608,6 +1634,100 @@ class GridpuzzlesolverPlugin:
                 givens[cell] = given
         return givens
 
+    def _build_hitori_problem(
+        self,
+        grid: Any,
+        shaded: Any = None,
+    ) -> Tuple[GridCspProblem, List[List[int]], set]:
+        raw_grid = self._parse_optional_json(grid)
+        if isinstance(raw_grid, dict):
+            if shaded in (None, "", [], {}):
+                shaded = raw_grid.get("shaded") or raw_grid.get("marks")
+            raw_grid = raw_grid.get("grid") or raw_grid.get("matrix") or raw_grid.get("values")
+
+        values = self._parse_hitori_values(raw_grid)
+        rows = len(values)
+        cols = len(values[0])
+        active_cells = [(row, col) for row in range(rows) for col in range(cols)]
+        symbols = sorted({str(value) for row in values for value in row}, key=int)
+        problem = GridCspProblem(
+            rows=rows,
+            cols=cols,
+            symbols=symbols,
+            active_cells=active_cells,
+            numeric_values={symbol: int(symbol) for symbol in symbols},
+            variant="hitori",
+        )
+        return problem, values, self._parse_hitori_shades(shaded, rows, cols)
+
+    def _parse_hitori_values(self, raw_grid: Any) -> List[List[int]]:
+        if raw_grid in (None, "", [], {}):
+            raise ValueError("Une grille de nombres est requise pour un Hitori")
+        if isinstance(raw_grid, str):
+            raw_rows: List[Any] = [line for line in raw_grid.strip().splitlines() if line.strip()]
+        elif isinstance(raw_grid, list):
+            raw_rows = raw_grid
+        else:
+            raise ValueError("Format de grille Hitori non supporte")
+        if len(raw_rows) < 2:
+            raise ValueError("Un Hitori attend au moins deux lignes")
+
+        rows: List[List[int]] = []
+        for row_index, raw_row in enumerate(raw_rows, start=1):
+            if isinstance(raw_row, list):
+                raw_values = raw_row
+            else:
+                text = str(raw_row).strip()
+                raw_values = re.findall(r"\d+", text) if re.search(r"[\s,;|]", text) else list(text)
+            if not raw_values:
+                raise ValueError(f"La ligne Hitori {row_index} est vide")
+            values: List[int] = []
+            for raw_value in raw_values:
+                try:
+                    value = int(raw_value)
+                except (TypeError, ValueError) as error:
+                    raise ValueError(f"Valeur Hitori invalide en ligne {row_index}: {raw_value}") from error
+                if value < 1:
+                    raise ValueError(f"Les nombres Hitori doivent etre positifs (ligne {row_index})")
+                values.append(value)
+            rows.append(values)
+
+        cols = len(rows[0])
+        if cols < 2 or any(len(row) != cols for row in rows):
+            raise ValueError("La grille Hitori doit etre rectangulaire et faire au moins 2 x 2")
+        return rows
+
+    def _parse_hitori_shades(self, raw_shaded: Any, rows: int, cols: int) -> set:
+        raw_shaded = self._parse_optional_json(raw_shaded)
+        if raw_shaded in (None, "", [], {}):
+            return set()
+        if isinstance(raw_shaded, dict):
+            raw_shaded = raw_shaded.get("grid") or raw_shaded.get("matrix") or raw_shaded.get("shaded")
+        if isinstance(raw_shaded, str):
+            raw_rows: List[Any] = [line for line in raw_shaded.strip().splitlines() if line.strip()]
+        elif isinstance(raw_shaded, list):
+            raw_rows = raw_shaded
+        else:
+            raise ValueError("Format de marques Hitori non supporte")
+        if len(raw_rows) != rows:
+            raise ValueError(f"Les marques Hitori doivent contenir {rows} lignes")
+
+        shaded = set()
+        for row_index, raw_row in enumerate(raw_rows):
+            if isinstance(raw_row, list):
+                raw_values = raw_row
+            else:
+                text = str(raw_row).strip()
+                raw_values = re.findall(r"[^\s,;|]+", text) if re.search(r"[\s,;|]", text) else list(text)
+            if len(raw_values) != cols:
+                raise ValueError(f"Les marques Hitori ligne {row_index + 1} doivent contenir {cols} cases")
+            for col_index, raw_value in enumerate(raw_values):
+                text = str(raw_value).strip().lower()
+                is_shaded = raw_value is True or text in {"#", "x", "1", "true", "black", "b"}
+                if is_shaded:
+                    shaded.add((row_index, col_index))
+        return shaded
+
     # ------------------------------------------------------------------
     # Z3 solving
     # ------------------------------------------------------------------
@@ -1656,6 +1776,116 @@ class GridpuzzlesolverPlugin:
                 for variable in variables.values()
             ]
             solver.add(z3.Or(blocking_terms))
+
+        return {
+            "solutions": solutions,
+            "exhausted": exhausted,
+            "truncated": not exhausted and len(solutions) >= max_solutions,
+        }
+
+    def _solve_hitori_problem(
+        self,
+        problem: GridCspProblem,
+        values: Sequence[Sequence[int]],
+        forced_shades: set,
+        max_solutions: int,
+        solver_timeout_ms: int,
+    ) -> Dict[str, Any]:
+        solver = z3.Solver()
+        solver.set("timeout", solver_timeout_ms)
+        cells = list(problem.active_cells)
+        shaded = {
+            cell: z3.Bool(f"shaded_r{cell[0] + 1}c{cell[1] + 1}")
+            for cell in cells
+        }
+        depths = {
+            cell: z3.Int(f"depth_r{cell[0] + 1}c{cell[1] + 1}")
+            for cell in cells
+        }
+
+        for cell in forced_shades:
+            self._require_active_cell(cell, set(cells))
+            solver.add(shaded[cell])
+
+        duplicate_candidates = set()
+        for row in range(problem.rows):
+            groups: Dict[int, List[Cell]] = {}
+            for col in range(problem.cols):
+                groups.setdefault(values[row][col], []).append((row, col))
+            for group in groups.values():
+                if len(group) < 2:
+                    continue
+                duplicate_candidates.update(group)
+                for index, first in enumerate(group):
+                    for second in group[index + 1:]:
+                        solver.add(z3.Or(shaded[first], shaded[second]))
+        for col in range(problem.cols):
+            groups = {}
+            for row in range(problem.rows):
+                groups.setdefault(values[row][col], []).append((row, col))
+            for group in groups.values():
+                if len(group) < 2:
+                    continue
+                duplicate_candidates.update(group)
+                for index, first in enumerate(group):
+                    for second in group[index + 1:]:
+                        solver.add(z3.Or(shaded[first], shaded[second]))
+
+        for cell in cells:
+            if cell not in duplicate_candidates:
+                solver.add(z3.Not(shaded[cell]))
+
+        for row in range(problem.rows):
+            for col in range(problem.cols):
+                cell = (row, col)
+                for neighbor in ((row + 1, col), (row, col + 1)):
+                    if neighbor in shaded:
+                        solver.add(z3.Not(z3.And(shaded[cell], shaded[neighbor])))
+
+        root_terms = []
+        for cell in cells:
+            solver.add(depths[cell] >= 0, depths[cell] <= len(cells))
+            solver.add(z3.Implies(shaded[cell], depths[cell] == 0))
+            root_terms.append(z3.If(z3.And(z3.Not(shaded[cell]), depths[cell] == 0), 1, 0))
+            row, col = cell
+            neighbors = [
+                neighbor
+                for neighbor in ((row - 1, col), (row + 1, col), (row, col - 1), (row, col + 1))
+                if neighbor in shaded
+            ]
+            predecessors = [
+                z3.And(z3.Not(shaded[neighbor]), depths[neighbor] == depths[cell] - 1)
+                for neighbor in neighbors
+            ]
+            solver.add(
+                z3.Implies(
+                    z3.And(z3.Not(shaded[cell]), depths[cell] > 0),
+                    z3.Or(*predecessors),
+                )
+            )
+        solver.add(z3.Sum(*root_terms) == 1)
+
+        solutions: List[List[List[Optional[str]]]] = []
+        exhausted = False
+        while len(solutions) < max_solutions:
+            check = solver.check()
+            if check == z3.unsat:
+                exhausted = True
+                break
+            if check == z3.unknown:
+                raise RuntimeError(self._z3_unknown_message(solver.reason_unknown(), solver_timeout_ms))
+            model = solver.model()
+            solutions.append([
+                [
+                    "#" if z3.is_true(model.eval(shaded[(row, col)], model_completion=True)) else str(values[row][col])
+                    for col in range(problem.cols)
+                ]
+                for row in range(problem.rows)
+            ])
+            solver.add(z3.Or(*(
+                shaded[cell] != model.eval(shaded[cell], model_completion=True)
+                for cell in cells
+            )))
 
         return {
             "solutions": solutions,

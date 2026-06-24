@@ -10,9 +10,10 @@ import './style/grid-puzzle-workbench.css';
 type Grid = string[][];
 type RegionGrid = number[][];
 type WorkMode = 'edit' | 'watch' | 'parity' | 'chain';
-type SudokuVariant = 'sudoku_classic' | 'sudoku_4x4' | 'sudoku_6x6' | 'sudoku_8x8' | 'sudoku_10x10' | 'sudoku_12x12' | 'sudoku_15x15' | 'sudoku_16x16' | 'sudoku_x' | 'sudoku_argyle' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'sudoku_hoshi' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_vudoku' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_kropki' | 'chain_sudoku_4x4' | 'chain_sudoku_5x5' | 'chain_sudoku_6x6' | 'chain_sudoku_7x7' | 'chain_sudoku_8x8' | 'chain_sudoku_9x9' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_outside' | 'sudoku_sandwich' | 'sudoku_little_killer' | 'sudoku_little_unique_killer' | 'sudoku_godoku' | 'sudoku_even_odd' | 'sudoku_non_consecutive' | 'sudoku_mine' | 'sudoku_mine_6x6' | 'sudoku_tripod' | 'sudoku_tripod_4x4' | 'sudoku_tripod_5x5' | 'sudoku_tripod_6x6' | 'sudoku_tripod_7x7' | 'sudoku_tripod_8x8' | 'nonogram' | 'kakuro';
+type SudokuVariant = 'sudoku_classic' | 'sudoku_4x4' | 'sudoku_6x6' | 'sudoku_8x8' | 'sudoku_10x10' | 'sudoku_12x12' | 'sudoku_15x15' | 'sudoku_16x16' | 'sudoku_x' | 'sudoku_argyle' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'sudoku_hoshi' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_vudoku' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_kropki' | 'chain_sudoku_4x4' | 'chain_sudoku_5x5' | 'chain_sudoku_6x6' | 'chain_sudoku_7x7' | 'chain_sudoku_8x8' | 'chain_sudoku_9x9' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_outside' | 'sudoku_sandwich' | 'sudoku_little_killer' | 'sudoku_little_unique_killer' | 'sudoku_godoku' | 'sudoku_even_odd' | 'sudoku_non_consecutive' | 'sudoku_mine' | 'sudoku_mine_6x6' | 'sudoku_tripod' | 'sudoku_tripod_4x4' | 'sudoku_tripod_5x5' | 'sudoku_tripod_6x6' | 'sudoku_tripod_7x7' | 'sudoku_tripod_8x8' | 'nonogram' | 'kakuro' | 'hitori';
 type KakuroCellKind = 'black' | 'clue' | 'white';
 type KakuroTool = KakuroCellKind;
+type HitoriTool = 'numbers' | 'shade';
 type InequalitySymbol = '' | '>' | '<';
 type InequalityGrid = InequalitySymbol[][];
 type VudokuSymbol = '' | 'tl' | 'tr' | 'bl' | 'br';
@@ -552,6 +553,108 @@ function findKakuroConflicts(layout: KakuroLayout, grid: Grid): ConflictHighligh
     return { cells, messages: [...new Set(messages)] };
 }
 
+function normalizeHitoriValue(rawValue: unknown): string {
+    const digits = String(rawValue ?? '').replace(/[^0-9]/g, '').slice(0, 2);
+    return digits === '0' ? '' : digits;
+}
+
+function resizeHitoriGrid(grid: Grid, rows: number, cols: number): Grid {
+    return Array.from({ length: rows }, (_row, rowIndex) => (
+        Array.from({ length: cols }, (_col, colIndex) => normalizeHitoriValue(grid[rowIndex]?.[colIndex]))
+    ));
+}
+
+function resizeHitoriShaded(shaded: boolean[][], rows: number, cols: number): boolean[][] {
+    return Array.from({ length: rows }, (_row, rowIndex) => (
+        Array.from({ length: cols }, (_col, colIndex) => Boolean(shaded[rowIndex]?.[colIndex]))
+    ));
+}
+
+function normalizeHitoriGrid(value: unknown, rows: number, cols: number): Grid {
+    if (typeof value === 'string') {
+        const parsed = value.split(/\r?\n/).filter(Boolean).map(line => {
+            const text = line.trim();
+            return /[\s,;|]/.test(text) ? text.split(/[\s,;|]+/) : Array.from(text);
+        });
+        return resizeHitoriGrid(parsed, rows, cols);
+    }
+    if (!Array.isArray(value)) {
+        return createEmptyRectGrid(rows, cols);
+    }
+    const parsed = value.map(row => Array.isArray(row) ? row.map(cell => String(cell ?? '')) : []);
+    return resizeHitoriGrid(parsed, rows, cols);
+}
+
+function findHitoriConflicts(grid: Grid, shaded: boolean[][]): ConflictHighlights {
+    const cells = new Set<string>();
+    const messages: string[] = [];
+    const rows = grid.length;
+    const cols = grid[0]?.length || 0;
+    const hasDuplicate = (row: number, col: number): boolean => {
+        const value = grid[row]?.[col] || '';
+        if (!value) {
+            return false;
+        }
+        return grid[row].some((candidate, candidateCol) => candidateCol !== col && candidate === value)
+            || grid.some((candidateRow, candidateRowIndex) => candidateRowIndex !== row && candidateRow[col] === value);
+    };
+
+    for (let row = 0; row < rows; row += 1) {
+        for (let col = 0; col < cols; col += 1) {
+            if (!shaded[row]?.[col]) {
+                continue;
+            }
+            const ref = cellRef(row, col);
+            if (!hasDuplicate(row, col)) {
+                cells.add(ref);
+                messages.push(`${ref} ne peut pas etre rayee : son nombre n'est pas repete.`);
+            }
+            for (const [nextRow, nextCol] of [[row + 1, col], [row, col + 1]]) {
+                if (shaded[nextRow]?.[nextCol]) {
+                    cells.add(ref);
+                    cells.add(cellRef(nextRow, nextCol));
+                    messages.push(`Les cases rayees ${ref} et ${cellRef(nextRow, nextCol)} se touchent par un cote.`);
+                }
+            }
+        }
+    }
+
+    const whiteCells: CellCoord[] = [];
+    for (let row = 0; row < rows; row += 1) {
+        for (let col = 0; col < cols; col += 1) {
+            if (!shaded[row]?.[col]) {
+                whiteCells.push([row, col]);
+            }
+        }
+    }
+    if (whiteCells.length) {
+        const visited = new Set<string>();
+        const queue = [whiteCells[0]];
+        while (queue.length) {
+            const [row, col] = queue.shift()!;
+            const key = `${row}:${col}`;
+            if (visited.has(key)) {
+                continue;
+            }
+            visited.add(key);
+            for (const [nextRow, nextCol] of [[row - 1, col], [row + 1, col], [row, col - 1], [row, col + 1]]) {
+                if (nextRow >= 0 && nextRow < rows && nextCol >= 0 && nextCol < cols && !shaded[nextRow]?.[nextCol]) {
+                    queue.push([nextRow, nextCol]);
+                }
+            }
+        }
+        if (visited.size !== whiteCells.length) {
+            whiteCells.forEach(([row, col]) => {
+                if (!visited.has(`${row}:${col}`)) {
+                    cells.add(cellRef(row, col));
+                }
+            });
+            messages.push('Les cases blanches ne forment plus une zone continue.');
+        }
+    }
+    return { cells, messages: [...new Set(messages)] };
+}
+
 function cloneInequalityGrid(grid: InequalityGrid): InequalityGrid {
     return grid.map(row => [...row]);
 }
@@ -741,6 +844,9 @@ function getVariantLabel(puzzleType: SudokuVariant): string {
     if (puzzleType === 'kakuro') {
         return 'Kakuro / Cross Sums';
     }
+    if (puzzleType === 'hitori') {
+        return 'Hitori';
+    }
     return 'Sudoku classique';
 }
 
@@ -868,7 +974,7 @@ function getMineConfig(
 }
 
 function getSingleGridSudokuConfig(puzzleType: SudokuVariant): { size: number; boxRows: number; boxCols: number; label: string } | undefined {
-    if (puzzleType === 'nonogram' || puzzleType === 'kakuro') {
+    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori') {
         return undefined;
     }
     return getSizedSudokuConfig(puzzleType) || {
@@ -905,14 +1011,14 @@ function gridSizeForVariant(puzzleType: SudokuVariant): number {
     if (mineConfig) {
         return mineConfig.size;
     }
-    if (puzzleType === 'nonogram' || puzzleType === 'kakuro') {
+    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori') {
         return SIZE;
     }
     return getSingleGridSudokuConfig(puzzleType)?.size || SIZE;
 }
 
 function isActiveCellForVariant(puzzleType: SudokuVariant, row: number, col: number): boolean {
-    if (puzzleType === 'nonogram' || puzzleType === 'kakuro') {
+    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori') {
         return row >= 0 && col >= 0;
     }
     if (puzzleType === 'sujiken') {
@@ -1217,7 +1323,7 @@ function findConstraintConflicts(
     const cells = new Set<string>();
     const messages: string[] = [];
 
-    if (puzzleType === 'nonogram' || puzzleType === 'kakuro') {
+    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori') {
         return { cells, messages };
     }
 
@@ -3398,6 +3504,10 @@ function GridPuzzleWorkbenchApp({
     const [nonogramClueDrafts, setNonogramClueDrafts] = React.useState<Record<string, string>>({});
     const [kakuroLayout, setKakuroLayout] = React.useState<KakuroLayout>(() => createKakuroStarterLayout());
     const [kakuroTool, setKakuroTool] = React.useState<KakuroTool>('white');
+    const [hitoriRows, setHitoriRows] = React.useState(5);
+    const [hitoriCols, setHitoriCols] = React.useState(5);
+    const [hitoriShaded, setHitoriShaded] = React.useState<boolean[][]>(() => resizeHitoriShaded([], 5, 5));
+    const [hitoriTool, setHitoriTool] = React.useState<HitoriTool>('numbers');
     const [watchCells, setWatchCells] = React.useState<string[]>([]);
     const [mode, setMode] = React.useState<WorkMode>('edit');
     const [maxSolutions, setMaxSolutions] = React.useState(2);
@@ -3413,6 +3523,7 @@ function GridPuzzleWorkbenchApp({
         Array.from({ length: SAMURAI_SIZE }, () => Array<HTMLInputElement | null>(SAMURAI_SIZE).fill(null))
     );
     const nonogramCellRefs = React.useRef<Array<Array<HTMLButtonElement | null>>>([]);
+    const hitoriCellRefs = React.useRef<Array<Array<HTMLElement | null>>>([]);
 
     const solutionResults = Array.isArray(solveState.result?.results) ? solveState.result.results : [];
     const activeSolutionIndex = solutionResults.length
@@ -3441,6 +3552,7 @@ function GridPuzzleWorkbenchApp({
     const isNonConsecutive = puzzleType === 'sudoku_non_consecutive';
     const isNonogram = puzzleType === 'nonogram';
     const isKakuro = puzzleType === 'kakuro';
+    const isHitori = puzzleType === 'hitori';
     const mineConfig = getMineConfig(puzzleType);
     const isMine = Boolean(mineConfig);
     const tripodConfig = getTripodConfig(puzzleType);
@@ -3500,6 +3612,10 @@ function GridPuzzleWorkbenchApp({
         gridTemplateColumns: `repeat(${kakuroCols}, 52px)`,
         gridTemplateRows: `repeat(${kakuroRows}, 52px)`,
     } : undefined;
+    const hitoriBoardStyle: React.CSSProperties | undefined = isHitori ? {
+        gridTemplateColumns: `repeat(${hitoriCols}, 46px)`,
+        gridTemplateRows: `repeat(${hitoriRows}, 46px)`,
+    } : undefined;
     const solutionBoardStyle = isNonogram ? nonogramSolutionBoardStyle : boardStyle;
     const chainCounts = React.useMemo(() => {
         return Array.from({ length: chainConfig?.size || 0 }, (_unused, index) => chainPaths[index]?.length || 0);
@@ -3529,8 +3645,10 @@ function GridPuzzleWorkbenchApp({
     const constraintConflicts = React.useMemo(
         () => isKakuro
             ? findKakuroConflicts(kakuroLayout, grid)
-            : findConstraintConflicts(grid, puzzleType, horizontalInequalities, verticalInequalities, vudokuCorners, rossiniArrows, xvHorizontalMarks, xvVerticalMarks, kropkiHorizontalDots, kropkiVerticalDots, chainGrid, skyscraperClues, frameClues, outsideClues, sandwichClues, littleKillerClues, parityMarks),
-        [chainGrid, frameClues, grid, horizontalInequalities, isKakuro, kakuroLayout, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, outsideClues, parityMarks, puzzleType, rossiniArrows, sandwichClues, skyscraperClues, verticalInequalities, vudokuCorners, xvHorizontalMarks, xvVerticalMarks],
+            : isHitori
+                ? findHitoriConflicts(grid, hitoriShaded)
+                : findConstraintConflicts(grid, puzzleType, horizontalInequalities, verticalInequalities, vudokuCorners, rossiniArrows, xvHorizontalMarks, xvVerticalMarks, kropkiHorizontalDots, kropkiVerticalDots, chainGrid, skyscraperClues, frameClues, outsideClues, sandwichClues, littleKillerClues, parityMarks),
+        [chainGrid, frameClues, grid, horizontalInequalities, hitoriShaded, isHitori, isKakuro, kakuroLayout, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, outsideClues, parityMarks, puzzleType, rossiniArrows, sandwichClues, skyscraperClues, verticalInequalities, vudokuCorners, xvHorizontalMarks, xvVerticalMarks],
     );
     const visibleConflictMessages = constraintConflicts.messages.slice(0, 4);
 
@@ -3570,6 +3688,22 @@ function GridPuzzleWorkbenchApp({
             );
         }));
     }, [isKakuro, kakuroCols, kakuroLayout, kakuroRows]);
+
+    React.useEffect(() => {
+        if (!isHitori) {
+            return;
+        }
+        setGrid(previous => resizeHitoriGrid(previous, hitoriRows, hitoriCols));
+        setHitoriShaded(previous => resizeHitoriShaded(previous, hitoriRows, hitoriCols));
+        setWatchCells(previous => previous.filter(ref => {
+            const match = ref.match(/^r(\d+)c(\d+)$/i);
+            return Boolean(
+                match
+                && Number(match[1]) <= hitoriRows
+                && Number(match[2]) <= hitoriCols,
+            );
+        }));
+    }, [hitoriCols, hitoriRows, isHitori]);
 
     const markDirty = React.useCallback(() => {
         if (!geocacheId) {
@@ -3706,6 +3840,54 @@ function GridPuzzleWorkbenchApp({
         markDirty();
     }, [markDirty]);
 
+    const setHitoriDimension = React.useCallback((axis: 'row' | 'column', rawValue: number) => {
+        const size = Number.isFinite(rawValue)
+            ? Math.min(20, Math.max(2, Math.floor(rawValue)))
+            : 2;
+        const rows = axis === 'row' ? size : hitoriRows;
+        const cols = axis === 'column' ? size : hitoriCols;
+        setHitoriRows(rows);
+        setHitoriCols(cols);
+        setGrid(previous => resizeHitoriGrid(previous, rows, cols));
+        setHitoriShaded(previous => resizeHitoriShaded(previous, rows, cols));
+        setSolveState({ running: false });
+        markDirty();
+    }, [hitoriCols, hitoriRows, markDirty]);
+
+    const updateHitoriValue = React.useCallback((row: number, col: number, rawValue: string) => {
+        setGrid(previous => {
+            const next = resizeHitoriGrid(previous, hitoriRows, hitoriCols);
+            next[row][col] = normalizeHitoriValue(rawValue);
+            return next;
+        });
+        setSolveState({ running: false });
+        markDirty();
+    }, [hitoriCols, hitoriRows, markDirty]);
+
+    const toggleHitoriShade = React.useCallback((row: number, col: number) => {
+        setHitoriShaded(previous => {
+            const next = resizeHitoriShaded(previous, hitoriRows, hitoriCols);
+            next[row][col] = !next[row][col];
+            return next;
+        });
+        setSolveState({ running: false });
+        markDirty();
+    }, [hitoriCols, hitoriRows, markDirty]);
+
+    const clearHitori = React.useCallback(() => {
+        setGrid(createEmptyRectGrid(hitoriRows, hitoriCols));
+        setHitoriShaded(resizeHitoriShaded([], hitoriRows, hitoriCols));
+        setHitoriTool('numbers');
+        setSolveState({ running: false });
+        markDirty();
+    }, [hitoriCols, hitoriRows, markDirty]);
+
+    const clearHitoriShades = React.useCallback(() => {
+        setHitoriShaded(resizeHitoriShaded([], hitoriRows, hitoriCols));
+        setSolveState({ running: false });
+        markDirty();
+    }, [hitoriCols, hitoriRows, markDirty]);
+
     const updateNonogramCell = React.useCallback((row: number, col: number, value: string) => {
         setGrid(previous => {
             const next = resizeNonogramGrid(previous, nonogramRows, nonogramCols);
@@ -3764,10 +3946,16 @@ function GridPuzzleWorkbenchApp({
 
     const applyStateSnapshot = React.useCallback((snapshot: Record<string, any> | undefined) => {
         const variantSize = gridSizeForVariant(puzzleType);
+        const inferredHitoriRows = Array.isArray(snapshot?.grid) ? snapshot.grid.length : 5;
+        const inferredHitoriCols = Array.isArray(snapshot?.grid) && Array.isArray(snapshot.grid[0]) ? snapshot.grid[0].length : 5;
+        const restoredHitoriRows = normalizeNumber(snapshot?.hitori?.rows, inferredHitoriRows, 2, 20);
+        const restoredHitoriCols = normalizeNumber(snapshot?.hitori?.cols, inferredHitoriCols, 2, 20);
         const restoredKakuroLayout = normalizeKakuroLayout(snapshot?.kakuro?.layout ?? snapshot?.kakuroLayout)
             || createKakuroStarterLayout();
         const restoredGrid = puzzleType === 'kakuro'
             ? normalizeKakuroGrid(snapshot?.grid, restoredKakuroLayout)
+            : puzzleType === 'hitori'
+                ? normalizeHitoriGrid(snapshot?.grid, restoredHitoriRows, restoredHitoriCols)
             : normalizeGrid(snapshot?.grid, puzzleType) || createEmptyGrid(variantSize);
         const restoredChainGrid = normalizeChainGrid(snapshot?.chains ?? snapshot?.chainGrid, variantSize);
         const restoredResult = snapshot?.lastResult && typeof snapshot.lastResult === 'object'
@@ -3780,6 +3968,13 @@ function GridPuzzleWorkbenchApp({
         } else if (puzzleType === 'kakuro') {
             setKakuroLayout(restoredKakuroLayout);
             setKakuroTool('white');
+            setGrid(restoredGrid);
+            setQuickText('');
+        } else if (puzzleType === 'hitori') {
+            setHitoriRows(restoredHitoriRows);
+            setHitoriCols(restoredHitoriCols);
+            setHitoriShaded(resizeHitoriShaded(snapshot?.hitori?.shaded ?? snapshot?.hitoriShaded ?? [], restoredHitoriRows, restoredHitoriCols));
+            setHitoriTool('numbers');
             setGrid(restoredGrid);
             setQuickText('');
         } else {
@@ -3907,6 +4102,11 @@ function GridPuzzleWorkbenchApp({
                     kakuro: {
                         layout: kakuroLayout,
                     },
+                    hitori: {
+                        rows: hitoriRows,
+                        cols: hitoriCols,
+                        shaded: hitoriShaded,
+                    },
                     watchCells,
                     maxSolutions,
                     solverTimeoutMs: timeoutMs,
@@ -3937,6 +4137,9 @@ function GridPuzzleWorkbenchApp({
         godokuAlphabet,
         grid,
         horizontalInequalities,
+        hitoriCols,
+        hitoriRows,
+        hitoriShaded,
         kakuroLayout,
         kropkiHorizontalDots,
         kropkiVerticalDots,
@@ -4273,6 +4476,31 @@ function GridPuzzleWorkbenchApp({
         nonogramCellRefs.current[targetRow]?.[targetCol]?.focus();
     }, [nonogramCols, nonogramRows]);
 
+    const focusHitoriCell = React.useCallback((row: number, col: number) => {
+        const targetRow = Math.max(0, Math.min(hitoriRows - 1, row));
+        const targetCol = Math.max(0, Math.min(hitoriCols - 1, col));
+        const target = hitoriCellRefs.current[targetRow]?.[targetCol];
+        target?.focus();
+        if (target instanceof HTMLInputElement) {
+            target.select();
+        }
+    }, [hitoriCols, hitoriRows]);
+
+    const handleHitoriCellKeyDown = React.useCallback((row: number, col: number, event: React.KeyboardEvent<HTMLElement>) => {
+        const moves: Record<string, [number, number]> = {
+            ArrowUp: [-1, 0],
+            ArrowDown: [1, 0],
+            ArrowLeft: [0, -1],
+            ArrowRight: [0, 1],
+        };
+        const move = moves[event.key];
+        if (!move) {
+            return;
+        }
+        event.preventDefault();
+        focusHitoriCell(row + move[0], col + move[1]);
+    }, [focusHitoriCell]);
+
     const handleNonogramCellClick = React.useCallback((row: number, col: number, event: React.MouseEvent<HTMLButtonElement>) => {
         const ref = cellRef(row, col);
         if (mode === 'watch' || event.ctrlKey || event.metaKey) {
@@ -4459,11 +4687,14 @@ function GridPuzzleWorkbenchApp({
             || value === 'sudoku_tripod_8x8'
             || value === 'nonogram'
             || value === 'kakuro'
+            || value === 'hitori'
             ? value
             : 'sudoku_classic';
-        const nextGrid = nextPuzzleType === 'kakuro'
-            ? resizeKakuroGrid(puzzleType === 'kakuro' ? grid : [], kakuroLayout)
-            : resizeGrid(grid, gridSizeForVariant(nextPuzzleType));
+        const nextGrid = nextPuzzleType === 'hitori'
+            ? resizeHitoriGrid(puzzleType === 'hitori' ? grid : [], hitoriRows, hitoriCols)
+            : nextPuzzleType === 'kakuro'
+                ? resizeKakuroGrid(puzzleType === 'kakuro' ? grid : [], kakuroLayout)
+                : resizeGrid(grid, gridSizeForVariant(nextPuzzleType));
         setGrid(nextGrid);
         setPuzzleType(nextPuzzleType);
         if (nextPuzzleType !== 'sudoku_even_odd' && mode === 'parity') {
@@ -4476,6 +4707,11 @@ function GridPuzzleWorkbenchApp({
             setMode('edit');
             setKakuroTool('white');
         }
+        if (nextPuzzleType === 'hitori') {
+            setMode('edit');
+            setHitoriTool('numbers');
+            setHitoriShaded(resizeHitoriShaded([], hitoriRows, hitoriCols));
+        }
         if (getTripodConfig(nextPuzzleType)) {
             setTripodDots(emptyTripodDots(gridSizeForVariant(nextPuzzleType)));
         }
@@ -4486,10 +4722,10 @@ function GridPuzzleWorkbenchApp({
             setActiveChain(1);
             setMode('chain');
         }
-        setQuickText(nextPuzzleType === 'nonogram' || nextPuzzleType === 'kakuro' ? '' : gridToText(nextGrid, nextPuzzleType));
+        setQuickText(nextPuzzleType === 'nonogram' || nextPuzzleType === 'kakuro' || nextPuzzleType === 'hitori' ? '' : gridToText(nextGrid, nextPuzzleType));
         setSolveState({ running: false });
         markDirty();
-    }, [grid, kakuroLayout, markDirty, mode]);
+    }, [grid, hitoriCols, hitoriRows, kakuroLayout, markDirty, mode, puzzleType]);
 
     const clearGrid = React.useCallback(() => {
         if (isNonogram) {
@@ -4499,6 +4735,10 @@ function GridPuzzleWorkbenchApp({
             setNonogramColumnClues('');
         } else if (isKakuro) {
             setGrid(resizeKakuroGrid([], kakuroLayout));
+            setQuickText('');
+        } else if (isHitori) {
+            setGrid(createEmptyRectGrid(hitoriRows, hitoriCols));
+            setHitoriShaded(resizeHitoriShaded([], hitoriRows, hitoriCols));
             setQuickText('');
         } else {
             setGridAndQuickText(createEmptyGrid(gridSizeForVariant(puzzleType)));
@@ -4524,7 +4764,7 @@ function GridPuzzleWorkbenchApp({
         setWatchCells([]);
         setSolveState({ running: false });
         markDirty();
-    }, [isKakuro, isNonogram, kakuroLayout, markDirty, puzzleType, setGridAndQuickText]);
+    }, [hitoriCols, hitoriRows, isHitori, isKakuro, isNonogram, kakuroLayout, markDirty, puzzleType, setGridAndQuickText]);
 
     const solve = React.useCallback(async () => {
         if (constraintConflicts.messages.length > 0) {
@@ -4546,12 +4786,15 @@ function GridPuzzleWorkbenchApp({
         try {
             const result = await pluginsService.executePlugin('grid_puzzle_solver', {
                 puzzle_type: puzzleType,
-                grid: isKakuro
-                    ? resizeKakuroGrid(grid, kakuroLayout)
-                    : isNonogram
-                        ? gridToText(resizeNonogramGrid(grid, nonogramRows, nonogramCols), puzzleType)
-                        : gridToText(grid, puzzleType),
+                grid: isHitori
+                    ? resizeHitoriGrid(grid, hitoriRows, hitoriCols)
+                    : isKakuro
+                        ? resizeKakuroGrid(grid, kakuroLayout)
+                        : isNonogram
+                            ? gridToText(resizeNonogramGrid(grid, nonogramRows, nonogramCols), puzzleType)
+                            : gridToText(grid, puzzleType),
                 kakuro: isKakuro ? { cells: kakuroLayout } : undefined,
+                shaded: isHitori ? hitoriShaded : undefined,
                 row_clues: isNonogram ? serializeNonogramClueLines(nonogramRowClueLines) : undefined,
                 column_clues: isNonogram ? serializeNonogramClueLines(nonogramColumnClueLines) : undefined,
                 watched_cells: watchCells.join(' '),
@@ -4600,11 +4843,13 @@ function GridPuzzleWorkbenchApp({
                 error: error instanceof Error ? error.message : String(error),
             });
         }
-    }, [areChainsComplete, chainConfig?.size, chainGrid, constraintConflicts.messages.length, frameClues, geocacheId, godokuAlphabet, grid, horizontalInequalities, isChain, isEvenOdd, isFrame, isGodoku, isKakuro, isKropki, isLittleKiller, isNonogram, isOutside, isRossini, isSandwich, isSkyscraper, isTripod, isVudoku, isXv, kakuroLayout, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, maxSolutions, nonogramCols, nonogramColumnClueLines, nonogramRows, nonogramRowClueLines, outsideClues, parityMarks, pluginsService, puzzleType, rossiniArrows, sandwichClues, saveState, skyscraperClues, timeoutMs, tripodDots, verticalInequalities, vudokuCorners, watchCells, xvHorizontalMarks, xvVerticalMarks]);
+    }, [areChainsComplete, chainConfig?.size, chainGrid, constraintConflicts.messages.length, frameClues, geocacheId, godokuAlphabet, grid, hitoriCols, hitoriRows, hitoriShaded, horizontalInequalities, isChain, isEvenOdd, isFrame, isGodoku, isHitori, isKakuro, isKropki, isLittleKiller, isNonogram, isOutside, isRossini, isSandwich, isSkyscraper, isTripod, isVudoku, isXv, kakuroLayout, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, maxSolutions, nonogramCols, nonogramColumnClueLines, nonogramRows, nonogramRowClueLines, outsideClues, parityMarks, pluginsService, puzzleType, rossiniArrows, sandwichClues, saveState, skyscraperClues, timeoutMs, tripodDots, verticalInequalities, vudokuCorners, watchCells, xvHorizontalMarks, xvVerticalMarks]);
 
     const useSolvedGrid = React.useCallback(() => {
         if (solvedGrid) {
-            if (isKakuro) {
+            if (isHitori) {
+                setHitoriShaded(resizeHitoriShaded(solvedGrid.map(row => row.map(value => value === '#')), hitoriRows, hitoriCols));
+            } else if (isKakuro) {
                 setGrid(resizeKakuroGrid(solvedGrid, kakuroLayout));
             } else {
                 setGridAndQuickText(solvedGrid);
@@ -4612,7 +4857,7 @@ function GridPuzzleWorkbenchApp({
             setSolveState({ running: false });
             markDirty();
         }
-    }, [isKakuro, kakuroLayout, markDirty, setGridAndQuickText, solvedGrid]);
+    }, [hitoriCols, hitoriRows, isHitori, isKakuro, kakuroLayout, markDirty, setGridAndQuickText, solvedGrid]);
 
     const cellStyle = (rowIndex: number, colIndex: number): React.CSSProperties | undefined => {
         if (variableGridConfig) {
@@ -5418,6 +5663,7 @@ function GridPuzzleWorkbenchApp({
                         <option value='sudoku_tripod_8x8'>Tripod 8x8</option>
                         <option value='nonogram'>Nonogram / Picross</option>
                         <option value='kakuro'>Kakuro / Cross Sums</option>
+                        <option value='hitori'>Hitori</option>
                     </select>
                     <button onClick={solve} disabled={solveState.running}>
                         {solveState.running ? 'Resolution...' : 'Resoudre'}
@@ -5763,6 +6009,170 @@ function GridPuzzleWorkbenchApp({
                                 </div>
                             ) : null}
                         </div>
+                    ) : isHitori ? (
+                        <div className='hitori-editor'>
+                            <div className='hitori-toolbar'>
+                                <label>
+                                    Lignes
+                                    <input
+                                        type='number'
+                                        min={2}
+                                        max={20}
+                                        value={hitoriRows}
+                                        aria-label='Nombre de lignes Hitori'
+                                        title='Nombre de lignes Hitori'
+                                        onFocus={event => event.currentTarget.select()}
+                                        onChange={event => setHitoriDimension('row', Number(event.currentTarget.value))}
+                                    />
+                                </label>
+                                <span aria-hidden='true'>x</span>
+                                <label>
+                                    Colonnes
+                                    <input
+                                        type='number'
+                                        min={2}
+                                        max={20}
+                                        value={hitoriCols}
+                                        aria-label='Nombre de colonnes Hitori'
+                                        title='Nombre de colonnes Hitori'
+                                        onFocus={event => event.currentTarget.select()}
+                                        onChange={event => setHitoriDimension('column', Number(event.currentTarget.value))}
+                                    />
+                                </label>
+                                <div className='hitori-toolset' role='toolbar' aria-label='Outil Hitori'>
+                                    <button
+                                        type='button'
+                                        className={hitoriTool === 'numbers' ? 'active' : ''}
+                                        onClick={() => setHitoriTool('numbers')}
+                                    >
+                                        Nombres
+                                    </button>
+                                    <button
+                                        type='button'
+                                        className={hitoriTool === 'shade' ? 'active' : ''}
+                                        onClick={() => setHitoriTool('shade')}
+                                    >
+                                        Rayer
+                                    </button>
+                                </div>
+                            </div>
+                            <div className='hitori-board' style={hitoriBoardStyle} aria-label='Grille Hitori interactive'>
+                                {Array.from({ length: hitoriRows }, (_row, rowIndex) => (
+                                    Array.from({ length: hitoriCols }, (_col, colIndex) => {
+                                        const ref = cellRef(rowIndex, colIndex);
+                                        const isShaded = Boolean(hitoriShaded[rowIndex]?.[colIndex]);
+                                        const className = [
+                                            'hitori-cell',
+                                            isShaded ? 'shaded' : '',
+                                            watchCells.includes(ref) ? 'watched' : '',
+                                            constraintConflicts.cells.has(ref) ? 'conflict' : '',
+                                        ].filter(Boolean).join(' ');
+                                        if (hitoriTool === 'numbers' && mode !== 'watch') {
+                                            return (
+                                                <input
+                                                    key={`hitori-${ref}`}
+                                                    className={className}
+                                                    ref={element => {
+                                                        hitoriCellRefs.current[rowIndex] = hitoriCellRefs.current[rowIndex] || [];
+                                                        hitoriCellRefs.current[rowIndex][colIndex] = element;
+                                                    }}
+                                                    value={grid[rowIndex]?.[colIndex] || ''}
+                                                    inputMode='numeric'
+                                                    maxLength={2}
+                                                    aria-label={ref}
+                                                    title={ref}
+                                                    onClick={event => {
+                                                        if (event.ctrlKey || event.metaKey) {
+                                                            event.preventDefault();
+                                                            toggleWatchCell(ref);
+                                                        }
+                                                    }}
+                                                    onKeyDown={event => handleHitoriCellKeyDown(rowIndex, colIndex, event)}
+                                                    onChange={event => updateHitoriValue(rowIndex, colIndex, event.currentTarget.value)}
+                                                />
+                                            );
+                                        }
+                                        return (
+                                            <button
+                                                key={`hitori-${ref}`}
+                                                type='button'
+                                                className={className}
+                                                ref={element => {
+                                                    hitoriCellRefs.current[rowIndex] = hitoriCellRefs.current[rowIndex] || [];
+                                                    hitoriCellRefs.current[rowIndex][colIndex] = element;
+                                                }}
+                                                aria-label={`${ref}${isShaded ? ', rayee' : ', blanche'}`}
+                                                title={mode === 'watch' ? `${ref}, cliquez pour surveiller cette case.` : `${ref}, cliquez pour ${isShaded ? 'retirer le rayage' : 'rayer la case'}.`}
+                                                onClick={event => {
+                                                    if (mode === 'watch' || event.ctrlKey || event.metaKey) {
+                                                        toggleWatchCell(ref);
+                                                    } else {
+                                                        toggleHitoriShade(rowIndex, colIndex);
+                                                    }
+                                                }}
+                                                onKeyDown={event => handleHitoriCellKeyDown(rowIndex, colIndex, event)}
+                                            >
+                                                {grid[rowIndex]?.[colIndex] || ''}
+                                            </button>
+                                        );
+                                    })
+                                ))}
+                            </div>
+                            <div className='grid-puzzle-actions inline'>
+                                <button type='button' onClick={clearHitoriShades}>Effacer les rayures</button>
+                                <button type='button' onClick={clearHitori}>Reinitialiser</button>
+                            </div>
+                            {visibleConflictMessages.length > 0 ? (
+                                <div className='grid-puzzle-conflicts'>
+                                    {visibleConflictMessages.map(message => (
+                                        <div key={message}>{message}</div>
+                                    ))}
+                                    {constraintConflicts.messages.length > visibleConflictMessages.length ? (
+                                        <div>+{constraintConflicts.messages.length - visibleConflictMessages.length} autre(s) conflit(s).</div>
+                                    ) : null}
+                                </div>
+                            ) : null}
+                            {solvedGrid ? (
+                                <div className='grid-puzzle-solution'>
+                                    <div className='grid-puzzle-section-title'>
+                                        <strong>
+                                            Solution {solutionResults.length > 1 ? `${activeSolutionIndex + 1}/${solutionResults.length}` : ''}
+                                        </strong>
+                                        <div className='solution-actions'>
+                                            {solutionResults.length > 1 ? (
+                                                <select
+                                                    value={activeSolutionIndex}
+                                                    onChange={event => setSelectedSolutionIndex(Number(event.currentTarget.value) || 0)}
+                                                    aria-label='Solution affichee'
+                                                >
+                                                    {solutionResults.map((_solution, index) => (
+                                                        <option key={`solution-option-${index}`} value={index}>
+                                                            Solution {index + 1}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            ) : null}
+                                            <button onClick={useSolvedGrid}>Reprendre dans la grille</button>
+                                        </div>
+                                    </div>
+                                    <div className='hitori-board solved' style={hitoriBoardStyle} aria-label='Solution Hitori'>
+                                        {Array.from({ length: hitoriRows }, (_row, rowIndex) => (
+                                            Array.from({ length: hitoriCols }, (_col, colIndex) => {
+                                                const isShaded = solvedGrid[rowIndex]?.[colIndex] === '#';
+                                                return (
+                                                    <div
+                                                        key={`solved-hitori-${rowIndex}-${colIndex}`}
+                                                        className={`hitori-cell${isShaded ? ' shaded' : ''}`}
+                                                    >
+                                                        {isShaded ? grid[rowIndex]?.[colIndex] || '' : solvedGrid[rowIndex]?.[colIndex] || ''}
+                                                    </div>
+                                                );
+                                            })
+                                        ))}
+                                    </div>
+                                </div>
+                            ) : null}
+                        </div>
                     ) : (
                         <>
                     <div
@@ -5873,7 +6283,7 @@ function GridPuzzleWorkbenchApp({
                         </>
                     )}
 
-                    {solvedGrid && !isKakuro && (
+                    {solvedGrid && !isKakuro && !isHitori && (
                         <div className='grid-puzzle-solution'>
                             <div className='grid-puzzle-section-title'>
                                 <strong>
@@ -5977,7 +6387,7 @@ function GridPuzzleWorkbenchApp({
                 </section>
 
                 <aside className='grid-puzzle-side'>
-                    {!isNonogram && !isKakuro ? (
+                    {!isNonogram && !isKakuro && !isHitori ? (
                     <section>
                         <div className='grid-puzzle-section-title'>
                             <strong>Saisie rapide</strong>

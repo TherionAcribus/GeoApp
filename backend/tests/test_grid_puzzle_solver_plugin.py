@@ -2032,6 +2032,52 @@ def test_kakuro_rejects_repeated_digit_in_a_sum():
     assert result["summary"] == "Aucune solution compatible avec les contraintes"
 
 
+def test_hitori_shades_duplicates_and_keeps_white_cells_connected():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "hitori",
+            "grid": [
+                [1, 1],
+                [1, 2],
+            ],
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["unique"] is True
+    assert result["metadata"]["variant"] == "hitori"
+    assert result["results"][0]["grid"] == [
+        ["#", "1"],
+        ["1", "2"],
+    ]
+
+
+def test_hitori_rejects_adjacent_shaded_cells():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "hitori_puzzle",
+            "grid": [
+                [1, 1],
+                [1, 2],
+            ],
+            "shaded": [
+                [True, True],
+                [False, False],
+            ],
+            "max_solutions": 1,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+    assert result["summary"] == "Aucune solution compatible avec les contraintes"
+
+
 def mine_clue_grid(solution):
     size = len(solution)
     rows = []

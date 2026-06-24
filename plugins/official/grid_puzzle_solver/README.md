@@ -173,6 +173,23 @@ The optional `grid` is an aligned value matrix. White cells use digits `1` to
 `9`; all digits in a horizontal or vertical sum must be different. Every white
 cell must belong to exactly one horizontal clue and one vertical clue.
 
+## Hitori
+
+Use `puzzle_type=hitori` (alias: `hitori_puzzle`) with a rectangular matrix of
+positive numbers in `grid`. The optional aligned `shaded` matrix can force
+manual marks: `#`, `X`, `1`, or `true` means shaded.
+
+```json
+{
+  "grid": [[1, 1], [1, 2]],
+  "shaded": [[false, false], [false, false]]
+}
+```
+
+The solver shades enough repeated values to leave no duplicate unshaded number
+in a row or column. Shaded cells cannot share an edge, and all remaining white
+cells must stay orthogonally connected. Solutions use `#` for shaded cells.
+
 ## Nonogram / Picross
 
 Use `puzzle_type=nonogram` (aliases: `picross`, `griddlers`, `hanjie`) with
@@ -234,6 +251,7 @@ the Theia "Grilles" workbench:
 - editable row and column clues around a Nonogram / Picross grid, with manual
   filled, empty and unknown cell states;
 - editable black cells, diagonal sum cells and digit cells for Kakuro;
+- editable number cells and manual shaded cells for Hitori;
 - watch mode to mark answer cells;
 - solve action calling this plugin;
 - extracted watched values returned as `watched_values` and `watched_text`.

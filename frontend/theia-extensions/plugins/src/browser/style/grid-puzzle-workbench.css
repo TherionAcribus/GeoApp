@@ -530,6 +530,118 @@ input.kakuro-cell.white:focus {
     justify-content: center;
 }
 
+.hitori-editor {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.hitori-toolbar {
+    display: flex;
+    align-items: end;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.hitori-toolbar > label {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    color: var(--theia-descriptionForeground);
+    font-size: 10px;
+    line-height: 1;
+}
+
+.hitori-toolbar > span {
+    margin-bottom: 4px;
+    color: var(--theia-descriptionForeground);
+    font-weight: 700;
+}
+
+.grid-puzzle-workbench .hitori-toolbar > label > input {
+    box-sizing: border-box;
+    width: 52px;
+    min-width: 0;
+    height: 24px;
+    padding: 1px 2px;
+    border-radius: 2px;
+    font-size: 11px;
+    text-align: center;
+}
+
+.hitori-toolset {
+    display: flex;
+    gap: 2px;
+    margin-left: 6px;
+}
+
+.hitori-toolset button.active {
+    color: var(--theia-button-foreground);
+    background: var(--theia-button-background);
+}
+
+.hitori-board {
+    display: grid;
+    width: max-content;
+    max-width: 100%;
+    overflow: auto;
+    border: 2px solid var(--theia-foreground);
+    background: var(--theia-panel-border);
+}
+
+.hitori-cell {
+    box-sizing: border-box;
+    width: 46px;
+    height: 46px;
+    min-width: 46px;
+    min-height: 46px;
+    padding: 0;
+    color: var(--theia-input-foreground);
+    background: var(--theia-input-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 0;
+    font-size: 18px;
+    font-weight: 600;
+    text-align: center;
+}
+
+.hitori-cell.shaded {
+    color: #f5f5f5;
+    background: #303030;
+    border-color: #303030;
+}
+
+.hitori-cell.watched {
+    outline: 2px solid #f59e0b;
+    outline-offset: -3px;
+}
+
+.hitori-cell.conflict {
+    color: var(--theia-errorForeground, #f14c4c);
+    background: color-mix(in srgb, var(--theia-input-background) 82%, #f14c4c);
+}
+
+.hitori-cell.shaded.conflict {
+    color: #ffffff;
+    background: #a43b3b;
+    border-color: #a43b3b;
+}
+
+input.hitori-cell:focus {
+    position: relative;
+    z-index: 2;
+    outline: 2px solid var(--theia-focusBorder);
+    outline-offset: -2px;
+}
+
+.hitori-board.solved .hitori-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
 .sudoku-cell {
     width: 44px;
     height: 44px;

@@ -1,8 +1,8 @@
 {
   "name": "grid_puzzle_solver",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "plugin_api_version": "2.0",
-  "description": "Solveur Z3 pour grilles de logique. Variantes actuelles: Sudoku classique 4x4 a 16x16, Chain / Strimko 4x4 a 9x9, Sudoku X, Argyle, Anti Diagonal, Center Dot, Windoku, Girandola, Asterisk, Sujiken, Hoshi, Samurai Sudoku, Flower Sudoku, Sohei Sudoku, Kazaguruma, Greater Than / Compdoku, Vudoku, Rossini, Sudoku XV, Kropki, Skyscraper, Frame, Outside, Sandwich, Little Killer, Little Unique Killer, Godoku, Even-Odd, Non-Consecutive, Sudoku Mine, Tripod, Nonogram / Picross et Kakuro / Cross Sums.",
+  "description": "Solveur Z3 pour grilles de logique. Variantes actuelles: Sudoku classique 4x4 a 16x16, Chain / Strimko 4x4 a 9x9, Sudoku X, Argyle, Anti Diagonal, Center Dot, Windoku, Girandola, Asterisk, Sujiken, Hoshi, Samurai Sudoku, Flower Sudoku, Sohei Sudoku, Kazaguruma, Greater Than / Compdoku, Vudoku, Rossini, Sudoku XV, Kropki, Skyscraper, Frame, Outside, Sandwich, Little Killer, Little Unique Killer, Godoku, Even-Odd, Non-Consecutive, Sudoku Mine, Tripod, Nonogram / Picross, Kakuro / Cross Sums et Hitori.",
   "author": "MysterAI",
   "plugin_type": "python",
   "entry_point": "main.py",
@@ -80,6 +80,7 @@
         {"value": "sudoku_tripod_8x8", "label": "Tripod / Trepied 8x8"},
         {"value": "nonogram", "label": "Nonogram / Picross"},
         {"value": "kakuro", "label": "Kakuro / Cross Sums"},
+        {"value": "hitori", "label": "Hitori"},
         {"value": "custom_spec", "label": "Spec JSON generique"}
       ],
       "default": "sudoku_classic",
@@ -112,6 +113,12 @@
       "placeholder": "{\"cells\":[[\"#\",{\"down\":4},{\"down\":4}],[{\"across\":4},{\"kind\":\"white\"},{\"kind\":\"white\"}],[{\"across\":4},{\"kind\":\"white\"},{\"kind\":\"white\"}]]}",
       "required": false,
       "description": "JSON Kakuro. Une cellule est black, white ou clue. Une clue accepte across (somme vers la droite) et down (somme vers le bas). Chaque serie utilise les chiffres 1-9 sans repetition."
+    },
+    "shaded": {
+      "type": "textarea",
+      "label": "Cases rayees Hitori",
+      "required": false,
+      "description": "Matrice Hitori optionnelle alignee sur la grille. #, X, 1 ou true force une case rayee; 0, ., vide ou false la laisse libre."
     },
     "spec": {
       "type": "textarea",
