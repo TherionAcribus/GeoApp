@@ -33,6 +33,7 @@ Les objectifs actuels sont :
 - resoudre un Kakuro / Cross Sums avec sommes horizontales et verticales ;
 - resoudre un Hitori en rayant les doublons sans isoler les cases blanches ;
 - resoudre un Slither Link avec une boucle fermee unique ;
+- resoudre un Hashi / Hashiwokakero avec ponts non croises et reseau connecte ;
 - resoudre une Bataille navale / Bimaru avec flotte, totaux et navires non adjacents ;
 - resoudre un Fillomino avec regions connectees de taille imposee ;
 - resoudre un Futoshiki avec chiffres `1..N`, lignes/colonnes sans doublons et signes adjacents ;
@@ -162,6 +163,7 @@ Entrées principales :
 | `kakuro`, `layout` | object/string JSON | vide | Matrice Kakuro de cellules `black`, `white` et `clue`. |
 | `shaded`, `hitori_shaded`, `marks` | string/list | vide | Marques noires Hitori alignees sur la grille. |
 | `edges`, `lines`, `slither_edges` | object/string JSON | vide | Traits Slither Link `horizontal` et `vertical` deja traces. |
+| `bridges`, `hashi_bridges` | list/object/string JSON | vide | Ponts Hashi deja traces ou forces, avec deux iles et un compte `0..2`. |
 | `row_totals` | string/list | vide | Totaux de lignes Bataille navale. |
 | `column_totals`, `col_totals` | string/list | vide | Totaux de colonnes Bataille navale. |
 | `fleet`, `ships`, `battleship_fleet` | object/list/string JSON | flotte classique | Flotte Bataille navale: longueur vers quantite. |
@@ -214,6 +216,7 @@ Valeurs supportees pour `puzzle_type` :
 | `kakuro` | `cross_sums`, `crosssum`, `cross_sum` | Kakuro : sommes de series de chiffres 1-9 sans repetition. |
 | `hitori` | `hitori_puzzle` | Hitori : doublons rayes, noirs non adjacents et blancs connectes. |
 | `slitherlink` | `slither_link`, `slither`, `loop_the_loop`, `surizarinku` | Slither Link : une boucle unique autour des indices 0-3. |
+| `hashi` | `hashiwokakero`, `bridges`, `hashi_bridges` | Hashi : ponts simples ou doubles entre iles visibles, sans croisement et connectes. |
 | `battleship` | `battleships`, `bimaru`, `solitaire_battleships`, `battleship_solitaire` | Bataille navale : flotte sans contacts et totaux de lignes/colonnes. |
 | `fillomino` | `polyomino`, `polyominous`, `allied_occupation` | Fillomino : regions connectees dont la taille egale leur valeur. |
 | `futoshiki` | `hutoshiki`, `unequal` | Futoshiki : latin square NxN avec signes `>` / `<` entre cases adjacentes. |
@@ -1996,6 +1999,44 @@ l'atelier Theia, les dimensions, les indices et les traits horizontaux ou
 verticaux sont tous editables. Les fleches du clavier parcourent les cases
 d'indices.
 
+### Hashi / Hashiwokakero
+
+`puzzle_type = hashi`
+
+Aliases :
+
+```text
+hashiwokakero
+bridges
+hashi_bridges
+```
+
+La grille est une matrice rectangulaire. Les iles contiennent un indice de `1`
+a `8`; les cases vides acceptent `.`, `0`, `_`, `-`, `?` ou une valeur vide.
+Deux iles ne peuvent etre reliees que si elles se voient horizontalement ou
+verticalement sans autre ile entre elles.
+
+L'entree optionnelle `bridges` force des ponts deja traces :
+
+```json
+[
+  {"cells": ["r1c1", "r1c3"], "count": 1},
+  {"from": "r1c3", "to": "r1c5", "count": 2}
+]
+```
+
+Le solveur applique les contraintes suivantes :
+
+- chaque pont candidat vaut `0`, `1` ou `2` ;
+- la somme des ponts incidents a chaque ile egale son indice ;
+- un pont horizontal et un pont vertical ne peuvent pas se croiser ;
+- toutes les iles doivent appartenir au meme reseau connecte.
+
+Chaque solution renvoie les ponts dans `results[].edges.bridges`, avec les deux
+iles, l'orientation et le nombre de ponts. Dans l'atelier Theia, les dimensions,
+les indices d'iles et les ponts manuels sont editables. Les indices depasses et
+les croisements manuels sont affiches en rouge.
+
 ### Bataille navale / Bimaru
 
 `puzzle_type = battleship`
@@ -2386,6 +2427,7 @@ Fonctionnalites actuelles :
 - editeur de cases noires, sommes diagonales et chiffres en mode Kakuro ;
 - saisie des nombres et rayage manuel des cases en mode Hitori ;
 - dimensions, indices et traits manuels pour Slither Link ;
+- dimensions, indices d'iles et ponts manuels pour Hashi ;
 - dimensions, flotte, totaux et marques manuelles pour Bataille navale ;
 - dimensions et nombres multi-chiffres pour Fillomino ;
 - taille, chiffres et signes adjacents pour Futoshiki ;
@@ -2400,7 +2442,7 @@ Fonctionnalites actuelles :
 |---|---|---|
 | `grid` | `string[][]` | Valeurs courantes de la grille. |
 | `quickText` | `string` | Representation texte de la grille. |
-| `puzzleType` | `sudoku_classic`, variantes classiques `sudoku_4x4` a `sudoku_16x16`, `chain_sudoku_4x4` a `chain_sudoku_9x9`, `sudoku_x`, `sudoku_argyle`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_vudoku`, `sudoku_rossini`, `sudoku_xv`, `sudoku_kropki`, `sudoku_skyscraper`, `sudoku_frame`, `sudoku_outside`, `sudoku_little_killer`, `sudoku_little_unique_killer`, `sudoku_godoku`, `sudoku_even_odd`, `sudoku_non_consecutive`, `sudoku_mine`, `sudoku_mine_6x6`, `nonogram`, `kakuro`, `hitori`, `slitherlink`, `battleship`, `fillomino`, `futoshiki` ou `sudoku_tripod_4x4` a `sudoku_tripod_8x8` | Variante active. |
+| `puzzleType` | `sudoku_classic`, variantes classiques `sudoku_4x4` a `sudoku_16x16`, `chain_sudoku_4x4` a `chain_sudoku_9x9`, `sudoku_x`, `sudoku_argyle`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_vudoku`, `sudoku_rossini`, `sudoku_xv`, `sudoku_kropki`, `sudoku_skyscraper`, `sudoku_frame`, `sudoku_outside`, `sudoku_little_killer`, `sudoku_little_unique_killer`, `sudoku_godoku`, `sudoku_even_odd`, `sudoku_non_consecutive`, `sudoku_mine`, `sudoku_mine_6x6`, `nonogram`, `kakuro`, `hitori`, `slitherlink`, `hashi`, `battleship`, `fillomino`, `futoshiki` ou `sudoku_tripod_4x4` a `sudoku_tripod_8x8` | Variante active. |
 | `horizontalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme ligne. |
 | `verticalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme colonne. |
 | `vudokuCorners` | `string[][]` | Coins Vudoku 8x8 : `tl`, `tr`, `bl`, `br` ou vide. |
@@ -2421,6 +2463,8 @@ Fonctionnalites actuelles :
 | `hitoriShaded` | `boolean[][]` | Cases rayees manuellement dans Hitori. |
 | `slitherRows`, `slitherCols` | number | Dimensions de la grille Slither Link. |
 | `slitherEdges` | object | Traits `horizontal` et `vertical` manuels du Slither Link. |
+| `hashiRows`, `hashiCols` | number | Dimensions de la grille Hashi. |
+| `hashiBridges` | object | Ponts manuels Hashi, par paire d'iles. |
 | `battleshipRows`, `battleshipCols` | number | Dimensions de la grille Bataille navale. |
 | `battleshipRowTotals`, `battleshipColumnTotals` | `string[]` | Totaux de lignes et colonnes Bataille navale. |
 | `battleshipFleet` | object | Quantite de navires par longueur. |
@@ -2778,6 +2822,8 @@ Couverture actuelle :
 - Hitori refuse deux rayures adjacentes ;
 - Slither Link resout une boucle unique et retourne ses segments ;
 - Slither Link refuse un trait force autour d'un indice `0` ;
+- Hashi resout une chaine de ponts simple et retourne `edges.bridges` ;
+- Hashi refuse un reseau force qui croise des ponts ;
 - Bataille navale place une flotte sans contacts et respecte les totaux ;
 - Bataille navale refuse deux fragments connus en diagonale ;
 - Fillomino construit des regions connectees de tailles imposees ;

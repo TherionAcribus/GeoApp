@@ -2182,6 +2182,61 @@ def test_slitherlink_rejects_a_forced_edge_around_zero():
     assert result["summary"] == "Aucune solution compatible avec les contraintes"
 
 
+def test_hashi_solves_a_simple_bridge_chain():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "hashi",
+            "grid": "1.2.1",
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["unique"] is True
+    assert result["metadata"]["variant"] == "hashi"
+    assert result["results"][0]["grid"] == [["1", "", "2", "", "1"]]
+    assert result["results"][0]["edges"]["bridges"] == [
+        {
+            "from": "r1c1",
+            "to": "r1c3",
+            "from_cell": [0, 0],
+            "to_cell": [0, 2],
+            "orientation": "horizontal",
+            "count": 1,
+        },
+        {
+            "from": "r1c3",
+            "to": "r1c5",
+            "from_cell": [0, 2],
+            "to_cell": [0, 4],
+            "orientation": "horizontal",
+            "count": 1,
+        },
+    ]
+
+
+def test_hashi_rejects_crossing_forced_network():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "hashiwokakero",
+            "grid": """
+                .1.
+                1.1
+                .1.
+            """,
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+    assert result["summary"] == "Aucune solution compatible avec les contraintes"
+
+
 def test_battleship_places_the_requested_fleet_without_contacts():
     plugin = load_plugin()
 

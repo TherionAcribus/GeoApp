@@ -169,7 +169,7 @@ class GridpuzzlesolverPlugin:
 
     def __init__(self) -> None:
         self.name = "grid_puzzle_solver"
-        self.version = "0.8.0"
+        self.version = "0.9.0"
 
     def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         start_time = time.time()
@@ -737,6 +737,33 @@ class GridpuzzlesolverPlugin:
                     problem,
                     slither_clues,
                     forced_edges,
+                    max_solutions,
+                    solver_timeout_ms,
+                )
+                return self._success_response(
+                    start_time,
+                    problem,
+                    solved,
+                    max_solutions,
+                    solver_timeout_ms,
+                    watched_cells,
+                )
+            elif puzzle_type in {"hashi", "hashiwokakero", "bridges", "hashi_bridges"}:
+                problem, hashi_clues, candidates, forced_bridges = self._build_hashi_problem(
+                    grid=inputs.get("grid") or inputs.get("puzzle") or inputs.get("clues") or inputs.get("hashi"),
+                    bridges=inputs.get("bridges") or inputs.get("edges") or inputs.get("lines") or inputs.get("hashi_bridges"),
+                )
+                watched_cells = self._parse_watch_cells(
+                    watched_cells_input,
+                    problem.rows,
+                    problem.cols,
+                    set(problem.active_cells),
+                )
+                solved = self._solve_hashi_problem(
+                    problem,
+                    hashi_clues,
+                    candidates,
+                    forced_bridges,
                     max_solutions,
                     solver_timeout_ms,
                 )
@@ -1954,6 +1981,179 @@ class GridpuzzlesolverPlugin:
             parsed[direction] = matrix
         return parsed
 
+    def _build_hashi_problem(
+        self,
+        grid: Any,
+        bridges: Any = None,
+    ) -> Tuple[GridCspProblem, Dict[Cell, int], List[Dict[str, Any]], Dict[Tuple[Cell, Cell], int]]:
+        if isinstance(grid, dict) and bridges in (None, "", [], {}):
+            bridges = grid.get("bridges") or grid.get("edges") or grid.get("lines")
+        clues, rows, cols = self._parse_hashi_grid(grid)
+        candidates = self._hashi_candidates(clues, rows, cols)
+        forced_bridges = self._parse_hashi_bridges(bridges, candidates, rows, cols)
+        problem = GridCspProblem(
+            rows=rows,
+            cols=cols,
+            symbols=["0", "1", "2"],
+            active_cells=sorted(clues),
+            givens={cell: str(value) for cell, value in clues.items()},
+            constraints=[],
+            numeric_values={"0": 0, "1": 1, "2": 2},
+            variant="hashi",
+        )
+        return problem, clues, candidates, forced_bridges
+
+    def _parse_hashi_grid(self, raw_grid: Any) -> Tuple[Dict[Cell, int], int, int]:
+        raw_grid = self._parse_optional_json(raw_grid)
+        if isinstance(raw_grid, dict):
+            raw_grid = raw_grid.get("grid") or raw_grid.get("matrix") or raw_grid.get("cells")
+        if raw_grid in (None, "", [], {}):
+            raise ValueError("Une grille d'iles est requise pour Hashi")
+
+        if isinstance(raw_grid, str):
+            raw_rows: List[Any] = [
+                line for line in raw_grid.splitlines()
+                if line.strip() and not SEPARATOR_LINE_RE.fullmatch(line.strip())
+            ]
+        elif isinstance(raw_grid, list):
+            raw_rows = raw_grid
+        else:
+            raise ValueError("Format de grille Hashi non supporte")
+
+        if not raw_rows:
+            raise ValueError("Hashi attend au moins une ligne")
+
+        parsed_rows: List[List[Optional[int]]] = []
+        expected_cols: Optional[int] = None
+        for row_index, raw_row in enumerate(raw_rows):
+            values = self._parse_hashi_row(raw_row)
+            if expected_cols is None:
+                expected_cols = len(values)
+            elif len(values) != expected_cols:
+                raise ValueError("La grille Hashi doit etre rectangulaire")
+            if not values:
+                raise ValueError(f"La ligne Hashi {row_index + 1} est vide")
+            parsed_rows.append(values)
+
+        clues: Dict[Cell, int] = {}
+        for row_index, row in enumerate(parsed_rows):
+            for col_index, value in enumerate(row):
+                if value is not None:
+                    clues[(row_index, col_index)] = value
+
+        if len(clues) < 2:
+            raise ValueError("Hashi attend au moins deux iles")
+        return clues, len(parsed_rows), expected_cols or 0
+
+    def _parse_hashi_row(self, raw_row: Any) -> List[Optional[int]]:
+        if isinstance(raw_row, list):
+            raw_values = raw_row
+        else:
+            text = str(raw_row).strip()
+            raw_values = re.split(r"[\s,;|]+", text) if re.search(r"[\s,;|]", text) else list(text)
+
+        values: List[Optional[int]] = []
+        for raw_value in raw_values:
+            text = str(raw_value or "").strip()
+            if text in {"", ".", "0", "_", "-", "?"}:
+                values.append(None)
+                continue
+            try:
+                clue = int(text)
+            except ValueError as exc:
+                raise ValueError(f"Indice Hashi invalide: {raw_value}") from exc
+            if clue < 1 or clue > 8:
+                raise ValueError(f"Les indices Hashi doivent etre compris entre 1 et 8: {raw_value}")
+            values.append(clue)
+        return values
+
+    def _hashi_candidates(
+        self,
+        clues: Mapping[Cell, int],
+        rows: int,
+        cols: int,
+    ) -> List[Dict[str, Any]]:
+        island_set = set(clues)
+        candidates: List[Dict[str, Any]] = []
+        for row, col in sorted(clues):
+            for next_col in range(col + 1, cols):
+                if (row, next_col) in island_set:
+                    candidates.append({
+                        "key": ((row, col), (row, next_col)),
+                        "a": (row, col),
+                        "b": (row, next_col),
+                        "orientation": "horizontal",
+                        "path": tuple((row, path_col) for path_col in range(col + 1, next_col)),
+                    })
+                    break
+            for next_row in range(row + 1, rows):
+                if (next_row, col) in island_set:
+                    candidates.append({
+                        "key": ((row, col), (next_row, col)),
+                        "a": (row, col),
+                        "b": (next_row, col),
+                        "orientation": "vertical",
+                        "path": tuple((path_row, col) for path_row in range(row + 1, next_row)),
+                    })
+                    break
+        return candidates
+
+    def _parse_hashi_bridges(
+        self,
+        raw_bridges: Any,
+        candidates: Sequence[Mapping[str, Any]],
+        rows: int,
+        cols: int,
+    ) -> Dict[Tuple[Cell, Cell], int]:
+        raw_bridges = self._parse_optional_json(raw_bridges)
+        if raw_bridges in (None, "", [], {}):
+            return {}
+        if isinstance(raw_bridges, dict):
+            raw_bridges = raw_bridges.get("bridges") or raw_bridges.get("edges") or raw_bridges.get("lines") or raw_bridges
+
+        candidate_keys = {
+            frozenset(candidate["key"]): candidate["key"]
+            for candidate in candidates
+        }
+        forced: Dict[Tuple[Cell, Cell], int] = {}
+
+        if isinstance(raw_bridges, list):
+            entries = raw_bridges
+        elif isinstance(raw_bridges, dict):
+            entries = [{"cells": key, "count": value} for key, value in raw_bridges.items()]
+        else:
+            raise ValueError("Format de ponts Hashi non supporte")
+
+        for entry in entries:
+            if not isinstance(entry, dict):
+                raise ValueError("Chaque pont Hashi doit etre un objet")
+            raw_cells = entry.get("cells")
+            if raw_cells is None:
+                raw_cells = [
+                    entry.get("from") or entry.get("a") or entry.get("cell_a"),
+                    entry.get("to") or entry.get("b") or entry.get("cell_b"),
+                ]
+            if isinstance(raw_cells, str):
+                raw_cells = re.split(r"\s*(?:->|-|,|;|\|)\s*", raw_cells.strip())
+            if not isinstance(raw_cells, list) or len(raw_cells) != 2:
+                raise ValueError("Chaque pont Hashi doit definir deux iles")
+
+            count = int(entry.get("count") or entry.get("value") or entry.get("bridges") or 0)
+            if count < 0 or count > 2:
+                raise ValueError("Un pont Hashi force doit valoir 0, 1 ou 2")
+            if count == 0:
+                continue
+
+            first = self._parse_cell_ref(raw_cells[0], rows, cols)
+            second = self._parse_cell_ref(raw_cells[1], rows, cols)
+            key = candidate_keys.get(frozenset((first, second)))
+            if key is None:
+                raise ValueError("Un pont Hashi force doit relier deux iles visibles orthogonalement")
+            if key in forced and forced[key] != count:
+                raise ValueError("Pont Hashi force contradictoire")
+            forced[key] = count
+        return forced
+
     def _build_battleship_problem(
         self,
         grid: Any,
@@ -2459,6 +2659,127 @@ class GridpuzzlesolverPlugin:
             solver.add(z3.Or(*(
                 edge != model.eval(edge, model_completion=True)
                 for edge in all_edges
+            )))
+
+        return {
+            "solutions": solutions,
+            "solution_edges": solution_edges,
+            "exhausted": exhausted,
+            "truncated": not exhausted and len(solutions) >= max_solutions,
+        }
+
+    def _solve_hashi_problem(
+        self,
+        problem: GridCspProblem,
+        clues: Mapping[Cell, int],
+        candidates: Sequence[Mapping[str, Any]],
+        forced_bridges: Mapping[Tuple[Cell, Cell], int],
+        max_solutions: int,
+        solver_timeout_ms: int,
+    ) -> Dict[str, Any]:
+        solver = z3.Solver()
+        solver.set("timeout", solver_timeout_ms)
+
+        bridges = {
+            candidate["key"]: z3.Int(
+                f"hashi_bridge_r{candidate['a'][0] + 1}c{candidate['a'][1] + 1}_r{candidate['b'][0] + 1}c{candidate['b'][1] + 1}"
+            )
+            for candidate in candidates
+        }
+        for variable in bridges.values():
+            solver.add(variable >= 0, variable <= 2)
+        for key, count in forced_bridges.items():
+            if key not in bridges:
+                raise ValueError("Pont Hashi force inconnu")
+            solver.add(bridges[key] == count)
+
+        incident: Dict[Cell, List[Any]] = {cell: [] for cell in clues}
+        neighbors: Dict[Cell, List[Tuple[Cell, Any]]] = {cell: [] for cell in clues}
+        for candidate in candidates:
+            key = candidate["key"]
+            first = candidate["a"]
+            second = candidate["b"]
+            variable = bridges[key]
+            incident[first].append(variable)
+            incident[second].append(variable)
+            neighbors[first].append((second, variable))
+            neighbors[second].append((first, variable))
+
+        for cell, clue in clues.items():
+            solver.add(z3.Sum(*(variable for variable in incident[cell])) == clue)
+
+        for index, first_candidate in enumerate(candidates):
+            if first_candidate["orientation"] != "horizontal":
+                continue
+            first_path = set(first_candidate["path"])
+            for second_candidate in candidates[index + 1:]:
+                if second_candidate["orientation"] != "vertical":
+                    continue
+                if first_path.intersection(second_candidate["path"]):
+                    solver.add(
+                        z3.Or(
+                            bridges[first_candidate["key"]] == 0,
+                            bridges[second_candidate["key"]] == 0,
+                        )
+                    )
+
+        islands = sorted(clues)
+        depths = {
+            cell: z3.Int(f"hashi_depth_r{cell[0] + 1}c{cell[1] + 1}")
+            for cell in islands
+        }
+        root = islands[0]
+        for cell in islands:
+            solver.add(depths[cell] >= 0, depths[cell] <= len(islands) - 1)
+        solver.add(depths[root] == 0)
+        for cell in islands[1:]:
+            solver.add(depths[cell] > 0)
+            predecessor_terms = [
+                z3.And(variable > 0, depths[neighbor] == depths[cell] - 1)
+                for neighbor, variable in neighbors[cell]
+            ]
+            if not predecessor_terms:
+                solver.add(False)
+            else:
+                solver.add(z3.Or(*predecessor_terms))
+
+        solutions: List[List[List[Optional[str]]]] = []
+        solution_edges: List[Dict[str, Any]] = []
+        exhausted = False
+        while len(solutions) < max_solutions:
+            check = solver.check()
+            if check == z3.unsat:
+                exhausted = True
+                break
+            if check == z3.unknown:
+                raise RuntimeError(self._z3_unknown_message(solver.reason_unknown(), solver_timeout_ms))
+
+            model = solver.model()
+            grid = [
+                [str(clues[(row, col)]) if (row, col) in clues else "" for col in range(problem.cols)]
+                for row in range(problem.rows)
+            ]
+            bridge_entries = []
+            for candidate in candidates:
+                count = model.eval(bridges[candidate["key"]], model_completion=True).as_long()
+                if count <= 0:
+                    continue
+                first = candidate["a"]
+                second = candidate["b"]
+                bridge_entries.append({
+                    "from": self._format_cell_ref(first),
+                    "to": self._format_cell_ref(second),
+                    "from_cell": [first[0], first[1]],
+                    "to_cell": [second[0], second[1]],
+                    "orientation": candidate["orientation"],
+                    "count": count,
+                })
+
+            solutions.append(grid)
+            solution_edges.append({"bridges": bridge_entries})
+            solver.add(z3.Or(*(
+                variable != model.eval(variable, model_completion=True)
+                for variable in bridges.values()
             )))
 
         return {

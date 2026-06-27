@@ -10,7 +10,7 @@ import './style/grid-puzzle-workbench.css';
 type Grid = string[][];
 type RegionGrid = number[][];
 type WorkMode = 'edit' | 'watch' | 'parity' | 'chain';
-type SudokuVariant = 'sudoku_classic' | 'sudoku_4x4' | 'sudoku_6x6' | 'sudoku_8x8' | 'sudoku_10x10' | 'sudoku_12x12' | 'sudoku_15x15' | 'sudoku_16x16' | 'sudoku_x' | 'sudoku_argyle' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'sudoku_hoshi' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_vudoku' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_kropki' | 'chain_sudoku_4x4' | 'chain_sudoku_5x5' | 'chain_sudoku_6x6' | 'chain_sudoku_7x7' | 'chain_sudoku_8x8' | 'chain_sudoku_9x9' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_outside' | 'sudoku_sandwich' | 'sudoku_little_killer' | 'sudoku_little_unique_killer' | 'sudoku_godoku' | 'sudoku_even_odd' | 'sudoku_non_consecutive' | 'sudoku_mine' | 'sudoku_mine_6x6' | 'sudoku_tripod' | 'sudoku_tripod_4x4' | 'sudoku_tripod_5x5' | 'sudoku_tripod_6x6' | 'sudoku_tripod_7x7' | 'sudoku_tripod_8x8' | 'nonogram' | 'kakuro' | 'hitori' | 'slitherlink' | 'battleship' | 'fillomino' | 'futoshiki';
+type SudokuVariant = 'sudoku_classic' | 'sudoku_4x4' | 'sudoku_6x6' | 'sudoku_8x8' | 'sudoku_10x10' | 'sudoku_12x12' | 'sudoku_15x15' | 'sudoku_16x16' | 'sudoku_x' | 'sudoku_argyle' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'sudoku_hoshi' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_vudoku' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_kropki' | 'chain_sudoku_4x4' | 'chain_sudoku_5x5' | 'chain_sudoku_6x6' | 'chain_sudoku_7x7' | 'chain_sudoku_8x8' | 'chain_sudoku_9x9' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_outside' | 'sudoku_sandwich' | 'sudoku_little_killer' | 'sudoku_little_unique_killer' | 'sudoku_godoku' | 'sudoku_even_odd' | 'sudoku_non_consecutive' | 'sudoku_mine' | 'sudoku_mine_6x6' | 'sudoku_tripod' | 'sudoku_tripod_4x4' | 'sudoku_tripod_5x5' | 'sudoku_tripod_6x6' | 'sudoku_tripod_7x7' | 'sudoku_tripod_8x8' | 'nonogram' | 'kakuro' | 'hitori' | 'slitherlink' | 'battleship' | 'fillomino' | 'futoshiki' | 'hashi';
 type KakuroCellKind = 'black' | 'clue' | 'white';
 type KakuroTool = KakuroCellKind;
 type HitoriTool = 'numbers' | 'shade';
@@ -19,6 +19,14 @@ interface SlitherEdges {
     vertical: boolean[][];
 }
 type BattleshipFleet = Record<number, number>;
+type HashiBridgeMap = Record<string, number>;
+interface HashiCandidateBridge {
+    key: string;
+    from: CellCoord;
+    to: CellCoord;
+    orientation: 'horizontal' | 'vertical';
+    path: CellCoord[];
+}
 type InequalitySymbol = '' | '>' | '<';
 type InequalityGrid = InequalitySymbol[][];
 type VudokuSymbol = '' | 'tl' | 'tr' | 'bl' | 'br';
@@ -719,6 +727,168 @@ function normalizeSlitherEdges(value: unknown, rows: number, cols: number): Slit
     return resizeSlitherEdges(edges, rows, cols);
 }
 
+function normalizeHashiClue(rawValue: unknown): string {
+    const value = String(rawValue ?? '').replace(/[^1-8]/g, '').slice(-1);
+    return value;
+}
+
+function resizeHashiGrid(grid: Grid, rows: number, cols: number): Grid {
+    return Array.from({ length: rows }, (_row, rowIndex) => (
+        Array.from({ length: cols }, (_col, colIndex) => normalizeHashiClue(grid[rowIndex]?.[colIndex]))
+    ));
+}
+
+function normalizeHashiGrid(value: unknown, rows: number, cols: number): Grid {
+    if (typeof value === 'string') {
+        const parsed = value.split(/\r?\n/).filter(Boolean).map(line => {
+            const text = line.trim();
+            return /[\s,;|]/.test(text) ? text.split(/[\s,;|]+/) : Array.from(text);
+        });
+        return resizeHashiGrid(parsed, rows, cols);
+    }
+    if (!Array.isArray(value)) {
+        return createEmptyRectGrid(rows, cols);
+    }
+    const parsed = value.map(row => Array.isArray(row) ? row.map(cell => String(cell ?? '')) : []);
+    return resizeHashiGrid(parsed, rows, cols);
+}
+
+function hashiBridgeKey(from: CellCoord, to: CellCoord): string {
+    return `${cellRef(from[0], from[1])}-${cellRef(to[0], to[1])}`;
+}
+
+function buildHashiCandidateBridges(grid: Grid, rows: number, cols: number): HashiCandidateBridge[] {
+    const hasIsland = (row: number, col: number): boolean => Boolean(grid[row]?.[col]);
+    const candidates: HashiCandidateBridge[] = [];
+    for (let row = 0; row < rows; row += 1) {
+        for (let col = 0; col < cols; col += 1) {
+            if (!hasIsland(row, col)) {
+                continue;
+            }
+            for (let nextCol = col + 1; nextCol < cols; nextCol += 1) {
+                if (hasIsland(row, nextCol)) {
+                    const from: CellCoord = [row, col];
+                    const to: CellCoord = [row, nextCol];
+                    candidates.push({
+                        key: hashiBridgeKey(from, to),
+                        from,
+                        to,
+                        orientation: 'horizontal',
+                        path: Array.from({ length: nextCol - col - 1 }, (_unused, index): CellCoord => [row, col + index + 1]),
+                    });
+                    break;
+                }
+            }
+            for (let nextRow = row + 1; nextRow < rows; nextRow += 1) {
+                if (hasIsland(nextRow, col)) {
+                    const from: CellCoord = [row, col];
+                    const to: CellCoord = [nextRow, col];
+                    candidates.push({
+                        key: hashiBridgeKey(from, to),
+                        from,
+                        to,
+                        orientation: 'vertical',
+                        path: Array.from({ length: nextRow - row - 1 }, (_unused, index): CellCoord => [row + index + 1, col]),
+                    });
+                    break;
+                }
+            }
+        }
+    }
+    return candidates;
+}
+
+function pruneHashiBridges(bridges: HashiBridgeMap, candidates: HashiCandidateBridge[]): HashiBridgeMap {
+    const candidateKeys = new Set(candidates.map(candidate => candidate.key));
+    return Object.fromEntries(
+        Object.entries(bridges)
+            .filter(([key, count]) => candidateKeys.has(key) && count >= 1 && count <= 2)
+    );
+}
+
+function serializeHashiBridges(bridges: HashiBridgeMap, candidates: HashiCandidateBridge[]): Array<{ cells: string[]; count: number }> {
+    const byKey = new Map(candidates.map(candidate => [candidate.key, candidate]));
+    return Object.entries(bridges).flatMap(([key, count]) => {
+        const candidate = byKey.get(key);
+        if (!candidate || count < 1 || count > 2) {
+            return [];
+        }
+        return [{
+            cells: [cellRef(candidate.from[0], candidate.from[1]), cellRef(candidate.to[0], candidate.to[1])],
+            count,
+        }];
+    });
+}
+
+function hashiBridgeMapFromEdges(edges: any): HashiBridgeMap {
+    const bridges = Array.isArray(edges?.bridges) ? edges.bridges : [];
+    const result: HashiBridgeMap = {};
+    bridges.forEach((bridge: any) => {
+        const from = Array.isArray(bridge.from_cell) ? bridge.from_cell : undefined;
+        const to = Array.isArray(bridge.to_cell) ? bridge.to_cell : undefined;
+        const count = Number(bridge.count || 0);
+        if (!from || !to || count < 1 || count > 2) {
+            return;
+        }
+        result[hashiBridgeKey([Number(from[0]), Number(from[1])], [Number(to[0]), Number(to[1])])] = count;
+    });
+    return result;
+}
+
+function findHashiConflicts(grid: Grid, candidates: HashiCandidateBridge[], bridges: HashiBridgeMap): ConflictHighlights {
+    const cells = new Set<string>();
+    const messages: string[] = [];
+    const degree = new Map<string, number>();
+    const byKey = new Map(candidates.map(candidate => [candidate.key, candidate]));
+    const activeCandidates = Object.entries(bridges).flatMap(([key, count]) => {
+        const candidate = byKey.get(key);
+        return candidate && count > 0 ? [{ candidate, count }] : [];
+    });
+
+    activeCandidates.forEach(({ candidate, count }) => {
+        const fromRef = cellRef(candidate.from[0], candidate.from[1]);
+        const toRef = cellRef(candidate.to[0], candidate.to[1]);
+        degree.set(fromRef, (degree.get(fromRef) || 0) + count);
+        degree.set(toRef, (degree.get(toRef) || 0) + count);
+    });
+
+    for (let row = 0; row < grid.length; row += 1) {
+        for (let col = 0; col < (grid[row]?.length || 0); col += 1) {
+            const clue = Number(grid[row]?.[col] || 0);
+            if (!clue) {
+                continue;
+            }
+            const ref = cellRef(row, col);
+            const used = degree.get(ref) || 0;
+            if (used > clue) {
+                cells.add(ref);
+                messages.push(`L'ile ${ref} a deja ${used} ponts pour un indice ${clue}.`);
+            }
+        }
+    }
+
+    activeCandidates.forEach(({ candidate: first }, index) => {
+        if (first.orientation !== 'horizontal') {
+            return;
+        }
+        const firstPath = new Set(first.path.map(([row, col]) => `${row}:${col}`));
+        activeCandidates.slice(index + 1).forEach(({ candidate: second }) => {
+            if (second.orientation !== 'vertical') {
+                return;
+            }
+            if (second.path.some(([row, col]) => firstPath.has(`${row}:${col}`))) {
+                cells.add(cellRef(first.from[0], first.from[1]));
+                cells.add(cellRef(first.to[0], first.to[1]));
+                cells.add(cellRef(second.from[0], second.from[1]));
+                cells.add(cellRef(second.to[0], second.to[1]));
+                messages.push('Deux ponts Hashi se croisent.');
+            }
+        });
+    });
+
+    return { cells, messages: [...new Set(messages)] };
+}
+
 function normalizeBattleshipCell(rawValue: unknown): string {
     const value = String(rawValue ?? '').trim().toLowerCase();
     if (value === '#' || value === 'x' || value === '1' || value === 'ship' || value === 's') {
@@ -1147,6 +1317,9 @@ function getVariantLabel(puzzleType: SudokuVariant): string {
     if (puzzleType === 'slitherlink') {
         return 'Slither Link';
     }
+    if (puzzleType === 'hashi') {
+        return 'Hashi';
+    }
     if (puzzleType === 'battleship') {
         return 'Bataille navale';
     }
@@ -1283,7 +1456,7 @@ function getMineConfig(
 }
 
 function getSingleGridSudokuConfig(puzzleType: SudokuVariant): { size: number; boxRows: number; boxCols: number; label: string } | undefined {
-    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori' || puzzleType === 'slitherlink' || puzzleType === 'battleship' || puzzleType === 'fillomino' || puzzleType === 'futoshiki') {
+    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori' || puzzleType === 'slitherlink' || puzzleType === 'hashi' || puzzleType === 'battleship' || puzzleType === 'fillomino' || puzzleType === 'futoshiki') {
         return undefined;
     }
     return getSizedSudokuConfig(puzzleType) || {
@@ -1320,14 +1493,14 @@ function gridSizeForVariant(puzzleType: SudokuVariant): number {
     if (mineConfig) {
         return mineConfig.size;
     }
-    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori' || puzzleType === 'slitherlink' || puzzleType === 'battleship' || puzzleType === 'fillomino' || puzzleType === 'futoshiki') {
+    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori' || puzzleType === 'slitherlink' || puzzleType === 'hashi' || puzzleType === 'battleship' || puzzleType === 'fillomino' || puzzleType === 'futoshiki') {
         return SIZE;
     }
     return getSingleGridSudokuConfig(puzzleType)?.size || SIZE;
 }
 
 function isActiveCellForVariant(puzzleType: SudokuVariant, row: number, col: number): boolean {
-    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori' || puzzleType === 'slitherlink' || puzzleType === 'battleship' || puzzleType === 'fillomino' || puzzleType === 'futoshiki') {
+    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori' || puzzleType === 'slitherlink' || puzzleType === 'hashi' || puzzleType === 'battleship' || puzzleType === 'fillomino' || puzzleType === 'futoshiki') {
         return row >= 0 && col >= 0;
     }
     if (puzzleType === 'sujiken') {
@@ -1632,7 +1805,7 @@ function findConstraintConflicts(
     const cells = new Set<string>();
     const messages: string[] = [];
 
-    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori' || puzzleType === 'slitherlink' || puzzleType === 'battleship' || puzzleType === 'fillomino' || puzzleType === 'futoshiki') {
+    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori' || puzzleType === 'slitherlink' || puzzleType === 'hashi' || puzzleType === 'battleship' || puzzleType === 'fillomino' || puzzleType === 'futoshiki') {
         return { cells, messages };
     }
 
@@ -3928,6 +4101,9 @@ function GridPuzzleWorkbenchApp({
     const [slitherRows, setSlitherRows] = React.useState(5);
     const [slitherCols, setSlitherCols] = React.useState(5);
     const [slitherEdges, setSlitherEdges] = React.useState<SlitherEdges>(() => emptySlitherEdges(5, 5));
+    const [hashiRows, setHashiRows] = React.useState(7);
+    const [hashiCols, setHashiCols] = React.useState(7);
+    const [hashiBridges, setHashiBridges] = React.useState<HashiBridgeMap>({});
     const [battleshipRows, setBattleshipRows] = React.useState(10);
     const [battleshipCols, setBattleshipCols] = React.useState(10);
     const [battleshipRowTotals, setBattleshipRowTotals] = React.useState<string[]>(() => Array<string>(10).fill(''));
@@ -3955,6 +4131,7 @@ function GridPuzzleWorkbenchApp({
     const nonogramCellRefs = React.useRef<Array<Array<HTMLButtonElement | null>>>([]);
     const hitoriCellRefs = React.useRef<Array<Array<HTMLElement | null>>>([]);
     const slitherClueRefs = React.useRef<Array<Array<HTMLInputElement | null>>>([]);
+    const hashiCellRefs = React.useRef<Array<Array<HTMLInputElement | null>>>([]);
     const battleshipCellRefs = React.useRef<Array<Array<HTMLButtonElement | null>>>([]);
     const fillominoCellRefs = React.useRef<Array<Array<HTMLInputElement | null>>>([]);
     const futoshikiCellRefs = React.useRef<Array<Array<HTMLInputElement | null>>>([]);
@@ -3988,12 +4165,14 @@ function GridPuzzleWorkbenchApp({
     const isKakuro = puzzleType === 'kakuro';
     const isHitori = puzzleType === 'hitori';
     const isSlitherLink = puzzleType === 'slitherlink';
+    const isHashi = puzzleType === 'hashi';
     const isBattleship = puzzleType === 'battleship';
     const isFillomino = puzzleType === 'fillomino';
     const isFutoshiki = puzzleType === 'futoshiki';
     const solvedSlitherEdges = isSlitherLink
         ? normalizeSlitherEdges(activeSolution?.edges, slitherRows, slitherCols)
         : undefined;
+    const solvedHashiBridges = isHashi ? hashiBridgeMapFromEdges(activeSolution?.edges) : undefined;
     const mineConfig = getMineConfig(puzzleType);
     const isMine = Boolean(mineConfig);
     const tripodConfig = getTripodConfig(puzzleType);
@@ -4061,6 +4240,10 @@ function GridPuzzleWorkbenchApp({
         gridTemplateColumns: `repeat(${slitherCols}, 8px 46px) 8px`,
         gridTemplateRows: `repeat(${slitherRows}, 8px 46px) 8px`,
     } : undefined;
+    const hashiBoardStyle: React.CSSProperties | undefined = isHashi ? {
+        gridTemplateColumns: `repeat(${hashiCols}, 42px)`,
+        gridTemplateRows: `repeat(${hashiRows}, 42px)`,
+    } : undefined;
     const battleshipBoardStyle: React.CSSProperties | undefined = isBattleship ? {
         gridTemplateColumns: `repeat(${battleshipCols}, 38px) 30px`,
         gridTemplateRows: `repeat(${battleshipRows}, 38px) 30px`,
@@ -4074,6 +4257,10 @@ function GridPuzzleWorkbenchApp({
         gridTemplateRows: `repeat(${futoshikiSize - 1}, 44px 22px) 44px`,
     } : undefined;
     const solutionBoardStyle = isNonogram ? nonogramSolutionBoardStyle : boardStyle;
+    const hashiCandidateBridges = React.useMemo(
+        () => isHashi ? buildHashiCandidateBridges(resizeHashiGrid(grid, hashiRows, hashiCols), hashiRows, hashiCols) : [],
+        [grid, hashiCols, hashiRows, isHashi],
+    );
     const chainCounts = React.useMemo(() => {
         return Array.from({ length: chainConfig?.size || 0 }, (_unused, index) => chainPaths[index]?.length || 0);
     }, [chainConfig?.size, chainPaths]);
@@ -4104,6 +4291,8 @@ function GridPuzzleWorkbenchApp({
             ? findKakuroConflicts(kakuroLayout, grid)
             : isHitori
                 ? findHitoriConflicts(grid, hitoriShaded)
+                : isHashi
+                    ? findHashiConflicts(resizeHashiGrid(grid, hashiRows, hashiCols), hashiCandidateBridges, hashiBridges)
                 : isBattleship
                     ? findBattleshipConflicts(grid, battleshipRowTotals, battleshipColumnTotals, battleshipFleet)
                     : isFillomino
@@ -4111,7 +4300,7 @@ function GridPuzzleWorkbenchApp({
                         : isFutoshiki
                             ? findFutoshikiConflicts(grid, futoshikiHorizontalInequalities, futoshikiVerticalInequalities, futoshikiSize)
                 : findConstraintConflicts(grid, puzzleType, horizontalInequalities, verticalInequalities, vudokuCorners, rossiniArrows, xvHorizontalMarks, xvVerticalMarks, kropkiHorizontalDots, kropkiVerticalDots, chainGrid, skyscraperClues, frameClues, outsideClues, sandwichClues, littleKillerClues, parityMarks),
-        [battleshipColumnTotals, battleshipFleet, battleshipRowTotals, chainGrid, frameClues, futoshikiHorizontalInequalities, futoshikiSize, futoshikiVerticalInequalities, grid, horizontalInequalities, hitoriShaded, isBattleship, isFillomino, isFutoshiki, isHitori, isKakuro, kakuroLayout, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, outsideClues, parityMarks, puzzleType, rossiniArrows, sandwichClues, skyscraperClues, verticalInequalities, vudokuCorners, xvHorizontalMarks, xvVerticalMarks],
+        [battleshipColumnTotals, battleshipFleet, battleshipRowTotals, chainGrid, frameClues, futoshikiHorizontalInequalities, futoshikiSize, futoshikiVerticalInequalities, grid, hashiBridges, hashiCandidateBridges, hashiCols, hashiRows, horizontalInequalities, hitoriShaded, isBattleship, isFillomino, isFutoshiki, isHashi, isHitori, isKakuro, kakuroLayout, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, outsideClues, parityMarks, puzzleType, rossiniArrows, sandwichClues, skyscraperClues, verticalInequalities, vudokuCorners, xvHorizontalMarks, xvVerticalMarks],
     );
     const visibleConflictMessages = constraintConflicts.messages.slice(0, 4);
 
@@ -4183,6 +4372,28 @@ function GridPuzzleWorkbenchApp({
             );
         }));
     }, [isSlitherLink, slitherCols, slitherRows]);
+
+    React.useEffect(() => {
+        if (!isHashi) {
+            return;
+        }
+        setGrid(previous => resizeHashiGrid(previous, hashiRows, hashiCols));
+        setWatchCells(previous => previous.filter(ref => {
+            const match = ref.match(/^r(\d+)c(\d+)$/i);
+            return Boolean(
+                match
+                && Number(match[1]) <= hashiRows
+                && Number(match[2]) <= hashiCols,
+            );
+        }));
+    }, [hashiCols, hashiRows, isHashi]);
+
+    React.useEffect(() => {
+        if (!isHashi) {
+            return;
+        }
+        setHashiBridges(previous => pruneHashiBridges(previous, hashiCandidateBridges));
+    }, [hashiCandidateBridges, isHashi]);
 
     React.useEffect(() => {
         if (!isBattleship) {
@@ -4464,6 +4675,59 @@ function GridPuzzleWorkbenchApp({
         markDirty();
     }, [markDirty, slitherCols, slitherRows]);
 
+    const setHashiDimension = React.useCallback((axis: 'row' | 'column', rawValue: number) => {
+        const size = Number.isFinite(rawValue)
+            ? Math.min(20, Math.max(2, Math.floor(rawValue)))
+            : 7;
+        const rows = axis === 'row' ? size : hashiRows;
+        const cols = axis === 'column' ? size : hashiCols;
+        setHashiRows(rows);
+        setHashiCols(cols);
+        setGrid(previous => resizeHashiGrid(previous, rows, cols));
+        setHashiBridges({});
+        setSolveState({ running: false });
+        markDirty();
+    }, [hashiCols, hashiRows, markDirty]);
+
+    const updateHashiClue = React.useCallback((row: number, col: number, rawValue: string) => {
+        setGrid(previous => {
+            const next = resizeHashiGrid(previous, hashiRows, hashiCols);
+            next[row][col] = normalizeHashiClue(rawValue);
+            return next;
+        });
+        setSolveState({ running: false });
+        markDirty();
+    }, [hashiCols, hashiRows, markDirty]);
+
+    const cycleHashiBridge = React.useCallback((key: string, direction = 1) => {
+        setHashiBridges(previous => {
+            const current = previous[key] || 0;
+            const nextCount = (current + direction + 3) % 3;
+            const next = { ...previous };
+            if (nextCount === 0) {
+                delete next[key];
+            } else {
+                next[key] = nextCount;
+            }
+            return next;
+        });
+        setSolveState({ running: false });
+        markDirty();
+    }, [markDirty]);
+
+    const clearHashiBridges = React.useCallback(() => {
+        setHashiBridges({});
+        setSolveState({ running: false });
+        markDirty();
+    }, [markDirty]);
+
+    const clearHashi = React.useCallback(() => {
+        setGrid(createEmptyRectGrid(hashiRows, hashiCols));
+        setHashiBridges({});
+        setSolveState({ running: false });
+        markDirty();
+    }, [hashiCols, hashiRows, markDirty]);
+
     const setBattleshipDimension = React.useCallback((axis: 'row' | 'column', rawValue: number) => {
         const size = Number.isFinite(rawValue)
             ? Math.min(20, Math.max(2, Math.floor(rawValue)))
@@ -4682,6 +4946,8 @@ function GridPuzzleWorkbenchApp({
         const variantSize = gridSizeForVariant(puzzleType);
         const inferredHitoriRows = Array.isArray(snapshot?.grid) ? snapshot.grid.length : 5;
         const inferredHitoriCols = Array.isArray(snapshot?.grid) && Array.isArray(snapshot.grid[0]) ? snapshot.grid[0].length : 5;
+        const inferredHashiRows = Array.isArray(snapshot?.grid) ? snapshot.grid.length : 7;
+        const inferredHashiCols = Array.isArray(snapshot?.grid) && Array.isArray(snapshot.grid[0]) ? snapshot.grid[0].length : 7;
         const inferredBattleshipRows = Array.isArray(snapshot?.grid) ? snapshot.grid.length : 10;
         const inferredBattleshipCols = Array.isArray(snapshot?.grid) && Array.isArray(snapshot.grid[0]) ? snapshot.grid[0].length : 10;
         const inferredFillominoRows = Array.isArray(snapshot?.grid) ? snapshot.grid.length : 10;
@@ -4691,6 +4957,8 @@ function GridPuzzleWorkbenchApp({
         const restoredHitoriCols = normalizeNumber(snapshot?.hitori?.cols, inferredHitoriCols, 2, 20);
         const restoredSlitherRows = normalizeNumber(snapshot?.slither?.rows, inferredHitoriRows, 1, 20);
         const restoredSlitherCols = normalizeNumber(snapshot?.slither?.cols, inferredHitoriCols, 1, 20);
+        const restoredHashiRows = normalizeNumber(snapshot?.hashi?.rows, inferredHashiRows, 2, 20);
+        const restoredHashiCols = normalizeNumber(snapshot?.hashi?.cols, inferredHashiCols, 2, 20);
         const restoredBattleshipRows = normalizeNumber(snapshot?.battleship?.rows, inferredBattleshipRows, 2, 20);
         const restoredBattleshipCols = normalizeNumber(snapshot?.battleship?.cols, inferredBattleshipCols, 2, 20);
         const restoredFillominoRows = normalizeNumber(snapshot?.fillomino?.rows, inferredFillominoRows, 2, 20);
@@ -4704,6 +4972,8 @@ function GridPuzzleWorkbenchApp({
                 ? normalizeHitoriGrid(snapshot?.grid, restoredHitoriRows, restoredHitoriCols)
                 : puzzleType === 'slitherlink'
                     ? normalizeSlitherGrid(snapshot?.grid, restoredSlitherRows, restoredSlitherCols)
+                    : puzzleType === 'hashi'
+                        ? normalizeHashiGrid(snapshot?.grid, restoredHashiRows, restoredHashiCols)
                     : puzzleType === 'battleship'
                         ? normalizeBattleshipGrid(snapshot?.grid, restoredBattleshipRows, restoredBattleshipCols)
                         : puzzleType === 'fillomino'
@@ -4735,6 +5005,12 @@ function GridPuzzleWorkbenchApp({
             setSlitherRows(restoredSlitherRows);
             setSlitherCols(restoredSlitherCols);
             setSlitherEdges(normalizeSlitherEdges(snapshot?.slither?.edges ?? snapshot?.slitherEdges, restoredSlitherRows, restoredSlitherCols));
+            setGrid(restoredGrid);
+            setQuickText('');
+        } else if (puzzleType === 'hashi') {
+            setHashiRows(restoredHashiRows);
+            setHashiCols(restoredHashiCols);
+            setHashiBridges(snapshot?.hashi?.bridges && typeof snapshot.hashi.bridges === 'object' ? snapshot.hashi.bridges : {});
             setGrid(restoredGrid);
             setQuickText('');
         } else if (puzzleType === 'battleship') {
@@ -4899,6 +5175,11 @@ function GridPuzzleWorkbenchApp({
                         cols: slitherCols,
                         edges: slitherEdges,
                     },
+                    hashi: {
+                        rows: hashiRows,
+                        cols: hashiCols,
+                        bridges: hashiBridges,
+                    },
                     battleship: {
                         rows: battleshipRows,
                         cols: battleshipCols,
@@ -4956,6 +5237,9 @@ function GridPuzzleWorkbenchApp({
         geocacheId,
         godokuAlphabet,
         grid,
+        hashiBridges,
+        hashiCols,
+        hashiRows,
         horizontalInequalities,
         hitoriCols,
         hitoriRows,
@@ -5355,6 +5639,135 @@ function GridPuzzleWorkbenchApp({
             updateSlitherClue(row, col, event.key);
         }
     }, [focusSlitherClue, updateSlitherClue]);
+
+    const focusHashiCell = React.useCallback((row: number, col: number) => {
+        const targetRow = Math.max(0, Math.min(hashiRows - 1, row));
+        const targetCol = Math.max(0, Math.min(hashiCols - 1, col));
+        const target = hashiCellRefs.current[targetRow]?.[targetCol];
+        target?.focus();
+        target?.select();
+    }, [hashiCols, hashiRows]);
+
+    const handleHashiCellKeyDown = React.useCallback((row: number, col: number, event: React.KeyboardEvent<HTMLInputElement>) => {
+        const moves: Record<string, [number, number]> = {
+            ArrowUp: [-1, 0],
+            ArrowDown: [1, 0],
+            ArrowLeft: [0, -1],
+            ArrowRight: [0, 1],
+        };
+        const move = moves[event.key];
+        if (move) {
+            event.preventDefault();
+            focusHashiCell(row + move[0], col + move[1]);
+            return;
+        }
+        if (event.key === 'Backspace' || event.key === 'Delete' || event.key === '0' || event.key === '.') {
+            event.preventDefault();
+            updateHashiClue(row, col, '');
+            return;
+        }
+        if (/^[1-8]$/.test(event.key)) {
+            event.preventDefault();
+            updateHashiClue(row, col, event.key);
+        }
+    }, [focusHashiCell, updateHashiClue]);
+
+    const renderHashiBoard = (boardGrid: Grid, bridgeMap: HashiBridgeMap, readonly = false): React.ReactNode => {
+        const displayGrid = resizeHashiGrid(boardGrid, hashiRows, hashiCols);
+        const candidates = buildHashiCandidateBridges(displayGrid, hashiRows, hashiCols);
+        return (
+            <div
+                className={['hashi-board', readonly ? 'solved' : ''].filter(Boolean).join(' ')}
+                style={hashiBoardStyle}
+                aria-label={readonly ? 'Solution Hashi' : 'Grille Hashi interactive'}
+            >
+                {candidates.map(candidate => {
+                    const count = bridgeMap[candidate.key] || 0;
+                    const style = candidate.orientation === 'horizontal'
+                        ? {
+                            gridColumn: `${candidate.from[1] + 1} / ${candidate.to[1] + 2}`,
+                            gridRow: String(candidate.from[0] + 1),
+                        }
+                        : {
+                            gridColumn: String(candidate.from[1] + 1),
+                            gridRow: `${candidate.from[0] + 1} / ${candidate.to[0] + 2}`,
+                        };
+                    return (
+                        <button
+                            key={`${readonly ? 'solved-' : ''}hashi-bridge-${candidate.key}`}
+                            type='button'
+                            className={[
+                                'hashi-bridge',
+                                candidate.orientation,
+                                count ? `count-${count}` : '',
+                            ].filter(Boolean).join(' ')}
+                            style={style}
+                            title={`${candidate.key}: ${count} pont(s)`}
+                            aria-label={`${candidate.key}: ${count} pont(s)`}
+                            disabled={readonly}
+                            onClick={() => cycleHashiBridge(candidate.key)}
+                            onContextMenu={event => {
+                                event.preventDefault();
+                                cycleHashiBridge(candidate.key, -1);
+                            }}
+                        />
+                    );
+                })}
+                {Array.from({ length: hashiRows }, (_row, rowIndex) => (
+                    Array.from({ length: hashiCols }, (_col, colIndex) => {
+                        const ref = cellRef(rowIndex, colIndex);
+                        const value = displayGrid[rowIndex]?.[colIndex] || '';
+                        const classes = [
+                            'hashi-cell',
+                            value ? 'island' : 'empty',
+                            watchCells.includes(ref) ? 'watched' : '',
+                            !readonly && constraintConflicts.cells.has(ref) ? 'conflict' : '',
+                        ].filter(Boolean).join(' ');
+                        const style = {
+                            gridColumn: String(colIndex + 1),
+                            gridRow: String(rowIndex + 1),
+                        };
+                        if (readonly) {
+                            return (
+                                <span key={`solved-hashi-${ref}`} className={classes} style={style}>
+                                    {value}
+                                </span>
+                            );
+                        }
+                        return (
+                            <input
+                                key={`hashi-${ref}`}
+                                className={classes}
+                                ref={element => {
+                                    hashiCellRefs.current[rowIndex] = hashiCellRefs.current[rowIndex] || [];
+                                    hashiCellRefs.current[rowIndex][colIndex] = element;
+                                }}
+                                style={style}
+                                value={value}
+                                inputMode='numeric'
+                                maxLength={1}
+                                aria-label={ref}
+                                title={mode === 'watch' ? `${ref}, cliquez pour surveiller cette ile.` : ref}
+                                onPointerDown={event => {
+                                    if (mode === 'watch') {
+                                        event.preventDefault();
+                                    }
+                                }}
+                                onClick={event => {
+                                    if (mode === 'watch' || event.ctrlKey || event.metaKey) {
+                                        event.preventDefault();
+                                        toggleWatchCell(ref);
+                                    }
+                                }}
+                                onKeyDown={event => handleHashiCellKeyDown(rowIndex, colIndex, event)}
+                                onChange={event => updateHashiClue(rowIndex, colIndex, event.currentTarget.value)}
+                            />
+                        );
+                    })
+                ))}
+            </div>
+        );
+    };
 
     const focusBattleshipCell = React.useCallback((row: number, col: number) => {
         const targetRow = Math.max(0, Math.min(battleshipRows - 1, row));
@@ -5760,6 +6173,7 @@ function GridPuzzleWorkbenchApp({
             || value === 'kakuro'
             || value === 'hitori'
             || value === 'slitherlink'
+            || value === 'hashi'
             || value === 'battleship'
             || value === 'fillomino'
             || value === 'futoshiki'
@@ -5769,6 +6183,8 @@ function GridPuzzleWorkbenchApp({
             ? resizeHitoriGrid(puzzleType === 'hitori' ? grid : [], hitoriRows, hitoriCols)
             : nextPuzzleType === 'slitherlink'
                 ? resizeSlitherGrid(puzzleType === 'slitherlink' ? grid : [], slitherRows, slitherCols)
+                : nextPuzzleType === 'hashi'
+                    ? resizeHashiGrid(puzzleType === 'hashi' ? grid : [], hashiRows, hashiCols)
                 : nextPuzzleType === 'battleship'
                     ? resizeBattleshipGrid(puzzleType === 'battleship' ? grid : [], battleshipRows, battleshipCols)
                     : nextPuzzleType === 'fillomino'
@@ -5799,6 +6215,10 @@ function GridPuzzleWorkbenchApp({
             setMode('edit');
             setSlitherEdges(emptySlitherEdges(slitherRows, slitherCols));
         }
+        if (nextPuzzleType === 'hashi') {
+            setMode('edit');
+            setHashiBridges({});
+        }
         if (nextPuzzleType === 'battleship') {
             setMode('edit');
             setBattleshipRowTotals(Array<string>(battleshipRows).fill(''));
@@ -5823,10 +6243,10 @@ function GridPuzzleWorkbenchApp({
             setActiveChain(1);
             setMode('chain');
         }
-        setQuickText(nextPuzzleType === 'nonogram' || nextPuzzleType === 'kakuro' || nextPuzzleType === 'hitori' || nextPuzzleType === 'slitherlink' || nextPuzzleType === 'battleship' || nextPuzzleType === 'fillomino' || nextPuzzleType === 'futoshiki' ? '' : gridToText(nextGrid, nextPuzzleType));
+        setQuickText(nextPuzzleType === 'nonogram' || nextPuzzleType === 'kakuro' || nextPuzzleType === 'hitori' || nextPuzzleType === 'slitherlink' || nextPuzzleType === 'hashi' || nextPuzzleType === 'battleship' || nextPuzzleType === 'fillomino' || nextPuzzleType === 'futoshiki' ? '' : gridToText(nextGrid, nextPuzzleType));
         setSolveState({ running: false });
         markDirty();
-    }, [battleshipCols, battleshipRows, fillominoCols, fillominoRows, futoshikiSize, grid, hitoriCols, hitoriRows, kakuroLayout, markDirty, mode, puzzleType, slitherCols, slitherRows]);
+    }, [battleshipCols, battleshipRows, fillominoCols, fillominoRows, futoshikiSize, grid, hashiCols, hashiRows, hitoriCols, hitoriRows, kakuroLayout, markDirty, mode, puzzleType, slitherCols, slitherRows]);
 
     const clearGrid = React.useCallback(() => {
         if (isNonogram) {
@@ -5844,6 +6264,10 @@ function GridPuzzleWorkbenchApp({
         } else if (isSlitherLink) {
             setGrid(createEmptyRectGrid(slitherRows, slitherCols));
             setSlitherEdges(emptySlitherEdges(slitherRows, slitherCols));
+            setQuickText('');
+        } else if (isHashi) {
+            setGrid(createEmptyRectGrid(hashiRows, hashiCols));
+            setHashiBridges({});
             setQuickText('');
         } else if (isBattleship) {
             setGrid(createEmptyRectGrid(battleshipRows, battleshipCols));
@@ -5883,7 +6307,7 @@ function GridPuzzleWorkbenchApp({
         setWatchCells([]);
         setSolveState({ running: false });
         markDirty();
-    }, [battleshipCols, battleshipRows, fillominoCols, fillominoRows, futoshikiSize, hitoriCols, hitoriRows, isBattleship, isFillomino, isFutoshiki, isHitori, isKakuro, isNonogram, isSlitherLink, kakuroLayout, markDirty, puzzleType, setGridAndQuickText, slitherCols, slitherRows]);
+    }, [battleshipCols, battleshipRows, fillominoCols, fillominoRows, futoshikiSize, hashiCols, hashiRows, hitoriCols, hitoriRows, isBattleship, isFillomino, isFutoshiki, isHashi, isHitori, isKakuro, isNonogram, isSlitherLink, kakuroLayout, markDirty, puzzleType, setGridAndQuickText, slitherCols, slitherRows]);
 
     const solve = React.useCallback(async () => {
         if (constraintConflicts.messages.length > 0) {
@@ -5909,6 +6333,8 @@ function GridPuzzleWorkbenchApp({
                     ? resizeHitoriGrid(grid, hitoriRows, hitoriCols)
                     : isSlitherLink
                         ? resizeSlitherGrid(grid, slitherRows, slitherCols)
+                        : isHashi
+                            ? resizeHashiGrid(grid, hashiRows, hashiCols)
                         : isBattleship
                             ? resizeBattleshipGrid(grid, battleshipRows, battleshipCols)
                             : isFillomino
@@ -5923,6 +6349,7 @@ function GridPuzzleWorkbenchApp({
                 kakuro: isKakuro ? { cells: kakuroLayout } : undefined,
                 shaded: isHitori ? hitoriShaded : undefined,
                 edges: isSlitherLink ? slitherEdges : undefined,
+                bridges: isHashi ? serializeHashiBridges(hashiBridges, hashiCandidateBridges) : undefined,
                 row_totals: isBattleship ? battleshipRowTotals : undefined,
                 column_totals: isBattleship ? battleshipColumnTotals : undefined,
                 fleet: isBattleship ? battleshipFleet : undefined,
@@ -5975,7 +6402,7 @@ function GridPuzzleWorkbenchApp({
                 error: error instanceof Error ? error.message : String(error),
             });
         }
-    }, [areChainsComplete, battleshipCols, battleshipColumnTotals, battleshipFleet, battleshipRowTotals, battleshipRows, chainConfig?.size, chainGrid, constraintConflicts.messages.length, fillominoCols, fillominoRows, frameClues, futoshikiHorizontalInequalities, futoshikiSize, futoshikiVerticalInequalities, geocacheId, godokuAlphabet, grid, hitoriCols, hitoriRows, hitoriShaded, horizontalInequalities, isBattleship, isChain, isEvenOdd, isFillomino, isFrame, isFutoshiki, isGodoku, isHitori, isKakuro, isKropki, isLittleKiller, isNonogram, isOutside, isRossini, isSandwich, isSkyscraper, isSlitherLink, isTripod, isVudoku, isXv, kakuroLayout, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, maxSolutions, nonogramCols, nonogramColumnClueLines, nonogramRows, nonogramRowClueLines, outsideClues, parityMarks, pluginsService, puzzleType, rossiniArrows, sandwichClues, saveState, skyscraperClues, slitherCols, slitherEdges, slitherRows, timeoutMs, tripodDots, verticalInequalities, vudokuCorners, watchCells, xvHorizontalMarks, xvVerticalMarks]);
+    }, [areChainsComplete, battleshipCols, battleshipColumnTotals, battleshipFleet, battleshipRowTotals, battleshipRows, chainConfig?.size, chainGrid, constraintConflicts.messages.length, fillominoCols, fillominoRows, frameClues, futoshikiHorizontalInequalities, futoshikiSize, futoshikiVerticalInequalities, geocacheId, godokuAlphabet, grid, hashiBridges, hashiCandidateBridges, hashiCols, hashiRows, hitoriCols, hitoriRows, hitoriShaded, horizontalInequalities, isBattleship, isChain, isEvenOdd, isFillomino, isFrame, isFutoshiki, isGodoku, isHashi, isHitori, isKakuro, isKropki, isLittleKiller, isNonogram, isOutside, isRossini, isSandwich, isSkyscraper, isSlitherLink, isTripod, isVudoku, isXv, kakuroLayout, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, maxSolutions, nonogramCols, nonogramColumnClueLines, nonogramRows, nonogramRowClueLines, outsideClues, parityMarks, pluginsService, puzzleType, rossiniArrows, sandwichClues, saveState, skyscraperClues, slitherCols, slitherEdges, slitherRows, timeoutMs, tripodDots, verticalInequalities, vudokuCorners, watchCells, xvHorizontalMarks, xvVerticalMarks]);
 
     const useSolvedGrid = React.useCallback(() => {
         if (solvedGrid) {
@@ -5983,6 +6410,9 @@ function GridPuzzleWorkbenchApp({
                 setHitoriShaded(resizeHitoriShaded(solvedGrid.map(row => row.map(value => value === '#')), hitoriRows, hitoriCols));
             } else if (isSlitherLink && solvedSlitherEdges) {
                 setSlitherEdges(solvedSlitherEdges);
+            } else if (isHashi && solvedHashiBridges) {
+                setGrid(resizeHashiGrid(solvedGrid, hashiRows, hashiCols));
+                setHashiBridges(solvedHashiBridges);
             } else if (isBattleship) {
                 setGrid(resizeBattleshipGrid(solvedGrid, battleshipRows, battleshipCols));
             } else if (isFillomino) {
@@ -5997,7 +6427,7 @@ function GridPuzzleWorkbenchApp({
             setSolveState({ running: false });
             markDirty();
         }
-    }, [battleshipCols, battleshipRows, fillominoCols, fillominoRows, futoshikiSize, hitoriCols, hitoriRows, isBattleship, isFillomino, isFutoshiki, isHitori, isKakuro, isSlitherLink, kakuroLayout, markDirty, setGridAndQuickText, solvedGrid, solvedSlitherEdges]);
+    }, [battleshipCols, battleshipRows, fillominoCols, fillominoRows, futoshikiSize, hashiCols, hashiRows, hitoriCols, hitoriRows, isBattleship, isFillomino, isFutoshiki, isHashi, isHitori, isKakuro, isSlitherLink, kakuroLayout, markDirty, setGridAndQuickText, solvedGrid, solvedHashiBridges, solvedSlitherEdges]);
 
     const cellStyle = (rowIndex: number, colIndex: number): React.CSSProperties | undefined => {
         if (variableGridConfig) {
@@ -6805,6 +7235,7 @@ function GridPuzzleWorkbenchApp({
                         <option value='kakuro'>Kakuro / Cross Sums</option>
                         <option value='hitori'>Hitori</option>
                         <option value='slitherlink'>Slither Link</option>
+                        <option value='hashi'>Hashi</option>
                         <option value='battleship'>Bataille navale</option>
                         <option value='fillomino'>Fillomino</option>
                         <option value='futoshiki'>Futoshiki</option>
@@ -7497,6 +7928,79 @@ function GridPuzzleWorkbenchApp({
                                 </div>
                             ) : null}
                         </div>
+                    ) : isHashi ? (
+                        <div className='hashi-editor'>
+                            <div className='hashi-toolbar'>
+                                <label>
+                                    Lignes
+                                    <input
+                                        type='number'
+                                        min={2}
+                                        max={20}
+                                        value={hashiRows}
+                                        aria-label='Nombre de lignes Hashi'
+                                        title='Nombre de lignes Hashi'
+                                        onFocus={event => event.currentTarget.select()}
+                                        onChange={event => setHashiDimension('row', Number(event.currentTarget.value))}
+                                    />
+                                </label>
+                                <span aria-hidden='true'>x</span>
+                                <label>
+                                    Colonnes
+                                    <input
+                                        type='number'
+                                        min={2}
+                                        max={20}
+                                        value={hashiCols}
+                                        aria-label='Nombre de colonnes Hashi'
+                                        title='Nombre de colonnes Hashi'
+                                        onFocus={event => event.currentTarget.select()}
+                                        onChange={event => setHashiDimension('column', Number(event.currentTarget.value))}
+                                    />
+                                </label>
+                            </div>
+                            {renderHashiBoard(grid, hashiBridges)}
+                            <div className='grid-puzzle-actions inline'>
+                                <button type='button' onClick={clearHashiBridges}>Effacer les ponts</button>
+                                <button type='button' onClick={clearHashi}>Reinitialiser</button>
+                            </div>
+                            {visibleConflictMessages.length > 0 ? (
+                                <div className='grid-puzzle-conflicts'>
+                                    {visibleConflictMessages.map(message => (
+                                        <div key={message}>{message}</div>
+                                    ))}
+                                    {constraintConflicts.messages.length > visibleConflictMessages.length ? (
+                                        <div>+{constraintConflicts.messages.length - visibleConflictMessages.length} autre(s) conflit(s).</div>
+                                    ) : null}
+                                </div>
+                            ) : null}
+                            {solvedGrid && solvedHashiBridges ? (
+                                <div className='grid-puzzle-solution'>
+                                    <div className='grid-puzzle-section-title'>
+                                        <strong>
+                                            Solution {solutionResults.length > 1 ? `${activeSolutionIndex + 1}/${solutionResults.length}` : ''}
+                                        </strong>
+                                        <div className='solution-actions'>
+                                            {solutionResults.length > 1 ? (
+                                                <select
+                                                    value={activeSolutionIndex}
+                                                    onChange={event => setSelectedSolutionIndex(Number(event.currentTarget.value) || 0)}
+                                                    aria-label='Solution affichee'
+                                                >
+                                                    {solutionResults.map((_solution, index) => (
+                                                        <option key={`solution-option-${index}`} value={index}>
+                                                            Solution {index + 1}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            ) : null}
+                                            <button onClick={useSolvedGrid}>Reprendre dans la grille</button>
+                                        </div>
+                                    </div>
+                                    {renderHashiBoard(solvedGrid, solvedHashiBridges, true)}
+                                </div>
+                            ) : null}
+                        </div>
                     ) : isBattleship ? (
                         <div className='battleship-editor'>
                             <div className='battleship-toolbar'>
@@ -7994,7 +8498,7 @@ function GridPuzzleWorkbenchApp({
                         </>
                     )}
 
-                    {solvedGrid && !isKakuro && !isHitori && !isSlitherLink && !isBattleship && !isFillomino && !isFutoshiki && (
+                    {solvedGrid && !isKakuro && !isHitori && !isSlitherLink && !isHashi && !isBattleship && !isFillomino && !isFutoshiki && (
                         <div className='grid-puzzle-solution'>
                             <div className='grid-puzzle-section-title'>
                                 <strong>
@@ -8098,7 +8602,7 @@ function GridPuzzleWorkbenchApp({
                 </section>
 
                 <aside className='grid-puzzle-side'>
-                    {!isNonogram && !isKakuro && !isHitori && !isSlitherLink && !isBattleship && !isFillomino && !isFutoshiki ? (
+                    {!isNonogram && !isKakuro && !isHitori && !isSlitherLink && !isHashi && !isBattleship && !isFillomino && !isFutoshiki ? (
                     <section>
                         <div className='grid-puzzle-section-title'>
                             <strong>Saisie rapide</strong>

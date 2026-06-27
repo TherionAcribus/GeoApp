@@ -91,6 +91,15 @@ Generic finite-domain grid solver powered by Z3.
   is treated as 5x5.
 - `nonogram`: classic Nonogram / Picross. Row and column clues describe runs
   of filled cells; optional givens can force cells to filled or empty.
+- `kakuro`: Cross Sums puzzle with black, white and clue cells.
+- `hitori`: repeated numbers are shaded while white cells remain connected.
+- `slitherlink`: one closed loop drawn around clues from `0` to `3`.
+- `hashi`: Hashi / Hashiwokakero bridge puzzle. Islands are connected with
+  one or two non-crossing bridges into a single network.
+- `battleship`: Battleship / Bimaru puzzle with fleet, row totals and column
+  totals.
+- `fillomino`: connected regions whose size equals the value written inside
+  them.
 - `futoshiki`: square Latin puzzle. Rows and columns contain `1..N` once each,
   with adjacent `>` / `<` inequalities between cells.
 - Empty cells can be written as `0`, `.`, or `_`.
@@ -146,6 +155,8 @@ Sudoku is just the first builder on top of a generic CSP model:
 - binary mine placement with adjacent mine-count clues for Sudoku Mine;
 - a specialized Tripod model with value variables, region variables, vertex
   degree constraints and connected-region constraints;
+- specialized grid solvers for Nonogram, Kakuro, Hitori, Slither Link, Hashi,
+  Battleship, Fillomino and Futoshiki;
 - solution enumeration with uniqueness detection.
 - an internal Z3 timeout (`solver_timeout_ms`) for highly open grids.
 - watched cells (`watched_cells`) so an interactive UI can extract answer
@@ -203,6 +214,26 @@ and `vertical` with `rows x (cols + 1)` booleans to keep manually drawn lines.
 The solver creates one non-empty closed loop: each clue counts its four
 surrounding segments, each used dot has degree two, and disconnected loops are
 rejected. Each returned solution includes its loop in `edges`.
+
+## Hashi / Hashiwokakero
+
+Use `puzzle_type=hashi` (aliases: `hashiwokakero`, `bridges`,
+`hashi_bridges`) with a rectangular `grid`. Island clues are digits from `1`
+to `8`; empty cells can be written as `.`, `0`, `_`, `-`, `?`, or left empty.
+
+The solver connects visible orthogonal islands with `0`, `1`, or `2` bridges.
+Each island must have exactly as many incident bridges as its clue, bridges
+cannot cross, and all islands must belong to one connected network. Optional
+manual bridges can be forced with a JSON list:
+
+```json
+[
+  {"cells": ["r1c1", "r1c3"], "count": 1}
+]
+```
+
+Each returned solution includes `edges.bridges`, with the two island cells,
+orientation and bridge count.
 
 ## Battleship / Bimaru
 
@@ -313,6 +344,7 @@ the Theia "Grilles" workbench:
 - editable number cells and manual shaded cells for Hitori;
 - editable dimensions, clues and horizontal/vertical loop segments for Slither
   Link;
+- editable dimensions, island clues and bridge counts for Hashi;
 - editable ship, water and unknown marks, row/column totals and fleet counts
   for Battleship / Bimaru;
 - editable dimensions and multi-digit number cells for Fillomino;

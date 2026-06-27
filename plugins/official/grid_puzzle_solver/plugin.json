@@ -1,8 +1,8 @@
 {
   "name": "grid_puzzle_solver",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "plugin_api_version": "2.0",
-  "description": "Solveur Z3 pour grilles de logique. Variantes actuelles: Sudoku classique 4x4 a 16x16, Chain / Strimko 4x4 a 9x9, Sudoku X, Argyle, Anti Diagonal, Center Dot, Windoku, Girandola, Asterisk, Sujiken, Hoshi, Samurai Sudoku, Flower Sudoku, Sohei Sudoku, Kazaguruma, Greater Than / Compdoku, Vudoku, Rossini, Sudoku XV, Kropki, Skyscraper, Frame, Outside, Sandwich, Little Killer, Little Unique Killer, Godoku, Even-Odd, Non-Consecutive, Sudoku Mine, Tripod, Nonogram / Picross, Kakuro / Cross Sums, Hitori, Slither Link, Bataille navale, Fillomino et Futoshiki.",
+  "description": "Solveur Z3 pour grilles de logique. Variantes actuelles: Sudoku classique 4x4 a 16x16, Chain / Strimko 4x4 a 9x9, Sudoku X, Argyle, Anti Diagonal, Center Dot, Windoku, Girandola, Asterisk, Sujiken, Hoshi, Samurai Sudoku, Flower Sudoku, Sohei Sudoku, Kazaguruma, Greater Than / Compdoku, Vudoku, Rossini, Sudoku XV, Kropki, Skyscraper, Frame, Outside, Sandwich, Little Killer, Little Unique Killer, Godoku, Even-Odd, Non-Consecutive, Sudoku Mine, Tripod, Nonogram / Picross, Kakuro / Cross Sums, Hitori, Slither Link, Hashi, Bataille navale, Fillomino et Futoshiki.",
   "author": "MysterAI",
   "plugin_type": "python",
   "entry_point": "main.py",
@@ -82,20 +82,21 @@
         {"value": "kakuro", "label": "Kakuro / Cross Sums"},
         {"value": "hitori", "label": "Hitori"},
         {"value": "slitherlink", "label": "Slither Link / Loop the Loop"},
+        {"value": "hashi", "label": "Hashi / Hashiwokakero"},
         {"value": "battleship", "label": "Bataille navale / Bimaru"},
         {"value": "fillomino", "label": "Fillomino / Polyominous"},
         {"value": "futoshiki", "label": "Futoshiki / Unequal"},
         {"value": "custom_spec", "label": "Spec JSON generique"}
       ],
       "default": "sudoku_classic",
-      "description": "Sudoku classique existe en 4x4, 6x6, 8x8, 9x9, 10x10, 12x12, 15x15 et 16x16. Les tailles superieures a 9 utilisent les symboles 1-9 puis A-G. Chain / Strimko existe de 4x4 a 9x9 et ajoute des chaines de N ronds sans doublons. Sudoku X ajoute les deux diagonales principales sans doublons. Argyle ajoute 8 diagonales marquees sans doublons. Anti Diagonal limite chacune des deux grandes diagonales a trois chiffres differents. Center Dot ajoute la region des centres de blocs 3x3. Windoku ajoute quatre regions 3x3 supplementaires. Girandola et Asterisk ajoutent chacun une extra-region de 9 cases. Sujiken utilise une grille triangulaire de 45 cases. Hoshi utilise 54 cellules triangulaires en etoile, reparties en six grands triangles. Samurai, Flower, Sohei et Kazaguruma assemblent plusieurs grilles 9x9 chevauchantes. Greater Than ajoute des comparaisons >/< entre cases adjacentes. Vudoku ajoute des coins V de trois cases: le sommet vaut la somme ou la difference des deux branches. Rossini ajoute des fleches de bord sur les trois premieres cases vues depuis chaque cote. Sudoku XV ajoute des marques X/V entre cases adjacentes. Kropki ajoute des ronds blancs/noirs entre cases adjacentes: blanc pour consecutif, noir pour double/moitie, vide pour aucune de ces relations. Skyscraper ajoute des indices exterieurs de visibilite. Frame ajoute des sommes exterieures des trois cases voisines du bord. Outside impose que les chiffres exterieurs apparaissent dans les trois premieres cases vues depuis le bord. Sandwich ajoute des sommes exterieures des chiffres situes entre le 1 et le 9 dans chaque ligne/colonne. Little Killer ajoute des sommes diagonales depuis les bords, avec repetitions autorisees sur ces diagonales. Little Unique Killer ajoute les memes sommes mais interdit les repetitions sur chaque diagonale flechee. Godoku remplace les chiffres par 9 lettres. Even-Odd contraint certaines cases a etre paires ou impaires. Non-Consecutive interdit les chiffres consecutifs dans les cases adjacentes. Sudoku Mine place des mines selon des sommes ligne/colonne/region et des indices adjacents. Tripod existe en 4x4 a 8x8 et reconstruit les regions a partir des points noirs. Nonogram/Picross utilise des indices de blocs noircis par ligne et colonne. Futoshiki utilise une grille NxN avec chiffres 1..N, sans doublons par ligne/colonne, et signes >/< entre cases adjacentes. Spec JSON permet de decrire une grille CSP finie."
+      "description": "Sudoku classique existe en 4x4, 6x6, 8x8, 9x9, 10x10, 12x12, 15x15 et 16x16. Les tailles superieures a 9 utilisent les symboles 1-9 puis A-G. Chain / Strimko existe de 4x4 a 9x9 et ajoute des chaines de N ronds sans doublons. Sudoku X ajoute les deux diagonales principales sans doublons. Argyle ajoute 8 diagonales marquees sans doublons. Anti Diagonal limite chacune des deux grandes diagonales a trois chiffres differents. Center Dot ajoute la region des centres de blocs 3x3. Windoku ajoute quatre regions 3x3 supplementaires. Girandola et Asterisk ajoutent chacun une extra-region de 9 cases. Sujiken utilise une grille triangulaire de 45 cases. Hoshi utilise 54 cellules triangulaires en etoile, reparties en six grands triangles. Samurai, Flower, Sohei et Kazaguruma assemblent plusieurs grilles 9x9 chevauchantes. Greater Than ajoute des comparaisons >/< entre cases adjacentes. Vudoku ajoute des coins V de trois cases: le sommet vaut la somme ou la difference des deux branches. Rossini ajoute des fleches de bord sur les trois premieres cases vues depuis chaque cote. Sudoku XV ajoute des marques X/V entre cases adjacentes. Kropki ajoute des ronds blancs/noirs entre cases adjacentes: blanc pour consecutif, noir pour double/moitie, vide pour aucune de ces relations. Skyscraper ajoute des indices exterieurs de visibilite. Frame ajoute des sommes exterieures des trois cases voisines du bord. Outside impose que les chiffres exterieurs apparaissent dans les trois premieres cases vues depuis le bord. Sandwich ajoute des sommes exterieures des chiffres situes entre le 1 et le 9 dans chaque ligne/colonne. Little Killer ajoute des sommes diagonales depuis les bords, avec repetitions autorisees sur ces diagonales. Little Unique Killer ajoute les memes sommes mais interdit les repetitions sur chaque diagonale flechee. Godoku remplace les chiffres par 9 lettres. Even-Odd contraint certaines cases a etre paires ou impaires. Non-Consecutive interdit les chiffres consecutifs dans les cases adjacentes. Sudoku Mine place des mines selon des sommes ligne/colonne/region et des indices adjacents. Tripod existe en 4x4 a 8x8 et reconstruit les regions a partir des points noirs. Nonogram/Picross utilise des indices de blocs noircis par ligne et colonne. Hashi relie des iles par 1 ou 2 ponts sans croisement, avec un reseau connecte. Futoshiki utilise une grille NxN avec chiffres 1..N, sans doublons par ligne/colonne, et signes >/< entre cases adjacentes. Spec JSON permet de decrire une grille CSP finie."
     },
     "grid": {
       "type": "textarea",
       "label": "Grille",
       "placeholder": "530070000\n600195000\n098000060\n800060003\n400803001\n700020006\n060000280\n000419005\n000080079",
       "required": false,
-      "description": "Pour Sudoku: N x N cases selon la variante. Sudoku classique utilise 0, ., _ pour les cases vides. Sudoku Mine utilise les chiffres 0-8 comme indices et ., _, - pour les cases inconnues. Nonogram utilise une grille optionnelle de cases connues: #/X/1 pour noirci, ./-/0 pour blanc, ?/_ pour inconnu. Slither Link utilise une matrice rectangulaire d'indices 0-3; ., -, _ ou vide signifie sans indice. Bataille navale utilise #/X/1 pour un fragment connu, ./~/0 pour la mer et ?/_/- pour une case inconnue. Fillomino accepte une matrice rectangulaire de nombres positifs et ., 0, _, - ou ? pour une case vide. Futoshiki accepte une matrice carree de chiffres 1..N et ., 0, _, - ou ? pour une case vide. Les tailles > 9 utilisent 1-9 puis A-G pour Sudoku; Futoshiki est limite a 9. Les espaces, pipes et separateurs de lignes sont ignores."
+      "description": "Pour Sudoku: N x N cases selon la variante. Sudoku classique utilise 0, ., _ pour les cases vides. Sudoku Mine utilise les chiffres 0-8 comme indices et ., _, - pour les cases inconnues. Nonogram utilise une grille optionnelle de cases connues: #/X/1 pour noirci, ./-/0 pour blanc, ?/_ pour inconnu. Slither Link utilise une matrice rectangulaire d'indices 0-3; ., -, _ ou vide signifie sans indice. Hashi utilise des iles 1-8 et ., 0, _, - ou ? pour les cases vides. Bataille navale utilise #/X/1 pour un fragment connu, ./~/0 pour la mer et ?/_/- pour une case inconnue. Fillomino accepte une matrice rectangulaire de nombres positifs et ., 0, _, - ou ? pour une case vide. Futoshiki accepte une matrice carree de chiffres 1..N et ., 0, _, - ou ? pour une case vide. Les tailles > 9 utilisent 1-9 puis A-G pour Sudoku; Futoshiki est limite a 9. Les espaces, pipes et separateurs de lignes sont ignores."
     },
     "size": {
       "type": "number",
@@ -139,6 +140,12 @@
       "label": "Traits Slither Link",
       "required": false,
       "description": "Objet JSON optionnel avec horizontal de taille (lignes+1)xcolonnes et vertical de taille lignesx(colonnes+1). true, 1, x ou # force un trait deja trace."
+    },
+    "bridges": {
+      "type": "textarea",
+      "label": "Ponts Hashi",
+      "required": false,
+      "description": "Liste JSON optionnelle de ponts Hashi forces. Exemple: [{\"cells\":[\"r1c1\",\"r1c3\"],\"count\":1}]."
     },
     "row_totals": {
       "type": "textarea",
@@ -265,8 +272,8 @@
     },
     "edges": {
       "type": "object",
-      "label": "Traits Slither Link resolus"
-    },
+            "label": "Traits Slither Link / ponts Hashi resolus"
+        },
     "metadata": {
       "type": "object",
       "label": "Details de resolution"
