@@ -767,6 +767,10 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
         getCoreRowModel: getCoreRowModel(),
         getSortedRowModel: getSortedRowModel(),
         enableRowSelection: true,
+        // Indexer la sélection sur l'id stable de la géocache (et non l'index de
+        // ligne par défaut) : sans ça, trier ou filtrer décale la sélection vers
+        // de mauvaises caches, et la sélection est perdue à chaque rechargement.
+        getRowId: row => String(row.id),
     });
 
     const selectedRows = table.getSelectedRowModel().rows;
