@@ -64,6 +64,7 @@ SIZED_SUDOKU_CONFIGS: Dict[str, Tuple[int, int, int]] = {
     "sudoku_16x16": (16, 4, 4),
 }
 CHAIN_SUDOKU_SIZES = frozenset(range(4, 10))
+DEFAULT_BATTLESHIP_FLEET: Dict[int, int] = {1: 4, 2: 3, 3: 2, 4: 1}
 HOSHI_TRIANGLES = 6
 HOSHI_CELLS_PER_TRIANGLE = 9
 HOSHI_CELL_DEFINITIONS: Tuple[Tuple[int, int, str, int], ...] = (
@@ -168,7 +169,7 @@ class GridpuzzlesolverPlugin:
 
     def __init__(self) -> None:
         self.name = "grid_puzzle_solver"
-        self.version = "0.5.0"
+        self.version = "0.7.0"
 
     def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         start_time = time.time()
@@ -730,6 +731,61 @@ class GridpuzzlesolverPlugin:
                     problem,
                     slither_clues,
                     forced_edges,
+                    max_solutions,
+                    solver_timeout_ms,
+                )
+                return self._success_response(
+                    start_time,
+                    problem,
+                    solved,
+                    max_solutions,
+                    solver_timeout_ms,
+                    watched_cells,
+                )
+            elif puzzle_type in {"battleship", "battleships", "bimaru", "solitaire_battleships", "battleship_solitaire"}:
+                problem, forced_ships, forced_water, row_totals, column_totals, fleet = self._build_battleship_problem(
+                    grid=inputs.get("grid") or inputs.get("puzzle") or inputs.get("battleship"),
+                    row_totals=inputs.get("row_totals") or inputs.get("rows") or inputs.get("row_clues"),
+                    column_totals=inputs.get("column_totals") or inputs.get("col_totals") or inputs.get("cols") or inputs.get("column_clues"),
+                    fleet=inputs.get("fleet") or inputs.get("ships") or inputs.get("battleship_fleet"),
+                )
+                watched_cells = self._parse_watch_cells(
+                    watched_cells_input,
+                    problem.rows,
+                    problem.cols,
+                    set(problem.active_cells),
+                )
+                solved = self._solve_battleship_problem(
+                    problem,
+                    forced_ships,
+                    forced_water,
+                    row_totals,
+                    column_totals,
+                    fleet,
+                    max_solutions,
+                    solver_timeout_ms,
+                )
+                return self._success_response(
+                    start_time,
+                    problem,
+                    solved,
+                    max_solutions,
+                    solver_timeout_ms,
+                    watched_cells,
+                )
+            elif puzzle_type in {"fillomino", "polyomino", "polyominous", "allied_occupation"}:
+                problem, fillomino_givens = self._build_fillomino_problem(
+                    inputs.get("grid") or inputs.get("puzzle") or inputs.get("text")
+                )
+                watched_cells = self._parse_watch_cells(
+                    watched_cells_input,
+                    problem.rows,
+                    problem.cols,
+                    set(problem.active_cells),
+                )
+                solved = self._solve_fillomino_problem(
+                    problem,
+                    fillomino_givens,
                     max_solutions,
                     solver_timeout_ms,
                 )
@@ -1863,6 +1919,207 @@ class GridpuzzlesolverPlugin:
             parsed[direction] = matrix
         return parsed
 
+    def _build_battleship_problem(
+        self,
+        grid: Any,
+        row_totals: Any,
+        column_totals: Any,
+        fleet: Any = None,
+    ) -> Tuple[GridCspProblem, set, set, List[int], List[int], Dict[int, int]]:
+        forced_ships, forced_water, rows, cols = self._parse_battleship_grid(grid)
+        parsed_rows = self._parse_battleship_totals(row_totals, rows, cols, "lignes")
+        parsed_columns = self._parse_battleship_totals(column_totals, cols, rows, "colonnes")
+        parsed_fleet = self._parse_battleship_fleet(fleet, rows, cols)
+        fleet_cells = sum(length * count for length, count in parsed_fleet.items())
+        if sum(parsed_rows) != fleet_cells or sum(parsed_columns) != fleet_cells:
+            raise ValueError(
+                "Les totaux de lignes, de colonnes et la flotte doivent compter le meme nombre de cases navire"
+            )
+        if any(total < 0 or total > cols for total in parsed_rows):
+            raise ValueError("Un total de ligne Bataille navale est hors limites")
+        if any(total < 0 or total > rows for total in parsed_columns):
+            raise ValueError("Un total de colonne Bataille navale est hors limites")
+        problem = GridCspProblem(
+            rows=rows,
+            cols=cols,
+            symbols=["water", "ship"],
+            active_cells=[(row, col) for row in range(rows) for col in range(cols)],
+            variant="battleship",
+        )
+        return problem, forced_ships, forced_water, parsed_rows, parsed_columns, parsed_fleet
+
+    def _parse_battleship_grid(self, raw_grid: Any) -> Tuple[set, set, int, int]:
+        raw_grid = self._parse_optional_json(raw_grid)
+        if isinstance(raw_grid, dict):
+            raw_grid = raw_grid.get("grid") or raw_grid.get("cells") or raw_grid.get("matrix")
+        if raw_grid in (None, "", [], {}):
+            raise ValueError("Une grille Bataille navale est requise")
+        if isinstance(raw_grid, str):
+            raw_rows: List[Any] = [line for line in raw_grid.strip().splitlines() if line.strip()]
+        elif isinstance(raw_grid, list):
+            raw_rows = raw_grid
+        else:
+            raise ValueError("Format de grille Bataille navale non supporte")
+        if not raw_rows:
+            raise ValueError("Bataille navale attend au moins une ligne")
+
+        forced_ships = set()
+        forced_water = set()
+        width: Optional[int] = None
+        ship_tokens = {"#", "x", "1", "ship", "s", "o", "occupied"}
+        water_tokens = {".", "~", "0", "water", "w", "sea"}
+        unknown_tokens = {"", "?", "_", "-"}
+        for row_index, raw_row in enumerate(raw_rows):
+            if isinstance(raw_row, list):
+                raw_values = raw_row
+            else:
+                text = str(raw_row).strip()
+                raw_values = re.findall(r"[^\s,;|]+", text) if re.search(r"[\s,;|]", text) else list(text)
+            if width is None:
+                width = len(raw_values)
+            if not width or len(raw_values) != width:
+                raise ValueError("La grille Bataille navale doit etre rectangulaire et non vide")
+            for col_index, raw_value in enumerate(raw_values):
+                text = str(raw_value).strip().lower()
+                cell = (row_index, col_index)
+                if raw_value is True or text in ship_tokens:
+                    forced_ships.add(cell)
+                elif text in water_tokens:
+                    forced_water.add(cell)
+                elif text not in unknown_tokens:
+                    raise ValueError(f"Case Bataille navale invalide r{row_index + 1}c{col_index + 1}: {raw_value}")
+        if forced_ships & forced_water:
+            raise ValueError("Une case Bataille navale ne peut pas etre a la fois mer et navire")
+        return forced_ships, forced_water, len(raw_rows), width or 0
+
+    def _parse_battleship_totals(
+        self,
+        raw_totals: Any,
+        expected_length: int,
+        maximum: int,
+        label: str,
+    ) -> List[int]:
+        raw_totals = self._parse_optional_json(raw_totals)
+        if raw_totals in (None, "", [], {}):
+            raise ValueError(f"Les totaux de {label} sont requis pour Bataille navale")
+        if isinstance(raw_totals, str):
+            values: List[Any] = re.findall(r"-?\d+", raw_totals)
+        elif isinstance(raw_totals, list):
+            values = [value for row in raw_totals for value in (row if isinstance(row, list) else [row])]
+        else:
+            raise ValueError(f"Format des totaux de {label} Bataille navale non supporte")
+        if len(values) != expected_length:
+            raise ValueError(f"Bataille navale attend {expected_length} totaux de {label}")
+        totals: List[int] = []
+        for value in values:
+            try:
+                total = int(value)
+            except (TypeError, ValueError) as error:
+                raise ValueError(f"Total de {label} Bataille navale invalide: {value}") from error
+            if total < 0 or total > maximum:
+                raise ValueError(f"Un total de {label} Bataille navale doit etre compris entre 0 et {maximum}")
+            totals.append(total)
+        return totals
+
+    def _parse_battleship_fleet(self, raw_fleet: Any, rows: int, cols: int) -> Dict[int, int]:
+        raw_fleet = self._parse_optional_json(raw_fleet)
+        if raw_fleet in (None, "", [], {}):
+            raw_fleet = dict(DEFAULT_BATTLESHIP_FLEET)
+        if isinstance(raw_fleet, dict) and isinstance(raw_fleet.get("ships"), (dict, list)):
+            raw_fleet = raw_fleet["ships"]
+
+        fleet: Dict[int, int] = {}
+        if isinstance(raw_fleet, dict):
+            items = raw_fleet.items()
+            for raw_length, raw_count in items:
+                try:
+                    length, count = int(raw_length), int(raw_count)
+                except (TypeError, ValueError) as error:
+                    raise ValueError("Flotte Bataille navale invalide") from error
+                if count:
+                    fleet[length] = count
+        elif isinstance(raw_fleet, list):
+            for item in raw_fleet:
+                if isinstance(item, dict):
+                    raw_length = item.get("length", item.get("size"))
+                    raw_count = item.get("count", item.get("quantity", 1))
+                    try:
+                        length, count = int(raw_length), int(raw_count)
+                    except (TypeError, ValueError) as error:
+                        raise ValueError("Flotte Bataille navale invalide") from error
+                    fleet[length] = fleet.get(length, 0) + count
+                else:
+                    try:
+                        length = int(item)
+                    except (TypeError, ValueError) as error:
+                        raise ValueError("Flotte Bataille navale invalide") from error
+                    fleet[length] = fleet.get(length, 0) + 1
+        else:
+            raise ValueError("La flotte Bataille navale doit etre un objet ou une liste")
+
+        if not fleet:
+            raise ValueError("La flotte Bataille navale ne peut pas etre vide")
+        maximum_length = max(rows, cols)
+        for length, count in fleet.items():
+            if length < 1 or length > maximum_length or count < 0:
+                raise ValueError("Les longueurs et quantites de navires sont invalides")
+        return {length: count for length, count in fleet.items() if count > 0}
+
+    def _build_fillomino_problem(self, raw_grid: Any) -> Tuple[GridCspProblem, Dict[Cell, int]]:
+        raw_grid = self._parse_optional_json(raw_grid)
+        if isinstance(raw_grid, dict):
+            raw_grid = raw_grid.get("grid") or raw_grid.get("cells") or raw_grid.get("matrix")
+        if raw_grid in (None, "", [], {}):
+            raise ValueError("Une grille Fillomino est requise")
+        if isinstance(raw_grid, str):
+            raw_rows: List[Any] = [line for line in raw_grid.strip().splitlines() if line.strip()]
+        elif isinstance(raw_grid, list):
+            raw_rows = raw_grid
+        else:
+            raise ValueError("Format de grille Fillomino non supporte")
+        if not raw_rows:
+            raise ValueError("Fillomino attend au moins une ligne")
+
+        givens: Dict[Cell, int] = {}
+        width: Optional[int] = None
+        for row_index, raw_row in enumerate(raw_rows):
+            if isinstance(raw_row, list):
+                raw_values = raw_row
+            else:
+                text = str(raw_row).strip()
+                raw_values = re.findall(r"[^\s,;|]+", text) if re.search(r"[\s,;|]", text) else list(text)
+            if width is None:
+                width = len(raw_values)
+            if not width or len(raw_values) != width:
+                raise ValueError("La grille Fillomino doit etre rectangulaire et non vide")
+            for col_index, raw_value in enumerate(raw_values):
+                text = str(raw_value).strip()
+                if text.lower() in {"", ".", "-", "_", "?", "0"}:
+                    continue
+                try:
+                    value = int(text)
+                except (TypeError, ValueError) as error:
+                    raise ValueError(f"Valeur Fillomino invalide r{row_index + 1}c{col_index + 1}: {raw_value}") from error
+                if value < 1:
+                    raise ValueError("Les valeurs Fillomino doivent etre positives")
+                givens[(row_index, col_index)] = value
+
+        rows = len(raw_rows)
+        cols = width or 0
+        if not givens:
+            raise ValueError("Fillomino requiert au moins un indice")
+        area = rows * cols
+        if any(value > area for value in givens.values()):
+            raise ValueError("Une valeur Fillomino ne peut pas depasser le nombre de cases de la grille")
+        problem = GridCspProblem(
+            rows=rows,
+            cols=cols,
+            symbols=[str(value) for value in range(1, area + 1)],
+            active_cells=[(row, col) for row in range(rows) for col in range(cols)],
+            variant="fillomino",
+        )
+        return problem, givens
+
     # ------------------------------------------------------------------
     # Z3 solving
     # ------------------------------------------------------------------
@@ -2174,6 +2431,254 @@ class GridpuzzlesolverPlugin:
             "solution_edges": solution_edges,
             "exhausted": exhausted,
             "truncated": not exhausted and len(solutions) >= max_solutions,
+        }
+
+    def _solve_battleship_problem(
+        self,
+        problem: GridCspProblem,
+        forced_ships: set,
+        forced_water: set,
+        row_totals: Sequence[int],
+        column_totals: Sequence[int],
+        fleet: Mapping[int, int],
+        max_solutions: int,
+        solver_timeout_ms: int,
+    ) -> Dict[str, Any]:
+        solver = z3.Solver()
+        solver.set("timeout", solver_timeout_ms)
+        rows, cols = problem.rows, problem.cols
+        ships = {
+            (row, col): z3.Bool(f"battle_ship_r{row + 1}c{col + 1}")
+            for row in range(rows)
+            for col in range(cols)
+        }
+
+        for cell in forced_ships:
+            solver.add(ships[cell])
+        for cell in forced_water:
+            solver.add(z3.Not(ships[cell]))
+
+        for row in range(rows):
+            solver.add(z3.Sum(*(z3.If(ships[(row, col)], 1, 0) for col in range(cols))) == row_totals[row])
+        for col in range(cols):
+            solver.add(z3.Sum(*(z3.If(ships[(row, col)], 1, 0) for row in range(rows))) == column_totals[col])
+
+        placements: List[Dict[str, Any]] = []
+        placements_by_size: Dict[int, List[Any]] = {length: [] for length in fleet}
+        placements_by_cell: Dict[Cell, List[Any]] = {
+            (row, col): [] for row in range(rows) for col in range(cols)
+        }
+        for length in sorted(fleet):
+            orientations = ("single",) if length == 1 else ("horizontal", "vertical")
+            for orientation in orientations:
+                row_limit = rows if orientation != "vertical" else rows - length + 1
+                col_limit = cols if orientation != "horizontal" else cols - length + 1
+                for row in range(max(0, row_limit)):
+                    for col in range(max(0, col_limit)):
+                        cells = tuple(
+                            (row + (offset if orientation == "vertical" else 0), col + (offset if orientation == "horizontal" else 0))
+                            for offset in range(length)
+                        )
+                        variable = z3.Bool(
+                            f"battle_{length}_{orientation[0]}_r{row + 1}c{col + 1}"
+                        )
+                        placements.append({"cells": cells, "variable": variable})
+                        placements_by_size[length].append(variable)
+                        for cell in cells:
+                            placements_by_cell[cell].append(variable)
+
+        for length, count in fleet.items():
+            candidates = placements_by_size[length]
+            if len(candidates) < count:
+                return {"solutions": [], "exhausted": True, "truncated": False}
+            solver.add(z3.Sum(*(z3.If(candidate, 1, 0) for candidate in candidates)) == count)
+
+        for cell, candidates in placements_by_cell.items():
+            solver.add(
+                z3.Sum(*(z3.If(candidate, 1, 0) for candidate in candidates))
+                == z3.If(ships[cell], 1, 0)
+            )
+
+        for first_index, first in enumerate(placements):
+            first_cells = first["cells"]
+            for second in placements[first_index + 1:]:
+                if any(
+                    max(abs(first_row - second_row), abs(first_col - second_col)) <= 1
+                    for first_row, first_col in first_cells
+                    for second_row, second_col in second["cells"]
+                ):
+                    solver.add(z3.Not(z3.And(first["variable"], second["variable"])))
+
+        solutions: List[List[List[Optional[str]]]] = []
+        exhausted = False
+        while len(solutions) < max_solutions:
+            check = solver.check()
+            if check == z3.unsat:
+                exhausted = True
+                break
+            if check == z3.unknown:
+                raise RuntimeError(self._z3_unknown_message(solver.reason_unknown(), solver_timeout_ms))
+            model = solver.model()
+            solutions.append([
+                [
+                    "#" if z3.is_true(model.eval(ships[(row, col)], model_completion=True)) else "."
+                    for col in range(cols)
+                ]
+                for row in range(rows)
+            ])
+            solver.add(z3.Or(*(
+                ship != model.eval(ship, model_completion=True)
+                for ship in ships.values()
+            )))
+
+        return {
+            "solutions": solutions,
+            "exhausted": exhausted,
+            "truncated": not exhausted and len(solutions) >= max_solutions,
+        }
+
+    def _solve_fillomino_problem(
+        self,
+        problem: GridCspProblem,
+        givens: Mapping[Cell, int],
+        max_solutions: int,
+        solver_timeout_ms: int,
+    ) -> Dict[str, Any]:
+        """Exact-cover search over connected Fillomino regions.
+
+        Regions without an initial clue are valid in common Fillomino variants,
+        so candidates are generated from every uncovered cell rather than only
+        from clues.  The given values still bound the useful region sizes.
+        """
+        cells = tuple(problem.active_cells)
+        cell_set = set(cells)
+        allowed_sizes = tuple(sorted(set(givens.values())))
+        neighbors = {
+            cell: tuple(
+                neighbor
+                for neighbor in (
+                    (cell[0] - 1, cell[1]),
+                    (cell[0] + 1, cell[1]),
+                    (cell[0], cell[1] - 1),
+                    (cell[0], cell[1] + 1),
+                )
+                if neighbor in cell_set
+            )
+            for cell in cells
+        }
+        deadline = time.monotonic() + solver_timeout_ms / 1000
+        candidate_cache: Dict[Tuple[Cell, int], List[Tuple[frozenset, frozenset]]] = {}
+        solutions: List[List[List[Optional[str]]]] = []
+        timed_out = False
+
+        def check_timeout() -> None:
+            nonlocal timed_out
+            if time.monotonic() >= deadline:
+                timed_out = True
+                raise TimeoutError
+
+        def candidates_containing(start: Cell, size: int) -> List[Tuple[frozenset, frozenset]]:
+            cache_key = (start, size)
+            if cache_key in candidate_cache:
+                return candidate_cache[cache_key]
+            if start in givens and givens[start] != size:
+                candidate_cache[cache_key] = []
+                return []
+            shapes = {frozenset((start,))}
+            for _ in range(1, size):
+                next_shapes = set()
+                for shape in shapes:
+                    check_timeout()
+                    for cell in shape:
+                        for neighbor in neighbors[cell]:
+                            if neighbor in shape or (neighbor in givens and givens[neighbor] != size):
+                                continue
+                            next_shapes.add(shape | {neighbor})
+                shapes = next_shapes
+                if not shapes:
+                    break
+            candidates: List[Tuple[frozenset, frozenset]] = []
+            for shape in shapes:
+                border = frozenset(
+                    neighbor
+                    for cell in shape
+                    for neighbor in neighbors[cell]
+                    if neighbor not in shape
+                )
+                candidates.append((shape, border))
+            candidates.sort(key=lambda candidate: -sum(cell in givens for cell in candidate[0]))
+            candidate_cache[cache_key] = candidates
+            return candidates
+
+        def options_for(
+            cell: Cell,
+            covered: frozenset,
+            blocked_by_size: Mapping[int, frozenset],
+        ) -> List[Tuple[int, frozenset, frozenset]]:
+            sizes = (givens[cell],) if cell in givens else allowed_sizes
+            options: List[Tuple[int, frozenset, frozenset]] = []
+            for size in sizes:
+                for shape, border in candidates_containing(cell, size):
+                    if not shape.isdisjoint(covered) or not shape.isdisjoint(blocked_by_size.get(size, frozenset())):
+                        continue
+                    options.append((size, shape, border))
+            return options
+
+        def next_cell(
+            covered: frozenset,
+            blocked_by_size: Mapping[int, frozenset],
+        ) -> Tuple[Optional[Cell], List[Tuple[int, frozenset, frozenset]]]:
+            uncovered_clues = [cell for cell in givens if cell not in covered]
+            candidates_to_check = uncovered_clues or [cell for cell in cells if cell not in covered]
+            best_cell: Optional[Cell] = None
+            best_options: List[Tuple[int, frozenset, frozenset]] = []
+            for cell in candidates_to_check:
+                check_timeout()
+                options = options_for(cell, covered, blocked_by_size)
+                if not options:
+                    return cell, []
+                if best_cell is None or len(options) < len(best_options):
+                    best_cell, best_options = cell, options
+                    if len(best_options) == 1:
+                        break
+            return best_cell, best_options
+
+        def search(
+            covered: frozenset,
+            blocked_by_size: Mapping[int, frozenset],
+            assignments: Mapping[Cell, int],
+        ) -> None:
+            if len(solutions) >= max_solutions:
+                return
+            check_timeout()
+            if len(covered) == len(cells):
+                solutions.append([
+                    [str(assignments[(row, col)]) for col in range(problem.cols)]
+                    for row in range(problem.rows)
+                ])
+                return
+            cell, options = next_cell(covered, blocked_by_size)
+            if cell is None or not options:
+                return
+            for size, shape, border in options:
+                next_assignments = dict(assignments)
+                next_assignments.update({member: size for member in shape})
+                next_blocked = dict(blocked_by_size)
+                next_blocked[size] = blocked_by_size.get(size, frozenset()) | border
+                search(covered | shape, next_blocked, next_assignments)
+                if len(solutions) >= max_solutions:
+                    return
+
+        try:
+            search(frozenset(), {}, {})
+        except TimeoutError:
+            pass
+
+        exhausted = not timed_out and len(solutions) < max_solutions
+        return {
+            "solutions": solutions,
+            "exhausted": exhausted,
+            "truncated": timed_out or (not exhausted and len(solutions) >= max_solutions),
         }
 
     def _solve_tripod_problem(

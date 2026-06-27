@@ -202,6 +202,29 @@ The solver creates one non-empty closed loop: each clue counts its four
 surrounding segments, each used dot has degree two, and disconnected loops are
 rejected. Each returned solution includes its loop in `edges`.
 
+## Battleship / Bimaru
+
+Use `puzzle_type=battleship` (aliases: `battleships`, `bimaru`,
+`solitaire_battleships`, `battleship_solitaire`) with a rectangular `grid`.
+Known ship fragments use `#`, `X`, or `1`; known water uses `.`, `~`, or `0`;
+`?`, `_`, and `-` remain unknown. `row_totals` and `column_totals` are required.
+
+The optional `fleet` object maps ship length to quantity. By default it uses the
+classic 10x10 fleet: `{ "1": 4, "2": 3, "3": 2, "4": 1 }`. The solver
+places exactly this fleet, matches every row and column total, and prevents two
+ships from touching horizontally, vertically, or diagonally.
+
+## Fillomino
+
+Use `puzzle_type=fillomino` (aliases: `polyomino`, `polyominous`,
+`allied_occupation`) with a rectangular grid of positive numbers. Use `.`,
+`0`, `_`, `-`, or `?` for unknown cells. For numbers above `9`, use whitespace
+or comma-separated values in the input text.
+
+Each connected region has exactly as many cells as its displayed number.
+Distinct regions with the same number cannot share an edge. The workbench lets
+you resize the grid, enter multi-digit numbers and move with the arrow keys.
+
 ## Nonogram / Picross
 
 Use `puzzle_type=nonogram` (aliases: `picross`, `griddlers`, `hanjie`) with
@@ -266,6 +289,9 @@ the Theia "Grilles" workbench:
 - editable number cells and manual shaded cells for Hitori;
 - editable dimensions, clues and horizontal/vertical loop segments for Slither
   Link;
+- editable ship, water and unknown marks, row/column totals and fleet counts
+  for Battleship / Bimaru;
+- editable dimensions and multi-digit number cells for Fillomino;
 - watch mode to mark answer cells;
 - solve action calling this plugin;
 - extracted watched values returned as `watched_values` and `watched_text`.

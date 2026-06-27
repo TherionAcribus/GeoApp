@@ -2119,6 +2119,103 @@ def test_slitherlink_rejects_a_forced_edge_around_zero():
     assert result["summary"] == "Aucune solution compatible avec les contraintes"
 
 
+def test_battleship_places_the_requested_fleet_without_contacts():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "bimaru",
+            "grid": [
+                ["?", "?", "?"],
+                ["?", "?", "?"],
+                ["?", "?", "?"],
+            ],
+            "row_totals": [2, 0, 0],
+            "column_totals": [1, 1, 0],
+            "fleet": {"2": 1},
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["unique"] is True
+    assert result["metadata"]["variant"] == "battleship"
+    assert result["results"][0]["grid"] == [
+        ["#", "#", "."],
+        [".", ".", "."],
+        [".", ".", "."],
+    ]
+
+
+def test_battleship_rejects_diagonally_touching_forced_ships():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "battleship_solitaire",
+            "grid": [
+                ["#", "?", "?"],
+                ["?", "#", "?"],
+                ["?", "?", "?"],
+            ],
+            "row_totals": [1, 1, 0],
+            "column_totals": [1, 1, 0],
+            "fleet": {"1": 2},
+            "max_solutions": 1,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+
+
+def test_fillomino_builds_connected_regions_of_the_given_sizes():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "polyominous",
+            "grid": [
+                [2, 2, ""],
+                ["", "", 7],
+                ["", "", ""],
+            ],
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["unique"] is True
+    assert result["metadata"]["variant"] == "fillomino"
+    assert result["results"][0]["grid"] == [
+        ["2", "2", "7"],
+        ["7", "7", "7"],
+        ["7", "7", "7"],
+    ]
+
+
+def test_fillomino_allows_a_region_without_an_initial_clue():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "fillomino",
+            "grid": [
+                [14, "", "", ""],
+                ["", 1, "", ""],
+                ["", "", "", ""],
+                ["", "", "", ""],
+            ],
+            "max_solutions": 1,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 1
+    assert result["results"][0]["grid"][0][0] == "14"
+    assert result["results"][0]["grid"][1][1] == "1"
+
+
 def mine_clue_grid(solution):
     size = len(solution)
     rows = []

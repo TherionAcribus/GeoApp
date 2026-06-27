@@ -10,7 +10,7 @@ import './style/grid-puzzle-workbench.css';
 type Grid = string[][];
 type RegionGrid = number[][];
 type WorkMode = 'edit' | 'watch' | 'parity' | 'chain';
-type SudokuVariant = 'sudoku_classic' | 'sudoku_4x4' | 'sudoku_6x6' | 'sudoku_8x8' | 'sudoku_10x10' | 'sudoku_12x12' | 'sudoku_15x15' | 'sudoku_16x16' | 'sudoku_x' | 'sudoku_argyle' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'sudoku_hoshi' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_vudoku' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_kropki' | 'chain_sudoku_4x4' | 'chain_sudoku_5x5' | 'chain_sudoku_6x6' | 'chain_sudoku_7x7' | 'chain_sudoku_8x8' | 'chain_sudoku_9x9' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_outside' | 'sudoku_sandwich' | 'sudoku_little_killer' | 'sudoku_little_unique_killer' | 'sudoku_godoku' | 'sudoku_even_odd' | 'sudoku_non_consecutive' | 'sudoku_mine' | 'sudoku_mine_6x6' | 'sudoku_tripod' | 'sudoku_tripod_4x4' | 'sudoku_tripod_5x5' | 'sudoku_tripod_6x6' | 'sudoku_tripod_7x7' | 'sudoku_tripod_8x8' | 'nonogram' | 'kakuro' | 'hitori' | 'slitherlink';
+type SudokuVariant = 'sudoku_classic' | 'sudoku_4x4' | 'sudoku_6x6' | 'sudoku_8x8' | 'sudoku_10x10' | 'sudoku_12x12' | 'sudoku_15x15' | 'sudoku_16x16' | 'sudoku_x' | 'sudoku_argyle' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'sudoku_hoshi' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_vudoku' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_kropki' | 'chain_sudoku_4x4' | 'chain_sudoku_5x5' | 'chain_sudoku_6x6' | 'chain_sudoku_7x7' | 'chain_sudoku_8x8' | 'chain_sudoku_9x9' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_outside' | 'sudoku_sandwich' | 'sudoku_little_killer' | 'sudoku_little_unique_killer' | 'sudoku_godoku' | 'sudoku_even_odd' | 'sudoku_non_consecutive' | 'sudoku_mine' | 'sudoku_mine_6x6' | 'sudoku_tripod' | 'sudoku_tripod_4x4' | 'sudoku_tripod_5x5' | 'sudoku_tripod_6x6' | 'sudoku_tripod_7x7' | 'sudoku_tripod_8x8' | 'nonogram' | 'kakuro' | 'hitori' | 'slitherlink' | 'battleship' | 'fillomino';
 type KakuroCellKind = 'black' | 'clue' | 'white';
 type KakuroTool = KakuroCellKind;
 type HitoriTool = 'numbers' | 'shade';
@@ -18,6 +18,7 @@ interface SlitherEdges {
     horizontal: boolean[][];
     vertical: boolean[][];
 }
+type BattleshipFleet = Record<number, number>;
 type InequalitySymbol = '' | '>' | '<';
 type InequalityGrid = InequalitySymbol[][];
 type VudokuSymbol = '' | 'tl' | 'tr' | 'bl' | 'br';
@@ -718,6 +719,239 @@ function normalizeSlitherEdges(value: unknown, rows: number, cols: number): Slit
     return resizeSlitherEdges(edges, rows, cols);
 }
 
+function normalizeBattleshipCell(rawValue: unknown): string {
+    const value = String(rawValue ?? '').trim().toLowerCase();
+    if (value === '#' || value === 'x' || value === '1' || value === 'ship' || value === 's') {
+        return '#';
+    }
+    if (value === '.' || value === '~' || value === '0' || value === 'water' || value === 'w') {
+        return '.';
+    }
+    return '';
+}
+
+function resizeBattleshipGrid(grid: Grid, rows: number, cols: number): Grid {
+    return Array.from({ length: rows }, (_row, rowIndex) => (
+        Array.from({ length: cols }, (_col, colIndex) => normalizeBattleshipCell(grid[rowIndex]?.[colIndex]))
+    ));
+}
+
+function normalizeBattleshipGrid(value: unknown, rows: number, cols: number): Grid {
+    if (typeof value === 'string') {
+        const parsed = value.split(/\r?\n/).filter(Boolean).map(line => {
+            const text = line.trim();
+            return /[\s,;|]/.test(text) ? text.split(/[\s,;|]+/) : Array.from(text);
+        });
+        return resizeBattleshipGrid(parsed, rows, cols);
+    }
+    if (!Array.isArray(value)) {
+        return createEmptyRectGrid(rows, cols);
+    }
+    const parsed = value.map(row => Array.isArray(row) ? row.map(cell => String(cell ?? '')) : []);
+    return resizeBattleshipGrid(parsed, rows, cols);
+}
+
+function cycleBattleshipCell(value: string, direction = 1): string {
+    const states = ['', '#', '.'];
+    const index = states.indexOf(normalizeBattleshipCell(value));
+    return states[(index + direction + states.length) % states.length];
+}
+
+function normalizeBattleshipTotal(rawValue: unknown, maximum: number): string {
+    const digits = String(rawValue ?? '').replace(/[^0-9]/g, '');
+    if (!digits) {
+        return '';
+    }
+    return String(Math.min(maximum, Number(digits)));
+}
+
+function resizeBattleshipTotals(values: string[], length: number, maximum: number): string[] {
+    return Array.from({ length }, (_value, index) => normalizeBattleshipTotal(values[index], maximum));
+}
+
+function normalizeBattleshipTotals(value: unknown, length: number, maximum: number): string[] {
+    if (typeof value === 'string') {
+        return resizeBattleshipTotals(value.match(/\d+/g) || [], length, maximum);
+    }
+    if (!Array.isArray(value)) {
+        return Array<string>(length).fill('');
+    }
+    return resizeBattleshipTotals(value.map(item => String(item ?? '')), length, maximum);
+}
+
+function defaultBattleshipFleet(): BattleshipFleet {
+    return { 1: 4, 2: 3, 3: 2, 4: 1 };
+}
+
+function normalizeBattleshipFleet(value: unknown, maximumLength: number): BattleshipFleet {
+    const defaults = defaultBattleshipFleet();
+    const source: Record<string, unknown> = value && typeof value === 'object' && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : Object.fromEntries(Object.entries(defaults));
+    const fleet: BattleshipFleet = {};
+    for (let length = 1; length <= Math.min(10, maximumLength); length += 1) {
+        const rawCount = source[String(length)] ?? 0;
+        const count = Number(rawCount);
+        fleet[length] = Number.isFinite(count) ? Math.max(0, Math.min(10, Math.floor(count))) : 0;
+    }
+    return fleet;
+}
+
+function battleshipFleetCells(fleet: BattleshipFleet): number {
+    return Object.entries(fleet).reduce((total, [rawLength, count]) => total + Number(rawLength) * count, 0);
+}
+
+function findBattleshipConflicts(
+    grid: Grid,
+    rowTotals: string[],
+    columnTotals: string[],
+    fleet: BattleshipFleet,
+): ConflictHighlights {
+    const cells = new Set<string>();
+    const messages: string[] = [];
+    const rows = grid.length;
+    const cols = grid[0]?.length || 0;
+    const shipCount = (values: string[]): number => values.filter(value => value === '#').length;
+    for (let row = 0; row < rows; row += 1) {
+        const total = rowTotals[row];
+        const occupied = shipCount(grid[row] || []);
+        if (total && occupied > Number(total)) {
+            grid[row].forEach((value, col) => {
+                if (value === '#') {
+                    cells.add(cellRef(row, col));
+                }
+            });
+            messages.push(`La ligne ${row + 1} contient deja plus de navires que son total.`);
+        }
+    }
+    for (let col = 0; col < cols; col += 1) {
+        const total = columnTotals[col];
+        const occupied = shipCount(grid.map(row => row[col] || ''));
+        if (total && occupied > Number(total)) {
+            grid.forEach((row, rowIndex) => {
+                if (row[col] === '#') {
+                    cells.add(cellRef(rowIndex, col));
+                }
+            });
+            messages.push(`La colonne ${col + 1} contient deja plus de navires que son total.`);
+        }
+    }
+    for (let row = 0; row < rows - 1; row += 1) {
+        for (let col = 0; col < cols - 1; col += 1) {
+            if (grid[row][col] === '#' && grid[row + 1][col + 1] === '#') {
+                cells.add(cellRef(row, col));
+                cells.add(cellRef(row + 1, col + 1));
+                messages.push('Deux fragments de navire se touchent en diagonale.');
+            }
+            if (grid[row + 1][col] === '#' && grid[row][col + 1] === '#') {
+                cells.add(cellRef(row + 1, col));
+                cells.add(cellRef(row, col + 1));
+                messages.push('Deux fragments de navire se touchent en diagonale.');
+            }
+        }
+    }
+    if (rowTotals.every(Boolean) && columnTotals.every(Boolean)) {
+        const fleetCells = battleshipFleetCells(fleet);
+        if (rowTotals.reduce((total, value) => total + Number(value), 0) !== fleetCells
+            || columnTotals.reduce((total, value) => total + Number(value), 0) !== fleetCells) {
+            messages.push('Les totaux de lignes, de colonnes et la flotte doivent compter le meme nombre de cases navire.');
+        }
+    }
+    return { cells, messages: [...new Set(messages)] };
+}
+
+function normalizeFillominoValue(rawValue: unknown, maximum = 400): string {
+    const digits = String(rawValue ?? '').replace(/[^0-9]/g, '');
+    if (!digits) {
+        return '';
+    }
+    const value = Number(digits);
+    return value >= 1 && value <= maximum ? String(value) : '';
+}
+
+function resizeFillominoGrid(grid: Grid, rows: number, cols: number): Grid {
+    const maximum = rows * cols;
+    return Array.from({ length: rows }, (_row, rowIndex) => (
+        Array.from({ length: cols }, (_col, colIndex) => normalizeFillominoValue(grid[rowIndex]?.[colIndex], maximum))
+    ));
+}
+
+function normalizeFillominoGrid(value: unknown, rows: number, cols: number): Grid {
+    if (typeof value === 'string') {
+        const parsed = value.split(/\r?\n/).filter(Boolean).map(line => {
+            const text = line.trim();
+            return /[\s,;|]/.test(text) ? text.split(/[\s,;|]+/) : Array.from(text);
+        });
+        return resizeFillominoGrid(parsed, rows, cols);
+    }
+    if (!Array.isArray(value)) {
+        return createEmptyRectGrid(rows, cols);
+    }
+    const parsed = value.map(row => Array.isArray(row) ? row.map(cell => String(cell ?? '')) : []);
+    return resizeFillominoGrid(parsed, rows, cols);
+}
+
+function findFillominoConflicts(grid: Grid): ConflictHighlights {
+    const cells = new Set<string>();
+    const messages: string[] = [];
+    const rows = grid.length;
+    const cols = grid[0]?.length || 0;
+    const visited = new Set<string>();
+    for (let row = 0; row < rows; row += 1) {
+        for (let col = 0; col < cols; col += 1) {
+            const value = grid[row]?.[col] || '';
+            const startKey = `${row}:${col}`;
+            if (!value || visited.has(startKey)) {
+                continue;
+            }
+            const region: CellCoord[] = [];
+            const queue: CellCoord[] = [[row, col]];
+            while (queue.length) {
+                const [currentRow, currentCol] = queue.shift()!;
+                const key = `${currentRow}:${currentCol}`;
+                if (visited.has(key) || grid[currentRow]?.[currentCol] !== value) {
+                    continue;
+                }
+                visited.add(key);
+                region.push([currentRow, currentCol]);
+                for (const [nextRow, nextCol] of [[currentRow - 1, currentCol], [currentRow + 1, currentCol], [currentRow, currentCol - 1], [currentRow, currentCol + 1]]) {
+                    if (nextRow >= 0 && nextRow < rows && nextCol >= 0 && nextCol < cols) {
+                        queue.push([nextRow, nextCol]);
+                    }
+                }
+            }
+            if (region.length > Number(value)) {
+                region.forEach(([regionRow, regionCol]) => cells.add(cellRef(regionRow, regionCol)));
+                messages.push(`Le bloc de ${value} contient deja ${region.length} cases.`);
+            }
+        }
+    }
+    return { cells, messages: [...new Set(messages)] };
+}
+
+function fillominoRegionClasses(grid: Grid, row: number, col: number): string[] {
+    const value = grid[row]?.[col] || '';
+    if (!value) {
+        return [];
+    }
+    const rows = grid.length;
+    const cols = grid[0]?.length || 0;
+    const classes: string[] = [];
+    if (row === 0 || grid[row - 1]?.[col] !== value) {
+        classes.push('region-top');
+    }
+    if (col === 0 || grid[row]?.[col - 1] !== value) {
+        classes.push('region-left');
+    }
+    if (row === rows - 1 || !(grid[row + 1]?.[col])) {
+        classes.push('region-bottom');
+    }
+    if (col === cols - 1 || !(grid[row]?.[col + 1])) {
+        classes.push('region-right');
+    }
+    return classes;
+}
+
 function cloneInequalityGrid(grid: InequalityGrid): InequalityGrid {
     return grid.map(row => [...row]);
 }
@@ -913,6 +1147,12 @@ function getVariantLabel(puzzleType: SudokuVariant): string {
     if (puzzleType === 'slitherlink') {
         return 'Slither Link';
     }
+    if (puzzleType === 'battleship') {
+        return 'Bataille navale';
+    }
+    if (puzzleType === 'fillomino') {
+        return 'Fillomino';
+    }
     return 'Sudoku classique';
 }
 
@@ -1040,7 +1280,7 @@ function getMineConfig(
 }
 
 function getSingleGridSudokuConfig(puzzleType: SudokuVariant): { size: number; boxRows: number; boxCols: number; label: string } | undefined {
-    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori' || puzzleType === 'slitherlink') {
+    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori' || puzzleType === 'slitherlink' || puzzleType === 'battleship' || puzzleType === 'fillomino') {
         return undefined;
     }
     return getSizedSudokuConfig(puzzleType) || {
@@ -1077,14 +1317,14 @@ function gridSizeForVariant(puzzleType: SudokuVariant): number {
     if (mineConfig) {
         return mineConfig.size;
     }
-    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori' || puzzleType === 'slitherlink') {
+    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori' || puzzleType === 'slitherlink' || puzzleType === 'battleship' || puzzleType === 'fillomino') {
         return SIZE;
     }
     return getSingleGridSudokuConfig(puzzleType)?.size || SIZE;
 }
 
 function isActiveCellForVariant(puzzleType: SudokuVariant, row: number, col: number): boolean {
-    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori' || puzzleType === 'slitherlink') {
+    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori' || puzzleType === 'slitherlink' || puzzleType === 'battleship' || puzzleType === 'fillomino') {
         return row >= 0 && col >= 0;
     }
     if (puzzleType === 'sujiken') {
@@ -1389,7 +1629,7 @@ function findConstraintConflicts(
     const cells = new Set<string>();
     const messages: string[] = [];
 
-    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori' || puzzleType === 'slitherlink') {
+    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori' || puzzleType === 'slitherlink' || puzzleType === 'battleship' || puzzleType === 'fillomino') {
         return { cells, messages };
     }
 
@@ -3577,6 +3817,13 @@ function GridPuzzleWorkbenchApp({
     const [slitherRows, setSlitherRows] = React.useState(5);
     const [slitherCols, setSlitherCols] = React.useState(5);
     const [slitherEdges, setSlitherEdges] = React.useState<SlitherEdges>(() => emptySlitherEdges(5, 5));
+    const [battleshipRows, setBattleshipRows] = React.useState(10);
+    const [battleshipCols, setBattleshipCols] = React.useState(10);
+    const [battleshipRowTotals, setBattleshipRowTotals] = React.useState<string[]>(() => Array<string>(10).fill(''));
+    const [battleshipColumnTotals, setBattleshipColumnTotals] = React.useState<string[]>(() => Array<string>(10).fill(''));
+    const [battleshipFleet, setBattleshipFleet] = React.useState<BattleshipFleet>(() => defaultBattleshipFleet());
+    const [fillominoRows, setFillominoRows] = React.useState(10);
+    const [fillominoCols, setFillominoCols] = React.useState(10);
     const [watchCells, setWatchCells] = React.useState<string[]>([]);
     const [mode, setMode] = React.useState<WorkMode>('edit');
     const [maxSolutions, setMaxSolutions] = React.useState(2);
@@ -3594,6 +3841,8 @@ function GridPuzzleWorkbenchApp({
     const nonogramCellRefs = React.useRef<Array<Array<HTMLButtonElement | null>>>([]);
     const hitoriCellRefs = React.useRef<Array<Array<HTMLElement | null>>>([]);
     const slitherClueRefs = React.useRef<Array<Array<HTMLInputElement | null>>>([]);
+    const battleshipCellRefs = React.useRef<Array<Array<HTMLButtonElement | null>>>([]);
+    const fillominoCellRefs = React.useRef<Array<Array<HTMLInputElement | null>>>([]);
 
     const solutionResults = Array.isArray(solveState.result?.results) ? solveState.result.results : [];
     const activeSolutionIndex = solutionResults.length
@@ -3624,6 +3873,8 @@ function GridPuzzleWorkbenchApp({
     const isKakuro = puzzleType === 'kakuro';
     const isHitori = puzzleType === 'hitori';
     const isSlitherLink = puzzleType === 'slitherlink';
+    const isBattleship = puzzleType === 'battleship';
+    const isFillomino = puzzleType === 'fillomino';
     const solvedSlitherEdges = isSlitherLink
         ? normalizeSlitherEdges(activeSolution?.edges, slitherRows, slitherCols)
         : undefined;
@@ -3694,6 +3945,14 @@ function GridPuzzleWorkbenchApp({
         gridTemplateColumns: `repeat(${slitherCols}, 8px 46px) 8px`,
         gridTemplateRows: `repeat(${slitherRows}, 8px 46px) 8px`,
     } : undefined;
+    const battleshipBoardStyle: React.CSSProperties | undefined = isBattleship ? {
+        gridTemplateColumns: `repeat(${battleshipCols}, 38px) 30px`,
+        gridTemplateRows: `repeat(${battleshipRows}, 38px) 30px`,
+    } : undefined;
+    const fillominoBoardStyle: React.CSSProperties | undefined = isFillomino ? {
+        gridTemplateColumns: `repeat(${fillominoCols}, 46px)`,
+        gridTemplateRows: `repeat(${fillominoRows}, 46px)`,
+    } : undefined;
     const solutionBoardStyle = isNonogram ? nonogramSolutionBoardStyle : boardStyle;
     const chainCounts = React.useMemo(() => {
         return Array.from({ length: chainConfig?.size || 0 }, (_unused, index) => chainPaths[index]?.length || 0);
@@ -3725,8 +3984,12 @@ function GridPuzzleWorkbenchApp({
             ? findKakuroConflicts(kakuroLayout, grid)
             : isHitori
                 ? findHitoriConflicts(grid, hitoriShaded)
+                : isBattleship
+                    ? findBattleshipConflicts(grid, battleshipRowTotals, battleshipColumnTotals, battleshipFleet)
+                    : isFillomino
+                        ? findFillominoConflicts(grid)
                 : findConstraintConflicts(grid, puzzleType, horizontalInequalities, verticalInequalities, vudokuCorners, rossiniArrows, xvHorizontalMarks, xvVerticalMarks, kropkiHorizontalDots, kropkiVerticalDots, chainGrid, skyscraperClues, frameClues, outsideClues, sandwichClues, littleKillerClues, parityMarks),
-        [chainGrid, frameClues, grid, horizontalInequalities, hitoriShaded, isHitori, isKakuro, kakuroLayout, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, outsideClues, parityMarks, puzzleType, rossiniArrows, sandwichClues, skyscraperClues, verticalInequalities, vudokuCorners, xvHorizontalMarks, xvVerticalMarks],
+        [battleshipColumnTotals, battleshipFleet, battleshipRowTotals, chainGrid, frameClues, grid, horizontalInequalities, hitoriShaded, isBattleship, isFillomino, isHitori, isKakuro, kakuroLayout, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, outsideClues, parityMarks, puzzleType, rossiniArrows, sandwichClues, skyscraperClues, verticalInequalities, vudokuCorners, xvHorizontalMarks, xvVerticalMarks],
     );
     const visibleConflictMessages = constraintConflicts.messages.slice(0, 4);
 
@@ -3798,6 +4061,39 @@ function GridPuzzleWorkbenchApp({
             );
         }));
     }, [isSlitherLink, slitherCols, slitherRows]);
+
+    React.useEffect(() => {
+        if (!isBattleship) {
+            return;
+        }
+        setGrid(previous => resizeBattleshipGrid(previous, battleshipRows, battleshipCols));
+        setBattleshipRowTotals(previous => resizeBattleshipTotals(previous, battleshipRows, battleshipCols));
+        setBattleshipColumnTotals(previous => resizeBattleshipTotals(previous, battleshipCols, battleshipRows));
+        setBattleshipFleet(previous => normalizeBattleshipFleet(previous, Math.max(battleshipRows, battleshipCols)));
+        setWatchCells(previous => previous.filter(ref => {
+            const match = ref.match(/^r(\d+)c(\d+)$/i);
+            return Boolean(
+                match
+                && Number(match[1]) <= battleshipRows
+                && Number(match[2]) <= battleshipCols,
+            );
+        }));
+    }, [battleshipCols, battleshipRows, isBattleship]);
+
+    React.useEffect(() => {
+        if (!isFillomino) {
+            return;
+        }
+        setGrid(previous => resizeFillominoGrid(previous, fillominoRows, fillominoCols));
+        setWatchCells(previous => previous.filter(ref => {
+            const match = ref.match(/^r(\d+)c(\d+)$/i);
+            return Boolean(
+                match
+                && Number(match[1]) <= fillominoRows
+                && Number(match[2]) <= fillominoCols,
+            );
+        }));
+    }, [fillominoCols, fillominoRows, isFillomino]);
 
     const markDirty = React.useCallback(() => {
         if (!geocacheId) {
@@ -4029,6 +4325,114 @@ function GridPuzzleWorkbenchApp({
         markDirty();
     }, [markDirty, slitherCols, slitherRows]);
 
+    const setBattleshipDimension = React.useCallback((axis: 'row' | 'column', rawValue: number) => {
+        const size = Number.isFinite(rawValue)
+            ? Math.min(20, Math.max(2, Math.floor(rawValue)))
+            : 2;
+        const rows = axis === 'row' ? size : battleshipRows;
+        const cols = axis === 'column' ? size : battleshipCols;
+        setBattleshipRows(rows);
+        setBattleshipCols(cols);
+        setGrid(previous => resizeBattleshipGrid(previous, rows, cols));
+        setBattleshipRowTotals(previous => resizeBattleshipTotals(previous, rows, cols));
+        setBattleshipColumnTotals(previous => resizeBattleshipTotals(previous, cols, rows));
+        setBattleshipFleet(previous => normalizeBattleshipFleet(previous, Math.max(rows, cols)));
+        setSolveState({ running: false });
+        markDirty();
+    }, [battleshipCols, battleshipRows, markDirty]);
+
+    const updateBattleshipTotal = React.useCallback((axis: 'row' | 'column', index: number, rawValue: string) => {
+        const maximum = axis === 'row' ? battleshipCols : battleshipRows;
+        const value = normalizeBattleshipTotal(rawValue, maximum);
+        const update = (previous: string[]): string[] => {
+            const next = [...previous];
+            next[index] = value;
+            return next;
+        };
+        if (axis === 'row') {
+            setBattleshipRowTotals(update);
+        } else {
+            setBattleshipColumnTotals(update);
+        }
+        setSolveState({ running: false });
+        markDirty();
+    }, [battleshipCols, battleshipRows, markDirty]);
+
+    const updateBattleshipFleet = React.useCallback((length: number, rawValue: string) => {
+        const digits = rawValue.replace(/[^0-9]/g, '');
+        const count = digits ? Math.min(10, Number(digits)) : 0;
+        setBattleshipFleet(previous => ({
+            ...normalizeBattleshipFleet(previous, Math.max(battleshipRows, battleshipCols)),
+            [length]: count,
+        }));
+        setSolveState({ running: false });
+        markDirty();
+    }, [battleshipCols, battleshipRows, markDirty]);
+
+    const updateBattleshipCell = React.useCallback((row: number, col: number, value: string) => {
+        setGrid(previous => {
+            const next = resizeBattleshipGrid(previous, battleshipRows, battleshipCols);
+            next[row][col] = normalizeBattleshipCell(value);
+            return next;
+        });
+        setSolveState({ running: false });
+        markDirty();
+    }, [battleshipCols, battleshipRows, markDirty]);
+
+    const cycleBattleshipGridCell = React.useCallback((row: number, col: number, direction = 1) => {
+        setGrid(previous => {
+            const next = resizeBattleshipGrid(previous, battleshipRows, battleshipCols);
+            next[row][col] = cycleBattleshipCell(next[row][col], direction);
+            return next;
+        });
+        setSolveState({ running: false });
+        markDirty();
+    }, [battleshipCols, battleshipRows, markDirty]);
+
+    const clearBattleshipMarks = React.useCallback(() => {
+        setGrid(createEmptyRectGrid(battleshipRows, battleshipCols));
+        setSolveState({ running: false });
+        markDirty();
+    }, [battleshipCols, battleshipRows, markDirty]);
+
+    const clearBattleship = React.useCallback(() => {
+        setGrid(createEmptyRectGrid(battleshipRows, battleshipCols));
+        setBattleshipRowTotals(Array<string>(battleshipRows).fill(''));
+        setBattleshipColumnTotals(Array<string>(battleshipCols).fill(''));
+        setBattleshipFleet(defaultBattleshipFleet());
+        setSolveState({ running: false });
+        markDirty();
+    }, [battleshipCols, battleshipRows, markDirty]);
+
+    const setFillominoDimension = React.useCallback((axis: 'row' | 'column', rawValue: number) => {
+        const size = Number.isFinite(rawValue)
+            ? Math.min(20, Math.max(2, Math.floor(rawValue)))
+            : 2;
+        const rows = axis === 'row' ? size : fillominoRows;
+        const cols = axis === 'column' ? size : fillominoCols;
+        setFillominoRows(rows);
+        setFillominoCols(cols);
+        setGrid(previous => resizeFillominoGrid(previous, rows, cols));
+        setSolveState({ running: false });
+        markDirty();
+    }, [fillominoCols, fillominoRows, markDirty]);
+
+    const updateFillominoValue = React.useCallback((row: number, col: number, rawValue: string) => {
+        setGrid(previous => {
+            const next = resizeFillominoGrid(previous, fillominoRows, fillominoCols);
+            next[row][col] = normalizeFillominoValue(rawValue, fillominoRows * fillominoCols);
+            return next;
+        });
+        setSolveState({ running: false });
+        markDirty();
+    }, [fillominoCols, fillominoRows, markDirty]);
+
+    const clearFillomino = React.useCallback(() => {
+        setGrid(createEmptyRectGrid(fillominoRows, fillominoCols));
+        setSolveState({ running: false });
+        markDirty();
+    }, [fillominoCols, fillominoRows, markDirty]);
+
     const updateNonogramCell = React.useCallback((row: number, col: number, value: string) => {
         setGrid(previous => {
             const next = resizeNonogramGrid(previous, nonogramRows, nonogramCols);
@@ -4089,10 +4493,18 @@ function GridPuzzleWorkbenchApp({
         const variantSize = gridSizeForVariant(puzzleType);
         const inferredHitoriRows = Array.isArray(snapshot?.grid) ? snapshot.grid.length : 5;
         const inferredHitoriCols = Array.isArray(snapshot?.grid) && Array.isArray(snapshot.grid[0]) ? snapshot.grid[0].length : 5;
+        const inferredBattleshipRows = Array.isArray(snapshot?.grid) ? snapshot.grid.length : 10;
+        const inferredBattleshipCols = Array.isArray(snapshot?.grid) && Array.isArray(snapshot.grid[0]) ? snapshot.grid[0].length : 10;
+        const inferredFillominoRows = Array.isArray(snapshot?.grid) ? snapshot.grid.length : 10;
+        const inferredFillominoCols = Array.isArray(snapshot?.grid) && Array.isArray(snapshot.grid[0]) ? snapshot.grid[0].length : 10;
         const restoredHitoriRows = normalizeNumber(snapshot?.hitori?.rows, inferredHitoriRows, 2, 20);
         const restoredHitoriCols = normalizeNumber(snapshot?.hitori?.cols, inferredHitoriCols, 2, 20);
         const restoredSlitherRows = normalizeNumber(snapshot?.slither?.rows, inferredHitoriRows, 1, 20);
         const restoredSlitherCols = normalizeNumber(snapshot?.slither?.cols, inferredHitoriCols, 1, 20);
+        const restoredBattleshipRows = normalizeNumber(snapshot?.battleship?.rows, inferredBattleshipRows, 2, 20);
+        const restoredBattleshipCols = normalizeNumber(snapshot?.battleship?.cols, inferredBattleshipCols, 2, 20);
+        const restoredFillominoRows = normalizeNumber(snapshot?.fillomino?.rows, inferredFillominoRows, 2, 20);
+        const restoredFillominoCols = normalizeNumber(snapshot?.fillomino?.cols, inferredFillominoCols, 2, 20);
         const restoredKakuroLayout = normalizeKakuroLayout(snapshot?.kakuro?.layout ?? snapshot?.kakuroLayout)
             || createKakuroStarterLayout();
         const restoredGrid = puzzleType === 'kakuro'
@@ -4101,6 +4513,10 @@ function GridPuzzleWorkbenchApp({
                 ? normalizeHitoriGrid(snapshot?.grid, restoredHitoriRows, restoredHitoriCols)
                 : puzzleType === 'slitherlink'
                     ? normalizeSlitherGrid(snapshot?.grid, restoredSlitherRows, restoredSlitherCols)
+                    : puzzleType === 'battleship'
+                        ? normalizeBattleshipGrid(snapshot?.grid, restoredBattleshipRows, restoredBattleshipCols)
+                        : puzzleType === 'fillomino'
+                            ? normalizeFillominoGrid(snapshot?.grid, restoredFillominoRows, restoredFillominoCols)
             : normalizeGrid(snapshot?.grid, puzzleType) || createEmptyGrid(variantSize);
         const restoredChainGrid = normalizeChainGrid(snapshot?.chains ?? snapshot?.chainGrid, variantSize);
         const restoredResult = snapshot?.lastResult && typeof snapshot.lastResult === 'object'
@@ -4126,6 +4542,19 @@ function GridPuzzleWorkbenchApp({
             setSlitherRows(restoredSlitherRows);
             setSlitherCols(restoredSlitherCols);
             setSlitherEdges(normalizeSlitherEdges(snapshot?.slither?.edges ?? snapshot?.slitherEdges, restoredSlitherRows, restoredSlitherCols));
+            setGrid(restoredGrid);
+            setQuickText('');
+        } else if (puzzleType === 'battleship') {
+            setBattleshipRows(restoredBattleshipRows);
+            setBattleshipCols(restoredBattleshipCols);
+            setBattleshipRowTotals(normalizeBattleshipTotals(snapshot?.battleship?.rowTotals ?? snapshot?.battleshipRowTotals, restoredBattleshipRows, restoredBattleshipCols));
+            setBattleshipColumnTotals(normalizeBattleshipTotals(snapshot?.battleship?.columnTotals ?? snapshot?.battleshipColumnTotals, restoredBattleshipCols, restoredBattleshipRows));
+            setBattleshipFleet(normalizeBattleshipFleet(snapshot?.battleship?.fleet ?? snapshot?.battleshipFleet, Math.max(restoredBattleshipRows, restoredBattleshipCols)));
+            setGrid(restoredGrid);
+            setQuickText('');
+        } else if (puzzleType === 'fillomino') {
+            setFillominoRows(restoredFillominoRows);
+            setFillominoCols(restoredFillominoCols);
             setGrid(restoredGrid);
             setQuickText('');
         } else {
@@ -4263,6 +4692,17 @@ function GridPuzzleWorkbenchApp({
                         cols: slitherCols,
                         edges: slitherEdges,
                     },
+                    battleship: {
+                        rows: battleshipRows,
+                        cols: battleshipCols,
+                        rowTotals: battleshipRowTotals,
+                        columnTotals: battleshipColumnTotals,
+                        fleet: battleshipFleet,
+                    },
+                    fillomino: {
+                        rows: fillominoRows,
+                        cols: fillominoCols,
+                    },
                     watchCells,
                     maxSolutions,
                     solverTimeoutMs: timeoutMs,
@@ -4286,8 +4726,15 @@ function GridPuzzleWorkbenchApp({
         }
     }, [
         context?.gcCode,
+        battleshipCols,
+        battleshipColumnTotals,
+        battleshipFleet,
+        battleshipRowTotals,
+        battleshipRows,
         chainGrid,
         chainPaths,
+        fillominoCols,
+        fillominoRows,
         frameClues,
         geocacheId,
         godokuAlphabet,
@@ -4692,6 +5139,77 @@ function GridPuzzleWorkbenchApp({
         }
     }, [focusSlitherClue, updateSlitherClue]);
 
+    const focusBattleshipCell = React.useCallback((row: number, col: number) => {
+        const targetRow = Math.max(0, Math.min(battleshipRows - 1, row));
+        const targetCol = Math.max(0, Math.min(battleshipCols - 1, col));
+        battleshipCellRefs.current[targetRow]?.[targetCol]?.focus();
+    }, [battleshipCols, battleshipRows]);
+
+    const handleBattleshipCellKeyDown = React.useCallback((row: number, col: number, event: React.KeyboardEvent<HTMLButtonElement>) => {
+        const moves: Record<string, [number, number]> = {
+            ArrowUp: [-1, 0],
+            ArrowDown: [1, 0],
+            ArrowLeft: [0, -1],
+            ArrowRight: [0, 1],
+        };
+        const move = moves[event.key];
+        if (move) {
+            event.preventDefault();
+            focusBattleshipCell(row + move[0], col + move[1]);
+            return;
+        }
+        if (event.key === ' ' || event.key === 'Enter') {
+            event.preventDefault();
+            if (mode === 'watch') {
+                toggleWatchCell(cellRef(row, col));
+            } else {
+                cycleBattleshipGridCell(row, col);
+            }
+            return;
+        }
+        if (event.key === '#' || event.key.toLowerCase() === 'x' || event.key === '1') {
+            event.preventDefault();
+            updateBattleshipCell(row, col, '#');
+            return;
+        }
+        if (event.key === '.' || event.key === '~' || event.key === '0') {
+            event.preventDefault();
+            updateBattleshipCell(row, col, '.');
+            return;
+        }
+        if (event.key === 'Backspace' || event.key === 'Delete') {
+            event.preventDefault();
+            updateBattleshipCell(row, col, '');
+        }
+    }, [cycleBattleshipGridCell, focusBattleshipCell, mode, toggleWatchCell, updateBattleshipCell]);
+
+    const focusFillominoCell = React.useCallback((row: number, col: number) => {
+        const targetRow = Math.max(0, Math.min(fillominoRows - 1, row));
+        const targetCol = Math.max(0, Math.min(fillominoCols - 1, col));
+        const target = fillominoCellRefs.current[targetRow]?.[targetCol];
+        target?.focus();
+        target?.select();
+    }, [fillominoCols, fillominoRows]);
+
+    const handleFillominoCellKeyDown = React.useCallback((row: number, col: number, event: React.KeyboardEvent<HTMLInputElement>) => {
+        const moves: Record<string, [number, number]> = {
+            ArrowUp: [-1, 0],
+            ArrowDown: [1, 0],
+            ArrowLeft: [0, -1],
+            ArrowRight: [0, 1],
+        };
+        const move = moves[event.key];
+        if (move) {
+            event.preventDefault();
+            focusFillominoCell(row + move[0], col + move[1]);
+            return;
+        }
+        if (event.key === 'Backspace' || event.key === 'Delete' || event.key === '0' || event.key === '.') {
+            event.preventDefault();
+            updateFillominoValue(row, col, '');
+        }
+    }, [focusFillominoCell, updateFillominoValue]);
+
     const handleNonogramCellClick = React.useCallback((row: number, col: number, event: React.MouseEvent<HTMLButtonElement>) => {
         const ref = cellRef(row, col);
         if (mode === 'watch' || event.ctrlKey || event.metaKey) {
@@ -4880,12 +5398,18 @@ function GridPuzzleWorkbenchApp({
             || value === 'kakuro'
             || value === 'hitori'
             || value === 'slitherlink'
+            || value === 'battleship'
+            || value === 'fillomino'
             ? value
             : 'sudoku_classic';
         const nextGrid = nextPuzzleType === 'hitori'
             ? resizeHitoriGrid(puzzleType === 'hitori' ? grid : [], hitoriRows, hitoriCols)
             : nextPuzzleType === 'slitherlink'
                 ? resizeSlitherGrid(puzzleType === 'slitherlink' ? grid : [], slitherRows, slitherCols)
+                : nextPuzzleType === 'battleship'
+                    ? resizeBattleshipGrid(puzzleType === 'battleship' ? grid : [], battleshipRows, battleshipCols)
+                    : nextPuzzleType === 'fillomino'
+                        ? resizeFillominoGrid(puzzleType === 'fillomino' ? grid : [], fillominoRows, fillominoCols)
             : nextPuzzleType === 'kakuro'
                 ? resizeKakuroGrid(puzzleType === 'kakuro' ? grid : [], kakuroLayout)
                 : resizeGrid(grid, gridSizeForVariant(nextPuzzleType));
@@ -4910,6 +5434,15 @@ function GridPuzzleWorkbenchApp({
             setMode('edit');
             setSlitherEdges(emptySlitherEdges(slitherRows, slitherCols));
         }
+        if (nextPuzzleType === 'battleship') {
+            setMode('edit');
+            setBattleshipRowTotals(Array<string>(battleshipRows).fill(''));
+            setBattleshipColumnTotals(Array<string>(battleshipCols).fill(''));
+            setBattleshipFleet(defaultBattleshipFleet());
+        }
+        if (nextPuzzleType === 'fillomino') {
+            setMode('edit');
+        }
         if (getTripodConfig(nextPuzzleType)) {
             setTripodDots(emptyTripodDots(gridSizeForVariant(nextPuzzleType)));
         }
@@ -4920,10 +5453,10 @@ function GridPuzzleWorkbenchApp({
             setActiveChain(1);
             setMode('chain');
         }
-        setQuickText(nextPuzzleType === 'nonogram' || nextPuzzleType === 'kakuro' || nextPuzzleType === 'hitori' || nextPuzzleType === 'slitherlink' ? '' : gridToText(nextGrid, nextPuzzleType));
+        setQuickText(nextPuzzleType === 'nonogram' || nextPuzzleType === 'kakuro' || nextPuzzleType === 'hitori' || nextPuzzleType === 'slitherlink' || nextPuzzleType === 'battleship' || nextPuzzleType === 'fillomino' ? '' : gridToText(nextGrid, nextPuzzleType));
         setSolveState({ running: false });
         markDirty();
-    }, [grid, hitoriCols, hitoriRows, kakuroLayout, markDirty, mode, puzzleType, slitherCols, slitherRows]);
+    }, [battleshipCols, battleshipRows, fillominoCols, fillominoRows, grid, hitoriCols, hitoriRows, kakuroLayout, markDirty, mode, puzzleType, slitherCols, slitherRows]);
 
     const clearGrid = React.useCallback(() => {
         if (isNonogram) {
@@ -4941,6 +5474,15 @@ function GridPuzzleWorkbenchApp({
         } else if (isSlitherLink) {
             setGrid(createEmptyRectGrid(slitherRows, slitherCols));
             setSlitherEdges(emptySlitherEdges(slitherRows, slitherCols));
+            setQuickText('');
+        } else if (isBattleship) {
+            setGrid(createEmptyRectGrid(battleshipRows, battleshipCols));
+            setBattleshipRowTotals(Array<string>(battleshipRows).fill(''));
+            setBattleshipColumnTotals(Array<string>(battleshipCols).fill(''));
+            setBattleshipFleet(defaultBattleshipFleet());
+            setQuickText('');
+        } else if (isFillomino) {
+            setGrid(createEmptyRectGrid(fillominoRows, fillominoCols));
             setQuickText('');
         } else {
             setGridAndQuickText(createEmptyGrid(gridSizeForVariant(puzzleType)));
@@ -4966,7 +5508,7 @@ function GridPuzzleWorkbenchApp({
         setWatchCells([]);
         setSolveState({ running: false });
         markDirty();
-    }, [hitoriCols, hitoriRows, isHitori, isKakuro, isNonogram, isSlitherLink, kakuroLayout, markDirty, puzzleType, setGridAndQuickText, slitherCols, slitherRows]);
+    }, [battleshipCols, battleshipRows, fillominoCols, fillominoRows, hitoriCols, hitoriRows, isBattleship, isFillomino, isHitori, isKakuro, isNonogram, isSlitherLink, kakuroLayout, markDirty, puzzleType, setGridAndQuickText, slitherCols, slitherRows]);
 
     const solve = React.useCallback(async () => {
         if (constraintConflicts.messages.length > 0) {
@@ -4992,6 +5534,10 @@ function GridPuzzleWorkbenchApp({
                     ? resizeHitoriGrid(grid, hitoriRows, hitoriCols)
                     : isSlitherLink
                         ? resizeSlitherGrid(grid, slitherRows, slitherCols)
+                        : isBattleship
+                            ? resizeBattleshipGrid(grid, battleshipRows, battleshipCols)
+                            : isFillomino
+                                ? resizeFillominoGrid(grid, fillominoRows, fillominoCols)
                     : isKakuro
                         ? resizeKakuroGrid(grid, kakuroLayout)
                         : isNonogram
@@ -5000,6 +5546,9 @@ function GridPuzzleWorkbenchApp({
                 kakuro: isKakuro ? { cells: kakuroLayout } : undefined,
                 shaded: isHitori ? hitoriShaded : undefined,
                 edges: isSlitherLink ? slitherEdges : undefined,
+                row_totals: isBattleship ? battleshipRowTotals : undefined,
+                column_totals: isBattleship ? battleshipColumnTotals : undefined,
+                fleet: isBattleship ? battleshipFleet : undefined,
                 row_clues: isNonogram ? serializeNonogramClueLines(nonogramRowClueLines) : undefined,
                 column_clues: isNonogram ? serializeNonogramClueLines(nonogramColumnClueLines) : undefined,
                 watched_cells: watchCells.join(' '),
@@ -5048,7 +5597,7 @@ function GridPuzzleWorkbenchApp({
                 error: error instanceof Error ? error.message : String(error),
             });
         }
-    }, [areChainsComplete, chainConfig?.size, chainGrid, constraintConflicts.messages.length, frameClues, geocacheId, godokuAlphabet, grid, hitoriCols, hitoriRows, hitoriShaded, horizontalInequalities, isChain, isEvenOdd, isFrame, isGodoku, isHitori, isKakuro, isKropki, isLittleKiller, isNonogram, isOutside, isRossini, isSandwich, isSkyscraper, isSlitherLink, isTripod, isVudoku, isXv, kakuroLayout, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, maxSolutions, nonogramCols, nonogramColumnClueLines, nonogramRows, nonogramRowClueLines, outsideClues, parityMarks, pluginsService, puzzleType, rossiniArrows, sandwichClues, saveState, skyscraperClues, slitherCols, slitherEdges, slitherRows, timeoutMs, tripodDots, verticalInequalities, vudokuCorners, watchCells, xvHorizontalMarks, xvVerticalMarks]);
+    }, [areChainsComplete, battleshipCols, battleshipColumnTotals, battleshipFleet, battleshipRowTotals, battleshipRows, chainConfig?.size, chainGrid, constraintConflicts.messages.length, fillominoCols, fillominoRows, frameClues, geocacheId, godokuAlphabet, grid, hitoriCols, hitoriRows, hitoriShaded, horizontalInequalities, isBattleship, isChain, isEvenOdd, isFillomino, isFrame, isGodoku, isHitori, isKakuro, isKropki, isLittleKiller, isNonogram, isOutside, isRossini, isSandwich, isSkyscraper, isSlitherLink, isTripod, isVudoku, isXv, kakuroLayout, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, maxSolutions, nonogramCols, nonogramColumnClueLines, nonogramRows, nonogramRowClueLines, outsideClues, parityMarks, pluginsService, puzzleType, rossiniArrows, sandwichClues, saveState, skyscraperClues, slitherCols, slitherEdges, slitherRows, timeoutMs, tripodDots, verticalInequalities, vudokuCorners, watchCells, xvHorizontalMarks, xvVerticalMarks]);
 
     const useSolvedGrid = React.useCallback(() => {
         if (solvedGrid) {
@@ -5056,6 +5605,10 @@ function GridPuzzleWorkbenchApp({
                 setHitoriShaded(resizeHitoriShaded(solvedGrid.map(row => row.map(value => value === '#')), hitoriRows, hitoriCols));
             } else if (isSlitherLink && solvedSlitherEdges) {
                 setSlitherEdges(solvedSlitherEdges);
+            } else if (isBattleship) {
+                setGrid(resizeBattleshipGrid(solvedGrid, battleshipRows, battleshipCols));
+            } else if (isFillomino) {
+                setGrid(resizeFillominoGrid(solvedGrid, fillominoRows, fillominoCols));
             } else if (isKakuro) {
                 setGrid(resizeKakuroGrid(solvedGrid, kakuroLayout));
             } else {
@@ -5064,7 +5617,7 @@ function GridPuzzleWorkbenchApp({
             setSolveState({ running: false });
             markDirty();
         }
-    }, [hitoriCols, hitoriRows, isHitori, isKakuro, isSlitherLink, kakuroLayout, markDirty, setGridAndQuickText, solvedGrid, solvedSlitherEdges]);
+    }, [battleshipCols, battleshipRows, fillominoCols, fillominoRows, hitoriCols, hitoriRows, isBattleship, isFillomino, isHitori, isKakuro, isSlitherLink, kakuroLayout, markDirty, setGridAndQuickText, solvedGrid, solvedSlitherEdges]);
 
     const cellStyle = (rowIndex: number, colIndex: number): React.CSSProperties | undefined => {
         if (variableGridConfig) {
@@ -5872,6 +6425,8 @@ function GridPuzzleWorkbenchApp({
                         <option value='kakuro'>Kakuro / Cross Sums</option>
                         <option value='hitori'>Hitori</option>
                         <option value='slitherlink'>Slither Link</option>
+                        <option value='battleship'>Bataille navale</option>
+                        <option value='fillomino'>Fillomino</option>
                     </select>
                     <button onClick={solve} disabled={solveState.running}>
                         {solveState.running ? 'Resolution...' : 'Resoudre'}
@@ -6561,6 +7116,335 @@ function GridPuzzleWorkbenchApp({
                                 </div>
                             ) : null}
                         </div>
+                    ) : isBattleship ? (
+                        <div className='battleship-editor'>
+                            <div className='battleship-toolbar'>
+                                <label>
+                                    Lignes
+                                    <input
+                                        type='number'
+                                        min={2}
+                                        max={20}
+                                        value={battleshipRows}
+                                        aria-label='Nombre de lignes Bataille navale'
+                                        title='Nombre de lignes Bataille navale'
+                                        onFocus={event => event.currentTarget.select()}
+                                        onChange={event => setBattleshipDimension('row', Number(event.currentTarget.value))}
+                                    />
+                                </label>
+                                <span aria-hidden='true'>x</span>
+                                <label>
+                                    Colonnes
+                                    <input
+                                        type='number'
+                                        min={2}
+                                        max={20}
+                                        value={battleshipCols}
+                                        aria-label='Nombre de colonnes Bataille navale'
+                                        title='Nombre de colonnes Bataille navale'
+                                        onFocus={event => event.currentTarget.select()}
+                                        onChange={event => setBattleshipDimension('column', Number(event.currentTarget.value))}
+                                    />
+                                </label>
+                                <div className='battleship-fleet' aria-label='Flotte'>
+                                    {Array.from({ length: Math.min(10, Math.max(battleshipRows, battleshipCols)) }, (_value, index) => {
+                                        const length = index + 1;
+                                        return (
+                                            <label key={`battleship-fleet-${length}`} title={`Navires de longueur ${length}`}>
+                                                <span>{length}</span>
+                                                <input
+                                                    type='number'
+                                                    min={0}
+                                                    max={10}
+                                                    value={battleshipFleet[length] || ''}
+                                                    aria-label={`Nombre de navires de longueur ${length}`}
+                                                    onFocus={event => event.currentTarget.select()}
+                                                    onChange={event => updateBattleshipFleet(length, event.currentTarget.value)}
+                                                />
+                                            </label>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                            <div className='battleship-board' style={battleshipBoardStyle} aria-label='Grille Bataille navale interactive'>
+                                {Array.from({ length: battleshipRows }, (_row, rowIndex) => (
+                                    Array.from({ length: battleshipCols }, (_col, colIndex) => {
+                                        const ref = cellRef(rowIndex, colIndex);
+                                        const value = grid[rowIndex]?.[colIndex] || '';
+                                        const stateLabel = value === '#'
+                                            ? 'navire'
+                                            : value === '.'
+                                                ? 'mer'
+                                                : 'inconnue';
+                                        return (
+                                            <button
+                                                key={`battleship-${ref}`}
+                                                type='button'
+                                                className={[
+                                                    'battleship-cell',
+                                                    value === '#' ? 'ship' : '',
+                                                    value === '.' ? 'water' : '',
+                                                    watchCells.includes(ref) ? 'watched' : '',
+                                                    constraintConflicts.cells.has(ref) ? 'conflict' : '',
+                                                ].filter(Boolean).join(' ')}
+                                                style={{ gridColumn: String(colIndex + 1), gridRow: String(rowIndex + 1) }}
+                                                ref={element => {
+                                                    battleshipCellRefs.current[rowIndex] = battleshipCellRefs.current[rowIndex] || [];
+                                                    battleshipCellRefs.current[rowIndex][colIndex] = element;
+                                                }}
+                                                aria-label={`${ref}, ${stateLabel}`}
+                                                title={mode === 'watch'
+                                                    ? `${ref}, cliquez pour surveiller cette case.`
+                                                    : `${ref}, ${stateLabel}. Clic: navire, mer, inconnue.`}
+                                                onClick={event => {
+                                                    if (mode === 'watch' || event.ctrlKey || event.metaKey) {
+                                                        toggleWatchCell(ref);
+                                                    } else {
+                                                        cycleBattleshipGridCell(rowIndex, colIndex);
+                                                    }
+                                                }}
+                                                onContextMenu={event => {
+                                                    event.preventDefault();
+                                                    if (mode === 'watch') {
+                                                        toggleWatchCell(ref);
+                                                    } else {
+                                                        cycleBattleshipGridCell(rowIndex, colIndex, -1);
+                                                    }
+                                                }}
+                                                onKeyDown={event => handleBattleshipCellKeyDown(rowIndex, colIndex, event)}
+                                            >
+                                                {value === '.' ? '~' : ''}
+                                            </button>
+                                        );
+                                    })
+                                ))}
+                                {Array.from({ length: battleshipRows }, (_row, rowIndex) => (
+                                    <input
+                                        key={`battleship-row-total-${rowIndex}`}
+                                        className='battleship-total row'
+                                        style={{ gridColumn: String(battleshipCols + 1), gridRow: String(rowIndex + 1) }}
+                                        value={battleshipRowTotals[rowIndex] || ''}
+                                        inputMode='numeric'
+                                        aria-label={`Total ligne ${rowIndex + 1}`}
+                                        title={`Total de navires ligne ${rowIndex + 1}`}
+                                        onFocus={event => event.currentTarget.select()}
+                                        onChange={event => updateBattleshipTotal('row', rowIndex, event.currentTarget.value)}
+                                    />
+                                ))}
+                                {Array.from({ length: battleshipCols }, (_col, colIndex) => (
+                                    <input
+                                        key={`battleship-column-total-${colIndex}`}
+                                        className='battleship-total column'
+                                        style={{ gridColumn: String(colIndex + 1), gridRow: String(battleshipRows + 1) }}
+                                        value={battleshipColumnTotals[colIndex] || ''}
+                                        inputMode='numeric'
+                                        aria-label={`Total colonne ${colIndex + 1}`}
+                                        title={`Total de navires colonne ${colIndex + 1}`}
+                                        onFocus={event => event.currentTarget.select()}
+                                        onChange={event => updateBattleshipTotal('column', colIndex, event.currentTarget.value)}
+                                    />
+                                ))}
+                            </div>
+                            <div className='grid-puzzle-actions inline'>
+                                <button type='button' onClick={clearBattleshipMarks}>Effacer les marques</button>
+                                <button type='button' onClick={clearBattleship}>Reinitialiser</button>
+                            </div>
+                            {visibleConflictMessages.length > 0 ? (
+                                <div className='grid-puzzle-conflicts'>
+                                    {visibleConflictMessages.map(message => (
+                                        <div key={message}>{message}</div>
+                                    ))}
+                                    {constraintConflicts.messages.length > visibleConflictMessages.length ? (
+                                        <div>+{constraintConflicts.messages.length - visibleConflictMessages.length} autre(s) conflit(s).</div>
+                                    ) : null}
+                                </div>
+                            ) : null}
+                            {solvedGrid ? (
+                                <div className='grid-puzzle-solution'>
+                                    <div className='grid-puzzle-section-title'>
+                                        <strong>
+                                            Solution {solutionResults.length > 1 ? `${activeSolutionIndex + 1}/${solutionResults.length}` : ''}
+                                        </strong>
+                                        <div className='solution-actions'>
+                                            {solutionResults.length > 1 ? (
+                                                <select
+                                                    value={activeSolutionIndex}
+                                                    onChange={event => setSelectedSolutionIndex(Number(event.currentTarget.value) || 0)}
+                                                    aria-label='Solution affichee'
+                                                >
+                                                    {solutionResults.map((_solution, index) => (
+                                                        <option key={`solution-option-${index}`} value={index}>
+                                                            Solution {index + 1}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            ) : null}
+                                            <button onClick={useSolvedGrid}>Reprendre dans la grille</button>
+                                        </div>
+                                    </div>
+                                    <div className='battleship-board solved' style={battleshipBoardStyle} aria-label='Solution Bataille navale'>
+                                        {Array.from({ length: battleshipRows }, (_row, rowIndex) => (
+                                            Array.from({ length: battleshipCols }, (_col, colIndex) => {
+                                                const value = solvedGrid[rowIndex]?.[colIndex] || '.';
+                                                return (
+                                                    <span
+                                                        key={`solved-battleship-${rowIndex}-${colIndex}`}
+                                                        className={`battleship-cell${value === '#' ? ' ship' : ' water'}`}
+                                                        style={{ gridColumn: String(colIndex + 1), gridRow: String(rowIndex + 1) }}
+                                                    >
+                                                        {value === '.' ? '~' : ''}
+                                                    </span>
+                                                );
+                                            })
+                                        ))}
+                                        {Array.from({ length: battleshipRows }, (_row, rowIndex) => (
+                                            <span
+                                                key={`solved-battleship-row-total-${rowIndex}`}
+                                                className='battleship-total row'
+                                                style={{ gridColumn: String(battleshipCols + 1), gridRow: String(rowIndex + 1) }}
+                                            >
+                                                {battleshipRowTotals[rowIndex] || ''}
+                                            </span>
+                                        ))}
+                                        {Array.from({ length: battleshipCols }, (_col, colIndex) => (
+                                            <span
+                                                key={`solved-battleship-column-total-${colIndex}`}
+                                                className='battleship-total column'
+                                                style={{ gridColumn: String(colIndex + 1), gridRow: String(battleshipRows + 1) }}
+                                            >
+                                                {battleshipColumnTotals[colIndex] || ''}
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+                            ) : null}
+                        </div>
+                    ) : isFillomino ? (
+                        <div className='fillomino-editor'>
+                            <div className='fillomino-toolbar'>
+                                <label>
+                                    Lignes
+                                    <input
+                                        type='number'
+                                        min={2}
+                                        max={20}
+                                        value={fillominoRows}
+                                        aria-label='Nombre de lignes Fillomino'
+                                        title='Nombre de lignes Fillomino'
+                                        onFocus={event => event.currentTarget.select()}
+                                        onChange={event => setFillominoDimension('row', Number(event.currentTarget.value))}
+                                    />
+                                </label>
+                                <span aria-hidden='true'>x</span>
+                                <label>
+                                    Colonnes
+                                    <input
+                                        type='number'
+                                        min={2}
+                                        max={20}
+                                        value={fillominoCols}
+                                        aria-label='Nombre de colonnes Fillomino'
+                                        title='Nombre de colonnes Fillomino'
+                                        onFocus={event => event.currentTarget.select()}
+                                        onChange={event => setFillominoDimension('column', Number(event.currentTarget.value))}
+                                    />
+                                </label>
+                            </div>
+                            <div className='fillomino-board' style={fillominoBoardStyle} aria-label='Grille Fillomino interactive'>
+                                {Array.from({ length: fillominoRows }, (_row, rowIndex) => (
+                                    Array.from({ length: fillominoCols }, (_col, colIndex) => {
+                                        const ref = cellRef(rowIndex, colIndex);
+                                        return (
+                                            <input
+                                                key={`fillomino-${ref}`}
+                                                className={[
+                                                    'fillomino-cell',
+                                                    ...fillominoRegionClasses(grid, rowIndex, colIndex),
+                                                    grid[rowIndex]?.[colIndex] ? 'given' : '',
+                                                    watchCells.includes(ref) ? 'watched' : '',
+                                                    constraintConflicts.cells.has(ref) ? 'conflict' : '',
+                                                ].filter(Boolean).join(' ')}
+                                                ref={element => {
+                                                    fillominoCellRefs.current[rowIndex] = fillominoCellRefs.current[rowIndex] || [];
+                                                    fillominoCellRefs.current[rowIndex][colIndex] = element;
+                                                }}
+                                                value={grid[rowIndex]?.[colIndex] || ''}
+                                                inputMode='numeric'
+                                                maxLength={3}
+                                                aria-label={ref}
+                                                title={mode === 'watch' ? `${ref}, cliquez pour surveiller cette case.` : ref}
+                                                onPointerDown={event => {
+                                                    if (mode === 'watch') {
+                                                        event.preventDefault();
+                                                    }
+                                                }}
+                                                onClick={event => {
+                                                    if (mode === 'watch' || event.ctrlKey || event.metaKey) {
+                                                        event.preventDefault();
+                                                        toggleWatchCell(ref);
+                                                    }
+                                                }}
+                                                onKeyDown={event => handleFillominoCellKeyDown(rowIndex, colIndex, event)}
+                                                onChange={event => updateFillominoValue(rowIndex, colIndex, event.currentTarget.value)}
+                                            />
+                                        );
+                                    })
+                                ))}
+                            </div>
+                            <div className='grid-puzzle-actions inline'>
+                                <button type='button' onClick={clearFillomino}>Reinitialiser</button>
+                            </div>
+                            {visibleConflictMessages.length > 0 ? (
+                                <div className='grid-puzzle-conflicts'>
+                                    {visibleConflictMessages.map(message => (
+                                        <div key={message}>{message}</div>
+                                    ))}
+                                    {constraintConflicts.messages.length > visibleConflictMessages.length ? (
+                                        <div>+{constraintConflicts.messages.length - visibleConflictMessages.length} autre(s) conflit(s).</div>
+                                    ) : null}
+                                </div>
+                            ) : null}
+                            {solvedGrid ? (
+                                <div className='grid-puzzle-solution'>
+                                    <div className='grid-puzzle-section-title'>
+                                        <strong>
+                                            Solution {solutionResults.length > 1 ? `${activeSolutionIndex + 1}/${solutionResults.length}` : ''}
+                                        </strong>
+                                        <div className='solution-actions'>
+                                            {solutionResults.length > 1 ? (
+                                                <select
+                                                    value={activeSolutionIndex}
+                                                    onChange={event => setSelectedSolutionIndex(Number(event.currentTarget.value) || 0)}
+                                                    aria-label='Solution affichee'
+                                                >
+                                                    {solutionResults.map((_solution, index) => (
+                                                        <option key={`solution-option-${index}`} value={index}>
+                                                            Solution {index + 1}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            ) : null}
+                                            <button onClick={useSolvedGrid}>Reprendre dans la grille</button>
+                                        </div>
+                                    </div>
+                                    <div className='fillomino-board solved' style={fillominoBoardStyle} aria-label='Solution Fillomino'>
+                                        {Array.from({ length: fillominoRows }, (_row, rowIndex) => (
+                                            Array.from({ length: fillominoCols }, (_col, colIndex) => (
+                                                <span
+                                                    key={`solved-fillomino-${rowIndex}-${colIndex}`}
+                                                    className={[
+                                                        'fillomino-cell',
+                                                        ...fillominoRegionClasses(solvedGrid, rowIndex, colIndex),
+                                                    ].filter(Boolean).join(' ')}
+                                                >
+                                                    {solvedGrid[rowIndex]?.[colIndex] || ''}
+                                                </span>
+                                            ))
+                                        ))}
+                                    </div>
+                                </div>
+                            ) : null}
+                        </div>
                     ) : (
                         <>
                     <div
@@ -6671,7 +7555,7 @@ function GridPuzzleWorkbenchApp({
                         </>
                     )}
 
-                    {solvedGrid && !isKakuro && !isHitori && !isSlitherLink && (
+                    {solvedGrid && !isKakuro && !isHitori && !isSlitherLink && !isBattleship && !isFillomino && (
                         <div className='grid-puzzle-solution'>
                             <div className='grid-puzzle-section-title'>
                                 <strong>
@@ -6775,7 +7659,7 @@ function GridPuzzleWorkbenchApp({
                 </section>
 
                 <aside className='grid-puzzle-side'>
-                    {!isNonogram && !isKakuro && !isHitori && !isSlitherLink ? (
+                    {!isNonogram && !isKakuro && !isHitori && !isSlitherLink && !isBattleship && !isFillomino ? (
                     <section>
                         <div className='grid-puzzle-section-title'>
                             <strong>Saisie rapide</strong>
@@ -6900,7 +7784,12 @@ function GridPuzzleWorkbenchApp({
                                 step={1000}
                                 value={timeoutMs}
                                 onChange={event => {
-                                    setTimeoutMs(Number(event.currentTarget.value) || 10000);
+                                    setTimeoutMs(normalizeNumber(
+                                        event.currentTarget.value,
+                                        10000,
+                                        isTripod ? 30000 : 1000,
+                                        120000,
+                                    ));
                                     markDirty();
                                 }}
                             />

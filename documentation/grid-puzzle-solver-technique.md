@@ -33,6 +33,8 @@ Les objectifs actuels sont :
 - resoudre un Kakuro / Cross Sums avec sommes horizontales et verticales ;
 - resoudre un Hitori en rayant les doublons sans isoler les cases blanches ;
 - resoudre un Slither Link avec une boucle fermee unique ;
+- resoudre une Bataille navale / Bimaru avec flotte, totaux et navires non adjacents ;
+- resoudre un Fillomino avec regions connectees de taille imposee ;
 - permettre une saisie interactive dans une grille Theia ;
 - permettre l'edition visuelle des bords d'inegalite pour Compdoku ;
 - synchroniser une saisie rapide textuelle avec la grille ;
@@ -159,6 +161,9 @@ Entrées principales :
 | `kakuro`, `layout` | object/string JSON | vide | Matrice Kakuro de cellules `black`, `white` et `clue`. |
 | `shaded`, `hitori_shaded`, `marks` | string/list | vide | Marques noires Hitori alignees sur la grille. |
 | `edges`, `lines`, `slither_edges` | object/string JSON | vide | Traits Slither Link `horizontal` et `vertical` deja traces. |
+| `row_totals` | string/list | vide | Totaux de lignes Bataille navale. |
+| `column_totals`, `col_totals` | string/list | vide | Totaux de colonnes Bataille navale. |
+| `fleet`, `ships`, `battleship_fleet` | object/list/string JSON | flotte classique | Flotte Bataille navale: longueur vers quantite. |
 | `watched_cells` | string/list | vide | Cellules a extraire apres resolution. |
 | `watch_cells` | string/list | vide | Alias de `watched_cells`. |
 
@@ -207,6 +212,8 @@ Valeurs supportees pour `puzzle_type` :
 | `kakuro` | `cross_sums`, `crosssum`, `cross_sum` | Kakuro : sommes de series de chiffres 1-9 sans repetition. |
 | `hitori` | `hitori_puzzle` | Hitori : doublons rayes, noirs non adjacents et blancs connectes. |
 | `slitherlink` | `slither_link`, `slither`, `loop_the_loop`, `surizarinku` | Slither Link : une boucle unique autour des indices 0-3. |
+| `battleship` | `battleships`, `bimaru`, `solitaire_battleships`, `battleship_solitaire` | Bataille navale : flotte sans contacts et totaux de lignes/colonnes. |
+| `fillomino` | `polyomino`, `polyominous`, `allied_occupation` | Fillomino : regions connectees dont la taille egale leur valeur. |
 | `custom_spec` | `custom`, `json_spec` | Probleme CSP decrit en JSON. |
 
 Format de grille Sudoku :
@@ -1986,6 +1993,60 @@ l'atelier Theia, les dimensions, les indices et les traits horizontaux ou
 verticaux sont tous editables. Les fleches du clavier parcourent les cases
 d'indices.
 
+### Bataille navale / Bimaru
+
+`puzzle_type = battleship`
+
+Aliases :
+
+```text
+battleships
+bimaru
+solitaire_battleships
+battleship_solitaire
+```
+
+La grille utilise `#`, `X` ou `1` pour un fragment de navire connu, `.`, `~`
+ou `0` pour la mer connue, et `?`, `_` ou `-` pour une case inconnue. Les
+tableaux `row_totals` et `column_totals` indiquent le nombre de fragments par
+ligne et colonne. La flotte est un objet JSON longueur-vers-quantite, par
+defaut `{ "1": 4, "2": 3, "3": 2, "4": 1 }`.
+
+Le solveur enumere les emplacements horizontaux et verticaux possibles pour
+chaque longueur de navire. Il selectionne exactement le nombre voulu de chaque
+taille, couvre chaque fragment une seule fois, respecte les totaux, puis exclut
+toute paire de navires qui se touche, y compris par un angle.
+
+Dans l'atelier Theia, les dimensions, les totaux, la flotte et les trois etats
+de chaque case (inconnue, navire, mer) sont editables. Les fleches du clavier
+parcourent les cases.
+
+### Fillomino
+
+`puzzle_type = fillomino`
+
+Aliases :
+
+```text
+polyomino
+polyominous
+allied_occupation
+```
+
+La grille est rectangulaire et contient des nombres positifs. Les cases vides
+acceptent `.`, `0`, `_`, `-` ou `?`. Dans une saisie texte, les nombres de plus
+d'un chiffre doivent etre separes par des espaces ou des virgules.
+
+Le moteur enumere les polyominos connectes compatibles avec chaque case encore
+libre, puis couvre la grille sans recouvrement. Chaque region a exactement le
+nombre de cellules indique par sa valeur, et deux regions de meme taille ne
+peuvent pas se toucher par un cote. Cette recherche accepte aussi les regions
+necessaires qui ne contiennent pas d'indice initial.
+
+L'atelier Theia permet de regler librement les dimensions, de saisir des
+nombres a plusieurs chiffres et de parcourir les cases avec les fleches. Un
+bloc deja plus grand que sa valeur est colore en rouge.
+
 ### Non-Consecutive Sudoku
 
 `puzzle_type = sudoku_non_consecutive`
@@ -2281,6 +2342,8 @@ Fonctionnalites actuelles :
 - editeur de cases noires, sommes diagonales et chiffres en mode Kakuro ;
 - saisie des nombres et rayage manuel des cases en mode Hitori ;
 - dimensions, indices et traits manuels pour Slither Link ;
+- dimensions, flotte, totaux et marques manuelles pour Bataille navale ;
+- dimensions et nombres multi-chiffres pour Fillomino ;
 - affichage de la premiere solution ;
 - reprise de la solution dans la grille ;
 - extraction des cellules surveillees ;
@@ -2292,7 +2355,7 @@ Fonctionnalites actuelles :
 |---|---|---|
 | `grid` | `string[][]` | Valeurs courantes de la grille. |
 | `quickText` | `string` | Representation texte de la grille. |
-| `puzzleType` | `sudoku_classic`, variantes classiques `sudoku_4x4` a `sudoku_16x16`, `chain_sudoku_4x4` a `chain_sudoku_9x9`, `sudoku_x`, `sudoku_argyle`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_vudoku`, `sudoku_rossini`, `sudoku_xv`, `sudoku_kropki`, `sudoku_skyscraper`, `sudoku_frame`, `sudoku_outside`, `sudoku_little_killer`, `sudoku_little_unique_killer`, `sudoku_godoku`, `sudoku_even_odd`, `sudoku_non_consecutive`, `sudoku_mine`, `sudoku_mine_6x6`, `nonogram`, `kakuro`, `hitori`, `slitherlink` ou `sudoku_tripod_4x4` a `sudoku_tripod_8x8` | Variante active. |
+| `puzzleType` | `sudoku_classic`, variantes classiques `sudoku_4x4` a `sudoku_16x16`, `chain_sudoku_4x4` a `chain_sudoku_9x9`, `sudoku_x`, `sudoku_argyle`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_vudoku`, `sudoku_rossini`, `sudoku_xv`, `sudoku_kropki`, `sudoku_skyscraper`, `sudoku_frame`, `sudoku_outside`, `sudoku_little_killer`, `sudoku_little_unique_killer`, `sudoku_godoku`, `sudoku_even_odd`, `sudoku_non_consecutive`, `sudoku_mine`, `sudoku_mine_6x6`, `nonogram`, `kakuro`, `hitori`, `slitherlink`, `battleship`, `fillomino` ou `sudoku_tripod_4x4` a `sudoku_tripod_8x8` | Variante active. |
 | `horizontalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme ligne. |
 | `verticalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme colonne. |
 | `vudokuCorners` | `string[][]` | Coins Vudoku 8x8 : `tl`, `tr`, `bl`, `br` ou vide. |
@@ -2313,6 +2376,10 @@ Fonctionnalites actuelles :
 | `hitoriShaded` | `boolean[][]` | Cases rayees manuellement dans Hitori. |
 | `slitherRows`, `slitherCols` | number | Dimensions de la grille Slither Link. |
 | `slitherEdges` | object | Traits `horizontal` et `vertical` manuels du Slither Link. |
+| `battleshipRows`, `battleshipCols` | number | Dimensions de la grille Bataille navale. |
+| `battleshipRowTotals`, `battleshipColumnTotals` | `string[]` | Totaux de lignes et colonnes Bataille navale. |
+| `battleshipFleet` | object | Quantite de navires par longueur. |
+| `fillominoRows`, `fillominoCols` | number | Dimensions de la grille Fillomino. |
 | `parityMarks` | `string[][]` | Marques `even` / `odd` par cellule pour Even-Odd. |
 | `tripodDots` | `boolean[][]` | Points noirs (N+1)x(N+1) aux intersections pour Tripod. |
 | `chainGrid` | `number[][]` | Affectation des chaines Chain / Strimko. |
@@ -2663,6 +2730,9 @@ Couverture actuelle :
 - Hitori refuse deux rayures adjacentes ;
 - Slither Link resout une boucle unique et retourne ses segments ;
 - Slither Link refuse un trait force autour d'un indice `0` ;
+- Bataille navale place une flotte sans contacts et respecte les totaux ;
+- Bataille navale refuse deux fragments connus en diagonale ;
+- Fillomino construit des regions connectees de tailles imposees ;
 - Tripod valide avec reconstruction de regions ;
 - Tripod refuse un point noir impossible ;
 - extraction des cellules surveillees ;

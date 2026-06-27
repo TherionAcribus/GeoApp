@@ -1,8 +1,8 @@
 {
   "name": "grid_puzzle_solver",
-  "version": "0.5.0",
+  "version": "0.7.0",
   "plugin_api_version": "2.0",
-  "description": "Solveur Z3 pour grilles de logique. Variantes actuelles: Sudoku classique 4x4 a 16x16, Chain / Strimko 4x4 a 9x9, Sudoku X, Argyle, Anti Diagonal, Center Dot, Windoku, Girandola, Asterisk, Sujiken, Hoshi, Samurai Sudoku, Flower Sudoku, Sohei Sudoku, Kazaguruma, Greater Than / Compdoku, Vudoku, Rossini, Sudoku XV, Kropki, Skyscraper, Frame, Outside, Sandwich, Little Killer, Little Unique Killer, Godoku, Even-Odd, Non-Consecutive, Sudoku Mine, Tripod, Nonogram / Picross, Kakuro / Cross Sums, Hitori et Slither Link.",
+  "description": "Solveur Z3 pour grilles de logique. Variantes actuelles: Sudoku classique 4x4 a 16x16, Chain / Strimko 4x4 a 9x9, Sudoku X, Argyle, Anti Diagonal, Center Dot, Windoku, Girandola, Asterisk, Sujiken, Hoshi, Samurai Sudoku, Flower Sudoku, Sohei Sudoku, Kazaguruma, Greater Than / Compdoku, Vudoku, Rossini, Sudoku XV, Kropki, Skyscraper, Frame, Outside, Sandwich, Little Killer, Little Unique Killer, Godoku, Even-Odd, Non-Consecutive, Sudoku Mine, Tripod, Nonogram / Picross, Kakuro / Cross Sums, Hitori, Slither Link, Bataille navale et Fillomino.",
   "author": "MysterAI",
   "plugin_type": "python",
   "entry_point": "main.py",
@@ -82,6 +82,8 @@
         {"value": "kakuro", "label": "Kakuro / Cross Sums"},
         {"value": "hitori", "label": "Hitori"},
         {"value": "slitherlink", "label": "Slither Link / Loop the Loop"},
+        {"value": "battleship", "label": "Bataille navale / Bimaru"},
+        {"value": "fillomino", "label": "Fillomino / Polyominous"},
         {"value": "custom_spec", "label": "Spec JSON generique"}
       ],
       "default": "sudoku_classic",
@@ -92,7 +94,7 @@
       "label": "Grille",
       "placeholder": "530070000\n600195000\n098000060\n800060003\n400803001\n700020006\n060000280\n000419005\n000080079",
       "required": false,
-      "description": "Pour Sudoku: N x N cases selon la variante. Sudoku classique utilise 0, ., _ pour les cases vides. Sudoku Mine utilise les chiffres 0-8 comme indices et ., _, - pour les cases inconnues. Nonogram utilise une grille optionnelle de cases connues: #/X/1 pour noirci, ./-/0 pour blanc, ?/_ pour inconnu. Slither Link utilise une matrice rectangulaire d'indices 0-3; ., -, _ ou vide signifie sans indice. Les tailles > 9 utilisent 1-9 puis A-G. Les espaces, pipes et separateurs de lignes sont ignores."
+      "description": "Pour Sudoku: N x N cases selon la variante. Sudoku classique utilise 0, ., _ pour les cases vides. Sudoku Mine utilise les chiffres 0-8 comme indices et ., _, - pour les cases inconnues. Nonogram utilise une grille optionnelle de cases connues: #/X/1 pour noirci, ./-/0 pour blanc, ?/_ pour inconnu. Slither Link utilise une matrice rectangulaire d'indices 0-3; ., -, _ ou vide signifie sans indice. Bataille navale utilise #/X/1 pour un fragment connu, ./~/0 pour la mer et ?/_/- pour une case inconnue. Fillomino accepte une matrice rectangulaire de nombres positifs et ., 0, _, - ou ? pour une case vide. Les tailles > 9 utilisent 1-9 puis A-G. Les espaces, pipes et separateurs de lignes sont ignores."
     },
     "row_clues": {
       "type": "textarea",
@@ -126,6 +128,25 @@
       "label": "Traits Slither Link",
       "required": false,
       "description": "Objet JSON optionnel avec horizontal de taille (lignes+1)xcolonnes et vertical de taille lignesx(colonnes+1). true, 1, x ou # force un trait deja trace."
+    },
+    "row_totals": {
+      "type": "textarea",
+      "label": "Totaux lignes Bataille navale",
+      "required": false,
+      "description": "Un total par ligne, separe par espaces, virgules ou retours ligne."
+    },
+    "column_totals": {
+      "type": "textarea",
+      "label": "Totaux colonnes Bataille navale",
+      "required": false,
+      "description": "Un total par colonne, separe par espaces, virgules ou retours ligne."
+    },
+    "fleet": {
+      "type": "textarea",
+      "label": "Flotte Bataille navale",
+      "placeholder": "{\"1\":4,\"2\":3,\"3\":2,\"4\":1}",
+      "required": false,
+      "description": "Objet JSON longueur:quantite. La flotte standard est 4 sous-marins, 3 navires de longueur 2, 2 de longueur 3 et 1 de longueur 4."
     },
     "spec": {
       "type": "textarea",

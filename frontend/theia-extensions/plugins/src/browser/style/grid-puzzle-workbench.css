@@ -806,6 +806,301 @@ input.slither-clue:focus {
     pointer-events: none;
 }
 
+.battleship-editor {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.battleship-toolbar {
+    display: flex;
+    align-items: end;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.battleship-toolbar > label,
+.battleship-fleet > label {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    color: var(--theia-descriptionForeground);
+    font-size: 10px;
+    line-height: 1;
+}
+
+.battleship-toolbar > span {
+    margin-bottom: 4px;
+    color: var(--theia-descriptionForeground);
+    font-weight: 700;
+}
+
+.grid-puzzle-workbench .battleship-toolbar > label > input {
+    box-sizing: border-box;
+    width: 52px;
+    min-width: 0;
+    height: 24px;
+    padding: 1px 2px;
+    border-radius: 2px;
+    font-size: 11px;
+    text-align: center;
+}
+
+.battleship-fleet {
+    display: flex;
+    align-items: end;
+    gap: 4px;
+    margin-left: 8px;
+}
+
+.battleship-fleet > label > span {
+    font-weight: 700;
+}
+
+.grid-puzzle-workbench .battleship-fleet input {
+    box-sizing: border-box;
+    width: 28px;
+    min-width: 0;
+    height: 24px;
+    padding: 1px;
+    border-radius: 2px;
+    font-size: 11px;
+    text-align: center;
+}
+
+.battleship-board {
+    display: grid;
+    width: max-content;
+    max-width: 100%;
+    overflow: auto;
+    background: var(--theia-panel-background);
+}
+
+.battleship-cell {
+    position: relative;
+    display: flex;
+    box-sizing: border-box;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    min-width: 38px;
+    min-height: 38px;
+    padding: 0;
+    color: var(--theia-descriptionForeground);
+    background: var(--theia-input-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 0;
+    font-family: monospace;
+    font-size: 15px;
+    line-height: 1;
+}
+
+.grid-puzzle-workbench button.battleship-cell {
+    min-height: 38px;
+    padding: 0;
+    color: var(--theia-descriptionForeground);
+    background: var(--theia-input-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 0;
+}
+
+.grid-puzzle-workbench button.battleship-cell:hover {
+    background: color-mix(in srgb, var(--theia-input-background) 82%, var(--theia-focusBorder));
+}
+
+.battleship-cell.ship::before {
+    display: block;
+    width: 24px;
+    height: 18px;
+    content: '';
+    background: var(--theia-foreground);
+    border-radius: 3px;
+}
+
+.battleship-cell.water {
+    color: var(--theia-descriptionForeground);
+}
+
+.battleship-cell.watched {
+    z-index: 2;
+    outline: 2px solid #f59e0b;
+    outline-offset: -3px;
+}
+
+.battleship-cell.conflict {
+    background: color-mix(in srgb, var(--theia-input-background) 78%, #f14c4c);
+    border-color: var(--theia-errorForeground, #f14c4c);
+}
+
+.grid-puzzle-workbench button.battleship-cell:focus-visible {
+    z-index: 3;
+    outline: 2px solid var(--theia-focusBorder);
+    outline-offset: -2px;
+}
+
+.battleship-total {
+    display: flex;
+    box-sizing: border-box;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 38px;
+    min-width: 30px;
+    min-height: 38px;
+    padding: 0;
+    color: var(--theia-input-foreground);
+    background: color-mix(in srgb, var(--theia-panel-background) 88%, #f59e0b);
+    border: 1px solid #f59e0b;
+    border-radius: 0;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+    text-align: center;
+}
+
+input.battleship-total:focus {
+    position: relative;
+    z-index: 3;
+    outline: 2px solid var(--theia-focusBorder);
+    outline-offset: -2px;
+}
+
+.battleship-total.column {
+    width: 38px;
+    min-width: 38px;
+    height: 30px;
+    min-height: 30px;
+}
+
+.battleship-board.solved .battleship-cell {
+    pointer-events: none;
+}
+
+.fillomino-editor {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.fillomino-toolbar {
+    display: flex;
+    align-items: end;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.fillomino-toolbar > label {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    color: var(--theia-descriptionForeground);
+    font-size: 10px;
+    line-height: 1;
+}
+
+.fillomino-toolbar > span {
+    margin-bottom: 4px;
+    color: var(--theia-descriptionForeground);
+    font-weight: 700;
+}
+
+.grid-puzzle-workbench .fillomino-toolbar > label > input {
+    box-sizing: border-box;
+    width: 52px;
+    min-width: 0;
+    height: 24px;
+    padding: 1px 2px;
+    border-radius: 2px;
+    font-size: 11px;
+    text-align: center;
+}
+
+.fillomino-board {
+    display: grid;
+    width: max-content;
+    max-width: 100%;
+    overflow: auto;
+    border: 2px solid var(--theia-foreground);
+    background: var(--theia-panel-border);
+}
+
+.fillomino-cell {
+    --fillomino-region-border: var(--theia-foreground);
+    --fillomino-region-top-offset: 0;
+    --fillomino-region-right-offset: 0;
+    --fillomino-region-bottom-offset: 0;
+    --fillomino-region-left-offset: 0;
+    display: flex;
+    box-sizing: border-box;
+    align-items: center;
+    justify-content: center;
+    width: 46px;
+    height: 46px;
+    min-width: 46px;
+    min-height: 46px;
+    padding: 0;
+    color: var(--theia-input-foreground);
+    background: var(--theia-input-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 0;
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1;
+    text-align: center;
+    box-shadow:
+        inset 0 var(--fillomino-region-top-offset) 0 0 var(--fillomino-region-border),
+        inset var(--fillomino-region-right-offset) 0 0 0 var(--fillomino-region-border),
+        inset 0 var(--fillomino-region-bottom-offset) 0 0 var(--fillomino-region-border),
+        inset var(--fillomino-region-left-offset) 0 0 0 var(--fillomino-region-border);
+}
+
+.fillomino-cell.given {
+    color: var(--theia-foreground);
+    background: color-mix(in srgb, var(--theia-input-background) 88%, #22c55e);
+}
+
+.fillomino-cell.region-top {
+    --fillomino-region-top-offset: 3px;
+}
+
+.fillomino-cell.region-right {
+    --fillomino-region-right-offset: -3px;
+}
+
+.fillomino-cell.region-bottom {
+    --fillomino-region-bottom-offset: -3px;
+}
+
+.fillomino-cell.region-left {
+    --fillomino-region-left-offset: 3px;
+}
+
+.fillomino-cell.watched {
+    position: relative;
+    z-index: 2;
+    outline: 2px solid #f59e0b;
+    outline-offset: -3px;
+}
+
+.fillomino-cell.conflict {
+    --fillomino-region-border: var(--theia-errorForeground, #f14c4c);
+    color: var(--theia-errorForeground, #f14c4c);
+    background: color-mix(in srgb, var(--theia-input-background) 78%, #f14c4c);
+    border-color: var(--theia-errorForeground, #f14c4c);
+}
+
+input.fillomino-cell:focus {
+    position: relative;
+    z-index: 3;
+    outline: 2px solid var(--theia-focusBorder);
+    outline-offset: -2px;
+}
+
 .sudoku-cell {
     width: 44px;
     height: 44px;
