@@ -12,6 +12,8 @@ import { GeoImage, LoggingTask, UserObservation } from '../earthcoach-types';
 import { EarthCoachNoteTools } from '../earthcoach-note-tools';
 import { EarthCoachReferenceTools } from '../earthcoach-reference-tools';
 import { EarthCoachLoggingTaskTools } from '../earthcoach-logging-task-tools';
+import { EarthCoachGeoCalculatorTools } from '../earthcoach-geo-calculator-tools';
+import { runEarthCoachCalculation } from '../earthcoach-geo-calculator';
 import {
     buildLoggingTaskInput,
     createLoggingTaskDraft,
@@ -631,6 +633,71 @@ function testExtractActionInstruction(): void {
     assert.match(prompt, /sans en inventer/);
 }
 
+function testGeoCalculatorToolShape(): void {
+    const tools = new EarthCoachGeoCalculatorTools().buildAllTools();
+    assert.equal(tools.length, 1);
+    assert.equal(tools[0].id, EarthCoachGeoCalculatorTools.CALCULATE_TOOL_ID);
+    assert.equal(tools[0].name, 'earthcoach_calculate');
+    assert.match(tools[0].description, /deterministe/);
+}
+
+function testGeoCalculations(): void {
+    const shadow = runEarthCoachCalculation('height_from_shadow', {
+        reference_height: 2,
+        reference_shadow: 1.5,
+        object_shadow: 9,
+    });
+    assert.equal(shadow.value, 12);
+    assert.equal(shadow.unit, 'm');
+
+    const scale = runEarthCoachCalculation('scale_from_reference', {
+        reference_real: 0.3,
+        reference_measured: 60,
+        target_measured: 240,
+    });
+    assert.equal(scale.value, 1.2);
+
+    const slope = runEarthCoachCalculation('slope_angle', { rise: 10, run: 10 });
+    assert.equal(slope.value, 45);
+    assert.equal(slope.extra?.slope_percent, 100);
+
+    const distance = runEarthCoachCalculation('distance_between_coordinates', {
+        lat1: 48.0, lon1: 2.0, lat2: 48.0, lon2: 2.0,
+    });
+    assert.equal(distance.value, 0);
+
+    const distance2 = runEarthCoachCalculation('distance_between_coordinates', {
+        lat1: 48.0, lon1: 2.0, lat2: 48.01, lon2: 2.0,
+    });
+    assert.ok(distance2.value > 1100 && distance2.value < 1120);
+
+    const age = runEarthCoachCalculation('age_from_rate', { amount: 50, rate: 0.5 });
+    assert.equal(age.value, 100);
+    assert.equal(age.unit, 'an');
+
+    const flow = runEarthCoachCalculation('flow_rate', { volume: 30, time: 6 });
+    assert.equal(flow.value, 5);
+    assert.equal(flow.unit, 'L/s');
+
+    const diameter = runEarthCoachCalculation('circumference_to_diameter', { circumference: Math.PI });
+    assert.equal(diameter.value, 1);
+
+    const avg = runEarthCoachCalculation('average', { values: [2, 4, 6] });
+    assert.equal(avg.value, 4);
+    assert.equal(avg.extra?.min, 2);
+    assert.equal(avg.extra?.max, 6);
+}
+
+function testGeoCalculationErrors(): void {
+    assert.throws(() => runEarthCoachCalculation('height_from_shadow', { reference_height: 2, object_shadow: 9 }), /reference_shadow/);
+    assert.throws(() => runEarthCoachCalculation('slope_angle', { rise: 10, run: 0 }), /run/);
+    assert.throws(() => runEarthCoachCalculation('average', { values: [] }), /liste de nombres/);
+    assert.throws(() => runEarthCoachCalculation('unknown_op', {}), /Operation inconnue/);
+    assert.throws(() => runEarthCoachCalculation('distance_between_coordinates', {
+        lat1: 200, lon1: 2, lat2: 48, lon2: 2,
+    }), /lat1/);
+}
+
 function testImageContextMapping(): void {
     const context = toImageContext(createImages()[1]);
     assert.deepEqual(context, {
@@ -689,6 +756,9 @@ async function run(): Promise<void> {
     testLoggingTaskDraftFromDto();
     testNormalizeExtractionTasks();
     testExtractActionInstruction();
+    testGeoCalculatorToolShape();
+    testGeoCalculations();
+    testGeoCalculationErrors();
     testImageContextMapping();
     testSelectImagesForChatPrioritizesUserObservations();
     testSelectImagesForChatHonorsPreferredIds();

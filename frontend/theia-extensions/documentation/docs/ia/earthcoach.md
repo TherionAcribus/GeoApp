@@ -101,6 +101,30 @@ Ces questions sont reutilisees par EarthCoach :
 - dans le **mode terrain compact**, pour la section des questions a verifier sur place ;
 - dans le **mode resolver**, qui traite chaque question selon un gabarit structure : reponse proposee, observation qui la fonde, niveau de confiance et ce qu'il reste a completer.
 
+## Calculs geologiques
+
+Beaucoup d'EarthCaches posent des questions chiffrees (hauteur, pente, distance, age, debit...). EarthCoach dispose d'un outil de calcul deterministe `earthcoach_calculate` : il applique une formule exacte aux mesures que vous fournissez, au lieu d'estimer le resultat de tete.
+
+Il peut notamment :
+
+- estimer une **hauteur a partir d'une ombre** de reference ;
+- estimer une **taille reelle a partir d'un objet de reference** (echelle) ;
+- calculer un **angle de pente** (degres et pourcentage) ;
+- calculer la **distance entre deux coordonnees** ;
+- estimer un **age a partir d'un taux** (sedimentation, erosion...) ;
+- calculer un **debit** (volume / temps) ;
+- convertir une **circonference en diametre** ;
+- faire la **moyenne** de plusieurs mesures.
+
+EarthCoach n'invente jamais les mesures d'entree : si une donnee terrain manque, il vous la demande ou la laisse a completer. Le resultat depend toujours de la qualite de vos mesures.
+
+Exemples :
+
+```text
+@EarthCoach la roche de reference fait 2 m et son ombre 1,5 m, l ombre de la falaise fait 9 m, quelle hauteur ?
+@EarthCoach quelle distance entre N 48 00.000 E 002 00.000 et le waypoint d observation ?
+```
+
 ## References externes
 
 L'action **Illustrer un terme** et le tool IA `earthcoach_search_reference` peuvent chercher des references pedagogiques externes.

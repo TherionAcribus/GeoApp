@@ -42,6 +42,8 @@ Fichiers principaux :
 | `earthcoach-logging-task-service.ts` | Client frontend des routes logging tasks (liste, CRUD, remplacement en masse). |
 | `earthcoach-logging-task-tools.ts` | Tool `earthcoach_extract_logging_tasks` et evenement de rafraichissement du widget. |
 | `earthcoach-logging-tasks-widget.tsx` | Widget Theia de suivi, edition et extraction des questions du proprietaire. |
+| `earthcoach-geo-calculator.ts` | Fonctions pures de calcul geologique deterministe et dispatcher `runEarthCoachCalculation`. |
+| `earthcoach-geo-calculator-tools.ts` | Tool `earthcoach_calculate` exposant les calculs deterministes a l'agent. |
 | `earthcoach-reference-tools.ts` | Tool `earthcoach_search_reference`, recherches Wikipedia/Wikimedia, cache local. |
 | `earthcoach-reference-widget.tsx` | Vue "References EarthCoach" avec recherche, articles et images pedagogiques. |
 | `earthcoach-note-tools.ts` | Tool `earthcoach_save_note` pour enregistrer une synthese dans les notes GeoApp. |
@@ -79,6 +81,7 @@ Il expose les tools EarthCoach a chaque requete via `sendLlmRequest()` :
 - `earthcoach_search_reference`
 - `earthcoach_save_note`
 - `earthcoach_extract_logging_tasks`
+- `earthcoach_calculate`
 
 La methode filtre les tools EarthCoach deja presents dans `toolRequests`, puis ajoute les instances reconstruites par les managers :
 
@@ -87,6 +90,7 @@ const earthCoachTools = [
     ...this.referenceTools.buildAllTools(),
     ...this.noteTools.buildAllTools(),
     ...this.loggingTaskTools.buildAllTools(),
+    ...this.geoCalculatorTools.buildAllTools(),
 ];
 ```
 
@@ -319,6 +323,23 @@ Le tool `earthcoach_extract_logging_tasks` (`earthcoach-logging-task-tools.ts`) 
 - declencher l'extraction IA via le bouton **Extraire via EarthCoach (IA)**, qui execute la commande `earthcoach.open` avec l'action `extract_logging_tasks`.
 
 L'action rapide **Questions du proprietaire** du QuickPick (`logging_tasks`) ouvre ce widget.
+
+## Calculs geologiques deterministes
+
+Le tool `earthcoach_calculate` (`earthcoach-geo-calculator-tools.ts`) couvre les questions quantitatives frequentes des EarthCaches, la ou un calcul fait "de tete" par le LLM est peu fiable. La logique est entierement deterministe et testee dans `earthcoach-geo-calculator.ts` :
+
+| Operation | Calcul | Parametres |
+|---|---|---|
+| `height_from_shadow` | hauteur = hauteur_ref x (ombre_objet / ombre_ref) | reference_height, reference_shadow, object_shadow |
+| `scale_from_reference` | taille_reelle = mesure_cible x (taille_ref / mesure_ref) | reference_real, reference_measured, target_measured |
+| `slope_angle` | angle = atan(denivele / distance) + pente en % | rise, run |
+| `distance_between_coordinates` | distance Haversine (m et km) | lat1, lon1, lat2, lon2 |
+| `age_from_rate` | duree = quantite / taux | amount, rate, amount_unit?, time_unit? |
+| `flow_rate` | debit = volume / temps | volume, time, volume_unit?, time_unit? |
+| `circumference_to_diameter` | diametre = circonference / pi (+ rayon) | circumference |
+| `average` | moyenne, min, max, somme | values |
+
+Chaque resultat renvoie la valeur, l'unite, la formule, les entrees et un rappel que les mesures doivent venir du terrain. Le prompt systeme demande d'utiliser ce tool des qu une valeur chiffree est attendue et de ne jamais inventer les mesures d entree.
 
 ## Integration avec `zones`
 
