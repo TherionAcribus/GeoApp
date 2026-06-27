@@ -10,7 +10,7 @@ import './style/grid-puzzle-workbench.css';
 type Grid = string[][];
 type RegionGrid = number[][];
 type WorkMode = 'edit' | 'watch' | 'parity' | 'chain';
-type SudokuVariant = 'sudoku_classic' | 'sudoku_4x4' | 'sudoku_6x6' | 'sudoku_8x8' | 'sudoku_10x10' | 'sudoku_12x12' | 'sudoku_15x15' | 'sudoku_16x16' | 'sudoku_x' | 'sudoku_argyle' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'sudoku_hoshi' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_vudoku' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_kropki' | 'chain_sudoku_4x4' | 'chain_sudoku_5x5' | 'chain_sudoku_6x6' | 'chain_sudoku_7x7' | 'chain_sudoku_8x8' | 'chain_sudoku_9x9' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_outside' | 'sudoku_sandwich' | 'sudoku_little_killer' | 'sudoku_little_unique_killer' | 'sudoku_godoku' | 'sudoku_even_odd' | 'sudoku_non_consecutive' | 'sudoku_mine' | 'sudoku_mine_6x6' | 'sudoku_tripod' | 'sudoku_tripod_4x4' | 'sudoku_tripod_5x5' | 'sudoku_tripod_6x6' | 'sudoku_tripod_7x7' | 'sudoku_tripod_8x8' | 'nonogram' | 'kakuro' | 'hitori' | 'slitherlink' | 'battleship' | 'fillomino';
+type SudokuVariant = 'sudoku_classic' | 'sudoku_4x4' | 'sudoku_6x6' | 'sudoku_8x8' | 'sudoku_10x10' | 'sudoku_12x12' | 'sudoku_15x15' | 'sudoku_16x16' | 'sudoku_x' | 'sudoku_argyle' | 'sudoku_anti_diagonal' | 'sudoku_center_dot' | 'sudoku_windoku' | 'sudoku_girandola' | 'sudoku_asterisk' | 'sujiken' | 'sudoku_hoshi' | 'samurai_sudoku' | 'flower_sudoku' | 'sohei_sudoku' | 'kazaguruma_sudoku' | 'sudoku_greater_than' | 'sudoku_vudoku' | 'sudoku_rossini' | 'sudoku_xv' | 'sudoku_kropki' | 'chain_sudoku_4x4' | 'chain_sudoku_5x5' | 'chain_sudoku_6x6' | 'chain_sudoku_7x7' | 'chain_sudoku_8x8' | 'chain_sudoku_9x9' | 'sudoku_skyscraper' | 'sudoku_frame' | 'sudoku_outside' | 'sudoku_sandwich' | 'sudoku_little_killer' | 'sudoku_little_unique_killer' | 'sudoku_godoku' | 'sudoku_even_odd' | 'sudoku_non_consecutive' | 'sudoku_mine' | 'sudoku_mine_6x6' | 'sudoku_tripod' | 'sudoku_tripod_4x4' | 'sudoku_tripod_5x5' | 'sudoku_tripod_6x6' | 'sudoku_tripod_7x7' | 'sudoku_tripod_8x8' | 'nonogram' | 'kakuro' | 'hitori' | 'slitherlink' | 'battleship' | 'fillomino' | 'futoshiki';
 type KakuroCellKind = 'black' | 'clue' | 'white';
 type KakuroTool = KakuroCellKind;
 type HitoriTool = 'numbers' | 'shade';
@@ -1153,6 +1153,9 @@ function getVariantLabel(puzzleType: SudokuVariant): string {
     if (puzzleType === 'fillomino') {
         return 'Fillomino';
     }
+    if (puzzleType === 'futoshiki') {
+        return 'Futoshiki';
+    }
     return 'Sudoku classique';
 }
 
@@ -1280,7 +1283,7 @@ function getMineConfig(
 }
 
 function getSingleGridSudokuConfig(puzzleType: SudokuVariant): { size: number; boxRows: number; boxCols: number; label: string } | undefined {
-    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori' || puzzleType === 'slitherlink' || puzzleType === 'battleship' || puzzleType === 'fillomino') {
+    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori' || puzzleType === 'slitherlink' || puzzleType === 'battleship' || puzzleType === 'fillomino' || puzzleType === 'futoshiki') {
         return undefined;
     }
     return getSizedSudokuConfig(puzzleType) || {
@@ -1317,14 +1320,14 @@ function gridSizeForVariant(puzzleType: SudokuVariant): number {
     if (mineConfig) {
         return mineConfig.size;
     }
-    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori' || puzzleType === 'slitherlink' || puzzleType === 'battleship' || puzzleType === 'fillomino') {
+    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori' || puzzleType === 'slitherlink' || puzzleType === 'battleship' || puzzleType === 'fillomino' || puzzleType === 'futoshiki') {
         return SIZE;
     }
     return getSingleGridSudokuConfig(puzzleType)?.size || SIZE;
 }
 
 function isActiveCellForVariant(puzzleType: SudokuVariant, row: number, col: number): boolean {
-    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori' || puzzleType === 'slitherlink' || puzzleType === 'battleship' || puzzleType === 'fillomino') {
+    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori' || puzzleType === 'slitherlink' || puzzleType === 'battleship' || puzzleType === 'fillomino' || puzzleType === 'futoshiki') {
         return row >= 0 && col >= 0;
     }
     if (puzzleType === 'sujiken') {
@@ -1629,7 +1632,7 @@ function findConstraintConflicts(
     const cells = new Set<string>();
     const messages: string[] = [];
 
-    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori' || puzzleType === 'slitherlink' || puzzleType === 'battleship' || puzzleType === 'fillomino') {
+    if (puzzleType === 'nonogram' || puzzleType === 'kakuro' || puzzleType === 'hitori' || puzzleType === 'slitherlink' || puzzleType === 'battleship' || puzzleType === 'fillomino' || puzzleType === 'futoshiki') {
         return { cells, messages };
     }
 
@@ -2575,6 +2578,114 @@ function normalizeInequalityGrid(value: unknown, rows: number, cols: number): In
         const cells = typeof row === 'string' ? row.split('') : Array.isArray(row) ? row : [];
         return Array.from({ length: cols }, (_unused, index) => normalizeInequalitySymbol(cells[index]));
     });
+}
+
+function emptyInequalityGrid(rows: number, cols: number): InequalityGrid {
+    return Array.from({ length: rows }, () => Array<InequalitySymbol>(cols).fill(''));
+}
+
+function resizeInequalityGrid(value: unknown, rows: number, cols: number): InequalityGrid {
+    const matrix = Array.isArray(value) ? value : [];
+    return Array.from({ length: rows }, (_row, rowIndex) => {
+        const row = matrix[rowIndex];
+        const cells = typeof row === 'string' ? row.split('') : Array.isArray(row) ? row : [];
+        return Array.from({ length: cols }, (_unused, colIndex) => normalizeInequalitySymbol(cells[colIndex]));
+    });
+}
+
+function normalizeFutoshikiValue(rawValue: unknown, size: number): string {
+    const value = String(rawValue ?? '').replace(/[^1-9]/g, '').slice(-1);
+    if (!value) {
+        return '';
+    }
+    return Number(value) >= 1 && Number(value) <= size ? value : '';
+}
+
+function resizeFutoshikiGrid(grid: Grid, size: number): Grid {
+    return Array.from({ length: size }, (_row, rowIndex) => (
+        Array.from({ length: size }, (_col, colIndex) => normalizeFutoshikiValue(grid[rowIndex]?.[colIndex], size))
+    ));
+}
+
+function normalizeFutoshikiGrid(value: unknown, size: number): Grid {
+    if (typeof value === 'string') {
+        const parsed = value.split(/\r?\n/).filter(Boolean).map(line => {
+            const text = line.trim();
+            return /[\s,;|]/.test(text) ? text.split(/[\s,;|]+/) : Array.from(text);
+        });
+        return resizeFutoshikiGrid(parsed, size);
+    }
+    if (!Array.isArray(value)) {
+        return createEmptyGrid(size);
+    }
+    const parsed = value.map(row => Array.isArray(row) ? row.map(cell => String(cell ?? '')) : []);
+    return resizeFutoshikiGrid(parsed, size);
+}
+
+function findFutoshikiConflicts(
+    grid: Grid,
+    horizontal: InequalityGrid,
+    vertical: InequalityGrid,
+    size: number,
+): ConflictHighlights {
+    const cells = new Set<string>();
+    const messages: string[] = [];
+    for (let row = 0; row < size; row += 1) {
+        const byValue = new Map<string, number[]>();
+        for (let col = 0; col < size; col += 1) {
+            const value = grid[row]?.[col] || '';
+            if (value) {
+                byValue.set(value, [...(byValue.get(value) || []), col]);
+            }
+        }
+        byValue.forEach((cols, value) => {
+            if (cols.length > 1) {
+                cols.forEach(col => cells.add(cellRef(row, col)));
+                messages.push(`La ligne ${row + 1} contient plusieurs ${value}.`);
+            }
+        });
+    }
+    for (let col = 0; col < size; col += 1) {
+        const byValue = new Map<string, number[]>();
+        for (let row = 0; row < size; row += 1) {
+            const value = grid[row]?.[col] || '';
+            if (value) {
+                byValue.set(value, [...(byValue.get(value) || []), row]);
+            }
+        }
+        byValue.forEach((rows, value) => {
+            if (rows.length > 1) {
+                rows.forEach(row => cells.add(cellRef(row, col)));
+                messages.push(`La colonne ${col + 1} contient plusieurs ${value}.`);
+            }
+        });
+    }
+
+    const checkRelation = (first: CellCoord, second: CellCoord, relation: InequalitySymbol): void => {
+        if (!relation) {
+            return;
+        }
+        const firstValue = Number(grid[first[0]]?.[first[1]] || 0);
+        const secondValue = Number(grid[second[0]]?.[second[1]] || 0);
+        if (!firstValue || !secondValue) {
+            return;
+        }
+        const valid = relation === '>' ? firstValue > secondValue : firstValue < secondValue;
+        if (!valid) {
+            cells.add(cellRef(first[0], first[1]));
+            cells.add(cellRef(second[0], second[1]));
+            messages.push(`Inegalite incorrecte entre ${cellRef(first[0], first[1])} et ${cellRef(second[0], second[1])}.`);
+        }
+    };
+
+    horizontal.forEach((row, rowIndex) => {
+        row.forEach((relation, colIndex) => checkRelation([rowIndex, colIndex], [rowIndex, colIndex + 1], relation));
+    });
+    vertical.forEach((row, rowIndex) => {
+        row.forEach((relation, colIndex) => checkRelation([rowIndex, colIndex], [rowIndex + 1, colIndex], relation));
+    });
+
+    return { cells, messages: [...new Set(messages)] };
 }
 
 function normalizeVudokuSymbol(value: unknown): VudokuSymbol {
@@ -3824,6 +3935,9 @@ function GridPuzzleWorkbenchApp({
     const [battleshipFleet, setBattleshipFleet] = React.useState<BattleshipFleet>(() => defaultBattleshipFleet());
     const [fillominoRows, setFillominoRows] = React.useState(10);
     const [fillominoCols, setFillominoCols] = React.useState(10);
+    const [futoshikiSize, setFutoshikiSize] = React.useState(4);
+    const [futoshikiHorizontalInequalities, setFutoshikiHorizontalInequalities] = React.useState<InequalityGrid>(() => emptyInequalityGrid(4, 3));
+    const [futoshikiVerticalInequalities, setFutoshikiVerticalInequalities] = React.useState<InequalityGrid>(() => emptyInequalityGrid(3, 4));
     const [watchCells, setWatchCells] = React.useState<string[]>([]);
     const [mode, setMode] = React.useState<WorkMode>('edit');
     const [maxSolutions, setMaxSolutions] = React.useState(2);
@@ -3843,6 +3957,7 @@ function GridPuzzleWorkbenchApp({
     const slitherClueRefs = React.useRef<Array<Array<HTMLInputElement | null>>>([]);
     const battleshipCellRefs = React.useRef<Array<Array<HTMLButtonElement | null>>>([]);
     const fillominoCellRefs = React.useRef<Array<Array<HTMLInputElement | null>>>([]);
+    const futoshikiCellRefs = React.useRef<Array<Array<HTMLInputElement | null>>>([]);
 
     const solutionResults = Array.isArray(solveState.result?.results) ? solveState.result.results : [];
     const activeSolutionIndex = solutionResults.length
@@ -3875,6 +3990,7 @@ function GridPuzzleWorkbenchApp({
     const isSlitherLink = puzzleType === 'slitherlink';
     const isBattleship = puzzleType === 'battleship';
     const isFillomino = puzzleType === 'fillomino';
+    const isFutoshiki = puzzleType === 'futoshiki';
     const solvedSlitherEdges = isSlitherLink
         ? normalizeSlitherEdges(activeSolution?.edges, slitherRows, slitherCols)
         : undefined;
@@ -3953,6 +4069,10 @@ function GridPuzzleWorkbenchApp({
         gridTemplateColumns: `repeat(${fillominoCols}, 46px)`,
         gridTemplateRows: `repeat(${fillominoRows}, 46px)`,
     } : undefined;
+    const futoshikiBoardStyle: React.CSSProperties | undefined = isFutoshiki ? {
+        gridTemplateColumns: `repeat(${futoshikiSize - 1}, 44px 22px) 44px`,
+        gridTemplateRows: `repeat(${futoshikiSize - 1}, 44px 22px) 44px`,
+    } : undefined;
     const solutionBoardStyle = isNonogram ? nonogramSolutionBoardStyle : boardStyle;
     const chainCounts = React.useMemo(() => {
         return Array.from({ length: chainConfig?.size || 0 }, (_unused, index) => chainPaths[index]?.length || 0);
@@ -3988,8 +4108,10 @@ function GridPuzzleWorkbenchApp({
                     ? findBattleshipConflicts(grid, battleshipRowTotals, battleshipColumnTotals, battleshipFleet)
                     : isFillomino
                         ? findFillominoConflicts(grid)
+                        : isFutoshiki
+                            ? findFutoshikiConflicts(grid, futoshikiHorizontalInequalities, futoshikiVerticalInequalities, futoshikiSize)
                 : findConstraintConflicts(grid, puzzleType, horizontalInequalities, verticalInequalities, vudokuCorners, rossiniArrows, xvHorizontalMarks, xvVerticalMarks, kropkiHorizontalDots, kropkiVerticalDots, chainGrid, skyscraperClues, frameClues, outsideClues, sandwichClues, littleKillerClues, parityMarks),
-        [battleshipColumnTotals, battleshipFleet, battleshipRowTotals, chainGrid, frameClues, grid, horizontalInequalities, hitoriShaded, isBattleship, isFillomino, isHitori, isKakuro, kakuroLayout, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, outsideClues, parityMarks, puzzleType, rossiniArrows, sandwichClues, skyscraperClues, verticalInequalities, vudokuCorners, xvHorizontalMarks, xvVerticalMarks],
+        [battleshipColumnTotals, battleshipFleet, battleshipRowTotals, chainGrid, frameClues, futoshikiHorizontalInequalities, futoshikiSize, futoshikiVerticalInequalities, grid, horizontalInequalities, hitoriShaded, isBattleship, isFillomino, isFutoshiki, isHitori, isKakuro, kakuroLayout, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, outsideClues, parityMarks, puzzleType, rossiniArrows, sandwichClues, skyscraperClues, verticalInequalities, vudokuCorners, xvHorizontalMarks, xvVerticalMarks],
     );
     const visibleConflictMessages = constraintConflicts.messages.slice(0, 4);
 
@@ -4094,6 +4216,23 @@ function GridPuzzleWorkbenchApp({
             );
         }));
     }, [fillominoCols, fillominoRows, isFillomino]);
+
+    React.useEffect(() => {
+        if (!isFutoshiki) {
+            return;
+        }
+        setGrid(previous => resizeFutoshikiGrid(previous, futoshikiSize));
+        setFutoshikiHorizontalInequalities(previous => resizeInequalityGrid(previous, futoshikiSize, futoshikiSize - 1));
+        setFutoshikiVerticalInequalities(previous => resizeInequalityGrid(previous, futoshikiSize - 1, futoshikiSize));
+        setWatchCells(previous => previous.filter(ref => {
+            const match = ref.match(/^r(\d+)c(\d+)$/i);
+            return Boolean(
+                match
+                && Number(match[1]) <= futoshikiSize
+                && Number(match[2]) <= futoshikiSize,
+            );
+        }));
+    }, [futoshikiSize, isFutoshiki]);
 
     const markDirty = React.useCallback(() => {
         if (!geocacheId) {
@@ -4433,6 +4572,56 @@ function GridPuzzleWorkbenchApp({
         markDirty();
     }, [fillominoCols, fillominoRows, markDirty]);
 
+    const setFutoshikiDimension = React.useCallback((rawValue: number) => {
+        const size = Number.isFinite(rawValue)
+            ? Math.min(9, Math.max(3, Math.floor(rawValue)))
+            : 4;
+        setFutoshikiSize(size);
+        setGrid(previous => resizeFutoshikiGrid(previous, size));
+        setFutoshikiHorizontalInequalities(previous => resizeInequalityGrid(previous, size, size - 1));
+        setFutoshikiVerticalInequalities(previous => resizeInequalityGrid(previous, size - 1, size));
+        setSolveState({ running: false });
+        markDirty();
+    }, [markDirty]);
+
+    const updateFutoshikiValue = React.useCallback((row: number, col: number, rawValue: string) => {
+        setGrid(previous => {
+            const next = resizeFutoshikiGrid(previous, futoshikiSize);
+            next[row][col] = normalizeFutoshikiValue(rawValue, futoshikiSize);
+            return next;
+        });
+        setSolveState({ running: false });
+        markDirty();
+    }, [futoshikiSize, markDirty]);
+
+    const clearFutoshiki = React.useCallback(() => {
+        setGrid(createEmptyGrid(futoshikiSize));
+        setFutoshikiHorizontalInequalities(emptyInequalityGrid(futoshikiSize, futoshikiSize - 1));
+        setFutoshikiVerticalInequalities(emptyInequalityGrid(futoshikiSize - 1, futoshikiSize));
+        setSolveState({ running: false });
+        markDirty();
+    }, [futoshikiSize, markDirty]);
+
+    const toggleFutoshikiHorizontalInequality = React.useCallback((row: number, col: number) => {
+        setFutoshikiHorizontalInequalities(previous => {
+            const next = resizeInequalityGrid(previous, futoshikiSize, futoshikiSize - 1);
+            next[row][col] = cycleInequality(next[row][col]);
+            return next;
+        });
+        setSolveState({ running: false });
+        markDirty();
+    }, [futoshikiSize, markDirty]);
+
+    const toggleFutoshikiVerticalInequality = React.useCallback((row: number, col: number) => {
+        setFutoshikiVerticalInequalities(previous => {
+            const next = resizeInequalityGrid(previous, futoshikiSize - 1, futoshikiSize);
+            next[row][col] = cycleInequality(next[row][col]);
+            return next;
+        });
+        setSolveState({ running: false });
+        markDirty();
+    }, [futoshikiSize, markDirty]);
+
     const updateNonogramCell = React.useCallback((row: number, col: number, value: string) => {
         setGrid(previous => {
             const next = resizeNonogramGrid(previous, nonogramRows, nonogramCols);
@@ -4497,6 +4686,7 @@ function GridPuzzleWorkbenchApp({
         const inferredBattleshipCols = Array.isArray(snapshot?.grid) && Array.isArray(snapshot.grid[0]) ? snapshot.grid[0].length : 10;
         const inferredFillominoRows = Array.isArray(snapshot?.grid) ? snapshot.grid.length : 10;
         const inferredFillominoCols = Array.isArray(snapshot?.grid) && Array.isArray(snapshot.grid[0]) ? snapshot.grid[0].length : 10;
+        const inferredFutoshikiSize = Array.isArray(snapshot?.grid) ? snapshot.grid.length : 4;
         const restoredHitoriRows = normalizeNumber(snapshot?.hitori?.rows, inferredHitoriRows, 2, 20);
         const restoredHitoriCols = normalizeNumber(snapshot?.hitori?.cols, inferredHitoriCols, 2, 20);
         const restoredSlitherRows = normalizeNumber(snapshot?.slither?.rows, inferredHitoriRows, 1, 20);
@@ -4505,6 +4695,7 @@ function GridPuzzleWorkbenchApp({
         const restoredBattleshipCols = normalizeNumber(snapshot?.battleship?.cols, inferredBattleshipCols, 2, 20);
         const restoredFillominoRows = normalizeNumber(snapshot?.fillomino?.rows, inferredFillominoRows, 2, 20);
         const restoredFillominoCols = normalizeNumber(snapshot?.fillomino?.cols, inferredFillominoCols, 2, 20);
+        const restoredFutoshikiSize = normalizeNumber(snapshot?.futoshiki?.size, inferredFutoshikiSize, 3, 9);
         const restoredKakuroLayout = normalizeKakuroLayout(snapshot?.kakuro?.layout ?? snapshot?.kakuroLayout)
             || createKakuroStarterLayout();
         const restoredGrid = puzzleType === 'kakuro'
@@ -4517,6 +4708,8 @@ function GridPuzzleWorkbenchApp({
                         ? normalizeBattleshipGrid(snapshot?.grid, restoredBattleshipRows, restoredBattleshipCols)
                         : puzzleType === 'fillomino'
                             ? normalizeFillominoGrid(snapshot?.grid, restoredFillominoRows, restoredFillominoCols)
+                            : puzzleType === 'futoshiki'
+                                ? normalizeFutoshikiGrid(snapshot?.grid, restoredFutoshikiSize)
             : normalizeGrid(snapshot?.grid, puzzleType) || createEmptyGrid(variantSize);
         const restoredChainGrid = normalizeChainGrid(snapshot?.chains ?? snapshot?.chainGrid, variantSize);
         const restoredResult = snapshot?.lastResult && typeof snapshot.lastResult === 'object'
@@ -4555,6 +4748,20 @@ function GridPuzzleWorkbenchApp({
         } else if (puzzleType === 'fillomino') {
             setFillominoRows(restoredFillominoRows);
             setFillominoCols(restoredFillominoCols);
+            setGrid(restoredGrid);
+            setQuickText('');
+        } else if (puzzleType === 'futoshiki') {
+            setFutoshikiSize(restoredFutoshikiSize);
+            setFutoshikiHorizontalInequalities(resizeInequalityGrid(
+                snapshot?.futoshiki?.inequalities?.horizontal ?? snapshot?.inequalities?.horizontal,
+                restoredFutoshikiSize,
+                restoredFutoshikiSize - 1,
+            ));
+            setFutoshikiVerticalInequalities(resizeInequalityGrid(
+                snapshot?.futoshiki?.inequalities?.vertical ?? snapshot?.inequalities?.vertical,
+                restoredFutoshikiSize - 1,
+                restoredFutoshikiSize,
+            ));
             setGrid(restoredGrid);
             setQuickText('');
         } else {
@@ -4703,6 +4910,13 @@ function GridPuzzleWorkbenchApp({
                         rows: fillominoRows,
                         cols: fillominoCols,
                     },
+                    futoshiki: {
+                        size: futoshikiSize,
+                        inequalities: {
+                            horizontal: futoshikiHorizontalInequalities,
+                            vertical: futoshikiVerticalInequalities,
+                        },
+                    },
                     watchCells,
                     maxSolutions,
                     solverTimeoutMs: timeoutMs,
@@ -4736,6 +4950,9 @@ function GridPuzzleWorkbenchApp({
         fillominoCols,
         fillominoRows,
         frameClues,
+        futoshikiHorizontalInequalities,
+        futoshikiSize,
+        futoshikiVerticalInequalities,
         geocacheId,
         godokuAlphabet,
         grid,
@@ -5210,6 +5427,151 @@ function GridPuzzleWorkbenchApp({
         }
     }, [focusFillominoCell, updateFillominoValue]);
 
+    const focusFutoshikiCell = React.useCallback((row: number, col: number) => {
+        const targetRow = Math.max(0, Math.min(futoshikiSize - 1, row));
+        const targetCol = Math.max(0, Math.min(futoshikiSize - 1, col));
+        const target = futoshikiCellRefs.current[targetRow]?.[targetCol];
+        target?.focus();
+        target?.select();
+    }, [futoshikiSize]);
+
+    const handleFutoshikiCellKeyDown = React.useCallback((row: number, col: number, event: React.KeyboardEvent<HTMLInputElement>) => {
+        const moves: Record<string, [number, number]> = {
+            ArrowUp: [-1, 0],
+            ArrowDown: [1, 0],
+            ArrowLeft: [0, -1],
+            ArrowRight: [0, 1],
+        };
+        const move = moves[event.key];
+        if (move) {
+            event.preventDefault();
+            focusFutoshikiCell(row + move[0], col + move[1]);
+            return;
+        }
+        if (event.key === 'Backspace' || event.key === 'Delete' || event.key === '0' || event.key === '.') {
+            event.preventDefault();
+            updateFutoshikiValue(row, col, '');
+            return;
+        }
+        if (normalizeFutoshikiValue(event.key, futoshikiSize)) {
+            event.preventDefault();
+            updateFutoshikiValue(row, col, event.key);
+        }
+    }, [focusFutoshikiCell, futoshikiSize, updateFutoshikiValue]);
+
+    const renderFutoshikiBoard = (boardGrid: Grid, readonly = false): React.ReactNode => {
+        const displayGrid = resizeFutoshikiGrid(boardGrid, futoshikiSize);
+        return (
+            <div
+                className={['futoshiki-board', readonly ? 'solved' : ''].filter(Boolean).join(' ')}
+                style={futoshikiBoardStyle}
+                aria-label={readonly ? 'Solution Futoshiki' : 'Grille Futoshiki interactive'}
+            >
+                {Array.from({ length: futoshikiSize }, (_row, rowIndex) => (
+                    Array.from({ length: futoshikiSize }, (_col, colIndex) => {
+                        const ref = cellRef(rowIndex, colIndex);
+                        const classes = [
+                            'futoshiki-cell',
+                            displayGrid[rowIndex]?.[colIndex] ? 'given' : '',
+                            watchCells.includes(ref) ? 'watched' : '',
+                            !readonly && constraintConflicts.cells.has(ref) ? 'conflict' : '',
+                        ].filter(Boolean).join(' ');
+                        const style = {
+                            gridColumn: String(colIndex * 2 + 1),
+                            gridRow: String(rowIndex * 2 + 1),
+                        };
+                        if (readonly) {
+                            return (
+                                <span key={`futoshiki-solved-${ref}`} className={classes} style={style}>
+                                    {displayGrid[rowIndex]?.[colIndex] || ''}
+                                </span>
+                            );
+                        }
+                        return (
+                            <input
+                                key={`futoshiki-${ref}`}
+                                className={classes}
+                                ref={element => {
+                                    futoshikiCellRefs.current[rowIndex] = futoshikiCellRefs.current[rowIndex] || [];
+                                    futoshikiCellRefs.current[rowIndex][colIndex] = element;
+                                }}
+                                style={style}
+                                value={displayGrid[rowIndex]?.[colIndex] || ''}
+                                inputMode='numeric'
+                                maxLength={1}
+                                aria-label={ref}
+                                title={mode === 'watch' ? `${ref}, cliquez pour surveiller cette case.` : ref}
+                                onPointerDown={event => {
+                                    if (mode === 'watch') {
+                                        event.preventDefault();
+                                    }
+                                }}
+                                onClick={event => {
+                                    if (mode === 'watch' || event.ctrlKey || event.metaKey) {
+                                        event.preventDefault();
+                                        toggleWatchCell(ref);
+                                    }
+                                }}
+                                onKeyDown={event => handleFutoshikiCellKeyDown(rowIndex, colIndex, event)}
+                                onChange={event => updateFutoshikiValue(rowIndex, colIndex, event.currentTarget.value)}
+                            />
+                        );
+                    })
+                ))}
+                {futoshikiHorizontalInequalities.map((row, rowIndex) => (
+                    row.map((value, colIndex) => (
+                        <button
+                            key={`futoshiki-h-${rowIndex}-${colIndex}`}
+                            type='button'
+                            className={['futoshiki-inequality', 'horizontal', value ? 'active' : ''].filter(Boolean).join(' ')}
+                            style={{
+                                gridColumn: String(colIndex * 2 + 2),
+                                gridRow: String(rowIndex * 2 + 1),
+                            }}
+                            title={`Contrainte entre ${cellRef(rowIndex, colIndex)} et ${cellRef(rowIndex, colIndex + 1)}`}
+                            aria-label={`Contrainte entre ${cellRef(rowIndex, colIndex)} et ${cellRef(rowIndex, colIndex + 1)}`}
+                            disabled={readonly}
+                            onClick={() => toggleFutoshikiHorizontalInequality(rowIndex, colIndex)}
+                        >
+                            {value}
+                        </button>
+                    ))
+                ))}
+                {futoshikiVerticalInequalities.map((row, rowIndex) => (
+                    row.map((value, colIndex) => (
+                        <button
+                            key={`futoshiki-v-${rowIndex}-${colIndex}`}
+                            type='button'
+                            className={['futoshiki-inequality', 'vertical', value ? 'active' : ''].filter(Boolean).join(' ')}
+                            style={{
+                                gridColumn: String(colIndex * 2 + 1),
+                                gridRow: String(rowIndex * 2 + 2),
+                            }}
+                            title={`Contrainte entre ${cellRef(rowIndex, colIndex)} et ${cellRef(rowIndex + 1, colIndex)}`}
+                            aria-label={`Contrainte entre ${cellRef(rowIndex, colIndex)} et ${cellRef(rowIndex + 1, colIndex)}`}
+                            disabled={readonly}
+                            onClick={() => toggleFutoshikiVerticalInequality(rowIndex, colIndex)}
+                        >
+                            {value}
+                        </button>
+                    ))
+                ))}
+                {Array.from({ length: futoshikiSize - 1 }, (_row, rowIndex) => (
+                    Array.from({ length: futoshikiSize - 1 }, (_col, colIndex) => (
+                        <span
+                            key={`futoshiki-corner-${rowIndex}-${colIndex}`}
+                            className='futoshiki-corner'
+                            style={{
+                                gridColumn: String(colIndex * 2 + 2),
+                                gridRow: String(rowIndex * 2 + 2),
+                            }}
+                        />
+                    ))
+                ))}
+            </div>
+        );
+    };
+
     const handleNonogramCellClick = React.useCallback((row: number, col: number, event: React.MouseEvent<HTMLButtonElement>) => {
         const ref = cellRef(row, col);
         if (mode === 'watch' || event.ctrlKey || event.metaKey) {
@@ -5400,6 +5762,7 @@ function GridPuzzleWorkbenchApp({
             || value === 'slitherlink'
             || value === 'battleship'
             || value === 'fillomino'
+            || value === 'futoshiki'
             ? value
             : 'sudoku_classic';
         const nextGrid = nextPuzzleType === 'hitori'
@@ -5410,6 +5773,8 @@ function GridPuzzleWorkbenchApp({
                     ? resizeBattleshipGrid(puzzleType === 'battleship' ? grid : [], battleshipRows, battleshipCols)
                     : nextPuzzleType === 'fillomino'
                         ? resizeFillominoGrid(puzzleType === 'fillomino' ? grid : [], fillominoRows, fillominoCols)
+                        : nextPuzzleType === 'futoshiki'
+                            ? resizeFutoshikiGrid(puzzleType === 'futoshiki' ? grid : [], futoshikiSize)
             : nextPuzzleType === 'kakuro'
                 ? resizeKakuroGrid(puzzleType === 'kakuro' ? grid : [], kakuroLayout)
                 : resizeGrid(grid, gridSizeForVariant(nextPuzzleType));
@@ -5443,6 +5808,11 @@ function GridPuzzleWorkbenchApp({
         if (nextPuzzleType === 'fillomino') {
             setMode('edit');
         }
+        if (nextPuzzleType === 'futoshiki') {
+            setMode('edit');
+            setFutoshikiHorizontalInequalities(emptyInequalityGrid(futoshikiSize, futoshikiSize - 1));
+            setFutoshikiVerticalInequalities(emptyInequalityGrid(futoshikiSize - 1, futoshikiSize));
+        }
         if (getTripodConfig(nextPuzzleType)) {
             setTripodDots(emptyTripodDots(gridSizeForVariant(nextPuzzleType)));
         }
@@ -5453,10 +5823,10 @@ function GridPuzzleWorkbenchApp({
             setActiveChain(1);
             setMode('chain');
         }
-        setQuickText(nextPuzzleType === 'nonogram' || nextPuzzleType === 'kakuro' || nextPuzzleType === 'hitori' || nextPuzzleType === 'slitherlink' || nextPuzzleType === 'battleship' || nextPuzzleType === 'fillomino' ? '' : gridToText(nextGrid, nextPuzzleType));
+        setQuickText(nextPuzzleType === 'nonogram' || nextPuzzleType === 'kakuro' || nextPuzzleType === 'hitori' || nextPuzzleType === 'slitherlink' || nextPuzzleType === 'battleship' || nextPuzzleType === 'fillomino' || nextPuzzleType === 'futoshiki' ? '' : gridToText(nextGrid, nextPuzzleType));
         setSolveState({ running: false });
         markDirty();
-    }, [battleshipCols, battleshipRows, fillominoCols, fillominoRows, grid, hitoriCols, hitoriRows, kakuroLayout, markDirty, mode, puzzleType, slitherCols, slitherRows]);
+    }, [battleshipCols, battleshipRows, fillominoCols, fillominoRows, futoshikiSize, grid, hitoriCols, hitoriRows, kakuroLayout, markDirty, mode, puzzleType, slitherCols, slitherRows]);
 
     const clearGrid = React.useCallback(() => {
         if (isNonogram) {
@@ -5484,6 +5854,11 @@ function GridPuzzleWorkbenchApp({
         } else if (isFillomino) {
             setGrid(createEmptyRectGrid(fillominoRows, fillominoCols));
             setQuickText('');
+        } else if (isFutoshiki) {
+            setGrid(createEmptyGrid(futoshikiSize));
+            setFutoshikiHorizontalInequalities(emptyInequalityGrid(futoshikiSize, futoshikiSize - 1));
+            setFutoshikiVerticalInequalities(emptyInequalityGrid(futoshikiSize - 1, futoshikiSize));
+            setQuickText('');
         } else {
             setGridAndQuickText(createEmptyGrid(gridSizeForVariant(puzzleType)));
         }
@@ -5508,7 +5883,7 @@ function GridPuzzleWorkbenchApp({
         setWatchCells([]);
         setSolveState({ running: false });
         markDirty();
-    }, [battleshipCols, battleshipRows, fillominoCols, fillominoRows, hitoriCols, hitoriRows, isBattleship, isFillomino, isHitori, isKakuro, isNonogram, isSlitherLink, kakuroLayout, markDirty, puzzleType, setGridAndQuickText, slitherCols, slitherRows]);
+    }, [battleshipCols, battleshipRows, fillominoCols, fillominoRows, futoshikiSize, hitoriCols, hitoriRows, isBattleship, isFillomino, isFutoshiki, isHitori, isKakuro, isNonogram, isSlitherLink, kakuroLayout, markDirty, puzzleType, setGridAndQuickText, slitherCols, slitherRows]);
 
     const solve = React.useCallback(async () => {
         if (constraintConflicts.messages.length > 0) {
@@ -5538,6 +5913,8 @@ function GridPuzzleWorkbenchApp({
                             ? resizeBattleshipGrid(grid, battleshipRows, battleshipCols)
                             : isFillomino
                                 ? resizeFillominoGrid(grid, fillominoRows, fillominoCols)
+                                : isFutoshiki
+                                    ? resizeFutoshikiGrid(grid, futoshikiSize)
                     : isKakuro
                         ? resizeKakuroGrid(grid, kakuroLayout)
                         : isNonogram
@@ -5549,12 +5926,13 @@ function GridPuzzleWorkbenchApp({
                 row_totals: isBattleship ? battleshipRowTotals : undefined,
                 column_totals: isBattleship ? battleshipColumnTotals : undefined,
                 fleet: isBattleship ? battleshipFleet : undefined,
+                size: isFutoshiki ? futoshikiSize : undefined,
                 row_clues: isNonogram ? serializeNonogramClueLines(nonogramRowClueLines) : undefined,
                 column_clues: isNonogram ? serializeNonogramClueLines(nonogramColumnClueLines) : undefined,
                 watched_cells: watchCells.join(' '),
                 inequalities: {
-                    horizontal: horizontalInequalities,
-                    vertical: verticalInequalities,
+                    horizontal: isFutoshiki ? futoshikiHorizontalInequalities : horizontalInequalities,
+                    vertical: isFutoshiki ? futoshikiVerticalInequalities : verticalInequalities,
                 },
                 vudoku: isVudoku ? { grid: vudokuCorners } : undefined,
                 rossini: isRossini ? {
@@ -5597,7 +5975,7 @@ function GridPuzzleWorkbenchApp({
                 error: error instanceof Error ? error.message : String(error),
             });
         }
-    }, [areChainsComplete, battleshipCols, battleshipColumnTotals, battleshipFleet, battleshipRowTotals, battleshipRows, chainConfig?.size, chainGrid, constraintConflicts.messages.length, fillominoCols, fillominoRows, frameClues, geocacheId, godokuAlphabet, grid, hitoriCols, hitoriRows, hitoriShaded, horizontalInequalities, isBattleship, isChain, isEvenOdd, isFillomino, isFrame, isGodoku, isHitori, isKakuro, isKropki, isLittleKiller, isNonogram, isOutside, isRossini, isSandwich, isSkyscraper, isSlitherLink, isTripod, isVudoku, isXv, kakuroLayout, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, maxSolutions, nonogramCols, nonogramColumnClueLines, nonogramRows, nonogramRowClueLines, outsideClues, parityMarks, pluginsService, puzzleType, rossiniArrows, sandwichClues, saveState, skyscraperClues, slitherCols, slitherEdges, slitherRows, timeoutMs, tripodDots, verticalInequalities, vudokuCorners, watchCells, xvHorizontalMarks, xvVerticalMarks]);
+    }, [areChainsComplete, battleshipCols, battleshipColumnTotals, battleshipFleet, battleshipRowTotals, battleshipRows, chainConfig?.size, chainGrid, constraintConflicts.messages.length, fillominoCols, fillominoRows, frameClues, futoshikiHorizontalInequalities, futoshikiSize, futoshikiVerticalInequalities, geocacheId, godokuAlphabet, grid, hitoriCols, hitoriRows, hitoriShaded, horizontalInequalities, isBattleship, isChain, isEvenOdd, isFillomino, isFrame, isFutoshiki, isGodoku, isHitori, isKakuro, isKropki, isLittleKiller, isNonogram, isOutside, isRossini, isSandwich, isSkyscraper, isSlitherLink, isTripod, isVudoku, isXv, kakuroLayout, kropkiHorizontalDots, kropkiVerticalDots, littleKillerClues, maxSolutions, nonogramCols, nonogramColumnClueLines, nonogramRows, nonogramRowClueLines, outsideClues, parityMarks, pluginsService, puzzleType, rossiniArrows, sandwichClues, saveState, skyscraperClues, slitherCols, slitherEdges, slitherRows, timeoutMs, tripodDots, verticalInequalities, vudokuCorners, watchCells, xvHorizontalMarks, xvVerticalMarks]);
 
     const useSolvedGrid = React.useCallback(() => {
         if (solvedGrid) {
@@ -5609,6 +5987,8 @@ function GridPuzzleWorkbenchApp({
                 setGrid(resizeBattleshipGrid(solvedGrid, battleshipRows, battleshipCols));
             } else if (isFillomino) {
                 setGrid(resizeFillominoGrid(solvedGrid, fillominoRows, fillominoCols));
+            } else if (isFutoshiki) {
+                setGrid(resizeFutoshikiGrid(solvedGrid, futoshikiSize));
             } else if (isKakuro) {
                 setGrid(resizeKakuroGrid(solvedGrid, kakuroLayout));
             } else {
@@ -5617,7 +5997,7 @@ function GridPuzzleWorkbenchApp({
             setSolveState({ running: false });
             markDirty();
         }
-    }, [battleshipCols, battleshipRows, fillominoCols, fillominoRows, hitoriCols, hitoriRows, isBattleship, isFillomino, isHitori, isKakuro, isSlitherLink, kakuroLayout, markDirty, setGridAndQuickText, solvedGrid, solvedSlitherEdges]);
+    }, [battleshipCols, battleshipRows, fillominoCols, fillominoRows, futoshikiSize, hitoriCols, hitoriRows, isBattleship, isFillomino, isFutoshiki, isHitori, isKakuro, isSlitherLink, kakuroLayout, markDirty, setGridAndQuickText, solvedGrid, solvedSlitherEdges]);
 
     const cellStyle = (rowIndex: number, colIndex: number): React.CSSProperties | undefined => {
         if (variableGridConfig) {
@@ -6427,6 +6807,7 @@ function GridPuzzleWorkbenchApp({
                         <option value='slitherlink'>Slither Link</option>
                         <option value='battleship'>Bataille navale</option>
                         <option value='fillomino'>Fillomino</option>
+                        <option value='futoshiki'>Futoshiki</option>
                     </select>
                     <button onClick={solve} disabled={solveState.running}>
                         {solveState.running ? 'Resolution...' : 'Resoudre'}
@@ -7445,6 +7826,64 @@ function GridPuzzleWorkbenchApp({
                                 </div>
                             ) : null}
                         </div>
+                    ) : isFutoshiki ? (
+                        <div className='futoshiki-editor'>
+                            <div className='futoshiki-toolbar'>
+                                <label>
+                                    Taille
+                                    <input
+                                        type='number'
+                                        min={3}
+                                        max={9}
+                                        value={futoshikiSize}
+                                        aria-label='Taille Futoshiki'
+                                        title='Taille Futoshiki'
+                                        onFocus={event => event.currentTarget.select()}
+                                        onChange={event => setFutoshikiDimension(Number(event.currentTarget.value))}
+                                    />
+                                </label>
+                            </div>
+                            {renderFutoshikiBoard(grid)}
+                            <div className='grid-puzzle-actions inline'>
+                                <button type='button' onClick={clearFutoshiki}>Reinitialiser</button>
+                            </div>
+                            {visibleConflictMessages.length > 0 ? (
+                                <div className='grid-puzzle-conflicts'>
+                                    {visibleConflictMessages.map(message => (
+                                        <div key={message}>{message}</div>
+                                    ))}
+                                    {constraintConflicts.messages.length > visibleConflictMessages.length ? (
+                                        <div>+{constraintConflicts.messages.length - visibleConflictMessages.length} autre(s) conflit(s).</div>
+                                    ) : null}
+                                </div>
+                            ) : null}
+                            {solvedGrid ? (
+                                <div className='grid-puzzle-solution'>
+                                    <div className='grid-puzzle-section-title'>
+                                        <strong>
+                                            Solution {solutionResults.length > 1 ? `${activeSolutionIndex + 1}/${solutionResults.length}` : ''}
+                                        </strong>
+                                        <div className='solution-actions'>
+                                            {solutionResults.length > 1 ? (
+                                                <select
+                                                    value={activeSolutionIndex}
+                                                    onChange={event => setSelectedSolutionIndex(Number(event.currentTarget.value) || 0)}
+                                                    aria-label='Solution affichee'
+                                                >
+                                                    {solutionResults.map((_solution, index) => (
+                                                        <option key={`solution-option-${index}`} value={index}>
+                                                            Solution {index + 1}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            ) : null}
+                                            <button onClick={useSolvedGrid}>Reprendre dans la grille</button>
+                                        </div>
+                                    </div>
+                                    {renderFutoshikiBoard(solvedGrid, true)}
+                                </div>
+                            ) : null}
+                        </div>
                     ) : (
                         <>
                     <div
@@ -7555,7 +7994,7 @@ function GridPuzzleWorkbenchApp({
                         </>
                     )}
 
-                    {solvedGrid && !isKakuro && !isHitori && !isSlitherLink && !isBattleship && !isFillomino && (
+                    {solvedGrid && !isKakuro && !isHitori && !isSlitherLink && !isBattleship && !isFillomino && !isFutoshiki && (
                         <div className='grid-puzzle-solution'>
                             <div className='grid-puzzle-section-title'>
                                 <strong>
@@ -7659,7 +8098,7 @@ function GridPuzzleWorkbenchApp({
                 </section>
 
                 <aside className='grid-puzzle-side'>
-                    {!isNonogram && !isKakuro && !isHitori && !isSlitherLink && !isBattleship && !isFillomino ? (
+                    {!isNonogram && !isKakuro && !isHitori && !isSlitherLink && !isBattleship && !isFillomino && !isFutoshiki ? (
                     <section>
                         <div className='grid-puzzle-section-title'>
                             <strong>Saisie rapide</strong>

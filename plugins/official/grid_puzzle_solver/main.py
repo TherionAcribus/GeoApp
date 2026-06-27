@@ -169,7 +169,7 @@ class GridpuzzlesolverPlugin:
 
     def __init__(self) -> None:
         self.name = "grid_puzzle_solver"
-        self.version = "0.7.0"
+        self.version = "0.8.0"
 
     def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         start_time = time.time()
@@ -398,6 +398,12 @@ class GridpuzzlesolverPlugin:
                     include_asterisk=False,
                     variant="sudoku_greater_than",
                     inequalities=inputs.get("inequalities") or inputs.get("comparisons"),
+                )
+            elif puzzle_type in {"futoshiki", "hutoshiki", "unequal"}:
+                problem = self._build_futoshiki_problem(
+                    inputs.get("grid") if "grid" in inputs else inputs.get("puzzle") or inputs.get("text"),
+                    inputs.get("inequalities") or inputs.get("comparisons"),
+                    inputs.get("size"),
                 )
             elif puzzle_type in {"sudoku_vudoku", "vudoku"}:
                 puzzle_text = self._first_non_empty(
@@ -1035,6 +1041,35 @@ class GridpuzzlesolverPlugin:
             constraints=constraints,
             numeric_values=self._default_numeric_values(symbols),
             variant=variant,
+        )
+
+    def _build_futoshiki_problem(
+        self,
+        raw_grid: Any,
+        inequalities: Any,
+        raw_size: Any,
+    ) -> GridCspProblem:
+        size = self._parse_futoshiki_size(raw_size, raw_grid)
+        symbols = [str(value) for value in range(1, size + 1)]
+        givens = self._parse_futoshiki_givens(raw_grid, size, symbols)
+        active_cells = [(row, col) for row in range(size) for col in range(size)]
+
+        constraints: List[GridConstraint] = []
+        for row in range(size):
+            constraints.append(GridConstraint("all_different", tuple((row, col) for col in range(size))))
+        for col in range(size):
+            constraints.append(GridConstraint("all_different", tuple((row, col) for row in range(size))))
+        constraints.extend(self._parse_sudoku_inequalities(inequalities, rows=size, cols=size))
+
+        return GridCspProblem(
+            rows=size,
+            cols=size,
+            symbols=symbols,
+            active_cells=active_cells,
+            givens=givens,
+            constraints=constraints,
+            numeric_values={symbol: int(symbol) for symbol in symbols},
+            variant="futoshiki",
         )
 
     def _build_chain_sudoku_problem(
@@ -3362,7 +3397,12 @@ class GridpuzzlesolverPlugin:
                 raise ValueError(f"Case Nonogram non supportee: {raw_value}")
         return values
 
-    def _parse_sudoku_inequalities(self, raw_inequalities: Any) -> List[GridConstraint]:
+    def _parse_sudoku_inequalities(
+        self,
+        raw_inequalities: Any,
+        rows: int = 9,
+        cols: int = 9,
+    ) -> List[GridConstraint]:
         if raw_inequalities in (None, "", [], {}):
             return []
 
@@ -3373,15 +3413,15 @@ class GridpuzzlesolverPlugin:
             try:
                 raw_inequalities = json.loads(text)
             except json.JSONDecodeError:
-                return self._parse_inequality_lines(text)
+                return self._parse_inequality_lines(text, rows, cols)
 
         if isinstance(raw_inequalities, dict):
             constraints: List[GridConstraint] = []
             constraints.extend(
                 self._parse_inequality_matrix(
                     raw_inequalities.get("horizontal") or raw_inequalities.get("h"),
-                    rows=9,
-                    cols=8,
+                    rows=rows,
+                    cols=cols - 1,
                     first_cell=lambda row, col: (row, col),
                     second_cell=lambda row, col: (row, col + 1),
                     label="horizontal",
@@ -3390,19 +3430,19 @@ class GridpuzzlesolverPlugin:
             constraints.extend(
                 self._parse_inequality_matrix(
                     raw_inequalities.get("vertical") or raw_inequalities.get("v"),
-                    rows=8,
-                    cols=9,
+                    rows=rows - 1,
+                    cols=cols,
                     first_cell=lambda row, col: (row, col),
                     second_cell=lambda row, col: (row + 1, col),
                     label="vertical",
                 )
             )
             if "constraints" in raw_inequalities:
-                constraints.extend(self._parse_inequality_entries(raw_inequalities["constraints"]))
+                constraints.extend(self._parse_inequality_entries(raw_inequalities["constraints"], rows, cols))
             return constraints
 
         if isinstance(raw_inequalities, list):
-            return self._parse_inequality_entries(raw_inequalities)
+            return self._parse_inequality_entries(raw_inequalities, rows, cols)
 
         raise ValueError("Format inequalities non supporte")
 
@@ -3495,7 +3535,7 @@ class GridpuzzlesolverPlugin:
                 )
         return constraints
 
-    def _parse_inequality_entries(self, raw_entries: Any) -> List[GridConstraint]:
+    def _parse_inequality_entries(self, raw_entries: Any, rows: int = 9, cols: int = 9) -> List[GridConstraint]:
         if raw_entries in (None, "", []):
             return []
         if not isinstance(raw_entries, list):
@@ -3521,14 +3561,14 @@ class GridpuzzlesolverPlugin:
 
             constraints.append(
                 self._build_inequality_constraint(
-                    self._parse_cell_ref(raw_cells[0], 9, 9),
-                    self._parse_cell_ref(raw_cells[1], 9, 9),
+                    self._parse_cell_ref(raw_cells[0], rows, cols),
+                    self._parse_cell_ref(raw_cells[1], rows, cols),
                     relation,
                 )
             )
         return constraints
 
-    def _parse_inequality_lines(self, text: str) -> List[GridConstraint]:
+    def _parse_inequality_lines(self, text: str, rows: int = 9, cols: int = 9) -> List[GridConstraint]:
         constraints: List[GridConstraint] = []
         for line in text.splitlines():
             normalized = line.strip().replace(" ", "")
@@ -3539,8 +3579,8 @@ class GridpuzzlesolverPlugin:
                 raise ValueError(f"Inegalite invalide: {line}")
             constraints.append(
                 self._build_inequality_constraint(
-                    self._parse_cell_ref(match.group(1), 9, 9),
-                    self._parse_cell_ref(match.group(3), 9, 9),
+                    self._parse_cell_ref(match.group(1), rows, cols),
+                    self._parse_cell_ref(match.group(3), rows, cols),
                     match.group(2),
                 )
             )
@@ -4772,6 +4812,102 @@ class GridpuzzlesolverPlugin:
         if size < 1 or size > len(SUDOKU_SYMBOL_POOL):
             raise ValueError(f"Taille Sudoku non supportee: {size}")
         return list(SUDOKU_SYMBOL_POOL[:size])
+
+    def _parse_futoshiki_size(self, raw_size: Any, raw_grid: Any) -> int:
+        candidates: List[Any] = []
+        if raw_size not in (None, ""):
+            candidates.append(raw_size)
+
+        parsed_grid = self._parse_optional_json(raw_grid)
+        if isinstance(parsed_grid, dict):
+            for key in ("size", "n", "rows", "cols"):
+                if parsed_grid.get(key) not in (None, ""):
+                    candidates.append(parsed_grid.get(key))
+            parsed_grid = parsed_grid.get("grid") or parsed_grid.get("matrix") or parsed_grid.get("cells")
+
+        if not candidates:
+            if isinstance(parsed_grid, list) and parsed_grid:
+                candidates.append(len(parsed_grid))
+            elif isinstance(parsed_grid, str) and parsed_grid.strip():
+                lines = [
+                    line for line in parsed_grid.splitlines()
+                    if line.strip() and not SEPARATOR_LINE_RE.fullmatch(line.strip())
+                ]
+                if lines:
+                    candidates.append(len(lines))
+
+        if not candidates:
+            return 4
+
+        try:
+            size = int(candidates[0])
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Taille Futoshiki invalide: {candidates[0]}") from exc
+
+        if size < 3 or size > 9:
+            raise ValueError("Futoshiki supporte les tailles de 3x3 a 9x9")
+        return size
+
+    def _parse_futoshiki_givens(self, raw_grid: Any, size: int, symbols: Sequence[str]) -> Dict[Cell, str]:
+        raw_grid = self._parse_optional_json(raw_grid)
+        if raw_grid in (None, "", [], {}):
+            return {}
+
+        if isinstance(raw_grid, dict):
+            if "givens" in raw_grid:
+                return self._parse_givens(raw_grid["givens"], size, size, symbols)
+            raw_grid = raw_grid.get("grid") or raw_grid.get("matrix") or raw_grid.get("cells")
+            if raw_grid in (None, "", [], {}):
+                return {}
+
+        if isinstance(raw_grid, str):
+            raw_rows: List[Any] = [
+                line for line in raw_grid.splitlines()
+                if line.strip() and not SEPARATOR_LINE_RE.fullmatch(line.strip())
+            ]
+        elif isinstance(raw_grid, list):
+            raw_rows = raw_grid
+        else:
+            raise ValueError("Format de grille Futoshiki non supporte")
+
+        if len(raw_rows) != size:
+            raise ValueError(
+                f"Une grille Futoshiki {size}x{size} doit contenir {size} lignes, {len(raw_rows)} detectees"
+            )
+
+        givens: Dict[Cell, str] = {}
+        for row_index, raw_row in enumerate(raw_rows):
+            values = self._parse_futoshiki_row(raw_row, size, symbols)
+            for col_index, value in enumerate(values):
+                if value:
+                    givens[(row_index, col_index)] = value
+        return givens
+
+    def _parse_futoshiki_row(self, raw_row: Any, size: int, symbols: Sequence[str]) -> List[str]:
+        blank_tokens = {"", ".", "-", "_", "?", "0"}
+        symbol_set = set(symbols)
+        if isinstance(raw_row, list):
+            values = [str(value or "").strip() for value in raw_row]
+        else:
+            text = str(raw_row).strip()
+            if re.search(r"[\s,;|]", text):
+                values = [value for value in re.split(r"[\s,;|]+", text) if value != ""]
+            else:
+                values = [char for char in text if char in symbol_set or char in blank_tokens]
+
+        if len(values) != size:
+            raise ValueError(f"Une ligne Futoshiki doit contenir {size} valeurs, {len(values)} detectees")
+
+        parsed: List[str] = []
+        for value in values:
+            normalized = str(value or "").strip()
+            if normalized in blank_tokens:
+                parsed.append("")
+            elif normalized in symbol_set:
+                parsed.append(normalized)
+            else:
+                raise ValueError(f"Valeur Futoshiki non supportee: {value}")
+        return parsed
 
     def _parse_sudoku_tokens(self, text: str, symbols: Sequence[str], size: int = 9) -> List[str]:
         if not text or not str(text).strip():

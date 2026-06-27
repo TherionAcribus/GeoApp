@@ -35,6 +35,7 @@ Les objectifs actuels sont :
 - resoudre un Slither Link avec une boucle fermee unique ;
 - resoudre une Bataille navale / Bimaru avec flotte, totaux et navires non adjacents ;
 - resoudre un Fillomino avec regions connectees de taille imposee ;
+- resoudre un Futoshiki avec chiffres `1..N`, lignes/colonnes sans doublons et signes adjacents ;
 - permettre une saisie interactive dans une grille Theia ;
 - permettre l'edition visuelle des bords d'inegalite pour Compdoku ;
 - synchroniser une saisie rapide textuelle avec la grille ;
@@ -164,6 +165,7 @@ Entrées principales :
 | `row_totals` | string/list | vide | Totaux de lignes Bataille navale. |
 | `column_totals`, `col_totals` | string/list | vide | Totaux de colonnes Bataille navale. |
 | `fleet`, `ships`, `battleship_fleet` | object/list/string JSON | flotte classique | Flotte Bataille navale: longueur vers quantite. |
+| `size` | number | 4 | Taille N du Futoshiki NxN, de 3 a 9. |
 | `watched_cells` | string/list | vide | Cellules a extraire apres resolution. |
 | `watch_cells` | string/list | vide | Alias de `watched_cells`. |
 
@@ -214,6 +216,7 @@ Valeurs supportees pour `puzzle_type` :
 | `slitherlink` | `slither_link`, `slither`, `loop_the_loop`, `surizarinku` | Slither Link : une boucle unique autour des indices 0-3. |
 | `battleship` | `battleships`, `bimaru`, `solitaire_battleships`, `battleship_solitaire` | Bataille navale : flotte sans contacts et totaux de lignes/colonnes. |
 | `fillomino` | `polyomino`, `polyominous`, `allied_occupation` | Fillomino : regions connectees dont la taille egale leur valeur. |
+| `futoshiki` | `hutoshiki`, `unequal` | Futoshiki : latin square NxN avec signes `>` / `<` entre cases adjacentes. |
 | `custom_spec` | `custom`, `json_spec` | Probleme CSP decrit en JSON. |
 
 Format de grille Sudoku :
@@ -2047,6 +2050,47 @@ L'atelier Theia permet de regler librement les dimensions, de saisir des
 nombres a plusieurs chiffres et de parcourir les cases avec les fleches. Un
 bloc deja plus grand que sa valeur est colore en rouge.
 
+### Futoshiki
+
+`puzzle_type = futoshiki`
+
+Aliases :
+
+```text
+hutoshiki
+unequal
+```
+
+La grille est carree, de taille `size` entre 3 et 9. Les cases contiennent des
+chiffres `1..N`; les cases vides acceptent `.`, `0`, `_`, `-` ou `?`. Si
+`size` n'est pas fourni, le moteur tente de l'inferer depuis la grille, puis
+utilise 4 par defaut.
+
+Les contraintes sont :
+
+- chaque ligne contient chaque chiffre au plus une fois ;
+- chaque colonne contient chaque chiffre au plus une fois ;
+- chaque symbole horizontal `>` ou `<` compare la case de gauche avec celle de
+  droite ;
+- chaque symbole vertical compare la case du haut avec celle du bas.
+
+Les signes utilisent le meme format `inequalities` que Greater Than :
+
+```json
+{
+  "size": 4,
+  "grid": [["4", "", "", "1"], ["", "2", "", ""], ["", "", "", ""], ["2", "", "", "3"]],
+  "inequalities": {
+    "horizontal": [">..", "...", "..<", "..."],
+    "vertical": ["....", "....", ".>.."]
+  }
+}
+```
+
+Dans l'atelier Theia, la taille, les chiffres et les signes adjacents sont
+editables. Les fleches du clavier parcourent les cases, et les doublons ou
+inegalites contredites sont colores en rouge.
+
 ### Non-Consecutive Sudoku
 
 `puzzle_type = sudoku_non_consecutive`
@@ -2344,6 +2388,7 @@ Fonctionnalites actuelles :
 - dimensions, indices et traits manuels pour Slither Link ;
 - dimensions, flotte, totaux et marques manuelles pour Bataille navale ;
 - dimensions et nombres multi-chiffres pour Fillomino ;
+- taille, chiffres et signes adjacents pour Futoshiki ;
 - affichage de la premiere solution ;
 - reprise de la solution dans la grille ;
 - extraction des cellules surveillees ;
@@ -2355,7 +2400,7 @@ Fonctionnalites actuelles :
 |---|---|---|
 | `grid` | `string[][]` | Valeurs courantes de la grille. |
 | `quickText` | `string` | Representation texte de la grille. |
-| `puzzleType` | `sudoku_classic`, variantes classiques `sudoku_4x4` a `sudoku_16x16`, `chain_sudoku_4x4` a `chain_sudoku_9x9`, `sudoku_x`, `sudoku_argyle`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_vudoku`, `sudoku_rossini`, `sudoku_xv`, `sudoku_kropki`, `sudoku_skyscraper`, `sudoku_frame`, `sudoku_outside`, `sudoku_little_killer`, `sudoku_little_unique_killer`, `sudoku_godoku`, `sudoku_even_odd`, `sudoku_non_consecutive`, `sudoku_mine`, `sudoku_mine_6x6`, `nonogram`, `kakuro`, `hitori`, `slitherlink`, `battleship`, `fillomino` ou `sudoku_tripod_4x4` a `sudoku_tripod_8x8` | Variante active. |
+| `puzzleType` | `sudoku_classic`, variantes classiques `sudoku_4x4` a `sudoku_16x16`, `chain_sudoku_4x4` a `chain_sudoku_9x9`, `sudoku_x`, `sudoku_argyle`, `sudoku_anti_diagonal`, `sudoku_center_dot`, `sudoku_windoku`, `sudoku_girandola`, `sudoku_asterisk`, `sujiken`, `samurai_sudoku`, `flower_sudoku`, `sohei_sudoku`, `kazaguruma_sudoku`, `sudoku_greater_than`, `sudoku_vudoku`, `sudoku_rossini`, `sudoku_xv`, `sudoku_kropki`, `sudoku_skyscraper`, `sudoku_frame`, `sudoku_outside`, `sudoku_little_killer`, `sudoku_little_unique_killer`, `sudoku_godoku`, `sudoku_even_odd`, `sudoku_non_consecutive`, `sudoku_mine`, `sudoku_mine_6x6`, `nonogram`, `kakuro`, `hitori`, `slitherlink`, `battleship`, `fillomino`, `futoshiki` ou `sudoku_tripod_4x4` a `sudoku_tripod_8x8` | Variante active. |
 | `horizontalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme ligne. |
 | `verticalInequalities` | `string[][]` | Symboles `>` / `<` entre deux cases d'une meme colonne. |
 | `vudokuCorners` | `string[][]` | Coins Vudoku 8x8 : `tl`, `tr`, `bl`, `br` ou vide. |
@@ -2380,6 +2425,9 @@ Fonctionnalites actuelles :
 | `battleshipRowTotals`, `battleshipColumnTotals` | `string[]` | Totaux de lignes et colonnes Bataille navale. |
 | `battleshipFleet` | object | Quantite de navires par longueur. |
 | `fillominoRows`, `fillominoCols` | number | Dimensions de la grille Fillomino. |
+| `futoshikiSize` | number | Taille N du Futoshiki. |
+| `futoshikiHorizontalInequalities` | `string[][]` | Signes Futoshiki entre deux cases d'une meme ligne. |
+| `futoshikiVerticalInequalities` | `string[][]` | Signes Futoshiki entre deux cases d'une meme colonne. |
 | `parityMarks` | `string[][]` | Marques `even` / `odd` par cellule pour Even-Odd. |
 | `tripodDots` | `boolean[][]` | Points noirs (N+1)x(N+1) aux intersections pour Tripod. |
 | `chainGrid` | `number[][]` | Affectation des chaines Chain / Strimko. |
@@ -2733,6 +2781,8 @@ Couverture actuelle :
 - Bataille navale place une flotte sans contacts et respecte les totaux ;
 - Bataille navale refuse deux fragments connus en diagonale ;
 - Fillomino construit des regions connectees de tailles imposees ;
+- Futoshiki resout une grille 4x4 avec signes adjacents ;
+- Futoshiki refuse une inegalite contradictoire ;
 - Tripod valide avec reconstruction de regions ;
 - Tripod refuse un point noir impossible ;
 - extraction des cellules surveillees ;

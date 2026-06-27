@@ -1014,6 +1014,69 @@ def test_greater_than_rejects_contradictory_adjacent_relation():
     assert result["summary"] == "Aucune solution compatible avec les contraintes"
 
 
+def test_futoshiki_solves_4x4_with_adjacent_inequalities():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "futoshiki",
+            "size": 4,
+            "grid": [
+                ["4", "", "", "1"],
+                ["", "2", "", ""],
+                ["", "", "", ""],
+                ["2", "", "", "3"],
+            ],
+            "inequalities": {
+                "horizontal": [
+                    ">..",
+                    "...",
+                    "..<",
+                    "...",
+                ],
+                "vertical": [
+                    "....",
+                    "....",
+                    ".>..",
+                ],
+            },
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["metadata"]["variant"] == "futoshiki"
+    assert result["results"][0]["grid"] == [
+        ["4", "3", "2", "1"],
+        ["1", "2", "3", "4"],
+        ["3", "4", "1", "2"],
+        ["2", "1", "4", "3"],
+    ]
+
+
+def test_futoshiki_rejects_contradictory_relation():
+    plugin = load_plugin()
+
+    result = plugin.execute(
+        {
+            "puzzle_type": "unequal",
+            "size": 4,
+            "grid": [
+                ["4", "3", "2", "1"],
+                ["1", "2", "3", "4"],
+                ["3", "4", "1", "2"],
+                ["2", "1", "4", "3"],
+            ],
+            "inequalities": [{"cells": ["r1c1", "r1c2"], "relation": "<"}],
+            "max_solutions": 2,
+        }
+    )
+
+    assert result["status"] == "ok"
+    assert result["solution_count"] == 0
+    assert result["summary"] == "Aucune solution compatible avec les contraintes"
+
+
 def test_vudoku_accepts_matching_v_corner():
     plugin = load_plugin()
 

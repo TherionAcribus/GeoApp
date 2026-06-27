@@ -91,6 +91,8 @@ Generic finite-domain grid solver powered by Z3.
   is treated as 5x5.
 - `nonogram`: classic Nonogram / Picross. Row and column clues describe runs
   of filled cells; optional givens can force cells to filled or empty.
+- `futoshiki`: square Latin puzzle. Rows and columns contain `1..N` once each,
+  with adjacent `>` / `<` inequalities between cells.
 - Empty cells can be written as `0`, `.`, or `_`.
 - Separators such as spaces, pipes, and row divider lines are ignored.
 
@@ -123,7 +125,7 @@ Sudoku is just the first builder on top of a generic CSP model:
 - partial marked diagonals for variants such as Argyle;
 - declarative constraints (`all_different`, `equals`, `not_equal`, `sum`);
 - comparison constraints (`greater_than`, `less_than`) for adjacent-cell
-  variants such as Compdoku;
+  variants such as Compdoku and Futoshiki;
 - V-corner constraints (`vudoku`) where a vertex equals the sum or difference
   of two branch cells;
 - ordered triplet constraints (`strict_increasing`, `strict_decreasing`,
@@ -225,6 +227,28 @@ Each connected region has exactly as many cells as its displayed number.
 Distinct regions with the same number cannot share an edge. The workbench lets
 you resize the grid, enter multi-digit numbers and move with the arrow keys.
 
+## Futoshiki / Unequal
+
+Use `puzzle_type=futoshiki` (aliases: `hutoshiki`, `unequal`) with a square
+grid and optional `size` from `3` to `9`. Empty cells use `.`, `0`, `_`, `-`,
+or `?`. The solver fills digits `1..N`, with no duplicate in any row or column.
+
+Adjacent comparisons reuse the `inequalities` format:
+
+```json
+{
+  "size": 4,
+  "grid": [["4", "", "", "1"], ["", "2", "", ""], ["", "", "", ""], ["2", "", "", "3"]],
+  "inequalities": {
+    "horizontal": [">..", "...", "..<", "..."],
+    "vertical": ["....", "....", ".>.."]
+  }
+}
+```
+
+Horizontal `>` means the left cell is greater than the right cell. Vertical
+`>` means the upper cell is greater than the lower cell.
+
 ## Nonogram / Picross
 
 Use `puzzle_type=nonogram` (aliases: `picross`, `griddlers`, `hanjie`) with
@@ -292,6 +316,7 @@ the Theia "Grilles" workbench:
 - editable ship, water and unknown marks, row/column totals and fleet counts
   for Battleship / Bimaru;
 - editable dimensions and multi-digit number cells for Fillomino;
+- editable square size, digits and adjacent inequality signs for Futoshiki;
 - watch mode to mark answer cells;
 - solve action calling this plugin;
 - extracted watched values returned as `watched_values` and `watched_text`.
