@@ -246,6 +246,9 @@ function buildActionInstruction(action: EarthCoachQuickAction, mode: EarthCoachM
         }
         return 'Action demandee: expliquer un mot. Demande le terme a expliquer si aucun terme precis n est fourni, puis explique-le simplement dans le contexte EarthCache.';
     }
+    if (action === 'geology_context') {
+        return 'Action demandee: situer le contexte geologique. Appelle le tool earthcoach_geology_at_point avec les coordonnees decimales de la cache, puis resume lithologie, age et formation. Rappelle que c est une carte generale a confirmer sur le terrain.';
+    }
     if (action === 'illustrate_term') {
         return 'Action demandee: illustrer un terme geologique. Utilise des references externes educational_reference si disponibles, puis precise que les images sont generiques.';
     }
@@ -309,6 +312,9 @@ export function buildEarthCoachPrompt(input: EarthCoachPromptInput): string {
         `Difficulte / Terrain: ${data.difficulty ?? '?'} / ${data.terrain ?? '?'}`,
         `Proprietaire: ${data.owner || 'Inconnu'} - Statut: ${data.status || 'Inconnu'}`,
         `Coordonnees affichees: ${data.coordinates_raw || data.original_coordinates_raw || 'Non renseignees'}`,
+        data.latitude != null && data.longitude != null
+            ? `Coordonnees decimales: ${data.latitude}, ${data.longitude}`
+            : undefined,
         data.placed_at ? `Placee le: ${data.placed_at}` : undefined,
         '',
         description ? 'Description du listing (extrait):' : undefined,

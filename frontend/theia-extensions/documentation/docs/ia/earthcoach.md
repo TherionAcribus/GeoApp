@@ -107,6 +107,18 @@ Ces questions sont reutilisees par EarthCoach :
 - dans le **mode terrain compact**, pour la section des questions a verifier sur place ;
 - dans le **mode resolver**, qui traite chaque question selon un gabarit structure : reponse proposee, observation qui la fonde, niveau de confiance et ce qu'il reste a completer.
 
+## Contexte geologique par coordonnees
+
+L'action **Contexte geologique** (ou une simple question dans le chat) demande a EarthCoach de situer la geologie de la cache a partir de ses coordonnees. Il interroge **Macrostrat**, une base cartographique geologique mondiale, et resume la **lithologie**, l'**age** et la **formation** presentes a cet endroit.
+
+C'est une donnee de **carte geologique generale**, pas une observation de terrain : EarthCoach le rappelle systematiquement et invite a confirmer sur place. Si aucune unite n'est cartographiee a ces coordonnees, il le dit sans rien inventer.
+
+Exemple :
+
+```text
+@EarthCoach quel est le contexte geologique de cette EarthCache ?
+```
+
 ## Calculs geologiques
 
 Beaucoup d'EarthCaches posent des questions chiffrees (hauteur, pente, distance, age, debit...). EarthCoach dispose d'un outil de calcul deterministe `earthcoach_calculate` : il applique une formule exacte aux mesures que vous fournissez, au lieu d'estimer le resultat de tete.

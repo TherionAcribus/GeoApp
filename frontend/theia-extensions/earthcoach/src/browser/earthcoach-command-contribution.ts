@@ -83,6 +83,11 @@ const QUICK_ACTION_GROUPS: EarthCoachQuickActionGroup[] = [
                 description: 'Definition simple d un terme geologique',
                 value: 'explain_word',
             },
+            {
+                label: `${CHAT_ICON} Contexte geologique`,
+                description: 'Lithologie, age et formation aux coordonnees (Macrostrat)',
+                value: 'geology_context',
+            },
         ],
     },
     {

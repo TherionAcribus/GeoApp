@@ -18,6 +18,7 @@ export type EarthCoachQuickAction =
     | 'image_gallery'
     | 'illustrate_term'
     | 'explain_word'
+    | 'geology_context'
     | 'analyze_observations'
     | 'resolve';
 
@@ -84,6 +85,8 @@ export interface EarthCoachGeocacheData {
     owner?: string;
     difficulty?: number;
     terrain?: number;
+    latitude?: number;
+    longitude?: number;
     coordinates_raw?: string;
     original_coordinates_raw?: string;
     placed_at?: string;

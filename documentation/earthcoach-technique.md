@@ -44,6 +44,9 @@ Fichiers principaux :
 | `earthcoach-logging-tasks-widget.tsx` | Widget Theia de suivi, edition et extraction des questions du proprietaire. |
 | `earthcoach-geo-calculator.ts` | Fonctions pures de calcul geologique deterministe et dispatcher `runEarthCoachCalculation`. |
 | `earthcoach-geo-calculator-tools.ts` | Tool `earthcoach_calculate` exposant les calculs deterministes a l'agent. |
+| `earthcoach-geology.ts` | Types du contexte geologique et resume pur `formatGeologySummary`. |
+| `earthcoach-geology-service.ts` | Client frontend du proxy geologique (`/api/earthcoach/geology`). |
+| `earthcoach-geology-tools.ts` | Tool `earthcoach_geology_at_point` (contexte geologique par coordonnees). |
 | `earthcoach-reference-tools.ts` | Tool `earthcoach_search_reference`, recherches Wikipedia/Wikimedia, cache local. |
 | `earthcoach-reference-widget.tsx` | Vue "References EarthCoach" avec recherche, articles et images pedagogiques. |
 | `earthcoach-note-tools.ts` | Tool `earthcoach_save_note` pour enregistrer une synthese dans les notes GeoApp. |
@@ -82,6 +85,7 @@ Il expose les tools EarthCoach a chaque requete via `sendLlmRequest()` :
 - `earthcoach_save_note`
 - `earthcoach_extract_logging_tasks`
 - `earthcoach_calculate`
+- `earthcoach_geology_at_point`
 
 La methode filtre les tools EarthCoach deja presents dans `toolRequests`, puis ajoute les instances reconstruites par les managers :
 
@@ -91,6 +95,7 @@ const earthCoachTools = [
     ...this.noteTools.buildAllTools(),
     ...this.loggingTaskTools.buildAllTools(),
     ...this.geoCalculatorTools.buildAllTools(),
+    ...this.geologyTools.buildAllTools(),
 ];
 ```
 
@@ -352,6 +357,19 @@ Le tool `earthcoach_calculate` (`earthcoach-geo-calculator-tools.ts`) couvre les
 | `average` | moyenne, min, max, somme | values |
 
 Chaque resultat renvoie la valeur, l'unite, la formule, les entrees et un rappel que les mesures doivent venir du terrain. Le prompt systeme demande d'utiliser ce tool des qu une valeur chiffree est attendue et de ne jamais inventer les mesures d entree.
+
+## Contexte geologique par coordonnees
+
+EarthCoach peut situer la geologie d'une EarthCache a partir de ses coordonnees decimales, via **Macrostrat** (API JSON publique, sans cle, couverture mondiale).
+
+Architecture :
+
+- **Proxy backend** `earthcoach_geology.py` : route `GET /api/earthcoach/geology?lat=&lon=`. Il appelle Macrostrat (`geologic_units/map`), normalise chaque unite (nom, lithologie, age, description...), met en cache memoire (TTL 24 h, cle par coordonnees arrondies) et renvoie une erreur 502 propre si le service externe est indisponible. Le proxy evite toute dependance au CORS et centralise le cache.
+- **Service frontend** `EarthCoachGeologyService.geologyAtPoint(lat, lon)`.
+- **Tool** `earthcoach_geology_at_point` (`earthcoach-geology-tools.ts`) : l'agent l'appelle avec les coordonnees decimales de la cache (desormais incluses dans le prompt). La reponse contient les unites normalisees plus un `summary` (`formatGeologySummary`).
+- **Action rapide** `geology_context` (groupe *Comprendre*) : lance une session chat qui demande a l'agent d'appeler le tool puis de resumer lithologie, age et formation.
+
+Le prompt systeme rappelle que ces donnees viennent d'une carte geologique generale : ce n'est jamais une observation de terrain, et le resultat doit etre confirme sur place. Attribution : Macrostrat (CC-BY 4.0).
 
 ## Integration avec `zones`
 

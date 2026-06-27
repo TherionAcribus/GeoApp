@@ -14,6 +14,8 @@ import { EarthCoachReferenceTools } from '../earthcoach-reference-tools';
 import { EarthCoachLoggingTaskTools } from '../earthcoach-logging-task-tools';
 import { EarthCoachGeoCalculatorTools } from '../earthcoach-geo-calculator-tools';
 import { runEarthCoachCalculation } from '../earthcoach-geo-calculator';
+import { EarthCoachGeologyTools } from '../earthcoach-geology-tools';
+import { formatGeologySummary } from '../earthcoach-geology';
 import {
     buildLoggingTaskInput,
     buildLoggingTaskSeed,
@@ -719,6 +721,45 @@ function testGeoCalculationErrors(): void {
     }), /lat1/);
 }
 
+function testGeologyToolShape(): void {
+    const tools = new EarthCoachGeologyTools().buildAllTools();
+    assert.equal(tools.length, 1);
+    assert.equal(tools[0].id, EarthCoachGeologyTools.GEOLOGY_TOOL_ID);
+    assert.equal(tools[0].name, 'earthcoach_geology_at_point');
+    assert.match(tools[0].description, /Macrostrat/);
+}
+
+function testFormatGeologySummary(): void {
+    const summary = formatGeologySummary({
+        lat: 45.78,
+        lon: 4.87,
+        source: 'macrostrat',
+        attribution: 'Macrostrat',
+        units: [
+            { name: 'Calcaires du Bajocien', lithology: 'limestone', age_text: 'Bajocian - Bathonian', description: 'Calcaires a entroques.' },
+            { strat_name: 'Molasse', scale: 'small' },
+        ],
+    });
+    assert.match(summary, /- Calcaires du Bajocien \(lithologie: limestone; age: Bajocian - Bathonian\)/);
+    assert.match(summary, /Calcaires a entroques\./);
+    assert.match(summary, /- Molasse \(echelle: small\)/);
+
+    const empty = formatGeologySummary({ lat: 0, lon: 0, source: 'macrostrat', attribution: '', units: [] });
+    assert.match(empty, /Aucune unite geologique/);
+}
+
+function testGeologyActionInstruction(): void {
+    const prompt = buildEarthCoachPrompt({
+        geocache: { id: 1, name: 'Earth test', type: 'EarthCache', latitude: 45.78, longitude: 4.87 },
+        mode: 'coach',
+        action: 'geology_context',
+        observations: [],
+        images: [],
+    });
+    assert.match(prompt, /earthcoach_geology_at_point/);
+    assert.match(prompt, /Coordonnees decimales: 45.78, 4.87/);
+}
+
 function testImageContextMapping(): void {
     const context = toImageContext(createImages()[1]);
     assert.deepEqual(context, {
@@ -781,6 +822,9 @@ async function run(): Promise<void> {
     testGeoCalculatorToolShape();
     testGeoCalculations();
     testGeoCalculationErrors();
+    testGeologyToolShape();
+    testFormatGeologySummary();
+    testGeologyActionInstruction();
     testImageContextMapping();
     testSelectImagesForChatPrioritizesUserObservations();
     testSelectImagesForChatHonorsPreferredIds();
