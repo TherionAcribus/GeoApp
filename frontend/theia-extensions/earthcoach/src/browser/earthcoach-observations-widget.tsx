@@ -6,6 +6,9 @@ import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { getErrorMessage } from 'theia-ide-zones-ext/lib/browser/backend-api-client';
 import { EarthCoachContext } from './earthcoach-context-service';
 import { EarthCoachObservationService } from './earthcoach-observation-service';
+import { EarthCoachLoggingTaskService } from './earthcoach-logging-task-service';
+import { EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT } from './earthcoach-logging-task-tools';
+import { formatLoggingTaskSeedLabel, LoggingTaskSeed } from './earthcoach-logging-tasks';
 import { EarthCoachGeocacheData, GeoImage } from './earthcoach-types';
 import {
     buildEarthCoachObservationInput,
@@ -373,11 +376,13 @@ interface EarthCoachObservationsViewProps {
     createDraft: EarthCoachObservationDraft;
     editingObservationId?: number;
     editingDraft: EarthCoachObservationDraft;
+    pendingLinkTask?: LoggingTaskSeed;
     isLoading: boolean;
     isSaving: boolean;
     isUploadingImage: boolean;
     deletingObservationId?: number;
     onRefresh: () => void | Promise<void>;
+    onClearPendingLink: () => void;
     onCreateDraftChange: (draft: EarthCoachObservationDraft) => void;
     onEditingDraftChange: (draft: EarthCoachObservationDraft) => void;
     onCreate: () => void | Promise<void>;
@@ -416,8 +421,29 @@ function EarthCoachObservationsView(props: EarthCoachObservationsViewProps): Rea
                 </button>
             </header>
 
+            {props.pendingLinkTask ? (
+                <div
+                    style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        gap: 10,
+                        flexWrap: 'wrap',
+                        border: '1px solid var(--theia-focusBorder)',
+                        borderRadius: 6,
+                        padding: '8px 12px',
+                        background: 'var(--theia-editorWidget-background)',
+                    }}
+                >
+                    <span style={{ fontSize: 13 }}>{formatLoggingTaskSeedLabel(props.pendingLinkTask)}</span>
+                    <button className='theia-button secondary' type='button' onClick={props.onClearPendingLink}>
+                        Ne pas lier
+                    </button>
+                </div>
+            ) : undefined}
+
             <ObservationForm
-                title='Nouvelle observation'
+                title={props.pendingLinkTask ? `Nouvelle observation pour Q${props.pendingLinkTask.position}` : 'Nouvelle observation'}
                 draft={props.createDraft}
                 waypoints={waypoints}
                 images={props.images}
@@ -484,6 +510,7 @@ export class EarthCoachObservationsWidget extends ReactWidget {
     protected createDraft: EarthCoachObservationDraft = createEarthCoachObservationDraft();
     protected editingObservationId: number | undefined;
     protected editingDraft: EarthCoachObservationDraft = createEarthCoachObservationDraft();
+    protected pendingLinkTask: LoggingTaskSeed | undefined;
     protected isLoading = false;
     protected isSaving = false;
     protected isUploadingImage = false;
@@ -495,6 +522,9 @@ export class EarthCoachObservationsWidget extends ReactWidget {
 
     @inject(EarthCoachObservationService)
     protected readonly observationService!: EarthCoachObservationService;
+
+    @inject(EarthCoachLoggingTaskService)
+    protected readonly loggingTaskService!: EarthCoachLoggingTaskService;
 
     @postConstruct()
     protected init(): void {
@@ -514,8 +544,21 @@ export class EarthCoachObservationsWidget extends ReactWidget {
         this.createDraft = createEarthCoachObservationDraft();
         this.editingObservationId = undefined;
         this.editingDraft = createEarthCoachObservationDraft();
+        this.pendingLinkTask = undefined;
         this.title.label = `${EarthCoachObservationsWidget.LABEL} - ${context.geocacheData.gc_code || context.geocacheData.name}`;
         void this.loadObservations();
+        this.update();
+    }
+
+    seedFromLoggingTask(seed: LoggingTaskSeed): void {
+        this.pendingLinkTask = seed;
+        this.editingObservationId = undefined;
+        this.createDraft = createEarthCoachObservationDraft();
+        this.update();
+    }
+
+    protected clearPendingLink(): void {
+        this.pendingLinkTask = undefined;
         this.update();
     }
 
@@ -564,19 +607,38 @@ export class EarthCoachObservationsWidget extends ReactWidget {
             this.messages.warn('Contenu de l observation requis');
             return;
         }
+        const linkTask = this.pendingLinkTask;
         this.isSaving = true;
         this.update();
         try {
-            await this.observationService.createObservation(geocacheId, payload);
+            const created = await this.observationService.createObservation(geocacheId, payload);
             this.createDraft = createEarthCoachObservationDraft();
+            if (linkTask && created.id != null) {
+                await this.linkObservationToTask(linkTask, created.id, geocacheId);
+            }
             await this.loadObservations();
-            this.messages.info('Observation EarthCoach ajoutee');
+            this.messages.info(linkTask
+                ? `Observation ajoutee et liee a la question Q${linkTask.position}`
+                : 'Observation EarthCoach ajoutee');
         } catch (error) {
             console.error('[EarthCoach] Unable to create observation', error);
             this.messages.error(getErrorMessage(error, 'Impossible de creer l observation EarthCoach'));
         } finally {
             this.isSaving = false;
             this.update();
+        }
+    }
+
+    protected async linkObservationToTask(seed: LoggingTaskSeed, observationId: number, geocacheId: number): Promise<void> {
+        try {
+            await this.loggingTaskService.linkObservation(seed.taskId, observationId);
+            this.pendingLinkTask = undefined;
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent(EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT, { detail: { geocacheId } }));
+            }
+        } catch (error) {
+            console.error('[EarthCoach] Unable to link observation to logging task', error);
+            this.messages.warn('Observation creee, mais impossible de la lier automatiquement a la question.');
         }
     }
 
@@ -730,11 +792,13 @@ export class EarthCoachObservationsWidget extends ReactWidget {
                 createDraft={this.createDraft}
                 editingObservationId={this.editingObservationId}
                 editingDraft={this.editingDraft}
+                pendingLinkTask={this.pendingLinkTask}
                 isLoading={this.isLoading}
                 isSaving={this.isSaving}
                 isUploadingImage={this.isUploadingImage}
                 deletingObservationId={this.deletingObservationId}
                 onRefresh={() => this.loadObservations()}
+                onClearPendingLink={() => this.clearPendingLink()}
                 onCreateDraftChange={draft => this.setCreateDraft(draft)}
                 onEditingDraftChange={draft => this.setEditingDraft(draft)}
                 onCreate={() => this.createObservation()}

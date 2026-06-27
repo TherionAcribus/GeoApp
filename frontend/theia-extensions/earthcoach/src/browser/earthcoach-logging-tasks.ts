@@ -101,6 +101,28 @@ export function buildLoggingTaskInput(draft: LoggingTaskDraft): LoggingTaskInput
     };
 }
 
+export interface LoggingTaskSeed {
+    taskId: number;
+    position: number;
+    question: string;
+    guidance?: string;
+}
+
+/** Construit la graine transmise au widget Observations pour creer une observation liee a une question. */
+export function buildLoggingTaskSeed(task: LoggingTaskDto): LoggingTaskSeed {
+    return {
+        taskId: task.id,
+        position: task.position ?? 0,
+        question: (task.question || '').trim(),
+        guidance: task.guidance?.trim() || undefined,
+    };
+}
+
+/** Banniere affichee au-dessus du formulaire d'observation quand elle est liee a une question. */
+export function formatLoggingTaskSeedLabel(seed: LoggingTaskSeed): string {
+    return `Observation liee a la question Q${seed.position}: ${seed.question}`;
+}
+
 function coerceBool(value: unknown): boolean {
     if (typeof value === 'boolean') {
         return value;

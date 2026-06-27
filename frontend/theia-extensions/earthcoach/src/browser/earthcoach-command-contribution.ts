@@ -22,11 +22,14 @@ import {
 import { EarthCoachContextService } from './earthcoach-context-service';
 import {
     EarthCoachAgentId,
+    EarthCoachObserveTaskCommandId,
     EarthCoachOpenCommandId,
     EarthCoachVerbosity,
+    EarthCoachGeocacheData,
     EarthCoachOpenRequest,
     EarthCoachQuickAction,
 } from './earthcoach-types';
+import { buildLoggingTaskSeed, LoggingTaskDto, LoggingTaskSeed } from './earthcoach-logging-tasks';
 import { buildEarthCoachPrompt, selectEarthCoachImagesForChat, toImageContext } from './earthcoach-prompt-builder';
 import { EarthCoachFieldChecklistWidget } from './earthcoach-field-checklist-widget';
 import { EarthCoachImageGalleryWidget } from './earthcoach-image-gallery-widget';
@@ -44,6 +47,15 @@ export namespace EarthCoachCommands {
         id: 'earthcoach.references.open',
         label: 'References EarthCoach',
     };
+    export const OBSERVE_TASK = {
+        id: EarthCoachObserveTaskCommandId,
+        label: 'EarthCoach: observer une question',
+    };
+}
+
+interface EarthCoachObserveTaskRequest {
+    geocacheData: EarthCoachGeocacheData;
+    task: LoggingTaskDto;
 }
 
 // Icone prefixant chaque action pour signaler son comportement:
@@ -166,6 +178,9 @@ export class EarthCoachCommandContribution implements CommandContribution, MenuC
         });
         registry.registerCommand(EarthCoachCommands.OPEN_REFERENCES, {
             execute: (query?: string) => this.openReferenceWidget(typeof query === 'string' ? query : undefined),
+        });
+        registry.registerCommand(EarthCoachCommands.OBSERVE_TASK, {
+            execute: (request?: EarthCoachObserveTaskRequest) => this.observeLoggingTask(request),
         });
     }
 
@@ -360,16 +375,34 @@ export class EarthCoachCommandContribution implements CommandContribution, MenuC
         this.shell.activateWidget(widget.id);
     }
 
-    protected async openObservationsWidget(context: Awaited<ReturnType<EarthCoachContextService['collectContext']>>): Promise<void> {
+    protected async openObservationsWidget(
+        context: Awaited<ReturnType<EarthCoachContextService['collectContext']>>,
+        seed?: LoggingTaskSeed
+    ): Promise<void> {
         if (!context) {
             return;
         }
         const widget = await this.widgetManager.getOrCreateWidget<EarthCoachObservationsWidget>(EarthCoachObservationsWidget.ID);
         widget.setContext(context);
+        if (seed) {
+            widget.seedFromLoggingTask(seed);
+        }
         if (!widget.isAttached) {
             this.shell.addWidget(widget, { area: 'right', mode: 'tab-after' });
         }
         this.shell.activateWidget(widget.id);
+    }
+
+    protected async observeLoggingTask(request?: EarthCoachObserveTaskRequest): Promise<void> {
+        if (!request?.geocacheData || !request.task) {
+            return;
+        }
+        const context = await this.contextService.collectContext({ geocacheData: request.geocacheData });
+        if (!context) {
+            this.messages.warn('Aucune geocache active pour EarthCoach.');
+            return;
+        }
+        await this.openObservationsWidget(context, buildLoggingTaskSeed(request.task));
     }
 
     protected async openLoggingTasksWidget(context: Awaited<ReturnType<EarthCoachContextService['collectContext']>>): Promise<void> {

@@ -43,6 +43,15 @@ export class EarthCoachLoggingTaskService {
         return response.logging_task;
     }
 
+    async linkObservation(taskId: number, observationId: number | null): Promise<LoggingTaskDto> {
+        const response = await this.apiClient.requestJson<LoggingTaskMutationResponse>(
+            `/api/logging-tasks/${taskId}`,
+            this.apiClient.createJsonInit('PUT', { observation_id: observationId }),
+            'Erreur lors de la liaison de l observation a la question'
+        );
+        return response.logging_task;
+    }
+
     async deleteLoggingTask(taskId: number): Promise<void> {
         await this.apiClient.requestVoid(
             `/api/logging-tasks/${taskId}`,

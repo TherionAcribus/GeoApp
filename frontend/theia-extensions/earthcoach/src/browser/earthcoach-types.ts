@@ -2,6 +2,8 @@ export const EarthCoachAgentId = 'earthcoach';
 
 export const EarthCoachOpenCommandId = 'earthcoach.open';
 
+export const EarthCoachObserveTaskCommandId = 'earthcoach.observeTask';
+
 export type EarthCoachMode = 'coach' | 'resolver';
 
 export type EarthCoachVerbosity = 'compact' | 'normal' | 'detailed';

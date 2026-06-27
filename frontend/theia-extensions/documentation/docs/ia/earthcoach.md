@@ -96,6 +96,12 @@ Chaque question peut contenir :
 
 Le bouton **Extraire via EarthCoach (IA)** demande a l'agent de lire le listing et de remplir automatiquement la liste des questions. Cette extraction **remplace** les questions deja enregistrees : EarthCoach ne la lance que si vous le demandez explicitement, et n'invente jamais de question ni de reponse. Vous pouvez ensuite corriger, completer ou supprimer chaque question a la main.
 
+### De la question a l'observation (boucle terrain)
+
+Chaque question affiche un bouton **Observer**. Il ouvre la vue **Observations terrain** avec une nouvelle observation deja rattachee a la question : une banniere rappelle de quelle question il s'agit. Quand vous enregistrez l'observation, EarthCoach la **lie automatiquement** a la question (vous pouvez refuser la liaison avec **Ne pas lier**).
+
+Inversement, depuis le formulaire d'une question, le menu **Observation liee** permet de rattacher une observation deja saisie. Vous pouvez ainsi suivre tout le parcours : question du proprietaire -> observation sur le terrain -> reponse -> resolution.
+
 Ces questions sont reutilisees par EarthCoach :
 
 - dans le **mode terrain compact**, pour la section des questions a verifier sur place ;

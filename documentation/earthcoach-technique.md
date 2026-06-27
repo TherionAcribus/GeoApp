@@ -324,6 +324,18 @@ Le tool `earthcoach_extract_logging_tasks` (`earthcoach-logging-task-tools.ts`) 
 
 L'action rapide **Questions du proprietaire** du QuickPick (`logging_tasks`) ouvre ce widget.
 
+### Boucle terrain (question <-> observation)
+
+Chaque question expose un bouton **Observer** qui execute la commande `earthcoach.observeTask` (id `EarthCoachObserveTaskCommandId`). Le handler `observeLoggingTask` collecte le contexte, ouvre le widget Observations et lui transmet une graine `LoggingTaskSeed` via `seedFromLoggingTask`.
+
+Cote widget Observations :
+
+- une banniere rappelle la question liee (`formatLoggingTaskSeedLabel`) avec un bouton **Ne pas lier** ;
+- a la creation de l'observation, si une graine est presente, l'observation est liee a la question via `EarthCoachLoggingTaskService.linkObservation` (route `PUT /api/logging-tasks/<id>` avec `observation_id`) ;
+- l'evenement `earthcoach-logging-tasks-updated` est emis pour rafraichir le widget Questions.
+
+La liaison inverse (choisir une observation existante pour une question) reste disponible via le menu deroulant du formulaire de question. La boucle se ferme donc dans les deux sens : terrain -> observation -> question -> resolution.
+
 ## Calculs geologiques deterministes
 
 Le tool `earthcoach_calculate` (`earthcoach-geo-calculator-tools.ts`) couvre les questions quantitatives frequentes des EarthCaches, la ou un calcul fait "de tete" par le LLM est peu fiable. La logique est entierement deterministe et testee dans `earthcoach-geo-calculator.ts` :

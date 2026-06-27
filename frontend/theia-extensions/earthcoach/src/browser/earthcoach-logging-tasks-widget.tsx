@@ -7,7 +7,7 @@ import { getErrorMessage } from 'theia-ide-zones-ext/lib/browser/backend-api-cli
 import { EarthCoachContext } from './earthcoach-context-service';
 import { EarthCoachLoggingTaskService } from './earthcoach-logging-task-service';
 import { EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT } from './earthcoach-logging-task-tools';
-import { EarthCoachOpenCommandId, LoggingTaskStatus, UserObservation } from './earthcoach-types';
+import { EarthCoachObserveTaskCommandId, EarthCoachOpenCommandId, LoggingTaskStatus, UserObservation } from './earthcoach-types';
 import {
     buildLoggingTaskInput,
     createLoggingTaskDraft,
@@ -167,6 +167,7 @@ interface LoggingTaskCardProps {
     task: LoggingTaskDto;
     observationOptions: ObservationOption[];
     onEdit: (task: LoggingTaskDto) => void;
+    onObserve: (task: LoggingTaskDto) => void | Promise<void>;
     onDelete: (task: LoggingTaskDto) => void | Promise<void>;
     isDeleting: boolean;
 }
@@ -222,6 +223,14 @@ function LoggingTaskCard(props: LoggingTaskCardProps): React.ReactElement {
                     ) : undefined}
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                    <button
+                        className='theia-button secondary'
+                        type='button'
+                        onClick={() => { void props.onObserve(task); }}
+                        title='Creer une observation terrain liee a cette question'
+                    >
+                        Observer
+                    </button>
                     <button className='theia-button secondary' type='button' onClick={() => props.onEdit(task)}>
                         Modifier
                     </button>
@@ -255,6 +264,7 @@ interface LoggingTasksViewProps {
     onEditingDraftChange: (draft: LoggingTaskDraft) => void;
     onCreate: () => void | Promise<void>;
     onStartEdit: (task: LoggingTaskDto) => void;
+    onObserve: (task: LoggingTaskDto) => void | Promise<void>;
     onCancelEdit: () => void;
     onSaveEdit: () => void | Promise<void>;
     onDelete: (task: LoggingTaskDto) => void | Promise<void>;
@@ -333,6 +343,7 @@ function LoggingTasksView(props: LoggingTasksViewProps): React.ReactElement {
                                 task={task}
                                 observationOptions={props.observationOptions}
                                 onEdit={props.onStartEdit}
+                                onObserve={props.onObserve}
                                 onDelete={props.onDelete}
                                 isDeleting={props.deletingTaskId === task.id}
                             />
@@ -448,6 +459,14 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
             geocacheData,
             action: 'extract_logging_tasks',
         });
+    }
+
+    protected async observeTask(task: LoggingTaskDto): Promise<void> {
+        const geocacheData = this.context?.geocacheData;
+        if (!geocacheData) {
+            return;
+        }
+        await this.commandService.executeCommand(EarthCoachObserveTaskCommandId, { geocacheData, task });
     }
 
     protected setCreateDraft(draft: LoggingTaskDraft): void {
@@ -576,6 +595,7 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
                 onEditingDraftChange={draft => this.setEditingDraft(draft)}
                 onCreate={() => this.createTask()}
                 onStartEdit={task => this.startEdit(task)}
+                onObserve={task => this.observeTask(task)}
                 onCancelEdit={() => this.cancelEdit()}
                 onSaveEdit={() => this.saveEdit()}
                 onDelete={task => this.deleteTask(task)}

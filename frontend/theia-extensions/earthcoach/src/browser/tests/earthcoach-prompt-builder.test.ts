@@ -16,8 +16,10 @@ import { EarthCoachGeoCalculatorTools } from '../earthcoach-geo-calculator-tools
 import { runEarthCoachCalculation } from '../earthcoach-geo-calculator';
 import {
     buildLoggingTaskInput,
+    buildLoggingTaskSeed,
     createLoggingTaskDraft,
     createLoggingTaskDraftFromDto,
+    formatLoggingTaskSeedLabel,
     normalizeExtractionTasks,
 } from '../earthcoach-logging-tasks';
 import {
@@ -633,6 +635,25 @@ function testExtractActionInstruction(): void {
     assert.match(prompt, /sans en inventer/);
 }
 
+function testLoggingTaskSeed(): void {
+    const seed = buildLoggingTaskSeed({
+        id: 8,
+        position: 3,
+        question: '  Couleur de la roche ?  ',
+        guidance: '  observer en place  ',
+    });
+    assert.deepEqual(seed, {
+        taskId: 8,
+        position: 3,
+        question: 'Couleur de la roche ?',
+        guidance: 'observer en place',
+    });
+    assert.equal(formatLoggingTaskSeedLabel(seed), 'Observation liee a la question Q3: Couleur de la roche ?');
+
+    const emptyGuidance = buildLoggingTaskSeed({ id: 1, position: 1, question: 'Q', guidance: '   ' });
+    assert.equal(emptyGuidance.guidance, undefined);
+}
+
 function testGeoCalculatorToolShape(): void {
     const tools = new EarthCoachGeoCalculatorTools().buildAllTools();
     assert.equal(tools.length, 1);
@@ -755,6 +776,7 @@ async function run(): Promise<void> {
     testLoggingTaskInputBuilder();
     testLoggingTaskDraftFromDto();
     testNormalizeExtractionTasks();
+    testLoggingTaskSeed();
     testExtractActionInstruction();
     testGeoCalculatorToolShape();
     testGeoCalculations();
