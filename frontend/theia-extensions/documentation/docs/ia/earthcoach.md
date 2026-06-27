@@ -48,6 +48,7 @@ Quand vous ouvrez EarthCoach depuis une EarthCache, GeoApp propose plusieurs act
 | **Preparer ma visite** | Produit une checklist terrain : observer, mesurer, photographier, noter. |
 | **Mode terrain compact** | Ouvre une checklist imprimable/mobile sans attendre une reponse du chat. |
 | **Observations terrain** | Ouvre la vue de creation, edition et liaison de photos aux observations structurees. |
+| **Questions du proprietaire** | Ouvre la vue de suivi des questions du log : ajout, edition, statut, photo requise et extraction IA. |
 | **Galerie images EarthCoach** | Separe visuellement images du listing, photos utilisateur et references pedagogiques. |
 | **Illustrer un terme** | Ouvre les references EarthCoach avec articles et images pedagogiques. |
 | **Expliquer un mot** | Explique un terme geologique dans le contexte de la cache. |
@@ -79,6 +80,26 @@ Elle affiche trois sections distinctes :
 | **References pedagogiques** | Images generiques issues de references externes. | Elles ne doivent jamais etre presentees comme observation terrain. |
 
 Cette vue sert a eviter les confusions. Si vous voulez chercher des exemples pedagogiques supplementaires, utilisez le bouton **References pedagogiques** ou l'action **Illustrer un terme**.
+
+## Questions du proprietaire (logging tasks)
+
+L'action **Questions du proprietaire** ouvre une vue EarthCoach dediee au suivi des questions imposees par le proprietaire de l'EarthCache.
+
+Chaque question peut contenir :
+
+- le texte de la question ;
+- une consigne d'observation (ce qu'il faut observer ou mesurer) ;
+- un statut : a traiter, a observer sur le terrain ou repondu ;
+- l'indication d'une photo requise ;
+- un brouillon de reponse ;
+- une observation terrain liee.
+
+Le bouton **Extraire via EarthCoach (IA)** demande a l'agent de lire le listing et de remplir automatiquement la liste des questions. Cette extraction **remplace** les questions deja enregistrees : EarthCoach ne la lance que si vous le demandez explicitement, et n'invente jamais de question ni de reponse. Vous pouvez ensuite corriger, completer ou supprimer chaque question a la main.
+
+Ces questions sont reutilisees par EarthCoach :
+
+- dans le **mode terrain compact**, pour la section des questions a verifier sur place ;
+- dans le **mode resolver**, qui traite chaque question selon un gabarit structure : reponse proposee, observation qui la fonde, niveau de confiance et ce qu'il reste a completer.
 
 ## References externes
 

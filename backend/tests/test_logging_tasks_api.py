@@ -141,6 +141,41 @@ def test_update_rejects_observation_from_another_geocache(client, seed_data):
     assert json.loads(response.data)['error'] == 'observation_id does not belong to this geocache'
 
 
+def test_replace_logging_tasks_overwrites_set(client, seed_data):
+    client.post(
+        f"/api/geocaches/{seed_data['geocache_id']}/logging-tasks",
+        json={'question': 'Ancienne question.'},
+    )
+
+    response = client.put(
+        f"/api/geocaches/{seed_data['geocache_id']}/logging-tasks",
+        json={
+            'tasks': [
+                {'question': 'Couleur de la roche ?', 'requires_photo': True},
+                {'question': '   '},
+                {'question': 'Hauteur de l affleurement ?', 'guidance': 'Mesurer a la base.'},
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = json.loads(response.data)
+    tasks = payload['logging_tasks']
+    assert [t['question'] for t in tasks] == ['Couleur de la roche ?', 'Hauteur de l affleurement ?']
+    assert [t['position'] for t in tasks] == [1, 3]
+    assert tasks[0]['requires_photo'] is True
+    assert all(t['source'] == 'extracted' for t in tasks)
+
+
+def test_replace_logging_tasks_requires_list(client, seed_data):
+    response = client.put(
+        f"/api/geocaches/{seed_data['geocache_id']}/logging-tasks",
+        json={'tasks': 'nope'},
+    )
+    assert response.status_code == 400
+    assert json.loads(response.data)['error'] == 'tasks must be a list'
+
+
 def test_delete_logging_task(client, app, seed_data):
     create_response = client.post(
         f"/api/geocaches/{seed_data['geocache_id']}/logging-tasks",

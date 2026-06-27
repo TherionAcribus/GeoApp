@@ -19,6 +19,7 @@ import { EarthCoachAgentId, EarthCoachMode, EarthCoachVerbosity } from './earthc
 import { buildEarthCoachSystemPrompt } from './earthcoach-prompts';
 import { EarthCoachNoteTools } from './earthcoach-note-tools';
 import { EarthCoachReferenceTools } from './earthcoach-reference-tools';
+import { EarthCoachLoggingTaskTools } from './earthcoach-logging-task-tools';
 
 export const EarthCoachLanguageModelRequirements: LanguageModelRequirement[] = [{
     purpose: 'chat',
@@ -47,6 +48,9 @@ export class EarthCoachAgent extends AbstractStreamParsingChatAgent {
     @inject(EarthCoachNoteTools)
     protected readonly noteTools!: EarthCoachNoteTools;
 
+    @inject(EarthCoachLoggingTaskTools)
+    protected readonly loggingTaskTools!: EarthCoachLoggingTaskTools;
+
     protected override async sendLlmRequest(
         request: MutableChatRequestModel,
         messages: LanguageModelMessage[],
@@ -58,6 +62,7 @@ export class EarthCoachAgent extends AbstractStreamParsingChatAgent {
         const earthCoachTools = [
             ...this.referenceTools.buildAllTools(),
             ...this.noteTools.buildAllTools(),
+            ...this.loggingTaskTools.buildAllTools(),
         ];
         const earthCoachToolIds = new Set(earthCoachTools.map(tool => tool.id));
         const nonEarthCoachTools = toolRequests.filter(tool => !earthCoachToolIds.has(tool.id));

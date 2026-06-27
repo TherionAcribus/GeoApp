@@ -154,6 +154,69 @@ def create_logging_task(geocache_id: int):
         return jsonify({'error': str(error)}), 500
 
 
+@bp.put('/api/geocaches/<int:geocache_id>/logging-tasks')
+def replace_logging_tasks(geocache_id: int):
+    """Remplace l'ensemble des logging tasks d'une cache.
+
+    Utilise par l'extraction IA (earthcoach_extract_logging_tasks): supprime les
+    taches existantes puis insere celles fournies. A n'appeler que sur demande
+    explicite, car cette operation ecrase les reponses deja saisies.
+    """
+    try:
+        geocache = Geocache.query.get(geocache_id)
+        if not geocache:
+            return jsonify({'error': 'Geocache not found'}), 404
+
+        data = request.get_json(silent=True) or {}
+        raw_tasks = data.get('tasks')
+        if not isinstance(raw_tasks, list):
+            return jsonify({'error': 'tasks must be a list'}), 400
+
+        default_source = _optional_text(data.get('source')) or 'extracted'
+        new_tasks: list[GeocacheLoggingTask] = []
+        for index, item in enumerate(raw_tasks):
+            if not isinstance(item, dict):
+                return jsonify({'error': 'each task must be an object'}), 400
+            question = str(item.get('question') or '').strip()
+            if not question:
+                continue
+            status = _normalize_status(item.get('status'))
+            if status is None:
+                return jsonify({'error': 'status must be one of: todo, field, answered'}), 400
+            observation = _load_observation(geocache_id, item.get('observation_id'))
+            position = _optional_int(item.get('position'), 'position')
+            new_tasks.append(GeocacheLoggingTask(
+                geocache_id=geocache.id,
+                position=position if position is not None else index + 1,
+                question=question,
+                guidance=_optional_text(item.get('guidance')),
+                answer=_optional_text(item.get('answer')),
+                status=status,
+                requires_photo=_coerce_bool(item.get('requires_photo')),
+                observation_id=observation.id if observation else None,
+                source=(_optional_text(item.get('source')) or default_source),
+            ))
+
+        GeocacheLoggingTask.query.filter_by(geocache_id=geocache_id).delete()
+        db.session.add_all(new_tasks)
+        db.session.commit()
+
+        tasks = (
+            GeocacheLoggingTask.query
+            .filter_by(geocache_id=geocache_id)
+            .order_by(GeocacheLoggingTask.position.asc(), GeocacheLoggingTask.id.asc())
+            .all()
+        )
+        return _serialize_list(geocache, tasks)
+    except ValueError as error:
+        db.session.rollback()
+        return jsonify({'error': str(error)}), 400
+    except Exception as error:  # pragma: no cover
+        logger.error('Error replacing logging tasks for geocache %s: %s', geocache_id, error)
+        db.session.rollback()
+        return jsonify({'error': str(error)}), 500
+
+
 @bp.put('/api/logging-tasks/<int:task_id>')
 def update_logging_task(task_id: int):
     try:

@@ -38,6 +38,10 @@ Fichiers principaux :
 | `earthcoach-observations.ts` | Helpers purs des brouillons et payloads d'observations structurees. |
 | `earthcoach-observation-service.ts` | Client frontend des routes observations et upload photo. |
 | `earthcoach-observations-widget.tsx` | Widget Theia de creation, edition, suppression et liaison de photos aux observations. |
+| `earthcoach-logging-tasks.ts` | Helpers purs des questions du proprietaire : DTO, drafts, normalisation de l'extraction LLM. |
+| `earthcoach-logging-task-service.ts` | Client frontend des routes logging tasks (liste, CRUD, remplacement en masse). |
+| `earthcoach-logging-task-tools.ts` | Tool `earthcoach_extract_logging_tasks` et evenement de rafraichissement du widget. |
+| `earthcoach-logging-tasks-widget.tsx` | Widget Theia de suivi, edition et extraction des questions du proprietaire. |
 | `earthcoach-reference-tools.ts` | Tool `earthcoach_search_reference`, recherches Wikipedia/Wikimedia, cache local. |
 | `earthcoach-reference-widget.tsx` | Vue "References EarthCoach" avec recherche, articles et images pedagogiques. |
 | `earthcoach-note-tools.ts` | Tool `earthcoach_save_note` pour enregistrer une synthese dans les notes GeoApp. |
@@ -74,6 +78,7 @@ Il expose les tools EarthCoach a chaque requete via `sendLlmRequest()` :
 
 - `earthcoach_search_reference`
 - `earthcoach_save_note`
+- `earthcoach_extract_logging_tasks`
 
 La methode filtre les tools EarthCoach deja presents dans `toolRequests`, puis ajoute les instances reconstruites par les managers :
 
@@ -81,6 +86,7 @@ La methode filtre les tools EarthCoach deja presents dans `toolRequests`, puis a
 const earthCoachTools = [
     ...this.referenceTools.buildAllTools(),
     ...this.noteTools.buildAllTools(),
+    ...this.loggingTaskTools.buildAllTools(),
 ];
 ```
 
@@ -292,13 +298,27 @@ Routes (blueprint `logging_tasks`) :
 ```text
 GET    /api/geocaches/<id>/logging-tasks
 POST   /api/geocaches/<id>/logging-tasks
+PUT    /api/geocaches/<id>/logging-tasks   (remplacement en masse, utilise par l'extraction IA)
 PUT    /api/logging-tasks/<id>
 DELETE /api/logging-tasks/<id>
 ```
 
 Cote frontend, `EarthCoachContextService.loadLoggingTasks` charge ces taches dans `EarthCoachContext.loggingTasks`. Le prompt builder les expose dans un bloc `Questions du proprietaire (logging tasks)` et le mode terrain compact les utilise en priorite a la place de l'extraction regex des questions du listing.
 
-Cet increment couvre la couche donnees et le gabarit resolver. L'alimentation par extraction LLM (`earthcoach_extract_logging_tasks`) et le widget d'edition sont prevus dans un increment ulterieur.
+### Alimentation par extraction LLM
+
+Le tool `earthcoach_extract_logging_tasks` (`earthcoach-logging-task-tools.ts`) permet a l'agent d'extraire les questions du listing et de les enregistrer via `EarthCoachLoggingTaskService.replaceLoggingTasks` (route `PUT /api/geocaches/<id>/logging-tasks`). Cette operation **remplace** toutes les questions existantes; le prompt systeme rappelle de ne l'utiliser que sur demande explicite. Apres ecriture, le tool emet l'evenement `earthcoach-logging-tasks-updated` pour rafraichir le widget ouvert.
+
+### Widget de gestion
+
+`EarthCoachLoggingTasksWidget` (`earthcoach.loggingTasks`) permet de :
+
+- lister les questions enregistrees avec statut, indicateur photo et observation liee ;
+- creer, editer et supprimer une question manuellement ;
+- definir le statut (`todo`, `field`, `answered`), la consigne d'observation, le brouillon de reponse et l'observation `UserObservation` liee ;
+- declencher l'extraction IA via le bouton **Extraire via EarthCoach (IA)**, qui execute la commande `earthcoach.open` avec l'action `extract_logging_tasks`.
+
+L'action rapide **Questions du proprietaire** du QuickPick (`logging_tasks`) ouvre ce widget.
 
 ## Integration avec `zones`
 

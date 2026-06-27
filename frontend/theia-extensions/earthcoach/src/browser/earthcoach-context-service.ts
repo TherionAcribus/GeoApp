@@ -12,6 +12,7 @@ import {
     LoggingTaskStatus,
     UserObservation,
 } from './earthcoach-types';
+import { LoggingTaskDto } from './earthcoach-logging-tasks';
 
 interface WidgetInfo {
     geocacheId?: number;
@@ -42,19 +43,6 @@ interface UserObservationDto {
     latitude?: number | null;
     longitude?: number | null;
     images?: BackendGeocacheImageDto[];
-}
-
-interface LoggingTaskDto {
-    id: number;
-    geocache_id?: number;
-    position?: number;
-    question?: string;
-    guidance?: string | null;
-    answer?: string | null;
-    status?: string | null;
-    requires_photo?: boolean;
-    observation_id?: number | null;
-    source?: string | null;
 }
 
 export interface EarthCoachContext {

@@ -1,5 +1,7 @@
 export const EarthCoachAgentId = 'earthcoach';
 
+export const EarthCoachOpenCommandId = 'earthcoach.open';
+
 export type EarthCoachMode = 'coach' | 'resolver';
 
 export type EarthCoachVerbosity = 'compact' | 'normal' | 'detailed';
@@ -9,6 +11,8 @@ export type EarthCoachQuickAction =
     | 'prepare_visit'
     | 'field_checklist'
     | 'observations'
+    | 'logging_tasks'
+    | 'extract_logging_tasks'
     | 'image_gallery'
     | 'illustrate_term'
     | 'explain_word'

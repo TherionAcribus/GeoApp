@@ -249,6 +249,9 @@ function buildActionInstruction(action: EarthCoachQuickAction, mode: EarthCoachM
     if (action === 'illustrate_term') {
         return 'Action demandee: illustrer un terme geologique. Utilise des references externes educational_reference si disponibles, puis precise que les images sont generiques.';
     }
+    if (action === 'extract_logging_tasks') {
+        return 'Action demandee: extraire les questions du proprietaire. Lis le listing et appelle le tool earthcoach_extract_logging_tasks avec les questions dans l ordre, sans en inventer ni y mettre de reponse. Confirme ensuite brievement le nombre de questions enregistrees.';
+    }
     if (action === 'analyze_observations') {
         return 'Action demandee: analyser les observations personnelles. Separe observation, interpretation et hypothese; signale ce qui manque.';
     }

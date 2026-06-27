@@ -22,6 +22,7 @@ import {
 import { EarthCoachContextService } from './earthcoach-context-service';
 import {
     EarthCoachAgentId,
+    EarthCoachOpenCommandId,
     EarthCoachVerbosity,
     EarthCoachOpenRequest,
     EarthCoachQuickAction,
@@ -30,12 +31,13 @@ import { buildEarthCoachPrompt, selectEarthCoachImagesForChat, toImageContext } 
 import { EarthCoachFieldChecklistWidget } from './earthcoach-field-checklist-widget';
 import { EarthCoachImageGalleryWidget } from './earthcoach-image-gallery-widget';
 import { EarthCoachObservationsWidget } from './earthcoach-observations-widget';
+import { EarthCoachLoggingTasksWidget } from './earthcoach-logging-tasks-widget';
 import { EarthCoachReferenceWidget } from './earthcoach-reference-widget';
 import { EARTHCOACH_RESPONSE_VERBOSITY_PREF } from './earthcoach-preferences';
 
 export namespace EarthCoachCommands {
     export const OPEN = {
-        id: 'earthcoach.open',
+        id: EarthCoachOpenCommandId,
         label: 'Ouvrir EarthCoach',
     };
     export const OPEN_REFERENCES = {
@@ -109,6 +111,11 @@ const QUICK_ACTION_GROUPS: EarthCoachQuickActionGroup[] = [
     {
         label: 'Analyser & resoudre',
         actions: [
+            {
+                label: `${PANEL_ICON} Questions du proprietaire`,
+                description: 'Suivre, editer et extraire les logging tasks de la cache',
+                value: 'logging_tasks',
+            },
             {
                 label: `${CHAT_ICON} Analyser mes observations`,
                 description: 'Tri observation / interpretation / hypothese',
@@ -220,6 +227,10 @@ export class EarthCoachCommandContribution implements CommandContribution, MenuC
         }
         if (action === 'observations') {
             await this.openObservationsWidget(context);
+            return;
+        }
+        if (action === 'logging_tasks') {
+            await this.openLoggingTasksWidget(context);
             return;
         }
         if (action === 'image_gallery') {
@@ -354,6 +365,18 @@ export class EarthCoachCommandContribution implements CommandContribution, MenuC
             return;
         }
         const widget = await this.widgetManager.getOrCreateWidget<EarthCoachObservationsWidget>(EarthCoachObservationsWidget.ID);
+        widget.setContext(context);
+        if (!widget.isAttached) {
+            this.shell.addWidget(widget, { area: 'right', mode: 'tab-after' });
+        }
+        this.shell.activateWidget(widget.id);
+    }
+
+    protected async openLoggingTasksWidget(context: Awaited<ReturnType<EarthCoachContextService['collectContext']>>): Promise<void> {
+        if (!context) {
+            return;
+        }
+        const widget = await this.widgetManager.getOrCreateWidget<EarthCoachLoggingTasksWidget>(EarthCoachLoggingTasksWidget.ID);
         widget.setContext(context);
         if (!widget.isAttached) {
             this.shell.addWidget(widget, { area: 'right', mode: 'tab-after' });

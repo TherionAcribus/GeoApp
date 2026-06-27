@@ -11,6 +11,13 @@ import { buildEarthCoachSystemPrompt } from '../earthcoach-prompts';
 import { GeoImage, LoggingTask, UserObservation } from '../earthcoach-types';
 import { EarthCoachNoteTools } from '../earthcoach-note-tools';
 import { EarthCoachReferenceTools } from '../earthcoach-reference-tools';
+import { EarthCoachLoggingTaskTools } from '../earthcoach-logging-task-tools';
+import {
+    buildLoggingTaskInput,
+    createLoggingTaskDraft,
+    createLoggingTaskDraftFromDto,
+    normalizeExtractionTasks,
+} from '../earthcoach-logging-tasks';
 import {
     EARTHCOACH_RESPONSE_VERBOSITY_PREF,
     EARTHCOACH_REFERENCES_ALLOWED_SOURCES_PREF,
@@ -545,6 +552,85 @@ function testFieldChecklistPrefersLoggingTasks(): void {
     assert.ok(questions!.items.some(item => item.includes('photo requise')));
 }
 
+function testLoggingTaskToolShape(): void {
+    const tools = new EarthCoachLoggingTaskTools().buildAllTools();
+    assert.equal(tools.length, 1);
+    assert.equal(tools[0].id, EarthCoachLoggingTaskTools.EXTRACT_TOOL_ID);
+    assert.equal(tools[0].name, 'earthcoach_extract_logging_tasks');
+    assert.match(tools[0].description, /REMPLACE/);
+}
+
+function testLoggingTaskInputBuilder(): void {
+    const draft = createLoggingTaskDraft();
+    const input = buildLoggingTaskInput({
+        ...draft,
+        question: '  Couleur de la roche ?  ',
+        guidance: '  Observer en place  ',
+        answer: '   ',
+        status: 'field',
+        requiresPhoto: true,
+        observationId: '12',
+    });
+    assert.equal(input.question, 'Couleur de la roche ?');
+    assert.equal(input.guidance, 'Observer en place');
+    assert.equal(input.answer, null);
+    assert.equal(input.status, 'field');
+    assert.equal(input.requires_photo, true);
+    assert.equal(input.observation_id, 12);
+
+    const emptyObs = buildLoggingTaskInput({ ...draft, question: 'Q', observationId: 'not-a-number' });
+    assert.equal(emptyObs.observation_id, null);
+}
+
+function testLoggingTaskDraftFromDto(): void {
+    const draft = createLoggingTaskDraftFromDto({
+        id: 5,
+        position: 2,
+        question: 'Hauteur ?',
+        guidance: null,
+        answer: '4 m',
+        status: 'answered',
+        requires_photo: true,
+        observation_id: 7,
+    });
+    assert.equal(draft.question, 'Hauteur ?');
+    assert.equal(draft.guidance, '');
+    assert.equal(draft.answer, '4 m');
+    assert.equal(draft.status, 'answered');
+    assert.equal(draft.requiresPhoto, true);
+    assert.equal(draft.observationId, '7');
+}
+
+function testNormalizeExtractionTasks(): void {
+    const tasks = normalizeExtractionTasks([
+        { question: 'Couleur ?', requires_photo: 'oui' },
+        { question: '   ' },
+        'garbage',
+        { question: 'Hauteur ?', guidance: '  mesurer  ', position: 9 },
+    ]);
+    assert.equal(tasks.length, 2);
+    assert.deepEqual(tasks.map(task => task.question), ['Couleur ?', 'Hauteur ?']);
+    assert.equal(tasks[0].requires_photo, true);
+    assert.equal(tasks[0].position, 1);
+    assert.equal(tasks[1].guidance, 'mesurer');
+    assert.equal(tasks[1].position, 9);
+    assert.equal(tasks[1].status, 'todo');
+
+    assert.deepEqual(normalizeExtractionTasks('nope'), []);
+}
+
+function testExtractActionInstruction(): void {
+    const prompt = buildEarthCoachPrompt({
+        geocache: { id: 1, name: 'Earth test', type: 'EarthCache' },
+        mode: 'coach',
+        action: 'extract_logging_tasks',
+        observations: [],
+        images: [],
+    });
+    assert.match(prompt, /earthcoach_extract_logging_tasks/);
+    assert.match(prompt, /sans en inventer/);
+}
+
 function testImageContextMapping(): void {
     const context = toImageContext(createImages()[1]);
     assert.deepEqual(context, {
@@ -598,6 +684,11 @@ async function run(): Promise<void> {
     testResolverTemplateWithoutLoggingTasks();
     testCoachModeHasNoResolverTemplate();
     testFieldChecklistPrefersLoggingTasks();
+    testLoggingTaskToolShape();
+    testLoggingTaskInputBuilder();
+    testLoggingTaskDraftFromDto();
+    testNormalizeExtractionTasks();
+    testExtractActionInstruction();
     testImageContextMapping();
     testSelectImagesForChatPrioritizesUserObservations();
     testSelectImagesForChatHonorsPreferredIds();
