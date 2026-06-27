@@ -267,6 +267,77 @@ function matchesClause(geocache: Geocache, clause: TokenFilter): boolean {
 }
 
 
+/**
+ * Hauteur de ligne estimée (px) utilisée pour la virtualisation.
+ * Le contenu des cellules est sur une seule ligne (nowrap/ellipsis), donc une
+ * hauteur fixe est fiable. La même constante sert pour les espaceurs et la
+ * hauteur imposée aux lignes afin d'éviter toute dérive du scroll.
+ */
+const VIRTUAL_ROW_HEIGHT = 34;
+const VIRTUAL_OVERSCAN = 8;
+
+interface VirtualWindow {
+    startIndex: number;
+    endIndex: number;
+    paddingTop: number;
+    paddingBottom: number;
+}
+
+/**
+ * Virtualisation maison (windowing) : ne rend que les lignes visibles + un
+ * overscan, en conservant la hauteur totale via deux lignes espaceurs.
+ * Évite d'ajouter une dépendance externe (@tanstack/react-virtual).
+ */
+function useRowVirtualizer(rowCount: number, scrollRef: React.RefObject<HTMLElement>): VirtualWindow {
+    const [scrollTop, setScrollTop] = React.useState(0);
+    const [viewportHeight, setViewportHeight] = React.useState(0);
+
+    React.useEffect(() => {
+        const el = scrollRef.current;
+        if (!el) {
+            return;
+        }
+
+        let frame = 0;
+        const sync = (): void => {
+            setScrollTop(el.scrollTop);
+            setViewportHeight(el.clientHeight);
+        };
+        const onScroll = (): void => {
+            if (frame) {
+                return;
+            }
+            frame = window.requestAnimationFrame(() => {
+                frame = 0;
+                sync();
+            });
+        };
+
+        sync();
+        el.addEventListener('scroll', onScroll, { passive: true });
+        const resizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(sync) : undefined;
+        resizeObserver?.observe(el);
+
+        return () => {
+            if (frame) {
+                window.cancelAnimationFrame(frame);
+            }
+            el.removeEventListener('scroll', onScroll);
+            resizeObserver?.disconnect();
+        };
+    }, [scrollRef]);
+
+    const totalHeight = rowCount * VIRTUAL_ROW_HEIGHT;
+    const startIndex = Math.max(0, Math.floor(scrollTop / VIRTUAL_ROW_HEIGHT) - VIRTUAL_OVERSCAN);
+    const rowsInViewport = viewportHeight > 0 ? Math.ceil(viewportHeight / VIRTUAL_ROW_HEIGHT) : 0;
+    const visibleCount = rowsInViewport + VIRTUAL_OVERSCAN * 2;
+    const endIndex = Math.min(rowCount, startIndex + visibleCount);
+    const paddingTop = startIndex * VIRTUAL_ROW_HEIGHT;
+    const paddingBottom = Math.max(0, totalHeight - endIndex * VIRTUAL_ROW_HEIGHT);
+
+    return { startIndex, endIndex, paddingTop, paddingBottom };
+}
+
 export const GeocachesTable: React.FC<GeocachesTableProps> = ({
     data,
     onRowClick,
@@ -701,6 +772,12 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
     const selectedRows = table.getSelectedRowModel().rows;
     const selectedIds = selectedRows.map(row => row.original.id);
 
+    const tableScrollRef = React.useRef<HTMLDivElement>(null);
+    const tableRows = table.getRowModel().rows;
+    const { startIndex, endIndex, paddingTop, paddingBottom } = useRowVirtualizer(tableRows.length, tableScrollRef);
+    const virtualRows = tableRows.slice(startIndex, endIndex);
+    const visibleColumnCount = table.getVisibleLeafColumns().length;
+
     const showContextMenu = (geocache: Geocache, event: React.MouseEvent) => {
         event.preventDefault();
         event.stopPropagation();
@@ -1117,7 +1194,7 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
             </div>
 
             {/* Table */}
-            <div style={{ flex: 1, overflow: 'auto', border: '1px solid var(--theia-panel-border)', borderRadius: 3 }}>
+            <div ref={tableScrollRef} style={{ flex: 1, overflow: 'auto', border: '1px solid var(--theia-panel-border)', borderRadius: 3 }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9em' }}>
                     <thead style={{ position: 'sticky', top: 0, background: 'var(--theia-editor-background)', zIndex: 1 }}>
                         {table.getHeaderGroups().map(headerGroup => (
@@ -1148,13 +1225,19 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                         ))}
                     </thead>
                     <tbody>
-                        {table.getRowModel().rows.map(row => (
+                        {paddingTop > 0 && (
+                            <tr key="virtual-padding-top" aria-hidden="true">
+                                <td colSpan={visibleColumnCount} style={{ height: paddingTop, padding: 0, border: 'none' }} />
+                            </tr>
+                        )}
+                        {virtualRows.map(row => (
                             <tr
                                 key={row.id}
                                 onClick={() => onRowClick?.(row.original)}
                                 onContextMenu={(e) => showContextMenu(row.original, e)}
                                 style={{
                                     cursor: 'pointer',
+                                    height: VIRTUAL_ROW_HEIGHT,
                                     background: row.getIsSelected()
                                         ? 'var(--theia-list-activeSelectionBackground)'
                                         : 'transparent',
@@ -1176,6 +1259,7 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                                         style={{
                                             padding: '6px',
                                             borderBottom: '1px solid var(--theia-panel-border)',
+                                            overflow: 'hidden',
                                         }}
                                     >
                                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -1183,6 +1267,11 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                                 ))}
                             </tr>
                         ))}
+                        {paddingBottom > 0 && (
+                            <tr key="virtual-padding-bottom" aria-hidden="true">
+                                <td colSpan={visibleColumnCount} style={{ height: paddingBottom, padding: 0, border: 'none' }} />
+                            </tr>
+                        )}
                     </tbody>
                 </table>
             </div>
