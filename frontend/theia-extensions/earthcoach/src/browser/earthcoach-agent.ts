@@ -22,6 +22,8 @@ import { EarthCoachReferenceTools } from './earthcoach-reference-tools';
 import { EarthCoachLoggingTaskTools } from './earthcoach-logging-task-tools';
 import { EarthCoachGeoCalculatorTools } from './earthcoach-geo-calculator-tools';
 import { EarthCoachGeologyTools } from './earthcoach-geology-tools';
+import { EarthCoachModeTools } from './earthcoach-mode-tools';
+import { readEarthCoachModeFromSettings } from './earthcoach-mode';
 
 export const EarthCoachLanguageModelRequirements: LanguageModelRequirement[] = [{
     purpose: 'chat',
@@ -59,6 +61,9 @@ export class EarthCoachAgent extends AbstractStreamParsingChatAgent {
     @inject(EarthCoachGeologyTools)
     protected readonly geologyTools!: EarthCoachGeologyTools;
 
+    @inject(EarthCoachModeTools)
+    protected readonly modeTools!: EarthCoachModeTools;
+
     protected override async sendLlmRequest(
         request: MutableChatRequestModel,
         messages: LanguageModelMessage[],
@@ -73,6 +78,7 @@ export class EarthCoachAgent extends AbstractStreamParsingChatAgent {
             ...this.loggingTaskTools.buildAllTools(),
             ...this.geoCalculatorTools.buildAllTools(),
             ...this.geologyTools.buildAllTools(),
+            ...this.modeTools.buildAllTools(),
         ];
         const earthCoachToolIds = new Set(earthCoachTools.map(tool => tool.id));
         const nonEarthCoachTools = toolRequests.filter(tool => !earthCoachToolIds.has(tool.id));
@@ -92,8 +98,7 @@ export class EarthCoachAgent extends AbstractStreamParsingChatAgent {
 
     protected readMode(context: AIVariableContext): EarthCoachMode {
         const request = ChatSessionContext.is(context) ? context.request : undefined;
-        const commonSettings = request?.session?.settings?.commonSettings as { geoapp?: { earthcoachMode?: unknown } } | undefined;
-        return commonSettings?.geoapp?.earthcoachMode === 'resolver' ? 'resolver' : 'coach';
+        return readEarthCoachModeFromSettings(request?.session?.settings);
     }
 
     protected readVerbosity(context: AIVariableContext): EarthCoachVerbosity {

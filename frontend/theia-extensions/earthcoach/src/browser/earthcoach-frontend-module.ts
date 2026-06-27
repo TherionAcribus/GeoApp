@@ -19,6 +19,7 @@ import { EarthCoachLoggingTasksWidget } from './earthcoach-logging-tasks-widget'
 import { EarthCoachGeoCalculatorTools } from './earthcoach-geo-calculator-tools';
 import { EarthCoachGeologyService } from './earthcoach-geology-service';
 import { EarthCoachGeologyTools } from './earthcoach-geology-tools';
+import { EarthCoachModeTools } from './earthcoach-mode-tools';
 import { EarthCoachReferenceTools } from './earthcoach-reference-tools';
 import { EarthCoachReferenceWidget } from './earthcoach-reference-widget';
 
@@ -36,6 +37,8 @@ export default new ContainerModule(bind => {
     bind(EarthCoachGeologyService).toSelf().inSingletonScope();
     bind(EarthCoachGeologyTools).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(EarthCoachGeologyTools);
+    bind(EarthCoachModeTools).toSelf().inSingletonScope();
+    bind(FrontendApplicationContribution).toService(EarthCoachModeTools);
     bind(EarthCoachObservationService).toSelf().inSingletonScope();
     bind(EarthCoachLoggingTaskService).toSelf().inSingletonScope();
 

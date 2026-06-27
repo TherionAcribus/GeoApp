@@ -38,6 +38,19 @@ EarthCoach a deux modes.
 
 Le mode `resolver` n'est pas un hack cache. C'est un mode assumé qui reste contraint par les donnees fournies : listing, notes, observations et images identifiees.
 
+### Voir et changer de mode
+
+EarthCoach **affiche le mode courant en tete de chaque reponse** (par exemple « **Mode EarthCoach : coach** »), et le titre de l'onglet de chat l'indique aussi.
+
+Vous pouvez **changer de mode sans rouvrir le menu** : demandez-le simplement dans le chat.
+
+```text
+@EarthCoach passe en mode resolution
+@EarthCoach reviens en mode coach
+```
+
+Le changement s'applique a partir de votre message suivant.
+
 ## Actions rapides
 
 Quand vous ouvrez EarthCoach depuis une EarthCache, GeoApp propose plusieurs actions.

@@ -16,6 +16,12 @@ import { EarthCoachGeoCalculatorTools } from '../earthcoach-geo-calculator-tools
 import { runEarthCoachCalculation } from '../earthcoach-geo-calculator';
 import { EarthCoachGeologyTools } from '../earthcoach-geology-tools';
 import { formatGeologySummary } from '../earthcoach-geology';
+import { EarthCoachModeTools } from '../earthcoach-mode-tools';
+import {
+    applyEarthCoachModeToSettings,
+    normalizeEarthCoachMode,
+    readEarthCoachModeFromSettings,
+} from '../earthcoach-mode';
 import {
     buildLoggingTaskInput,
     buildLoggingTaskSeed,
@@ -103,9 +109,13 @@ function testSystemPromptModes(): void {
     assert.match(coachPrompt, /educational_reference/);
     assert.match(coachPrompt, /tres brievement/);
 
+    assert.match(coachPrompt, /\*\*Mode EarthCoach : coach\*\*/);
+    assert.match(coachPrompt, /earthcoach_set_mode/);
+
     const resolverPrompt = buildEarthCoachSystemPrompt('resolver');
     assert.match(resolverPrompt, /Mode courant: resolver/);
     assert.match(resolverPrompt, /Ne remplis jamais un detail terrain absent/);
+    assert.match(resolverPrompt, /\*\*Mode EarthCoach : resolution\*\*/);
 
     const detailedPrompt = buildEarthCoachSystemPrompt('coach', 'detailed');
     assert.match(detailedPrompt, /niveau de detail utile/);
@@ -760,6 +770,39 @@ function testGeologyActionInstruction(): void {
     assert.match(prompt, /Coordonnees decimales: 45.78, 4.87/);
 }
 
+function testModeToolShape(): void {
+    const tools = new EarthCoachModeTools().buildAllTools();
+    assert.equal(tools.length, 1);
+    assert.equal(tools[0].id, EarthCoachModeTools.SET_MODE_TOOL_ID);
+    assert.equal(tools[0].name, 'earthcoach_set_mode');
+}
+
+function testNormalizeEarthCoachMode(): void {
+    assert.equal(normalizeEarthCoachMode('resolver'), 'resolver');
+    assert.equal(normalizeEarthCoachMode('resolution'), 'resolver');
+    assert.equal(normalizeEarthCoachMode('coach'), 'coach');
+    assert.equal(normalizeEarthCoachMode('nope'), undefined);
+}
+
+function testApplyEarthCoachModeToSettings(): void {
+    const settings = {
+        ui: { theme: 'dark' },
+        commonSettings: { geoapp: { earthcoachMode: 'coach', earthcoachVerbosity: 'normal', gcCode: 'GC1' } },
+    };
+    const updated = applyEarthCoachModeToSettings(settings, 'resolver');
+    assert.equal(readEarthCoachModeFromSettings(updated), 'resolver');
+    // Preserve les autres champs
+    assert.deepEqual((updated as any).ui, { theme: 'dark' });
+    assert.equal((updated as any).commonSettings.geoapp.earthcoachVerbosity, 'normal');
+    assert.equal((updated as any).commonSettings.geoapp.gcCode, 'GC1');
+    // N'altere pas l'objet d'origine
+    assert.equal((settings as any).commonSettings.geoapp.earthcoachMode, 'coach');
+
+    // Robuste sur entree vide
+    assert.equal(readEarthCoachModeFromSettings(applyEarthCoachModeToSettings(undefined, 'resolver')), 'resolver');
+    assert.equal(readEarthCoachModeFromSettings({}), 'coach');
+}
+
 function testImageContextMapping(): void {
     const context = toImageContext(createImages()[1]);
     assert.deepEqual(context, {
@@ -825,6 +868,9 @@ async function run(): Promise<void> {
     testGeologyToolShape();
     testFormatGeologySummary();
     testGeologyActionInstruction();
+    testModeToolShape();
+    testNormalizeEarthCoachMode();
+    testApplyEarthCoachModeToSettings();
     testImageContextMapping();
     testSelectImagesForChatPrioritizesUserObservations();
     testSelectImagesForChatHonorsPreferredIds();

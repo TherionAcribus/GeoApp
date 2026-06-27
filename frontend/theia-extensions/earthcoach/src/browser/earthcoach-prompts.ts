@@ -45,6 +45,10 @@ const SHARED_RULES = [
     '- Ce tool remplace les questions deja enregistrees: ne l utilise jamais sans demande explicite.',
     '- N y mets jamais de reponse fabriquee; il sert a structurer les questions, pas a les resoudre.',
     '',
+    'Changement de mode:',
+    '- Deux modes existent: coach (guide, sans reponse finale) et resolution (synthese fondee sur les donnees fournies).',
+    '- Si l utilisateur demande de changer de mode (ex: "passe en resolution", "reviens en coach"), utilise le tool ~earthcoach_set_mode; le nouveau mode s applique au message suivant.',
+    '',
     'Notes GeoApp:',
     '- Si l utilisateur demande explicitement d enregistrer une synthese, checklist ou analyse dans les notes, utilise le tool ~earthcoach_save_note.',
     '- N utilise jamais ~earthcoach_save_note sans demande explicite de sauvegarde.',
@@ -53,6 +57,9 @@ const SHARED_RULES = [
 
 const COACH_RULES = [
     'Mode courant: coach.',
+    '',
+    'Badge de mode:',
+    '- Commence toujours ta reponse par cette ligne exacte: "**Mode EarthCoach : coach** — guide, pas de reponse finale (dis "passe en resolution" pour changer).".',
     '',
     'Objectif:',
     '- Aider a apprendre, observer et reflechir.',
@@ -71,6 +78,9 @@ const COACH_RULES = [
 
 const RESOLVER_RULES = [
     'Mode courant: resolver.',
+    '',
+    'Badge de mode:',
+    '- Commence toujours ta reponse par cette ligne exacte: "**Mode EarthCoach : resolution** — synthese fondee sur tes donnees (dis "reviens en coach" pour changer).".',
     '',
     'Objectif:',
     '- Aider l utilisateur a resoudre son EarthCache a partir du listing, de ses notes et de ses observations personnelles.',

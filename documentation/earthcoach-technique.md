@@ -47,6 +47,8 @@ Fichiers principaux :
 | `earthcoach-geology.ts` | Types du contexte geologique et resume pur `formatGeologySummary`. |
 | `earthcoach-geology-service.ts` | Client frontend du proxy geologique (`/api/earthcoach/geology`). |
 | `earthcoach-geology-tools.ts` | Tool `earthcoach_geology_at_point` (contexte geologique par coordonnees). |
+| `earthcoach-mode.ts` | Helpers purs du mode: normalisation, lecture et mise a jour des settings de session. |
+| `earthcoach-mode-tools.ts` | Tool `earthcoach_set_mode` (bascule coach <-> resolver de la session active). |
 | `earthcoach-reference-tools.ts` | Tool `earthcoach_search_reference`, recherches Wikipedia/Wikimedia, cache local. |
 | `earthcoach-reference-widget.tsx` | Vue "References EarthCoach" avec recherche, articles et images pedagogiques. |
 | `earthcoach-note-tools.ts` | Tool `earthcoach_save_note` pour enregistrer une synthese dans les notes GeoApp. |
@@ -86,6 +88,7 @@ Il expose les tools EarthCoach a chaque requete via `sendLlmRequest()` :
 - `earthcoach_extract_logging_tasks`
 - `earthcoach_calculate`
 - `earthcoach_geology_at_point`
+- `earthcoach_set_mode`
 
 La methode filtre les tools EarthCoach deja presents dans `toolRequests`, puis ajoute les instances reconstruites par les managers :
 
@@ -96,6 +99,7 @@ const earthCoachTools = [
     ...this.loggingTaskTools.buildAllTools(),
     ...this.geoCalculatorTools.buildAllTools(),
     ...this.geologyTools.buildAllTools(),
+    ...this.modeTools.buildAllTools(),
 ];
 ```
 
@@ -124,6 +128,15 @@ commonSettings.geoapp.earthcoachMode
 ```
 
 L'agent le relit dans `readMode()`.
+
+### Badge de mode et bascule en cours de session
+
+Le mode courant est rendu visible de deux facons :
+
+- le **titre de session** encode deja le mode (`EARTHCOACH - <gc>` vs `EARTHCOACH RESOLUTION - <gc>`) ;
+- le prompt systeme impose a l'agent de **commencer chaque reponse par une ligne de badge** (`**Mode EarthCoach : coach**` ou `**Mode EarthCoach : resolution**`) qui rappelle aussi comment changer.
+
+Pour **basculer sans repasser par le QuickPick**, l'utilisateur formule sa demande en langage naturel ("passe en resolution", "reviens en coach"). L'agent appelle alors le tool `earthcoach_set_mode` (`earthcoach-mode-tools.ts`), qui met a jour `commonSettings.geoapp.earthcoachMode` de la **session de chat active** via `ChatService.getActiveSession()` puis `session.model.setSettings(...)` (helper pur `applyEarthCoachModeToSettings`). Le nouveau mode est lu par `readMode()` (via `readEarthCoachModeFromSettings`) et s'applique **au message suivant**.
 
 La verbosite des reponses EarthCoach est aussi transmise par le bridge :
 
