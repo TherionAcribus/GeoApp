@@ -5,6 +5,7 @@ import {
     EarthCoachQuickAction,
     EarthCoachVerbosity,
     GeoImage,
+    LoggingTask,
     UserObservation,
 } from './earthcoach-types';
 
@@ -14,8 +15,10 @@ interface EarthCoachPromptLimits {
     waypointNote: number;
     note: number;
     observation: number;
+    loggingTaskText: number;
     waypoints: number;
     observations: number;
+    loggingTasks: number;
     images: number;
 }
 
@@ -26,8 +29,10 @@ const PROMPT_LIMITS_BY_VERBOSITY: Record<EarthCoachVerbosity, EarthCoachPromptLi
         waypointNote: 120,
         note: 450,
         observation: 450,
+        loggingTaskText: 300,
         waypoints: 5,
         observations: 5,
+        loggingTasks: 10,
         images: 6,
     },
     normal: {
@@ -36,8 +41,10 @@ const PROMPT_LIMITS_BY_VERBOSITY: Record<EarthCoachVerbosity, EarthCoachPromptLi
         waypointNote: 180,
         note: 800,
         observation: 800,
+        loggingTaskText: 500,
         waypoints: 8,
         observations: 8,
+        loggingTasks: 15,
         images: 10,
     },
     detailed: {
@@ -46,10 +53,18 @@ const PROMPT_LIMITS_BY_VERBOSITY: Record<EarthCoachVerbosity, EarthCoachPromptLi
         waypointNote: 260,
         note: 1200,
         observation: 1200,
+        loggingTaskText: 800,
         waypoints: 12,
         observations: 12,
+        loggingTasks: 25,
         images: 12,
     },
+};
+
+const LOGGING_TASK_STATUS_LABELS: Record<LoggingTask['status'], string> = {
+    todo: 'a traiter',
+    field: 'a observer sur le terrain',
+    answered: 'repondu',
 };
 
 function normalizeVerbosity(value?: EarthCoachVerbosity): EarthCoachVerbosity {
@@ -164,6 +179,51 @@ function buildObservationsBlock(
     return lines;
 }
 
+function buildLoggingTasksBlock(loggingTasks: LoggingTask[], limits: EarthCoachPromptLimits): string[] {
+    if (!loggingTasks.length) {
+        return [];
+    }
+    const ordered = [...loggingTasks].sort((left, right) => left.position - right.position);
+    const lines = ['Questions du proprietaire (logging tasks):'];
+    for (const task of ordered.slice(0, limits.loggingTasks)) {
+        const flags = [
+            LOGGING_TASK_STATUS_LABELS[task.status],
+            task.requiresPhoto ? 'photo requise' : undefined,
+            task.observationId ? `observation liee=${task.observationId}` : undefined,
+        ].filter(Boolean).join('; ');
+        lines.push(`- Q${task.position} [${flags}]: ${truncateText(task.question.replace(/\s+/g, ' '), limits.loggingTaskText)}`);
+        if (task.guidance) {
+            lines.push(`  A observer: ${truncateText(task.guidance.replace(/\s+/g, ' '), limits.loggingTaskText)}`);
+        }
+        if (task.answer) {
+            lines.push(`  Reponse brouillon: ${truncateText(task.answer.replace(/\s+/g, ' '), limits.loggingTaskText)}`);
+        }
+    }
+    if (ordered.length > limits.loggingTasks) {
+        lines.push(`- ... ${ordered.length - limits.loggingTasks} question(s) supplementaire(s) non incluses.`);
+    }
+    return lines;
+}
+
+function buildResolverTemplateInstruction(loggingTasks: LoggingTask[]): string[] {
+    const lines = [
+        '--- GABARIT DE RESOLUTION ---',
+        'Structure ta reponse question par question. Pour chaque question du proprietaire, fournis exactement ces champs:',
+        '- Question: rappel court de la question.',
+        '- Reponse proposee: uniquement si elle decoule des observations fournies, sinon "a completer sur le terrain".',
+        '- Fondee sur: l observation precise (id ou date) ou la donnee du listing qui justifie la reponse; "aucune" si rien ne la fonde.',
+        '- Confiance: elevee / moyenne / faible, selon la qualite des preuves disponibles.',
+        '- A completer: ce qu il reste a mesurer ou observer sur place si une donnee manque.',
+        'Ne fusionne jamais plusieurs questions. Ne fabrique aucune mesure ou observation manquante: laisse explicitement "a completer".',
+    ];
+    if (loggingTasks.length) {
+        lines.push(`Traite les ${loggingTasks.length} question(s) listees ci-dessus, dans l ordre de leur numero.`);
+    } else {
+        lines.push('Aucune logging task structuree n est fournie: deduis les questions depuis le listing et applique le meme gabarit.');
+    }
+    return lines;
+}
+
 function buildActionInstruction(action: EarthCoachQuickAction, mode: EarthCoachMode, verbosity: EarthCoachVerbosity): string {
     if (action === 'prepare_visit') {
         if (verbosity === 'compact') {
@@ -234,8 +294,10 @@ export function buildEarthCoachPrompt(input: EarthCoachPromptInput): string {
     const verbosity = normalizeVerbosity(input.verbosity);
     const limits = PROMPT_LIMITS_BY_VERBOSITY[verbosity];
     const data = input.geocache;
+    const loggingTasks = input.loggingTasks || [];
     const description = sanitizeRichText(data.description_html || data.description_raw, limits.description);
     const hints = getDecodedHints(data);
+    const loggingTasksBlock = buildLoggingTasksBlock(loggingTasks, limits);
     const lines: string[] = [
         '--- CONTEXTE EARTHCACHE ---',
         `Nom: ${data.name}`,
@@ -256,10 +318,12 @@ export function buildEarthCoachPrompt(input: EarthCoachPromptInput): string {
         ...buildImagesBlock(input.images, limits),
         '',
         ...buildObservationsBlock(input.observations, limits, input.gcPersonalNote),
+        ...(loggingTasksBlock.length ? ['', ...loggingTasksBlock] : []),
         '',
         '--- MODE EARTHCOACH ---',
         `Mode: ${input.mode}`,
         buildActionInstruction(input.action, input.mode, verbosity),
+        ...(input.mode === 'resolver' ? ['', ...buildResolverTemplateInstruction(loggingTasks)] : []),
         '',
         ...buildVerbosityInstruction(verbosity),
         '',

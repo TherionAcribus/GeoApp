@@ -80,9 +80,18 @@ export function buildEarthCoachFieldChecklist(context: EarthCoachContext): Earth
         userImageCount > 0 ? 'Verifier que vos photos utilisateur sont bien separees des images du listing.' : '',
     ]);
 
-    const questionsSection = questions.length
-        ? questions
-        : ['Relire les questions du listing sur place et noter les donnees exactes qu elles demandent.'];
+    const loggingTasks = [...(context.loggingTasks || [])].sort((left, right) => left.position - right.position);
+    const questionsSection = loggingTasks.length
+        ? loggingTasks.map(task => {
+            const flags = [
+                task.requiresPhoto ? 'photo requise' : '',
+                task.status === 'answered' ? 'deja repondu' : '',
+            ].filter(Boolean).join(', ');
+            return `Q${task.position}: ${truncate(task.question.replace(/\s+/g, ' '), 220)}${flags ? ` (${flags})` : ''}`;
+        })
+        : questions.length
+            ? questions
+            : ['Relire les questions du listing sur place et noter les donnees exactes qu elles demandent.'];
 
     const waypointsSection = waypoints.length
         ? waypoints.slice(0, 8).map(waypoint => {

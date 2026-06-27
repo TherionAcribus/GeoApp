@@ -65,6 +65,13 @@ class Geocache(db.Model):
     notes = db.relationship('Note', secondary='geocache_note', back_populates='geocaches', lazy=True)
     images_v2 = db.relationship('GeocacheImage', back_populates='geocache', cascade='all, delete-orphan', lazy=True)
     observations = db.relationship('UserObservation', back_populates='geocache', cascade='all, delete-orphan', lazy=True)
+    logging_tasks = db.relationship(
+        'GeocacheLoggingTask',
+        back_populates='geocache',
+        cascade='all, delete-orphan',
+        lazy=True,
+        order_by='GeocacheLoggingTask.position',
+    )
     puzzle_states = db.relationship('GeocachePuzzleState', back_populates='geocache', cascade='all, delete-orphan', lazy=True)
 
     def to_list_item(self) -> dict:
@@ -320,6 +327,56 @@ class UserObservation(db.Model):
             'latitude': self.latitude,
             'longitude': self.longitude,
             'images': [image.to_dict() for image in (self.images or [])],
+        }
+
+
+class GeocacheLoggingTask(db.Model):
+    """Tache de log d'une EarthCache: une question demandee par le proprietaire.
+
+    Permet de suivre chaque question du CO, ce qu'il faut observer pour y repondre,
+    le brouillon de reponse et l'observation terrain qui la justifie. Sert de base
+    au mode resolver structure d'EarthCoach (Question -> Reponse -> Observation ->
+    Confiance -> A completer).
+    """
+    __tablename__ = 'geocache_logging_task'
+
+    STATUSES = ('todo', 'field', 'answered')
+
+    id = db.Column(db.Integer, primary_key=True)
+    geocache_id = db.Column(db.Integer, db.ForeignKey('geocache.id'), nullable=False, index=True)
+    position = db.Column(db.Integer, nullable=False, default=0)
+    question = db.Column(db.Text, nullable=False)
+    guidance = db.Column(db.Text)
+    answer = db.Column(db.Text)
+    status = db.Column(db.String(20), nullable=False, default='todo')
+    requires_photo = db.Column(db.Boolean, nullable=False, default=False)
+    observation_id = db.Column(
+        db.Integer,
+        db.ForeignKey('user_observation.id', ondelete='SET NULL'),
+        nullable=True,
+        index=True,
+    )
+    source = db.Column(db.String(20), nullable=False, default='manual')
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    geocache = db.relationship('Geocache', back_populates='logging_tasks')
+    observation = db.relationship('UserObservation')
+
+    def to_dict(self) -> dict:
+        return {
+            'id': self.id,
+            'geocache_id': self.geocache_id,
+            'position': self.position,
+            'question': self.question,
+            'guidance': self.guidance,
+            'answer': self.answer,
+            'status': self.status,
+            'requires_photo': bool(self.requires_photo),
+            'observation_id': self.observation_id,
+            'source': self.source,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
 
 

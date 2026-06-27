@@ -8,6 +8,8 @@ import { GeocacheDto } from 'theia-ide-zones-ext/lib/browser/geocache-details-ty
 import {
     EarthCoachGeocacheData,
     GeoImage,
+    LoggingTask,
+    LoggingTaskStatus,
     UserObservation,
 } from './earthcoach-types';
 
@@ -42,9 +44,23 @@ interface UserObservationDto {
     images?: BackendGeocacheImageDto[];
 }
 
+interface LoggingTaskDto {
+    id: number;
+    geocache_id?: number;
+    position?: number;
+    question?: string;
+    guidance?: string | null;
+    answer?: string | null;
+    status?: string | null;
+    requires_photo?: boolean;
+    observation_id?: number | null;
+    source?: string | null;
+}
+
 export interface EarthCoachContext {
     geocacheData: EarthCoachGeocacheData;
     observations: UserObservation[];
+    loggingTasks: LoggingTask[];
     gcPersonalNote?: string | null;
     images: GeoImage[];
 }
@@ -80,6 +96,7 @@ export class EarthCoachContextService implements FrontendApplicationContribution
 
         const images = await this.loadImages(geocacheData);
         const structuredObservations = await this.loadStructuredObservations(geocacheData.id);
+        const loggingTasks = await this.loadLoggingTasks(geocacheData.id);
         const notesResponse = await this.loadNotes(geocacheData.id);
         const noteObservations = structuredObservations.length
             ? []
@@ -88,6 +105,7 @@ export class EarthCoachContextService implements FrontendApplicationContribution
         return {
             geocacheData,
             observations,
+            loggingTasks,
             gcPersonalNote: notesResponse?.gc_personal_note,
             images: this.mergeImages(images, structuredObservations.flatMap(observation => observation.images)),
         };
@@ -198,6 +216,46 @@ export class EarthCoachContextService implements FrontendApplicationContribution
             console.warn('[EarthCoach] Unable to load structured observations', error);
             return [];
         }
+    }
+
+    protected async loadLoggingTasks(geocacheId: number): Promise<LoggingTask[]> {
+        try {
+            const baseUrl = this.apiClient.getBaseUrl();
+            const response = await fetch(`${baseUrl}/api/geocaches/${geocacheId}/logging-tasks`, { credentials: 'include' });
+            if (!response.ok) {
+                return [];
+            }
+            const payload = await response.json() as { logging_tasks?: LoggingTaskDto[] };
+            return (payload.logging_tasks || [])
+                .map((task, index) => this.mapLoggingTask(geocacheId, task, index))
+                .filter((task): task is LoggingTask => Boolean(task));
+        } catch (error) {
+            console.warn('[EarthCoach] Unable to load logging tasks', error);
+            return [];
+        }
+    }
+
+    protected mapLoggingTask(geocacheId: number, task: LoggingTaskDto, index: number): LoggingTask | undefined {
+        const question = (task.question || '').trim();
+        if (!question) {
+            return undefined;
+        }
+        return {
+            id: `logging-task-${task.id}`,
+            geocacheId: String(task.geocache_id ?? geocacheId),
+            position: task.position ?? index + 1,
+            question,
+            guidance: task.guidance?.trim() || undefined,
+            answer: task.answer?.trim() || undefined,
+            status: this.normalizeLoggingTaskStatus(task.status),
+            requiresPhoto: Boolean(task.requires_photo),
+            observationId: task.observation_id != null ? `observation-${task.observation_id}` : undefined,
+            source: task.source?.trim() || undefined,
+        };
+    }
+
+    protected normalizeLoggingTaskStatus(value: string | null | undefined): LoggingTaskStatus {
+        return value === 'field' || value === 'answered' ? value : 'todo';
     }
 
     protected async loadImages(geocacheData: EarthCoachGeocacheData): Promise<GeoImage[]> {

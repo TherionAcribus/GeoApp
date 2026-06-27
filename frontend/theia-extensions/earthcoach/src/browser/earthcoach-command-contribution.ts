@@ -239,6 +239,7 @@ export class EarthCoachCommandContribution implements CommandContribution, MenuC
             action,
             verbosity,
             observations: context.observations,
+            loggingTasks: context.loggingTasks,
             gcPersonalNote: context.gcPersonalNote,
             images: selectedImages,
         });

@@ -54,6 +54,21 @@ export interface UserObservation {
     images: GeoImage[];
 }
 
+export type LoggingTaskStatus = 'todo' | 'field' | 'answered';
+
+export interface LoggingTask {
+    id: string;
+    geocacheId: string;
+    position: number;
+    question: string;
+    guidance?: string;
+    answer?: string;
+    status: LoggingTaskStatus;
+    requiresPhoto: boolean;
+    observationId?: string;
+    source?: string;
+}
+
 export interface EarthCoachGeocacheData {
     id: number;
     gc_code?: string;
@@ -91,6 +106,7 @@ export interface EarthCoachPromptInput {
     action: EarthCoachQuickAction;
     verbosity?: EarthCoachVerbosity;
     observations: UserObservation[];
+    loggingTasks?: LoggingTask[];
     gcPersonalNote?: string | null;
     images: GeoImage[];
 }

@@ -100,6 +100,8 @@ Mode par defaut. Il aide a comprendre, expliquer et preparer la visite. Il ne do
 
 Mode explicite. Il peut aider a produire une synthese ou une formulation candidate, mais seulement a partir du listing, des notes et des observations fournies.
 
+En mode `resolver`, le prompt utilisateur inclut un **gabarit de resolution structure** genere par `buildResolverTemplateInstruction`. Pour chaque question, EarthCoach doit produire : `Question`, `Reponse proposee` (ou `a completer sur le terrain`), `Fondee sur` (observation ou donnee du listing), `Confiance` (elevee / moyenne / faible) et `A completer`. Si des logging tasks structurees existent (voir plus bas), il les traite dans l'ordre de leur numero; sinon il deduit les questions du listing et applique le meme gabarit.
+
 Le mode est transmis par le bridge chat GeoApp dans les settings de session :
 
 ```ts
@@ -265,6 +267,38 @@ POST /api/geocaches/<id>/images/upload
 ```
 
 Les photos importees sont ajoutees dans `geocache_image` avec une `source_url` `geoapp-upload://...`, puis EarthCoach les classe comme `user_observation`.
+
+## Logging tasks (questions du proprietaire)
+
+EarthCoach modelise les questions imposees par le proprietaire d'une EarthCache comme une entite persistante `GeocacheLoggingTask` :
+
+- table `geocache_logging_task` ;
+- migration `add_geocache_logging_task_table` (revision suivant `add_user_observation_table`) ;
+- relation `Geocache.logging_tasks` (cascade delete, triee par `position`).
+
+Chaque logging task porte :
+
+- `position` : numero d'ordre de la question ;
+- `question` : texte de la question du CO ;
+- `guidance` : ce qu'il faut observer ou mesurer pour y repondre (optionnel) ;
+- `answer` : brouillon de reponse (optionnel) ;
+- `status` : `todo`, `field` (a observer sur place) ou `answered` ;
+- `requires_photo` : la question exige-t-elle une photo ;
+- `observation_id` : observation `UserObservation` qui justifie la reponse (FK `ON DELETE SET NULL`) ;
+- `source` : `manual` ou `extracted`.
+
+Routes (blueprint `logging_tasks`) :
+
+```text
+GET    /api/geocaches/<id>/logging-tasks
+POST   /api/geocaches/<id>/logging-tasks
+PUT    /api/logging-tasks/<id>
+DELETE /api/logging-tasks/<id>
+```
+
+Cote frontend, `EarthCoachContextService.loadLoggingTasks` charge ces taches dans `EarthCoachContext.loggingTasks`. Le prompt builder les expose dans un bloc `Questions du proprietaire (logging tasks)` et le mode terrain compact les utilise en priorite a la place de l'extraction regex des questions du listing.
+
+Cet increment couvre la couche donnees et le gabarit resolver. L'alimentation par extraction LLM (`earthcoach_extract_logging_tasks`) et le widget d'edition sont prevus dans un increment ulterieur.
 
 ## Integration avec `zones`
 

@@ -8,7 +8,7 @@ import {
 } from '../earthcoach-observations';
 import { buildEarthCoachPrompt, selectEarthCoachImagesForChat, toImageContext } from '../earthcoach-prompt-builder';
 import { buildEarthCoachSystemPrompt } from '../earthcoach-prompts';
-import { GeoImage, UserObservation } from '../earthcoach-types';
+import { GeoImage, LoggingTask, UserObservation } from '../earthcoach-types';
 import { EarthCoachNoteTools } from '../earthcoach-note-tools';
 import { EarthCoachReferenceTools } from '../earthcoach-reference-tools';
 import {
@@ -41,6 +41,30 @@ function createImages(): GeoImage[] {
             origin: 'educational_reference',
             label: 'Quartz',
             fileUri: 'https://example.test/quartz.jpg',
+        },
+    ];
+}
+
+function createLoggingTasks(): LoggingTask[] {
+    return [
+        {
+            id: 'logging-task-1',
+            geocacheId: '1',
+            position: 1,
+            question: 'Quelle est la couleur dominante de la roche ?',
+            guidance: 'Observer la roche en place, hors zones alterees.',
+            status: 'todo',
+            requiresPhoto: false,
+        },
+        {
+            id: 'logging-task-2',
+            geocacheId: '1',
+            position: 2,
+            question: 'Estimer la hauteur de l affleurement.',
+            answer: 'Environ 4 metres.',
+            status: 'answered',
+            requiresPhoto: true,
+            observationId: 'observation-3',
         },
     ];
 }
@@ -374,6 +398,7 @@ function testFieldChecklistBuilder(): void {
             }],
         },
         observations: [createObservation()],
+        loggingTasks: [],
         gcPersonalNote: null,
         images: createImages(),
     });
@@ -419,6 +444,105 @@ function testResolverInstructionDoesNotPretendTerrain(): void {
     assert.match(prompt, /Mode: resolver/);
     assert.match(prompt, /sans inventer le terrain/);
     assert.match(prompt, /Aucune observation personnelle/);
+}
+
+function testPromptIncludesLoggingTasks(): void {
+    const prompt = buildEarthCoachPrompt({
+        geocache: {
+            id: 1,
+            gc_code: 'GC123',
+            name: 'Earth test',
+            type: 'EarthCache',
+        },
+        mode: 'coach',
+        action: 'understand',
+        observations: [],
+        loggingTasks: createLoggingTasks(),
+        images: [],
+    });
+
+    assert.match(prompt, /Questions du proprietaire \(logging tasks\)/);
+    assert.match(prompt, /Q1 \[a traiter\]: Quelle est la couleur dominante/);
+    assert.match(prompt, /A observer: Observer la roche en place/);
+    assert.match(prompt, /Q2 \[repondu; photo requise; observation liee=observation-3\]/);
+    assert.match(prompt, /Reponse brouillon: Environ 4 metres./);
+}
+
+function testResolverTemplateConsumesLoggingTasks(): void {
+    const prompt = buildEarthCoachPrompt({
+        geocache: {
+            id: 1,
+            gc_code: 'GC123',
+            name: 'Earth test',
+            type: 'EarthCache',
+        },
+        mode: 'resolver',
+        action: 'resolve',
+        observations: [],
+        loggingTasks: createLoggingTasks(),
+        images: [],
+    });
+
+    assert.match(prompt, /GABARIT DE RESOLUTION/);
+    assert.match(prompt, /Reponse proposee/);
+    assert.match(prompt, /Fondee sur/);
+    assert.match(prompt, /Confiance: elevee \/ moyenne \/ faible/);
+    assert.match(prompt, /Traite les 2 question\(s\) listees/);
+}
+
+function testResolverTemplateWithoutLoggingTasks(): void {
+    const prompt = buildEarthCoachPrompt({
+        geocache: {
+            id: 1,
+            name: 'Earth test',
+            type: 'EarthCache',
+        },
+        mode: 'resolver',
+        action: 'resolve',
+        observations: [],
+        images: [],
+    });
+
+    assert.match(prompt, /GABARIT DE RESOLUTION/);
+    assert.match(prompt, /Aucune logging task structuree/);
+}
+
+function testCoachModeHasNoResolverTemplate(): void {
+    const prompt = buildEarthCoachPrompt({
+        geocache: {
+            id: 1,
+            name: 'Earth test',
+            type: 'EarthCache',
+        },
+        mode: 'coach',
+        action: 'understand',
+        observations: [],
+        loggingTasks: createLoggingTasks(),
+        images: [],
+    });
+
+    assert.doesNotMatch(prompt, /GABARIT DE RESOLUTION/);
+}
+
+function testFieldChecklistPrefersLoggingTasks(): void {
+    const checklist = buildEarthCoachFieldChecklist({
+        geocacheData: {
+            id: 1,
+            gc_code: 'GC123',
+            name: 'Earth test',
+            type: 'EarthCache',
+            description_html: '<p>Quelle couleur observe-t-on sur les strates ?</p>',
+        },
+        observations: [],
+        loggingTasks: createLoggingTasks(),
+        gcPersonalNote: null,
+        images: [],
+    });
+
+    const questions = checklist.sections.find(section => section.title === 'Questions du listing');
+    assert.ok(questions);
+    assert.ok(questions!.items.some(item => item.startsWith('Q1: Quelle est la couleur dominante')));
+    assert.ok(questions!.items.some(item => item.includes('photo requise')));
 }
 
 function testImageContextMapping(): void {
@@ -469,6 +593,11 @@ async function run(): Promise<void> {
     testFieldChecklistBuilder();
     testImageGalleryGroupsByOrigin();
     testResolverInstructionDoesNotPretendTerrain();
+    testPromptIncludesLoggingTasks();
+    testResolverTemplateConsumesLoggingTasks();
+    testResolverTemplateWithoutLoggingTasks();
+    testCoachModeHasNoResolverTemplate();
+    testFieldChecklistPrefersLoggingTasks();
     testImageContextMapping();
     testSelectImagesForChatPrioritizesUserObservations();
     testSelectImagesForChatHonorsPreferredIds();
