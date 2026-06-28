@@ -340,6 +340,34 @@ function useRowVirtualizer(rowCount: number, scrollRef: React.RefObject<HTMLElem
     return { startIndex, endIndex, paddingTop, paddingBottom };
 }
 
+/**
+ * Case à cocher « tout sélectionner » du header.
+ * Composant dédié car l'état `indeterminate` n'est pas exposé en JSX et doit
+ * être posé impérativement sur le DOM via une ref + effet — ce qui exige un
+ * vrai composant React (les hooks ne peuvent pas vivre dans la fonction
+ * `header` d'un ColumnDef sans enfreindre les règles des hooks).
+ */
+const SelectAllCheckbox: React.FC<{
+    checked: boolean;
+    indeterminate: boolean;
+    onChange: (event: unknown) => void;
+}> = ({ checked, indeterminate, onChange }) => {
+    const ref = React.useRef<HTMLInputElement>(null);
+    React.useEffect(() => {
+        if (ref.current) {
+            ref.current.indeterminate = indeterminate;
+        }
+    }, [indeterminate]);
+    return (
+        <input
+            ref={ref}
+            type="checkbox"
+            checked={checked}
+            onChange={onChange}
+        />
+    );
+};
+
 export const GeocachesTable: React.FC<GeocachesTableProps> = ({
     data,
     onRowClick,
@@ -418,23 +446,13 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
         () => [
             {
                 id: 'select',
-                header: ({ table }) => {
-                    const checkboxRef = React.useRef<HTMLInputElement>(null);
-                    React.useEffect(() => {
-                        if (checkboxRef.current) {
-                            checkboxRef.current.indeterminate = table.getIsSomeRowsSelected() && !table.getIsAllRowsSelected();
-                        }
-                    }, [table.getIsSomeRowsSelected(), table.getIsAllRowsSelected()]);
-                    
-                    return (
-                        <input
-                            ref={checkboxRef}
-                            type="checkbox"
-                            checked={table.getIsAllRowsSelected()}
-                            onChange={table.getToggleAllRowsSelectedHandler()}
-                        />
-                    );
-                },
+                header: ({ table }) => (
+                    <SelectAllCheckbox
+                        checked={table.getIsAllRowsSelected()}
+                        indeterminate={table.getIsSomeRowsSelected() && !table.getIsAllRowsSelected()}
+                        onChange={table.getToggleAllRowsSelectedHandler()}
+                    />
+                ),
                 cell: ({ row }) => (
                     <input
                         type="checkbox"
