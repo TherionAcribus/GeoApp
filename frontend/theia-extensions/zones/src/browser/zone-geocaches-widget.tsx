@@ -166,8 +166,6 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         // Écouter les événements personnalisés pour ouvrir l'onglet
         this.setupEventListeners();
 
-        // eslint-disable-next-line no-console
-        console.log('[ZoneGeocachesWidget] constructed');
     }
 
     private readTableVisibleColumnIds(): GeocachesTableColumnId[] {
@@ -550,7 +548,6 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         window.addEventListener('open-zone-geocaches', (event: any) => {
             const detail = event.detail;
             if (detail && detail.zoneId) {
-                console.log('ZoneGeocachesWidget: Received open-zone-geocaches event', detail);
                 this.handleOpenZoneGeocaches(detail.zoneId, detail.zoneName);
             }
         });
@@ -805,7 +802,6 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 ...(request.min_km !== undefined ? { min_km: request.min_km } : {}),
                 ...(request.filters && request.filters.length > 0 ? { filters: request.filters } : {}),
             };
-            console.log('[ZoneGeocachesWidget] importAround payload:', JSON.stringify(payload, null, 2));
             const response = await this.geocachesService.importAround(payload, controller.signal);
 
             if (!response.body) {
@@ -921,7 +917,6 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             // Activer le widget
             this.shell.activateWidget(this.id);
 
-            console.log('ZoneGeocachesWidget: Successfully opened for zone', zoneId, zoneName);
         } catch (error) {
             console.error('ZoneGeocachesWidget: Error opening widget:', error);
             this.messages.error('Erreur lors de l\'ouverture de l\'onglet géocaches');
@@ -930,8 +925,6 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
 
     /** Configure le widget avec l'ID et le nom de la zone */
     setZone(context: { zoneId: number; zoneName?: string }): void {
-        // eslint-disable-next-line no-console
-        console.log('[ZoneGeocachesWidget] setZone', context);
         this.zoneId = context.zoneId;
         this.zoneName = context.zoneName;
         this.lastAccessTimestamp = Date.now();
@@ -974,7 +967,6 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             const existingMap = this.shell.getWidgets('bottom').find(w => w.id === mapId);
 
             if (existingMap) {
-                console.log('[ZoneGeocachesWidget] Fermeture de la carte zone associée:', this.zoneId);
                 existingMap.close();
             }
         }
@@ -984,19 +976,15 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
      * Réactive la carte correspondante à cette zone
      */
     private reactivateMap(): void {
-        console.log('[ZoneGeocachesWidget] reactivateMap appelé, zoneId:', this.zoneId, 'zoneName:', this.zoneName);
         
         // Si on a une zone chargée, réactiver sa carte
         if (this.zoneId && this.zoneName) {
             const mapId = `geoapp-map-zone-${this.zoneId}`;
             const bottomWidgets = this.shell.getWidgets('bottom');
-            console.log('[ZoneGeocachesWidget] Widgets dans bottom:', bottomWidgets.map(w => w.id));
             
             const existingMap = bottomWidgets.find(w => w.id === mapId);
-            console.log('[ZoneGeocachesWidget] Carte trouvée:', !!existingMap, 'ID recherché:', mapId);
             
             if (existingMap) {
-                console.log('[ZoneGeocachesWidget] Réactivation de la carte zone:', this.zoneId);
                 this.shell.activateWidget(mapId);
             } else {
                 console.warn('[ZoneGeocachesWidget] Carte non trouvée dans le bottom layer');
@@ -1088,15 +1076,11 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 gc.longitude !== undefined
             );
             
-            console.log('[ZoneGeocachesWidget] Géocaches avec coordonnées:', geocachesWithCoords.length, '/', this.rows.length);
-            console.log('[ZoneGeocachesWidget] Première géocache:', geocachesWithCoords[0]);
             
             if (geocachesWithCoords.length > 0 && this.zoneId && this.zoneName) {
                 // Préparer les données pour la carte
                 const mapGeocaches = geocachesWithCoords.map(gc => this.toMapGeocache(gc));
                 
-                console.log('[ZoneGeocachesWidget] Ouverture carte pour zone:', this.zoneId, this.zoneName);
-                console.log('[ZoneGeocachesWidget] Données envoyées:', mapGeocaches.length, 'géocaches');
                 
                 // Ouvrir une carte spécifique à cette zone
                 this.mapWidgetFactory.openMapForZone(this.zoneId, this.zoneName, mapGeocaches);
@@ -1104,8 +1088,6 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 console.warn('[ZoneGeocachesWidget] Aucune géocache avec coordonnées trouvée ou zone non définie');
             }
             
-            // eslint-disable-next-line no-console
-            console.log('[ZoneGeocachesWidget] load -> rows:', this.rows.length);
         } catch (e) {
             console.error('ZoneGeocachesWidget: load error', e);
             this.messages.warn('Impossible de charger les géocaches de la zone');
@@ -1306,7 +1288,6 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
      */
     private handleOpenGeocacheDetailsFromMap = async (event: CustomEvent): Promise<void> => {
         const { geocacheId } = event.detail;
-        console.log(`[ZoneGeocachesWidget] Ouverture de carte pour géocache ${geocacheId} depuis la carte`);
 
         try {
             // Trouver la géocache dans la liste actuelle
@@ -1415,7 +1396,6 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 }
                 this.shell.activateWidget(widget.id);
 
-                console.log(`[ZoneGeocachesWidget] Opened batch executor for ${selectedGeocaches.length} geocaches`);
                 
             } catch (widgetError) {
                 console.error('[ZoneGeocachesWidget] Error opening batch widget:', widgetError);
@@ -1583,17 +1563,13 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         waypoints?: any[];
     }): Promise<void> {
         try {
-            console.log('[ZoneGeocachesWidget] openGeocacheMap appelée pour géocache:', geocache.gc_code);
-            console.log('[ZoneGeocachesWidget] Données reçues:', geocache);
 
             // Ouvrir une carte spécifique pour cette géocache
-            console.log('[ZoneGeocachesWidget] Appel de mapWidgetFactory.openMapForGeocache');
             await this.mapWidgetFactory.openMapForGeocache(
                 geocache.id,
                 geocache.gc_code,
                 geocache
             );
-            console.log('[ZoneGeocachesWidget] mapWidgetFactory.openMapForGeocache terminé');
         } catch (error) {
             console.error('[ZoneGeocachesWidget] Erreur lors de l\'ouverture de la carte:', error);
             this.messages.error(`Erreur lors de l'ouverture de la carte pour ${geocache.gc_code}`);
@@ -1606,7 +1582,6 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             if (geocache.latitude !== null && geocache.latitude !== undefined && 
                 geocache.longitude !== null && geocache.longitude !== undefined) {
                 
-                console.log('[ZoneGeocachesWidget] Ouverture carte pour géocache:', geocache.gc_code);
 
                 // Ouvrir une carte spécifique pour cette géocache
                 await this.mapWidgetFactory.openMapForGeocache(
