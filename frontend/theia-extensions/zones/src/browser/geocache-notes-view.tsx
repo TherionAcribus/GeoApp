@@ -66,8 +66,21 @@ const noteCardStyle: React.CSSProperties = {
     gap: 6
 };
 
+// Formatting via Intl (toLocaleString) is relatively costly and timestamps are stable
+// strings that recur across renders/notes, so we memoize on the raw value.
+const dateTimeCache = new Map<string, string>();
+
 function formatDateTime(value: string | null | undefined): string | undefined {
-    return value ? new Date(value).toLocaleString('fr-FR') : undefined;
+    if (!value) {
+        return undefined;
+    }
+    const cached = dateTimeCache.get(value);
+    if (cached !== undefined) {
+        return cached;
+    }
+    const formatted = new Date(value).toLocaleString('fr-FR');
+    dateTimeCache.set(value, formatted);
+    return formatted;
 }
 
 function getPersonalNoteTimestamp(
