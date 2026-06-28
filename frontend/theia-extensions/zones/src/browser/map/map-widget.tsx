@@ -72,7 +72,7 @@ export class MapWidget extends ReactWidget {
         this.node.tabIndex = 0;
         this.context = {
             type: 'general',
-            label: 'Carte Generale'
+            label: 'Carte Générale'
         };
         this.mapPreferences = this.readMapPreferences();
         this.preferenceChangeDisposable = this.preferenceService.onPreferenceChanged((event: PreferenceChange) => this.handleMapPreferenceChanged(event));

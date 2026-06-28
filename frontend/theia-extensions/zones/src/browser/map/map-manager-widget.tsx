@@ -188,9 +188,9 @@ export class MapManagerWidget extends ReactWidget {
             case 'zone':
                 return 'Zone';
             case 'geocache':
-                return 'Geocache';
+                return 'Géocache';
             default:
-                return 'Generale';
+                return 'Générale';
         }
     }
 

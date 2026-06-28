@@ -83,6 +83,7 @@ export const MapView: React.FC<MapViewProps> = ({
     const [clusteringMode, setClusteringMode] = React.useState<ClusteringMode>(preferences?.clusteringMode ?? 'auto');
     const [selectedGeocacheId, setSelectedGeocacheId] = React.useState<number | null>(null);
     const [nearbyGeocaches, setNearbyGeocaches] = React.useState<MapGeocache[]>([]);
+    const [nearbyLoading, setNearbyLoading] = React.useState(false);
 
     const openGeocacheDetails = React.useCallback((geocacheId: number, geocacheName?: string, gcCode?: string): void => {
         if (!onOpenGeocacheDetails) {
@@ -956,6 +957,7 @@ export const MapView: React.FC<MapViewProps> = ({
             }
             // Remettre à zéro l'état des géocaches voisines
             setNearbyGeocaches([]);
+            setNearbyLoading(false);
             return;
         }
 
@@ -963,6 +965,7 @@ export const MapView: React.FC<MapViewProps> = ({
         let cancelled = false;
 
         const fetchNearbyGeocaches = async () => {
+            setNearbyLoading(true);
             try {
                 const data = { nearby_geocaches: await onLoadNearbyGeocaches(selectedGeocacheId, 5) };
                 if (cancelled) {
@@ -993,6 +996,10 @@ export const MapView: React.FC<MapViewProps> = ({
 
             } catch (error) {
                 console.error('[MapView] Erreur lors de la récupération des géocaches voisines:', error);
+            } finally {
+                if (!cancelled) {
+                    setNearbyLoading(false);
+                }
             }
         };
 
@@ -1101,6 +1108,14 @@ export const MapView: React.FC<MapViewProps> = ({
                         disabled={!selectedGeocacheId}
                     />
                     Géocaches voisines (5km)
+                    {nearbyLoading && (
+                        <span
+                            className="geoapp-map-toolbar__spinner"
+                            role="status"
+                            aria-label="Chargement des géocaches voisines"
+                            title="Chargement…"
+                        />
+                    )}
                 </label>
 
                 {/* Bouton pour afficher/masquer les zones d'exclusion */}
@@ -1114,29 +1129,29 @@ export const MapView: React.FC<MapViewProps> = ({
                 </label>
 
                 <label>
-                    Trouvees:
+                    Trouvées:
                     <select value={foundGeocacheDisplayMode} onChange={handleFoundDisplayModeChange}>
                         <option value="transparent">Transparentes</option>
-                        <option value="hidden">Masquees</option>
-                        <option value="found-icon">Icone Found it</option>
+                        <option value="hidden">Masquées</option>
+                        <option value="found-icon">Icône Found it</option>
                     </select>
                 </label>
 
                 <label>
-                    Taille icones:
+                    Taille icônes:
                     <select value={geocacheIconScale} onChange={handleIconScaleChange}>
-                        <option value={0.5}>Tres petite</option>
+                        <option value={0.5}>Très petite</option>
                         <option value={0.65}>Petite</option>
                         <option value={0.75}>Normale</option>
                         <option value={0.9}>Grande</option>
-                        <option value={1.1}>Tres grande</option>
+                        <option value={1.1}>Très grande</option>
                     </select>
                 </label>
 
                 <label>
-                    Intitules:
+                    Intitulés:
                     <select value={labelMode} onChange={handleLabelModeChange}>
-                        <option value="none">Masques</option>
+                        <option value="none">Masqués</option>
                         <option value="geocaches">Caches</option>
                         <option value="waypoints">Waypoints</option>
                         <option value="all">Caches + WP</option>

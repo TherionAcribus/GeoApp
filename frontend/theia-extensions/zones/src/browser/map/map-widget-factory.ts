@@ -107,7 +107,7 @@ export class MapWidgetFactory {
     async openGeneralMap(geocaches?: any[]): Promise<MapWidget> {
         return this.openMapForContext({
             type: 'general',
-            label: 'Carte Généraleeee'
+            label: 'Carte Générale'
         }, geocaches);
     }
 
