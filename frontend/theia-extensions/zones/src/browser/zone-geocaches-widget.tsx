@@ -321,6 +321,61 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         return /already exists|existe d[ée]jà/i.test(getErrorMessage(error, ''));
     }
 
+    /**
+     * Exécute `worker` sur chaque élément avec un pool de concurrence borné, au
+     * lieu d'enchaîner les requêtes une par une (séquentiel = N allers-retours
+     * réseau en série). L'ordre de traitement n'est pas garanti ; le `worker`
+     * est responsable de sa propre gestion d'erreur (comptage par élément).
+     */
+    private async runWithConcurrency<T>(
+        items: T[],
+        worker: (item: T) => Promise<void>,
+        concurrency: number = 6
+    ): Promise<void> {
+        let cursor = 0;
+        const pump = async (): Promise<void> => {
+            while (true) {
+                const index = cursor++;
+                if (index >= items.length) {
+                    return;
+                }
+                await worker(items[index]);
+            }
+        };
+        const size = Math.max(1, Math.min(concurrency, items.length));
+        await Promise.all(Array.from({ length: size }, () => pump()));
+    }
+
+    /**
+     * Variante de `runWithConcurrency` qui affiche une notification de
+     * progression Theia (barre + compteur « done/total ») mise à jour au fil de
+     * l'avancement. Le `worker` gère sa propre erreur : un élément en échec est
+     * tout de même compté comme traité pour faire avancer la barre.
+     */
+    private async runBulkWithProgress<T>(
+        items: T[],
+        worker: (item: T) => Promise<void>,
+        options: { title: string; concurrency?: number }
+    ): Promise<void> {
+        const total = items.length;
+        // showProgress est sur MessageService, pas sur ProgressService
+        const progress = await this.messages.showProgress({
+            text: options.title,
+            options: { cancelable: false, location: 'notification' }
+        });
+        let done = 0;
+        progress.report({ message: `0 / ${total}`, work: { done: 0, total } });
+        try {
+            await this.runWithConcurrency(items, async item => {
+                await worker(item);
+                done++;
+                progress.report({ message: `${done} / ${total}`, work: { done, total } });
+            }, options.concurrency);
+        } finally {
+            progress.cancel();
+        }
+    }
+
     private async consumeImportStream(
         response: Response,
         onProgress?: (percentage: number, message: string) => void
@@ -1004,30 +1059,49 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         if (!confirmed) {
             return;
         }
-        
-        try {
-            for (const id of ids) {
+
+        let deletedCount = 0;
+        let errorCount = 0;
+        await this.runBulkWithProgress(ids, async id => {
+            try {
                 await this.geocachesService.delete(id);
+                deletedCount++;
+            } catch (e) {
+                console.error('Delete error', e);
+                errorCount++;
             }
-            this.messages.info(`${ids.length} géocache(s) supprimée(s)`);
-            await this.refreshZoneData();
-        } catch (e) {
-            console.error('Delete error', e);
-            this.messages.error(getErrorMessage(e, 'Erreur lors de la suppression'));
+        }, { title: `Suppression de ${ids.length} géocache(s)…` });
+
+        await this.refreshZoneData();
+
+        if (errorCount === 0) {
+            this.messages.info(`${deletedCount} géocache(s) supprimée(s)`);
+        } else {
+            this.messages.warn(`${deletedCount} géocache(s) supprimée(s), ${errorCount} en erreur`);
         }
     }
 
     protected async handleRefreshSelected(ids: number[]): Promise<void> {
-        try {
-            this.messages.info(`Rafraîchissement de ${ids.length} géocache(s)...`);
-            for (const id of ids) {
+        let refreshedCount = 0;
+        let errorCount = 0;
+        // Concurrence volontairement basse : chaque refresh scrape geocaching.com,
+        // trop de requêtes en parallèle risquerait un rate-limit côté source.
+        await this.runBulkWithProgress(ids, async id => {
+            try {
                 await this.geocachesService.refresh(id);
+                refreshedCount++;
+            } catch (e) {
+                console.error('Refresh error', e);
+                errorCount++;
             }
-            this.messages.info(`${ids.length} géocache(s) rafraîchie(s)`);
-            await this.load();
-        } catch (e) {
-            console.error('Refresh error', e);
-            this.messages.error('Erreur lors du rafraîchissement');
+        }, { title: `Rafraîchissement de ${ids.length} géocache(s)…`, concurrency: 3 });
+
+        await this.load();
+
+        if (errorCount === 0) {
+            this.messages.info(`${refreshedCount} géocache(s) rafraîchie(s)`);
+        } else {
+            this.messages.warn(`${refreshedCount} géocache(s) rafraîchie(s), ${errorCount} en erreur`);
         }
     }
 
@@ -1104,23 +1178,24 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         let errorCount = 0;
         const targetZoneName = this.zones.find(z => z.id === targetZoneId)?.name || `Zone ${targetZoneId}`;
 
-        for (const geocacheId of geocacheIds) {
+        await this.runBulkWithProgress(geocacheIds, async geocacheId => {
+            // Ignorer les ids absents des données actuelles
+            const geocache = this.rows.find(g => g.id === geocacheId);
+            if (!geocache) {
+                return;
+            }
             try {
-                // Trouver la géocache dans les données actuelles pour obtenir le gc_code
-                const geocache = this.rows.find(g => g.id === geocacheId);
-                if (!geocache) continue;
-
                 await this.geocachesService.copy(geocacheId, targetZoneId);
                 copiedCount++;
             } catch (e) {
                 if (this.isAlreadyExistsError(e)) {
                     alreadyExistsCount++;
-                    continue;
+                    return;
                 }
                 console.error(`Copy error for geocache ${geocacheId}:`, e);
                 errorCount++;
             }
-        }
+        }, { title: `Copie de ${geocacheIds.length} géocache(s)…` });
 
         // Fermer la boîte de dialogue
         this.closeCopySelectedDialog();
@@ -1305,12 +1380,13 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         let errorCount = 0;
         const targetZoneName = this.zones.find(z => z.id === targetZoneId)?.name || `Zone ${targetZoneId}`;
 
-        for (const geocacheId of geocacheIds) {
+        await this.runBulkWithProgress(geocacheIds, async geocacheId => {
+            // Ignorer les ids absents des données actuelles
+            const geocache = this.rows.find(g => g.id === geocacheId);
+            if (!geocache) {
+                return;
+            }
             try {
-                // Trouver la géocache dans les données actuelles pour obtenir le gc_code
-                const geocache = this.rows.find(g => g.id === geocacheId);
-                if (!geocache) continue;
-
                 const result = await this.geocachesService.move(geocacheId, targetZoneId);
                 if (result?.already_exists) {
                     alreadyExistsCount++;
@@ -1321,7 +1397,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 console.error(`Move error for geocache ${geocacheId}:`, e);
                 errorCount++;
             }
-        }
+        }, { title: `Déplacement de ${geocacheIds.length} géocache(s)…` });
 
         // Fermer la boîte de dialogue
         this.closeMoveSelectedDialog();
