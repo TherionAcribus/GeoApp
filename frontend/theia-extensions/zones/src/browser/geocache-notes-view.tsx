@@ -190,6 +190,8 @@ const saveButtonStyle: React.CSSProperties = {
     fontSize: 11
 };
 
+const saveButtonDisabledStyle: React.CSSProperties = { ...saveButtonStyle, cursor: 'not-allowed', opacity: 0.6 };
+
 const noteContentStyle: React.CSSProperties = { marginTop: 4, whiteSpace: 'pre-wrap', fontSize: 13 };
 
 // Formatting via Intl (toLocaleString) is relatively costly and timestamps are stable
@@ -335,7 +337,8 @@ const NoteItem = React.memo(function NoteItem(props: NoteItemProps): React.JSX.E
                             </button>
                             <button
                                 onClick={props.onSaveEdit}
-                                style={saveButtonStyle}
+                                disabled={props.editingContent.trim().length === 0}
+                                style={props.editingContent.trim().length === 0 ? saveButtonDisabledStyle : saveButtonStyle}
                             >
                                 Sauvegarder
                             </button>
@@ -360,6 +363,8 @@ export function GeocacheNotesView(props: GeocacheNotesViewProps): React.JSX.Elem
         props.gcPersonalNoteSyncedAt,
         props.gcPersonalNoteLastPushedAt
     );
+
+    const isAddDisabled = props.isCreating || props.newNoteContent.trim().length === 0;
 
     return (
         <div style={containerStyle}>
@@ -421,8 +426,13 @@ export function GeocacheNotesView(props: GeocacheNotesViewProps): React.JSX.Elem
                         </select>
                         <button
                             onClick={props.onCreateNote}
-                            disabled={props.isCreating}
-                            style={{ ...primaryButtonBaseStyle, padding: '6px 14px', cursor: props.isCreating ? 'wait' : 'pointer' }}
+                            disabled={isAddDisabled}
+                            style={{
+                                ...primaryButtonBaseStyle,
+                                padding: '6px 14px',
+                                cursor: props.isCreating ? 'wait' : (isAddDisabled ? 'not-allowed' : 'pointer'),
+                                opacity: isAddDisabled ? 0.6 : 1
+                            }}
                         >
                             <i className={`fa ${props.isCreating ? 'fa-spinner fa-spin' : 'fa-plus'}`} aria-hidden='true' />
                             {props.isCreating ? 'Creation...' : 'Ajouter'}
