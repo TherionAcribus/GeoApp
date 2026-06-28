@@ -316,6 +316,17 @@ const NoteItem = React.memo(function NoteItem(props: NoteItemProps): React.JSX.E
                     <textarea
                         value={props.editingContent}
                         onChange={event => props.onEditingContentChange(event.target.value)}
+                        onKeyDown={event => {
+                            if (event.key === 'Escape') {
+                                event.preventDefault();
+                                props.onCancelEdit();
+                            } else if ((event.ctrlKey || event.metaKey) && event.key === 'Enter'
+                                && props.editingContent.trim().length > 0) {
+                                event.preventDefault();
+                                props.onSaveEdit();
+                            }
+                        }}
+                        autoFocus={true}
                         rows={3}
                         style={textareaStyle}
                     />
@@ -411,7 +422,13 @@ export function GeocacheNotesView(props: GeocacheNotesViewProps): React.JSX.Elem
                     <textarea
                         value={props.newNoteContent}
                         onChange={event => props.onNewNoteContentChange(event.target.value)}
-                        placeholder='Ajouter une nouvelle note...'
+                        onKeyDown={event => {
+                            if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && !isAddDisabled) {
+                                event.preventDefault();
+                                props.onCreateNote();
+                            }
+                        }}
+                        placeholder='Ajouter une nouvelle note... (Ctrl+Entree pour ajouter)'
                         rows={3}
                         style={textareaStyle}
                     />
