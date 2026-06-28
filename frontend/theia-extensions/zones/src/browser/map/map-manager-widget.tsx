@@ -94,15 +94,19 @@ export class MapManagerWidget extends ReactWidget {
                         <small>Les cartes s'ouvrent automatiquement quand vous naviguez dans les zones ou geocaches</small>
                     </div>
                 ) : (
-                    <div className="map-manager-list">
+                    <div className="map-manager-list" role="list" aria-label="Cartes ouvertes">
                         {this.openMaps.map(map => (
                             <div
                                 key={map.id}
                                 className="map-manager-item"
+                                role="button"
+                                tabIndex={0}
+                                aria-label={`Activer la carte ${map.label}`}
                                 onClick={() => this.activateMap(map.id)}
+                                onKeyDown={event => this.handleItemKeyDown(event, map.id)}
                                 title={map.label}
                             >
-                                <div className="map-item-icon">
+                                <div className="map-item-icon" aria-hidden="true">
                                     {this.getMapIcon(map.context.type)}
                                 </div>
                                 <div className="map-item-content">
@@ -116,9 +120,10 @@ export class MapManagerWidget extends ReactWidget {
                                             event.stopPropagation();
                                             this.closeMap(map.id);
                                         }}
+                                        aria-label={`Fermer la carte ${map.label}`}
                                         title="Fermer"
                                     >
-                                        x
+                                        <span aria-hidden="true">×</span>
                                     </button>
                                 </div>
                             </div>
@@ -133,7 +138,7 @@ export class MapManagerWidget extends ReactWidget {
                         disabled={this.openMaps.length === 0}
                         title="Fermer toutes les cartes"
                     >
-                        <i className="fa fa-trash"></i> Fermer tout
+                        <i className="fa fa-trash" aria-hidden="true"></i> Fermer tout
                     </button>
                 </div>
             </div>
@@ -159,6 +164,13 @@ export class MapManagerWidget extends ReactWidget {
                 return 'Geocache';
             default:
                 return 'Generale';
+        }
+    }
+
+    private handleItemKeyDown(event: React.KeyboardEvent<HTMLDivElement>, mapId: string): void {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            this.activateMap(mapId);
         }
     }
 

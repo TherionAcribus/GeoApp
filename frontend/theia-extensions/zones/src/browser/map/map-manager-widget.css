@@ -74,6 +74,12 @@
     background-color: var(--theia-list-activeSelectionBackground);
 }
 
+.map-manager-item:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+    background-color: var(--theia-list-hoverBackground);
+}
+
 /* Icône de la carte */
 .map-item-icon {
     font-size: 20px;
@@ -130,13 +136,20 @@
     opacity: 0;
 }
 
-.map-manager-item:hover .map-item-close {
+.map-manager-item:hover .map-item-close,
+.map-manager-item:focus-within .map-item-close,
+.map-item-close:focus {
     opacity: 1;
 }
 
 .map-item-close:hover {
     background-color: var(--theia-toolbar-hoverBackground);
     color: var(--theia-errorForeground);
+}
+
+.map-item-close:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
 }
 
 /* Footer */
