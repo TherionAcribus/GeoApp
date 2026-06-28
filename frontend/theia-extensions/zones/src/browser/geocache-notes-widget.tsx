@@ -91,7 +91,8 @@ export class GeocacheNotesWidget extends ReactWidget {
     }
 
     setGeocache(params: { geocacheId: number; gcCode?: string; name?: string }): void {
-        this.loadRequestToken += 1;
+        // loadNotes() owns the cancellation token: it bumps loadRequestToken on each call,
+        // which invalidates any in-flight load from the previously selected geocache.
         this.geocacheId = params.geocacheId;
         this.geocacheCode = params.gcCode;
         this.geocacheName = params.name;
