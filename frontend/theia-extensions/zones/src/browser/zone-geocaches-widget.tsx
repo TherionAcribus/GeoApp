@@ -67,6 +67,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     private lastAccessTimestamp: number = Date.now();
     private readonly tableVisibleColumnsPreferenceKey = 'geoApp.geocaches.table.visibleColumns';
     private readonly preferenceChangeDisposable: { dispose: () => void };
+    /** Vrai pendant que CE widget émet requestZonesRefresh, pour ignorer son propre événement. */
+    private selfTriggeringZonesRefresh = false;
 
     protected readonly handleGeocacheLogSubmitted = (event: CustomEvent<{ geocacheId: number; found?: boolean }>): void => {
         const detail = event?.detail;
@@ -134,6 +136,30 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         // signale qu'une zone a été créée, supprimée, renommée ou fusionnée.
         this.toDispose.push(
             this.widgetEventsService.onDidChangeZoneList(() => { void this.reloadZonesList(); })
+        );
+
+        // Réactivité externe : rafraîchir les lignes du tableau quand une action
+        // a lieu ailleurs (autre onglet de zone, suppression depuis l'arbre,
+        // outils de l'assistant…). Le garde évite un double rechargement quand
+        // c'est CE widget qui a émis l'événement (il fait déjà un load() complet).
+        this.toDispose.push(
+            this.widgetEventsService.onDidRequestZonesRefresh(() => {
+                if (this.selfTriggeringZonesRefresh) {
+                    return;
+                }
+                void this.reloadRows();
+            })
+        );
+
+        // Réactivité aux édits faits depuis la page de détails (waypoint, coords
+        // corrigées, statut de résolution…) : ne recharger que si la cache
+        // concernée est présente dans ce tableau.
+        this.toDispose.push(
+            this.widgetEventsService.onDidChangeGeocache(event => {
+                if (this.rows.some(row => row.id === event.geocacheId)) {
+                    void this.reloadRows();
+                }
+            })
         );
 
         // Écouter les événements personnalisés pour ouvrir l'onglet
@@ -319,7 +345,15 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     }
 
     private async refreshZoneData(): Promise<void> {
-        this.widgetEventsService.requestZonesRefresh();
+        // L'émission est synchrone : on protège l'envoi pour que le handler
+        // onDidRequestZonesRefresh de CE widget ignore son propre événement
+        // (sinon double rechargement, vu qu'on enchaîne sur un load() complet).
+        this.selfTriggeringZonesRefresh = true;
+        try {
+            this.widgetEventsService.requestZonesRefresh();
+        } finally {
+            this.selfTriggeringZonesRefresh = false;
+        }
         await this.load();
     }
 
@@ -902,6 +936,9 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         this.lastAccessTimestamp = Date.now();
         this.title.label = `Géocaches - ${this.zoneName ?? this.zoneId}`;
         this.update();
+        // Charger une fois la liste des zones (cibles copy/move) ; ensuite tenue
+        // à jour via onDidChangeZoneList. load() ne s'en occupe plus.
+        void this.reloadZonesList();
         this.load();
         this.setupMinOpenTimeTimer();
     }
@@ -1002,6 +1039,25 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         }
     }
 
+    /**
+     * Rafraîchissement incrémental : recharge uniquement les lignes du tableau
+     * (pas la liste des zones, pas de réouverture/activation de la carte). La
+     * carte associée est tout de même mise à jour via onFilteredDataChange
+     * déclenché par le re-rendu du tableau. Ne touche pas à l'état `loading`
+     * pour éviter de masquer le tableau pendant un refresh externe.
+     */
+    private async reloadRows(): Promise<void> {
+        if (!this.zoneId) {
+            return;
+        }
+        try {
+            this.rows = await this.zonesService.listGeocaches<Geocache>(this.zoneId);
+            this.update();
+        } catch (e) {
+            console.error('[ZoneGeocachesWidget] reloadRows error', e);
+        }
+    }
+
     protected async load(): Promise<void> {
         if (!this.zoneId) { return; }
         this.loading = true;
@@ -1009,10 +1065,11 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         try {
             // Charger les géocaches
             this.rows = await this.zonesService.listGeocaches<Geocache>(this.zoneId);
-            
-            // Charger la liste des zones pour le menu contextuel
-            this.zones = await this.zonesService.list<{ id: number; name: string }>();
-            
+
+            // NB : la liste des zones (cibles copy/move) n'est PAS rechargée ici.
+            // Elle est chargée une fois dans setZone() puis tenue à jour via
+            // l'événement onDidChangeZoneList — inutile de la refetch à chaque action.
+
             // Charger les géocaches sur la carte (avec waypoints)
             const geocachesWithCoords = this.rows.filter(gc => 
                 gc.latitude !== null && 

@@ -1160,6 +1160,8 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             await this.geocachesService.refresh(this.geocacheId);
             await this.load();
             window.dispatchEvent(new CustomEvent('geoapp-geocache-images-updated', { detail: { geocacheId: this.geocacheId } }));
+            // Notifier les onglets de zone ouverts pour qu'ils reflètent les données rafraîchies
+            this.widgetEventsService.requestZonesRefresh();
             this.messages.info('Géocache rafraîchie');
         } catch (error) {
             console.error('[GeocacheDetailsWidget] refreshGeocache error', error);

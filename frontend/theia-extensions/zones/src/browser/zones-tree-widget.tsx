@@ -66,6 +66,8 @@ export class ZonesTreeWidget extends ReactWidget {
     protected mergeDialog: { zone: ZoneDto } | null = null;
     protected zoneSort: ZoneSortPreference = { ...DEFAULT_ZONE_SORT };
     protected readonly zoneNameCollator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
+    /** Vrai pendant que CE widget émet requestZonesRefresh, pour ignorer son propre événement. */
+    private selfTriggeringZonesRefresh = false;
 
     protected readonly handleGeocacheLogSubmitted = (event: CustomEvent<{ geocacheId: number; found?: boolean }>): void => {
         const detail = event?.detail;
@@ -117,6 +119,9 @@ export class ZonesTreeWidget extends ReactWidget {
         this.zoneSort = this.readZoneSortPreference();
         this.toDispose.push(this.preferenceService.onPreferenceChanged(event => this.handlePreferenceChanged(event)));
         this.toDispose.push(this.widgetEventsService.onDidRequestZonesRefresh(() => {
+            if (this.selfTriggeringZonesRefresh) {
+                return;
+            }
             void this.refreshExpandedZones();
         }));
         this.toDispose.push(this.widgetEventsService.onDidChangeGeocache(() => {
@@ -469,16 +474,8 @@ export class ZonesTreeWidget extends ReactWidget {
         try {
             await this.geocachesService.move(geocache.id, targetZoneId);
             await this.refreshExpandedZones();
-
-
-            // Sauvegarder les zones actuellement dépliées
-            
-            // Invalider le cache des géocaches
-            
-            // Recharger les zones pour mettre à jour les compteurs
-            
-            // Recharger les géocaches des zones qui étaient dépliées
-            
+            // Notifier les onglets de zone ouverts (source et cible)
+            this.notifyZonesRefreshFromSelf();
             this.messages.info(`Géocache ${geocache.gc_code} déplacée`);
         } catch (e) {
             console.error('Move geocache error', e);
@@ -490,16 +487,8 @@ export class ZonesTreeWidget extends ReactWidget {
         try {
             await this.geocachesService.copy(geocache.id, targetZoneId);
             await this.refreshExpandedZones();
-
-
-            // Sauvegarder les zones actuellement dépliées
-            
-            // Invalider le cache des géocaches
-            
-            // Recharger les zones pour mettre à jour les compteurs
-            
-            // Recharger les géocaches des zones qui étaient dépliées
-            
+            // Notifier les onglets de zone ouverts (cible)
+            this.notifyZonesRefreshFromSelf();
             this.messages.info(`Géocache ${geocache.gc_code} copiée vers la zone cible`);
         } catch (e) {
             console.error('Copy geocache error', e);
@@ -611,7 +600,9 @@ export class ZonesTreeWidget extends ReactWidget {
                         this.zoneGeocaches.delete(zoneId);
                         await this.loadGeocachesForZone(zoneId);
                         await this.refresh();
-                        
+                        // Notifier un éventuel onglet de zone ouvert sur cette zone
+                        this.notifyZonesRefreshFromSelf();
+
                         this.messages.info(`Géocache ${geocache.gc_code} supprimée`);
                     } catch (e) {
                         console.error('Delete geocache error', e);
@@ -670,6 +661,20 @@ export class ZonesTreeWidget extends ReactWidget {
     }
 
     // Méthode supprimée - on utilise maintenant le composant GeocacheIcon directement
+
+    /**
+     * Émet requestZonesRefresh pour notifier les autres widgets (onglets de zone
+     * ouverts) tout en évitant que CE widget ne se rafraîchisse une 2e fois via
+     * son propre handler — il vient déjà de se mettre à jour localement.
+     */
+    protected notifyZonesRefreshFromSelf(): void {
+        this.selfTriggeringZonesRefresh = true;
+        try {
+            this.widgetEventsService.requestZonesRefresh();
+        } finally {
+            this.selfTriggeringZonesRefresh = false;
+        }
+    }
 
     protected async refreshExpandedZones(): Promise<void> {
         const expandedZoneIds = Array.from(this.expandedZones);
