@@ -662,9 +662,10 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                                 onClick={() => onRefresh(row.original.id)}
                                 className="theia-button secondary"
                                 title="Rafraîchir cette géocache"
+                                aria-label="Rafraîchir cette géocache"
                                 style={{ padding: '2px 6px', fontSize: '0.85em' }}
                             >
-                                🔄
+                                <span aria-hidden="true">🔄</span>
                             </button>
                         )}
                         {onDelete && (
@@ -672,9 +673,10 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                                 onClick={() => onDelete(row.original)}
                                 className="theia-button secondary"
                                 title="Supprimer cette géocache"
+                                aria-label="Supprimer cette géocache"
                                 style={{ padding: '2px 6px', fontSize: '0.85em', color: 'var(--theia-errorForeground)' }}
                             >
-                                🗑️
+                                <span aria-hidden="true">🗑️</span>
                             </button>
                         )}
                     </div>

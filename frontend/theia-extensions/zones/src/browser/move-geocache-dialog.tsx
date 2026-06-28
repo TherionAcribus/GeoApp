@@ -22,8 +22,27 @@ export const MoveGeocacheDialog: React.FC<MoveGeocacheDialogProps> = ({
     actionLabel = 'Déplacer',
 }) => {
     const [selectedZoneId, setSelectedZoneId] = React.useState<number | null>(null);
+    const dialogRef = React.useRef<HTMLDivElement>(null);
+    const titleId = React.useId();
 
     const availableZones = zones.filter(z => z.id !== currentZoneId);
+
+    // Fermeture sur Echap
+    React.useEffect(() => {
+        const handler = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                onCancel();
+            }
+        };
+        document.addEventListener('keydown', handler);
+        return () => document.removeEventListener('keydown', handler);
+    }, [onCancel]);
+
+    // Auto-focus sur le panneau à l'ouverture
+    React.useEffect(() => {
+        dialogRef.current?.focus();
+    }, []);
 
     return (
         <div
@@ -40,8 +59,14 @@ export const MoveGeocacheDialog: React.FC<MoveGeocacheDialogProps> = ({
                 zIndex: 10000,
             }}
             onClick={onCancel}
+            aria-hidden="true"
         >
             <div
+                ref={dialogRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={titleId}
+                tabIndex={-1}
                 style={{
                     background: 'var(--theia-editor-background)',
                     border: '1px solid var(--theia-panel-border)',
@@ -50,10 +75,11 @@ export const MoveGeocacheDialog: React.FC<MoveGeocacheDialogProps> = ({
                     minWidth: 400,
                     maxWidth: 500,
                     boxShadow: '0 8px 24px rgba(0, 0, 0, 0.3)',
+                    outline: 'none',
                 }}
                 onClick={(e) => e.stopPropagation()}
             >
-                <h3 style={{ margin: '0 0 16px 0', fontSize: '1.1em' }}>
+                <h3 id={titleId} style={{ margin: '0 0 16px 0', fontSize: '1.1em' }}>
                     {title}
                 </h3>
 
@@ -66,12 +92,21 @@ export const MoveGeocacheDialog: React.FC<MoveGeocacheDialogProps> = ({
                         Aucune autre zone disponible
                     </p>
                 ) : (
-                    <div style={{ marginBottom: 20 }}>
+                    <div
+                        role="listbox"
+                        aria-label="Zone de destination"
+                        style={{ marginBottom: 20 }}
+                    >
                         {availableZones.map(zone => (
-                            <div
+                            <button
                                 key={zone.id}
+                                role="option"
+                                aria-selected={selectedZoneId === zone.id}
                                 onClick={() => setSelectedZoneId(zone.id)}
                                 style={{
+                                    display: 'block',
+                                    width: '100%',
+                                    textAlign: 'left',
                                     padding: '10px 12px',
                                     marginBottom: 6,
                                     border: '1px solid var(--theia-input-border)',
@@ -80,7 +115,8 @@ export const MoveGeocacheDialog: React.FC<MoveGeocacheDialogProps> = ({
                                     background: selectedZoneId === zone.id
                                         ? 'var(--theia-list-activeSelectionBackground)'
                                         : 'var(--theia-input-background)',
-                                    transition: 'all 0.2s',
+                                    color: 'inherit',
+                                    font: 'inherit',
                                 }}
                                 onMouseEnter={(e) => {
                                     if (selectedZoneId !== zone.id) {
@@ -94,7 +130,7 @@ export const MoveGeocacheDialog: React.FC<MoveGeocacheDialogProps> = ({
                                 }}
                             >
                                 📁 {zone.name}
-                            </div>
+                            </button>
                         ))}
                     </div>
                 )}
@@ -124,4 +160,3 @@ export const MoveGeocacheDialog: React.FC<MoveGeocacheDialogProps> = ({
         </div>
     );
 };
-
