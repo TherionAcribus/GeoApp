@@ -914,40 +914,35 @@ export const MapView: React.FC<MapViewProps> = ({
             return;
         }
 
-        
-        // Effacer les géocaches existantes
-        layerManagerRef.current.clearGeocaches();
-
-        // Ajouter les nouvelles géocaches
         if (geocaches.length === 0) {
+            layerManagerRef.current.clearGeocaches();
             fittedGeocacheKeyRef.current = null;
             return;
         }
 
+        // Synchronisation incrémentale : seules les features modifiées sont touchées
+        layerManagerRef.current.syncGeocaches(geocaches);
+
         const geocacheKey = geocaches.map(gc => gc.id).join(',');
+        if (fittedGeocacheKeyRef.current === geocacheKey) {
+            // Même ensemble de géocaches (ex. rechargement d'une seule cache) → pas de recadrage
+            return;
+        }
 
-        if (geocaches.length > 0) {
-            layerManagerRef.current.addGeocaches(geocaches);
+        // Centrer la carte sur les géocaches
+        const coordinates = geocaches.map(gc =>
+            lonLatToMapCoordinate(gc.longitude, gc.latitude)
+        );
+        const extent = calculateExtent(coordinates);
 
-            if (fittedGeocacheKeyRef.current === geocacheKey) {
-                return;
-            }
-
-            // Centrer la carte sur les géocaches
-            const coordinates = geocaches.map(gc => 
-                lonLatToMapCoordinate(gc.longitude, gc.latitude)
-            );
-            const extent = calculateExtent(coordinates);
-
-            if (extent) {
-                const view = mapInstanceRef.current.getView();
-                view.fit(extent, {
-                    padding: [50, 50, 50, 50],
-                    maxZoom: 15,
-                    duration: 500
-                });
-                fittedGeocacheKeyRef.current = geocacheKey;
-            }
+        if (extent) {
+            const view = mapInstanceRef.current.getView();
+            view.fit(extent, {
+                padding: [50, 50, 50, 50],
+                maxZoom: 15,
+                duration: 500
+            });
+            fittedGeocacheKeyRef.current = geocacheKey;
         }
     }, [geocaches, isInitialized]);
 

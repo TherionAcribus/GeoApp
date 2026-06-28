@@ -78,6 +78,14 @@ export class MapLayerManager {
     private clusteringMode: ClusteringMode = 'auto';
     /** Seuil de géocaches au-delà duquel le clustering est activé automatiquement (mode 'auto'). */
     private clusterThreshold = 200;
+    /**
+     * Signature de rendu par géocache (id → hash) pour ne re-synchroniser que ce qui change.
+     * NB : `Map` est importé d'OpenLayers dans ce fichier, on utilise donc explicitement
+     * le `Map` natif via `globalThis.Map`.
+     */
+    private geocacheSignatures = new globalThis.Map<number, string>();
+    /** Identifiants des features waypoint rattachées à chaque géocache (id → feature ids). */
+    private geocacheWaypointFeatureIds = new globalThis.Map<number, Array<number | string>>();
 
     constructor(map: Map) {
         this.map = map;
@@ -416,95 +424,207 @@ export class MapLayerManager {
     }
 
     /**
-     * Ajoute plusieurs géocaches à la carte
+     * Ajoute plusieurs géocaches à la carte (remplace l'ensemble courant).
+     * Conservé pour compatibilité : délègue à la synchronisation incrémentale.
      */
     addGeocaches(geocaches: MapGeocache[]): void {
-        
-        // Effacer les waypoints existants
-        this.clearWaypoints();
-        
-        const features = geocaches.map(geocache => {
-            const coordinate = lonLatToMapCoordinate(geocache.longitude, geocache.latitude);
-            
-            const feature = new Feature({
-                geometry: new Point(coordinate)
-            });
-
-            feature.setId(geocache.id);
-            feature.setProperties({
-                id: geocache.id,
-                gc_code: geocache.gc_code,
-                name: geocache.name,
-                cache_type: geocache.cache_type,
-                geocacheLabel: `${geocache.name} (${geocache.gc_code})`,
-                showLabel: this.shouldShowGeocacheLabels(),
-                difficulty: geocache.difficulty,
-                terrain: geocache.terrain,
-                found: geocache.found,
-                selected: false
-            } as GeocacheFeatureProperties);
-
-            return feature;
-        });
-
-        this.geocacheVectorSource.addFeatures(features);
-
-        // Activer/désactiver le clustering selon le volume de géocaches
-        this.applyClusteringState();
-
-        // Ajouter les waypoints et coordonnées originales
-        geocaches.forEach(geocache => {
-            // Ajouter les coordonnées originales si la cache est corrigée
-            if (geocache.is_corrected && 
-                geocache.original_latitude !== null && 
-                geocache.original_latitude !== undefined &&
-                geocache.original_longitude !== null && 
-                geocache.original_longitude !== undefined) {
-                this.addWaypoint(
-                    `orig_${geocache.id}`,
-                    'Original',
-                    geocache.original_longitude,
-                    geocache.original_latitude,
-                    {
-                        geocacheName: geocache.name,
-                        gcCode: geocache.gc_code,
-                        cacheType: geocache.cache_type
-                    }
-                );
-            }
-            
-            // Ajouter les waypoints
-            if (geocache.waypoints && geocache.waypoints.length > 0) {
-                geocache.waypoints.forEach(waypoint => {
-                    if (waypoint.latitude !== null && 
-                        waypoint.latitude !== undefined &&
-                        waypoint.longitude !== null && 
-                        waypoint.longitude !== undefined) {
-                        this.addWaypoint(
-                            waypoint.id,
-                            waypoint.name || waypoint.lookup || `WP${waypoint.id}`,
-                            waypoint.longitude,
-                            waypoint.latitude,
-                            {
-                                geocacheName: geocache.name,
-                                gcCode: geocache.gc_code,
-                                cacheType: geocache.cache_type
-                            }
-                        );
-                    }
-                });
-            }
-        });
+        this.clearGeocaches();
+        this.syncGeocaches(geocaches);
     }
 
     /**
-     * Supprime une géocache de la carte par son ID
+     * Synchronise l'affichage avec la liste de géocaches fournie, en ne touchant
+     * qu'aux features réellement modifiées (ajout / mise à jour / suppression).
+     * Évite de reconstruire toutes les features et tous les waypoints à chaque
+     * changement (ex. ajout d'un waypoint sur une seule cache).
+     */
+    syncGeocaches(geocaches: MapGeocache[]): void {
+        const incomingIds = new Set<number>();
+        for (const geocache of geocaches) {
+            incomingIds.add(geocache.id);
+        }
+
+        // 1. Supprimer les géocaches qui ne sont plus présentes (+ leurs waypoints)
+        for (const feature of [...this.geocacheVectorSource.getFeatures()]) {
+            const id = feature.getId();
+            if (typeof id === 'number' && !incomingIds.has(id)) {
+                this.geocacheVectorSource.removeFeature(feature);
+                this.removeWaypointsForGeocache(id);
+                this.geocacheSignatures.delete(id);
+            }
+        }
+
+        // 2. Ajouter / mettre à jour uniquement ce qui a changé
+        const newFeatures: Feature<Point>[] = [];
+        for (const geocache of geocaches) {
+            const signature = this.computeGeocacheSignature(geocache);
+            if (this.geocacheSignatures.get(geocache.id) === signature) {
+                continue; // inchangé → rien à faire
+            }
+
+            const existing = this.geocacheVectorSource.getFeatureById(geocache.id) as Feature<Point> | null;
+            if (existing) {
+                this.updateGeocacheFeature(existing, geocache);
+                this.removeWaypointsForGeocache(geocache.id);
+                this.addWaypointsForGeocache(geocache);
+            } else {
+                newFeatures.push(this.buildGeocacheFeature(geocache));
+                this.addWaypointsForGeocache(geocache);
+            }
+            this.geocacheSignatures.set(geocache.id, signature);
+        }
+
+        if (newFeatures.length > 0) {
+            this.geocacheVectorSource.addFeatures(newFeatures);
+        }
+
+        // Activer/désactiver le clustering selon le volume de géocaches
+        this.applyClusteringState();
+    }
+
+    /**
+     * Calcule une signature de rendu pour détecter si une géocache a changé.
+     * Exclut volontairement l'état de sélection (géré séparément).
+     */
+    private computeGeocacheSignature(geocache: MapGeocache): string {
+        const waypoints = (geocache.waypoints || [])
+            .map(w => `${w.id}:${w.latitude}:${w.longitude}:${w.name || w.lookup || ''}:${w.type || ''}`)
+            .join(';');
+        return [
+            geocache.latitude,
+            geocache.longitude,
+            geocache.cache_type,
+            geocache.name,
+            geocache.gc_code,
+            geocache.found ? 1 : 0,
+            geocache.difficulty,
+            geocache.terrain,
+            geocache.is_corrected ? 1 : 0,
+            geocache.original_latitude,
+            geocache.original_longitude,
+            waypoints
+        ].join('|');
+    }
+
+    /** Applique les propriétés de rendu sur une feature géocache (préserve la sélection). */
+    private applyGeocacheProperties(feature: Feature<Point>, geocache: MapGeocache): void {
+        feature.setProperties({
+            id: geocache.id,
+            gc_code: geocache.gc_code,
+            name: geocache.name,
+            cache_type: geocache.cache_type,
+            geocacheLabel: `${geocache.name} (${geocache.gc_code})`,
+            showLabel: this.shouldShowGeocacheLabels(),
+            difficulty: geocache.difficulty,
+            terrain: geocache.terrain,
+            found: geocache.found,
+            selected: feature.get('selected') === true
+        } as GeocacheFeatureProperties);
+    }
+
+    /** Construit une nouvelle feature géocache. */
+    private buildGeocacheFeature(geocache: MapGeocache): Feature<Point> {
+        const feature = new Feature<Point>({
+            geometry: new Point(lonLatToMapCoordinate(geocache.longitude, geocache.latitude))
+        });
+        feature.setId(geocache.id);
+        this.applyGeocacheProperties(feature, geocache);
+        return feature;
+    }
+
+    /** Met à jour une feature géocache existante (géométrie + propriétés) sans la recréer. */
+    private updateGeocacheFeature(feature: Feature<Point>, geocache: MapGeocache): void {
+        const coordinate = lonLatToMapCoordinate(geocache.longitude, geocache.latitude);
+        const geometry = feature.getGeometry();
+        if (geometry) {
+            geometry.setCoordinates(coordinate);
+        } else {
+            feature.setGeometry(new Point(coordinate));
+        }
+        this.applyGeocacheProperties(feature, geocache);
+    }
+
+    /** Ajoute les waypoints (coordonnées originales + waypoints) d'une géocache et mémorise leurs ids. */
+    private addWaypointsForGeocache(geocache: MapGeocache): void {
+        const featureIds: Array<number | string> = [];
+
+        // Coordonnées originales si la cache est corrigée
+        if (geocache.is_corrected &&
+            geocache.original_latitude != null &&
+            geocache.original_longitude != null) {
+            const feature = this.addWaypoint(
+                `orig_${geocache.id}`,
+                'Original',
+                geocache.original_longitude,
+                geocache.original_latitude,
+                {
+                    geocacheName: geocache.name,
+                    gcCode: geocache.gc_code,
+                    cacheType: geocache.cache_type
+                }
+            );
+            const id = feature.getId();
+            if (id !== undefined) {
+                featureIds.push(id);
+            }
+        }
+
+        // Waypoints
+        if (geocache.waypoints && geocache.waypoints.length > 0) {
+            for (const waypoint of geocache.waypoints) {
+                if (waypoint.latitude != null && waypoint.longitude != null) {
+                    const feature = this.addWaypoint(
+                        waypoint.id,
+                        waypoint.name || waypoint.lookup || `WP${waypoint.id}`,
+                        waypoint.longitude,
+                        waypoint.latitude,
+                        {
+                            geocacheName: geocache.name,
+                            gcCode: geocache.gc_code,
+                            cacheType: geocache.cache_type
+                        }
+                    );
+                    const id = feature.getId();
+                    if (id !== undefined) {
+                        featureIds.push(id);
+                    }
+                }
+            }
+        }
+
+        if (featureIds.length > 0) {
+            this.geocacheWaypointFeatureIds.set(geocache.id, featureIds);
+        } else {
+            this.geocacheWaypointFeatureIds.delete(geocache.id);
+        }
+    }
+
+    /** Supprime les features waypoint rattachées à une géocache. */
+    private removeWaypointsForGeocache(geocacheId: number): void {
+        const featureIds = this.geocacheWaypointFeatureIds.get(geocacheId);
+        if (!featureIds) {
+            return;
+        }
+        for (const id of featureIds) {
+            const feature = this.waypointVectorSource.getFeatureById(id);
+            if (feature) {
+                this.waypointVectorSource.removeFeature(feature);
+            }
+        }
+        this.geocacheWaypointFeatureIds.delete(geocacheId);
+    }
+
+    /**
+     * Supprime une géocache de la carte par son ID (+ ses waypoints)
      */
     removeGeocache(geocacheId: number): void {
         const feature = this.geocacheVectorSource.getFeatureById(geocacheId);
         if (feature) {
             this.geocacheVectorSource.removeFeature(feature);
         }
+        this.removeWaypointsForGeocache(geocacheId);
+        this.geocacheSignatures.delete(geocacheId);
+        this.applyClusteringState();
     }
 
     /**
@@ -513,6 +633,8 @@ export class MapLayerManager {
     clearGeocaches(): void {
         this.geocacheVectorSource.clear();
         this.waypointVectorSource.clear();
+        this.geocacheSignatures.clear();
+        this.geocacheWaypointFeatureIds.clear();
         this.applyClusteringState();
     }
 
