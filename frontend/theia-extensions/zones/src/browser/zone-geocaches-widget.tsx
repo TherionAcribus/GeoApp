@@ -20,6 +20,7 @@ import { ImportPocketQueryDialog } from './import-pocket-query-dialog';
 import { MoveGeocacheDialog } from './move-geocache-dialog';
 import { MapWidgetFactory } from './map/map-widget-factory';
 import type { MapWidget } from './map/map-widget';
+import type { MapGeocache } from './map/map-layer-manager';
 import { GeocacheTabsManager } from './geocache-tabs-manager';
 import { GeocachesService } from './geocaches-service';
 import { ZonesService } from './zones-service';
@@ -1005,6 +1006,29 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         }
     }
 
+    /**
+     * Convertit une géocache du tableau vers le format attendu par la carte.
+     * À n'appeler que pour des géocaches dont latitude/longitude sont définies
+     * (la carte exige des coordonnées numériques).
+     */
+    private toMapGeocache(gc: Geocache): MapGeocache {
+        return {
+            id: gc.id,
+            gc_code: gc.gc_code,
+            name: gc.name,
+            cache_type: gc.cache_type,
+            latitude: gc.latitude!,
+            longitude: gc.longitude!,
+            difficulty: gc.difficulty,
+            terrain: gc.terrain,
+            found: gc.found,
+            is_corrected: gc.is_corrected,
+            original_latitude: gc.original_latitude,
+            original_longitude: gc.original_longitude,
+            waypoints: gc.waypoints || []
+        };
+    }
+
     protected handleFilteredDataChange(geocaches: Geocache[]): void {
         if (!this.zoneId) { return; }
         const widgetId = `geoapp-map-zone-${this.zoneId}`;
@@ -1012,21 +1036,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         if (!mapWidget) { return; }
         const mapGeocaches = geocaches
             .filter(gc => gc.latitude != null && gc.longitude != null)
-            .map(gc => ({
-                id: gc.id,
-                gc_code: gc.gc_code,
-                name: gc.name,
-                cache_type: gc.cache_type,
-                latitude: gc.latitude!,
-                longitude: gc.longitude!,
-                difficulty: gc.difficulty,
-                terrain: gc.terrain,
-                found: gc.found,
-                is_corrected: gc.is_corrected,
-                original_latitude: gc.original_latitude,
-                original_longitude: gc.original_longitude,
-                waypoints: gc.waypoints || []
-            }));
+            .map(gc => this.toMapGeocache(gc));
         mapWidget.loadGeocaches(mapGeocaches);
     }
 
@@ -1083,21 +1093,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             
             if (geocachesWithCoords.length > 0 && this.zoneId && this.zoneName) {
                 // Préparer les données pour la carte
-                const mapGeocaches = geocachesWithCoords.map(gc => ({
-                    id: gc.id,
-                    gc_code: gc.gc_code,
-                    name: gc.name,
-                    cache_type: gc.cache_type,
-                    latitude: gc.latitude!,
-                    longitude: gc.longitude!,
-                    difficulty: gc.difficulty,
-                    terrain: gc.terrain,
-                    found: gc.found,
-                    is_corrected: gc.is_corrected,
-                    original_latitude: gc.original_latitude,
-                    original_longitude: gc.original_longitude,
-                    waypoints: gc.waypoints || []
-                }));
+                const mapGeocaches = geocachesWithCoords.map(gc => this.toMapGeocache(gc));
                 
                 console.log('[ZoneGeocachesWidget] Ouverture carte pour zone:', this.zoneId, this.zoneName);
                 console.log('[ZoneGeocachesWidget] Données envoyées:', mapGeocaches.length, 'géocaches');
@@ -1350,21 +1346,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                     await this.mapWidgetFactory.openMapForGeocache(
                         geocacheId,
                         tempGeocache.gc_code,
-                        {
-                            id: tempGeocache.id,
-                            gc_code: tempGeocache.gc_code,
-                            name: tempGeocache.name,
-                            cache_type: tempGeocache.cache_type,
-                            latitude: tempGeocache.latitude,
-                            longitude: tempGeocache.longitude,
-                            difficulty: tempGeocache.difficulty,
-                            terrain: tempGeocache.terrain,
-                            found: tempGeocache.found,
-                            is_corrected: tempGeocache.is_corrected,
-                            original_latitude: tempGeocache.original_latitude,
-                            original_longitude: tempGeocache.original_longitude,
-                            waypoints: tempGeocache.waypoints || []
-                        }
+                        this.toMapGeocache(tempGeocache)
                     );
                 }
             }
@@ -1624,30 +1606,13 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             if (geocache.latitude !== null && geocache.latitude !== undefined && 
                 geocache.longitude !== null && geocache.longitude !== undefined) {
                 
-                // Préparer les données de la géocache
-                const geocacheData = {
-                    id: geocache.id,
-                    gc_code: geocache.gc_code,
-                    name: geocache.name,
-                    cache_type: geocache.cache_type,
-                    latitude: geocache.latitude,
-                    longitude: geocache.longitude,
-                    difficulty: geocache.difficulty,
-                    terrain: geocache.terrain,
-                    found: geocache.found,
-                    is_corrected: geocache.is_corrected,
-                    original_latitude: geocache.original_latitude,
-                    original_longitude: geocache.original_longitude,
-                    waypoints: geocache.waypoints || []
-                };
-
                 console.log('[ZoneGeocachesWidget] Ouverture carte pour géocache:', geocache.gc_code);
-                
+
                 // Ouvrir une carte spécifique pour cette géocache
                 await this.mapWidgetFactory.openMapForGeocache(
                     geocache.id,
                     geocache.gc_code,
-                    geocacheData
+                    this.toMapGeocache(geocache)
                 );
             }
 
