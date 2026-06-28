@@ -1193,6 +1193,9 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         let errorCount = 0;
         const targetZoneName = this.zones.find(z => z.id === targetZoneId)?.name || `Zone ${targetZoneId}`;
 
+        // Fermer immédiatement le dialog : la barre de progression prend le relais
+        this.closeCopySelectedDialog();
+
         await this.runBulkWithProgress(geocacheIds, async geocacheId => {
             // Ignorer les ids absents des données actuelles
             const geocache = this.rows.find(g => g.id === geocacheId);
@@ -1211,9 +1214,6 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 errorCount++;
             }
         }, { title: `Copie de ${geocacheIds.length} géocache(s)…` });
-
-        // Fermer la boîte de dialogue
-        this.closeCopySelectedDialog();
 
         await this.refreshZoneData();
 
@@ -1395,6 +1395,9 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         let errorCount = 0;
         const targetZoneName = this.zones.find(z => z.id === targetZoneId)?.name || `Zone ${targetZoneId}`;
 
+        // Fermer immédiatement le dialog : la barre de progression prend le relais
+        this.closeMoveSelectedDialog();
+
         await this.runBulkWithProgress(geocacheIds, async geocacheId => {
             // Ignorer les ids absents des données actuelles
             const geocache = this.rows.find(g => g.id === geocacheId);
@@ -1413,9 +1416,6 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 errorCount++;
             }
         }, { title: `Déplacement de ${geocacheIds.length} géocache(s)…` });
-
-        // Fermer la boîte de dialogue
-        this.closeMoveSelectedDialog();
 
         await this.refreshZoneData();
 
