@@ -158,8 +158,10 @@ const badgeRowStyle: React.CSSProperties = { display: 'flex', alignItems: 'cente
 const typeBadgeBaseStyle: React.CSSProperties = {
     padding: '2px 8px',
     borderRadius: 999,
-    color: 'white',
-    fontSize: 11
+    background: 'transparent',
+    border: '1px solid',
+    fontSize: 11,
+    fontWeight: 600
 };
 
 const actionsRowStyle: React.CSSProperties = { display: 'flex', gap: 6 };
@@ -260,8 +262,8 @@ const NoteItem = React.memo(function NoteItem(props: NoteItemProps): React.JSX.E
         ? 'EarthCoach'
         : note.note_type === 'system' ? 'Systeme' : 'Utilisateur';
     const typeColor = note.source === 'earthcoach'
-        ? '#047857'
-        : note.note_type === 'system' ? '#6b7280' : '#3b82f6';
+        ? 'var(--theia-charts-green, #047857)'
+        : note.note_type === 'system' ? 'var(--theia-charts-lines, #6b7280)' : 'var(--theia-charts-blue, #3b82f6)';
     const created = formatDateTime(note.created_at);
     const updated = formatDateTime(note.updated_at);
 
@@ -269,7 +271,7 @@ const NoteItem = React.memo(function NoteItem(props: NoteItemProps): React.JSX.E
         <div style={noteCardStyle}>
             <div style={rowBetweenStyle}>
                 <div style={badgeRowStyle}>
-                    <span style={{ ...typeBadgeBaseStyle, background: typeColor }}>
+                    <span style={{ ...typeBadgeBaseStyle, color: typeColor, borderColor: typeColor }}>
                         {typeLabel}
                     </span>
                     {created && (
