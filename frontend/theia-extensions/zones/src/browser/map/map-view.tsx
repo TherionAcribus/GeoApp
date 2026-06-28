@@ -5,9 +5,9 @@ import { defaults as defaultControls, ScaleLine, FullScreen } from 'ol/control';
 import { defaults as defaultInteractions } from 'ol/interaction';
 import Overlay from 'ol/Overlay';
 import Feature from 'ol/Feature';
-import { Geometry } from 'ol/geom';
+import { Geometry, Point } from 'ol/geom';
 import 'ol/ol.css';
-import { MapLayerManager, MapGeocache, MapLabelMode } from './map-layer-manager';
+import { MapLayerManager, MapGeocache, MapLabelMode, ClusteringMode } from './map-layer-manager';
 import { MapService, DetectedCoordinateHighlight, FormulaSolverPreviewOverlay } from './map-service';
 import { lonLatToMapCoordinate, calculateExtent, mapCoordinateToLonLat, formatGeocachingCoordinates } from './map-utils';
 import { TILE_PROVIDERS } from './map-tile-providers';
@@ -23,6 +23,8 @@ export interface MapViewPreferences {
     foundGeocacheDisplayMode: FoundGeocacheDisplayMode;
     showExclusionZones: boolean;
     showNearbyGeocaches: boolean;
+    clusteringMode: ClusteringMode;
+    clusteringThreshold: number;
 }
 
 export interface MapViewProps {
@@ -77,6 +79,7 @@ export const MapView: React.FC<MapViewProps> = ({
     const [showNearbyGeocaches, setShowNearbyGeocaches] = React.useState(preferences?.showNearbyGeocaches ?? false);
     const [showExclusionZones, setShowExclusionZones] = React.useState(preferences?.showExclusionZones ?? false);
     const [labelMode, setLabelMode] = React.useState<MapLabelMode>('none');
+    const [clusteringMode, setClusteringMode] = React.useState<ClusteringMode>(preferences?.clusteringMode ?? 'auto');
     const [selectedGeocacheId, setSelectedGeocacheId] = React.useState<number | null>(null);
     const [nearbyGeocaches, setNearbyGeocaches] = React.useState<MapGeocache[]>([]);
 
@@ -111,6 +114,12 @@ export const MapView: React.FC<MapViewProps> = ({
     }, [foundGeocacheDisplayMode, isInitialized]);
 
     React.useEffect(() => {
+        if (layerManagerRef.current) {
+            layerManagerRef.current.setClusteringMode(clusteringMode);
+        }
+    }, [clusteringMode, isInitialized]);
+
+    React.useEffect(() => {
         if (!preferences) {
             return;
         }
@@ -119,6 +128,7 @@ export const MapView: React.FC<MapViewProps> = ({
         setFoundGeocacheDisplayMode(preferences.foundGeocacheDisplayMode);
         setShowNearbyGeocaches(preferences.showNearbyGeocaches);
         setShowExclusionZones(preferences.showExclusionZones);
+        setClusteringMode(preferences.clusteringMode);
 
         if (mapInstanceRef.current && previousDefaultZoomRef.current !== preferences.defaultZoom) {
             mapInstanceRef.current.getView().setZoom(preferences.defaultZoom);
@@ -128,6 +138,8 @@ export const MapView: React.FC<MapViewProps> = ({
             layerManagerRef.current.changeTileProvider(preferences.defaultProvider);
             layerManagerRef.current.setGeocacheIconScale(preferences.geocacheIconScale);
             layerManagerRef.current.setFoundGeocacheDisplayMode(preferences.foundGeocacheDisplayMode);
+            layerManagerRef.current.setClusterThreshold(preferences.clusteringThreshold);
+            layerManagerRef.current.setClusteringMode(preferences.clusteringMode);
         }
     }, [preferences, isInitialized]);
 
@@ -178,14 +190,72 @@ export const MapView: React.FC<MapViewProps> = ({
             overlayRef.current = overlay;
         }
 
+        // Déballe les features de cluster : un cluster d'une seule cache est remplacé
+        // par la cache elle-même ; un cluster de plusieurs caches est signalé à part
+        // pour pouvoir l'éclater (zoom) plutôt que d'ouvrir un popup.
+        const unwrapClusterFeatures = (raw: Feature<Geometry>[]): {
+            features: Feature<Geometry>[];
+            multiCluster?: Feature<Geometry>;
+        } => {
+            const result: Feature<Geometry>[] = [];
+            let multiCluster: Feature<Geometry> | undefined;
+            for (const f of raw) {
+                const inner = f.get('features') as Feature<Geometry>[] | undefined;
+                if (Array.isArray(inner)) {
+                    if (inner.length > 1) {
+                        if (!multiCluster) {
+                            multiCluster = f;
+                        }
+                    } else if (inner.length === 1) {
+                        result.push(inner[0]);
+                    }
+                } else {
+                    result.push(f);
+                }
+            }
+            return { features: result, multiCluster };
+        };
+
+        // Éclate un cluster : zoom sur l'étendue des caches qu'il contient.
+        const zoomToCluster = (clusterFeature: Feature<Geometry>): void => {
+            const view = map.getView();
+            const inner = clusterFeature.get('features') as Feature<Geometry>[] | undefined;
+            const coords = (inner || [])
+                .map(f => (f.getGeometry() as Point | undefined)?.getCoordinates())
+                .filter((c): c is number[] => Array.isArray(c));
+
+            const extent = calculateExtent(coords);
+            if (extent) {
+                view.fit(extent, { padding: [60, 60, 60, 60], maxZoom: 17, duration: 300 });
+                return;
+            }
+
+            const center = (clusterFeature.getGeometry() as Point | undefined)?.getCoordinates();
+            if (center) {
+                view.animate({ center, zoom: Math.min((view.getZoom() ?? 10) + 2, 19), duration: 300 });
+            }
+        };
+
         // Ajouter le gestionnaire de clic gauche
         map.on('click', (evt) => {
             // Collecter toutes les features au pixel cliqué
-            const features: Feature<Geometry>[] = [];
+            const rawFeatures: Feature<Geometry>[] = [];
             map.forEachFeatureAtPixel(evt.pixel, (f) => {
-                features.push(f as Feature<Geometry>);
+                rawFeatures.push(f as Feature<Geometry>);
                 return false; // Continue pour collecter toutes les features
             });
+
+            const { features, multiCluster } = unwrapClusterFeatures(rawFeatures);
+
+            // Clic sur un cluster de plusieurs caches : on l'éclate au lieu d'ouvrir un popup
+            if (multiCluster) {
+                setPopupData(null);
+                if (overlayRef.current) {
+                    overlayRef.current.setPosition(undefined);
+                }
+                zoomToCluster(multiCluster);
+                return;
+            }
 
             if (features.length === 0) {
                 setPopupData(null);
@@ -288,11 +358,15 @@ export const MapView: React.FC<MapViewProps> = ({
             const coordinate = map.getCoordinateFromPixel(pixel);
 
             // Collecter toutes les features au pixel cliqué
-            const features: Feature<Geometry>[] = [];
+            const rawFeatures: Feature<Geometry>[] = [];
             map.forEachFeatureAtPixel(pixel, (f) => {
-                features.push(f as Feature<Geometry>);
+                rawFeatures.push(f as Feature<Geometry>);
                 return false; // Continue pour collecter toutes les features
             });
+
+            // Déballer les clusters : on ignore les clusters multiples (le menu de
+            // coordonnées par défaut sera affiché), et on déballe les singletons.
+            const { features } = unwrapClusterFeatures(rawFeatures);
 
             if (features.length > 0) {
                 // Trouver la meilleure feature pour le menu contextuel
@@ -999,6 +1073,12 @@ export const MapView: React.FC<MapViewProps> = ({
         onPreferenceChange?.('geoApp.map.foundGeocacheDisplayMode', value);
     };
 
+    const handleClusteringModeChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+        const value = event.target.value as ClusteringMode;
+        setClusteringMode(value);
+        onPreferenceChange?.('geoApp.map.clusteringMode', value);
+    };
+
     const canOpenPopupGeocache = Boolean(popupData && popupData.id > 0 && !(popupData as GeocacheFeatureProperties).isWaypoint);
 
     return (
@@ -1166,6 +1246,34 @@ export const MapView: React.FC<MapViewProps> = ({
                         <option value="geocaches">Caches</option>
                         <option value="waypoints">Waypoints</option>
                         <option value="all">Caches + WP</option>
+                    </select>
+                </label>
+
+                <label style={{
+                    fontSize: '12px',
+                    color: 'var(--theia-foreground)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                }}>
+                    Regroupement:
+                    <select
+                        value={clusteringMode}
+                        onChange={handleClusteringModeChange}
+                        title="Regroupe les géocaches proches en grappes (clusters)"
+                        style={{
+                            padding: '4px 8px',
+                            fontSize: '12px',
+                            background: 'var(--theia-input-background)',
+                            color: 'var(--theia-input-foreground)',
+                            border: '1px solid var(--theia-input-border)',
+                            borderRadius: '2px',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        <option value="auto">Automatique</option>
+                        <option value="always">Toujours</option>
+                        <option value="never">Jamais</option>
                     </select>
                 </label>
             </div>

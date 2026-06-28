@@ -1661,6 +1661,67 @@
         "backend"
       ]
     },
+    "geoApp.map.clusteringMode": {
+      "type": "string",
+      "enum": [
+        "auto",
+        "always",
+        "never"
+      ],
+      "default": "auto",
+      "title": "Regroupement des géocaches",
+      "description": "Regroupe les géocaches proches en grappes (clusters) sur la carte. « Automatique » active le regroupement au-delà du seuil défini.",
+      "x-ui": {
+        "section": "Affichage",
+        "label": "Regroupement (clustering)",
+        "order": 62,
+        "enumLabels": {
+          "auto": "Automatique (selon le seuil)",
+          "always": "Toujours",
+          "never": "Jamais"
+        },
+        "keywords": [
+          "cluster",
+          "clustering",
+          "regroupement",
+          "grappe"
+        ]
+      },
+      "x-category": "map",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "map"
+      ]
+    },
+    "geoApp.map.clusteringThreshold": {
+      "type": "integer",
+      "minimum": 10,
+      "maximum": 5000,
+      "default": 200,
+      "title": "Seuil de regroupement",
+      "description": "Nombre de géocaches à partir duquel le regroupement automatique s'active (mode « Automatique »).",
+      "x-ui": {
+        "section": "Affichage",
+        "label": "Seuil de regroupement",
+        "order": 64,
+        "keywords": [
+          "cluster",
+          "clustering",
+          "seuil",
+          "limite",
+          "nombre"
+        ]
+      },
+      "x-category": "map",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "map"
+      ]
+    },
     "geoApp.map.autoAddWaypoints": {
       "type": "boolean",
       "default": true,

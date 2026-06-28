@@ -100,6 +100,51 @@ export function createGeocacheStyleFromSprite(feature: Feature<Geometry>, resolu
 }
 
 /**
+ * Crée le style pour un cluster de géocaches (basé sur le sprite sheet).
+ *
+ * - Cluster vide : rien.
+ * - Cluster d'une seule géocache : on délègue au style individuel (sprite),
+ *   ce qui assure le dégroupage naturel au zoom (icône normale, sélection, label…).
+ * - Cluster de plusieurs géocaches : bulle ronde avec le compteur.
+ */
+export function createClusterStyleFromSprite(feature: Feature<Geometry>, resolution: number, options?: GeocacheStyleOptions): Style | Style[] {
+    const innerFeatures = feature.get('features') as Feature<Geometry>[] | undefined;
+    const size = innerFeatures ? innerFeatures.length : 0;
+
+    if (size === 0) {
+        return [];
+    }
+
+    if (size === 1) {
+        return createGeocacheStyleFromSprite(innerFeatures![0], resolution, options);
+    }
+
+    // Bulle de cluster : rayon qui croît avec le nombre de caches (échelle d'icônes incluse).
+    const scale = options?.scale ?? 1;
+    const radius = Math.min(14 + Math.log(size) * 5, 28) * Math.max(0.6, scale);
+
+    return new Style({
+        image: new Circle({
+            radius,
+            fill: new Fill({
+                color: 'rgba(0, 122, 204, 0.85)'
+            }),
+            stroke: new Stroke({
+                color: 'rgba(255, 255, 255, 0.95)',
+                width: 2
+            })
+        }),
+        text: new Text({
+            text: size.toString(),
+            fill: new Fill({ color: '#ffffff' }),
+            font: 'bold 12px sans-serif',
+            textBaseline: 'middle'
+        }),
+        zIndex: 50
+    });
+}
+
+/**
  * Style de secours si le type de cache n'est pas trouvé
  */
 function createFallbackStyle(isSelected: boolean, found?: boolean, options?: GeocacheStyleOptions, label?: string): Style {

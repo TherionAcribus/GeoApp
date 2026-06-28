@@ -6,13 +6,14 @@ import { Point, Circle, LineString, Polygon } from 'ol/geom';
 import Geometry from 'ol/geom/Geometry';
 import { Style, Fill, Stroke, Circle as CircleStyle } from 'ol/style';
 import { createClusterSource } from './map-clustering';
-import { createClusterStyle } from './map-geocache-style';
-import { createGeocacheStyleFromSprite, createWaypointStyleFromSprite, createDetectedCoordinateStyle, FoundGeocacheDisplayMode, GeocacheFeatureProperties, GeocacheStyleOptions } from './map-geocache-style-sprite';
+import { createGeocacheStyleFromSprite, createClusterStyleFromSprite, createWaypointStyleFromSprite, createDetectedCoordinateStyle, FoundGeocacheDisplayMode, GeocacheFeatureProperties, GeocacheStyleOptions } from './map-geocache-style-sprite';
 import { lonLatToMapCoordinate } from './map-utils';
 import { createTileLayer, DEFAULT_PROVIDER_ID } from './map-tile-providers';
 import { DetectedCoordinateHighlight, FormulaSolverPreviewOverlay } from './map-service';
 
 export type MapLabelMode = 'none' | 'geocaches' | 'waypoints' | 'all';
+
+export type ClusteringMode = 'auto' | 'always' | 'never';
 
 /**
  * Interface pour un waypoint de géocache
@@ -72,6 +73,11 @@ export class MapLayerManager {
     private labelMode: MapLabelMode = 'none';
     private geocacheIconScale = 0.75;
     private foundGeocacheDisplayMode: FoundGeocacheDisplayMode = 'transparent';
+    private clusteringEnabled = false;
+    /** Mode de regroupement : 'auto' (selon le seuil), 'always' ou 'never'. */
+    private clusteringMode: ClusteringMode = 'auto';
+    /** Seuil de géocaches au-delà duquel le clustering est activé automatiquement (mode 'auto'). */
+    private clusterThreshold = 200;
 
     constructor(map: Map) {
         this.map = map;
@@ -342,7 +348,7 @@ export class MapLayerManager {
             return;
         }
         this.geocacheIconScale = safeScale;
-        this.geocacheVectorSource.changed();
+        this.refreshGeocacheLayer();
         this.nearbyGeocacheVectorSource.changed();
     }
 
@@ -351,7 +357,7 @@ export class MapLayerManager {
             return;
         }
         this.foundGeocacheDisplayMode = mode;
-        this.geocacheVectorSource.changed();
+        this.refreshGeocacheLayer();
         this.nearbyGeocacheVectorSource.changed();
     }
 
@@ -376,6 +382,9 @@ export class MapLayerManager {
             feature.set('showLabel', this.shouldShowWaypointLabels());
             feature.changed();
         });
+        if (this.clusteringEnabled) {
+            this.geocacheClusterSource.changed();
+        }
     }
 
     /**
@@ -439,7 +448,10 @@ export class MapLayerManager {
         });
 
         this.geocacheVectorSource.addFeatures(features);
-        
+
+        // Activer/désactiver le clustering selon le volume de géocaches
+        this.applyClusteringState();
+
         // Ajouter les waypoints et coordonnées originales
         geocaches.forEach(geocache => {
             // Ajouter les coordonnées originales si la cache est corrigée
@@ -501,6 +513,7 @@ export class MapLayerManager {
     clearGeocaches(): void {
         this.geocacheVectorSource.clear();
         this.waypointVectorSource.clear();
+        this.applyClusteringState();
     }
 
     /**
@@ -533,6 +546,9 @@ export class MapLayerManager {
             feature.set('selected', true);
             // Forcer le recalcul du style
             feature.changed();
+            if (this.clusteringEnabled) {
+                this.geocacheClusterSource.changed();
+            }
         } else {
             console.warn(`[MapLayerManager] Aucune feature trouvée pour geocacheId ${geocacheId}. Features disponibles:`,
                 this.geocacheVectorSource.getFeatures().map(f => f.getId()));
@@ -547,6 +563,9 @@ export class MapLayerManager {
             feature.set('selected', false);
             feature.changed();
         });
+        if (this.clusteringEnabled) {
+            this.geocacheClusterSource.changed();
+        }
     }
 
     /**
@@ -703,12 +722,23 @@ export class MapLayerManager {
     }
 
     /**
-     * Active ou désactive le clustering
+     * Active ou désactive le clustering des géocaches.
+     * Le style de cluster s'appuie sur le sprite : un cluster d'une seule cache
+     * retombe sur l'icône individuelle, ce qui assure le dégroupage au zoom.
      */
     setClusteringEnabled(enabled: boolean): void {
+        if (enabled === this.clusteringEnabled) {
+            return;
+        }
+        this.clusteringEnabled = enabled;
+
         if (enabled) {
             this.geocacheLayer.setSource(this.geocacheClusterSource);
-            this.geocacheLayer.setStyle(createClusterStyle);
+            this.geocacheLayer.setStyle((feature, resolution) => createClusterStyleFromSprite(
+                feature as Feature<Geometry>,
+                resolution,
+                { scale: this.geocacheIconScale, foundDisplayMode: this.foundGeocacheDisplayMode }
+            ));
         } else {
             this.geocacheLayer.setSource(this.geocacheVectorSource as any);
             this.geocacheLayer.setStyle((feature, resolution) => createGeocacheStyleFromSprite(
@@ -716,6 +746,67 @@ export class MapLayerManager {
                 resolution,
                 { scale: this.geocacheIconScale, foundDisplayMode: this.foundGeocacheDisplayMode }
             ));
+        }
+    }
+
+    /**
+     * Indique si le clustering est actuellement actif.
+     */
+    isClusteringEnabled(): boolean {
+        return this.clusteringEnabled;
+    }
+
+    /**
+     * Définit le mode de regroupement et réévalue l'état du clustering.
+     */
+    setClusteringMode(mode: ClusteringMode): void {
+        if (this.clusteringMode === mode) {
+            return;
+        }
+        this.clusteringMode = mode;
+        this.applyClusteringState();
+    }
+
+    /**
+     * Définit le seuil d'activation automatique du clustering (mode 'auto').
+     */
+    setClusterThreshold(threshold: number): void {
+        const safe = Number.isFinite(threshold) ? Math.max(1, Math.floor(threshold)) : 200;
+        if (this.clusterThreshold === safe) {
+            return;
+        }
+        this.clusterThreshold = safe;
+        this.applyClusteringState();
+    }
+
+    /**
+     * Active/désactive le clustering selon le mode courant et le nombre de géocaches.
+     */
+    private applyClusteringState(): void {
+        let shouldCluster: boolean;
+        switch (this.clusteringMode) {
+            case 'always':
+                shouldCluster = true;
+                break;
+            case 'never':
+                shouldCluster = false;
+                break;
+            default: {
+                const count = this.geocacheVectorSource.getFeatures().length;
+                shouldCluster = count >= this.clusterThreshold;
+            }
+        }
+        this.setClusteringEnabled(shouldCluster);
+    }
+
+    /**
+     * Force le rafraîchissement visuel de la couche géocaches, en tenant compte
+     * de la source active (vectorielle ou cluster).
+     */
+    private refreshGeocacheLayer(): void {
+        this.geocacheVectorSource.changed();
+        if (this.clusteringEnabled) {
+            this.geocacheClusterSource.changed();
         }
     }
 

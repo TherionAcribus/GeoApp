@@ -54,7 +54,9 @@ export class MapWidget extends ReactWidget {
         'geoApp.map.geocacheIconScale',
         'geoApp.map.foundGeocacheDisplayMode',
         'geoApp.map.showExclusionZones',
-        'geoApp.map.showNearbyGeocaches'
+        'geoApp.map.showNearbyGeocaches',
+        'geoApp.map.clusteringMode',
+        'geoApp.map.clusteringThreshold'
     ];
 
     constructor(
@@ -409,7 +411,9 @@ export class MapWidget extends ReactWidget {
             geocacheIconScale: this.preferenceService.get('geoApp.map.geocacheIconScale', 0.75),
             foundGeocacheDisplayMode: this.preferenceService.get('geoApp.map.foundGeocacheDisplayMode', 'transparent'),
             showExclusionZones: this.preferenceService.get('geoApp.map.showExclusionZones', true),
-            showNearbyGeocaches: this.preferenceService.get('geoApp.map.showNearbyGeocaches', false)
+            showNearbyGeocaches: this.preferenceService.get('geoApp.map.showNearbyGeocaches', false),
+            clusteringMode: this.preferenceService.get('geoApp.map.clusteringMode', 'auto'),
+            clusteringThreshold: this.preferenceService.get('geoApp.map.clusteringThreshold', 200)
         };
     }
 
