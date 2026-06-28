@@ -31,6 +31,83 @@ export interface GeocacheNotesViewProps {
     onSaveEdit: () => void;
 }
 
+// Static style objects are hoisted to module scope so they are allocated once instead of
+// being recreated on every render (the parent view re-renders on each keystroke).
+const containerStyle: React.CSSProperties = {
+    padding: 16,
+    height: '100%',
+    overflow: 'auto',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 16
+};
+
+const emptyStateStyle: React.CSSProperties = {
+    padding: 16,
+    height: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    opacity: 0.7
+};
+
+const emptyStateIconStyle: React.CSSProperties = { fontSize: 48, marginBottom: 16 };
+
+const rowBetweenStyle: React.CSSProperties = {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center'
+};
+
+const headingStyle: React.CSSProperties = { margin: 0, fontSize: 16 };
+
+const subtitleStyle: React.CSSProperties = { fontSize: 12, opacity: 0.7, marginTop: 4 };
+
+const sectionTitleStyle: React.CSSProperties = { fontWeight: 'bold' };
+
+const metaTextStyle: React.CSSProperties = { fontSize: 11, opacity: 0.7 };
+
+const gcSectionStyle: React.CSSProperties = {
+    background: 'var(--theia-editor-background)',
+    border: '1px solid var(--theia-panel-border)',
+    borderRadius: 6,
+    padding: 12,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8
+};
+
+const appSectionStyle: React.CSSProperties = {
+    background: 'var(--theia-editor-background)',
+    border: '1px solid var(--theia-panel-border)',
+    borderRadius: 6,
+    padding: 12,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 12,
+    flex: 1,
+    minHeight: 0
+};
+
+const gcNoteBoxStyle: React.CSSProperties = {
+    padding: 8,
+    minHeight: 60,
+    background: 'var(--theia-sideBar-background)',
+    borderRadius: 4,
+    whiteSpace: 'pre-wrap',
+    fontSize: 13
+};
+
+const newNoteSectionStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 8 };
+
+const newNoteControlsRowStyle: React.CSSProperties = {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8
+};
+
 const textareaStyle: React.CSSProperties = {
     width: '100%',
     resize: 'vertical',
@@ -48,13 +125,23 @@ const selectStyle: React.CSSProperties = {
     fontSize: 13
 };
 
-const actionButtonStyle: React.CSSProperties = {
-    padding: '4px 8px',
+const primaryButtonBaseStyle: React.CSSProperties = {
+    background: 'var(--theia-button-background)',
+    color: 'var(--theia-button-foreground)',
+    border: 'none',
     borderRadius: 4,
-    border: '1px solid var(--theia-panel-border)',
-    background: 'var(--theia-sideBar-background)',
-    fontSize: 11
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8
 };
+
+const listScrollStyle: React.CSSProperties = { marginTop: 8, flex: 1, overflow: 'auto' };
+
+const listStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 8 };
+
+const centeredMessageStyle: React.CSSProperties = { textAlign: 'center', padding: 20, opacity: 0.7 };
+
+const iconSpacerStyle: React.CSSProperties = { marginRight: 8 };
 
 const noteCardStyle: React.CSSProperties = {
     border: '1px solid var(--theia-panel-border)',
@@ -65,6 +152,45 @@ const noteCardStyle: React.CSSProperties = {
     flexDirection: 'column',
     gap: 6
 };
+
+const badgeRowStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8 };
+
+const typeBadgeBaseStyle: React.CSSProperties = {
+    padding: '2px 8px',
+    borderRadius: 999,
+    color: 'white',
+    fontSize: 11
+};
+
+const actionsRowStyle: React.CSSProperties = { display: 'flex', gap: 6 };
+
+const actionButtonStyle: React.CSSProperties = {
+    padding: '4px 8px',
+    borderRadius: 4,
+    border: '1px solid var(--theia-panel-border)',
+    background: 'var(--theia-sideBar-background)',
+    fontSize: 11
+};
+
+const actionButtonPointerStyle: React.CSSProperties = { ...actionButtonStyle, cursor: 'pointer' };
+
+const editColumnStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 6 };
+
+const editButtonsRowStyle: React.CSSProperties = { display: 'flex', gap: 8 };
+
+const cancelButtonStyle: React.CSSProperties = { ...actionButtonStyle, padding: '4px 10px', cursor: 'pointer' };
+
+const saveButtonStyle: React.CSSProperties = {
+    padding: '4px 10px',
+    borderRadius: 4,
+    border: 'none',
+    background: 'var(--theia-button-background)',
+    color: 'var(--theia-button-foreground)',
+    cursor: 'pointer',
+    fontSize: 11
+};
+
+const noteContentStyle: React.CSSProperties = { marginTop: 4, whiteSpace: 'pre-wrap', fontSize: 13 };
 
 // Formatting via Intl (toLocaleString) is relatively costly and timestamps are stable
 // strings that recur across renders/notes, so we memoize on the raw value.
@@ -103,18 +229,8 @@ function getPersonalNoteTimestamp(
 
 function renderEmptyState(): React.JSX.Element {
     return (
-        <div
-            style={{
-                padding: 16,
-                height: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                opacity: 0.7
-            }}
-        >
-            <i className='fa fa-sticky-note' style={{ fontSize: 48, marginBottom: 16 }} />
+        <div style={emptyStateStyle}>
+            <i className='fa fa-sticky-note' style={emptyStateIconStyle} />
             <p>Selectionnez une geocache pour voir ses notes</p>
         </div>
     );
@@ -149,27 +265,19 @@ const NoteItem = React.memo(function NoteItem(props: NoteItemProps): React.JSX.E
 
     return (
         <div style={noteCardStyle}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span
-                        style={{
-                            padding: '2px 8px',
-                            borderRadius: 999,
-                            background: typeColor,
-                            color: 'white',
-                            fontSize: 11
-                        }}
-                    >
+            <div style={rowBetweenStyle}>
+                <div style={badgeRowStyle}>
+                    <span style={{ ...typeBadgeBaseStyle, background: typeColor }}>
                         {typeLabel}
                     </span>
                     {created && (
-                        <span style={{ fontSize: 11, opacity: 0.7 }}>
+                        <span style={metaTextStyle}>
                             {created}
                             {updated && updated !== created ? ` - modifiee le ${updated}` : ''}
                         </span>
                     )}
                 </div>
-                <div style={{ display: 'flex', gap: 6 }}>
+                <div style={actionsRowStyle}>
                     {isUserNote && (
                         <button
                             onClick={() => props.onSyncNoteToGeocaching(note)}
@@ -184,7 +292,7 @@ const NoteItem = React.memo(function NoteItem(props: NoteItemProps): React.JSX.E
                     {isUserNote && (
                         <button
                             onClick={() => props.onStartEdit(note)}
-                            style={{ ...actionButtonStyle, cursor: 'pointer' }}
+                            style={actionButtonPointerStyle}
                             title='Modifier la note'
                             aria-label='Modifier la note'
                         >
@@ -193,7 +301,7 @@ const NoteItem = React.memo(function NoteItem(props: NoteItemProps): React.JSX.E
                     )}
                     <button
                         onClick={() => props.onDeleteNote(note)}
-                        style={{ ...actionButtonStyle, cursor: 'pointer' }}
+                        style={actionButtonPointerStyle}
                         title='Supprimer la note'
                         aria-label='Supprimer la note'
                     >
@@ -202,14 +310,14 @@ const NoteItem = React.memo(function NoteItem(props: NoteItemProps): React.JSX.E
                 </div>
             </div>
             {isEditing ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={editColumnStyle}>
                     <textarea
                         value={props.editingContent}
                         onChange={event => props.onEditingContentChange(event.target.value)}
                         rows={3}
                         style={textareaStyle}
                     />
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={rowBetweenStyle}>
                         <select
                             value={props.editingType}
                             onChange={event => props.onEditingTypeChange(event.target.value === 'system' ? 'system' : 'user')}
@@ -218,24 +326,16 @@ const NoteItem = React.memo(function NoteItem(props: NoteItemProps): React.JSX.E
                             <option value='user'>Note utilisateur</option>
                             <option value='system'>Note systeme</option>
                         </select>
-                        <div style={{ display: 'flex', gap: 8 }}>
+                        <div style={editButtonsRowStyle}>
                             <button
                                 onClick={props.onCancelEdit}
-                                style={{ ...actionButtonStyle, padding: '4px 10px', cursor: 'pointer' }}
+                                style={cancelButtonStyle}
                             >
                                 Annuler
                             </button>
                             <button
                                 onClick={props.onSaveEdit}
-                                style={{
-                                    padding: '4px 10px',
-                                    borderRadius: 4,
-                                    border: 'none',
-                                    background: 'var(--theia-button-background)',
-                                    color: 'var(--theia-button-foreground)',
-                                    cursor: 'pointer',
-                                    fontSize: 11
-                                }}
+                                style={saveButtonStyle}
                             >
                                 Sauvegarder
                             </button>
@@ -243,13 +343,7 @@ const NoteItem = React.memo(function NoteItem(props: NoteItemProps): React.JSX.E
                     </div>
                 </div>
             ) : (
-                <div
-                    style={{
-                        marginTop: 4,
-                        whiteSpace: 'pre-wrap',
-                        fontSize: 13
-                    }}
-                >
+                <div style={noteContentStyle}>
                     {note.content}
                 </div>
             )}
@@ -268,23 +362,14 @@ export function GeocacheNotesView(props: GeocacheNotesViewProps): React.JSX.Elem
     );
 
     return (
-        <div
-            style={{
-                padding: 16,
-                height: '100%',
-                overflow: 'auto',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 16
-            }}
-        >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={containerStyle}>
+            <div style={rowBetweenStyle}>
                 <div>
-                    <h3 style={{ margin: 0, fontSize: 16 }}>
+                    <h3 style={headingStyle}>
                         {props.geocacheCode ? `Notes - ${props.geocacheCode}` : 'Notes'}
                     </h3>
                     {props.geocacheName && (
-                        <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>
+                        <div style={subtitleStyle}>
                             {props.geocacheName}
                         </div>
                     )}
@@ -292,17 +377,7 @@ export function GeocacheNotesView(props: GeocacheNotesViewProps): React.JSX.Elem
                 <button
                     onClick={props.onSyncFromGeocaching}
                     disabled={props.isSyncingFromGc}
-                    style={{
-                        padding: '8px 16px',
-                        background: 'var(--theia-button-background)',
-                        color: 'var(--theia-button-foreground)',
-                        border: 'none',
-                        borderRadius: 4,
-                        cursor: props.isSyncingFromGc ? 'wait' : 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8
-                    }}
+                    style={{ ...primaryButtonBaseStyle, padding: '8px 16px', cursor: props.isSyncingFromGc ? 'wait' : 'pointer' }}
                     title='Importer la note personnelle depuis Geocaching.com'
                 >
                     <i className={`fa ${props.isSyncingFromGc ? 'fa-spinner fa-spin' : 'fa-cloud-download-alt'}`} aria-hidden='true' />
@@ -310,55 +385,24 @@ export function GeocacheNotesView(props: GeocacheNotesViewProps): React.JSX.Elem
                 </button>
             </div>
 
-            <div
-                style={{
-                    background: 'var(--theia-editor-background)',
-                    border: '1px solid var(--theia-panel-border)',
-                    borderRadius: 6,
-                    padding: 12,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 8
-                }}
-            >
-                <div style={{ fontWeight: 'bold' }}>Note Geocaching.com</div>
-                <div
-                    style={{
-                        padding: 8,
-                        minHeight: 60,
-                        background: 'var(--theia-sideBar-background)',
-                        borderRadius: 4,
-                        whiteSpace: 'pre-wrap',
-                        fontSize: 13
-                    }}
-                >
+            <div style={gcSectionStyle}>
+                <div style={sectionTitleStyle}>Note Geocaching.com</div>
+                <div style={gcNoteBoxStyle}>
                     {props.gcPersonalNote && props.gcPersonalNote.trim().length > 0
                         ? props.gcPersonalNote
                         : 'Aucune note personnelle trouvee sur Geocaching.com.'}
                 </div>
                 {personalNoteTimestamp && (
-                    <div style={{ fontSize: 11, opacity: 0.7 }}>
+                    <div style={metaTextStyle}>
                         {personalNoteTimestamp}
                     </div>
                 )}
             </div>
 
-            <div
-                style={{
-                    background: 'var(--theia-editor-background)',
-                    border: '1px solid var(--theia-panel-border)',
-                    borderRadius: 6,
-                    padding: 12,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 12,
-                    flex: 1,
-                    minHeight: 0
-                }}
-            >
-                <div style={{ fontWeight: 'bold' }}>Notes de l'application</div>
+            <div style={appSectionStyle}>
+                <div style={sectionTitleStyle}>Notes de l'application</div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={newNoteSectionStyle}>
                     <textarea
                         value={props.newNoteContent}
                         onChange={event => props.onNewNoteContentChange(event.target.value)}
@@ -366,7 +410,7 @@ export function GeocacheNotesView(props: GeocacheNotesViewProps): React.JSX.Elem
                         rows={3}
                         style={textareaStyle}
                     />
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                    <div style={newNoteControlsRowStyle}>
                         <select
                             value={props.newNoteType}
                             onChange={event => props.onNewNoteTypeChange(event.target.value === 'system' ? 'system' : 'user')}
@@ -378,17 +422,7 @@ export function GeocacheNotesView(props: GeocacheNotesViewProps): React.JSX.Elem
                         <button
                             onClick={props.onCreateNote}
                             disabled={props.isCreating}
-                            style={{
-                                padding: '6px 14px',
-                                background: 'var(--theia-button-background)',
-                                color: 'var(--theia-button-foreground)',
-                                border: 'none',
-                                borderRadius: 4,
-                                cursor: props.isCreating ? 'wait' : 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 8
-                            }}
+                            style={{ ...primaryButtonBaseStyle, padding: '6px 14px', cursor: props.isCreating ? 'wait' : 'pointer' }}
                         >
                             <i className={`fa ${props.isCreating ? 'fa-spinner fa-spin' : 'fa-plus'}`} aria-hidden='true' />
                             {props.isCreating ? 'Creation...' : 'Ajouter'}
@@ -396,19 +430,19 @@ export function GeocacheNotesView(props: GeocacheNotesViewProps): React.JSX.Elem
                     </div>
                 </div>
 
-                <div style={{ marginTop: 8, flex: 1, overflow: 'auto' }}>
+                <div style={listScrollStyle}>
                     {props.isLoading && props.notes.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: 20, opacity: 0.7 }}>
-                            <i className='fa fa-spinner fa-spin' style={{ marginRight: 8 }} aria-hidden='true' />
+                        <div style={centeredMessageStyle}>
+                            <i className='fa fa-spinner fa-spin' style={iconSpacerStyle} aria-hidden='true' />
                             Chargement des notes...
                         </div>
                     ) : props.notes.length === 0 ? (
-                        <div style={{ textAlign: 'center', padding: 20, opacity: 0.7 }}>
-                            <i className='fa fa-sticky-note' style={{ marginRight: 8 }} aria-hidden='true' />
+                        <div style={centeredMessageStyle}>
+                            <i className='fa fa-sticky-note' style={iconSpacerStyle} aria-hidden='true' />
                             Aucune note pour cette geocache
                         </div>
                     ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <div style={listStyle}>
                             {props.notes.map(note => {
                                 const isEditing = props.editingNoteId === note.id;
                                 return (
