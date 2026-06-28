@@ -15,6 +15,8 @@ export class MapManagerWidget extends ReactWidget {
     /** Signature de la liste courante, pour éviter les rendus inutiles. */
     private mapsSignature = '';
     private refreshTimeout: ReturnType<typeof setTimeout> | undefined;
+    /** Id de la dernière carte activée, mise en évidence dans la liste. */
+    private activeMapId: string | undefined;
 
     @inject(ApplicationShell)
     protected readonly shell!: ApplicationShell;
@@ -36,8 +38,24 @@ export class MapManagerWidget extends ReactWidget {
         this.toDispose.push(this.shell.onDidRemoveWidget(() => this.scheduleRefresh()));
         this.toDispose.push(Disposable.create(() => this.clearRefreshTimeout()));
 
+        // Mise en évidence de la carte active. Handler O(1) (lecture du widget actif
+        // + mise à jour conditionnelle), sans recalcul de la liste.
+        this.toDispose.push(this.shell.onDidChangeActiveWidget(() => this.updateActiveMap()));
+
         this.refreshMapList();
+        this.updateActiveMap();
         this.update();
+    }
+
+    /** Met à jour la carte active si le widget actif est une carte (sinon conserve la dernière). */
+    private updateActiveMap(): void {
+        const active = this.shell.activeWidget;
+        if (active && active.id !== MapManagerWidget.ID && active.id.startsWith('geoapp-map')) {
+            if (this.activeMapId !== active.id) {
+                this.activeMapId = active.id;
+                this.update();
+            }
+        }
     }
 
     private clearRefreshTimeout(): void {
@@ -71,6 +89,11 @@ export class MapManagerWidget extends ReactWidget {
             };
         });
 
+        // Oublier la carte active si elle n'est plus ouverte
+        if (this.activeMapId && !newMaps.some(map => map.id === this.activeMapId)) {
+            this.activeMapId = undefined;
+        }
+
         // Comparaison légère par id + label + type (évite un JSON.stringify fragile
         // à l'ordre des clés des objets context).
         const signature = newMaps.map(map => `${map.id}|${map.label}|${map.context.type}`).join('::');
@@ -95,13 +118,16 @@ export class MapManagerWidget extends ReactWidget {
                     </div>
                 ) : (
                     <div className="map-manager-list" role="list" aria-label="Cartes ouvertes">
-                        {this.openMaps.map(map => (
+                        {this.openMaps.map(map => {
+                            const isActive = map.id === this.activeMapId;
+                            return (
                             <div
                                 key={map.id}
-                                className="map-manager-item"
+                                className={`map-manager-item${isActive ? ' map-manager-item--active' : ''}`}
                                 role="button"
                                 tabIndex={0}
                                 aria-label={`Activer la carte ${map.label}`}
+                                aria-current={isActive ? 'true' : undefined}
                                 onClick={() => this.activateMap(map.id)}
                                 onKeyDown={event => this.handleItemKeyDown(event, map.id)}
                                 title={map.label}
@@ -127,7 +153,8 @@ export class MapManagerWidget extends ReactWidget {
                                     </button>
                                 </div>
                             </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 )}
 
