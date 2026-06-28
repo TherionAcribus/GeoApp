@@ -52,6 +52,13 @@
     gap: 4px;
 }
 
+.geoapp-gc-table__sort-icon {
+    font-size: 0.65em;
+    opacity: 0.6;
+    flex-shrink: 0;
+    line-height: 1;
+}
+
 /*
  * Hauteur de ligne : doit rester synchronisée avec VIRTUAL_ROW_HEIGHT côté TSX
  * (utilisé pour le calcul des espaceurs de virtualisation). La valeur est

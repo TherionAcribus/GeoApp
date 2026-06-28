@@ -1226,10 +1226,12 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                                     >
                                         <div className="geoapp-gc-table__th-inner">
                                             {flexRender(header.column.columnDef.header, header.getContext())}
-                                            {{
-                                                asc: ' ⬆️',
-                                                desc: ' ⬇️',
-                                            }[header.column.getIsSorted() as string] ?? null}
+                                            {header.column.getIsSorted() === 'asc' && (
+                                                <span className="geoapp-gc-table__sort-icon" aria-hidden="true">▲</span>
+                                            )}
+                                            {header.column.getIsSorted() === 'desc' && (
+                                                <span className="geoapp-gc-table__sort-icon" aria-hidden="true">▼</span>
+                                            )}
                                         </div>
                                     </th>
                                 ))}
