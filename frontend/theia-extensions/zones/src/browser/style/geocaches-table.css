@@ -1,0 +1,186 @@
+/*
+ * Styles du tableau des géocaches.
+ * Extraits des styles inline pour réduire l'allocation d'objets `style` à
+ * chaque rendu (lignes/cellules/badges) et déléguer le hover au CSS.
+ */
+
+/* --- Structure --- */
+.geoapp-gc-table__scroll {
+    flex: 1;
+    overflow: auto;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 3px;
+}
+
+.geoapp-gc-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9em;
+    /*
+     * table-layout: fixed est requis avec la virtualisation : en mode "auto"
+     * (défaut), le browser mesure les cellules visibles pour calculer les
+     * largeurs, ce qui provoque un recalcul à chaque scroll. En mode "fixed",
+     * seuls les <th> (ou les <col>) déterminent les largeurs — le contenu
+     * n'influence plus.
+     */
+    table-layout: fixed;
+}
+
+.geoapp-gc-table thead {
+    position: sticky;
+    top: 0;
+    background: var(--theia-editor-background);
+    z-index: 1;
+}
+
+.geoapp-gc-table__th {
+    padding: 8px 6px;
+    text-align: left;
+    border-bottom: 1px solid var(--theia-panel-border);
+    user-select: none;
+    font-weight: 600;
+    cursor: default;
+}
+
+.geoapp-gc-table__th--sortable {
+    cursor: pointer;
+}
+
+.geoapp-gc-table__th-inner {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/*
+ * Hauteur de ligne : doit rester synchronisée avec VIRTUAL_ROW_HEIGHT côté TSX
+ * (utilisé pour le calcul des espaceurs de virtualisation). La valeur est
+ * injectée via la variable CSS --geoapp-gc-row-height sur le conteneur.
+ */
+.geoapp-gc-table__row {
+    cursor: pointer;
+    height: var(--geoapp-gc-row-height, 34px);
+    background: transparent;
+}
+
+.geoapp-gc-table__row:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.geoapp-gc-table__row--selected,
+.geoapp-gc-table__row--selected:hover {
+    background: var(--theia-list-activeSelectionBackground);
+}
+
+.geoapp-gc-table__cell {
+    padding: 6px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    overflow: hidden;
+}
+
+/* --- Contenus de cellules fréquents --- */
+.geoapp-gc-cell-name {
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.geoapp-gc-cell-muted-sm {
+    font-size: 0.85em;
+}
+
+.geoapp-gc-cell-coords {
+    font-size: 0.85em;
+    white-space: nowrap;
+}
+
+.geoapp-gc-cell-owner {
+    font-size: 0.9em;
+    opacity: 0.8;
+}
+
+.geoapp-gc-cell-na {
+    opacity: 0.55;
+    font-size: 0.85em;
+}
+
+.geoapp-gc-type-wrap {
+    position: relative;
+    display: inline-block;
+}
+
+.geoapp-gc-archived-strike {
+    position: absolute;
+    top: 50%;
+    left: -2px;
+    right: -2px;
+    height: 2px;
+    background: #ef4444;
+    transform: translateY(-50%);
+    pointer-events: none;
+}
+
+/* --- Badges --- */
+.geoapp-gc-badge {
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 0.85em;
+    font-weight: 600;
+    white-space: nowrap;
+    color: #fff;
+}
+
+.geoapp-gc-badge--blue {
+    background: #3498db;
+}
+
+.geoapp-gc-badge--green {
+    background: #2ecc71;
+}
+
+.geoapp-gc-badge--orange {
+    background: #f39c12;
+}
+
+.geoapp-gc-badge--gray {
+    background: #7f8c8d;
+}
+
+.geoapp-gc-badge--purple {
+    background: #8e44ad;
+}
+
+.geoapp-gc-badge--neutral {
+    background: var(--theia-badge-background);
+    color: var(--theia-badge-foreground);
+}
+
+/* Badges de statut (statut GC.com / maintenance) avec bordure */
+.geoapp-gc-badge--archived,
+.geoapp-gc-badge--disabled,
+.geoapp-gc-badge--maint {
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 11px;
+    font-weight: bold;
+    white-space: nowrap;
+}
+
+.geoapp-gc-badge--archived {
+    background: rgba(127, 29, 29, 0.4);
+    color: #fca5a5;
+    border: 1px solid #ef4444;
+}
+
+.geoapp-gc-badge--disabled,
+.geoapp-gc-badge--maint {
+    background: rgba(120, 53, 15, 0.4);
+    color: #fde68a;
+    border: 1px solid #f59e0b;
+}
+
+.geoapp-gc-status-active {
+    opacity: 0.45;
+    font-size: 11px;
+}

@@ -20,6 +20,8 @@ import {
     parseSearchQuery,
 } from './geocache-filter-shared';
 
+import '../../src/browser/style/geocaches-table.css';
+
 export interface GeocacheWaypoint {
     id: number;
     prefix: string | null;
@@ -454,7 +456,7 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                 accessorKey: 'name',
                 header: 'Nom',
                 cell: info => (
-                    <div style={{ maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <div className="geoapp-gc-cell-name">
                         {info.getValue() as string}
                     </div>
                 ),
@@ -470,7 +472,7 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                     const isDisabled = status === 'disabled';
                     const statusLabel = isArchived ? ' \u2014 ⛔ Archivée' : isDisabled ? ' \u2014 ⚠️ Désactivée' : '';
                     return (
-                        <span style={{ position: 'relative', display: 'inline-block' }}>
+                        <span className="geoapp-gc-type-wrap">
                             <GeocacheIcon
                                 type={type}
                                 size={20}
@@ -479,16 +481,7 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                                 style={(isArchived || isDisabled) ? { filter: 'grayscale(100%) opacity(0.55)' } : undefined}
                             />
                             {isArchived && (
-                                <span style={{
-                                    position: 'absolute',
-                                    top: '50%',
-                                    left: -2,
-                                    right: -2,
-                                    height: 2,
-                                    background: '#ef4444',
-                                    transform: 'translateY(-50%)',
-                                    pointerEvents: 'none',
-                                }} />
+                                <span className="geoapp-gc-archived-strike" />
                             )}
                         </span>
                     );
@@ -513,7 +506,7 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                 cell: info => {
                     const size = info.getValue() as string;
                     return (
-                        <span style={{ fontSize: '0.85em' }} title={size}>
+                        <span className="geoapp-gc-cell-muted-sm" title={size}>
                             {size}
                         </span>
                     );
@@ -539,7 +532,7 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                 id: 'placed_at',
                 accessorFn: row => getDateTimestamp(row.placed_at ?? row.hidden_date),
                 header: 'Posée le',
-                cell: ({ row }) => <span style={{ fontSize: '0.85em' }}>{formatDate(row.original.placed_at ?? row.original.hidden_date)}</span>,
+                cell: ({ row }) => <span className="geoapp-gc-cell-muted-sm">{formatDate(row.original.placed_at ?? row.original.hidden_date)}</span>,
                 size: 100,
             },
             {
@@ -553,14 +546,14 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                 id: 'created_at',
                 accessorFn: row => getDateTimestamp(row.created_at),
                 header: 'Ajoutée le',
-                cell: ({ row }) => <span style={{ fontSize: '0.85em' }}>{formatDate(row.original.created_at)}</span>,
+                cell: ({ row }) => <span className="geoapp-gc-cell-muted-sm">{formatDate(row.original.created_at)}</span>,
                 size: 100,
             },
             {
                 id: 'found_date',
                 accessorFn: row => getDateTimestamp(row.found_date),
                 header: 'Découverte le',
-                cell: ({ row }) => <span style={{ fontSize: '0.85em' }}>{formatDate(row.original.found_date)}</span>,
+                cell: ({ row }) => <span className="geoapp-gc-cell-muted-sm">{formatDate(row.original.found_date)}</span>,
                 size: 120,
             },
             {
@@ -568,7 +561,7 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                 accessorFn: row => getCoordinatesLabel(row),
                 header: 'Coordonnées',
                 cell: ({ row }) => (
-                    <span style={{ fontSize: '0.85em', whiteSpace: 'nowrap' }} title={getCoordinatesLabel(row.original)}>
+                    <span className="geoapp-gc-cell-coords" title={getCoordinatesLabel(row.original)}>
                         {getCoordinatesLabel(row.original)}
                     </span>
                 ),
@@ -597,7 +590,7 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
             {
                 accessorKey: 'owner',
                 header: 'Propriétaire',
-                cell: info => <span style={{ fontSize: '0.9em', opacity: 0.8 }}>{info.getValue() as string || '-'}</span>,
+                cell: info => <span className="geoapp-gc-cell-owner">{info.getValue() as string || '-'}</span>,
                 size: 150,
             },
             {
@@ -613,12 +606,12 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                 cell: ({ row }) => {
                     const status = (row.original as Geocache).status ?? 'active';
                     if (status === 'archived') {
-                        return <span style={{ background: 'rgba(127, 29, 29, 0.4)', color: '#fca5a5', border: '1px solid #ef4444', borderRadius: 4, padding: '1px 6px', fontSize: 11, fontWeight: 'bold', whiteSpace: 'nowrap' }}>⛔ Archivée</span>;
+                        return <span className="geoapp-gc-badge--archived">⛔ Archivée</span>;
                     }
                     if (status === 'disabled') {
-                        return <span style={{ background: 'rgba(120, 53, 15, 0.4)', color: '#fde68a', border: '1px solid #f59e0b', borderRadius: 4, padding: '1px 6px', fontSize: 11, fontWeight: 'bold', whiteSpace: 'nowrap' }}>⚠️ Désactivée</span>;
+                        return <span className="geoapp-gc-badge--disabled">⚠️ Désactivée</span>;
                     }
-                    return <span style={{ opacity: 0.45, fontSize: 11 }}>Active</span>;
+                    return <span className="geoapp-gc-status-active">Active</span>;
                 },
                 size: 110,
             },
@@ -634,8 +627,7 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                     const needsMaint = attrs.some(a => !a.is_negative && a.name.toLowerCase().includes('owner attention'));
                     if (!needsMaint) return null;
                     return (
-                        <span style={{ background: 'rgba(120, 53, 15, 0.4)', color: '#fde68a', border: '1px solid #f59e0b', borderRadius: 4, padding: '1px 6px', fontSize: 11, fontWeight: 'bold', whiteSpace: 'nowrap' }}
-                            title='Owner attention requested'>
+                        <span className="geoapp-gc-badge--maint" title='Owner attention requested'>
                             🔧 Maint.
                         </span>
                     );
@@ -1198,25 +1190,23 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
             </div>
 
             {/* Table */}
-            <div ref={tableScrollRef} style={{ flex: 1, overflow: 'auto', border: '1px solid var(--theia-panel-border)', borderRadius: 3 }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9em' }}>
-                    <thead style={{ position: 'sticky', top: 0, background: 'var(--theia-editor-background)', zIndex: 1 }}>
+            <div
+                ref={tableScrollRef}
+                className="geoapp-gc-table__scroll"
+                style={{ ['--geoapp-gc-row-height' as string]: `${VIRTUAL_ROW_HEIGHT}px` } as React.CSSProperties}
+            >
+                <table className="geoapp-gc-table">
+                    <thead>
                         {table.getHeaderGroups().map(headerGroup => (
                             <tr key={headerGroup.id}>
                                 {headerGroup.headers.map(header => (
                                     <th
                                         key={header.id}
-                                        style={{
-                                            padding: '8px 6px',
-                                            textAlign: 'left',
-                                            borderBottom: '1px solid var(--theia-panel-border)',
-                                            cursor: header.column.getCanSort() ? 'pointer' : 'default',
-                                            userSelect: 'none',
-                                            fontWeight: 600,
-                                        }}
+                                        className={header.column.getCanSort() ? 'geoapp-gc-table__th geoapp-gc-table__th--sortable' : 'geoapp-gc-table__th'}
                                         onClick={header.column.getToggleSortingHandler()}
+                                        style={{ width: header.column.getSize() }}
                                     >
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                        <div className="geoapp-gc-table__th-inner">
                                             {flexRender(header.column.columnDef.header, header.getContext())}
                                             {{
                                                 asc: ' ⬆️',
@@ -1239,33 +1229,10 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                                 key={row.id}
                                 onClick={() => onRowClick?.(row.original)}
                                 onContextMenu={(e) => showContextMenu(row.original, e)}
-                                style={{
-                                    cursor: 'pointer',
-                                    height: VIRTUAL_ROW_HEIGHT,
-                                    background: row.getIsSelected()
-                                        ? 'var(--theia-list-activeSelectionBackground)'
-                                        : 'transparent',
-                                }}
-                                onMouseEnter={(e) => {
-                                    if (!row.getIsSelected()) {
-                                        (e.currentTarget as HTMLElement).style.background = 'var(--theia-list-hoverBackground)';
-                                    }
-                                }}
-                                onMouseLeave={(e) => {
-                                    if (!row.getIsSelected()) {
-                                        (e.currentTarget as HTMLElement).style.background = 'transparent';
-                                    }
-                                }}
+                                className={row.getIsSelected() ? 'geoapp-gc-table__row geoapp-gc-table__row--selected' : 'geoapp-gc-table__row'}
                             >
                                 {row.getVisibleCells().map(cell => (
-                                    <td
-                                        key={cell.id}
-                                        style={{
-                                            padding: '6px',
-                                            borderBottom: '1px solid var(--theia-panel-border)',
-                                            overflow: 'hidden',
-                                        }}
-                                    >
+                                    <td key={cell.id} className="geoapp-gc-table__cell">
                                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                                     </td>
                                 ))}
@@ -1329,20 +1296,11 @@ function isResolutionRelevant(cacheType: string | null | undefined): boolean {
     return normalized.includes('mystery') || normalized.includes('unknown') || normalized.includes('letterbox');
 }
 
-function getBadge(label: string, title: string, background: string, color = '#fff'): React.ReactNode {
+type BadgeVariant = 'blue' | 'green' | 'orange' | 'gray' | 'purple' | 'neutral';
+
+function getBadge(label: string, title: string, variant: BadgeVariant): React.ReactNode {
     return (
-        <span
-            style={{
-                padding: '2px 6px',
-                borderRadius: 3,
-                fontSize: '0.85em',
-                background,
-                color,
-                fontWeight: 600,
-                whiteSpace: 'nowrap',
-            }}
-            title={title}
-        >
+        <span className={`geoapp-gc-badge geoapp-gc-badge--${variant}`} title={title}>
             {label}
         </span>
     );
@@ -1350,43 +1308,40 @@ function getBadge(label: string, title: string, background: string, color = '#ff
 
 function getBooleanBadge(value: boolean, trueLabel: string, falseLabel: string): React.ReactNode {
     return value
-        ? getBadge(trueLabel, trueLabel, '#3498db')
-        : getBadge(falseLabel, falseLabel, 'var(--theia-badge-background)', 'var(--theia-badge-foreground)');
+        ? getBadge(trueLabel, trueLabel, 'blue')
+        : getBadge(falseLabel, falseLabel, 'neutral');
 }
 
 function getResolutionBadge(solved: string, cacheType: string): React.ReactNode {
     if (!isResolutionRelevant(cacheType)) {
         return (
-            <span
-                style={{ opacity: 0.55, fontSize: '0.85em' }}
-                title="Résolution non applicable à ce type de cache"
-            >
+            <span className="geoapp-gc-cell-na" title="Résolution non applicable à ce type de cache">
                 -
             </span>
         );
     }
     if (solved === 'solved') {
-        return getBadge('Résolue', 'Résolue', '#3498db');
+        return getBadge('Résolue', 'Résolue', 'blue');
     }
     if (solved === 'in_progress') {
-        return getBadge('En cours', 'Résolution en cours', '#f39c12');
+        return getBadge('En cours', 'Résolution en cours', 'orange');
     }
-    return getBadge('Non résolue', 'Non résolue', '#7f8c8d');
+    return getBadge('Non résolue', 'Non résolue', 'gray');
 }
 
 function getFoundBadge(found: boolean): React.ReactNode {
     if (found) {
-        return getBadge('Trouvée', 'Trouvée', '#2ecc71');
+        return getBadge('Trouvée', 'Trouvée', 'green');
     }
-    return getBadge('Non trouvée', 'Non trouvée', 'var(--theia-badge-background)', 'var(--theia-badge-foreground)');
+    return getBadge('Non trouvée', 'Non trouvée', 'neutral');
 }
 
 function getNotesBadge(hasNotes: boolean, notesCount?: number): React.ReactNode {
     if (!hasNotes) {
-        return getBadge('Non', 'Aucune note', 'var(--theia-badge-background)', 'var(--theia-badge-foreground)');
+        return getBadge('Non', 'Aucune note', 'neutral');
     }
     const suffix = typeof notesCount === 'number' && notesCount > 0 ? ` (${notesCount})` : '';
-    return getBadge(`Oui${suffix}`, 'Notes présentes', '#8e44ad');
+    return getBadge(`Oui${suffix}`, 'Notes présentes', 'purple');
 }
 
 function getDateTimestamp(value: string | null | undefined): number {
