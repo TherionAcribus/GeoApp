@@ -16,7 +16,6 @@ export class BatchMapIntegration implements FrontendApplicationContribution {
     constructor(
         @inject(MapService) protected readonly mapService: MapService
     ) {
-        console.log('[BatchMapIntegration] Constructor called with MapService:', !!mapService);
     }
 
     onStart(): void {
@@ -25,15 +24,12 @@ export class BatchMapIntegration implements FrontendApplicationContribution {
         }
         this.started = true;
 
-        console.log('[BatchMapIntegration] Starting batch map integration...');
-        console.log('[BatchMapIntegration] MapService available:', !!this.mapService);
 
         (window as any).__batchMapListeners = true;
 
         window.addEventListener('geoapp-batch-load-geocaches', this.handleBatchLoadGeocaches as EventListener);
         window.addEventListener('geoapp-batch-highlight-coordinate', this.handleBatchHighlightCoordinate as EventListener);
 
-        console.log('[BatchMapIntegration] Batch map integration started successfully');
     }
 
     onStop(): void {
@@ -42,7 +38,6 @@ export class BatchMapIntegration implements FrontendApplicationContribution {
         }
         this.started = false;
 
-        console.log('[BatchMapIntegration] Stopping batch map integration...');
         window.removeEventListener('geoapp-batch-load-geocaches', this.handleBatchLoadGeocaches as EventListener);
         window.removeEventListener('geoapp-batch-highlight-coordinate', this.handleBatchHighlightCoordinate as EventListener);
         if ((window as any).__batchMapListeners) {
@@ -51,24 +46,18 @@ export class BatchMapIntegration implements FrontendApplicationContribution {
     }
 
     private handleBatchLoadGeocaches = (event: Event): void => {
-        console.log('[BatchMapIntegration] Raw event received:', event.type);
         const detail = (event as CustomEvent<{ geocaches?: any[] }>).detail;
         if (detail?.geocaches) {
-            console.log('[BatchMapIntegration] Received load-geocaches event:', detail.geocaches.length, 'geocaches');
             this.mapService.loadGeocaches(detail.geocaches);
         } else {
-            console.log('[BatchMapIntegration] Invalid event detail:', detail);
         }
     };
 
     private handleBatchHighlightCoordinate = (event: Event): void => {
-        console.log('[BatchMapIntegration] Raw highlight event received:', event.type);
         const detail = (event as CustomEvent<any>).detail;
         if (detail) {
-            console.log('[BatchMapIntegration] Received highlight-coordinate event:', detail.gcCode);
             this.mapService.highlightDetectedCoordinate(detail);
         } else {
-            console.log('[BatchMapIntegration] Invalid highlight event detail:', detail);
         }
     };
 }

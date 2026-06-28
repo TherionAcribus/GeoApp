@@ -1,4 +1,4 @@
-﻿import * as React from 'react';
+import * as React from 'react';
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core';
@@ -562,7 +562,6 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             return;
         }
 
-        console.log('[GeocacheDetailsWidget] Context sent to executor:', context);
 
         // Ouvrir le Plugin Executor avec ce contexte
         this.pluginExecutorContribution.openWithContext(context);

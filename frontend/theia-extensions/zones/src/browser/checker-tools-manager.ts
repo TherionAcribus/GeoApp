@@ -29,9 +29,7 @@ export class CheckerToolsManager implements FrontendApplicationContribution {
     protected readonly preferenceService!: PreferenceService;
 
     async onStart(): Promise<void> {
-        console.log('[CHECKERS-TOOLS] Enregistrement des tools IA...');
         await this.registerTools();
-        console.log('[CHECKERS-TOOLS] Tools IA enregistrés avec succès');
     }
 
     private async registerTools(): Promise<void> {
@@ -45,7 +43,6 @@ export class CheckerToolsManager implements FrontendApplicationContribution {
         for (const tool of tools) {
             try {
                 await this.toolRegistry.registerTool(tool);
-                console.log(`[CHECKERS-TOOLS] Tool enregistré: ${tool.name}`);
             } catch (error) {
                 console.error(`[CHECKERS-TOOLS] Erreur enregistrement tool ${tool.name}:`, error);
             }
@@ -239,24 +236,11 @@ export class CheckerToolsManager implements FrontendApplicationContribution {
             url = resolved.url;
             const wp = resolved.wp;
 
-            console.log('[CHECKERS-TOOLS] run_checker:start', {
-                requestId,
-                url,
-                isCertitudes: this.isCertitudesUrl(url),
-                isGeocaching: this.isGeocachingUrl(url),
-                timeoutSec
-            });
-
             const normalizedGeocaching = this.normalizeGeocachingUrl(url, wp);
             if ('error' in normalizedGeocaching) {
                 return { error: normalizedGeocaching.error };
             }
             if (normalizedGeocaching.url !== url) {
-                console.log('[CHECKERS-TOOLS] run_checker:normalized-geocaching-url', {
-                    requestId,
-                    from: url,
-                    to: normalizedGeocaching.url
-                });
                 url = normalizedGeocaching.url;
             }
 
@@ -269,11 +253,6 @@ export class CheckerToolsManager implements FrontendApplicationContribution {
                     return { error: normalized.error };
                 }
                 if (normalized.url !== url) {
-                    console.log('[CHECKERS-TOOLS] run_checker:normalized-url', {
-                        requestId,
-                        from: url,
-                        to: normalized.url
-                    });
                     url = normalized.url;
                 }
             }
@@ -352,13 +331,6 @@ export class CheckerToolsManager implements FrontendApplicationContribution {
             const controller = new AbortController();
             const timeoutHandle = window.setTimeout(() => controller.abort(), fetchTimeoutMs);
 
-            console.log('[CHECKERS-TOOLS] run_checker:fetch', {
-                requestId,
-                endpoint,
-                backendBaseUrl,
-                fetchTimeoutMs
-            });
-
             let res: Response;
             try {
                 res = await fetch(`${backendBaseUrl}${endpoint}`, {
@@ -385,12 +357,6 @@ export class CheckerToolsManager implements FrontendApplicationContribution {
                 return { error: `Invalid JSON response (HTTP ${res.status})` };
             }
 
-            console.log('[CHECKERS-TOOLS] run_checker:response', {
-                requestId,
-                status: res.status,
-                ok: res.ok,
-                dataStatus: data?.status
-            });
             if (!res.ok || data.status === 'error') {
                 console.error('[CHECKERS-TOOLS] run_checker:error', {
                     requestId,
@@ -407,11 +373,6 @@ export class CheckerToolsManager implements FrontendApplicationContribution {
             if (isGeocaching) {
                 void this.messages.info('Geocaching.com: résultat récupéré depuis la fenêtre interactive.');
             }
-
-            console.log('[CHECKERS-TOOLS] run_checker:done', {
-                requestId,
-                durationMs: Math.round(performance.now() - start)
-            });
 
             return JSON.stringify(data.result, null, 2);
         } catch (error: any) {

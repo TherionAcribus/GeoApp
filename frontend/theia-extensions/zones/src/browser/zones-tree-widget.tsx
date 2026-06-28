@@ -127,7 +127,6 @@ export class ZonesTreeWidget extends ReactWidget {
         this.toDispose.push(this.widgetEventsService.onDidChangeGeocache(() => {
             void this.refreshExpandedZones();
         }));
-        console.log('[ZonesTreeWidget] constructed');
     }
 
     protected readZoneSortPreference(): ZoneSortPreference {
@@ -180,7 +179,6 @@ export class ZonesTreeWidget extends ReactWidget {
 
     onAfterAttach(msg: any): void {
         super.onAfterAttach(msg);
-        console.log('[ZonesTreeWidget] onAfterAttach');
         if (typeof window !== 'undefined') {
             window.addEventListener('geoapp-geocache-log-submitted', this.handleGeocacheLogSubmitted as EventListener);
         }
@@ -203,7 +201,6 @@ export class ZonesTreeWidget extends ReactWidget {
             this.zones = zones;
             this.activeZoneId = typeof activeZone?.id === 'number' ? activeZone.id : undefined;
 
-            console.log('[ZonesTreeWidget] refresh -> zones:', this.zones.length, 'active:', this.activeZoneId);
             this.update();
         } catch (e) {
             console.error('Zones: fetch error', e);

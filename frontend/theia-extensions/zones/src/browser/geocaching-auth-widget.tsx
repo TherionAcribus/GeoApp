@@ -83,18 +83,15 @@ export class GeocachingAuthWidget extends ReactWidget {
     }
 
     protected async fetchAuthStatus(): Promise<void> {
-        console.log('[GeocachingAuth] fetchAuthStatus called');
         try {
             const baseUrl = this.getApiBaseUrl();
             const response = await fetch(`${baseUrl}/api/auth/status`);
             if (response.ok) {
                 this.authState = await response.json();
-                console.log('[GeocachingAuth] Auth status:', this.authState?.status, 'user:', this.authState?.user?.username);
                 this.update();
                 
                 // Si connecté, récupérer les stats en arrière-plan
                 if (this.authState?.status === 'logged_in') {
-                    console.log('[GeocachingAuth] User is logged in, fetching profile stats...');
                     this.fetchProfileStatsQuietly();
                 }
             }
@@ -282,26 +279,20 @@ export class GeocachingAuthWidget extends ReactWidget {
 
     protected async fetchProfileStatsQuietly(): Promise<void> {
         // Récupère les stats en arrière-plan sans bloquer l'UI
-        console.log('[GeocachingAuth] fetchProfileStatsQuietly called');
         try {
             const baseUrl = this.getApiBaseUrl();
             const url = `${baseUrl}/api/auth/profile?force=true`;
-            console.log('[GeocachingAuth] Fetching profile stats from:', url);
             const response = await fetch(url);
             const result = await response.json();
-            console.log('[GeocachingAuth] Profile stats response:', result);
             
             if (result.success && result.stats && this.authState?.user) {
-                console.log('[GeocachingAuth] Updating user stats:', result.stats);
                 this.authState.user.finds_count = result.stats.finds_count;
                 this.authState.user.hides_count = result.stats.hides_count;
                 this.authState.user.favorite_points = result.stats.favorite_points;
                 this.authState.user.awarded_favorite_points = result.stats.awarded_favorite_points;
                 this.authState.user.stats_last_updated = result.stats.stats_last_updated;
                 this.update();
-                console.log('[GeocachingAuth] Stats updated and UI refreshed');
             } else {
-                console.log('[GeocachingAuth] Stats not updated - success:', result.success, 'stats:', !!result.stats, 'user:', !!this.authState?.user);
             }
         } catch (err) {
             console.error('[GeocachingAuth] Background fetch stats failed:', err);

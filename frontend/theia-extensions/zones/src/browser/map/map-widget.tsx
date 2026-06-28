@@ -105,7 +105,6 @@ export class MapWidget extends ReactWidget {
     }
 
     loadGeocaches(geocaches: MapGeocache[]): void {
-        console.log(`[MapWidget ${this.id}] loadGeocaches:`, geocaches.length, 'geocaches');
         this.geocaches = geocaches;
 
         this.clearAutoSelectTimeout();

@@ -202,15 +202,6 @@ export class MapService {
             return;
         }
 
-        console.log('[MapService] Reçu geoapp-map-highlight-coordinate', {
-            gcCode: detail.gcCode,
-            pluginName: detail.pluginName,
-            coordinates: detail.coordinates,
-            autoSaved: detail.autoSaved,
-            waypointTitle: detail.waypointTitle,
-            waypointNote: detail.waypointNote
-        });
-
         this.highlightDetectedCoordinate({
             latitude,
             longitude,
@@ -228,7 +219,6 @@ export class MapService {
     };
 
     private handleHighlightClearEvent = (): void => {
-        console.log('[MapService] Reçu geoapp-map-highlight-clear');
         this.clearHighlightedCoordinate();
     };
 
@@ -308,7 +298,6 @@ export class MapService {
             return;
         }
 
-        console.log('[MapService] Suppression du point brute force', bruteForceId);
         this.removeBruteForcePoint(bruteForceId);
     };
 
@@ -363,11 +352,8 @@ export class MapService {
      * Charge une liste de géocaches et notifie les écouteurs
      */
     loadGeocaches(geocaches: MapGeocache[]): void {
-        console.log('[MapService] loadGeocaches appelé avec:', geocaches.length, 'géocaches');
-        console.log('[MapService] Première géocache:', geocaches[0]);
         this.loadedGeocaches = geocaches;
         this.onDidLoadGeocachesEmitter.fire(geocaches);
-        console.log('[MapService] Event onDidLoadGeocaches émis');
     }
 
     /**
@@ -426,11 +412,9 @@ export class MapService {
         if (coordinate.replaceExisting === false) {
             // Ajouter au tableau existant
             this.highlightedCoordinates.push(coordinate);
-            console.log('[MapService] Highlight coordonnée ajoutée', coordinate, `(${this.highlightedCoordinates.length} total)`);
         } else {
             // Remplacer tout (comportement par défaut)
             this.highlightedCoordinates = [coordinate];
-            console.log('[MapService] Highlight coordonnée mise à jour (remplacé)', coordinate);
         }
         
         // Émettre l'événement unique (rétrocompatibilité)
@@ -444,7 +428,6 @@ export class MapService {
      * Supprime un point brute force spécifique par son ID
      */
     removeBruteForcePoint(bruteForceId: string): void {
-        console.log('[MapService] Suppression du point brute force', bruteForceId);
         
         // Retirer du tableau
         this.highlightedCoordinates = this.highlightedCoordinates.filter(
@@ -461,7 +444,6 @@ export class MapService {
     clearHighlightedCoordinate(): void {
         this.lastHighlightedCoordinate = undefined;
         this.highlightedCoordinates = [];
-        console.log('[MapService] Highlight coordonnées effacées');
         this.onDidHighlightCoordinateEmitter.fire(undefined);
         this.onDidHighlightCoordinatesEmitter.fire([]);
     }

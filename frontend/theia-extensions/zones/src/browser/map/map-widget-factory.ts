@@ -31,13 +31,11 @@ export class MapWidgetFactory {
     async openMapForContext(context: MapContext, geocaches?: any[]): Promise<MapWidget> {
         const widgetId = this.generateWidgetId(context);
         
-        console.log(`[MapWidgetFactory] openMapForContext pour widgetId: ${widgetId}`);
         
         // Vérifier si une carte pour ce contexte existe déjà
         let widget = this.shell.getWidgets('bottom').find(w => w.id === widgetId) as MapWidget;
         
         if (!widget) {
-            console.log(`[MapWidgetFactory] Création d'un NOUVEAU widget pour ${widgetId}`);
             
             if (!this.widgetCreator) {
                 throw new Error('Widget creator not initialized. Call setWidgetCreator first.');
@@ -46,20 +44,16 @@ export class MapWidgetFactory {
             // ✅ Créer une nouvelle instance via le créateur
             widget = this.widgetCreator(context);
             
-            console.log(`[MapWidgetFactory] Widget créé avec ID final: ${widget.id}`);
             
             // Ouvrir dans le bottom layer
             await this.shell.addWidget(widget, { area: 'bottom' });
-            console.log(`[MapWidgetFactory] Widget ajouté au bottom layer`);
         } else {
-            console.log(`[MapWidgetFactory] Réutilisation du widget existant ${widgetId}`);
         }
 
         const targetWidgetId = widget.id;
         
         // Charger les géocaches si fournies
         if (geocaches && geocaches.length > 0) {
-            console.log(`[MapWidgetFactory] Chargement de ${geocaches.length} géocaches pour contexte:`, context);
             
             // Si le widget existe déjà, charger immédiatement
             if (widget.isAttached) {
@@ -103,7 +97,6 @@ export class MapWidgetFactory {
         }, geocaches);
 
         // La sélection automatique sera faite dans loadGeocaches() du widget
-        console.log(`[MapWidgetFactory] Carte ouverte pour géocache ${gcCode} (id=${geocacheId})`);
 
         return widget;
     }

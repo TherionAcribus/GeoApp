@@ -1129,7 +1129,6 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             }
         } catch (e) {
             if ((e as Error).name === 'AbortError') {
-                console.log('[GeocacheImagesPanel] cloud ocr aborted', imageId);
                 return;
             }
             console.error('[GeocacheImagesPanel] cloud ocr error', e);
@@ -1231,7 +1230,6 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             }
         } catch (e) {
             if ((e as Error).name === 'AbortError') {
-                console.log('[GeocacheImagesPanel] ocr plugin aborted', imageId);
                 return;
             }
             console.error('[GeocacheImagesPanel] ocr error', e);
@@ -1324,7 +1322,6 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                 imageUrlForPlugin = resolveImageUrl(storedImage.url);
                 setImages(prev => prev.map(i => (i.id === storedImage.id ? storedImage : i)));
             }
-            console.log('[GeocacheImagesPanel] decodeQrFromImage: calling plugin with url', imageUrlForPlugin);
             const res = await fetch(`${backendBaseUrl}/api/plugins/qr_code_detector/execute`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1340,7 +1337,6 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                 throw new Error(`HTTP ${res.status}`);
             }
             const result = await res.json() as any;
-            console.log('[GeocacheImagesPanel] decodeQrFromImage: plugin result', result);
 
             // Vérifier si le plugin a retourné une erreur
             if (result?.status === 'error') {

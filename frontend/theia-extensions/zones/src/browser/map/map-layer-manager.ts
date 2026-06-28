@@ -410,14 +410,12 @@ export class MapLayerManager {
      * Ajoute plusieurs géocaches à la carte
      */
     addGeocaches(geocaches: MapGeocache[]): void {
-        console.log('[MapLayerManager] addGeocaches appelé avec:', geocaches.length, 'géocaches');
         
         // Effacer les waypoints existants
         this.clearWaypoints();
         
         const features = geocaches.map(geocache => {
             const coordinate = lonLatToMapCoordinate(geocache.longitude, geocache.latitude);
-            console.log(`[MapLayerManager] Géocache ${geocache.gc_code}: lon=${geocache.longitude}, lat=${geocache.latitude} -> coord=`, coordinate);
             
             const feature = new Feature({
                 geometry: new Point(coordinate)
@@ -440,10 +438,7 @@ export class MapLayerManager {
             return feature;
         });
 
-        console.log('[MapLayerManager] Features créées:', features.length);
         this.geocacheVectorSource.addFeatures(features);
-        console.log('[MapLayerManager] Features ajoutées à la source vectorielle');
-        console.log('[MapLayerManager] Nombre total de features dans la source:', this.geocacheVectorSource.getFeatures().length);
         
         // Ajouter les waypoints et coordonnées originales
         geocaches.forEach(geocache => {
@@ -526,7 +521,6 @@ export class MapLayerManager {
      * Met en surbrillance une géocache (la sélectionne visuellement)
      */
     selectGeocache(geocacheId: number): void {
-        console.log(`[MapLayerManager] selectGeocache appelé pour geocacheId:`, geocacheId);
 
         // Désélectionner toutes les géocaches
         this.geocacheVectorSource.getFeatures().forEach(feature => {
@@ -536,7 +530,6 @@ export class MapLayerManager {
         // Sélectionner la géocache demandée
         const feature = this.geocacheVectorSource.getFeatureById(geocacheId);
         if (feature) {
-            console.log(`[MapLayerManager] Feature trouvée pour geocacheId ${geocacheId}, sélection en cours`);
             feature.set('selected', true);
             // Forcer le recalcul du style
             feature.changed();
@@ -602,23 +595,19 @@ export class MapLayerManager {
      * Affiche une coordonnée détectée temporaire sur la carte.
      */
     showDetectedCoordinate(highlight: DetectedCoordinateHighlight): void {
-        console.log('[MapLayerManager] showDetectedCoordinate called', highlight);
         
         // Par défaut on remplace l'ancien point (clear).
         // Si replaceExisting === false, on garde l'existant (mode multi-points géré aussi par showMultipleDetectedCoordinates).
         const shouldClear = highlight.replaceExisting !== false;
         if (shouldClear) {
-            console.log('[MapLayerManager] Clearing previous detected coordinates');
             this.detectedCoordinateSource.clear();
         }
 
         if (highlight.latitude === undefined || highlight.longitude === undefined) {
-            console.log('[MapLayerManager] Invalid coordinates, skipping');
             return;
         }
 
         const coordinate = lonLatToMapCoordinate(highlight.longitude, highlight.latitude);
-        console.log('[MapLayerManager] Creating feature at coordinate', coordinate);
         
         const feature = new Feature({
             geometry: new Point(coordinate)
@@ -646,14 +635,12 @@ export class MapLayerManager {
         });
 
         this.detectedCoordinateSource.addFeature(feature);
-        console.log('[MapLayerManager] Feature added to detectedCoordinateSource, total features:', this.detectedCoordinateSource.getFeatures().length);
     }
 
     /**
      * Affiche plusieurs coordonnées détectées simultanément (pour brute force)
      */
     showMultipleDetectedCoordinates(highlights: DetectedCoordinateHighlight[]): void {
-        console.log('[MapLayerManager] showMultipleDetectedCoordinates called', highlights.length);
         
         // Effacer les points précédents
         this.detectedCoordinateSource.clear();
@@ -695,7 +682,6 @@ export class MapLayerManager {
             this.detectedCoordinateSource.addFeature(feature);
         }
         
-        console.log('[MapLayerManager] Added', highlights.length, 'features to detectedCoordinateSource, total:', this.detectedCoordinateSource.getFeatures().length);
     }
 
     clearDetectedCoordinate(): void {
@@ -737,14 +723,12 @@ export class MapLayerManager {
      * Ajoute les géocaches voisines à afficher
      */
     addNearbyGeocaches(geocaches: MapGeocache[]): void {
-        console.log('[MapLayerManager] addNearbyGeocaches appelé avec:', geocaches.length, 'géocaches voisines');
 
         // Effacer les géocaches voisines existantes
         this.clearNearbyGeocaches();
 
         const features = geocaches.map(geocache => {
             const coordinate = lonLatToMapCoordinate(geocache.longitude, geocache.latitude);
-            console.log(`[MapLayerManager] Géocache voisine ${geocache.gc_code}: lon=${geocache.longitude}, lat=${geocache.latitude} -> coord=`, coordinate);
 
             const feature = new Feature({
                 geometry: new Point(coordinate)
@@ -768,16 +752,13 @@ export class MapLayerManager {
             return feature;
         });
 
-        console.log('[MapLayerManager] Features voisines créées:', features.length);
         this.nearbyGeocacheVectorSource.addFeatures(features);
-        console.log('[MapLayerManager] Features voisines ajoutées à la source vectorielle');
     }
 
     /**
      * Efface toutes les géocaches voisines
      */
     clearNearbyGeocaches(): void {
-        console.log('[MapLayerManager] clearNearbyGeocaches');
         this.nearbyGeocacheVectorSource.clear();
     }
 
@@ -831,7 +812,6 @@ export class MapLayerManager {
      * Affiche les zones d'exclusion autour des géocaches selon les règles
      */
     showExclusionZones(geocaches: MapGeocache[]): void {
-        console.log('[MapLayerManager] showExclusionZones pour', geocaches.length, 'géocaches');
 
         // Effacer les zones existantes
         this.clearExclusionZones();
@@ -891,7 +871,6 @@ export class MapLayerManager {
             }
         });
 
-        console.log('[MapLayerManager] Création de', features.length, 'zones d\'exclusion');
         this.exclusionZoneVectorSource.addFeatures(features);
     }
 
@@ -899,7 +878,6 @@ export class MapLayerManager {
      * Masque toutes les zones d'exclusion
      */
     clearExclusionZones(): void {
-        console.log('[MapLayerManager] clearExclusionZones');
         this.exclusionZoneVectorSource.clear();
     }
 

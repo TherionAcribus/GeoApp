@@ -121,9 +121,6 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
                 note_override: noteToSave
             };
 
-            console.log('[WaypointsEditor] 💾 SAVE WAYPOINT');
-            console.log('[WaypointsEditor] Données à envoyer:', dataToSave);
-            console.log('[WaypointsEditor] gc_coords:', dataToSave.gc_coords);
 
             await onSaveWaypoint(
                 editingId === null ? undefined : editingId,

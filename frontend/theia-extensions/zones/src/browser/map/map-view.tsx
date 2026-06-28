@@ -418,7 +418,6 @@ export const MapView: React.FC<MapViewProps> = ({
                             label: 'Supprimer ce point',
                             icon: '🗑️',
                             action: () => {
-                                console.log('[MapView] Suppression du point brute force', props.bruteForceId);
                                 window.dispatchEvent(new CustomEvent('geoapp-map-remove-brute-force-point', {
                                     detail: { bruteForceId: props.bruteForceId }
                                 }));
@@ -571,7 +570,6 @@ export const MapView: React.FC<MapViewProps> = ({
                         icon: '🌍',
                         action: () => {
                             navigator.clipboard.writeText(gcCoords);
-                            console.log('Coordonnées GC copiées');
                         }
                     },
                     {
@@ -579,7 +577,6 @@ export const MapView: React.FC<MapViewProps> = ({
                         icon: '🔢',
                         action: () => {
                             navigator.clipboard.writeText(`${lat.toFixed(6)}, ${lon.toFixed(6)}`);
-                            console.log('Coordonnées décimales copiées');
                         }
                     },
                     { separator: true },
@@ -728,36 +725,20 @@ export const MapView: React.FC<MapViewProps> = ({
 
     // Écoute des événements de mise en évidence d'une coordonnée détectée
     React.useEffect(() => {
-        console.log('[MapView] Setting up highlight listener', {
-            isInitialized,
-            hasMapInstance: !!mapInstanceRef.current,
-            hasLayerManager: !!layerManagerRef.current
-        });
-
         if (!mapInstanceRef.current || !layerManagerRef.current) {
-            console.log('[MapView] Skipping highlight listener - map not ready');
             return;
         }
 
         const applyHighlight = (highlight?: DetectedCoordinateHighlight) => {
-            console.log('[MapView] applyHighlight called', highlight);
             
             if (!layerManagerRef.current) {
-                console.log('[MapView] No layerManager, skipping');
                 return;
             }
 
             if (!highlight) {
-                console.log('[MapView] Clearing detected coordinate');
                 layerManagerRef.current.clearDetectedCoordinate();
                 return;
             }
-
-            console.log('[MapView] Showing detected coordinate on map', {
-                lat: highlight.latitude,
-                lon: highlight.longitude,
-                formatted: highlight.formatted
-            });
 
             layerManagerRef.current.showDetectedCoordinate(highlight);
 
@@ -765,7 +746,6 @@ export const MapView: React.FC<MapViewProps> = ({
             const view = mapInstanceRef.current?.getView();
             if (view) {
                 const currentZoom = view.getZoom() ?? 13;
-                console.log('[MapView] Animating to coordinate, zoom:', currentZoom < 15 ? 15 : currentZoom);
                 view.animate({
                     center: coordinate,
                     duration: 400,
@@ -774,15 +754,12 @@ export const MapView: React.FC<MapViewProps> = ({
             }
         };
 
-        console.log('[MapView] Registering highlight event listener');
         const disposable = mapService.onDidHighlightCoordinate(highlight => {
-            console.log('[MapView] Highlight event received!', highlight);
             applyHighlight(highlight);
         });
 
         // Listener pour les highlights multiples (Brute Force)
         const disposableMulti = mapService.onDidHighlightCoordinates(highlights => {
-            console.log('[MapView] Multiple highlights received!', highlights.length);
             
             if (!layerManagerRef.current) {
                 return;
@@ -815,12 +792,10 @@ export const MapView: React.FC<MapViewProps> = ({
 
         const lastHighlight = mapService.getLastHighlightedCoordinate();
         if (lastHighlight) {
-            console.log('[MapView] Applying last highlight from cache', lastHighlight);
             applyHighlight(lastHighlight);
         }
 
         return () => {
-            console.log('[MapView] Cleaning up highlight listener');
             applyHighlight(undefined);
             disposable.dispose();
             disposableMulti.dispose();
@@ -865,7 +840,6 @@ export const MapView: React.FC<MapViewProps> = ({
             return;
         }
 
-        console.log('[MapView] Géocaches reçues en props:', geocaches.length);
         
         // Effacer les géocaches existantes
         layerManagerRef.current.clearGeocaches();
@@ -879,7 +853,6 @@ export const MapView: React.FC<MapViewProps> = ({
         const geocacheKey = geocaches.map(gc => gc.id).join(',');
 
         if (geocaches.length > 0) {
-            console.log('[MapView] Ajout de', geocaches.length, 'géocaches à la carte');
             layerManagerRef.current.addGeocaches(geocaches);
 
             if (fittedGeocacheKeyRef.current === geocacheKey) {
@@ -900,7 +873,6 @@ export const MapView: React.FC<MapViewProps> = ({
                     duration: 500
                 });
                 fittedGeocacheKeyRef.current = geocacheKey;
-                console.log('[MapView] Vue ajustée aux géocaches');
             }
         }
     }, [geocaches, isInitialized]);
@@ -922,12 +894,10 @@ export const MapView: React.FC<MapViewProps> = ({
 
         const fetchNearbyGeocaches = async () => {
             try {
-                console.log('[MapView] Récupération des géocaches voisines pour geocache', selectedGeocacheId);
                 const data = { nearby_geocaches: await onLoadNearbyGeocaches(selectedGeocacheId, 5) };
                 if (cancelled) {
                     return;
                 }
-                console.log('[MapView] Géocaches voisines reçues:', data.nearby_geocaches.length);
 
                 // Convertir les données pour MapGeocache
                 const nearbyGeocachesData: MapGeocache[] = data.nearby_geocaches.map((gc: any) => ({
@@ -973,10 +943,8 @@ export const MapView: React.FC<MapViewProps> = ({
         if (showExclusionZones && (geocaches.length > 0 || nearbyGeocaches.length > 0)) {
             // Combiner les géocaches principales et voisines pour les zones d'exclusion
             const allGeocaches = [...geocaches, ...nearbyGeocaches];
-            console.log('[MapView] Affichage des zones d\'exclusion pour', allGeocaches.length, 'géocaches (', geocaches.length, 'principales +', nearbyGeocaches.length, 'voisines)');
             layerManagerRef.current.showExclusionZones(allGeocaches);
         } else {
-            console.log('[MapView] Masquage des zones d\'exclusion');
             layerManagerRef.current.clearExclusionZones();
         }
     }, [showExclusionZones, geocaches, nearbyGeocaches, isInitialized]);

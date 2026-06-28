@@ -26,13 +26,11 @@ export class ZonesWidget extends ReactWidget {
         this.addClass('theia-zones-widget');
         // Logs init
         // eslint-disable-next-line no-console
-        console.log('[ZonesWidget] constructed', this.versionStamp);
     }
 
     onAfterAttach(msg: any): void {
         super.onAfterAttach(msg);
         // eslint-disable-next-line no-console
-        console.log('[ZonesWidget] onAfterAttach');
         this.refresh();
     }
 
@@ -45,7 +43,6 @@ export class ZonesWidget extends ReactWidget {
             const act = await fetch(`${this.backendBaseUrl}/api/active-zone`, { credentials: 'include' });
             this.activeZoneId = act.ok ? (await act.json())?.id : undefined;
             // eslint-disable-next-line no-console
-            console.log('[ZonesWidget] refresh -> zones:', this.zones.length, 'active:', this.activeZoneId);
             this.update();
         } catch (e) {
             console.error('Zones: fetch error', e);
@@ -55,7 +52,6 @@ export class ZonesWidget extends ReactWidget {
     protected async deleteZone(zoneId: number, zoneName: string): Promise<void> {
         try {
             // eslint-disable-next-line no-console
-            console.log('[ZonesWidget] deleting zone', zoneId, zoneName);
             const res = await fetch(`${this.backendBaseUrl}/api/zones/${zoneId}`, {
                 method: 'DELETE',
                 credentials: 'include'
@@ -79,7 +75,6 @@ export class ZonesWidget extends ReactWidget {
             // Rafraîchir la liste
             await this.refresh();
             // eslint-disable-next-line no-console
-            console.log('[ZonesWidget] zone deleted successfully');
         } catch (e) {
             console.error('Zones: delete error', e);
             alert(`Erreur lors de la suppression: ${e}`);
@@ -122,7 +117,6 @@ export class ZonesWidget extends ReactWidget {
                             <button
                                 onClick={async () => {
                                     // eslint-disable-next-line no-console
-                                    console.log('[ZonesWidget] click zone', z.id, z.name);
                                     await fetch(`${this.backendBaseUrl}/api/active-zone`, {
                                         method: 'POST',
                                         headers: { 'Content-Type': 'application/json' },
@@ -134,14 +128,12 @@ export class ZonesWidget extends ReactWidget {
                                     // Ouvrir l'onglet central via le gestionnaire d'onglets de zones
                                     try {
                                         // eslint-disable-next-line no-console
-                                        console.log('[ZonesWidget] opening ZoneGeocachesWidget via ZoneTabsManager');
                                         await this.zoneTabsManager.openZone({ zoneId: z.id, zoneName: z.name });
                                     } catch (error) {
                                         console.error('Failed to open ZoneGeocachesWidget via ZoneTabsManager:', error);
                                         // Fallback: événement personnalisé
                                         try {
                                             // eslint-disable-next-line no-console
-                                            console.log('[ZonesWidget] fallback dispatch event open-zone-geocaches');
                                             const event = new CustomEvent('open-zone-geocaches', { detail: { zoneId: z.id, zoneName: z.name } });
                                             window.dispatchEvent(event);
                                         } catch {}

@@ -192,7 +192,6 @@ export const ImportAroundDialog: React.FC<ImportAroundDialogProps> = ({
             console.warn('[ImportAroundDialog] buildRequest() returned null — invalid form state');
             return;
         }
-        console.log('[ImportAroundDialog] submitting request:', JSON.stringify(request, null, 2));
         resetProgress();
         await onImport(request, handleProgressUpdate);
     };

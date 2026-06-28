@@ -987,10 +987,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             if (existingMap) {
                 this.shell.activateWidget(mapId);
             } else {
-                console.warn('[ZoneGeocachesWidget] Carte non trouvée dans le bottom layer');
             }
         } else {
-            console.warn('[ZoneGeocachesWidget] Pas de zone chargée');
         }
     }
 
@@ -1085,7 +1083,6 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 // Ouvrir une carte spécifique à cette zone
                 this.mapWidgetFactory.openMapForZone(this.zoneId, this.zoneName, mapGeocaches);
             } else {
-                console.warn('[ZoneGeocachesWidget] Aucune géocache avec coordonnées trouvée ou zone non définie');
             }
             
         } catch (e) {
