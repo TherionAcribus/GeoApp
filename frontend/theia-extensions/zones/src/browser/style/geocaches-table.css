@@ -78,6 +78,16 @@
     overflow: hidden;
 }
 
+/* Cellule Code GC : se comporte comme un lien (ouvre les détails au clic) */
+.geoapp-gc-table__cell--link {
+    color: var(--theia-textLink-foreground);
+    text-decoration: underline;
+}
+
+.geoapp-gc-table__cell--link:hover {
+    color: var(--theia-textLink-activeForeground, var(--theia-textLink-foreground));
+}
+
 /* --- Contenus de cellules fréquents --- */
 .geoapp-gc-cell-name {
     max-width: 300px;

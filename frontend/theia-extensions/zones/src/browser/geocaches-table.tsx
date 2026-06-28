@@ -1227,12 +1227,21 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                         {virtualRows.map(row => (
                             <tr
                                 key={row.id}
-                                onClick={() => onRowClick?.(row.original)}
+                                onClick={() => row.toggleSelected()}
+                                onDoubleClick={() => onRowClick?.(row.original)}
                                 onContextMenu={(e) => showContextMenu(row.original, e)}
                                 className={row.getIsSelected() ? 'geoapp-gc-table__row geoapp-gc-table__row--selected' : 'geoapp-gc-table__row'}
                             >
                                 {row.getVisibleCells().map(cell => (
-                                    <td key={cell.id} className="geoapp-gc-table__cell">
+                                    <td
+                                        key={cell.id}
+                                        className={cell.column.id === 'gc_code' && onRowClick
+                                            ? 'geoapp-gc-table__cell geoapp-gc-table__cell--link'
+                                            : 'geoapp-gc-table__cell'}
+                                        onClick={cell.column.id === 'gc_code' && onRowClick
+                                            ? (e) => { e.stopPropagation(); onRowClick(row.original); }
+                                            : undefined}
+                                    >
                                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                                     </td>
                                 ))}
