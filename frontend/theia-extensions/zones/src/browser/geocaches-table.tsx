@@ -789,6 +789,19 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
     const selectedIds = selectedRows.map(row => row.original.id);
 
     const tableScrollRef = React.useRef<HTMLDivElement>(null);
+
+    // Debounce single/double-click pour éviter le décalage de layout entre les
+    // deux clicks d'un double-clic (l'action panel s'ouvre sur le single click
+    // et décale le tableau, faisant atterrir le 2e click sur une autre ligne).
+    const pendingClickRef = React.useRef<{ timer: ReturnType<typeof setTimeout>; rowId: string } | null>(null);
+    const tableRef = React.useRef(table);
+    tableRef.current = table;
+    React.useEffect(() => () => {
+        if (pendingClickRef.current) {
+            clearTimeout(pendingClickRef.current.timer);
+        }
+    }, []);
+
     const tableRows = table.getRowModel().rows;
     const { startIndex, endIndex, paddingTop, paddingBottom } = useRowVirtualizer(tableRows.length, tableScrollRef);
     const virtualRows = tableRows.slice(startIndex, endIndex);
@@ -1135,77 +1148,93 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                         )}
                     </div>
                 </div>
-                
-                {selectedIds.length > 0 && (
-                    <div style={{ display: 'flex', gap: 8 }}>
-                        <span style={{ fontSize: '0.9em', opacity: 0.8 }}>
-                            {selectedIds.length} sélectionnée(s)
+            </div>
+
+            {/* Barre d'actions de sélection — hauteur réservée pour éviter tout
+                décalage du tableau à l'apparition/disparition des boutons. */}
+            <div className="geoapp-gc-actionbar">
+                {selectedIds.length > 0 ? (
+                    <>
+                        <span className="geoapp-gc-actionbar__count">
+                            {selectedIds.length} sélectionnée{selectedIds.length > 1 ? 's' : ''}
                         </span>
-                        {onLogSelected && (
-                            <button
-                                onClick={() => onLogSelected(selectedIds)}
-                                className="theia-button primary"
-                                title="Loguer les géocaches sélectionnées"
-                            >
-                                ✍️ Loguer
-                            </button>
-                        )}
-                        {onApplyPluginSelected && (
-                            <button
-                                onClick={() => onApplyPluginSelected(selectedIds)}
-                                className="theia-button primary"
-                                title="Appliquer un plugin aux géocaches sélectionnées"
-                            >
-                                🔧 Appliquer un plugin
-                            </button>
-                        )}
-                        {onExportGpxSelected && (
-                            <button
-                                onClick={() => onExportGpxSelected(selectedIds)}
-                                className="theia-button secondary"
-                                title="Exporter les géocaches sélectionnées au format GPX"
-                            >
-                                ⬇️ Exporter GPX
-                            </button>
-                        )}
-                        {onRefreshSelected && (
-                            <button
-                                onClick={() => onRefreshSelected(selectedIds)}
-                                className="theia-button secondary"
-                                title="Rafraîchir les géocaches sélectionnées"
-                            >
-                                🔄 Rafraîchir
-                            </button>
-                        )}
-                        {onCopySelected && zones.length > 1 && (
-                            <button
-                                onClick={() => onCopySelected(selectedIds)}
-                                className="theia-button secondary"
-                                title="Copier les géocaches sélectionnées vers une autre zone"
-                            >
-                                📋 Copier
-                            </button>
-                        )}
-                        {onMoveSelected && zones.length > 1 && (
-                            <button
-                                onClick={() => onMoveSelected(selectedIds)}
-                                className="theia-button secondary"
-                                title="Déplacer les géocaches sélectionnées vers une autre zone"
-                            >
-                                📦 Déplacer
-                            </button>
-                        )}
-                        {onDeleteSelected && (
-                            <button
-                                onClick={() => onDeleteSelected(selectedIds)}
-                                className="theia-button secondary"
-                                style={{ color: 'var(--theia-errorForeground)' }}
-                                title="Supprimer les géocaches sélectionnées"
-                            >
-                                🗑️ Supprimer
-                            </button>
-                        )}
-                    </div>
+                        <div className="geoapp-gc-actionbar__group">
+                            {onLogSelected && (
+                                <button
+                                    onClick={() => onLogSelected(selectedIds)}
+                                    className="geoapp-gc-action-btn geoapp-gc-action-btn--primary"
+                                    title="Loguer les géocaches sélectionnées"
+                                >
+                                    <span className="geoapp-gc-action-btn__icon" aria-hidden="true">✍️</span>
+                                    Loguer
+                                </button>
+                            )}
+                            {onApplyPluginSelected && (
+                                <button
+                                    onClick={() => onApplyPluginSelected(selectedIds)}
+                                    className="geoapp-gc-action-btn geoapp-gc-action-btn--primary"
+                                    title="Appliquer un plugin aux géocaches sélectionnées"
+                                >
+                                    <span className="geoapp-gc-action-btn__icon" aria-hidden="true">🔧</span>
+                                    Plugin
+                                </button>
+                            )}
+                            {onExportGpxSelected && (
+                                <button
+                                    onClick={() => onExportGpxSelected(selectedIds)}
+                                    className="geoapp-gc-action-btn"
+                                    title="Exporter les géocaches sélectionnées au format GPX"
+                                >
+                                    <span className="geoapp-gc-action-btn__icon" aria-hidden="true">⬇️</span>
+                                    Exporter GPX
+                                </button>
+                            )}
+                            {onRefreshSelected && (
+                                <button
+                                    onClick={() => onRefreshSelected(selectedIds)}
+                                    className="geoapp-gc-action-btn"
+                                    title="Rafraîchir les géocaches sélectionnées"
+                                >
+                                    <span className="geoapp-gc-action-btn__icon" aria-hidden="true">🔄</span>
+                                    Rafraîchir
+                                </button>
+                            )}
+                            {onCopySelected && zones.length > 1 && (
+                                <button
+                                    onClick={() => onCopySelected(selectedIds)}
+                                    className="geoapp-gc-action-btn"
+                                    title="Copier les géocaches sélectionnées vers une autre zone"
+                                >
+                                    <span className="geoapp-gc-action-btn__icon" aria-hidden="true">📋</span>
+                                    Copier
+                                </button>
+                            )}
+                            {onMoveSelected && zones.length > 1 && (
+                                <button
+                                    onClick={() => onMoveSelected(selectedIds)}
+                                    className="geoapp-gc-action-btn"
+                                    title="Déplacer les géocaches sélectionnées vers une autre zone"
+                                >
+                                    <span className="geoapp-gc-action-btn__icon" aria-hidden="true">📦</span>
+                                    Déplacer
+                                </button>
+                            )}
+                            {onDeleteSelected && (
+                                <button
+                                    onClick={() => onDeleteSelected(selectedIds)}
+                                    className="geoapp-gc-action-btn geoapp-gc-action-btn--danger"
+                                    title="Supprimer les géocaches sélectionnées"
+                                >
+                                    <span className="geoapp-gc-action-btn__icon" aria-hidden="true">🗑️</span>
+                                    Supprimer
+                                </button>
+                            )}
+                        </div>
+                    </>
+                ) : (
+                    <span className="geoapp-gc-actionbar__empty">
+                        Sélectionnez des géocaches pour afficher les actions
+                    </span>
                 )}
             </div>
 
@@ -1249,8 +1278,25 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                         {virtualRows.map(row => (
                             <tr
                                 key={row.id}
-                                onClick={() => row.toggleSelected()}
-                                onDoubleClick={() => onRowClick?.(row.original)}
+                                onClick={() => {
+                                    if (pendingClickRef.current?.rowId === row.id) {
+                                        clearTimeout(pendingClickRef.current.timer);
+                                        pendingClickRef.current = null;
+                                        onRowClick?.(row.original);
+                                    } else {
+                                        if (pendingClickRef.current) {
+                                            clearTimeout(pendingClickRef.current.timer);
+                                        }
+                                        const rowId = row.id;
+                                        pendingClickRef.current = {
+                                            rowId,
+                                            timer: setTimeout(() => {
+                                                tableRef.current.getRow(rowId)?.toggleSelected();
+                                                pendingClickRef.current = null;
+                                            }, 220),
+                                        };
+                                    }
+                                }}
                                 onContextMenu={(e) => showContextMenu(row.original, e)}
                                 className={row.getIsSelected() ? 'geoapp-gc-table__row geoapp-gc-table__row--selected' : 'geoapp-gc-table__row'}
                             >

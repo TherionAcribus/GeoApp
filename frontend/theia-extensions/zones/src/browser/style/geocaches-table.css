@@ -201,3 +201,104 @@
     opacity: 0.45;
     font-size: 11px;
 }
+
+/* --- Barre d'actions de sélection --- */
+/*
+ * La barre garde une hauteur fixe même vide (place réservée) pour que le
+ * tableau ne se décale jamais quand la sélection apparaît/disparaît.
+ */
+.geoapp-gc-actionbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 34px;
+    padding: 0 2px;
+    flex-shrink: 0;
+}
+
+.geoapp-gc-actionbar__empty {
+    font-size: 0.82em;
+    opacity: 0.4;
+    font-style: italic;
+    user-select: none;
+}
+
+.geoapp-gc-actionbar__count {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    border-radius: 11px;
+    background: var(--theia-badge-background);
+    color: var(--theia-badge-foreground);
+    font-size: 0.8em;
+    font-weight: 600;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.geoapp-gc-actionbar__group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+    animation: geoapp-gc-actionbar-in 140ms ease-out;
+}
+
+@keyframes geoapp-gc-actionbar-in {
+    from {
+        opacity: 0;
+        transform: translateY(-3px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.geoapp-gc-action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 26px;
+    padding: 0 10px;
+    border: 1px solid var(--theia-button-border, transparent);
+    border-radius: 4px;
+    background: var(--theia-button-secondaryBackground);
+    color: var(--theia-button-secondaryForeground);
+    font-size: 0.82em;
+    line-height: 1;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background 90ms ease, transform 90ms ease, box-shadow 90ms ease;
+}
+
+.geoapp-gc-action-btn:hover {
+    background: var(--theia-button-secondaryHoverBackground);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.geoapp-gc-action-btn:active {
+    transform: translateY(0);
+    box-shadow: none;
+}
+
+.geoapp-gc-action-btn__icon {
+    font-size: 1.05em;
+    line-height: 1;
+}
+
+.geoapp-gc-action-btn--primary {
+    background: var(--theia-button-background);
+    color: var(--theia-button-foreground);
+}
+
+.geoapp-gc-action-btn--primary:hover {
+    background: var(--theia-button-hoverBackground);
+}
+
+.geoapp-gc-action-btn--danger:hover {
+    background: var(--theia-inputValidation-errorBackground, rgba(190, 40, 40, 0.18));
+    color: var(--theia-errorForeground);
+    border-color: var(--theia-errorForeground);
+}
