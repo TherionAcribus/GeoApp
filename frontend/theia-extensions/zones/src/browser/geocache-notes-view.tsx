@@ -31,6 +31,41 @@ export interface GeocacheNotesViewProps {
     onSaveEdit: () => void;
 }
 
+const textareaStyle: React.CSSProperties = {
+    width: '100%',
+    resize: 'vertical',
+    padding: 8,
+    borderRadius: 4,
+    border: '1px solid var(--theia-panel-border)',
+    fontFamily: 'inherit',
+    fontSize: 13
+};
+
+const selectStyle: React.CSSProperties = {
+    padding: '4px 8px',
+    borderRadius: 4,
+    border: '1px solid var(--theia-panel-border)',
+    fontSize: 13
+};
+
+const actionButtonStyle: React.CSSProperties = {
+    padding: '4px 8px',
+    borderRadius: 4,
+    border: '1px solid var(--theia-panel-border)',
+    background: 'var(--theia-sideBar-background)',
+    fontSize: 11
+};
+
+const noteCardStyle: React.CSSProperties = {
+    border: '1px solid var(--theia-panel-border)',
+    borderRadius: 6,
+    padding: 10,
+    background: 'var(--theia-editor-background)',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 6
+};
+
 function formatDateTime(value: string | null | undefined): string | undefined {
     return value ? new Date(value).toLocaleString('fr-FR') : undefined;
 }
@@ -71,6 +106,143 @@ function renderEmptyState(): React.JSX.Element {
         </div>
     );
 }
+
+interface NoteItemProps {
+    note: GeocacheNoteDto;
+    isEditing: boolean;
+    isSyncing: boolean;
+    editingContent: string;
+    editingType: GeocacheNoteType;
+    onStartEdit: (note: GeocacheNoteDto) => void;
+    onDeleteNote: (note: GeocacheNoteDto) => void;
+    onSyncNoteToGeocaching: (note: GeocacheNoteDto) => void;
+    onEditingContentChange: (value: string) => void;
+    onEditingTypeChange: (value: GeocacheNoteType) => void;
+    onCancelEdit: () => void;
+    onSaveEdit: () => void;
+}
+
+const NoteItem = React.memo(function NoteItem(props: NoteItemProps): React.JSX.Element {
+    const { note, isEditing, isSyncing } = props;
+    const isUserNote = note.source === 'user';
+    const typeLabel = note.source === 'earthcoach'
+        ? 'EarthCoach'
+        : note.note_type === 'system' ? 'Systeme' : 'Utilisateur';
+    const typeColor = note.source === 'earthcoach'
+        ? '#047857'
+        : note.note_type === 'system' ? '#6b7280' : '#3b82f6';
+    const created = formatDateTime(note.created_at);
+    const updated = formatDateTime(note.updated_at);
+
+    return (
+        <div style={noteCardStyle}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span
+                        style={{
+                            padding: '2px 8px',
+                            borderRadius: 999,
+                            background: typeColor,
+                            color: 'white',
+                            fontSize: 11
+                        }}
+                    >
+                        {typeLabel}
+                    </span>
+                    {created && (
+                        <span style={{ fontSize: 11, opacity: 0.7 }}>
+                            {created}
+                            {updated && updated !== created ? ` - modifiee le ${updated}` : ''}
+                        </span>
+                    )}
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                    {isUserNote && (
+                        <button
+                            onClick={() => props.onSyncNoteToGeocaching(note)}
+                            disabled={isSyncing}
+                            style={{ ...actionButtonStyle, cursor: isSyncing ? 'wait' : 'pointer' }}
+                            title='Envoyer cette note vers Geocaching.com'
+                            aria-label='Envoyer cette note vers Geocaching.com'
+                        >
+                            <i className={`fa ${isSyncing ? 'fa-spinner fa-spin' : 'fa-upload'}`} aria-hidden='true' />
+                        </button>
+                    )}
+                    {isUserNote && (
+                        <button
+                            onClick={() => props.onStartEdit(note)}
+                            style={{ ...actionButtonStyle, cursor: 'pointer' }}
+                            title='Modifier la note'
+                            aria-label='Modifier la note'
+                        >
+                            <i className='fa fa-pencil' aria-hidden='true' />
+                        </button>
+                    )}
+                    <button
+                        onClick={() => props.onDeleteNote(note)}
+                        style={{ ...actionButtonStyle, cursor: 'pointer' }}
+                        title='Supprimer la note'
+                        aria-label='Supprimer la note'
+                    >
+                        <i className='fa fa-trash' aria-hidden='true' />
+                    </button>
+                </div>
+            </div>
+            {isEditing ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <textarea
+                        value={props.editingContent}
+                        onChange={event => props.onEditingContentChange(event.target.value)}
+                        rows={3}
+                        style={textareaStyle}
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <select
+                            value={props.editingType}
+                            onChange={event => props.onEditingTypeChange(event.target.value === 'system' ? 'system' : 'user')}
+                            style={selectStyle}
+                        >
+                            <option value='user'>Note utilisateur</option>
+                            <option value='system'>Note systeme</option>
+                        </select>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                            <button
+                                onClick={props.onCancelEdit}
+                                style={{ ...actionButtonStyle, padding: '4px 10px', cursor: 'pointer' }}
+                            >
+                                Annuler
+                            </button>
+                            <button
+                                onClick={props.onSaveEdit}
+                                style={{
+                                    padding: '4px 10px',
+                                    borderRadius: 4,
+                                    border: 'none',
+                                    background: 'var(--theia-button-background)',
+                                    color: 'var(--theia-button-foreground)',
+                                    cursor: 'pointer',
+                                    fontSize: 11
+                                }}
+                            >
+                                Sauvegarder
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            ) : (
+                <div
+                    style={{
+                        marginTop: 4,
+                        whiteSpace: 'pre-wrap',
+                        fontSize: 13
+                    }}
+                >
+                    {note.content}
+                </div>
+            )}
+        </div>
+    );
+});
 
 export function GeocacheNotesView(props: GeocacheNotesViewProps): React.JSX.Element {
     if (!props.geocacheId) {
@@ -120,7 +292,7 @@ export function GeocacheNotesView(props: GeocacheNotesViewProps): React.JSX.Elem
                     }}
                     title='Importer la note personnelle depuis Geocaching.com'
                 >
-                    <i className={`fa ${props.isSyncingFromGc ? 'fa-spinner fa-spin' : 'fa-cloud-download-alt'}`} />
+                    <i className={`fa ${props.isSyncingFromGc ? 'fa-spinner fa-spin' : 'fa-cloud-download-alt'}`} aria-hidden='true' />
                     {props.isSyncingFromGc ? 'Synchronisation...' : 'Importer note GC.com'}
                 </button>
             </div>
@@ -179,26 +351,13 @@ export function GeocacheNotesView(props: GeocacheNotesViewProps): React.JSX.Elem
                         onChange={event => props.onNewNoteContentChange(event.target.value)}
                         placeholder='Ajouter une nouvelle note...'
                         rows={3}
-                        style={{
-                            width: '100%',
-                            resize: 'vertical',
-                            padding: 8,
-                            borderRadius: 4,
-                            border: '1px solid var(--theia-panel-border)',
-                            fontFamily: 'inherit',
-                            fontSize: 13
-                        }}
+                        style={textareaStyle}
                     />
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                         <select
                             value={props.newNoteType}
                             onChange={event => props.onNewNoteTypeChange(event.target.value === 'system' ? 'system' : 'user')}
-                            style={{
-                                padding: '4px 8px',
-                                borderRadius: 4,
-                                border: '1px solid var(--theia-panel-border)',
-                                fontSize: 13
-                            }}
+                            style={selectStyle}
                         >
                             <option value='user'>Note utilisateur</option>
                             <option value='system'>Note systeme</option>
@@ -218,7 +377,7 @@ export function GeocacheNotesView(props: GeocacheNotesViewProps): React.JSX.Elem
                                 gap: 8
                             }}
                         >
-                            <i className={`fa ${props.isCreating ? 'fa-spinner fa-spin' : 'fa-plus'}`} />
+                            <i className={`fa ${props.isCreating ? 'fa-spinner fa-spin' : 'fa-plus'}`} aria-hidden='true' />
                             {props.isCreating ? 'Creation...' : 'Ajouter'}
                         </button>
                     </div>
@@ -227,184 +386,34 @@ export function GeocacheNotesView(props: GeocacheNotesViewProps): React.JSX.Elem
                 <div style={{ marginTop: 8, flex: 1, overflow: 'auto' }}>
                     {props.isLoading && props.notes.length === 0 ? (
                         <div style={{ textAlign: 'center', padding: 20, opacity: 0.7 }}>
-                            <i className='fa fa-spinner fa-spin' style={{ marginRight: 8 }} />
+                            <i className='fa fa-spinner fa-spin' style={{ marginRight: 8 }} aria-hidden='true' />
                             Chargement des notes...
                         </div>
                     ) : props.notes.length === 0 ? (
                         <div style={{ textAlign: 'center', padding: 20, opacity: 0.7 }}>
-                            <i className='fa fa-sticky-note' style={{ marginRight: 8 }} />
+                            <i className='fa fa-sticky-note' style={{ marginRight: 8 }} aria-hidden='true' />
                             Aucune note pour cette geocache
                         </div>
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                             {props.notes.map(note => {
                                 const isEditing = props.editingNoteId === note.id;
-                                const isUserNote = note.source === 'user';
-                                const typeLabel = note.source === 'earthcoach'
-                                    ? 'EarthCoach'
-                                    : note.note_type === 'system' ? 'Systeme' : 'Utilisateur';
-                                const typeColor = note.source === 'earthcoach'
-                                    ? '#047857'
-                                    : note.note_type === 'system' ? '#6b7280' : '#3b82f6';
-                                const created = formatDateTime(note.created_at);
-                                const updated = formatDateTime(note.updated_at);
-
                                 return (
-                                    <div
+                                    <NoteItem
                                         key={note.id}
-                                        style={{
-                                            border: '1px solid var(--theia-panel-border)',
-                                            borderRadius: 6,
-                                            padding: 10,
-                                            background: 'var(--theia-editor-background)',
-                                            display: 'flex',
-                                            flexDirection: 'column',
-                                            gap: 6
-                                        }}
-                                    >
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                                <span
-                                                    style={{
-                                                        padding: '2px 8px',
-                                                        borderRadius: 999,
-                                                        background: typeColor,
-                                                        color: 'white',
-                                                        fontSize: 11
-                                                    }}
-                                                >
-                                                    {typeLabel}
-                                                </span>
-                                                {created && (
-                                                    <span style={{ fontSize: 11, opacity: 0.7 }}>
-                                                        {created}
-                                                        {updated && updated !== created ? ` - modifiee le ${updated}` : ''}
-                                                    </span>
-                                                )}
-                                            </div>
-                                            <div style={{ display: 'flex', gap: 6 }}>
-                                                {isUserNote && (
-                                                    <button
-                                                        onClick={() => props.onSyncNoteToGeocaching(note)}
-                                                        disabled={props.syncingNoteId === note.id}
-                                                        style={{
-                                                            padding: '4px 8px',
-                                                            borderRadius: 4,
-                                                            border: '1px solid var(--theia-panel-border)',
-                                                            background: 'var(--theia-sideBar-background)',
-                                                            cursor: props.syncingNoteId === note.id ? 'wait' : 'pointer',
-                                                            fontSize: 11
-                                                        }}
-                                                        title='Envoyer cette note vers Geocaching.com'
-                                                    >
-                                                        <i className={`fa ${props.syncingNoteId === note.id ? 'fa-spinner fa-spin' : 'fa-upload'}`} />
-                                                    </button>
-                                                )}
-                                                {isUserNote && (
-                                                    <button
-                                                        onClick={() => props.onStartEdit(note)}
-                                                        style={{
-                                                            padding: '4px 8px',
-                                                            borderRadius: 4,
-                                                            border: '1px solid var(--theia-panel-border)',
-                                                            background: 'var(--theia-sideBar-background)',
-                                                            cursor: 'pointer',
-                                                            fontSize: 11
-                                                        }}
-                                                        title='Modifier la note'
-                                                    >
-                                                        <i className='fa fa-pencil' />
-                                                    </button>
-                                                )}
-                                                <button
-                                                    onClick={() => props.onDeleteNote(note)}
-                                                    style={{
-                                                        padding: '4px 8px',
-                                                        borderRadius: 4,
-                                                        border: '1px solid var(--theia-panel-border)',
-                                                        background: 'var(--theia-sideBar-background)',
-                                                        cursor: 'pointer',
-                                                        fontSize: 11
-                                                    }}
-                                                    title='Supprimer la note'
-                                                >
-                                                    <i className='fa fa-trash' />
-                                                </button>
-                                            </div>
-                                        </div>
-                                        {isEditing ? (
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                                <textarea
-                                                    value={props.editingContent}
-                                                    onChange={event => props.onEditingContentChange(event.target.value)}
-                                                    rows={3}
-                                                    style={{
-                                                        width: '100%',
-                                                        resize: 'vertical',
-                                                        padding: 8,
-                                                        borderRadius: 4,
-                                                        border: '1px solid var(--theia-panel-border)',
-                                                        fontFamily: 'inherit',
-                                                        fontSize: 13
-                                                    }}
-                                                />
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                    <select
-                                                        value={props.editingType}
-                                                        onChange={event => props.onEditingTypeChange(event.target.value === 'system' ? 'system' : 'user')}
-                                                        style={{
-                                                            padding: '4px 8px',
-                                                            borderRadius: 4,
-                                                            border: '1px solid var(--theia-panel-border)',
-                                                            fontSize: 13
-                                                        }}
-                                                    >
-                                                        <option value='user'>Note utilisateur</option>
-                                                        <option value='system'>Note systeme</option>
-                                                    </select>
-                                                    <div style={{ display: 'flex', gap: 8 }}>
-                                                        <button
-                                                            onClick={props.onCancelEdit}
-                                                            style={{
-                                                                padding: '4px 10px',
-                                                                borderRadius: 4,
-                                                                border: '1px solid var(--theia-panel-border)',
-                                                                background: 'var(--theia-sideBar-background)',
-                                                                cursor: 'pointer',
-                                                                fontSize: 11
-                                                            }}
-                                                        >
-                                                            Annuler
-                                                        </button>
-                                                        <button
-                                                            onClick={props.onSaveEdit}
-                                                            style={{
-                                                                padding: '4px 10px',
-                                                                borderRadius: 4,
-                                                                border: 'none',
-                                                                background: 'var(--theia-button-background)',
-                                                                color: 'var(--theia-button-foreground)',
-                                                                cursor: 'pointer',
-                                                                fontSize: 11
-                                                            }}
-                                                        >
-                                                            Sauvegarder
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <div
-                                                style={{
-                                                    marginTop: 4,
-                                                    whiteSpace: 'pre-wrap',
-                                                    fontSize: 13
-                                                }}
-                                            >
-                                                {note.content}
-                                            </div>
-                                        )}
-                                    </div>
+                                        note={note}
+                                        isEditing={isEditing}
+                                        isSyncing={props.syncingNoteId === note.id}
+                                        editingContent={isEditing ? props.editingContent : ''}
+                                        editingType={isEditing ? props.editingType : 'user'}
+                                        onStartEdit={props.onStartEdit}
+                                        onDeleteNote={props.onDeleteNote}
+                                        onSyncNoteToGeocaching={props.onSyncNoteToGeocaching}
+                                        onEditingContentChange={props.onEditingContentChange}
+                                        onEditingTypeChange={props.onEditingTypeChange}
+                                        onCancelEdit={props.onCancelEdit}
+                                        onSaveEdit={props.onSaveEdit}
+                                    />
                                 );
                             })}
                         </div>

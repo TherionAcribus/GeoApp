@@ -42,6 +42,41 @@ export class GeocacheNotesWidget extends ReactWidget {
 
     protected loadRequestToken = 0;
 
+    // Stable callback references so memoized children (NoteItem) can bail out of re-renders.
+    protected readonly handleSyncFromGeocaching = (): void => {
+        void this.syncFromGeocaching();
+    };
+    protected readonly handleNewNoteContentChange = (value: string): void => {
+        this.setNewNoteContent(value);
+    };
+    protected readonly handleNewNoteTypeChange = (value: GeocacheNoteType): void => {
+        this.setNewNoteType(value);
+    };
+    protected readonly handleCreateNote = (): void => {
+        void this.createNote();
+    };
+    protected readonly handleStartEdit = (note: GeocacheNoteDto): void => {
+        this.startEdit(note);
+    };
+    protected readonly handleDeleteNote = (note: GeocacheNoteDto): void => {
+        void this.deleteNote(note);
+    };
+    protected readonly handleSyncNoteToGeocaching = (note: GeocacheNoteDto): void => {
+        void this.syncNoteToGeocaching(note);
+    };
+    protected readonly handleEditingContentChange = (value: string): void => {
+        this.setEditingContent(value);
+    };
+    protected readonly handleEditingTypeChange = (value: GeocacheNoteType): void => {
+        this.setEditingType(value);
+    };
+    protected readonly handleCancelEdit = (): void => {
+        this.cancelEdit();
+    };
+    protected readonly handleSaveEdit = (): void => {
+        void this.saveEdit();
+    };
+
     constructor(
         @inject(MessageService) protected readonly messages: MessageService,
         @inject(GeocacheNotesController) protected readonly notesController: GeocacheNotesController
@@ -372,27 +407,17 @@ export class GeocacheNotesWidget extends ReactWidget {
                 editingNoteId={this.editingNoteId}
                 editingContent={this.editingContent}
                 editingType={this.editingType}
-                onSyncFromGeocaching={() => {
-                    void this.syncFromGeocaching();
-                }}
-                onNewNoteContentChange={value => this.setNewNoteContent(value)}
-                onNewNoteTypeChange={value => this.setNewNoteType(value)}
-                onCreateNote={() => {
-                    void this.createNote();
-                }}
-                onStartEdit={note => this.startEdit(note)}
-                onDeleteNote={note => {
-                    void this.deleteNote(note);
-                }}
-                onSyncNoteToGeocaching={note => {
-                    void this.syncNoteToGeocaching(note);
-                }}
-                onEditingContentChange={value => this.setEditingContent(value)}
-                onEditingTypeChange={value => this.setEditingType(value)}
-                onCancelEdit={() => this.cancelEdit()}
-                onSaveEdit={() => {
-                    void this.saveEdit();
-                }}
+                onSyncFromGeocaching={this.handleSyncFromGeocaching}
+                onNewNoteContentChange={this.handleNewNoteContentChange}
+                onNewNoteTypeChange={this.handleNewNoteTypeChange}
+                onCreateNote={this.handleCreateNote}
+                onStartEdit={this.handleStartEdit}
+                onDeleteNote={this.handleDeleteNote}
+                onSyncNoteToGeocaching={this.handleSyncNoteToGeocaching}
+                onEditingContentChange={this.handleEditingContentChange}
+                onEditingTypeChange={this.handleEditingTypeChange}
+                onCancelEdit={this.handleCancelEdit}
+                onSaveEdit={this.handleSaveEdit}
             />
         );
     }
