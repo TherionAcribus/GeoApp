@@ -2,6 +2,7 @@ import * as React from 'react';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { ApplicationShell } from '@theia/core/lib/browser';
+import { Disposable } from '@theia/core/lib/common/disposable';
 import { MapWidget, MapContext } from './map-widget';
 import '../../../src/browser/map/map-manager-widget.css';
 
@@ -11,6 +12,9 @@ export class MapManagerWidget extends ReactWidget {
     static readonly LABEL = 'Cartes';
 
     private openMaps: Array<{ id: string; label: string; context: MapContext }> = [];
+    /** Signature de la liste courante, pour éviter les rendus inutiles. */
+    private mapsSignature = '';
+    private refreshTimeout: ReturnType<typeof setTimeout> | undefined;
 
     @inject(ApplicationShell)
     protected readonly shell!: ApplicationShell;
@@ -25,12 +29,31 @@ export class MapManagerWidget extends ReactWidget {
 
         this.addClass('geoapp-map-manager-widget');
 
-        this.toDispose.push(this.shell.onDidAddWidget(() => this.refreshMapList()));
-        this.toDispose.push(this.shell.onDidRemoveWidget(() => this.refreshMapList()));
-        this.toDispose.push(this.shell.onDidChangeActiveWidget(() => this.refreshMapList()));
+        // On ne réagit qu'aux ajouts/suppressions de widgets (l'affichage ne dépend
+        // pas du widget actif). Les événements sont regroupés (debounce) pour éviter
+        // de recalculer la liste à chaque widget ouvert lors d'un burst.
+        this.toDispose.push(this.shell.onDidAddWidget(() => this.scheduleRefresh()));
+        this.toDispose.push(this.shell.onDidRemoveWidget(() => this.scheduleRefresh()));
+        this.toDispose.push(Disposable.create(() => this.clearRefreshTimeout()));
 
         this.refreshMapList();
         this.update();
+    }
+
+    private clearRefreshTimeout(): void {
+        if (this.refreshTimeout) {
+            clearTimeout(this.refreshTimeout);
+            this.refreshTimeout = undefined;
+        }
+    }
+
+    /** Planifie un rafraîchissement groupé (debounce) suite aux événements du shell. */
+    private scheduleRefresh(): void {
+        this.clearRefreshTimeout();
+        this.refreshTimeout = setTimeout(() => {
+            this.refreshTimeout = undefined;
+            this.refreshMapList();
+        }, 100);
     }
 
     private refreshMapList(): void {
@@ -48,7 +71,11 @@ export class MapManagerWidget extends ReactWidget {
             };
         });
 
-        if (JSON.stringify(newMaps) !== JSON.stringify(this.openMaps)) {
+        // Comparaison légère par id + label + type (évite un JSON.stringify fragile
+        // à l'ordre des clés des objets context).
+        const signature = newMaps.map(map => `${map.id}|${map.label}|${map.context.type}`).join('::');
+        if (signature !== this.mapsSignature) {
+            this.mapsSignature = signature;
             this.openMaps = newMaps;
             this.update();
         }

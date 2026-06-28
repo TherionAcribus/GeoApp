@@ -7,6 +7,7 @@ import Overlay from 'ol/Overlay';
 import Feature from 'ol/Feature';
 import { Geometry, Point } from 'ol/geom';
 import 'ol/ol.css';
+import '../../../src/browser/map/map-widget.css';
 import { MapLayerManager, MapGeocache, MapLabelMode, ClusteringMode } from './map-layer-manager';
 import { MapService, DetectedCoordinateHighlight, FormulaSolverPreviewOverlay } from './map-service';
 import { lonLatToMapCoordinate, calculateExtent, mapCoordinateToLonLat, formatGeocachingCoordinates } from './map-utils';
@@ -1077,137 +1078,53 @@ export const MapView: React.FC<MapViewProps> = ({
     const canOpenPopupGeocache = Boolean(popupData && popupData.id > 0 && !(popupData as GeocacheFeatureProperties).isWaypoint);
 
     return (
-        <div style={{ 
-            width: '100%', 
-            height: '100%', 
-            position: 'relative',
-            display: 'flex',
-            flexDirection: 'column'
-        }}>
+        <div className="geoapp-map-view">
             {/* Barre d'outils */}
-            <div style={{
-                padding: '8px',
-                background: 'var(--theia-editor-background)',
-                borderBottom: '1px solid var(--theia-panel-border)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '12px'
-            }}>
-                <label style={{
-                    fontSize: '12px',
-                    color: 'var(--theia-foreground)'
-                }}>
+            <div className="geoapp-map-toolbar">
+                <label>
                     Fond de cartes:
+                    <select value={currentProvider} onChange={handleProviderChange}>
+                        {TILE_PROVIDERS.map(provider => (
+                            <option key={provider.id} value={provider.id}>
+                                {provider.name}
+                            </option>
+                        ))}
+                    </select>
                 </label>
-                <select
-                    value={currentProvider}
-                    onChange={handleProviderChange}
-                    style={{
-                        padding: '4px 8px',
-                        fontSize: '12px',
-                        background: 'var(--theia-input-background)',
-                        color: 'var(--theia-input-foreground)',
-                        border: '1px solid var(--theia-input-border)',
-                        borderRadius: '2px',
-                        cursor: 'pointer'
-                    }}
-                >
-                    {TILE_PROVIDERS.map(provider => (
-                        <option key={provider.id} value={provider.id}>
-                            {provider.name}
-                        </option>
-                    ))}
-                </select>
 
                 {/* Bouton pour afficher/masquer les géocaches voisines */}
-                <label style={{
-                    fontSize: '12px',
-                    color: 'var(--theia-foreground)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                }}>
+                <label>
                     <input
                         type="checkbox"
                         checked={showNearbyGeocaches}
                         onChange={e => handleNearbyToggle(e.target.checked)}
                         disabled={!selectedGeocacheId}
-                        style={{
-                            margin: 0,
-                            cursor: selectedGeocacheId ? 'pointer' : 'not-allowed'
-                        }}
                     />
                     Géocaches voisines (5km)
                 </label>
 
                 {/* Bouton pour afficher/masquer les zones d'exclusion */}
-                <label style={{
-                    fontSize: '12px',
-                    color: 'var(--theia-foreground)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                }}>
+                <label>
                     <input
                         type="checkbox"
                         checked={showExclusionZones}
                         onChange={e => handleExclusionToggle(e.target.checked)}
-                        style={{
-                            margin: 0,
-                            cursor: 'pointer'
-                        }}
                     />
                     Zones d'exclusion (161m)
                 </label>
 
-                <label style={{
-                    fontSize: '12px',
-                    color: 'var(--theia-foreground)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                }}>
+                <label>
                     Trouvees:
-                    <select
-                        value={foundGeocacheDisplayMode}
-                        onChange={handleFoundDisplayModeChange}
-                        style={{
-                            padding: '4px 8px',
-                            fontSize: '12px',
-                            background: 'var(--theia-input-background)',
-                            color: 'var(--theia-input-foreground)',
-                            border: '1px solid var(--theia-input-border)',
-                            borderRadius: '2px',
-                            cursor: 'pointer'
-                        }}
-                    >
+                    <select value={foundGeocacheDisplayMode} onChange={handleFoundDisplayModeChange}>
                         <option value="transparent">Transparentes</option>
                         <option value="hidden">Masquees</option>
                         <option value="found-icon">Icone Found it</option>
                     </select>
                 </label>
 
-                <label style={{
-                    fontSize: '12px',
-                    color: 'var(--theia-foreground)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                }}>
+                <label>
                     Taille icones:
-                    <select
-                        value={geocacheIconScale}
-                        onChange={handleIconScaleChange}
-                        style={{
-                            padding: '4px 8px',
-                            fontSize: '12px',
-                            background: 'var(--theia-input-background)',
-                            color: 'var(--theia-input-foreground)',
-                            border: '1px solid var(--theia-input-border)',
-                            borderRadius: '2px',
-                            cursor: 'pointer'
-                        }}
-                    >
+                    <select value={geocacheIconScale} onChange={handleIconScaleChange}>
                         <option value={0.5}>Tres petite</option>
                         <option value={0.65}>Petite</option>
                         <option value={0.75}>Normale</option>
@@ -1216,27 +1133,9 @@ export const MapView: React.FC<MapViewProps> = ({
                     </select>
                 </label>
 
-                <label style={{
-                    fontSize: '12px',
-                    color: 'var(--theia-foreground)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                }}>
+                <label>
                     Intitules:
-                    <select
-                        value={labelMode}
-                        onChange={handleLabelModeChange}
-                        style={{
-                            padding: '4px 8px',
-                            fontSize: '12px',
-                            background: 'var(--theia-input-background)',
-                            color: 'var(--theia-input-foreground)',
-                            border: '1px solid var(--theia-input-border)',
-                            borderRadius: '2px',
-                            cursor: 'pointer'
-                        }}
-                    >
+                    <select value={labelMode} onChange={handleLabelModeChange}>
                         <option value="none">Masques</option>
                         <option value="geocaches">Caches</option>
                         <option value="waypoints">Waypoints</option>
@@ -1244,27 +1143,12 @@ export const MapView: React.FC<MapViewProps> = ({
                     </select>
                 </label>
 
-                <label style={{
-                    fontSize: '12px',
-                    color: 'var(--theia-foreground)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                }}>
+                <label>
                     Regroupement:
                     <select
                         value={clusteringMode}
                         onChange={handleClusteringModeChange}
                         title="Regroupe les géocaches proches en grappes (clusters)"
-                        style={{
-                            padding: '4px 8px',
-                            fontSize: '12px',
-                            background: 'var(--theia-input-background)',
-                            color: 'var(--theia-input-foreground)',
-                            border: '1px solid var(--theia-input-border)',
-                            borderRadius: '2px',
-                            cursor: 'pointer'
-                        }}
                     >
                         <option value="auto">Automatique</option>
                         <option value="always">Toujours</option>
@@ -1274,15 +1158,7 @@ export const MapView: React.FC<MapViewProps> = ({
             </div>
 
             {/* Conteneur de la carte */}
-            <div 
-                ref={mapRef} 
-                style={{ 
-                    flex: 1,
-                    width: '100%',
-                    background: 'var(--theia-editor-background)',
-                    position: 'relative'
-                }}
-            >
+            <div ref={mapRef} className="geoapp-map-view__canvas">
                 {/* Popup d'information */}
                 <div 
                     ref={popupRef}
