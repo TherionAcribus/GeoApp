@@ -63,51 +63,69 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12 }}>
             <h3 style={{ margin: 0 }}>{props.titleLabel}</h3>
             <div style={{ display: 'flex', gap: 8 }}>
-                <form onSubmit={props.onSubmitAddGeocache} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                    <input name='gc_code' placeholder='Code GC (ex: GC12345)' style={{ width: 180, padding: '4px 8px' }} />
-                    <button type='submit' className='theia-button'>+ Importer</button>
+                <form onSubmit={props.onSubmitAddGeocache} style={{ display: 'flex' }}>
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'stretch',
+                        border: '1px solid var(--theia-input-border)',
+                        borderRadius: 3,
+                        overflow: 'hidden',
+                    }}>
+                        <input
+                            name='gc_code'
+                            placeholder='Code GC (ex: GC12345)'
+                            title="Entrez un code GC pour l'importer dans cette zone"
+                            style={{
+                                width: 180,
+                                padding: '4px 8px',
+                                border: 'none',
+                                outline: 'none',
+                                background: 'var(--theia-input-background)',
+                                color: 'var(--theia-input-foreground)',
+                            }}
+                        />
+                        <button
+                            type='submit'
+                            className='theia-button'
+                            title="Importer cette géocache dans la zone"
+                            style={{
+                                borderRadius: 0,
+                                margin: 0,
+                                border: 'none',
+                                borderLeft: '1px solid var(--theia-input-border)',
+                            }}
+                        >
+                            Importer
+                        </button>
+                    </div>
                 </form>
                 <button
                     className='theia-button secondary'
                     onClick={props.onOpenImportDialog}
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        backgroundColor: 'var(--theia-button-secondaryBackground)',
-                        color: 'var(--theia-button-secondaryForeground)',
-                    }}
+                    title='Importer des géocaches depuis un fichier GPX'
                 >
-                    <span>GPX</span>
+                    📂 GPX
                 </button>
                 <button
                     className='theia-button secondary'
                     onClick={props.onOpenBookmarkListDialog}
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        backgroundColor: 'var(--theia-button-secondaryBackground)',
-                        color: 'var(--theia-button-secondaryForeground)',
-                    }}
+                    title='Importer depuis une Bookmark List Geocaching.com'
                 >
-                    <span>Liste</span>
+                    📋 Liste
                 </button>
                 <button
                     className='theia-button secondary'
                     onClick={props.onOpenPocketQueryDialog}
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        backgroundColor: 'var(--theia-button-secondaryBackground)',
-                        color: 'var(--theia-button-secondaryForeground)',
-                    }}
+                    title='Importer depuis une Pocket Query Geocaching.com (PQ)'
                 >
-                    <span>PQ</span>
+                    🔍 Pocket Query
                 </button>
-                <button className='theia-button secondary' onClick={props.onStartImportAround}>
-                    Importer autour...
+                <button
+                    className='theia-button secondary'
+                    onClick={props.onStartImportAround}
+                    title="Rechercher et importer des géocaches autour d'un point ou d'une cache"
+                >
+                    📍 Importer autour…
                 </button>
             </div>
         </div>
