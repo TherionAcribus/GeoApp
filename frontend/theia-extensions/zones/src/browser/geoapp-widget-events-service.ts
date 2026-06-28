@@ -20,6 +20,10 @@ export class GeoAppWidgetEventsService {
     protected readonly onDidChangeGeocacheEmitter = new Emitter<GeocacheChangedEvent>();
     readonly onDidChangeGeocache: TheiaEvent<GeocacheChangedEvent> = this.onDidChangeGeocacheEmitter.event;
 
+    /** Émis quand la liste des zones elle-même change (création, suppression, renommage…). */
+    protected readonly onDidChangeZoneListEmitter = new Emitter<void>();
+    readonly onDidChangeZoneList: TheiaEvent<void> = this.onDidChangeZoneListEmitter.event;
+
     requestZonesRefresh(): void {
         this.onDidRequestZonesRefreshEmitter.fire();
     }
@@ -28,8 +32,13 @@ export class GeoAppWidgetEventsService {
         this.onDidChangeGeocacheEmitter.fire(event);
     }
 
+    notifyZoneListChanged(): void {
+        this.onDidChangeZoneListEmitter.fire();
+    }
+
     dispose(): void {
         this.onDidRequestZonesRefreshEmitter.dispose();
         this.onDidChangeGeocacheEmitter.dispose();
+        this.onDidChangeZoneListEmitter.dispose();
     }
 }

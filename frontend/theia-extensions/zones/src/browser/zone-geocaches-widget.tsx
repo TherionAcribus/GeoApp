@@ -130,6 +130,12 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         this.tableVisibleColumnIds = this.readTableVisibleColumnIds();
         this.preferenceChangeDisposable = this.preferenceService.onPreferenceChanged(event => this.handlePreferenceChanged(event));
 
+        // Recharger la liste des zones cibles (copy/move) quand le tree widget
+        // signale qu'une zone a été créée, supprimée, renommée ou fusionnée.
+        this.toDispose.push(
+            this.widgetEventsService.onDidChangeZoneList(() => { void this.reloadZonesList(); })
+        );
+
         // Écouter les événements personnalisés pour ouvrir l'onglet
         this.setupEventListeners();
 
@@ -985,6 +991,15 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 waypoints: gc.waypoints || []
             }));
         mapWidget.loadGeocaches(mapGeocaches);
+    }
+
+    private async reloadZonesList(): Promise<void> {
+        try {
+            this.zones = await this.zonesService.list<{ id: number; name: string }>();
+            this.update();
+        } catch (e) {
+            console.error('[ZoneGeocachesWidget] Failed to reload zones list', e);
+        }
     }
 
     protected async load(): Promise<void> {

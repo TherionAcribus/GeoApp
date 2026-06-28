@@ -340,6 +340,7 @@ export class ZonesTreeWidget extends ReactWidget {
             this.expandedZones.delete(zone.id);
             this.zoneGeocaches.delete(zone.id);
             await this.refresh();
+            this.widgetEventsService.notifyZoneListChanged();
             this.messages.info(`Zone "${zone.name}" supprimée`);
         } catch (e) {
             console.error('Zones: delete error', e);
@@ -367,6 +368,7 @@ export class ZonesTreeWidget extends ReactWidget {
                 await this.zoneTabsManager.openZone({ zoneId: updated.id, zoneName: updated.name });
             }
             await this.refresh();
+            this.widgetEventsService.notifyZoneListChanged();
             this.messages.info(`Zone "${zone.name}" renommée en "${updated.name}"`);
         } catch (e) {
             console.error('Zones: rename error', e);
@@ -391,6 +393,7 @@ export class ZonesTreeWidget extends ReactWidget {
                 description: zone.description || ''
             });
             await this.refresh();
+            this.widgetEventsService.notifyZoneListChanged();
             this.messages.info(`Zone "${zone.name}" dupliquée en "${duplicated.name}"`);
         } catch (e) {
             console.error('Zones: duplicate error', e);
@@ -424,6 +427,7 @@ export class ZonesTreeWidget extends ReactWidget {
                 this.activeZoneId = targetZoneId;
             }
             await this.refreshExpandedZones();
+            this.widgetEventsService.notifyZoneListChanged();
             this.messages.info(`Zone "${sourceZone.name}" fusionnée (${result.moved_count ?? 0} déplacée(s), ${result.duplicate_count ?? 0} doublon(s)).`);
         } catch (e) {
             console.error('Zones: merge error', e);
@@ -657,6 +661,7 @@ export class ZonesTreeWidget extends ReactWidget {
             await this.zonesService.create({ name, description });
             form.reset();
             await this.refresh();
+            this.widgetEventsService.notifyZoneListChanged();
             this.messages.info(`Zone "${name}" créée`);
         } catch (e) {
             console.error('Zones: create error', e);
