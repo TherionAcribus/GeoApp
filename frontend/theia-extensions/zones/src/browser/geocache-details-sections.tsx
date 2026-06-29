@@ -163,6 +163,29 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
     const pillBtnStyle: React.CSSProperties = { ...toolbarBtnStyle, borderRadius: 0, border: '1px solid var(--theia-panel-border)', marginLeft: -1 };
     const pillFirstStyle: React.CSSProperties = { ...pillBtnStyle, borderTopLeftRadius: 4, borderBottomLeftRadius: 4, marginLeft: 0 };
     const pillLastStyle: React.CSSProperties = { ...pillBtnStyle, borderTopRightRadius: 4, borderBottomRightRadius: 4 };
+    const tbIconBtn: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6 };
+    const vSep: React.CSSProperties = { width: 1, height: 20, background: 'var(--theia-panel-border)', margin: '0 2px', flexShrink: 0 };
+
+    // Bouton de la moitié principale du split Chat IA
+    const splitMainStyle: React.CSSProperties = {
+        ...toolbarBtnStyle,
+        ...tbIconBtn,
+        background: 'var(--theia-button-background)',
+        color: 'var(--theia-button-foreground)',
+        border: 'none',
+        borderRight: '1px solid rgba(0,0,0,0.18)',
+        cursor: 'pointer',
+    };
+    // Moitié droite (▾) du split
+    const splitArrowStyle: React.CSSProperties = {
+        background: 'var(--theia-button-background)',
+        color: 'var(--theia-button-foreground)',
+        border: 'none',
+        padding: '4px 8px',
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+    };
 
     return (
         <div style={{ marginBottom: 8 }}>
@@ -171,19 +194,20 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                {/* Analyze dropdown */}
+
+                {/* ── Analyse ── */}
                 <div ref={analyzeMenuRef} style={{ position: 'relative' }}>
                     <button
                         className='theia-button secondary'
                         onClick={() => setIsAnalyzeMenuOpen(!isAnalyzeMenuOpen)}
-                        style={{ ...toolbarBtnStyle, display: 'flex', alignItems: 'center', gap: 4 }}
-                        title={"Outils d'analyse"}
+                        style={{ ...toolbarBtnStyle, ...tbIconBtn }}
+                        title="Outils d'analyse"
                         aria-haspopup='menu'
                         aria-expanded={isAnalyzeMenuOpen}
                     >
-                        <span aria-hidden='true'>🔬</span>
+                        <i className='fa fa-flask' aria-hidden='true' />
                         <span>Analyser</span>
-                        <span style={{ fontSize: 10, marginLeft: 2 }} aria-hidden='true'>▾</span>
+                        <i className='fa fa-caret-down' style={{ fontSize: 10, opacity: 0.8 }} aria-hidden='true' />
                     </button>
                     {isAnalyzeMenuOpen && (
                         <div
@@ -236,30 +260,61 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                     )}
                 </div>
 
-                {/* Separator */}
-                <div style={{ width: 1, height: 20, background: 'var(--theia-panel-border)', margin: '0 2px' }} />
+                <div style={vSep} />
 
-                {/* Chat IA split button */}
-                <div ref={chatProfileMenuRef} style={{ position: 'relative', display: 'flex', alignItems: 'stretch' }}>
-                    <button
-                        className='theia-button'
-                        onClick={() => { void onOpenAiChat(); }}
-                        style={{ ...toolbarBtnStyle, borderTopRightRadius: 0, borderBottomRightRadius: 0 }}
-                        title={`Ouvrir un chat IA dedie a cette geocache${isChatRoutingPreviewLoading ? ' (analyse du profil en cours)' : ` - profil effectif ${effectiveChatProfile}, workflow ${chatWorkflowPreview}, selection ${chatProfileOverrideLabel}`}`}
-                    >
-                        {`💬 Chat IA [${isChatRoutingPreviewLoading ? '...' : effectiveChatProfile}]`}
-                    </button>
-                    <button
-                        className='theia-button secondary'
-                        onClick={onToggleChatProfileMenu}
-                        style={{ ...toolbarBtnStyle, padding: '4px 6px', borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }}
-                        title={`Choisir le profil de chat IA (actuel: ${chatProfileOverrideLabel})`}
-                        aria-label={`Choisir le profil de chat IA (actuel: ${chatProfileOverrideLabel})`}
-                        aria-haspopup='menu'
-                        aria-expanded={isChatProfileMenuOpen}
-                    >
-                        <span aria-hidden='true'>▾</span>
-                    </button>
+                {/* ── Chat IA — split button unifié ── */}
+                <div ref={chatProfileMenuRef} style={{ position: 'relative', display: 'inline-flex' }}>
+                    {/*
+                     * Les deux moitiés partagent la même couleur de fond (theia-button-background)
+                     * et sont encadrées par un seul border+border-radius sur le wrapper.
+                     * Une fine séparation interne distingue l'action principale du sélecteur de profil.
+                     */}
+                    <div style={{
+                        display: 'inline-flex',
+                        border: '1px solid var(--theia-button-background)',
+                        borderRadius: 4,
+                        overflow: 'hidden',
+                    }}>
+                        <button
+                            onClick={() => { void onOpenAiChat(); }}
+                            style={splitMainStyle}
+                            title={`Chat IA dédié à cette géocache — profil : ${effectiveChatProfile}, workflow : ${chatWorkflowPreview}`}
+                            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--theia-button-hoverBackground, color-mix(in srgb, var(--theia-button-background) 85%, #fff))'; }}
+                            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--theia-button-background)'; }}
+                        >
+                            <i className='fa fa-comments' aria-hidden='true' />
+                            <span>Chat IA</span>
+                            {/* Badge de profil actif */}
+                            <span style={{
+                                fontSize: 10,
+                                fontWeight: 600,
+                                background: 'rgba(0,0,0,0.18)',
+                                borderRadius: 3,
+                                padding: '1px 5px',
+                                letterSpacing: 0.2,
+                                opacity: isChatRoutingPreviewLoading ? 0.5 : 1,
+                                transition: 'opacity 0.2s',
+                            }}>
+                                {isChatRoutingPreviewLoading
+                                    ? <i className='fa fa-circle-o-notch fa-spin' aria-hidden='true' />
+                                    : effectiveChatProfile}
+                            </span>
+                        </button>
+                        <button
+                            onClick={onToggleChatProfileMenu}
+                            style={splitArrowStyle}
+                            aria-label={`Choisir le profil de chat IA (actuel : ${chatProfileOverrideLabel})`}
+                            aria-haspopup='menu'
+                            aria-expanded={isChatProfileMenuOpen}
+                            title={`Choisir le profil de chat IA (actuel : ${chatProfileOverrideLabel})`}
+                            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--theia-button-hoverBackground, color-mix(in srgb, var(--theia-button-background) 85%, #fff))'; }}
+                            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--theia-button-background)'; }}
+                        >
+                            <i className='fa fa-caret-down' style={{ fontSize: 11 }} aria-hidden='true' />
+                        </button>
+                    </div>
+
+                    {/* Menu de sélection du profil IA */}
                     {isChatProfileMenuOpen ? (
                         <div
                             role='menu'
@@ -269,7 +324,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                                 top: '100%',
                                 right: 0,
                                 marginTop: 4,
-                                minWidth: 150,
+                                minWidth: 200,
                                 display: 'flex',
                                 flexDirection: 'column',
                                 background: 'var(--theia-menu-background)',
@@ -297,12 +352,12 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                                             cursor: 'pointer',
                                             display: 'flex',
                                             alignItems: 'center',
-                                            gap: 6,
+                                            gap: 8,
                                             background: isSelected ? 'var(--theia-list-activeSelectionBackground)' : 'transparent',
                                             color: isSelected ? 'var(--theia-list-activeSelectionForeground)' : 'var(--theia-menu-foreground)',
                                         }}
                                         title={option.value === 'default'
-                                            ? `Utiliser le profil determine automatiquement par le workflow (${chatProfilePreview})`
+                                            ? `Profil déterminé automatiquement par le workflow (${chatProfilePreview})`
                                             : `Forcer le profil ${option.label}`}
                                         onMouseEnter={(e) => {
                                             if (!isSelected) { (e.currentTarget as HTMLElement).style.background = 'var(--theia-menu-selectionBackground)'; }
@@ -311,7 +366,11 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                                             if (!isSelected) { (e.currentTarget as HTMLElement).style.background = 'transparent'; }
                                         }}
                                     >
-                                        <span style={{ width: 12, textAlign: 'center' }} aria-hidden='true'>{isSelected ? '●' : ''}</span>
+                                        <i
+                                            className={isSelected ? 'fa fa-dot-circle-o' : 'fa fa-circle-o'}
+                                            style={{ fontSize: 11, width: 14, textAlign: 'center' }}
+                                            aria-hidden='true'
+                                        />
                                         <span>{`${option.label}${autoSuffix}`}</span>
                                     </div>
                                 );
@@ -320,44 +379,61 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                     ) : undefined}
                 </div>
 
-                {/* Chat Libre */}
+                {/* ── Chat libre ── */}
                 <button
                     className='theia-button secondary'
                     onClick={() => { void onOpenFreeChat(); }}
-                    style={toolbarBtnStyle}
-                    title='Ouvrir un chat libre lie a cette geocache (message modifiable avant envoi, possibilite d ajouter des images)'
+                    style={{ ...toolbarBtnStyle, ...tbIconBtn }}
+                    title="Chat libre lié à cette géocache (message modifiable avant envoi, possibilité d'ajouter des images)"
                 >
-                    ✏️ Chat Libre
+                    <i className='fa fa-comment-o' aria-hidden='true' />
+                    <span>Chat libre</span>
                 </button>
 
-                {/* Separator */}
-                <div style={{ width: 1, height: 20, background: 'var(--theia-panel-border)', margin: '0 2px' }} />
+                <div style={vSep} />
 
-                {/* Pill group: Logs / Loguer / Notes */}
+                {/* ── Pill group : Logs / Loguer / Notes ── */}
                 <div style={{ display: 'flex', alignItems: 'stretch' }}>
                     <button
                         className='theia-button secondary'
                         onClick={onOpenLogs}
-                        style={pillFirstStyle}
-                        title='Voir les logs de cette geocache'
+                        style={{ ...pillFirstStyle, ...tbIconBtn }}
+                        title='Voir les logs de cette géocache'
                     >
-                        📋 Logs
+                        <i className='fa fa-list-alt' aria-hidden='true' />
+                        <span>Logs</span>
                     </button>
                     <button
                         className='theia-button secondary'
                         onClick={onOpenLogEditor}
-                        style={pillBtnStyle}
-                        title='Loguer cette geocache'
+                        style={{ ...pillBtnStyle, ...tbIconBtn }}
+                        title='Rédiger un log pour cette géocache'
                     >
-                        ✍️ Loguer
+                        <i className='fa fa-pencil' aria-hidden='true' />
+                        <span>Loguer</span>
                     </button>
                     <button
                         className='theia-button secondary'
                         onClick={onOpenNotes}
-                        style={pillLastStyle}
-                        title='Voir les notes de cette geocache'
+                        style={{ ...pillLastStyle, ...tbIconBtn }}
+                        title='Notes personnelles sur cette géocache'
                     >
-                        {`📝 Notes${typeof notesCount === 'number' && notesCount > 0 ? ` (${notesCount})` : ''}`}
+                        <i className='fa fa-sticky-note-o' aria-hidden='true' />
+                        <span>Notes</span>
+                        {typeof notesCount === 'number' && notesCount > 0 && (
+                            <span style={{
+                                background: 'var(--theia-badge-background, #0078d4)',
+                                color: 'var(--theia-badge-foreground, #fff)',
+                                borderRadius: 8,
+                                fontSize: 10,
+                                fontWeight: 600,
+                                lineHeight: 1.4,
+                                padding: '1px 5px',
+                                marginLeft: 2,
+                            }}>
+                                {notesCount}
+                            </span>
+                        )}
                     </button>
                 </div>
             </div>
