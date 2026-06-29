@@ -18,6 +18,18 @@ type DescriptionEditorProps = React.ComponentProps<typeof DescriptionEditor>;
 type GeocacheImagesPanelProps = React.ComponentProps<typeof GeocacheImagesPanel>;
 type WaypointsEditorProps = React.ComponentProps<typeof WaypointsEditorWrapper>;
 
+/*
+ * Versions memoisees des composants feuilles couteux. Le widget Theia (ReactWidget)
+ * re-rend tout l'arbre a chaque `update()` (ouverture de menu, etc.). Tant que les props
+ * passees ici gardent des references stables (cf. geocache-details-widget), `React.memo`
+ * evite de re-rendre la galerie d'images, l'editeur de description et les waypoints.
+ */
+const MemoCoordinatesEditor = React.memo(CoordinatesEditor);
+const MemoDescriptionEditor = React.memo(DescriptionEditor);
+const MemoGeocacheImagesPanel = React.memo(GeocacheImagesPanel);
+const MemoWaypointsEditorWrapper = React.memo(WaypointsEditorWrapper);
+const MemoGeocacheDetailedInfoSection = React.memo(GeocacheDetailedInfoSection);
+
 interface GeocacheDetailsViewProps {
     isLoading: boolean;
     geocacheData?: GeocacheDto;
@@ -84,16 +96,16 @@ export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
 
                 <GeocacheOverviewSection
                     geocacheData={geocacheData}
-                    coordinatesEditor={<CoordinatesEditor {...coordinatesEditorProps} />}
+                    coordinatesEditor={<MemoCoordinatesEditor {...coordinatesEditorProps} />}
                     logsSummaryEntries={logsSummaryEntries}
                     logsSummaryTotalCount={logsSummaryTotalCount}
                     isLogsSummaryLoading={isLogsSummaryLoading}
                     onOpenLogs={onOpenLogs}
                 />
 
-                <GeocacheDetailedInfoSection geocacheData={geocacheData} />
+                <MemoGeocacheDetailedInfoSection geocacheData={geocacheData} />
 
-                <DescriptionEditor {...descriptionEditorProps} />
+                <MemoDescriptionEditor {...descriptionEditorProps} />
 
                 <GeocacheHintsSection
                     displayedHints={displayedHints}
@@ -101,10 +113,10 @@ export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
                     onToggleDisplayMode={onToggleHintsDisplayMode}
                 />
 
-                {imagesPanelProps ? <GeocacheImagesPanel {...imagesPanelProps} /> : undefined}
+                {imagesPanelProps ? <MemoGeocacheImagesPanel {...imagesPanelProps} /> : undefined}
 
                 <div>
-                    <WaypointsEditorWrapper {...waypointsEditorProps} />
+                    <MemoWaypointsEditorWrapper {...waypointsEditorProps} />
                 </div>
 
                 <GeocacheCheckersSection

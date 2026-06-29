@@ -25,7 +25,11 @@ import {
 } from './geocache-details-content-controller';
 import { GeocacheDetailsNavigationController } from './geocache-details-navigation-controller';
 import { GeocacheDetailsNotesController } from './geocache-details-notes-controller';
-import { CheckerLinkOpenMode, GeocacheDetailsPreferencesController } from './geocache-details-preferences-controller';
+import {
+    CheckerLinkOpenMode,
+    GeocacheDetailsPreferencesController,
+    GeocacheImagesGalleryThumbnailSize
+} from './geocache-details-preferences-controller';
 import { GeocacheDetailsView } from './geocache-details-view';
 import { GeocachesService } from './geocaches-service';
 import {
@@ -1218,6 +1222,59 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         }
     }
 
+    // --- Wrappers a reference stable ---------------------------------------------------------
+    // Ces champs arrow sont crees une seule fois par instance, contrairement aux fermetures
+    // inline dans render(). Ils permettent a React.memo (cf. geocache-details-view) d'eviter de
+    // re-rendre les composants feuilles couteux a chaque update() (ouverture de menu, etc.).
+    private readonly handleSaveCoordinates = (coordinatesRaw: string): Promise<void> => this.saveCoordinates(coordinatesRaw);
+    private readonly handleResetCoordinates = (): Promise<void> => this.resetCoordinates();
+    private readonly handlePushCorrectedCoordinates = (): Promise<void> => this.pushCorrectedCoordinatesToGeocaching();
+    private readonly handleUpdateSolvedStatus = (newStatus: 'not_solved' | 'in_progress' | 'solved'): Promise<void> =>
+        this.updateSolvedStatus(newStatus);
+
+    private readonly handleDescriptionVariantChange = (variant: DescriptionVariant): void => {
+        this.descriptionVariant = variant;
+        this.update();
+    };
+    private readonly handleGetEffectiveDescriptionHtml = (data: GeocacheDto, variant: DescriptionVariant): string =>
+        this.contentController.getEffectiveDescriptionHtml(data, variant);
+    private readonly handleSaveDescription = (payload: UpdateDescriptionInput): Promise<void> => this.saveDescriptionOverrides(payload);
+    private readonly handleResetDescription = (): Promise<void> => this.resetDescriptionOverrides();
+    private readonly handleTranslateDescription = (): Promise<void> => this.translateDescriptionToFrench();
+    private readonly handleTranslateAll = (): Promise<void> => this.translateAllToFrench();
+
+    private readonly handleConfirmStoreAllImages = (opts: { geocacheId: number; pendingCount: number }): Promise<boolean> =>
+        this.confirmStoreAllImages(opts);
+    private readonly handleThumbnailSizeChange = async (size: GeocacheImagesGalleryThumbnailSize): Promise<void> => {
+        await this.preferencesController.setImagesGalleryThumbnailSize(size);
+        this.update();
+    };
+    private readonly handleHiddenDomainsTextChange = async (value: string): Promise<void> => {
+        await this.preferencesController.setImagesGalleryHiddenDomainsText(value);
+        this.update();
+    };
+
+    private readonly handleSaveWaypoint = (
+        waypointId: number | 'new' | undefined,
+        payload: SaveWaypointInput
+    ): Promise<void> => this.saveWaypointFromEditor(waypointId, payload);
+    private readonly handleRegisterWaypointCallback = (callback: (prefill?: WaypointPrefillPayload) => void): void => {
+        this.waypointEditorCallback = callback;
+    };
+
+    // Cache du tableau hiddenDomains : le getter de preference recree un tableau a chaque appel,
+    // ce qui casserait la comparaison shallow de React.memo. On ne recalcule que si le texte change.
+    private cachedHiddenDomainsText = ' ';
+    private cachedHiddenDomains: string[] = [];
+    private getStableHiddenDomains(): string[] {
+        const text = this.preferencesController.getImagesGalleryHiddenDomainsText();
+        if (text !== this.cachedHiddenDomainsText) {
+            this.cachedHiddenDomainsText = text;
+            this.cachedHiddenDomains = this.preferencesController.getImagesGalleryHiddenDomains();
+        }
+        return this.cachedHiddenDomains;
+    }
+
     protected render(): React.ReactNode {
         const d = this.data;
         const displayDecodedHints = this.preferencesController.getDisplayDecodedHints();
@@ -1259,25 +1316,22 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                 coordinatesEditorProps={{
                     geocacheData: d!,
                     gcCode: d?.gc_code,
-                    onSaveCoordinates: (coordinatesRaw) => this.saveCoordinates(coordinatesRaw),
-                    onResetCoordinates: () => this.resetCoordinates(),
-                    onPushCorrectedCoordinates: () => this.pushCorrectedCoordinatesToGeocaching(),
-                    onUpdateSolvedStatus: (newStatus) => this.updateSolvedStatus(newStatus),
+                    onSaveCoordinates: this.handleSaveCoordinates,
+                    onResetCoordinates: this.handleResetCoordinates,
+                    onPushCorrectedCoordinates: this.handlePushCorrectedCoordinates,
+                    onUpdateSolvedStatus: this.handleUpdateSolvedStatus,
                 }}
                 descriptionEditorProps={{
                     geocacheData: d!,
                     geocacheId: this.geocacheId!,
                     defaultVariant: this.descriptionVariant,
-                    onVariantChange: (variant) => {
-                        this.descriptionVariant = variant;
-                        this.update();
-                    },
-                    getEffectiveDescriptionHtml: (data, variant) => this.contentController.getEffectiveDescriptionHtml(data, variant),
-                    onSaveDescription: (payload) => this.saveDescriptionOverrides(payload),
-                    onResetDescription: () => this.resetDescriptionOverrides(),
-                    onTranslateToFrench: () => this.translateDescriptionToFrench(),
+                    onVariantChange: this.handleDescriptionVariantChange,
+                    getEffectiveDescriptionHtml: this.handleGetEffectiveDescriptionHtml,
+                    onSaveDescription: this.handleSaveDescription,
+                    onResetDescription: this.handleResetDescription,
+                    onTranslateToFrench: this.handleTranslateDescription,
                     isTranslating: this.isTranslatingDescription,
-                    onTranslateAllToFrench: () => this.translateAllToFrench(),
+                    onTranslateAllToFrench: this.handleTranslateAll,
                     isTranslatingAll: this.isTranslatingAllContent,
                     externalLinksOpenMode: this.preferencesController.getExternalLinksOpenMode(),
                 }}
@@ -1288,18 +1342,12 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                     backendBaseUrl: this.apiClient.getBaseUrl(),
                     geocacheId: this.geocacheId,
                     storageDefaultMode: this.preferencesController.getImagesStorageDefaultMode(),
-                    onConfirmStoreAll: async (opts) => this.confirmStoreAllImages(opts),
+                    onConfirmStoreAll: this.handleConfirmStoreAllImages,
                     thumbnailSize: this.preferencesController.getImagesGalleryThumbnailSize(),
-                    onThumbnailSizeChange: async (size) => {
-                        await this.preferencesController.setImagesGalleryThumbnailSize(size);
-                        this.update();
-                    },
-                    hiddenDomains: this.preferencesController.getImagesGalleryHiddenDomains(),
+                    onThumbnailSizeChange: this.handleThumbnailSizeChange,
+                    hiddenDomains: this.getStableHiddenDomains(),
                     hiddenDomainsText: this.preferencesController.getImagesGalleryHiddenDomainsText(),
-                    onHiddenDomainsTextChange: async (value: string) => {
-                        await this.preferencesController.setImagesGalleryHiddenDomainsText(value);
-                        this.update();
-                    },
+                    onHiddenDomainsTextChange: this.handleHiddenDomainsTextChange,
                     ocrDefaultEngine: this.preferencesController.getOcrDefaultEngine(),
                     ocrDefaultLanguage: this.preferencesController.getOcrDefaultLanguage(),
                     ocrVisionProvider: this.preferencesController.getOcrVisionProvider(),
@@ -1315,12 +1363,12 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                 waypointsEditorProps={{
                     waypoints: d?.waypoints,
                     geocacheData: d!,
-                    onSaveWaypoint: (waypointId, payload) => this.saveWaypointFromEditor(waypointId, payload),
+                    onSaveWaypoint: this.handleSaveWaypoint,
                     messages: this.messages,
                     onDeleteWaypoint: this.deleteWaypoint,
                     onSetAsCorrectedCoords: this.setAsCorrectedCoords,
                     onPushWaypointToGeocaching: this.pushWaypointToGeocaching,
-                    onRegisterCallback: (callback) => { this.waypointEditorCallback = callback; },
+                    onRegisterCallback: this.handleRegisterWaypointCallback,
                 }}
                 onRefresh={this.refreshGeocache}
                 logsSummaryEntries={this.logsSummaryEntries}
