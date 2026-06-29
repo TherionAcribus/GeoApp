@@ -2,7 +2,6 @@ import * as React from 'react';
 import DOMPurify from '@theia/core/shared/dompurify';
 import { UpdateDescriptionInput } from './geocache-details-service';
 import { DescriptionVariant, GeocacheDto } from './geocache-details-types';
-import { rawTextToHtml } from './geocache-details-utils';
 
 export interface DescriptionEditorProps {
     geocacheData: GeocacheDto;
@@ -109,6 +108,60 @@ const translateMenuTextColStyle: React.CSSProperties = { display: 'flex', flexDi
 const translateMenuTitleStyle: React.CSSProperties = { fontSize: 12, fontWeight: 600 };
 const translateMenuSubStyle: React.CSSProperties = { fontSize: 11, opacity: 0.7 };
 
+const toolbarStyle: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 2,
+    padding: '4px 6px',
+    background: 'var(--theia-editorGroupHeader-tabsBackground, var(--theia-panel-background))',
+    border: '1px solid var(--theia-panel-border)',
+    borderBottom: 'none',
+    borderRadius: '4px 4px 0 0',
+    flexWrap: 'wrap'
+};
+const toolbarBtnStyle: React.CSSProperties = {
+    background: 'transparent',
+    border: '1px solid transparent',
+    borderRadius: 3,
+    padding: '3px 7px',
+    cursor: 'pointer',
+    color: 'var(--theia-foreground)',
+    fontSize: 12,
+    lineHeight: 1
+};
+const toolbarSepStyle: React.CSSProperties = {
+    display: 'inline-block',
+    width: 1,
+    height: 16,
+    background: 'var(--theia-panel-border)',
+    margin: '0 4px',
+    flexShrink: 0
+};
+const toolbarSelectStyle: React.CSSProperties = {
+    background: 'var(--theia-input-background, transparent)',
+    border: '1px solid var(--theia-panel-border)',
+    borderRadius: 3,
+    padding: '2px 4px',
+    cursor: 'pointer',
+    color: 'var(--theia-foreground)',
+    fontSize: 11,
+    height: 22,
+    outline: 'none'
+};
+const editorContentStyle: React.CSSProperties = {
+    border: '1px solid var(--theia-panel-border)',
+    borderRadius: '0 0 4px 4px',
+    padding: '8px 10px',
+    minHeight: 180,
+    maxHeight: 520,
+    overflowY: 'auto',
+    outline: 'none',
+    lineHeight: 1.6,
+    fontSize: 'inherit',
+    color: 'var(--theia-foreground)',
+    background: 'var(--theia-input-background, var(--theia-editor-background))'
+};
+
 function formatOverrideDate(iso?: string): string | undefined {
     if (!iso) {
         return undefined;
@@ -147,10 +200,11 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
 }) => {
     const [variant, setVariant] = React.useState<DescriptionVariant>(defaultVariant);
     const [isEditing, setIsEditing] = React.useState(false);
-    const [editedRaw, setEditedRaw] = React.useState('');
     const [isTranslateMenuOpen, setIsTranslateMenuOpen] = React.useState(false);
     const descriptionRef = React.useRef<HTMLDivElement>(null);
     const translateMenuRef = React.useRef<HTMLDivElement>(null);
+    const editorRef = React.useRef<HTMLDivElement>(null);
+    const savedSelectionRef = React.useRef<Range | null>(null);
 
     const hasModified = Boolean(geocacheData.description_override_raw) || Boolean(geocacheData.description_override_html);
     const isAnyTranslating = isTranslating || isTranslatingAll;
@@ -179,35 +233,116 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
         void action();
     };
 
+    // Réinitialisation complète uniquement quand on change de géocache.
     React.useEffect(() => {
         setVariant(defaultVariant);
         setIsEditing(false);
-        setEditedRaw('');
-    }, [geocacheId, defaultVariant]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [geocacheId]);
+
+    // Synchronise la variante affichée si le parent la change, sans interrompre une édition
+    // en cours (sinon démarrer l'édition, qui bascule sur « modifiée », s'auto-annulerait).
+    React.useEffect(() => {
+        setVariant(defaultVariant);
+    }, [defaultVariant]);
 
     const switchVariant = (next: DescriptionVariant) => {
         setVariant(next);
         onVariantChange(next);
     };
 
+    // Initialise le contenteditable quand on entre en mode édition.
+    React.useEffect(() => {
+        if (isEditing && editorRef.current) {
+            const html =
+                geocacheData.description_override_html
+                || geocacheData.description_html
+                || '';
+            editorRef.current.innerHTML = DOMPurify.sanitize(html);
+            editorRef.current.focus();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isEditing]);
+
+    const execFormat = (command: string, value?: string): void => {
+        editorRef.current?.focus();
+        document.execCommand(command, false, value);
+    };
+
+    // Sauvegarde la sélection courante avant que le focus quitte le contenteditable
+    // (utile pour le color picker qui ouvre une fenêtre native et vole le focus).
+    const saveSelection = (): void => {
+        const sel = window.getSelection();
+        savedSelectionRef.current = (sel && sel.rangeCount > 0) ? sel.getRangeAt(0).cloneRange() : null;
+    };
+
+    const restoreSelection = (): void => {
+        if (savedSelectionRef.current) {
+            const sel = window.getSelection();
+            if (sel) {
+                sel.removeAllRanges();
+                sel.addRange(savedSelectionRef.current.cloneRange());
+            }
+        }
+        editorRef.current?.focus();
+    };
+
+    const restoreAndApplyColor = (color: string): void => {
+        restoreSelection();
+        document.execCommand('foreColor', false, color);
+    };
+
+    const restoreAndApplyBackColor = (color: string): void => {
+        restoreSelection();
+        document.execCommand('hiliteColor', false, color);
+    };
+
+    const applyFontSize = (px: string): void => {
+        restoreSelection();
+        const sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0 || sel.isCollapsed) { return; }
+        const range = sel.getRangeAt(0);
+        const span = document.createElement('span');
+        span.style.fontSize = px;
+        try {
+            // Cas simple : la sélection ne traverse pas de frontières d'éléments.
+            range.surroundContents(span);
+        } catch {
+            // Cas complexe (sélection partielle sur plusieurs éléments) : extrait et
+            // ré-insère le fragment dans un span.
+            const fragment = range.extractContents();
+            span.appendChild(fragment);
+            range.insertNode(span);
+        }
+    };
+
+    const handleEditorPaste = (e: React.ClipboardEvent<HTMLDivElement>): void => {
+        e.preventDefault();
+        const html = e.nativeEvent.clipboardData?.getData('text/html') || '';
+        const text = e.nativeEvent.clipboardData?.getData('text/plain') || '';
+        const content = html
+            ? DOMPurify.sanitize(html)
+            : text.replace(/\n/g, '<br>');
+        document.execCommand('insertHTML', false, content);
+    };
+
     const startEdit = () => {
-        const currentRaw = geocacheData.description_override_raw ?? geocacheData.description_raw ?? '';
-        setEditedRaw(currentRaw);
         setIsEditing(true);
-        switchVariant('modified');
+        // Ne basculer sur « modifiée » que si une version modifiée existe déjà ; sinon on
+        // éviterait d'afficher une « modifiée » vide en cas d'annulation.
+        if (hasModified) {
+            switchVariant('modified');
+        }
     };
 
     const cancelEdit = () => {
         setIsEditing(false);
-        setEditedRaw('');
     };
 
     const saveDescription = async () => {
         try {
-            await onSaveDescription({
-                description_override_raw: editedRaw,
-                description_override_html: rawTextToHtml(editedRaw)
-            });
+            const html = DOMPurify.sanitize(editorRef.current?.innerHTML || '');
+            await onSaveDescription({ description_override_html: html });
             setIsEditing(false);
         } catch (e) {
             console.error('Save description error', e);
@@ -218,7 +353,6 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
         try {
             await onResetDescription();
             setIsEditing(false);
-            setEditedRaw('');
             switchVariant('original');
         } catch (e) {
             console.error('Reset description error', e);
@@ -396,13 +530,120 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
                 />
             ) : (
                 <div style={{ display: 'grid', gap: 8, maxWidth: 900 }}>
-                    <textarea
-                        className='theia-input'
-                        value={editedRaw}
-                        onChange={e => setEditedRaw(e.target.value)}
-                        rows={10}
-                        style={{ width: '100%', resize: 'vertical' }}
+                    {/* Barre d'outils de l'éditeur */}
+                    <div style={toolbarStyle}>
+                        <button type='button' title='Gras' style={toolbarBtnStyle} onClick={() => execFormat('bold')}>
+                            <i className='fa fa-bold' aria-hidden='true' />
+                        </button>
+                        <button type='button' title='Italique' style={toolbarBtnStyle} onClick={() => execFormat('italic')}>
+                            <i className='fa fa-italic' aria-hidden='true' />
+                        </button>
+                        <button type='button' title='Souligné' style={toolbarBtnStyle} onClick={() => execFormat('underline')}>
+                            <i className='fa fa-underline' aria-hidden='true' />
+                        </button>
+                        <span style={toolbarSepStyle} />
+                        {/* Sélecteur de taille de police */}
+                        <select
+                            title="Taille du texte (sélectionner du texte d'abord)"
+                            style={toolbarSelectStyle}
+                            value=''
+                            onMouseDown={saveSelection}
+                            onChange={(e) => { applyFontSize(e.target.value); }}
+                        >
+                            <option value='' disabled>Taille</option>
+                            <option value='10px'>10</option>
+                            <option value='12px'>12</option>
+                            <option value='14px'>14</option>
+                            <option value='16px'>16</option>
+                            <option value='18px'>18</option>
+                            <option value='20px'>20</option>
+                            <option value='24px'>24</option>
+                            <option value='28px'>28</option>
+                            <option value='32px'>32</option>
+                            <option value='48px'>48</option>
+                        </select>
+                        <span style={toolbarSepStyle} />
+                        <button type='button' title='Liste à puces' style={toolbarBtnStyle} onClick={() => execFormat('insertUnorderedList')}>
+                            <i className='fa fa-list-ul' aria-hidden='true' />
+                        </button>
+                        <button type='button' title='Liste numérotée' style={toolbarBtnStyle} onClick={() => execFormat('insertOrderedList')}>
+                            <i className='fa fa-list-ol' aria-hidden='true' />
+                        </button>
+                        <span style={toolbarSepStyle} />
+                        <button type='button' title='Aligner à gauche' style={toolbarBtnStyle} onClick={() => execFormat('justifyLeft')}>
+                            <i className='fa fa-align-left' aria-hidden='true' />
+                        </button>
+                        <button type='button' title='Centrer' style={toolbarBtnStyle} onClick={() => execFormat('justifyCenter')}>
+                            <i className='fa fa-align-center' aria-hidden='true' />
+                        </button>
+                        <button type='button' title='Aligner à droite' style={toolbarBtnStyle} onClick={() => execFormat('justifyRight')}>
+                            <i className='fa fa-align-right' aria-hidden='true' />
+                        </button>
+                        <button type='button' title='Justifier' style={toolbarBtnStyle} onClick={() => execFormat('justifyFull')}>
+                            <i className='fa fa-align-justify' aria-hidden='true' />
+                        </button>
+                        <span style={toolbarSepStyle} />
+                        {/* Couleur du texte — label invisible sur input type=color pour ouvrir le picker natif */}
+                        <label
+                            title='Couleur du texte'
+                            style={{ ...toolbarBtnStyle, cursor: 'pointer', position: 'relative', display: 'inline-flex', alignItems: 'center' }}
+                            onMouseDown={saveSelection}
+                        >
+                            <i className='fa fa-font' aria-hidden='true' />
+                            <input
+                                type='color'
+                                defaultValue='#ff0000'
+                                style={{ position: 'absolute', opacity: 0, width: '100%', height: '100%', inset: 0, cursor: 'pointer' }}
+                                onChange={(e) => restoreAndApplyColor(e.target.value)}
+                            />
+                        </label>
+                        {/* Couleur de fond du texte (surlignage) */}
+                        <label
+                            title='Couleur de fond du texte'
+                            style={{ ...toolbarBtnStyle, cursor: 'pointer', position: 'relative', display: 'inline-flex', alignItems: 'center' }}
+                            onMouseDown={saveSelection}
+                        >
+                            <i className='fa fa-paint-brush' aria-hidden='true' />
+                            <input
+                                type='color'
+                                defaultValue='#ffff00'
+                                style={{ position: 'absolute', opacity: 0, width: '100%', height: '100%', inset: 0, cursor: 'pointer' }}
+                                onChange={(e) => restoreAndApplyBackColor(e.target.value)}
+                            />
+                        </label>
+                        <span style={toolbarSepStyle} />
+                        <button
+                            type='button'
+                            title='Insérer un lien'
+                            style={toolbarBtnStyle}
+                            onClick={() => {
+                                const url = window.prompt('URL du lien :');
+                                if (url) { execFormat('createLink', url); }
+                            }}
+                        >
+                            <i className='fa fa-link' aria-hidden='true' />
+                        </button>
+                        <button type='button' title='Supprimer le lien' style={toolbarBtnStyle} onClick={() => execFormat('unlink')}>
+                            <i className='fa fa-unlink' aria-hidden='true' />
+                        </button>
+                        <span style={toolbarSepStyle} />
+                        <button type='button' title='Supprimer la mise en forme' style={toolbarBtnStyle} onClick={() => execFormat('removeFormat')}>
+                            <i className='fa fa-eraser' aria-hidden='true' />
+                        </button>
+                    </div>
+
+                    {/* Zone d'édition WYSIWYG */}
+                    <div
+                        ref={editorRef}
+                        contentEditable
+                        suppressContentEditableWarning
+                        onPaste={handleEditorPaste}
+                        style={editorContentStyle}
+                        aria-label='Éditeur de description'
+                        aria-multiline='true'
                     />
+
+                    {/* Actions */}
                     <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', alignItems: 'center' }}>
                         <button
                             className='theia-button secondary'
