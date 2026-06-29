@@ -19,6 +19,118 @@ export interface DescriptionEditorProps {
     externalLinksOpenMode: 'new-tab' | 'new-window';
 }
 
+const headerRowStyle: React.CSSProperties = {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap'
+};
+const segmentedStyle: React.CSSProperties = {
+    display: 'inline-flex',
+    border: '1px solid var(--theia-panel-border)',
+    borderRadius: 4,
+    overflow: 'hidden'
+};
+const segmentBaseStyle: React.CSSProperties = {
+    fontSize: 12,
+    padding: '3px 12px',
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--theia-foreground)',
+    cursor: 'pointer',
+    lineHeight: 1.6
+};
+const chipBaseStyle: React.CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
+    fontSize: 11,
+    padding: '2px 8px',
+    borderRadius: 10,
+    whiteSpace: 'nowrap'
+};
+const modifiedChipStyle: React.CSSProperties = {
+    ...chipBaseStyle,
+    border: '1px solid var(--theia-charts-blue, #60a5fa)',
+    color: 'var(--theia-charts-blue, #60a5fa)'
+};
+const mutedChipStyle: React.CSSProperties = {
+    ...chipBaseStyle,
+    color: 'var(--theia-descriptionForeground, var(--theia-foreground))',
+    opacity: 0.6
+};
+const descBoxStyle: React.CSSProperties = {
+    border: '1px solid var(--theia-foreground)',
+    borderRadius: 4,
+    padding: 8,
+    maxWidth: 900,
+    transition: 'opacity 0.15s ease'
+};
+const translateBannerStyle: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    fontSize: 12,
+    padding: '6px 10px',
+    borderRadius: 4,
+    maxWidth: 900,
+    background: 'var(--theia-editorWidget-background, rgba(96, 165, 250, 0.08))',
+    border: '1px solid var(--theia-charts-blue, #60a5fa)',
+    color: 'var(--theia-foreground)'
+};
+const translateMenuStyle: React.CSSProperties = {
+    position: 'absolute',
+    top: '100%',
+    right: 0,
+    marginTop: 4,
+    minWidth: 280,
+    background: 'var(--theia-menu-background)',
+    border: '1px solid var(--theia-menu-border)',
+    borderRadius: 4,
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+    zIndex: 100,
+    padding: '4px 0'
+};
+const translateMenuItemStyle: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: 10,
+    width: '100%',
+    textAlign: 'left',
+    background: 'transparent',
+    border: 'none',
+    cursor: 'pointer',
+    padding: '8px 12px',
+    color: 'var(--theia-menu-foreground)'
+};
+const translateMenuIconStyle: React.CSSProperties = { fontSize: 16, lineHeight: '18px', flexShrink: 0 };
+const translateMenuTextColStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 2 };
+const translateMenuTitleStyle: React.CSSProperties = { fontSize: 12, fontWeight: 600 };
+const translateMenuSubStyle: React.CSSProperties = { fontSize: 11, opacity: 0.7 };
+
+function formatOverrideDate(iso?: string): string | undefined {
+    if (!iso) {
+        return undefined;
+    }
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) {
+        return undefined;
+    }
+    return date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' });
+}
+
+function segmentStyle(active: boolean, disabled: boolean): React.CSSProperties {
+    return {
+        ...segmentBaseStyle,
+        background: active ? 'var(--theia-button-background)' : 'transparent',
+        color: active ? 'var(--theia-button-foreground)' : 'var(--theia-foreground)',
+        fontWeight: active ? 600 : 400,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.5 : 1
+    };
+}
+
 export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
     geocacheData,
     geocacheId,
@@ -36,9 +148,36 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
     const [variant, setVariant] = React.useState<DescriptionVariant>(defaultVariant);
     const [isEditing, setIsEditing] = React.useState(false);
     const [editedRaw, setEditedRaw] = React.useState('');
+    const [isTranslateMenuOpen, setIsTranslateMenuOpen] = React.useState(false);
     const descriptionRef = React.useRef<HTMLDivElement>(null);
+    const translateMenuRef = React.useRef<HTMLDivElement>(null);
 
     const hasModified = Boolean(geocacheData.description_override_raw) || Boolean(geocacheData.description_override_html);
+    const isAnyTranslating = isTranslating || isTranslatingAll;
+    const overrideDate = formatOverrideDate(geocacheData.description_override_updated_at);
+
+    React.useEffect(() => {
+        if (!isTranslateMenuOpen) { return; }
+        const handleClickOutside = (event: MouseEvent): void => {
+            if (translateMenuRef.current && !translateMenuRef.current.contains(event.target as Node)) {
+                setIsTranslateMenuOpen(false);
+            }
+        };
+        const handleKeyDown = (event: KeyboardEvent): void => {
+            if (event.key === 'Escape') { setIsTranslateMenuOpen(false); }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        document.addEventListener('keydown', handleKeyDown);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+            document.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [isTranslateMenuOpen]);
+
+    const runTranslate = (action: () => Promise<void>): void => {
+        setIsTranslateMenuOpen(false);
+        void action();
+    };
 
     React.useEffect(() => {
         setVariant(defaultVariant);
@@ -86,7 +225,6 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
         }
     };
 
-    const displayLabel = variant === 'modified' ? 'Modifiée' : 'Originale';
     const effectiveHtml = getEffectiveDescriptionHtml(geocacheData, variant);
     // Le HTML provient de geocaching.com (contenu tiers non maîtrisé) : on le nettoie avant
     // injection pour neutraliser tout script/handler. Mémoïsé pour éviter de re-sanitiser à
@@ -121,59 +259,139 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
 
     return (
         <div style={{ display: 'grid', gap: 8 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={headerRowStyle}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                     <strong>Description</strong>
-                    <span style={{ opacity: 0.75, fontSize: 12 }}>(version: {displayLabel})</span>
+
+                    {/* Bascule de version (segmented control) */}
+                    <div role='radiogroup' aria-label='Version de la description' style={segmentedStyle}>
+                        <button
+                            type='button'
+                            role='radio'
+                            aria-checked={variant === 'original'}
+                            onClick={() => switchVariant('original')}
+                            disabled={isEditing}
+                            style={segmentStyle(variant === 'original', isEditing)}
+                            title='Afficher la description originale'
+                        >
+                            Originale
+                        </button>
+                        <button
+                            type='button'
+                            role='radio'
+                            aria-checked={variant === 'modified'}
+                            onClick={() => switchVariant('modified')}
+                            disabled={isEditing || !hasModified}
+                            style={segmentStyle(variant === 'modified', isEditing || !hasModified)}
+                            title={hasModified ? 'Afficher la description modifiée / traduite' : 'Aucune description modifiée'}
+                        >
+                            Modifiée
+                        </button>
+                    </div>
+
+                    {/* Indicateur d'état de la version modifiée */}
                     {hasModified ? (
-                        <span style={{ opacity: 0.75, fontSize: 12 }}>(modif. présente)</span>
+                        <span
+                            style={modifiedChipStyle}
+                            title={overrideDate ? `Version modifiée disponible (mise à jour le ${overrideDate})` : 'Une version modifiée / traduite existe'}
+                        >
+                            <span aria-hidden='true'>✦</span>
+                            {overrideDate ? `Modifiée · ${overrideDate}` : 'Modifiée'}
+                        </span>
                     ) : (
-                        <span style={{ opacity: 0.75, fontSize: 12 }}>(pas de modif.)</span>
+                        <span style={mutedChipStyle}>Aucune modification</span>
                     )}
                 </div>
 
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <button
-                        className='theia-button secondary'
-                        onClick={() => switchVariant('original')}
-                        disabled={isEditing || variant === 'original'}
-                    >
-                        Originale
-                    </button>
-                    <button
-                        className='theia-button secondary'
-                        onClick={() => switchVariant('modified')}
-                        disabled={isEditing || (!hasModified && variant === 'modified')}
-                        title={hasModified ? undefined : 'Aucune description modifiée'}
-                    >
-                        Modifiée
-                    </button>
-                    <button
-                        className='theia-button secondary'
-                        onClick={() => { void onTranslateToFrench(); }}
-                        disabled={isEditing || isTranslating}
-                        title='Traduire la description originale en français (conserve le HTML)'
-                    >
-                        {isTranslating ? 'Traduction…' : 'Traduire (FR)'}
-                    </button>
-                    <button
-                        className='theia-button secondary'
-                        onClick={() => { void onTranslateAllToFrench(); }}
-                        disabled={isEditing || isTranslatingAll}
-                        title='Traduire en français : description + indices + notes de waypoints'
-                    >
-                        {isTranslatingAll ? 'Traduction…' : 'Traduire tout (FR)'}
-                    </button>
+                    {/* Menu de traduction */}
+                    <div ref={translateMenuRef} style={{ position: 'relative' }}>
+                        <button
+                            className='theia-button secondary'
+                            onClick={() => setIsTranslateMenuOpen(open => !open)}
+                            disabled={isEditing || isAnyTranslating}
+                            aria-haspopup='menu'
+                            aria-expanded={isTranslateMenuOpen}
+                            title="Traduire en français avec l'IA"
+                            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                        >
+                            {isAnyTranslating ? (
+                                <>
+                                    <i className='fa fa-spinner fa-spin' aria-hidden='true' />
+                                    <span>Traduction…</span>
+                                </>
+                            ) : (
+                                <>
+                                    <span aria-hidden='true'>🌐</span>
+                                    <span>Traduire</span>
+                                    <span aria-hidden='true' style={{ fontSize: 10, marginLeft: 2 }}>▾</span>
+                                </>
+                            )}
+                        </button>
+                        {isTranslateMenuOpen && (
+                            <div role='menu' aria-label='Options de traduction' style={translateMenuStyle}>
+                                <button
+                                    type='button'
+                                    role='menuitem'
+                                    onClick={() => runTranslate(onTranslateToFrench)}
+                                    style={translateMenuItemStyle}
+                                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--theia-menu-selectionBackground)'; }}
+                                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                                >
+                                    <span aria-hidden='true' style={translateMenuIconStyle}>📝</span>
+                                    <span style={translateMenuTextColStyle}>
+                                        <span style={translateMenuTitleStyle}>Description seule</span>
+                                        <span style={translateMenuSubStyle}>Conserve le HTML, traduit uniquement le texte</span>
+                                    </span>
+                                </button>
+                                <button
+                                    type='button'
+                                    role='menuitem'
+                                    onClick={() => runTranslate(onTranslateAllToFrench)}
+                                    style={translateMenuItemStyle}
+                                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--theia-menu-selectionBackground)'; }}
+                                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                                >
+                                    <span aria-hidden='true' style={translateMenuIconStyle}>🌍</span>
+                                    <span style={translateMenuTextColStyle}>
+                                        <span style={translateMenuTitleStyle}>Tout le contenu</span>
+                                        <span style={translateMenuSubStyle}>Description + indices + notes de waypoints</span>
+                                    </span>
+                                </button>
+                            </div>
+                        )}
+                    </div>
+
                     {!isEditing ? (
-                        <button className='theia-button' onClick={startEdit}>Éditer</button>
+                        <button
+                            className='theia-button'
+                            onClick={startEdit}
+                            disabled={isAnyTranslating}
+                            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                        >
+                            <span aria-hidden='true'>✎</span>
+                            <span>Éditer</span>
+                        </button>
                     ) : undefined}
                 </div>
             </div>
 
+            {/* Bannière de progression de la traduction */}
+            {isAnyTranslating ? (
+                <div style={translateBannerStyle} role='status' aria-live='polite'>
+                    <i className='fa fa-spinner fa-spin' aria-hidden='true' />
+                    <span>
+                        {isTranslatingAll
+                            ? 'Traduction en cours : description + indices + notes de waypoints…'
+                            : 'Traduction de la description en cours…'}
+                    </span>
+                </div>
+            ) : undefined}
+
             {!isEditing ? (
                 <div
                     ref={descriptionRef}
-                    style={{ border: '1px solid var(--theia-foreground)', borderRadius: 4, padding: 8, maxWidth: 900 }}
+                    style={{ ...descBoxStyle, opacity: isAnyTranslating ? 0.55 : 1 }}
                     dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
                 />
             ) : (
