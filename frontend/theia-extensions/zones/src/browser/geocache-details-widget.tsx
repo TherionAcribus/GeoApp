@@ -767,17 +767,26 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
 
     protected async load(): Promise<void> {
         if (!this.geocacheId) { return; }
+        const geocacheId = this.geocacheId;
         this.isLoading = true;
         this.update();
         try {
-            this.data = await this.geocachesService.get<GeocacheDto>(this.geocacheId);
-            if (this.data && this.descriptionVariantGeocacheId !== this.geocacheId) {
+            this.data = await this.geocachesService.get<GeocacheDto>(geocacheId);
+            if (this.data && this.descriptionVariantGeocacheId !== geocacheId) {
                 this.descriptionVariant = this.preferencesController.getDefaultDescriptionVariant(this.data);
-                this.descriptionVariantGeocacheId = this.geocacheId;
+                this.descriptionVariantGeocacheId = geocacheId;
             }
-            this.title.label = `Géocache - ${this.data?.name ?? this.data?.gc_code ?? this.geocacheId}`;
-            this.notesCount = await this.notesController.loadNotesCount(this.geocacheId);
-            void this.notesController.autoSyncFromDetailsIfEnabled(this.geocacheId).catch(err => {
+            this.title.label = `Géocache - ${this.data?.name ?? this.data?.gc_code ?? geocacheId}`;
+
+            // Données principales prêtes : on masque l'overlay et on rend une seule fois.
+            // Les chargements secondaires partent ensuite en parallèle ; leurs préfixes
+            // synchrones (mise en état « chargement ») fusionnent en un seul render (conflation
+            // Lumino), puis chacun rafraîchit l'UI dès qu'il aboutit (affichage progressif).
+            this.isLoading = false;
+            this.update();
+
+            this.loadNotesCount(geocacheId);
+            void this.notesController.autoSyncFromDetailsIfEnabled(geocacheId).catch(err => {
                 console.error('[GeocacheDetailsWidget] Auto-sync note Geocaching.com échouée:', err);
             });
             void this.loadArchiveStatus();
@@ -787,10 +796,22 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             // eslint-disable-next-line no-console
             console.error('GeocacheDetailsWidget: load error', e);
             this.messages.error(getErrorMessage(e, 'Impossible de charger la géocache'));
-        } finally {
             this.isLoading = false;
             this.update();
         }
+    }
+
+    private loadNotesCount(geocacheId: number): void {
+        this.notesController.loadNotesCount(geocacheId)
+            .then(count => {
+                // Ignorer si l'utilisateur a changé de géocache entre-temps.
+                if (this.geocacheId !== geocacheId) { return; }
+                this.notesCount = count;
+                this.update();
+            })
+            .catch(err => {
+                console.error('[GeocacheDetailsWidget] loadNotesCount error', err);
+            });
     }
 
     protected async loadLogsSummary(): Promise<void> {
