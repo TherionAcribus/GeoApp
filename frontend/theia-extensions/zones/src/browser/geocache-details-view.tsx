@@ -63,11 +63,23 @@ export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
     onShowCheckerContextMenu,
     onCloseCheckerContextMenu
 }) => (
-    <div className='p-2'>
-        {isLoading ? <div>Chargement...</div> : undefined}
+    <div className='p-2' style={{ position: 'relative' }}>
+        {/* Premier chargement uniquement : aucune donnee a afficher encore */}
+        {isLoading && !geocacheData ? <div>Chargement...</div> : undefined}
         {!isLoading && !geocacheData ? <div style={{ opacity: 0.7 }}>Aucune donnee</div> : undefined}
-        {!isLoading && geocacheData ? (
-            <div style={{ display: 'grid', gap: 12 }}>
+        {geocacheData ? (
+            <div
+                style={{
+                    display: 'grid',
+                    gap: 12,
+                    // Rechargement avec donnees existantes : on garde le contenu visible mais on
+                    // signale discretement la mise a jour et on neutralise les interactions.
+                    opacity: isLoading ? 0.6 : 1,
+                    pointerEvents: isLoading ? 'none' : undefined,
+                    transition: 'opacity 0.15s ease'
+                }}
+                aria-busy={isLoading}
+            >
                 <GeocacheDetailsHeader {...headerProps} onRefresh={onRefresh} />
 
                 <GeocacheOverviewSection
@@ -103,6 +115,30 @@ export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
                     onShowContextMenu={onShowCheckerContextMenu}
                     onCloseContextMenu={onCloseCheckerContextMenu}
                 />
+            </div>
+        ) : undefined}
+        {/* Indicateur discret de rechargement, superpose sans demonter le contenu */}
+        {isLoading && geocacheData ? (
+            <div
+                style={{
+                    position: 'absolute',
+                    top: 8,
+                    right: 8,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '4px 10px',
+                    fontSize: 12,
+                    borderRadius: 12,
+                    background: 'var(--theia-editor-background)',
+                    border: '1px solid var(--theia-panel-border)',
+                    boxShadow: '0 2px 6px rgba(0, 0, 0, 0.25)',
+                    zIndex: 10,
+                    pointerEvents: 'none'
+                }}
+            >
+                <i className='fa fa-spinner fa-spin' aria-hidden='true' />
+                <span>Mise à jour…</span>
             </div>
         ) : undefined}
     </div>
