@@ -77,6 +77,156 @@ export interface GeocacheImagesPanelProps {
     onAnalyzeImages?: (images: GeocacheImageChatSelection[]) => Promise<void> | void;
 }
 
+// ---- ThumbnailItem ----------------------------------------------------------
+
+interface ThumbnailItemProps {
+    img: GeocacheImageV2Dto;
+    isSelected: boolean;
+    isOcrBusy: boolean;
+    isHiddenDomain: boolean;
+    isMissing: boolean;
+    isChatSelected: boolean;
+    isSaving: boolean;
+    thumbnailImageClassName: string;
+    thumbnailDimensions: { width: number; height: number };
+    resolvedUrl: string;
+    showChatToggle: boolean;
+    hasUsefulExifFeature: (img: GeocacheImageV2Dto | null | undefined) => boolean;
+    onCancelOcr: (imageId: number) => void;
+    onClick: (imageId: number) => void;
+    onContextMenu: (e: React.MouseEvent, imageId: number) => void;
+    onToggleChat: (imageId: number) => void;
+}
+
+const ThumbnailItem = React.memo<ThumbnailItemProps>(function ThumbnailItem({
+    img, isSelected, isOcrBusy, isHiddenDomain, isMissing, isChatSelected, isSaving,
+    thumbnailImageClassName, thumbnailDimensions, resolvedUrl, showChatToggle,
+    hasUsefulExifFeature, onCancelOcr, onClick, onContextMenu, onToggleChat,
+}) {
+    const title = (img.title || '').trim() || `Image #${img.id}`;
+    const isUploaded = (img.source_url || '').startsWith('geoapp-upload://');
+    const originLabel = isUploaded ? 'Photo utilisateur locale' : 'Image du listing';
+    let kindLabel = 'Image du listing';
+    if (isUploaded) { kindLabel = 'Ajout manuel'; }
+    else if (img.derivation_type?.startsWith('edited')) { kindLabel = 'Image éditée'; }
+    else if (img.derivation_type?.startsWith('snippet')) { kindLabel = 'Sous-image'; }
+    else if (img.derivation_type?.startsWith('copy')) { kindLabel = 'Copie'; }
+    else if (img.parent_image_id) { kindLabel = 'Dérivée'; }
+    else if (img.image_type === 'spoiler') { kindLabel = 'Spoiler'; }
+    else if (img.image_type === 'owner') { kindLabel = 'Image propriétaire'; }
+
+    const badges: { label: string; tone: string }[] = [];
+    if (img.image_type === 'spoiler') { badges.push({ label: 'SPOILER', tone: 'danger' }); }
+    else if (img.image_type === 'owner') { badges.push({ label: 'PROPRIO', tone: 'info' }); }
+    if (img.stored) { badges.push({ label: 'LOCAL', tone: 'success' }); }
+    if (isMissing) { badges.push({ label: 'MANQUANT', tone: 'danger' }); }
+    if ((img.note || '').trim()) { badges.push({ label: 'NOTE', tone: 'info' }); }
+    if ((img.qr_payload || '').trim()) { badges.push({ label: 'QR', tone: 'accent' }); }
+    if ((img.ocr_text || '').trim()) { badges.push({ label: 'OCR', tone: 'warning' }); }
+    if (hasUsefulExifFeature(img)) { badges.push({ label: 'EXIF', tone: 'info' }); }
+    if (img.parent_image_id) { badges.push({ label: 'DÉRIVÉE', tone: 'neutral' }); }
+    if (isChatSelected) { badges.push({ label: 'CHAT', tone: 'accent' }); }
+
+    return (
+        <button
+            type='button'
+            data-image-id={img.id}
+            className={`geoapp-images-thumbnail ${isSelected ? 'is-selected' : ''} ${isHiddenDomain ? 'is-hidden-domain' : ''}`}
+            onClick={() => onClick(img.id)}
+            onContextMenu={(e) => onContextMenu(e, img.id)}
+            title={img.source_url}
+            disabled={isSaving}
+            aria-busy={isOcrBusy}
+            aria-pressed={isSelected}
+        >
+            <div className='geoapp-images-thumbnail-frame'>
+                {isMissing || !img.url ? (
+                    <div className='geoapp-images-thumbnail-placeholder'>
+                        <span className='codicon codicon-warning' />
+                    </div>
+                ) : (
+                    <img
+                        className={`${thumbnailImageClassName} ${isOcrBusy ? 'is-busy' : ''}`}
+                        src={resolvedUrl}
+                        alt=''
+                        width={thumbnailDimensions.width}
+                        height={thumbnailDimensions.height}
+                        loading='lazy'
+                    />
+                )}
+
+                {isOcrBusy && (
+                    <div className='geoapp-images-thumbnail-busy'>
+                        <div className='geoapp-images-spinner' />
+                        <span>OCR</span>
+                    </div>
+                )}
+
+                {isOcrBusy && (
+                    <span
+                        role='button'
+                        tabIndex={0}
+                        className='geoapp-images-thumbnail-cancel'
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onCancelOcr(img.id);
+                        }}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                onCancelOcr(img.id);
+                            }
+                        }}
+                        title="Annuler l'OCR"
+                    >
+                        ×
+                    </span>
+                )}
+            </div>
+
+            <div className='geoapp-images-thumbnail-meta'>
+                <span>{title}</span>
+                <small>{originLabel} - {kindLabel}</small>
+                {showChatToggle ? (
+                    <span
+                        role='checkbox'
+                        aria-checked={isChatSelected}
+                        tabIndex={0}
+                        className='geoapp-images-badge geoapp-images-badge--accent'
+                        onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            onToggleChat(img.id);
+                        }}
+                        onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                onToggleChat(img.id);
+                            }
+                        }}
+                        title='Ajouter ou retirer cette image de la selection chat'
+                    >
+                        {isChatSelected ? 'Selectionnee chat' : 'Ajouter chat'}
+                    </span>
+                ) : undefined}
+            </div>
+            {badges.length > 0 && (
+                <div className='geoapp-images-badges'>
+                    {badges.map(b => (
+                        <span key={b.label} className={`geoapp-images-badge geoapp-images-badge--${b.tone}`}>
+                            {b.label}
+                        </span>
+                    ))}
+                </div>
+            )}
+        </button>
+    );
+});
+
+// ---- GeocacheImagesPanel ----------------------------------------------------
+
 export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     backendBaseUrl,
     geocacheId,
@@ -150,8 +300,10 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
 
     const [contextMenu, setContextMenu] = React.useState<ThumbnailContextMenuState | null>(null);
     const [chatImageIds, setChatImageIds] = React.useState<number[]>([]);
+    const chatImageIdsSet = React.useMemo(() => new Set(chatImageIds), [chatImageIds]);
 
     const uploadInputRef = React.useRef<HTMLInputElement | null>(null);
+    const gridRef = React.useRef<HTMLDivElement | null>(null);
     const initializedChatSelectionForRef = React.useRef<number | null>(null);
     const didWarnChatImageLimitRef = React.useRef(false);
     const autoExifImageIdsRef = React.useRef<Set<number>>(new Set());
@@ -325,6 +477,14 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     }, [selectedId, visibleImages]);
 
     React.useEffect(() => {
+        if (selectedId === null || !gridRef.current) {
+            return;
+        }
+        const el = gridRef.current.querySelector<HTMLElement>(`[data-image-id="${selectedId}"]`);
+        el?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }, [selectedId]);
+
+    React.useEffect(() => {
         setChatImageIds(prev => {
             const next = prev.filter(id => selectableChatImageIds.has(id));
             if (next.length <= maxChatImages) {
@@ -414,17 +574,17 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
         setDraftOcr(selected.ocr_text ?? '');
     }, [selected]);
 
-    const handleThumbnailClick = (imageId: number): void => {
+    const handleThumbnailClick = React.useCallback((imageId: number): void => {
         setSelectedId(imageId);
         setDetailsMode('fields');
-    };
+    }, []);
 
     const closeSelectedImage = (): void => {
         setSelectedId(null);
         setDetailsMode('hidden');
     };
 
-    const openThumbnailContextMenu = (e: React.MouseEvent, imageId: number): void => {
+    const openThumbnailContextMenu = React.useCallback((e: React.MouseEvent, imageId: number): void => {
         e.preventDefault();
         e.stopPropagation();
         setContextMenu({
@@ -432,7 +592,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             y: e.clientY,
             imageId,
         });
-    };
+    }, []);
 
     const isUploadedImage = React.useCallback((img: GeocacheImageV2Dto | null | undefined): boolean => {
         return Boolean((img?.source_url || '').startsWith('geoapp-upload://'));
@@ -820,7 +980,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
         uploadInputRef.current?.click();
     };
 
-    const toggleChatImage = (imageId: number): void => {
+    const toggleChatImage = React.useCallback((imageId: number): void => {
         setChatImageIds(prev => {
             const current = prev.filter(id => selectableChatImageIds.has(id));
             if (current.includes(imageId)) {
@@ -836,7 +996,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             persistChatImageIds(next);
             return next;
         });
-    };
+    }, [maxChatImages, persistChatImageIds, selectableChatImageIds, warnIfChatSelectionIsHeavy]);
 
     const clearChatImages = (): void => {
         didWarnChatImageLimitRef.current = false;
@@ -1797,61 +1957,6 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
         void applyDefaultStorageMode();
     }, [applyDefaultStorageMode, isLoading, isSaving]);
 
-    const renderBadges = (img: GeocacheImageV2Dto) => {
-        const hasNote = Boolean((img.note || '').trim());
-        const hasQr = Boolean((img.qr_payload || '').trim());
-        const hasOcr = Boolean((img.ocr_text || '').trim());
-        const hasExif = hasUsefulExifFeature(img);
-        const isDerived = Boolean(img.parent_image_id);
-        const isMissing = isMissingLocalImage(img);
-
-        const badges: { label: string; tone: string }[] = [];
-        if (img.image_type === 'spoiler') {
-            badges.push({ label: 'SPOILER', tone: 'danger' });
-        } else if (img.image_type === 'owner') {
-            badges.push({ label: 'PROPRIO', tone: 'info' });
-        }
-        if (img.stored) {
-            badges.push({ label: 'LOCAL', tone: 'success' });
-        }
-        if (isMissing) {
-            badges.push({ label: 'MANQUANT', tone: 'danger' });
-        }
-        if (hasNote) {
-            badges.push({ label: 'NOTE', tone: 'info' });
-        }
-        if (hasQr) {
-            badges.push({ label: 'QR', tone: 'accent' });
-        }
-        if (hasOcr) {
-            badges.push({ label: 'OCR', tone: 'warning' });
-        }
-        if (hasExif) {
-            badges.push({ label: 'EXIF', tone: 'info' });
-        }
-        if (isDerived) {
-            badges.push({ label: 'DÉRIVÉE', tone: 'neutral' });
-        }
-
-        if (chatImageIds.includes(img.id)) {
-            badges.push({ label: 'CHAT', tone: 'accent' });
-        }
-
-        if (!badges.length) {
-            return null;
-        }
-
-        return (
-            <div className='geoapp-images-badges'>
-                {badges.map(b => (
-                    <span key={b.label} className={`geoapp-images-badge geoapp-images-badge--${b.tone}`}>
-                        {b.label}
-                    </span>
-                ))}
-            </div>
-        );
-    };
-
     if (isLoading) {
         return <div className='geoapp-images-loading'>Chargement des images...</div>;
     }
@@ -2153,100 +2258,27 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             ) : (
                 <div className='geoapp-images-body'>
                     <section className='geoapp-images-browser' aria-label='Images de la géocache'>
-                        <div className='geoapp-images-grid'>
+                        <div className='geoapp-images-grid' ref={gridRef}>
                             {visibleImages.map(img => (
-                                (() => {
-                                    const isOcrBusy = Boolean(ocrInProgressById[img.id]);
-                                    const isCurrentHidden = isHiddenByDomain(img.source_url);
-                                    const isMissing = isMissingLocalImage(img);
-                                    return (
-                                        <button
-                                            key={img.id}
-                                            type='button'
-                                            className={`geoapp-images-thumbnail ${img.id === selectedId ? 'is-selected' : ''} ${isCurrentHidden ? 'is-hidden-domain' : ''}`}
-                                            onClick={() => handleThumbnailClick(img.id)}
-                                            onContextMenu={(e) => openThumbnailContextMenu(e, img.id)}
-                                            title={img.source_url}
-                                            disabled={isSaving}
-                                            aria-busy={isOcrBusy}
-                                            aria-pressed={img.id === selectedId}
-                                        >
-                                            <div className='geoapp-images-thumbnail-frame'>
-                                                {isMissing || !img.url ? (
-                                                    <div className='geoapp-images-thumbnail-placeholder'>
-                                                        <span className='codicon codicon-warning' />
-                                                    </div>
-                                                ) : (
-                                                    <img
-                                                        className={`${thumbnailImageClassName} ${isOcrBusy ? 'is-busy' : ''}`}
-                                                        src={resolveImageUrl(img.url)}
-                                                        alt=''
-                                                        width={thumbnailDimensions.width}
-                                                        height={thumbnailDimensions.height}
-                                                    />
-                                                )}
-
-                                                {isOcrBusy && (
-                                                    <div className='geoapp-images-thumbnail-busy'>
-                                                        <div className='geoapp-images-spinner' />
-                                                        <span>OCR</span>
-                                                    </div>
-                                                )}
-
-                                                {isOcrBusy && (
-                                                    <span
-                                                        role='button'
-                                                        tabIndex={0}
-                                                        className='geoapp-images-thumbnail-cancel'
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            cancelOcrForImage(img.id);
-                                                        }}
-                                                        onKeyDown={(e) => {
-                                                            if (e.key === 'Enter' || e.key === ' ') {
-                                                                e.preventDefault();
-                                                                e.stopPropagation();
-                                                                cancelOcrForImage(img.id);
-                                                            }
-                                                        }}
-                                                        title="Annuler l'OCR"
-                                                    >
-                                                        ×
-                                                    </span>
-                                                )}
-                                            </div>
-
-                                            <div className='geoapp-images-thumbnail-meta'>
-                                                <span>{getImageTitle(img)}</span>
-                                                <small>{getChatImageOriginLabel(img)} - {getImageKindLabel(img)}</small>
-                                                {onAnalyzeImages ? (
-                                                    <span
-                                                        role='checkbox'
-                                                        aria-checked={chatImageIds.includes(img.id)}
-                                                        tabIndex={0}
-                                                        className='geoapp-images-badge geoapp-images-badge--accent'
-                                                        onClick={(event) => {
-                                                            event.preventDefault();
-                                                            event.stopPropagation();
-                                                            toggleChatImage(img.id);
-                                                        }}
-                                                        onKeyDown={(event) => {
-                                                            if (event.key === 'Enter' || event.key === ' ') {
-                                                                event.preventDefault();
-                                                                event.stopPropagation();
-                                                                toggleChatImage(img.id);
-                                                            }
-                                                        }}
-                                                        title='Ajouter ou retirer cette image de la selection chat'
-                                                    >
-                                                        {chatImageIds.includes(img.id) ? 'Selectionnee chat' : 'Ajouter chat'}
-                                                    </span>
-                                                ) : undefined}
-                                            </div>
-                                            {renderBadges(img)}
-                                        </button>
-                                    );
-                                })()
+                                <ThumbnailItem
+                                    key={img.id}
+                                    img={img}
+                                    isSelected={img.id === selectedId}
+                                    isOcrBusy={Boolean(ocrInProgressById[img.id])}
+                                    isHiddenDomain={isHiddenByDomain(img.source_url)}
+                                    isMissing={isMissingLocalImage(img)}
+                                    isChatSelected={chatImageIdsSet.has(img.id)}
+                                    isSaving={isSaving}
+                                    thumbnailImageClassName={thumbnailImageClassName}
+                                    thumbnailDimensions={thumbnailDimensions}
+                                    resolvedUrl={resolveImageUrl(img.url)}
+                                    showChatToggle={Boolean(onAnalyzeImages)}
+                                    hasUsefulExifFeature={hasUsefulExifFeature}
+                                    onCancelOcr={cancelOcrForImage}
+                                    onClick={handleThumbnailClick}
+                                    onContextMenu={openThumbnailContextMenu}
+                                    onToggleChat={toggleChatImage}
+                                />
                             ))}
                         </div>
                     </section>
@@ -2337,8 +2369,8 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                                             onClick={() => toggleChatImage(selectedImage.id)}
                                             disabled={isSaving}
                                         >
-                                            <span className={chatImageIds.includes(selectedImage.id) ? 'codicon codicon-check' : 'codicon codicon-add'} />
-                                            {chatImageIds.includes(selectedImage.id) ? 'Retirer chat' : 'Ajouter chat'}
+                                            <span className={chatImageIdsSet.has(selectedImage.id) ? 'codicon codicon-check' : 'codicon codicon-add'} />
+                                            {chatImageIdsSet.has(selectedImage.id) ? 'Retirer chat' : 'Ajouter chat'}
                                         </button>
                                     ) : undefined}
                                 </div>
