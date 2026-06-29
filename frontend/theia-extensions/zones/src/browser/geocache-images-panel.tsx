@@ -299,6 +299,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     const [, setDetailsMode] = React.useState<'hidden' | 'fields' | 'preview'>('hidden');
 
     const [contextMenu, setContextMenu] = React.useState<ThumbnailContextMenuState | null>(null);
+    const [previewMenuAnchor, setPreviewMenuAnchor] = React.useState<{ x: number; y: number } | null>(null);
     const [chatImageIds, setChatImageIds] = React.useState<number[]>([]);
     const chatImageIdsSet = React.useMemo(() => new Set(chatImageIds), [chatImageIds]);
 
@@ -2290,6 +2291,39 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                 />
             )}
 
+            {previewMenuAnchor && selectedImage && (
+                <ContextMenu
+                    items={[
+                        {
+                            label: 'Dupliquer',
+                            action: () => { void duplicateImageById(selectedImage.id); },
+                            disabled: isSaving || selectedIsMissing,
+                        },
+                        {
+                            label: 'Télécharger',
+                            action: () => { void downloadImageById(selectedImage.id); },
+                            disabled: isSaving || !selectedImage.stored,
+                        },
+                        ...(selectedIsAnimatedGif ? [
+                            { separator: true } as ContextMenuItem,
+                            {
+                                label: 'Découper GIF',
+                                action: () => { void splitAnimatedGif(selectedImage.id); },
+                                disabled: isSaving || selectedIsMissing,
+                            },
+                            {
+                                label: 'Frames GIF',
+                                action: () => { void openGifFrameViewer(selectedImage.id); },
+                                disabled: isSaving,
+                            },
+                        ] : []),
+                    ]}
+                    x={previewMenuAnchor.x}
+                    y={previewMenuAnchor.y}
+                    onClose={() => setPreviewMenuAnchor(null)}
+                />
+            )}
+
             {!visibleImages.length ? (
                 <div className='geoapp-images-empty'>
                     {images.length > 0 ? 'Toutes les images sont masquées.' : 'Aucune image'}
@@ -2381,26 +2415,6 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                                         <span className='codicon codicon-search' />
                                         Lens
                                     </button>
-                                    {selectedIsAnimatedGif && (
-                                        <button className='theia-button secondary geoapp-images-icon-button' type='button' onClick={() => { void splitAnimatedGif(selectedImage.id); }} disabled={isSaving || selectedIsMissing}>
-                                            <span className='codicon codicon-split-horizontal' />
-                                            Découper GIF
-                                        </button>
-                                    )}
-                                    {selectedIsAnimatedGif && (
-                                        <button className='theia-button secondary geoapp-images-icon-button' type='button' onClick={() => { void openGifFrameViewer(selectedImage.id); }} disabled={isSaving}>
-                                            <span className='codicon codicon-play-circle' />
-                                            Frames
-                                        </button>
-                                    )}
-                                    <button className='theia-button secondary geoapp-images-icon-button' type='button' onClick={() => { void duplicateImageById(selectedImage.id); }} disabled={isSaving || selectedIsMissing}>
-                                        <span className='codicon codicon-copy' />
-                                        Dupliquer
-                                    </button>
-                                    <button className='theia-button secondary geoapp-images-icon-button' type='button' onClick={() => { void downloadImageById(selectedImage.id); }} disabled={isSaving || !selectedImage.stored}>
-                                        <span className='codicon codicon-desktop-download' />
-                                        Télécharger
-                                    </button>
                                     {onAnalyzeImages ? (
                                         <button
                                             className='theia-button secondary geoapp-images-icon-button'
@@ -2412,6 +2426,18 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                                             {chatImageIdsSet.has(selectedImage.id) ? 'Retirer chat' : 'Ajouter chat'}
                                         </button>
                                     ) : undefined}
+                                    <button
+                                        className='theia-button secondary geoapp-images-icon-button'
+                                        type='button'
+                                        disabled={isSaving}
+                                        title="Plus d'actions"
+                                        onClick={(e) => {
+                                            const rect = e.currentTarget.getBoundingClientRect();
+                                            setPreviewMenuAnchor({ x: rect.left, y: rect.bottom + 4 });
+                                        }}
+                                    >
+                                        <span className='codicon codicon-ellipsis' />
+                                    </button>
                                 </div>
                             </section>
 
