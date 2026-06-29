@@ -1223,6 +1223,14 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         this.update();
     };
 
+    private closeChatProfileMenu = (): void => {
+        if (!this.isChatProfileMenuOpen) {
+            return;
+        }
+        this.isChatProfileMenuOpen = false;
+        this.update();
+    };
+
     private async refreshChatRoutingPreview(): Promise<void> {
         this.isChatRoutingPreviewLoading = true;
         this.update();
@@ -1328,6 +1336,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                     onOpenFreeChat: this.openFreeChatDialog,
                     onToggleChatProfileMenu: this.toggleChatProfileMenu,
                     onSelectChatProfileOverride: this.selectChatProfileOverride,
+                    onCloseChatProfileMenu: this.closeChatProfileMenu,
                     onOpenLogs: this.openLogs,
                     onOpenLogEditor: this.openLogEditor,
                     onOpenNotes: this.openNotes,

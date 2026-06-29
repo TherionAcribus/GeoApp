@@ -1,4 +1,5 @@
 import * as React from 'react';
+import DOMPurify from '@theia/core/shared/dompurify';
 import { UpdateDescriptionInput } from './geocache-details-service';
 import { DescriptionVariant, GeocacheDto } from './geocache-details-types';
 import { rawTextToHtml } from './geocache-details-utils';
@@ -87,6 +88,10 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
 
     const displayLabel = variant === 'modified' ? 'Modifiée' : 'Originale';
     const effectiveHtml = getEffectiveDescriptionHtml(geocacheData, variant);
+    // Le HTML provient de geocaching.com (contenu tiers non maîtrisé) : on le nettoie avant
+    // injection pour neutraliser tout script/handler. Mémoïsé pour éviter de re-sanitiser à
+    // chaque render quand le HTML n'a pas changé.
+    const sanitizedHtml = React.useMemo(() => DOMPurify.sanitize(effectiveHtml), [effectiveHtml]);
 
     React.useEffect(() => {
         const handleLinkClick = (e: MouseEvent) => {
@@ -169,7 +174,7 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
                 <div
                     ref={descriptionRef}
                     style={{ border: '1px solid var(--theia-foreground)', borderRadius: 4, padding: 8, maxWidth: 900 }}
-                    dangerouslySetInnerHTML={{ __html: effectiveHtml }}
+                    dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
                 />
             ) : (
                 <div style={{ display: 'grid', gap: 8, maxWidth: 900 }}>

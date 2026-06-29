@@ -51,6 +51,7 @@ interface GeocacheDetailsHeaderProps {
     onOpenFreeChat: () => void | Promise<void>;
     onToggleChatProfileMenu: (event: React.MouseEvent<HTMLButtonElement>) => void;
     onSelectChatProfileOverride: (profile: GeoAppChatWorkflowProfile) => void;
+    onCloseChatProfileMenu: () => void;
     onOpenLogs: () => void;
     onOpenLogEditor: () => void;
     onOpenNotes: () => void;
@@ -82,6 +83,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
     onOpenFreeChat,
     onToggleChatProfileMenu,
     onSelectChatProfileOverride,
+    onCloseChatProfileMenu,
     onOpenLogs,
     onOpenLogEditor,
     onOpenNotes,
@@ -96,6 +98,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
 
     const [isAnalyzeMenuOpen, setIsAnalyzeMenuOpen] = React.useState(false);
     const analyzeMenuRef = React.useRef<HTMLDivElement>(null);
+    const chatProfileMenuRef = React.useRef<HTMLDivElement>(null);
 
     React.useEffect(() => {
         if (!isAnalyzeMenuOpen) { return; }
@@ -107,6 +110,17 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
         document.addEventListener('mousedown', handleClickOutside);
         return () => { document.removeEventListener('mousedown', handleClickOutside); };
     }, [isAnalyzeMenuOpen]);
+
+    React.useEffect(() => {
+        if (!isChatProfileMenuOpen) { return; }
+        const handleClickOutside = (event: MouseEvent): void => {
+            if (chatProfileMenuRef.current && !chatProfileMenuRef.current.contains(event.target as Node)) {
+                onCloseChatProfileMenu();
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => { document.removeEventListener('mousedown', handleClickOutside); };
+    }, [isChatProfileMenuOpen, onCloseChatProfileMenu]);
 
     const analyzeActions: { label: string; icon: string; title: string; action: () => void; disabled?: boolean }[] = [
         { label: 'Resoudre formules', icon: '🧮', title: 'Ouvrir le Formula Solver', action: () => { void onSolveFormula(); } },
@@ -189,20 +203,11 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                     )}
                 </div>
 
-                <button
-                    className='theia-button secondary'
-                    onClick={() => { void onOpenGridPuzzle(); }}
-                    style={toolbarBtnStyle}
-                    title='Ouvrir l atelier de grilles pour cette geocache'
-                >
-                    # Grilles
-                </button>
-
                 {/* Separator */}
                 <div style={{ width: 1, height: 20, background: 'var(--theia-panel-border)', margin: '0 2px' }} />
 
                 {/* Chat IA split button */}
-                <div style={{ position: 'relative', display: 'flex', alignItems: 'stretch' }}>
+                <div ref={chatProfileMenuRef} style={{ position: 'relative', display: 'flex', alignItems: 'stretch' }}>
                     <button
                         className='theia-button'
                         onClick={() => { void onOpenAiChat(); }}
