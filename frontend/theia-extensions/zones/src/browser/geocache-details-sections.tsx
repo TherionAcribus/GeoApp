@@ -107,8 +107,15 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                 setIsAnalyzeMenuOpen(false);
             }
         };
+        const handleKeyDown = (event: KeyboardEvent): void => {
+            if (event.key === 'Escape') { setIsAnalyzeMenuOpen(false); }
+        };
         document.addEventListener('mousedown', handleClickOutside);
-        return () => { document.removeEventListener('mousedown', handleClickOutside); };
+        document.addEventListener('keydown', handleKeyDown);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+            document.removeEventListener('keydown', handleKeyDown);
+        };
     }, [isAnalyzeMenuOpen]);
 
     React.useEffect(() => {
@@ -118,9 +125,24 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                 onCloseChatProfileMenu();
             }
         };
+        const handleKeyDown = (event: KeyboardEvent): void => {
+            if (event.key === 'Escape') { onCloseChatProfileMenu(); }
+        };
         document.addEventListener('mousedown', handleClickOutside);
-        return () => { document.removeEventListener('mousedown', handleClickOutside); };
+        document.addEventListener('keydown', handleKeyDown);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+            document.removeEventListener('keydown', handleKeyDown);
+        };
     }, [isChatProfileMenuOpen, onCloseChatProfileMenu]);
+
+    // Active un item de menu au clavier (Enter / Espace), comme un clic.
+    const handleMenuItemKeyDown = (event: React.KeyboardEvent, activate: () => void): void => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            activate();
+        }
+    };
 
     const analyzeActions: { label: string; icon: string; title: string; action: () => void; disabled?: boolean }[] = [
         { label: 'Resoudre formules', icon: '🧮', title: 'Ouvrir le Formula Solver', action: () => { void onSolveFormula(); } },
@@ -156,13 +178,17 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                         onClick={() => setIsAnalyzeMenuOpen(!isAnalyzeMenuOpen)}
                         style={{ ...toolbarBtnStyle, display: 'flex', alignItems: 'center', gap: 4 }}
                         title={"Outils d'analyse"}
+                        aria-haspopup='menu'
+                        aria-expanded={isAnalyzeMenuOpen}
                     >
-                        <span>🔬</span>
+                        <span aria-hidden='true'>🔬</span>
                         <span>Analyser</span>
-                        <span style={{ fontSize: 10, marginLeft: 2 }}>▾</span>
+                        <span style={{ fontSize: 10, marginLeft: 2 }} aria-hidden='true'>▾</span>
                     </button>
                     {isAnalyzeMenuOpen && (
                         <div
+                            role='menu'
+                            aria-label="Outils d'analyse"
                             style={{
                                 position: 'absolute',
                                 top: '100%',
@@ -177,28 +203,35 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                                 padding: '4px 0',
                             }}
                         >
-                            {analyzeActions.map((item, index) => (
-                                <div
-                                    key={index}
-                                    onClick={() => { if (!item.disabled) { item.action(); setIsAnalyzeMenuOpen(false); } }}
-                                    title={item.title}
-                                    style={{
-                                        padding: '7px 12px',
-                                        cursor: item.disabled ? 'not-allowed' : 'pointer',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 8,
-                                        fontSize: 12,
-                                        color: 'var(--theia-menu-foreground)',
-                                        opacity: item.disabled ? 0.5 : 1,
-                                    }}
-                                    onMouseEnter={(e) => { if (!item.disabled) { (e.currentTarget as HTMLElement).style.background = 'var(--theia-menu-selectionBackground)'; } }}
-                                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
-                                >
-                                    <span>{item.icon}</span>
-                                    <span>{item.label}</span>
-                                </div>
-                            ))}
+                            {analyzeActions.map((item, index) => {
+                                const activate = (): void => { if (!item.disabled) { item.action(); setIsAnalyzeMenuOpen(false); } };
+                                return (
+                                    <div
+                                        key={index}
+                                        role='menuitem'
+                                        tabIndex={item.disabled ? -1 : 0}
+                                        aria-disabled={item.disabled}
+                                        onClick={activate}
+                                        onKeyDown={(e) => handleMenuItemKeyDown(e, activate)}
+                                        title={item.title}
+                                        style={{
+                                            padding: '7px 12px',
+                                            cursor: item.disabled ? 'not-allowed' : 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 8,
+                                            fontSize: 12,
+                                            color: 'var(--theia-menu-foreground)',
+                                            opacity: item.disabled ? 0.5 : 1,
+                                        }}
+                                        onMouseEnter={(e) => { if (!item.disabled) { (e.currentTarget as HTMLElement).style.background = 'var(--theia-menu-selectionBackground)'; } }}
+                                        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                                    >
+                                        <span aria-hidden='true'>{item.icon}</span>
+                                        <span>{item.label}</span>
+                                    </div>
+                                );
+                            })}
                         </div>
                     )}
                 </div>
@@ -221,11 +254,16 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                         onClick={onToggleChatProfileMenu}
                         style={{ ...toolbarBtnStyle, padding: '4px 6px', borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }}
                         title={`Choisir le profil de chat IA (actuel: ${chatProfileOverrideLabel})`}
+                        aria-label={`Choisir le profil de chat IA (actuel: ${chatProfileOverrideLabel})`}
+                        aria-haspopup='menu'
+                        aria-expanded={isChatProfileMenuOpen}
                     >
-                        ▾
+                        <span aria-hidden='true'>▾</span>
                     </button>
                     {isChatProfileMenuOpen ? (
                         <div
+                            role='menu'
+                            aria-label='Profil de chat IA'
                             style={{
                                 position: 'absolute',
                                 top: '100%',
@@ -248,7 +286,11 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                                 return (
                                     <div
                                         key={option.value}
+                                        role='menuitemradio'
+                                        aria-checked={isSelected}
+                                        tabIndex={0}
                                         onClick={() => onSelectChatProfileOverride(option.value)}
+                                        onKeyDown={(e) => handleMenuItemKeyDown(e, () => onSelectChatProfileOverride(option.value))}
                                         style={{
                                             fontSize: 12,
                                             padding: '7px 12px',
@@ -269,7 +311,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                                             if (!isSelected) { (e.currentTarget as HTMLElement).style.background = 'transparent'; }
                                         }}
                                     >
-                                        <span style={{ width: 12, textAlign: 'center' }}>{isSelected ? '●' : ''}</span>
+                                        <span style={{ width: 12, textAlign: 'center' }} aria-hidden='true'>{isSelected ? '●' : ''}</span>
                                         <span>{`${option.label}${autoSuffix}`}</span>
                                     </div>
                                 );
@@ -358,8 +400,9 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                         onClick={() => { void onRefresh(); }}
                         style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12 }}
                         title='Rafraîchir cette géocache'
+                        aria-label='Rafraîchir cette géocache'
                     >
-                        🔄
+                        <span aria-hidden='true'>🔄</span>
                     </button>
                 )}
                 {archiveStatus !== 'none' ? (
@@ -367,6 +410,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                         onClick={() => { void onForceSyncArchive(); }}
                         disabled={archiveStatus === 'loading' || isSyncingArchive}
                         title={archiveTooltip}
+                        aria-label={archiveTooltip}
                         style={{
                             background: 'none',
                             border: '1px solid',
@@ -382,7 +426,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                             opacity: isSyncingArchive ? 0.6 : 1,
                         }}
                     >
-                        <span>{archiveIcon}</span>
+                        <span aria-hidden='true'>{archiveIcon}</span>
                         <span>{archiveLabel}</span>
                     </button>
                 ) : undefined}

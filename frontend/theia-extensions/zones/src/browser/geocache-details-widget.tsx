@@ -816,16 +816,18 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
 
     protected async loadLogsSummary(): Promise<void> {
         if (!this.geocacheId) { return; }
+        const geocacheId = this.geocacheId;
         this.isLogsSummaryLoading = true;
         this.update();
         try {
             const count = this.preferenceService.get<number>('geoApp.logs.recentSummaryCount', 5);
-            const url = `${this.apiClient.getBaseUrl()}/api/geocaches/${this.geocacheId}/logs/recent-summary?count=${count}`;
-            const response = await fetch(url);
-            if (!response.ok) { return; }
-            const data: import('./geocache-logs-summary').LogsRecentSummaryApiResponse = await response.json();
-            this.logsSummaryEntries = data.entries;
-            this.logsSummaryTotalCount = data.total_count;
+            const data = await this.geocacheDetailsService.getRecentLogsSummary(geocacheId, count);
+            // Ignorer si l'utilisateur a changé de géocache entre-temps.
+            if (this.geocacheId !== geocacheId) { return; }
+            if (data) {
+                this.logsSummaryEntries = data.entries;
+                this.logsSummaryTotalCount = data.total_count;
+            }
         } catch (e) {
             console.error('[GeocacheDetailsWidget] loadLogsSummary error', e);
         } finally {

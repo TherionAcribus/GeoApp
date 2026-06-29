@@ -1,5 +1,6 @@
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { BackendApiClient } from './backend-api-client';
+import { LogsRecentSummaryApiResponse } from './geocache-logs-summary';
 
 export interface SaveWaypointInput {
     prefix?: string;
@@ -137,6 +138,17 @@ export class GeocacheDetailsService {
             `/api/archive/${encodeURIComponent(gcCode)}/sync`,
             { method: 'POST' },
             'Erreur lors de la synchronisation de l\'archive'
+        );
+    }
+
+    async getRecentLogsSummary(
+        geocacheId: number,
+        count: number
+    ): Promise<LogsRecentSummaryApiResponse | undefined> {
+        return this.apiClient.requestOptionalJson<LogsRecentSummaryApiResponse>(
+            `/api/geocaches/${geocacheId}/logs/recent-summary?count=${count}`,
+            {},
+            'Erreur lors du chargement du résumé des logs'
         );
     }
 
