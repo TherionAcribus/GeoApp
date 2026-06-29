@@ -16,7 +16,7 @@ import {
 interface WaypointsEditorProps {
     waypoints?: GeocacheWaypoint[];
     geocacheData?: GeocacheDto;
-    onSaveWaypoint: (waypointId: number | 'new' | undefined, payload: SaveWaypointInput) => Promise<void>;
+    onSaveWaypoint: (waypointId: number | 'new' | undefined, payload: SaveWaypointInput) => Promise<number | undefined>;
     messages: MessageService;
     onDeleteWaypoint: (id: number, name: string) => Promise<void>;
     onSetAsCorrectedCoords: (waypointId: number, waypointName: string) => Promise<void>;
@@ -61,6 +61,7 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
     const [editForm, setEditForm] = React.useState<Partial<GeocacheWaypoint>>({});
     const [projectionParams, setProjectionParams] = React.useState({ distance: 100, unit: 'm', bearing: 0 });
     const [calculatedCoords, setCalculatedCoords] = React.useState<string>('');
+    const [isSubmitting, setIsSubmitting] = React.useState(false);
 
     const startEdit = React.useCallback((waypoint?: GeocacheWaypoint, prefill?: WaypointPrefillPayload) => {
         if (waypoint) {
@@ -108,27 +109,29 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
         setCalculatedCoords('');
     };
 
-    const saveWaypoint = async () => {
+    const saveWaypoint = async (coordsOverride?: string): Promise<number | undefined> => {
+        if (isSubmitting) { return undefined; }
+        setIsSubmitting(true);
         try {
-            const noteToSave = (editForm.note_override ?? editForm.note) || '';
-            const dataToSave = {
+            const noteValue = (editForm.note_override ?? editForm.note) || '';
+            const isNew = editingId === 'new' || editingId === null;
+            const dataToSave: SaveWaypointInput = {
                 prefix: editForm.prefix,
                 lookup: editForm.lookup,
                 name: editForm.name,
                 type: editForm.type,
-                gc_coords: editForm.gc_coords,
-                note: noteToSave,
-                note_override: noteToSave
+                gc_coords: coordsOverride ?? editForm.gc_coords,
+                note_override: noteValue,
+                ...(isNew ? { note: noteValue } : {})
             };
-
-
-            await onSaveWaypoint(
-                editingId === null ? undefined : editingId,
-                dataToSave
-            );
+            const savedId = await onSaveWaypoint(editingId === null ? undefined : editingId, dataToSave);
             cancelEdit();
+            return savedId;
         } catch (e) {
             console.error('[WaypointsEditor] ❌ Save waypoint error', e);
+            return undefined;
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -153,23 +156,27 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
         await onPushWaypointToGeocaching(waypoint.id, waypoint.name || 'ce waypoint');
     };
 
-    const setCurrentFormAsCorrectedCoords = async () => {
-        if (!editForm.gc_coords) {
+    const setCurrentFormAsCorrectedCoords = async (coordsOverride?: string) => {
+        const coords = coordsOverride ?? editForm.gc_coords;
+        if (!coords) {
             messages.error('Veuillez saisir des coordonnées');
             return;
         }
-        const tempWaypoint: GeocacheWaypoint = {
-            id: editingId === 'new' ? undefined : editingId as number,
-            gc_coords: editForm.gc_coords,
-            name: editForm.name
-        };
+        const waypointName = editForm.name || 'ce waypoint';
+        const capturedEditingId = editingId;
 
-        if (editingId === 'new') {
-            messages.info('Sauvegarde du waypoint en cours...');
-            await saveWaypoint();
-            messages.info('Veuillez maintenant cliquer sur le bouton &#x1F3AF; du waypoint créé');
-        } else if (tempWaypoint.id) {
-            await onSetAsCorrectedCoords(tempWaypoint.id, tempWaypoint.name || 'ce waypoint');
+        if (capturedEditingId === 'new') {
+            const newId = await saveWaypoint(coordsOverride);
+            if (newId !== undefined) {
+                await onSetAsCorrectedCoords(newId, waypointName);
+            } else {
+                messages.warn('Waypoint sauvegardé. Cliquez sur 🎯 pour définir comme coordonnées corrigées.');
+            }
+        } else if (capturedEditingId !== null) {
+            if (coordsOverride) {
+                await saveWaypoint(coordsOverride);
+            }
+            await onSetAsCorrectedCoords(capturedEditingId as number, waypointName);
         }
     };
 
@@ -345,14 +352,16 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
                             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                                 <code>{calculatedCoords}</code>
                                 <button className='theia-button secondary' onClick={applyCalculatedCoords}>Appliquer</button>
-                                <button className='theia-button secondary' onClick={setCurrentFormAsCorrectedCoords}>Définir comme coordonnées corrigées</button>
+                                <button className='theia-button secondary' onClick={() => { void setCurrentFormAsCorrectedCoords(calculatedCoords); }}>Définir comme coordonnées corrigées</button>
                             </div>
                         )}
                     </div>
 
                     <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                        <button className='theia-button' onClick={() => { void saveWaypoint(); }}>Sauvegarder</button>
-                        <button className='theia-button secondary' onClick={cancelEdit}>Annuler</button>
+                        <button className='theia-button' onClick={() => { void saveWaypoint(); }} disabled={isSubmitting}>
+                            {isSubmitting ? 'Sauvegarde...' : 'Sauvegarder'}
+                        </button>
+                        <button className='theia-button secondary' onClick={cancelEdit} disabled={isSubmitting}>Annuler</button>
                     </div>
                 </div>
             )}

@@ -347,16 +347,18 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
     private async saveWaypointFromEditor(
         waypointId: number | 'new' | undefined,
         payload: SaveWaypointInput
-    ): Promise<void> {
+    ): Promise<number | undefined> {
         if (!this.geocacheId) {
             throw new Error('Aucune géocache chargée');
         }
 
         try {
-            await this.geocacheDetailsService.saveWaypoint(this.geocacheId, waypointId, payload);
+            const isNew = waypointId === 'new' || waypointId === undefined;
+            const result = await this.geocacheDetailsService.saveWaypoint<{ id?: number }>(this.geocacheId, waypointId, payload);
             await this.load();
-            this.notifyGeocacheChanged(waypointId === 'new' || waypointId === undefined ? 'waypoint-created' : 'corrected-coordinates-updated');
+            this.notifyGeocacheChanged(isNew ? 'waypoint-created' : 'corrected-coordinates-updated');
             this.messages.info('Waypoint sauvegardé');
+            return isNew ? result?.id : undefined;
         } catch (error) {
             console.error('[GeocacheDetailsWidget] saveWaypointFromEditor error', error);
             this.messages.error(getErrorMessage(error, 'Erreur lors de la sauvegarde du waypoint'));
@@ -1288,7 +1290,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
     private readonly handleSaveWaypoint = (
         waypointId: number | 'new' | undefined,
         payload: SaveWaypointInput
-    ): Promise<void> => this.saveWaypointFromEditor(waypointId, payload);
+    ): Promise<number | undefined> => this.saveWaypointFromEditor(waypointId, payload);
     private readonly handleRegisterWaypointCallback = (callback: (prefill?: WaypointPrefillPayload) => void): void => {
         this.waypointEditorCallback = callback;
     };
