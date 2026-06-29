@@ -63,6 +63,8 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
     const [calculatedCoords, setCalculatedCoords] = React.useState<string>('');
     const [isSubmitting, setIsSubmitting] = React.useState(false);
     const [pendingAction, setPendingAction] = React.useState<{ waypointId: number; action: 'delete' | 'push' | 'correct' } | null>(null);
+    const [showCalcTools, setShowCalcTools] = React.useState(false);
+    const initialEditFormRef = React.useRef<Partial<GeocacheWaypoint>>({});
 
     const coordsError = React.useMemo(() => {
         const v = editForm.gc_coords?.trim();
@@ -73,12 +75,13 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
     }, [editForm.gc_coords]);
 
     const startEdit = React.useCallback((waypoint?: GeocacheWaypoint, prefill?: WaypointPrefillPayload) => {
+        let initialForm: Partial<GeocacheWaypoint>;
         if (waypoint) {
+            initialForm = { ...waypoint };
             setEditingId(waypoint.id ?? null);
-            setEditForm({ ...waypoint });
+            setEditForm(initialForm);
         } else {
-            setEditingId('new');
-            setEditForm({
+            initialForm = {
                 prefix: '',
                 lookup: '',
                 name: prefill?.title || '',
@@ -87,19 +90,22 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
                 longitude: undefined,
                 gc_coords: prefill?.coords || geocacheData?.coordinates_raw || '',
                 note: prefill?.note || ''
-            });
+            };
+            setEditingId('new');
+            setEditForm(initialForm);
         }
+        initialEditFormRef.current = initialForm;
         setCalculatedCoords('');
+        setShowCalcTools(false);
     }, [geocacheData?.coordinates_raw]);
 
     React.useEffect(() => {
         onStartEditRef(startEdit);
     }, [startEdit, onStartEditRef]);
 
-    const duplicateWaypoint = (waypoint: GeocacheWaypoint) => {
+    const duplicateWaypoint = React.useCallback((waypoint: GeocacheWaypoint) => {
         const note = waypoint.note_override ?? waypoint.note;
-        setEditingId('new');
-        setEditForm({
+        const initialForm: Partial<GeocacheWaypoint> = {
             prefix: waypoint.prefix,
             lookup: waypoint.lookup,
             name: waypoint.name ? `${waypoint.name} copy` : 'copy',
@@ -108,15 +114,23 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
             longitude: undefined,
             gc_coords: waypoint.gc_coords,
             note_override: note
-        });
+        };
+        initialEditFormRef.current = initialForm;
+        setEditingId('new');
+        setEditForm(initialForm);
         setCalculatedCoords('');
-    };
+        setShowCalcTools(false);
+    }, []);
 
-    const cancelEdit = () => {
+    const cancelEdit = React.useCallback(() => {
+        const isDirty = JSON.stringify(editForm) !== JSON.stringify(initialEditFormRef.current);
+        if (isDirty && !window.confirm('Des modifications non sauvegardées seront perdues. Continuer ?')) {
+            return;
+        }
         setEditingId(null);
         setEditForm({});
         setCalculatedCoords('');
-    };
+    }, [editForm]);
 
     const saveWaypoint = async (coordsOverride?: string): Promise<number | undefined> => {
         if (isSubmitting) { return undefined; }
@@ -134,7 +148,9 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
                 ...(isNew ? { note: noteValue } : {})
             };
             const savedId = await onSaveWaypoint(editingId === null ? undefined : editingId, dataToSave);
-            cancelEdit();
+            setEditingId(null);
+            setEditForm({});
+            setCalculatedCoords('');
             return savedId;
         } catch (e) {
             console.error('[WaypointsEditor] ❌ Save waypoint error', e);
@@ -144,7 +160,7 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
         }
     };
 
-    const deleteWaypoint = async (waypoint: GeocacheWaypoint) => {
+    const deleteWaypoint = React.useCallback(async (waypoint: GeocacheWaypoint) => {
         if (!waypoint.id || pendingAction) { return; }
         setPendingAction({ waypointId: waypoint.id, action: 'delete' });
         try {
@@ -152,9 +168,9 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
         } finally {
             setPendingAction(null);
         }
-    };
+    }, [pendingAction, onDeleteWaypoint]);
 
-    const setAsCorrectedCoords = async (waypoint: GeocacheWaypoint) => {
+    const setAsCorrectedCoords = React.useCallback(async (waypoint: GeocacheWaypoint) => {
         if (!waypoint.id || pendingAction) { return; }
         setPendingAction({ waypointId: waypoint.id, action: 'correct' });
         try {
@@ -162,9 +178,9 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
         } finally {
             setPendingAction(null);
         }
-    };
+    }, [pendingAction, onSetAsCorrectedCoords]);
 
-    const pushWaypointToGeocaching = async (waypoint: GeocacheWaypoint) => {
+    const pushWaypointToGeocaching = React.useCallback(async (waypoint: GeocacheWaypoint) => {
         if (!waypoint.id || pendingAction) { return; }
         setPendingAction({ waypointId: waypoint.id, action: 'push' });
         try {
@@ -172,7 +188,7 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
         } finally {
             setPendingAction(null);
         }
-    };
+    }, [pendingAction, onPushWaypointToGeocaching]);
 
     const setCurrentFormAsCorrectedCoords = async (coordsOverride?: string) => {
         const coords = coordsOverride ?? editForm.gc_coords;
@@ -352,42 +368,52 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
                     </div>
 
                     <div style={{ borderTop: '1px solid var(--theia-panel-border)', paddingTop: 10, marginTop: 10 }}>
-                        <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 6 }}>Outils de calcul</div>
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-                            <button className='theia-button secondary' onClick={handleCalculateAntipode}>Antipode</button>
-                            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                                <input
-                                    type='number'
-                                    className='theia-input'
-                                    value={projectionParams.distance}
-                                    onChange={e => setProjectionParams({ ...projectionParams, distance: Number(e.target.value) })}
-                                    style={{ width: 90 }}
-                                />
-                                <select
-                                    className='theia-input'
-                                    value={projectionParams.unit}
-                                    onChange={e => setProjectionParams({ ...projectionParams, unit: e.target.value })}
-                                >
-                                    <option value='m'>m</option>
-                                    <option value='km'>km</option>
-                                    <option value='miles'>miles</option>
-                                </select>
-                                <input
-                                    type='number'
-                                    className='theia-input'
-                                    value={projectionParams.bearing}
-                                    onChange={e => setProjectionParams({ ...projectionParams, bearing: Number(e.target.value) })}
-                                    style={{ width: 90 }}
-                                />
-                                <button className='theia-button secondary' onClick={handleCalculateProjection}>Projection</button>
-                            </div>
-                        </div>
-                        {calculatedCoords && (
-                            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                                <code>{calculatedCoords}</code>
-                                <button className='theia-button secondary' onClick={applyCalculatedCoords}>Appliquer</button>
-                                <button className='theia-button secondary' onClick={() => { void setCurrentFormAsCorrectedCoords(calculatedCoords); }}>Définir comme coordonnées corrigées</button>
-                            </div>
+                        <button
+                            className='theia-button secondary'
+                            onClick={() => setShowCalcTools(v => !v)}
+                            style={{ fontSize: 12, padding: '2px 8px', marginBottom: showCalcTools ? 8 : 0 }}
+                        >
+                            {showCalcTools ? '▾' : '▸'} Outils de calcul
+                        </button>
+                        {showCalcTools && (
+                            <>
+                                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+                                    <button className='theia-button secondary' onClick={handleCalculateAntipode}>Antipode</button>
+                                    <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                                        <input
+                                            type='number'
+                                            className='theia-input'
+                                            value={projectionParams.distance}
+                                            onChange={e => setProjectionParams({ ...projectionParams, distance: Number(e.target.value) })}
+                                            style={{ width: 90 }}
+                                        />
+                                        <select
+                                            className='theia-input'
+                                            value={projectionParams.unit}
+                                            onChange={e => setProjectionParams({ ...projectionParams, unit: e.target.value })}
+                                        >
+                                            <option value='m'>m</option>
+                                            <option value='km'>km</option>
+                                            <option value='miles'>miles</option>
+                                        </select>
+                                        <input
+                                            type='number'
+                                            className='theia-input'
+                                            value={projectionParams.bearing}
+                                            onChange={e => setProjectionParams({ ...projectionParams, bearing: Number(e.target.value) })}
+                                            style={{ width: 90 }}
+                                        />
+                                        <button className='theia-button secondary' onClick={handleCalculateProjection}>Projection</button>
+                                    </div>
+                                </div>
+                                {calculatedCoords && (
+                                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                                        <code>{calculatedCoords}</code>
+                                        <button className='theia-button secondary' onClick={applyCalculatedCoords}>Appliquer</button>
+                                        <button className='theia-button secondary' onClick={() => { void setCurrentFormAsCorrectedCoords(calculatedCoords); }}>Définir comme coordonnées corrigées</button>
+                                    </div>
+                                )}
+                            </>
                         )}
                     </div>
 
@@ -438,6 +464,7 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
                                                 disabled={editingId !== null || isRowBusy || isGlobalBusy}
                                                 style={{ padding: '2px 8px', fontSize: 11 }}
                                                 title='Éditer'
+                                                aria-label='Éditer'
                                             >
                                                 ✏️
                                             </button>
@@ -447,6 +474,7 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
                                                 disabled={editingId !== null || isRowBusy || isGlobalBusy}
                                                 style={{ padding: '2px 8px', fontSize: 11 }}
                                                 title='Dupliquer'
+                                                aria-label='Dupliquer'
                                             >
                                                 📄
                                             </button>
@@ -456,6 +484,7 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
                                                 disabled={!w.id || isRowBusy || isGlobalBusy}
                                                 style={{ padding: '2px 8px', fontSize: 11 }}
                                                 title='Utiliser comme coordonnées corrigées'
+                                                aria-label='Utiliser comme coordonnées corrigées'
                                             >
                                                 {rowPending === 'correct' ? '⏳' : '🎯'}
                                             </button>
@@ -465,6 +494,7 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
                                                 disabled={!w.id || isRowBusy || isGlobalBusy}
                                                 style={{ padding: '2px 8px', fontSize: 11 }}
                                                 title='Envoyer vers Geocaching.com'
+                                                aria-label='Envoyer vers Geocaching.com'
                                             >
                                                 {rowPending === 'push' ? '⏳' : '📡'}
                                             </button>
@@ -474,6 +504,7 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
                                                 disabled={isRowBusy || isGlobalBusy}
                                                 style={{ padding: '2px 8px', fontSize: 11 }}
                                                 title='Supprimer'
+                                                aria-label='Supprimer'
                                             >
                                                 {rowPending === 'delete' ? '⏳' : '🗑️'}
                                             </button>
