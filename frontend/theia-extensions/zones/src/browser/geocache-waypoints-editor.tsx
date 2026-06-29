@@ -62,6 +62,15 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
     const [projectionParams, setProjectionParams] = React.useState({ distance: 100, unit: 'm', bearing: 0 });
     const [calculatedCoords, setCalculatedCoords] = React.useState<string>('');
     const [isSubmitting, setIsSubmitting] = React.useState(false);
+    const [pendingAction, setPendingAction] = React.useState<{ waypointId: number; action: 'delete' | 'push' | 'correct' } | null>(null);
+
+    const coordsError = React.useMemo(() => {
+        const v = editForm.gc_coords?.trim();
+        if (!v) { return null; }
+        const parts = v.split(',');
+        if (parts.length !== 2) { return 'Format attendu : N 48° 51.402, E 002° 21.048'; }
+        return parseGCCoords(parts[0].trim(), parts[1].trim()) ? null : 'Coordonnées invalides';
+    }, [editForm.gc_coords]);
 
     const startEdit = React.useCallback((waypoint?: GeocacheWaypoint, prefill?: WaypointPrefillPayload) => {
         if (waypoint) {
@@ -136,24 +145,33 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
     };
 
     const deleteWaypoint = async (waypoint: GeocacheWaypoint) => {
-        if (!waypoint.id) {
-            return;
+        if (!waypoint.id || pendingAction) { return; }
+        setPendingAction({ waypointId: waypoint.id, action: 'delete' });
+        try {
+            await onDeleteWaypoint(waypoint.id, waypoint.name || 'ce waypoint');
+        } finally {
+            setPendingAction(null);
         }
-        await onDeleteWaypoint(waypoint.id, waypoint.name || 'ce waypoint');
     };
 
     const setAsCorrectedCoords = async (waypoint: GeocacheWaypoint) => {
-        if (!waypoint.id) {
-            return;
+        if (!waypoint.id || pendingAction) { return; }
+        setPendingAction({ waypointId: waypoint.id, action: 'correct' });
+        try {
+            await onSetAsCorrectedCoords(waypoint.id, waypoint.name || 'ce waypoint');
+        } finally {
+            setPendingAction(null);
         }
-        await onSetAsCorrectedCoords(waypoint.id, waypoint.name || 'ce waypoint');
     };
 
     const pushWaypointToGeocaching = async (waypoint: GeocacheWaypoint) => {
-        if (!waypoint.id) {
-            return;
+        if (!waypoint.id || pendingAction) { return; }
+        setPendingAction({ waypointId: waypoint.id, action: 'push' });
+        try {
+            await onPushWaypointToGeocaching(waypoint.id, waypoint.name || 'ce waypoint');
+        } finally {
+            setPendingAction(null);
         }
-        await onPushWaypointToGeocaching(waypoint.id, waypoint.name || 'ce waypoint');
     };
 
     const setCurrentFormAsCorrectedCoords = async (coordsOverride?: string) => {
@@ -289,11 +307,22 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
                         <label style={{ display: 'block', fontSize: 12, opacity: 0.8, marginBottom: 2 }}>Type</label>
                         <input
                             type='text'
+                            list='waypoint-type-options'
                             className='theia-input'
                             value={editForm.type || ''}
                             onChange={e => setEditForm({ ...editForm, type: e.target.value })}
+                            placeholder='Sélectionner ou saisir un type'
                             style={{ width: '100%' }}
                         />
+                        <datalist id='waypoint-type-options'>
+                            <option value='Parking Area' />
+                            <option value='Virtual Stage' />
+                            <option value='Physical Stage' />
+                            <option value='Final Location' />
+                            <option value='Trailhead' />
+                            <option value='Reference Point' />
+                            <option value='Question to Answer' />
+                        </datalist>
                     </div>
                     <div style={{ marginBottom: 8 }}>
                         <label style={{ display: 'block', fontSize: 12, opacity: 0.8, marginBottom: 2 }}>Coordonnées (format GC)</label>
@@ -303,8 +332,13 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
                             value={editForm.gc_coords || ''}
                             onChange={e => setEditForm({ ...editForm, gc_coords: e.target.value })}
                             placeholder='N 48° 51.402, E 002° 21.048'
-                            style={{ width: '100%' }}
+                            style={{ width: '100%', borderColor: coordsError ? 'var(--theia-inputValidation-errorBorder)' : undefined }}
                         />
+                        {coordsError && (
+                            <div style={{ fontSize: 11, color: 'var(--theia-inputValidation-errorForeground)', marginTop: 2 }}>
+                                {coordsError}
+                            </div>
+                        )}
                     </div>
                     <div style={{ marginBottom: 8 }}>
                         <label style={{ display: 'block', fontSize: 12, opacity: 0.8, marginBottom: 2 }}>Note</label>
@@ -383,64 +417,71 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
                         </tr>
                     </thead>
                     <tbody>
-                        {waypoints.map((w, i) => (
-                            <tr key={w.id ?? i}>
-                                <td>{w.prefix || ''}</td>
-                                <td>{w.name || ''}</td>
-                                <td>{w.type || ''}</td>
-                                <td style={{ fontFamily: 'monospace' }}>{w.gc_coords || ''}</td>
-                                <td style={{ whiteSpace: 'pre-wrap' }}>{w.note_override ?? w.note ?? ''}</td>
-                                <td>
-                                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                                        <button
-                                            className='theia-button secondary'
-                                            onClick={() => startEdit(w)}
-                                            disabled={editingId !== null}
-                                            style={{ padding: '2px 8px', fontSize: 11 }}
-                                            title='Éditer'
-                                        >
-                                            ✏️
-                                        </button>
-                                        <button
-                                            className='theia-button secondary'
-                                            onClick={() => duplicateWaypoint(w)}
-                                            disabled={editingId !== null}
-                                            style={{ padding: '2px 8px', fontSize: 11 }}
-                                            title='Dupliquer'
-                                        >
-                                            📄
-                                        </button>
-                                        <button
-                                            className='theia-button secondary'
-                                            onClick={() => { void setAsCorrectedCoords(w); }}
-                                            disabled={editingId !== null || !w.id}
-                                            style={{ padding: '2px 8px', fontSize: 11 }}
-                                            title='Utiliser comme coordonnées corrigées'
-                                        >
-                                            🎯
-                                        </button>
-                                        <button
-                                            className='theia-button secondary'
-                                            onClick={() => { void pushWaypointToGeocaching(w); }}
-                                            disabled={editingId !== null || !w.id}
-                                            style={{ padding: '2px 8px', fontSize: 11 }}
-                                            title='Envoyer vers Geocaching.com'
-                                        >
-                                            📡
-                                        </button>
-                                        <button
-                                            className='theia-button secondary'
-                                            onClick={() => { void deleteWaypoint(w); }}
-                                            disabled={editingId !== null}
-                                            style={{ padding: '2px 8px', fontSize: 11 }}
-                                            title='Supprimer'
-                                        >
-                                            🗑️
-                                        </button>
-                                    </div>
-                                </td>
-                            </tr>
-                        ))}
+                        {waypoints.map((w, i) => {
+                            const note = w.note_override ?? w.note ?? '';
+                            const noteDisplay = note.length > 80 ? note.slice(0, 80) + '…' : note;
+                            const rowPending = w.id ? pendingAction?.waypointId === w.id ? pendingAction.action : null : null;
+                            const isRowBusy = rowPending !== null;
+                            const isGlobalBusy = editingId !== null || (pendingAction !== null && !isRowBusy);
+                            return (
+                                <tr key={w.id ?? i}>
+                                    <td>{w.prefix || ''}</td>
+                                    <td>{w.name || ''}</td>
+                                    <td>{w.type || ''}</td>
+                                    <td style={{ fontFamily: 'monospace' }}>{w.gc_coords || ''}</td>
+                                    <td style={{ whiteSpace: 'pre-wrap', maxWidth: 200 }} title={note.length > 80 ? note : undefined}>{noteDisplay}</td>
+                                    <td>
+                                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                            <button
+                                                className='theia-button secondary'
+                                                onClick={() => startEdit(w)}
+                                                disabled={editingId !== null || isRowBusy || isGlobalBusy}
+                                                style={{ padding: '2px 8px', fontSize: 11 }}
+                                                title='Éditer'
+                                            >
+                                                ✏️
+                                            </button>
+                                            <button
+                                                className='theia-button secondary'
+                                                onClick={() => duplicateWaypoint(w)}
+                                                disabled={editingId !== null || isRowBusy || isGlobalBusy}
+                                                style={{ padding: '2px 8px', fontSize: 11 }}
+                                                title='Dupliquer'
+                                            >
+                                                📄
+                                            </button>
+                                            <button
+                                                className='theia-button secondary'
+                                                onClick={() => { void setAsCorrectedCoords(w); }}
+                                                disabled={!w.id || isRowBusy || isGlobalBusy}
+                                                style={{ padding: '2px 8px', fontSize: 11 }}
+                                                title='Utiliser comme coordonnées corrigées'
+                                            >
+                                                {rowPending === 'correct' ? '⏳' : '🎯'}
+                                            </button>
+                                            <button
+                                                className='theia-button secondary'
+                                                onClick={() => { void pushWaypointToGeocaching(w); }}
+                                                disabled={!w.id || isRowBusy || isGlobalBusy}
+                                                style={{ padding: '2px 8px', fontSize: 11 }}
+                                                title='Envoyer vers Geocaching.com'
+                                            >
+                                                {rowPending === 'push' ? '⏳' : '📡'}
+                                            </button>
+                                            <button
+                                                className='theia-button secondary'
+                                                onClick={() => { void deleteWaypoint(w); }}
+                                                disabled={isRowBusy || isGlobalBusy}
+                                                style={{ padding: '2px 8px', fontSize: 11 }}
+                                                title='Supprimer'
+                                            >
+                                                {rowPending === 'delete' ? '⏳' : '🗑️'}
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            );
+                        })}
                     </tbody>
                 </table>
             ) : undefined}
