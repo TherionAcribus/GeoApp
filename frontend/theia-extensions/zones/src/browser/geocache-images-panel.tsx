@@ -594,6 +594,45 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
         });
     }, []);
 
+    const handleGridKeyDown = React.useCallback((e: React.KeyboardEvent<HTMLDivElement>): void => {
+        const isArrow = e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown';
+        if (!isArrow || !visibleImages.length) {
+            return;
+        }
+        e.preventDefault();
+
+        const currentIndex = selectedId !== null
+            ? visibleImages.findIndex(img => img.id === selectedId)
+            : -1;
+
+        if (currentIndex === -1) {
+            const firstId = visibleImages[0].id;
+            handleThumbnailClick(firstId);
+            gridRef.current?.querySelector<HTMLElement>(`[data-image-id="${firstId}"]`)?.focus();
+            return;
+        }
+
+        let nextIndex: number;
+        if (e.key === 'ArrowLeft') {
+            nextIndex = Math.max(0, currentIndex - 1);
+        } else if (e.key === 'ArrowRight') {
+            nextIndex = Math.min(visibleImages.length - 1, currentIndex + 1);
+        } else {
+            const colCount = gridRef.current
+                ? window.getComputedStyle(gridRef.current).gridTemplateColumns.split(' ').length
+                : 1;
+            nextIndex = e.key === 'ArrowUp'
+                ? Math.max(0, currentIndex - colCount)
+                : Math.min(visibleImages.length - 1, currentIndex + colCount);
+        }
+
+        if (nextIndex !== currentIndex) {
+            const targetId = visibleImages[nextIndex].id;
+            handleThumbnailClick(targetId);
+            gridRef.current?.querySelector<HTMLElement>(`[data-image-id="${targetId}"]`)?.focus();
+        }
+    }, [selectedId, visibleImages, handleThumbnailClick]);
+
     const isUploadedImage = React.useCallback((img: GeocacheImageV2Dto | null | undefined): boolean => {
         return Boolean((img?.source_url || '').startsWith('geoapp-upload://'));
     }, []);
@@ -2258,7 +2297,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             ) : (
                 <div className='geoapp-images-body'>
                     <section className='geoapp-images-browser' aria-label='Images de la géocache'>
-                        <div className='geoapp-images-grid' ref={gridRef}>
+                        <div className='geoapp-images-grid' ref={gridRef} onKeyDown={handleGridKeyDown}>
                             {visibleImages.map(img => (
                                 <ThumbnailItem
                                     key={img.id}
