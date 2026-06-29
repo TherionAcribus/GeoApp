@@ -125,7 +125,6 @@ const ThumbnailItem = React.memo<ThumbnailItemProps>(function ThumbnailItem({
     if ((img.ocr_text || '').trim()) { badges.push({ label: 'OCR', tone: 'warning' }); }
     if (hasUsefulExifFeature(img)) { badges.push({ label: 'EXIF', tone: 'info' }); }
     if (img.parent_image_id) { badges.push({ label: 'DÉRIVÉE', tone: 'neutral' }); }
-    if (isChatSelected) { badges.push({ label: 'CHAT', tone: 'accent' }); }
 
     return (
         <button
@@ -188,37 +187,37 @@ const ThumbnailItem = React.memo<ThumbnailItemProps>(function ThumbnailItem({
             <div className='geoapp-images-thumbnail-meta'>
                 <span>{title}</span>
                 <small>{originLabel} - {kindLabel}</small>
-                {showChatToggle ? (
-                    <span
-                        role='checkbox'
-                        aria-checked={isChatSelected}
-                        tabIndex={0}
-                        className='geoapp-images-badge geoapp-images-badge--accent'
-                        onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            onToggleChat(img.id);
-                        }}
-                        onKeyDown={(event) => {
-                            if (event.key === 'Enter' || event.key === ' ') {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                onToggleChat(img.id);
-                            }
-                        }}
-                        title='Ajouter ou retirer cette image de la selection chat'
-                    >
-                        {isChatSelected ? 'Selectionnee chat' : 'Ajouter chat'}
-                    </span>
-                ) : undefined}
             </div>
-            {badges.length > 0 && (
+            {(badges.length > 0 || showChatToggle) && (
                 <div className='geoapp-images-badges'>
                     {badges.map(b => (
                         <span key={b.label} className={`geoapp-images-badge geoapp-images-badge--${b.tone}`}>
                             {b.label}
                         </span>
                     ))}
+                    {showChatToggle && (
+                        <span
+                            role='checkbox'
+                            aria-checked={isChatSelected}
+                            tabIndex={0}
+                            className={`geoapp-images-badge geoapp-images-badge--interactive ${isChatSelected ? 'geoapp-images-badge--accent' : 'geoapp-images-badge--neutral'}`}
+                            onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                onToggleChat(img.id);
+                            }}
+                            onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    onToggleChat(img.id);
+                                }
+                            }}
+                            title='Ajouter ou retirer cette image de la sélection chat'
+                        >
+                            CHAT
+                        </span>
+                    )}
                 </div>
             )}
         </button>

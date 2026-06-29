@@ -294,6 +294,15 @@
     color: var(--theia-descriptionForeground);
 }
 
+.geoapp-images-badge--interactive {
+    cursor: pointer;
+    user-select: none;
+}
+
+.geoapp-images-badge--interactive:hover {
+    opacity: 0.75;
+}
+
 .geoapp-images-preview,
 .geoapp-images-inspector,
 .geoapp-images-empty {
