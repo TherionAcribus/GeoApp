@@ -362,14 +362,20 @@ export class ZonesTreeWidget extends ReactWidget {
         });
     }
 
-    protected async loadGeocachesForZone(zoneId: number): Promise<void> {
-        if (this.zoneGeocaches.has(zoneId)) {
-            return; // Déjà chargé
+    protected async loadGeocachesForZone(zoneId: number, options: { force?: boolean } = {}): Promise<void> {
+        const alreadyLoaded = this.zoneGeocaches.has(zoneId);
+        if (alreadyLoaded && !options.force) {
+            return; // Déjà en cache
         }
-        
-        this.loadingZones.add(zoneId);
-        this.update();
-        
+
+        // Spinner uniquement au premier chargement: lors d'un rafraîchissement
+        // d'une zone déjà affichée, on conserve l'ancienne liste jusqu'à l'arrivée
+        // des données fraîches (pas de flash "Chargement...").
+        if (!alreadyLoaded) {
+            this.loadingZones.add(zoneId);
+            this.update();
+        }
+
         try {
             const geocaches = await this.zonesService.listGeocachesTree<GeocacheDto>(zoneId);
             this.zoneGeocaches.set(zoneId, geocaches);
@@ -523,11 +529,11 @@ export class ZonesTreeWidget extends ReactWidget {
             }>(sourceZone.id, { target_zone_id: targetZoneId });
             this.expandedZones.delete(sourceZone.id);
             this.zoneGeocaches.delete(sourceZone.id);
-            this.zoneGeocaches.delete(targetZoneId);
             if (this.activeZoneId === sourceZone.id) {
                 this.activeZoneId = targetZoneId;
             }
-            await this.refreshExpandedZones();
+            // La zone source est supprimée: seule la cible doit être rechargée.
+            await this.refreshExpandedZones([targetZoneId]);
             this.widgetEventsService.notifyZoneListChanged();
             this.messages.info(`Zone "${sourceZone.name}" fusionnée (${result.moved_count ?? 0} déplacée(s), ${result.duplicate_count ?? 0} doublon(s)).`);
         } catch (e) {
@@ -566,10 +572,11 @@ export class ZonesTreeWidget extends ReactWidget {
         return (await dialog.open())?.trim();
     }
 
-    protected async moveGeocache(geocache: GeocacheDto, targetZoneId: number): Promise<void> {
+    protected async moveGeocache(geocache: GeocacheDto, sourceZoneId: number, targetZoneId: number): Promise<void> {
         try {
             await this.geocachesService.move(geocache.id, targetZoneId);
-            await this.refreshExpandedZones();
+            // Seules la zone source et la zone cible changent.
+            await this.refreshExpandedZones([sourceZoneId, targetZoneId]);
             // Notifier les onglets de zone ouverts (source et cible)
             this.notifyZonesRefreshFromSelf();
             this.messages.info(`Géocache ${geocache.gc_code} déplacée`);
@@ -582,7 +589,8 @@ export class ZonesTreeWidget extends ReactWidget {
     protected async copyGeocache(geocache: GeocacheDto, targetZoneId: number): Promise<void> {
         try {
             await this.geocachesService.copy(geocache.id, targetZoneId);
-            await this.refreshExpandedZones();
+            // Seule la zone cible gagne une géocache (la source est inchangée).
+            await this.refreshExpandedZones([targetZoneId]);
             // Notifier les onglets de zone ouverts (cible)
             this.notifyZonesRefreshFromSelf();
             this.messages.info(`Géocache ${geocache.gc_code} copiée vers la zone cible`);
@@ -719,11 +727,8 @@ export class ZonesTreeWidget extends ReactWidget {
                     try {
                         await this.geocachesService.delete(geocache.id);
 
-
-                        // Invalider le cache
-                        this.zoneGeocaches.delete(zoneId);
-                        await this.loadGeocachesForZone(zoneId);
-                        await this.refresh();
+                        // Seule la zone de la géocache supprimée doit être rechargée.
+                        await this.refreshExpandedZones([zoneId]);
                         // Notifier un éventuel onglet de zone ouvert sur cette zone
                         this.notifyZonesRefreshFromSelf();
 
@@ -800,16 +805,38 @@ export class ZonesTreeWidget extends ReactWidget {
         }
     }
 
-    protected async refreshExpandedZones(): Promise<void> {
-        const expandedZoneIds = Array.from(this.expandedZones);
-        this.zoneGeocaches.clear();
-        await this.refresh();
+    /**
+     * Rafraîchit la liste des zones (compteurs, zone active) puis recharge les
+     * géocaches des zones dépliées.
+     *
+     * @param zoneIds Si fourni, invalidation **ciblée**: seules ces zones (si
+     * dépliées) sont rechargées; les autres zones dépliées conservent leurs
+     * données déjà en cache. Sinon rafraîchissement global: les zones repliées
+     * voient leur cache purgé (rechargé à la prochaine ouverture) et toutes les
+     * zones dépliées sont rechargées.
+     *
+     * Dans les deux cas les rechargements s'exécutent en parallèle.
+     */
+    protected async refreshExpandedZones(zoneIds?: number[]): Promise<void> {
+        if (zoneIds !== undefined) {
+            const targetIds = zoneIds.filter(id => this.expandedZones.has(id));
+            await this.refresh();
+            await Promise.all(targetIds.map(id => this.loadGeocachesForZone(id, { force: true })));
+            return;
+        }
 
-        for (const zoneId of expandedZoneIds) {
-            if (this.expandedZones.has(zoneId)) {
-                await this.loadGeocachesForZone(zoneId);
+        // Rafraîchissement global: purge du cache des zones repliées pour éviter
+        // de servir des données périmées à la prochaine ouverture.
+        for (const cachedId of Array.from(this.zoneGeocaches.keys())) {
+            if (!this.expandedZones.has(cachedId)) {
+                this.zoneGeocaches.delete(cachedId);
             }
         }
+
+        await this.refresh();
+        await Promise.all(
+            Array.from(this.expandedZones).map(id => this.loadGeocachesForZone(id, { force: true }))
+        );
     }
 
     protected renderSortControls(): React.ReactNode {
@@ -923,7 +950,7 @@ export class ZonesTreeWidget extends ReactWidget {
                         currentZoneId={this.moveDialog.zoneId}
                         zones={sortedZones}
                         onMove={async (targetZoneId) => {
-                            await this.moveGeocache(this.moveDialog!.geocache, targetZoneId);
+                            await this.moveGeocache(this.moveDialog!.geocache, this.moveDialog!.zoneId, targetZoneId);
                             this.closeMoveDialog();
                         }}
                         onCancel={() => this.closeMoveDialog()}
