@@ -32,13 +32,11 @@ export const WaypointsEditorWrapper: React.FC<WaypointsEditorWrapperProps> = (pr
     const startEditRef = React.useRef<((waypoint?: GeocacheWaypoint, prefill?: WaypointPrefillPayload) => void) | null>(null);
 
     React.useEffect(() => {
-        if (startEditRef.current) {
-            onRegisterCallback((prefill?: WaypointPrefillPayload) => {
-                if (startEditRef.current) {
-                    startEditRef.current(undefined, prefill);
-                }
-            });
-        }
+        onRegisterCallback((prefill?: WaypointPrefillPayload) => {
+            if (startEditRef.current) {
+                startEditRef.current(undefined, prefill);
+            }
+        });
     }, [onRegisterCallback]);
 
     return (
@@ -273,6 +271,7 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
                     className='theia-button'
                     onClick={() => startEdit()}
                     disabled={editingId !== null}
+                    title={editingId !== null ? 'Fermez le formulaire en cours avant d\'ajouter un waypoint' : undefined}
                     style={{ padding: '4px 12px', fontSize: 13 }}
                 >
                     + Ajouter un waypoint
@@ -299,12 +298,19 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
                             />
                         </div>
                         <div>
-                            <label style={{ display: 'block', fontSize: 12, opacity: 0.8, marginBottom: 2 }}>Lookup</label>
+                            <label
+                                style={{ display: 'block', fontSize: 12, opacity: 0.8, marginBottom: 2 }}
+                                title='Identifiant court du waypoint sur Geocaching.com (ex : GC001)'
+                            >
+                                Lookup
+                            </label>
                             <input
                                 type='text'
                                 className='theia-input'
                                 value={editForm.lookup || ''}
                                 onChange={e => setEditForm({ ...editForm, lookup: e.target.value })}
+                                placeholder='ex : GC001'
+                                title='Identifiant court du waypoint sur Geocaching.com (ex : GC001)'
                                 style={{ width: '100%' }}
                             />
                         </div>
