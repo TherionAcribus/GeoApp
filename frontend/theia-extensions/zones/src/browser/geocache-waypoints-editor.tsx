@@ -9,7 +9,7 @@ import {
 import {
     calculateAntipode,
     calculateProjection,
-    parseGCCoords,
+    parseFlexibleGCCoords,
     toGCFormat
 } from './geocache-details-utils';
 
@@ -59,6 +59,7 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
     const [editForm, setEditForm] = React.useState<Partial<GeocacheWaypoint>>({});
     const [projectionParams, setProjectionParams] = React.useState({ distance: 100, unit: 'm', bearing: 0 });
     const [calculatedCoords, setCalculatedCoords] = React.useState<string>('');
+    const [calculatedCoordsLabel, setCalculatedCoordsLabel] = React.useState<string>('');
     const [isSubmitting, setIsSubmitting] = React.useState(false);
     const [pendingAction, setPendingAction] = React.useState<{ waypointId: number; action: 'delete' | 'push' | 'correct' } | null>(null);
     const [showCalcTools, setShowCalcTools] = React.useState(false);
@@ -67,9 +68,7 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
     const coordsError = React.useMemo(() => {
         const v = editForm.gc_coords?.trim();
         if (!v) { return null; }
-        const parts = v.split(',');
-        if (parts.length !== 2) { return 'Format attendu : N 48° 51.402, E 002° 21.048'; }
-        return parseGCCoords(parts[0].trim(), parts[1].trim()) ? null : 'Coordonnées invalides';
+        return parseFlexibleGCCoords(v) ? null : 'Format attendu : N 48° 51.402 E 002° 21.048';
     }, [editForm.gc_coords]);
 
     const startEdit = React.useCallback((waypoint?: GeocacheWaypoint, prefill?: WaypointPrefillPayload) => {
@@ -94,6 +93,7 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
         }
         initialEditFormRef.current = initialForm;
         setCalculatedCoords('');
+        setCalculatedCoordsLabel('');
         setShowCalcTools(false);
     }, [geocacheData?.coordinates_raw]);
 
@@ -117,6 +117,7 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
         setEditingId('new');
         setEditForm(initialForm);
         setCalculatedCoords('');
+        setCalculatedCoordsLabel('');
         setShowCalcTools(false);
     }, []);
 
@@ -128,6 +129,7 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
         setEditingId(null);
         setEditForm({});
         setCalculatedCoords('');
+        setCalculatedCoordsLabel('');
     }, [editForm]);
 
     const saveWaypoint = async (coordsOverride?: string): Promise<number | undefined> => {
@@ -149,6 +151,7 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
             setEditingId(null);
             setEditForm({});
             setCalculatedCoords('');
+            setCalculatedCoordsLabel('');
             return savedId;
         } catch (e) {
             console.error('[WaypointsEditor] ❌ Save waypoint error', e);
@@ -212,29 +215,31 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
         }
     };
 
+    const resolveCurrentCoords = (): { lat: number; lon: number } | null => {
+        const parsed = parseFlexibleGCCoords(editForm.gc_coords);
+        if (parsed) {
+            return parsed;
+        }
+        if (editForm.latitude !== undefined && editForm.longitude !== undefined) {
+            return { lat: editForm.latitude, lon: editForm.longitude };
+        }
+        return null;
+    };
+
     const handleCalculateAntipode = () => {
-        const coords = editForm.gc_coords ? (() => {
-            const parts = editForm.gc_coords.split(',').map(s => s.trim());
-            return parseGCCoords(parts[0] || '', parts[1] || '');
-        })() : (editForm.latitude !== undefined && editForm.longitude !== undefined
-            ? { lat: editForm.latitude, lon: editForm.longitude }
-            : null);
+        const coords = resolveCurrentCoords();
         if (!coords) {
             messages.error('Coordonnées invalides');
             return;
         }
         const antipode = calculateAntipode(coords.lat, coords.lon);
         const gcFormat = toGCFormat(antipode.lat, antipode.lon);
-        setCalculatedCoords(`${gcFormat.gcLat}, ${gcFormat.gcLon}`);
+        setCalculatedCoords(`${gcFormat.gcLat} ${gcFormat.gcLon}`);
+        setCalculatedCoordsLabel('Antipode');
     };
 
     const handleCalculateProjection = () => {
-        const coords = editForm.gc_coords ? parseGCCoords(
-            editForm.gc_coords.split(',')[0]?.trim() || '',
-            editForm.gc_coords.split(',')[1]?.trim() || ''
-        ) : (editForm.latitude !== undefined && editForm.longitude !== undefined
-            ? { lat: editForm.latitude, lon: editForm.longitude }
-            : null);
+        const coords = resolveCurrentCoords();
         if (!coords) {
             messages.error('Coordonnées invalides');
             return;
@@ -247,17 +252,15 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
         }
         const projected = calculateProjection(coords.lat, coords.lon, distanceInMeters, projectionParams.bearing);
         const gcFormat = toGCFormat(projected.lat, projected.lon);
-        setCalculatedCoords(`${gcFormat.gcLat}, ${gcFormat.gcLon}`);
+        setCalculatedCoords(`${gcFormat.gcLat} ${gcFormat.gcLon}`);
+        setCalculatedCoordsLabel(`Projection — ${projectionParams.distance} ${projectionParams.unit}, cap ${projectionParams.bearing}°`);
     };
 
     const applyCalculatedCoords = () => {
         if (!calculatedCoords) {
             return;
         }
-        const parsed = parseGCCoords(
-            calculatedCoords.split(',')[0]?.trim() || '',
-            calculatedCoords.split(',')[1]?.trim() || ''
-        );
+        const parsed = parseFlexibleGCCoords(calculatedCoords);
         if (parsed) {
             setEditForm({ ...editForm, gc_coords: calculatedCoords, latitude: parsed.lat, longitude: parsed.lon });
         }
@@ -383,40 +386,88 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
                         </button>
                         {showCalcTools && (
                             <>
-                                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-                                    <button className='theia-button secondary' onClick={handleCalculateAntipode}>Antipode</button>
-                                    <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                                <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 8 }}>
+                                    Calcule à partir des coordonnées saisies ci-dessus.
+                                </div>
+
+                                {/* Antipode */}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                                    <button
+                                        className='theia-button secondary'
+                                        onClick={handleCalculateAntipode}
+                                        disabled={!!coordsError || !editForm.gc_coords}
+                                        style={{ minWidth: 110 }}
+                                    >
+                                        Antipode
+                                    </button>
+                                    <span style={{ fontSize: 11, opacity: 0.6 }}>Point diamétralement opposé sur le globe</span>
+                                </div>
+
+                                {/* Projection */}
+                                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 8 }}>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: 11, opacity: 0.8, marginBottom: 2 }}>Distance</label>
+                                        <div style={{ display: 'flex', gap: 4 }}>
+                                            <input
+                                                type='number'
+                                                className='theia-input'
+                                                value={projectionParams.distance}
+                                                onChange={e => setProjectionParams({ ...projectionParams, distance: Number(e.target.value) })}
+                                                style={{ width: 80 }}
+                                            />
+                                            <select
+                                                className='theia-input'
+                                                value={projectionParams.unit}
+                                                onChange={e => setProjectionParams({ ...projectionParams, unit: e.target.value })}
+                                            >
+                                                <option value='m'>m</option>
+                                                <option value='km'>km</option>
+                                                <option value='miles'>miles</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: 11, opacity: 0.8, marginBottom: 2 }}>Cap (0–360°)</label>
                                         <input
                                             type='number'
-                                            className='theia-input'
-                                            value={projectionParams.distance}
-                                            onChange={e => setProjectionParams({ ...projectionParams, distance: Number(e.target.value) })}
-                                            style={{ width: 90 }}
-                                        />
-                                        <select
-                                            className='theia-input'
-                                            value={projectionParams.unit}
-                                            onChange={e => setProjectionParams({ ...projectionParams, unit: e.target.value })}
-                                        >
-                                            <option value='m'>m</option>
-                                            <option value='km'>km</option>
-                                            <option value='miles'>miles</option>
-                                        </select>
-                                        <input
-                                            type='number'
+                                            min={0}
+                                            max={360}
                                             className='theia-input'
                                             value={projectionParams.bearing}
                                             onChange={e => setProjectionParams({ ...projectionParams, bearing: Number(e.target.value) })}
                                             style={{ width: 90 }}
                                         />
-                                        <button className='theia-button secondary' onClick={handleCalculateProjection}>Projection</button>
                                     </div>
+                                    <button
+                                        className='theia-button secondary'
+                                        onClick={handleCalculateProjection}
+                                        disabled={!!coordsError || !editForm.gc_coords}
+                                        style={{ minWidth: 110 }}
+                                    >
+                                        Projeter
+                                    </button>
                                 </div>
+
                                 {calculatedCoords && (
-                                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                                        <code>{calculatedCoords}</code>
-                                        <button className='theia-button secondary' onClick={applyCalculatedCoords}>Appliquer</button>
-                                        <button className='theia-button secondary' onClick={() => { void setCurrentFormAsCorrectedCoords(calculatedCoords); }}>Définir comme coordonnées corrigées</button>
+                                    <div style={{
+                                        border: '1px solid var(--theia-panel-border)',
+                                        borderRadius: 4,
+                                        padding: 8,
+                                        marginTop: 4,
+                                        background: 'var(--theia-editorWidget-background)'
+                                    }}>
+                                        <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 4 }}>
+                                            Résultat du calcul {calculatedCoordsLabel && <strong>— {calculatedCoordsLabel}</strong>}
+                                        </div>
+                                        <code style={{ display: 'block', marginBottom: 8, fontSize: 13 }}>{calculatedCoords}</code>
+                                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                            <button className='theia-button' onClick={applyCalculatedCoords} title='Remplace les coordonnées du waypoint par ce résultat'>
+                                                Appliquer au waypoint
+                                            </button>
+                                            <button className='theia-button secondary' onClick={() => { void setCurrentFormAsCorrectedCoords(calculatedCoords); }} title='Sauvegarde le waypoint et le définit comme coordonnées corrigées de la géocache'>
+                                                Définir comme coordonnées corrigées
+                                            </button>
+                                        </div>
                                     </div>
                                 )}
                             </>

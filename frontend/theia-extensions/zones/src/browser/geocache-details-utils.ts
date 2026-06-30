@@ -53,6 +53,36 @@ export function parseGCCoords(gcLat: string, gcLon: string): { lat: number; lon:
     return { lat, lon };
 }
 
+/**
+ * Parse une chaîne de coordonnées GC complète, que la latitude et la longitude
+ * soient séparées par une virgule ("N 48° 51.402, E 002° 21.048") ou par un
+ * simple espace ("N 48° 51.402 E 002° 21.048", format Geocaching.com).
+ */
+export function parseFlexibleGCCoords(raw?: string): { lat: number; lon: number } | null {
+    const trimmed = raw?.trim();
+    if (!trimmed) {
+        return null;
+    }
+    let latStr: string;
+    let lonStr: string;
+    if (trimmed.includes(',')) {
+        const parts = trimmed.split(',');
+        if (parts.length !== 2) {
+            return null;
+        }
+        latStr = parts[0].trim();
+        lonStr = parts[1].trim();
+    } else {
+        const match = trimmed.match(/^([NS][^EW]+)\s+([EW].+)$/);
+        if (!match) {
+            return null;
+        }
+        latStr = match[1].trim();
+        lonStr = match[2].trim();
+    }
+    return parseGCCoords(latStr, lonStr);
+}
+
 export function rot13(value: string): string {
     return value.replace(/[a-zA-Z]/g, (char) => {
         const base = char <= 'Z' ? 65 : 97;

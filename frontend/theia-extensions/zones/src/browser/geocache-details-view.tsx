@@ -115,7 +115,7 @@ export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
 
                 {imagesPanelProps ? <MemoGeocacheImagesPanel {...imagesPanelProps} /> : undefined}
 
-                <div>
+                <div style={{ borderTop: '1px solid var(--theia-panel-border)', paddingTop: 12 }}>
                     <MemoWaypointsEditorWrapper {...waypointsEditorProps} />
                 </div>
 
