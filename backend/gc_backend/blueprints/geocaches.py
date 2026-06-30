@@ -570,6 +570,7 @@ def get_geocaches_tree_for_zone(zone_id: int):
             Geocache.difficulty,
             Geocache.terrain,
             Geocache.found,
+            Geocache.created_at,
         )
         .filter(Geocache.zone_id == zone_id)
         .order_by(Geocache.gc_code.asc())
@@ -584,6 +585,7 @@ def get_geocaches_tree_for_zone(zone_id: int):
             'difficulty': row.difficulty,
             'terrain': row.terrain,
             'found': bool(row.found),
+            'created_at': row.created_at.isoformat() if row.created_at else None,
         }
         for row in rows
     ])

@@ -1508,6 +1508,80 @@
         "geocaches"
       ]
     },
+    "geoApp.zones.geocacheSortKey": {
+      "type": "string",
+      "enum": [
+        "gc_code",
+        "name",
+        "cache_type",
+        "created_at"
+      ],
+      "default": "gc_code",
+      "title": "Tri des géocaches dans une zone",
+      "description": "Critère de tri par défaut des géocaches affichées sous chaque zone dans l'arbre de navigation. Modifiable aussi via le clic droit sur une zone.",
+      "x-ui": {
+        "section": "Zones",
+        "label": "Tri des géocaches",
+        "order": 10,
+        "enumLabels": {
+          "gc_code": "Code GC",
+          "name": "Titre de la cache",
+          "cache_type": "Type de cache",
+          "created_at": "Date d'ajout"
+        },
+        "keywords": [
+          "zone",
+          "tri",
+          "ordre",
+          "geocache",
+          "arbre",
+          "navigation"
+        ]
+      },
+      "x-category": "ui",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "zones",
+        "geocaches"
+      ]
+    },
+    "geoApp.zones.geocacheSortDirection": {
+      "type": "string",
+      "enum": [
+        "asc",
+        "desc"
+      ],
+      "default": "asc",
+      "title": "Sens de tri des géocaches",
+      "description": "Sens de tri appliqué aux géocaches affichées sous chaque zone dans l'arbre de navigation.",
+      "x-ui": {
+        "section": "Zones",
+        "label": "Sens de tri des géocaches",
+        "order": 20,
+        "enumLabels": {
+          "asc": "Croissant",
+          "desc": "Décroissant"
+        },
+        "keywords": [
+          "zone",
+          "tri",
+          "ordre",
+          "croissant",
+          "décroissant",
+          "geocache"
+        ]
+      },
+      "x-category": "ui",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "zones",
+        "geocaches"
+      ]
+    },
     "geoApp.map.defaultProvider": {
       "type": "string",
       "enum": [

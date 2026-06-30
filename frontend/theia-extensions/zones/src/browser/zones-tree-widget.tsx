@@ -25,7 +25,25 @@ type GeocacheDto = {
     difficulty: number;
     terrain: number;
     found: boolean;
+    created_at?: string | null;
 };
+
+type GeocacheSortKey = 'gc_code' | 'name' | 'cache_type' | 'created_at';
+
+interface GeocacheSortPreference {
+    key: GeocacheSortKey;
+    direction: ZoneSortDirection;
+}
+
+const GEOCACHE_SORT_KEY_PREFERENCE = 'geoApp.zones.geocacheSortKey';
+const GEOCACHE_SORT_DIRECTION_PREFERENCE = 'geoApp.zones.geocacheSortDirection';
+const DEFAULT_GEOCACHE_SORT: GeocacheSortPreference = { key: 'gc_code', direction: 'asc' };
+const GEOCACHE_SORT_OPTIONS: Array<{ key: GeocacheSortKey; label: string }> = [
+    { key: 'gc_code', label: 'Code GC' },
+    { key: 'name', label: 'Titre de la cache' },
+    { key: 'cache_type', label: 'Type de cache' },
+    { key: 'created_at', label: 'Date d\'ajout' },
+];
 
 type ZoneSortKey =
     | 'name'
@@ -65,6 +83,7 @@ export class ZonesTreeWidget extends ReactWidget {
     protected copyDialog: { geocache: GeocacheDto; zoneId: number } | null = null;
     protected mergeDialog: { zone: ZoneDto } | null = null;
     protected zoneSort: ZoneSortPreference = { ...DEFAULT_ZONE_SORT };
+    protected geocacheSort: GeocacheSortPreference = { ...DEFAULT_GEOCACHE_SORT };
     protected readonly zoneNameCollator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
     /** Vrai pendant que CE widget émet requestZonesRefresh, pour ignorer son propre événement. */
     private selfTriggeringZonesRefresh = false;
@@ -117,6 +136,7 @@ export class ZonesTreeWidget extends ReactWidget {
         this.title.iconClass = 'fa fa-map-marker';
         this.addClass('theia-zones-tree-widget');
         this.zoneSort = this.readZoneSortPreference();
+        this.geocacheSort = this.readGeocacheSortPreference();
         this.toDispose.push(this.preferenceService.onPreferenceChanged(event => this.handlePreferenceChanged(event)));
         this.toDispose.push(this.widgetEventsService.onDidRequestZonesRefresh(() => {
             if (this.selfTriggeringZonesRefresh) {
@@ -150,12 +170,49 @@ export class ZonesTreeWidget extends ReactWidget {
         return typeof value === 'string' && ZONE_SORT_OPTIONS.some(option => option.key === value);
     }
 
-    protected handlePreferenceChanged(event: PreferenceChange): void {
-        if (event.preferenceName !== ZONE_SORT_PREFERENCE_KEY) {
+    protected readGeocacheSortPreference(): GeocacheSortPreference {
+        const key = this.preferenceService.get<unknown>(GEOCACHE_SORT_KEY_PREFERENCE, DEFAULT_GEOCACHE_SORT.key);
+        const direction = this.preferenceService.get<unknown>(GEOCACHE_SORT_DIRECTION_PREFERENCE, DEFAULT_GEOCACHE_SORT.direction);
+        return {
+            key: this.isGeocacheSortKey(key) ? key : DEFAULT_GEOCACHE_SORT.key,
+            direction: direction === 'desc' ? 'desc' : 'asc',
+        };
+    }
+
+    protected isGeocacheSortKey(value: unknown): value is GeocacheSortKey {
+        return typeof value === 'string' && GEOCACHE_SORT_OPTIONS.some(option => option.key === value);
+    }
+
+    protected setGeocacheSort(nextSort: Partial<GeocacheSortPreference>): void {
+        const next: GeocacheSortPreference = {
+            key: this.isGeocacheSortKey(nextSort.key) ? nextSort.key : this.geocacheSort.key,
+            direction: nextSort.direction === 'asc' || nextSort.direction === 'desc'
+                ? nextSort.direction
+                : this.geocacheSort.direction,
+        };
+        if (next.key === this.geocacheSort.key && next.direction === this.geocacheSort.direction) {
             return;
         }
-        this.zoneSort = this.readZoneSortPreference();
+
+        this.geocacheSort = next;
         this.update();
+        void this.preferenceService.set(GEOCACHE_SORT_KEY_PREFERENCE, next.key, PreferenceScope.User)
+            .catch(error => console.warn('[ZonesTreeWidget] Failed to persist geocache sort key', error));
+        void this.preferenceService.set(GEOCACHE_SORT_DIRECTION_PREFERENCE, next.direction, PreferenceScope.User)
+            .catch(error => console.warn('[ZonesTreeWidget] Failed to persist geocache sort direction', error));
+    }
+
+    protected handlePreferenceChanged(event: PreferenceChange): void {
+        if (event.preferenceName === ZONE_SORT_PREFERENCE_KEY) {
+            this.zoneSort = this.readZoneSortPreference();
+            this.update();
+            return;
+        }
+        if (event.preferenceName === GEOCACHE_SORT_KEY_PREFERENCE
+            || event.preferenceName === GEOCACHE_SORT_DIRECTION_PREFERENCE) {
+            this.geocacheSort = this.readGeocacheSortPreference();
+            this.update();
+        }
     }
 
     protected setZoneSort(nextSort: Partial<ZoneSortPreference>): void {
@@ -261,6 +318,48 @@ export class ZonesTreeWidget extends ReactWidget {
         }
         const timestamp = Date.parse(value);
         return Number.isFinite(timestamp) ? timestamp : undefined;
+    }
+
+    protected getSortedGeocaches(geocaches: GeocacheDto[]): GeocacheDto[] {
+        const { key, direction } = this.geocacheSort;
+        const sign = direction === 'asc' ? 1 : -1;
+
+        const getText = (geocache: GeocacheDto): string => {
+            switch (key) {
+                case 'name':
+                    return geocache.name || '';
+                case 'cache_type':
+                    return geocache.cache_type || '';
+                default:
+                    return geocache.gc_code || '';
+            }
+        };
+
+        return [...geocaches].sort((a, b) => {
+            let comparison = 0;
+            if (key === 'created_at') {
+                const aTime = this.getDateTimestamp(a.created_at);
+                const bTime = this.getDateTimestamp(b.created_at);
+                // Les caches sans date connue sont toujours reléguées en fin de liste.
+                if (aTime === undefined && bTime === undefined) {
+                    comparison = 0;
+                } else if (aTime === undefined) {
+                    return 1;
+                } else if (bTime === undefined) {
+                    return -1;
+                } else {
+                    comparison = aTime - bTime;
+                }
+            } else {
+                comparison = this.zoneNameCollator.compare(getText(a), getText(b));
+            }
+
+            if (comparison !== 0) {
+                return comparison * sign;
+            }
+            // Départage stable: code GC puis id.
+            return this.zoneNameCollator.compare(a.gc_code || '', b.gc_code || '') || (a.id - b.id);
+        });
     }
 
     protected async loadGeocachesForZone(zoneId: number): Promise<void> {
@@ -493,6 +592,26 @@ export class ZonesTreeWidget extends ReactWidget {
         }
     }
 
+    protected buildGeocacheSortSubmenu(): ContextMenuItem[] {
+        const items: ContextMenuItem[] = GEOCACHE_SORT_OPTIONS.map(option => ({
+            label: option.label,
+            checked: this.geocacheSort.key === option.key,
+            action: () => this.setGeocacheSort({ key: option.key })
+        }));
+        items.push({ separator: true });
+        items.push({
+            label: 'Croissant',
+            checked: this.geocacheSort.direction === 'asc',
+            action: () => this.setGeocacheSort({ direction: 'asc' })
+        });
+        items.push({
+            label: 'Décroissant',
+            checked: this.geocacheSort.direction === 'desc',
+            action: () => this.setGeocacheSort({ direction: 'desc' })
+        });
+        return items;
+    }
+
     protected showZoneContextMenu(zone: ZoneDto, event: React.MouseEvent): void {
         event.preventDefault();
         event.stopPropagation();
@@ -521,6 +640,14 @@ export class ZonesTreeWidget extends ReactWidget {
                     this.update();
                 },
                 disabled: this.zones.length <= 1
+            },
+            {
+                separator: true
+            },
+            {
+                label: 'Trier les caches par',
+                icon: '↕',
+                submenu: this.buildGeocacheSortSubmenu()
             },
             {
                 separator: true
@@ -919,7 +1046,7 @@ export class ZonesTreeWidget extends ReactWidget {
                                 Aucune géocache
                             </div>
                         ) : (
-                            geocaches.map(gc => this.renderGeocacheNode(gc, zone.id))
+                            this.getSortedGeocaches(geocaches).map(gc => this.renderGeocacheNode(gc, zone.id))
                         )}
                     </div>
                 )}

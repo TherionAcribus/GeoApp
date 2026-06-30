@@ -138,7 +138,7 @@ def test_zone_geocaches_tree_returns_lightweight_payload(client, seeded_zone):
 
     # Aucun champ lourd ne doit être sérialisé par l'endpoint de l'arbre.
     assert set(item.keys()) == {
-        'id', 'gc_code', 'name', 'cache_type', 'difficulty', 'terrain', 'found',
+        'id', 'gc_code', 'name', 'cache_type', 'difficulty', 'terrain', 'found', 'created_at',
     }
 
 
