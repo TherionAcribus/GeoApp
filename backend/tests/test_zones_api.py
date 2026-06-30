@@ -121,6 +121,27 @@ def test_list_zones_is_alphabetical_and_includes_sort_metadata(client, app):
     assert bravo_payload['latest_resolution_updated_at'] is None
 
 
+def test_zone_geocaches_tree_returns_lightweight_payload(client, seeded_zone):
+    response = client.get(f'/api/zones/{seeded_zone}/geocaches/tree')
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert len(payload) == 1
+
+    item = payload[0]
+    assert item['gc_code'] == 'GCZONE1'
+    assert item['name'] == 'Cache source'
+    assert item['cache_type'] == 'Traditional Cache'
+    assert item['difficulty'] == 2.5
+    assert item['terrain'] == 3.0
+    assert item['found'] is False
+
+    # Aucun champ lourd ne doit être sérialisé par l'endpoint de l'arbre.
+    assert set(item.keys()) == {
+        'id', 'gc_code', 'name', 'cache_type', 'difficulty', 'terrain', 'found',
+    }
+
+
 def test_duplicate_zone_copies_geocaches_waypoints_and_checkers(client, app, seeded_zone):
     response = client.post(
         f'/api/zones/{seeded_zone}/duplicate',

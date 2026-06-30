@@ -77,6 +77,20 @@ export class ZonesService {
         );
     }
 
+    /**
+     * Variante allégée de {@link listGeocaches} pour l'arbre de navigation :
+     * ne renvoie que les champs affichés (id, gc_code, name, cache_type,
+     * difficulty, terrain, found), sans waypoints/notes/attributs ni les
+     * requêtes N+1 associées.
+     */
+    async listGeocachesTree<T>(zoneId: number): Promise<T[]> {
+        return this.apiClient.requestJson<T[]>(
+            `/api/zones/${zoneId}/geocaches/tree`,
+            {},
+            'Erreur lors du chargement des géocaches de la zone'
+        );
+    }
+
     async getActiveZone<T extends ActiveZoneDto = ActiveZoneDto>(): Promise<T | undefined> {
         const response = await this.apiClient.request('/api/active-zone');
         if (!response.ok) {

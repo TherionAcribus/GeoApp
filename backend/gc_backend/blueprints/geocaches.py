@@ -552,6 +552,43 @@ def get_geocaches_for_zone(zone_id: int):
         return jsonify({'error': str(e)}), 500
 
 
+@bp.get('/api/zones/<int:zone_id>/geocaches/tree')
+def get_geocaches_tree_for_zone(zone_id: int):
+    """Liste allégée des géocaches d'une zone pour l'arbre de navigation.
+
+    Ne renvoie que les colonnes réellement affichées par l'arbre et n'effectue
+    aucun chargement de relation : une seule requête projetée, sans lazy-load
+    (pas de waypoints/notes/attributs/description), contrairement à
+    ``/api/zones/<zone_id>/geocaches`` qui sert la vue tableau complète.
+    """
+    rows = (
+        db.session.query(
+            Geocache.id,
+            Geocache.gc_code,
+            Geocache.name,
+            Geocache.type,
+            Geocache.difficulty,
+            Geocache.terrain,
+            Geocache.found,
+        )
+        .filter(Geocache.zone_id == zone_id)
+        .order_by(Geocache.gc_code.asc())
+        .all()
+    )
+    return jsonify([
+        {
+            'id': row.id,
+            'gc_code': row.gc_code,
+            'name': row.name,
+            'cache_type': row.type,  # Le frontend attend 'cache_type'
+            'difficulty': row.difficulty,
+            'terrain': row.terrain,
+            'found': bool(row.found),
+        }
+        for row in rows
+    ])
+
+
 @bp.post('/api/geocaches/export-gpx')
 def export_gpx():
     data = request.get_json(silent=True) or {}

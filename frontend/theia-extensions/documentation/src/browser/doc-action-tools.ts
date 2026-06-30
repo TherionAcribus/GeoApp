@@ -949,7 +949,7 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                 handler: async (argString: string) => {
                     const args = parseArgs(argString);
                     try {
-                        const geocaches = await this.zonesService.listGeocaches<{ id: number; gc_code: string; name: string }>(args.zone_id);
+                        const geocaches = await this.zonesService.listGeocachesTree<{ id: number; gc_code: string; name: string }>(args.zone_id);
                         return ok(geocaches);
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },

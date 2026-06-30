@@ -272,7 +272,7 @@ export class ZonesTreeWidget extends ReactWidget {
         this.update();
         
         try {
-            const geocaches = await this.zonesService.listGeocaches<GeocacheDto>(zoneId);
+            const geocaches = await this.zonesService.listGeocachesTree<GeocacheDto>(zoneId);
             this.zoneGeocaches.set(zoneId, geocaches);
         } catch (e) {
             console.error('[ZonesTreeWidget] Failed to load geocaches for zone', zoneId, e);
