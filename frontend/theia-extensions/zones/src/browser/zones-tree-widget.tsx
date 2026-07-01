@@ -95,6 +95,9 @@ export class ZonesTreeWidget extends ReactWidget {
     protected draggingGeocache: { geocache: GeocacheDto; sourceZoneId: number } | null = null;
     /** Zone actuellement survolée comme cible de dépôt (pour la mise en surbrillance). */
     protected dropTargetZoneId: number | undefined;
+    /** Timer de désambiguïsation simple-clic (déplier) vs double-clic (ouvrir) sur une zone. */
+    private zoneClickTimer: number | undefined;
+    private static readonly ZONE_CLICK_DELAY_MS = 250;
     protected readonly zoneNameCollator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
     /** Vrai pendant que CE widget émet requestZonesRefresh, pour ignorer son propre événement. */
     private selfTriggeringZonesRefresh = false;
@@ -257,6 +260,10 @@ export class ZonesTreeWidget extends ReactWidget {
         if (typeof window !== 'undefined') {
             window.removeEventListener('geoapp-geocache-log-submitted', this.handleGeocacheLogSubmitted as EventListener);
         }
+        if (this.zoneClickTimer !== undefined) {
+            window.clearTimeout(this.zoneClickTimer);
+            this.zoneClickTimer = undefined;
+        }
         super.onBeforeDetach(msg);
     }
 
@@ -407,6 +414,33 @@ export class ZonesTreeWidget extends ReactWidget {
             await this.loadGeocachesForZone(zoneId);
         }
         this.update();
+    }
+
+    /**
+     * Simple-clic sur une ligne de zone: déplie/replie (modèle "dossier").
+     * Temporisé pour laisser une chance à un double-clic (= ouvrir le tableau)
+     * sans déclencher un dépli/repli — et donc sans chargement réseau inutile.
+     */
+    protected onZoneRowClick(zone: ZoneDto): void {
+        if (this.zoneClickTimer !== undefined) {
+            // Un clic est déjà en attente (2e clic d'un double-clic): ne rien faire.
+            return;
+        }
+        this.zoneClickTimer = window.setTimeout(() => {
+            this.zoneClickTimer = undefined;
+            if (zone.geocaches_count > 0) {
+                void this.toggleZone(zone.id);
+            }
+        }, ZonesTreeWidget.ZONE_CLICK_DELAY_MS);
+    }
+
+    /** Double-clic sur une ligne de zone: ouvre le tableau (annule le dépli en attente). */
+    protected onZoneRowDoubleClick(zone: ZoneDto): void {
+        if (this.zoneClickTimer !== undefined) {
+            window.clearTimeout(this.zoneClickTimer);
+            this.zoneClickTimer = undefined;
+        }
+        void this.openZoneTable(zone);
     }
 
     protected async openZoneTable(zone: ZoneDto): Promise<void> {
@@ -1300,19 +1334,17 @@ export class ZonesTreeWidget extends ReactWidget {
                     aria-expanded={hasChildren ? isExpanded : undefined}
                     aria-label={`Zone ${zone.name}, ${zone.geocaches_count} géocache${zone.geocaches_count > 1 ? 's' : ''}`}
                     className={`zone-node${isActive ? ' zone-node--active' : ''}${isFocused ? ' zone-node--focused' : ''}${isDropTarget ? ' zone-node--drop-target' : ''}`}
+                    title={zone.description ? `${zone.name}\n${zone.description}\n(Double-cliquer pour ouvrir le tableau)` : `${zone.name}\n(Double-cliquer pour ouvrir le tableau)`}
                     onMouseDown={() => this.setActiveItem(itemId, { scroll: false })}
+                    onClick={() => this.onZoneRowClick(zone)}
+                    onDoubleClick={() => this.onZoneRowDoubleClick(zone)}
                     onContextMenu={(e) => this.showZoneContextMenu(zone, e)}
                 >
-                    {/* Icône expand/collapse */}
+                    {/* Icône expand/collapse (purement visuelle: tout le clic ligne déplie) */}
                     <span
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            this.toggleZone(zone.id);
-                        }}
                         style={{
                             width: 16,
                             display: 'inline-block',
-                            cursor: 'pointer',
                             userSelect: 'none',
                         }}
                     >
@@ -1325,11 +1357,7 @@ export class ZonesTreeWidget extends ReactWidget {
                     </span>
 
                     {/* Nom de la zone */}
-                    <span
-                        className='zone-name'
-                        onClick={() => this.openZoneTable(zone)}
-                        title={zone.description || zone.name}
-                    >
+                    <span className='zone-name'>
                         {zone.name}
                         <span style={{ opacity: 0.6, marginLeft: 4, fontSize: '0.85em' }}>
                             ({zone.geocaches_count})
