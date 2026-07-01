@@ -48,6 +48,73 @@ const GEOCACHE_SORT_OPTIONS: Array<{ key: GeocacheSortKey; label: string }> = [
 /** Type MIME du glisser-déposer interne d'une géocache (disponible dans dragover via dataTransfer.types). */
 const GEOCACHE_DND_MIME = 'application/x-geoapp-geocache';
 
+interface GeocacheNodeProps {
+    geocache: GeocacheDto;
+    zoneId: number;
+    domId: string;
+    isFocused: boolean;
+    onOpen: (geocache: GeocacheDto, zoneId: number) => void;
+    onContextMenu: (geocache: GeocacheDto, zoneId: number, event: React.MouseEvent) => void;
+    onDragStart: (geocache: GeocacheDto, zoneId: number, event: React.DragEvent) => void;
+    onDragEnd: () => void;
+}
+
+/**
+ * Nœud "géocache" mémoïsé: ne se re-rend que si sa géocache, son focus ou sa
+ * zone changent. Les callbacks passés par le widget sont stables (champs liés),
+ * donc la comparaison superficielle de React.memo suffit à éviter les rendus
+ * inutiles (et notamment le re-rendu de l'icône SVG) lors des mises à jour de
+ * l'arbre qui ne concernent pas ce nœud (navigation clavier, survol d'une autre
+ * zone, etc.).
+ */
+const GeocacheNode = React.memo<GeocacheNodeProps>(({
+    geocache, zoneId, domId, isFocused, onOpen, onContextMenu, onDragStart, onDragEnd,
+}) => (
+    <div
+        id={domId}
+        role='treeitem'
+        aria-level={2}
+        aria-selected={isFocused}
+        aria-label={`${geocache.gc_code} ${geocache.name}, difficulté ${geocache.difficulty}, terrain ${geocache.terrain}${geocache.found ? ', trouvée' : ''}`}
+        className={`geocache-node${isFocused ? ' geocache-node--focused' : ''}`}
+        draggable={true}
+        onDragStart={(e) => onDragStart(geocache, zoneId, e)}
+        onDragEnd={() => onDragEnd()}
+        onClick={() => onOpen(geocache, zoneId)}
+        onContextMenu={(e) => onContextMenu(geocache, zoneId, e)}
+        title={`${geocache.gc_code} - ${geocache.name}\nD${geocache.difficulty} T${geocache.terrain}`}
+    >
+        {/* Icône type de cache */}
+        <span style={{ marginRight: 6, display: 'inline-flex', alignItems: 'center' }}>
+            <GeocacheIcon type={geocache.cache_type} size={16} />
+        </span>
+
+        {/* Code GC */}
+        <span style={{ fontWeight: 600, marginRight: 6, color: 'var(--theia-textLink-foreground)' }}>
+            {geocache.gc_code}
+        </span>
+
+        {/* Nom de la cache */}
+        <span style={{
+            flex: 1,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            opacity: 0.9,
+        }}>
+            {geocache.name}
+        </span>
+
+        {/* Indicateur "trouvée" */}
+        {geocache.found && (
+            <span style={{ marginLeft: 4, fontSize: '0.9em' }} title='Trouvée'>
+                ✓
+            </span>
+        )}
+    </div>
+));
+GeocacheNode.displayName = 'GeocacheNode';
+
 type ZoneSortKey =
     | 'name'
     | 'created_at'
@@ -98,9 +165,31 @@ export class ZonesTreeWidget extends ReactWidget {
     /** Timer de désambiguïsation simple-clic (déplier) vs double-clic (ouvrir) sur une zone. */
     private zoneClickTimer: number | undefined;
     private static readonly ZONE_CLICK_DELAY_MS = 250;
+    /** Caches de tri: évitent de re-trier à chaque rendu / frappe clavier tant que les données et le tri ne changent pas. */
+    private sortedZonesCache?: { source: ZoneDto[]; key: ZoneSortKey; direction: ZoneSortDirection; result: ZoneDto[] };
+    private readonly sortedGeocachesCache = new WeakMap<GeocacheDto[], { key: GeocacheSortKey; direction: ZoneSortDirection; result: GeocacheDto[] }>();
+    /** Horodatage du dernier rafraîchissement réussi (pour le TTL de re-fetch à l'affichage). */
+    private lastRefreshAt = 0;
+    private static readonly REFRESH_ON_SHOW_TTL_MS = 30_000;
     protected readonly zoneNameCollator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
     /** Vrai pendant que CE widget émet requestZonesRefresh, pour ignorer son propre événement. */
     private selfTriggeringZonesRefresh = false;
+
+    // Callbacks stables passés à GeocacheNode (mémoïsé) — définis une fois par
+    // instance pour que la comparaison superficielle de React.memo fonctionne.
+    protected readonly handleGeocacheOpen = (geocache: GeocacheDto, zoneId: number): void => {
+        this.setActiveItem(this.geocacheItemId(zoneId, geocache.id), { scroll: false });
+        void this.openGeocacheDetails(geocache);
+    };
+    protected readonly handleGeocacheContextMenu = (geocache: GeocacheDto, zoneId: number, event: React.MouseEvent): void => {
+        this.showGeocacheContextMenu(geocache, zoneId, event);
+    };
+    protected readonly handleGeocacheDragStartBound = (geocache: GeocacheDto, zoneId: number, event: React.DragEvent): void => {
+        this.onGeocacheDragStart(geocache, zoneId, event);
+    };
+    protected readonly handleGeocacheDragEndBound = (): void => {
+        this.onGeocacheDragEnd();
+    };
 
     protected readonly handleGeocacheLogSubmitted = (event: CustomEvent<{ geocacheId: number; found?: boolean }>): void => {
         const detail = event?.detail;
@@ -267,6 +356,16 @@ export class ZonesTreeWidget extends ReactWidget {
         super.onBeforeDetach(msg);
     }
 
+    protected onAfterShow(msg: any): void {
+        super.onAfterShow(msg);
+        // Rafraîchit les données à la ré-ouverture du panneau si elles sont périmées,
+        // pour refléter les changements survenus ailleurs pendant qu'il était masqué.
+        if (this.lastRefreshAt > 0
+            && Date.now() - this.lastRefreshAt > ZonesTreeWidget.REFRESH_ON_SHOW_TTL_MS) {
+            void this.refreshExpandedZones();
+        }
+    }
+
     public async refresh(): Promise<void> {
         try {
             const [zones, activeZone] = await Promise.all([
@@ -275,6 +374,7 @@ export class ZonesTreeWidget extends ReactWidget {
             ]);
             this.zones = zones;
             this.activeZoneId = typeof activeZone?.id === 'number' ? activeZone.id : undefined;
+            this.lastRefreshAt = Date.now();
 
             this.update();
         } catch (e) {
@@ -284,7 +384,21 @@ export class ZonesTreeWidget extends ReactWidget {
     }
 
     protected getSortedZones(): ZoneDto[] {
-        return [...this.zones].sort((a, b) => this.compareZones(a, b));
+        const cache = this.sortedZonesCache;
+        if (cache
+            && cache.source === this.zones
+            && cache.key === this.zoneSort.key
+            && cache.direction === this.zoneSort.direction) {
+            return cache.result;
+        }
+        const result = [...this.zones].sort((a, b) => this.compareZones(a, b));
+        this.sortedZonesCache = {
+            source: this.zones,
+            key: this.zoneSort.key,
+            direction: this.zoneSort.direction,
+            result,
+        };
+        return result;
     }
 
     protected compareZones(a: ZoneDto, b: ZoneDto): number {
@@ -339,6 +453,10 @@ export class ZonesTreeWidget extends ReactWidget {
     }
 
     protected getSortedGeocaches(geocaches: GeocacheDto[]): GeocacheDto[] {
+        const cached = this.sortedGeocachesCache.get(geocaches);
+        if (cached && cached.key === this.geocacheSort.key && cached.direction === this.geocacheSort.direction) {
+            return cached.result;
+        }
         const { key, direction } = this.geocacheSort;
         const sign = direction === 'asc' ? 1 : -1;
 
@@ -353,7 +471,7 @@ export class ZonesTreeWidget extends ReactWidget {
             }
         };
 
-        return [...geocaches].sort((a, b) => {
+        const result = [...geocaches].sort((a, b) => {
             let comparison = 0;
             if (key === 'created_at') {
                 const aTime = this.getDateTimestamp(a.created_at);
@@ -378,6 +496,8 @@ export class ZonesTreeWidget extends ReactWidget {
             // Départage stable: code GC puis id.
             return this.zoneNameCollator.compare(a.gc_code || '', b.gc_code || '') || (a.id - b.id);
         });
+        this.sortedGeocachesCache.set(geocaches, { key, direction, result });
+        return result;
     }
 
     protected async loadGeocachesForZone(zoneId: number, options: { force?: boolean } = {}): Promise<void> {
@@ -980,22 +1100,13 @@ export class ZonesTreeWidget extends ReactWidget {
 
     protected renderSortControls(): React.ReactNode {
         return (
-            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+            <div className='zone-sort-controls'>
                 <select
+                    className='zone-sort-select'
                     value={this.zoneSort.key}
                     onChange={event => this.setZoneSort({ key: event.currentTarget.value as ZoneSortKey })}
                     title='Critere de tri'
                     aria-label='Critere de tri des zones'
-                    style={{
-                        flex: 1,
-                        minWidth: 0,
-                        padding: '3px 6px',
-                        border: '1px solid var(--theia-dropdown-border, var(--theia-input-border))',
-                        background: 'var(--theia-dropdown-background, var(--theia-input-background))',
-                        color: 'var(--theia-dropdown-foreground, var(--theia-input-foreground))',
-                        borderRadius: 3,
-                        fontSize: '0.85em',
-                    }}
                 >
                     {ZONE_SORT_OPTIONS.map(option => (
                         <option key={option.key} value={option.key}>{option.label}</option>
@@ -1003,11 +1114,10 @@ export class ZonesTreeWidget extends ReactWidget {
                 </select>
                 <button
                     type='button'
-                    className='theia-button'
+                    className='theia-button zone-sort-direction'
                     onClick={() => this.toggleZoneSortDirection()}
                     title={this.zoneSort.direction === 'asc' ? 'Tri croissant' : 'Tri decroissant'}
                     aria-label='Inverser le tri des zones'
-                    style={{ padding: '3px 8px', minWidth: 48 }}
                 >
                     {this.zoneSort.direction === 'asc' ? 'Asc' : 'Desc'}
                 </button>
@@ -1186,36 +1296,23 @@ export class ZonesTreeWidget extends ReactWidget {
         return (
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '8px' }}>
                 {/* Formulaire d'ajout de zone */}
-                <form 
-                    onSubmit={e => this.onAddZoneSubmit(e)} 
-                    style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}
+                <form
+                    className='zone-add-form'
+                    onSubmit={e => this.onAddZoneSubmit(e)}
                 >
-                    <input 
-                        name='name' 
-                        placeholder='Nouvelle zone' 
-                        style={{
-                            padding: '4px 8px',
-                            border: '1px solid var(--theia-input-border)',
-                            background: 'var(--theia-input-background)',
-                            color: 'var(--theia-input-foreground)',
-                            borderRadius: 3,
-                        }}
+                    <input
+                        className='zone-add-input'
+                        name='name'
+                        placeholder='Nouvelle zone'
                     />
-                    <input 
-                        name='description' 
+                    <input
+                        className='zone-add-input'
+                        name='description'
                         placeholder='Description (optionnel)'
-                        style={{
-                            padding: '4px 8px',
-                            border: '1px solid var(--theia-input-border)',
-                            background: 'var(--theia-input-background)',
-                            color: 'var(--theia-input-foreground)',
-                            borderRadius: 3,
-                        }}
                     />
-                    <button 
+                    <button
                         type='submit'
-                        className='theia-button'
-                        style={{ padding: '4px 8px' }}
+                        className='theia-button zone-add-submit'
                     >
                         ➕ Ajouter Zone
                     </button>
@@ -1389,52 +1486,17 @@ export class ZonesTreeWidget extends ReactWidget {
         const itemId = this.geocacheItemId(zoneId, geocache.id);
         const isFocused = this.treeFocused && this.activeItemId === itemId;
         return (
-            <div
+            <GeocacheNode
                 key={geocache.id}
-                id={this.itemDomId(itemId)}
-                role='treeitem'
-                aria-level={2}
-                aria-selected={isFocused}
-                aria-label={`${geocache.gc_code} ${geocache.name}, difficulté ${geocache.difficulty}, terrain ${geocache.terrain}${geocache.found ? ', trouvée' : ''}`}
-                className={`geocache-node${isFocused ? ' geocache-node--focused' : ''}`}
-                draggable={true}
-                onDragStart={(e) => this.onGeocacheDragStart(geocache, zoneId, e)}
-                onDragEnd={() => this.onGeocacheDragEnd()}
-                onClick={() => {
-                    this.setActiveItem(itemId, { scroll: false });
-                    void this.openGeocacheDetails(geocache);
-                }}
-                onContextMenu={(e) => this.showGeocacheContextMenu(geocache, zoneId, e)}
-                title={`${geocache.gc_code} - ${geocache.name}\nD${geocache.difficulty} T${geocache.terrain}`}
-            >
-                {/* Icône type de cache */}
-                <span style={{ marginRight: 6, display: 'inline-flex', alignItems: 'center' }}>
-                    <GeocacheIcon type={geocache.cache_type} size={16} />
-                </span>
-
-                {/* Code GC */}
-                <span style={{ fontWeight: 600, marginRight: 6, color: 'var(--theia-textLink-foreground)' }}>
-                    {geocache.gc_code}
-                </span>
-
-                {/* Nom de la cache */}
-                <span style={{ 
-                    flex: 1, 
-                    overflow: 'hidden', 
-                    textOverflow: 'ellipsis', 
-                    whiteSpace: 'nowrap',
-                    opacity: 0.9,
-                }}>
-                    {geocache.name}
-                </span>
-
-                {/* Indicateur "trouvée" */}
-                {geocache.found && (
-                    <span style={{ marginLeft: 4, fontSize: '0.9em' }} title="Trouvée">
-                        ✓
-                    </span>
-                )}
-            </div>
+                geocache={geocache}
+                zoneId={zoneId}
+                domId={this.itemDomId(itemId)}
+                isFocused={isFocused}
+                onOpen={this.handleGeocacheOpen}
+                onContextMenu={this.handleGeocacheContextMenu}
+                onDragStart={this.handleGeocacheDragStartBound}
+                onDragEnd={this.handleGeocacheDragEndBound}
+            />
         );
     }
 }

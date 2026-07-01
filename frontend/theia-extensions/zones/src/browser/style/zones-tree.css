@@ -12,6 +12,49 @@
     font-size: 0.9em;
 }
 
+/* Formulaire d'ajout de zone */
+.theia-zones-tree-widget .zone-add-form {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+.theia-zones-tree-widget .zone-add-input {
+    padding: 4px 8px;
+    border: 1px solid var(--theia-input-border);
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border-radius: 3px;
+}
+
+.theia-zones-tree-widget .zone-add-submit {
+    padding: 4px 8px;
+}
+
+/* Contrôles de tri des zones */
+.theia-zones-tree-widget .zone-sort-controls {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.theia-zones-tree-widget .zone-sort-select {
+    flex: 1;
+    min-width: 0;
+    padding: 3px 6px;
+    border: 1px solid var(--theia-dropdown-border, var(--theia-input-border));
+    background: var(--theia-dropdown-background, var(--theia-input-background));
+    color: var(--theia-dropdown-foreground, var(--theia-input-foreground));
+    border-radius: 3px;
+    font-size: 0.85em;
+}
+
+.theia-zones-tree-widget .zone-sort-direction {
+    padding: 3px 8px;
+    min-width: 48px;
+}
+
 /* Ligne d'une zone */
 .theia-zones-tree-widget .zone-node {
     display: flex;
