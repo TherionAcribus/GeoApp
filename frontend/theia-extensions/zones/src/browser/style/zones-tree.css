@@ -54,6 +54,12 @@
     outline-color: var(--theia-focusBorder);
 }
 
+/* Zone survolée comme cible d'un glisser-déposer de géocache */
+.theia-zones-tree-widget .zone-node.zone-node--drop-target {
+    background: var(--theia-list-dropBackground, var(--theia-list-hoverBackground));
+    outline-color: var(--theia-focusBorder);
+}
+
 /* Nom de la zone */
 .theia-zones-tree-widget .zone-name {
     flex: 1;

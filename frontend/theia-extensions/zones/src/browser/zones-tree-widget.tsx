@@ -45,6 +45,9 @@ const GEOCACHE_SORT_OPTIONS: Array<{ key: GeocacheSortKey; label: string }> = [
     { key: 'created_at', label: 'Date d\'ajout' },
 ];
 
+/** Type MIME du glisser-déposer interne d'une géocache (disponible dans dragover via dataTransfer.types). */
+const GEOCACHE_DND_MIME = 'application/x-geoapp-geocache';
+
 type ZoneSortKey =
     | 'name'
     | 'created_at'
@@ -88,6 +91,10 @@ export class ZonesTreeWidget extends ReactWidget {
     protected activeItemId: string | undefined;
     /** Vrai quand l'arbre a le focus clavier (pour n'afficher l'anneau de focus qu'alors). */
     protected treeFocused = false;
+    /** Géocache en cours de glisser-déposer (avec sa zone source), ou null. */
+    protected draggingGeocache: { geocache: GeocacheDto; sourceZoneId: number } | null = null;
+    /** Zone actuellement survolée comme cible de dépôt (pour la mise en surbrillance). */
+    protected dropTargetZoneId: number | undefined;
     protected readonly zoneNameCollator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
     /** Vrai pendant que CE widget émet requestZonesRefresh, pour ignorer son propre événement. */
     private selfTriggeringZonesRefresh = false;
@@ -606,6 +613,96 @@ export class ZonesTreeWidget extends ReactWidget {
             console.error('Copy geocache error', e);
             this.messages.error(getErrorMessage(e, 'Erreur lors de la copie'));
         }
+    }
+
+    // ---- Glisser-déposer d'une géocache vers une autre zone ----
+
+    protected onGeocacheDragStart(geocache: GeocacheDto, sourceZoneId: number, event: React.DragEvent): void {
+        this.draggingGeocache = { geocache, sourceZoneId };
+        event.dataTransfer.effectAllowed = 'move';
+        // Le type MIME custom permet de valider le dragover (types y est lisible,
+        // getData ne l'est pas). La charge utile sert de repli au drop.
+        event.dataTransfer.setData(GEOCACHE_DND_MIME, JSON.stringify({ geocacheId: geocache.id, sourceZoneId }));
+        event.dataTransfer.setData('text/plain', geocache.gc_code);
+    }
+
+    protected onGeocacheDragEnd(): void {
+        const hadTarget = this.dropTargetZoneId !== undefined;
+        this.draggingGeocache = null;
+        this.dropTargetZoneId = undefined;
+        if (hadTarget) {
+            this.update();
+        }
+    }
+
+    /** Vrai si l'évènement transporte un glisser-déposer de géocache interne. */
+    protected isGeocacheDrag(event: React.DragEvent): boolean {
+        return this.draggingGeocache !== null
+            || Array.from(event.dataTransfer.types).includes(GEOCACHE_DND_MIME);
+    }
+
+    protected onZoneDragOver(zone: ZoneDto, event: React.DragEvent): void {
+        if (!this.isGeocacheDrag(event)) {
+            return;
+        }
+        // preventDefault (à chaque dragover) autorise le dépôt sur cette cible.
+        event.preventDefault();
+        event.stopPropagation();
+        event.dataTransfer.dropEffect = 'move';
+    }
+
+    protected onZoneDragEnter(zone: ZoneDto, event: React.DragEvent): void {
+        if (!this.isGeocacheDrag(event)) {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        // Ne pas surligner la zone source (dépôt sans effet) — cosmétique seulement.
+        if (this.draggingGeocache && this.draggingGeocache.sourceZoneId === zone.id) {
+            if (this.dropTargetZoneId !== undefined) {
+                this.dropTargetZoneId = undefined;
+                this.update();
+            }
+            return;
+        }
+        if (this.dropTargetZoneId !== zone.id) {
+            this.dropTargetZoneId = zone.id;
+            this.update();
+        }
+    }
+
+    protected resolveDraggedGeocache(event: React.DragEvent): { geocache: GeocacheDto; sourceZoneId: number } | null {
+        if (this.draggingGeocache) {
+            return this.draggingGeocache;
+        }
+        try {
+            const raw = event.dataTransfer.getData(GEOCACHE_DND_MIME);
+            if (!raw) {
+                return null;
+            }
+            const { geocacheId, sourceZoneId } = JSON.parse(raw);
+            const geocache = this.zoneGeocaches.get(sourceZoneId)?.find(g => g.id === geocacheId);
+            return geocache ? { geocache, sourceZoneId } : null;
+        } catch {
+            return null;
+        }
+    }
+
+    protected async onZoneDrop(zone: ZoneDto, event: React.DragEvent): Promise<void> {
+        if (!this.isGeocacheDrag(event)) {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        const dragged = this.resolveDraggedGeocache(event);
+        this.draggingGeocache = null;
+        this.dropTargetZoneId = undefined;
+        if (!dragged || dragged.sourceZoneId === zone.id) {
+            this.update();
+            return;
+        }
+        // moveGeocache déclenche déjà le rafraîchissement ciblé + update().
+        await this.moveGeocache(dragged.geocache, dragged.sourceZoneId, zone.id);
     }
 
     protected buildGeocacheSortSubmenu(): ContextMenuItem[] {
@@ -1183,9 +1280,17 @@ export class ZonesTreeWidget extends ReactWidget {
         const hasChildren = zone.geocaches_count > 0;
         const itemId = this.zoneItemId(zone.id);
         const isFocused = this.treeFocused && this.activeItemId === itemId;
+        const isDropTarget = this.dropTargetZoneId === zone.id;
 
         return (
-            <div key={zone.id} style={{ marginBottom: 4 }} role='none'>
+            <div
+                key={zone.id}
+                style={{ marginBottom: 4 }}
+                role='none'
+                onDragOver={(e) => this.onZoneDragOver(zone, e)}
+                onDragEnter={(e) => this.onZoneDragEnter(zone, e)}
+                onDrop={(e) => this.onZoneDrop(zone, e)}
+            >
                 {/* Ligne de la zone */}
                 <div
                     id={this.itemDomId(itemId)}
@@ -1194,7 +1299,7 @@ export class ZonesTreeWidget extends ReactWidget {
                     aria-selected={isFocused}
                     aria-expanded={hasChildren ? isExpanded : undefined}
                     aria-label={`Zone ${zone.name}, ${zone.geocaches_count} géocache${zone.geocaches_count > 1 ? 's' : ''}`}
-                    className={`zone-node${isActive ? ' zone-node--active' : ''}${isFocused ? ' zone-node--focused' : ''}`}
+                    className={`zone-node${isActive ? ' zone-node--active' : ''}${isFocused ? ' zone-node--focused' : ''}${isDropTarget ? ' zone-node--drop-target' : ''}`}
                     onMouseDown={() => this.setActiveItem(itemId, { scroll: false })}
                     onContextMenu={(e) => this.showZoneContextMenu(zone, e)}
                 >
@@ -1264,8 +1369,13 @@ export class ZonesTreeWidget extends ReactWidget {
                 aria-selected={isFocused}
                 aria-label={`${geocache.gc_code} ${geocache.name}, difficulté ${geocache.difficulty}, terrain ${geocache.terrain}${geocache.found ? ', trouvée' : ''}`}
                 className={`geocache-node${isFocused ? ' geocache-node--focused' : ''}`}
-                onMouseDown={() => this.setActiveItem(itemId, { scroll: false })}
-                onClick={() => this.openGeocacheDetails(geocache)}
+                draggable={true}
+                onDragStart={(e) => this.onGeocacheDragStart(geocache, zoneId, e)}
+                onDragEnd={() => this.onGeocacheDragEnd()}
+                onClick={() => {
+                    this.setActiveItem(itemId, { scroll: false });
+                    void this.openGeocacheDetails(geocache);
+                }}
                 onContextMenu={(e) => this.showGeocacheContextMenu(geocache, zoneId, e)}
                 title={`${geocache.gc_code} - ${geocache.name}\nD${geocache.difficulty} T${geocache.terrain}`}
             >
