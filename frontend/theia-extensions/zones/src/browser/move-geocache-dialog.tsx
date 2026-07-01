@@ -23,9 +23,11 @@ export const MoveGeocacheDialog: React.FC<MoveGeocacheDialogProps> = ({
 }) => {
     const [selectedZoneId, setSelectedZoneId] = React.useState<number | null>(null);
     const dialogRef = React.useRef<HTMLDivElement>(null);
+    const listboxRef = React.useRef<HTMLDivElement>(null);
     const titleId = React.useId();
 
     const availableZones = zones.filter(z => z.id !== currentZoneId);
+    const optionId = (zoneId: number) => `move-zone-option-${zoneId}`;
 
     // Fermeture sur Echap
     React.useEffect(() => {
@@ -39,10 +41,61 @@ export const MoveGeocacheDialog: React.FC<MoveGeocacheDialogProps> = ({
         return () => document.removeEventListener('keydown', handler);
     }, [onCancel]);
 
-    // Auto-focus sur le panneau à l'ouverture
+    // Auto-focus à l'ouverture: la liste si des zones sont disponibles (pour la
+    // navigation clavier), sinon le panneau.
     React.useEffect(() => {
-        dialogRef.current?.focus();
+        const hasOptions = zones.some(z => z.id !== currentZoneId);
+        if (hasOptions) {
+            listboxRef.current?.focus();
+        } else {
+            dialogRef.current?.focus();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    const selectByIndex = (index: number): void => {
+        const zone = availableZones[index];
+        if (!zone) {
+            return;
+        }
+        setSelectedZoneId(zone.id);
+        window.requestAnimationFrame(() => {
+            document.getElementById(optionId(zone.id))?.scrollIntoView({ block: 'nearest' });
+        });
+    };
+
+    const handleListKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+        if (availableZones.length === 0) {
+            return;
+        }
+        const currentIndex = availableZones.findIndex(z => z.id === selectedZoneId);
+        switch (e.key) {
+            case 'ArrowDown':
+                e.preventDefault();
+                selectByIndex(currentIndex < 0 ? 0 : Math.min(currentIndex + 1, availableZones.length - 1));
+                break;
+            case 'ArrowUp':
+                e.preventDefault();
+                selectByIndex(currentIndex < 0 ? availableZones.length - 1 : Math.max(currentIndex - 1, 0));
+                break;
+            case 'Home':
+                e.preventDefault();
+                selectByIndex(0);
+                break;
+            case 'End':
+                e.preventDefault();
+                selectByIndex(availableZones.length - 1);
+                break;
+            case 'Enter':
+                e.preventDefault();
+                if (selectedZoneId !== null) {
+                    onMove(selectedZoneId);
+                }
+                break;
+            default:
+                break;
+        }
+    };
 
     return (
         <div
@@ -93,30 +146,34 @@ export const MoveGeocacheDialog: React.FC<MoveGeocacheDialogProps> = ({
                     </p>
                 ) : (
                     <div
+                        ref={listboxRef}
                         role="listbox"
                         aria-label="Zone de destination"
-                        style={{ marginBottom: 20 }}
+                        tabIndex={0}
+                        aria-activedescendant={selectedZoneId !== null ? optionId(selectedZoneId) : undefined}
+                        onKeyDown={handleListKeyDown}
+                        style={{ marginBottom: 20, outline: 'none' }}
                     >
                         {availableZones.map(zone => (
-                            <button
+                            <div
                                 key={zone.id}
+                                id={optionId(zone.id)}
                                 role="option"
                                 aria-selected={selectedZoneId === zone.id}
                                 onClick={() => setSelectedZoneId(zone.id)}
+                                onDoubleClick={() => onMove(zone.id)}
                                 style={{
-                                    display: 'block',
-                                    width: '100%',
-                                    textAlign: 'left',
                                     padding: '10px 12px',
                                     marginBottom: 6,
-                                    border: '1px solid var(--theia-input-border)',
+                                    border: selectedZoneId === zone.id
+                                        ? '1px solid var(--theia-focusBorder)'
+                                        : '1px solid var(--theia-input-border)',
                                     borderRadius: 4,
                                     cursor: 'pointer',
                                     background: selectedZoneId === zone.id
                                         ? 'var(--theia-list-activeSelectionBackground)'
                                         : 'var(--theia-input-background)',
                                     color: 'inherit',
-                                    font: 'inherit',
                                 }}
                                 onMouseEnter={(e) => {
                                     if (selectedZoneId !== zone.id) {
@@ -130,7 +187,7 @@ export const MoveGeocacheDialog: React.FC<MoveGeocacheDialogProps> = ({
                                 }}
                             >
                                 📁 {zone.name}
-                            </button>
+                            </div>
                         ))}
                     </div>
                 )}
