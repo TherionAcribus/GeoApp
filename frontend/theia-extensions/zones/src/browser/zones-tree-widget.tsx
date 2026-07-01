@@ -84,6 +84,10 @@ export class ZonesTreeWidget extends ReactWidget {
     protected mergeDialog: { zone: ZoneDto } | null = null;
     protected zoneSort: ZoneSortPreference = { ...DEFAULT_ZONE_SORT };
     protected geocacheSort: GeocacheSortPreference = { ...DEFAULT_GEOCACHE_SORT };
+    /** Élément actuellement "actif" pour la navigation clavier (aria-activedescendant). */
+    protected activeItemId: string | undefined;
+    /** Vrai quand l'arbre a le focus clavier (pour n'afficher l'anneau de focus qu'alors). */
+    protected treeFocused = false;
     protected readonly zoneNameCollator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
     /** Vrai pendant que CE widget émet requestZonesRefresh, pour ignorer son propre événement. */
     private selfTriggeringZonesRefresh = false;
@@ -876,6 +880,171 @@ export class ZonesTreeWidget extends ReactWidget {
         );
     }
 
+    // ---- Navigation clavier / accessibilité de l'arbre (pattern WAI-ARIA tree) ----
+
+    protected zoneItemId(zoneId: number): string {
+        return `z-${zoneId}`;
+    }
+
+    protected geocacheItemId(zoneId: number, geocacheId: number): string {
+        return `g-${zoneId}-${geocacheId}`;
+    }
+
+    protected itemDomId(itemId: string): string {
+        return `zones-tree-item-${itemId}`;
+    }
+
+    /** Liste à plat des éléments visibles de l'arbre, dans l'ordre d'affichage. */
+    protected getVisibleItems(): Array<{
+        itemId: string;
+        kind: 'zone' | 'geocache';
+        level: number;
+        zone: ZoneDto;
+        zoneId: number;
+        geocache?: GeocacheDto;
+    }> {
+        const items: Array<{
+            itemId: string;
+            kind: 'zone' | 'geocache';
+            level: number;
+            zone: ZoneDto;
+            zoneId: number;
+            geocache?: GeocacheDto;
+        }> = [];
+        for (const zone of this.getSortedZones()) {
+            items.push({ itemId: this.zoneItemId(zone.id), kind: 'zone', level: 1, zone, zoneId: zone.id });
+            if (this.expandedZones.has(zone.id) && !this.loadingZones.has(zone.id)) {
+                const geocaches = this.zoneGeocaches.get(zone.id);
+                if (geocaches && geocaches.length > 0) {
+                    for (const gc of this.getSortedGeocaches(geocaches)) {
+                        items.push({
+                            itemId: this.geocacheItemId(zone.id, gc.id),
+                            kind: 'geocache',
+                            level: 2,
+                            zone,
+                            zoneId: zone.id,
+                            geocache: gc,
+                        });
+                    }
+                }
+            }
+        }
+        return items;
+    }
+
+    protected setActiveItem(itemId: string | undefined, options: { scroll?: boolean } = {}): void {
+        if (this.activeItemId === itemId) {
+            return;
+        }
+        this.activeItemId = itemId;
+        this.update();
+        if (itemId && options.scroll !== false) {
+            const domId = this.itemDomId(itemId);
+            window.requestAnimationFrame(() => {
+                document.getElementById(domId)?.scrollIntoView({ block: 'nearest' });
+            });
+        }
+    }
+
+    protected onTreeFocus(): void {
+        this.treeFocused = true;
+        if (!this.activeItemId) {
+            const items = this.getVisibleItems();
+            if (items.length > 0) {
+                const activeZoneItem = this.activeZoneId !== undefined
+                    ? items.find(item => item.kind === 'zone' && item.zone.id === this.activeZoneId)
+                    : undefined;
+                this.activeItemId = (activeZoneItem ?? items[0]).itemId;
+            }
+        }
+        this.update();
+    }
+
+    protected onTreeBlur(): void {
+        this.treeFocused = false;
+        this.update();
+    }
+
+    protected onTreeKeyDown(event: React.KeyboardEvent<HTMLDivElement>): void {
+        const items = this.getVisibleItems();
+        if (items.length === 0) {
+            return;
+        }
+        const currentIndex = items.findIndex(item => item.itemId === this.activeItemId);
+        const current = currentIndex >= 0 ? items[currentIndex] : undefined;
+
+        switch (event.key) {
+            case 'ArrowDown': {
+                event.preventDefault();
+                const next = currentIndex < 0 ? 0 : Math.min(currentIndex + 1, items.length - 1);
+                this.setActiveItem(items[next].itemId);
+                break;
+            }
+            case 'ArrowUp': {
+                event.preventDefault();
+                const prev = currentIndex < 0 ? 0 : Math.max(currentIndex - 1, 0);
+                this.setActiveItem(items[prev].itemId);
+                break;
+            }
+            case 'Home': {
+                event.preventDefault();
+                this.setActiveItem(items[0].itemId);
+                break;
+            }
+            case 'End': {
+                event.preventDefault();
+                this.setActiveItem(items[items.length - 1].itemId);
+                break;
+            }
+            case 'ArrowRight': {
+                event.preventDefault();
+                if (!current) {
+                    this.setActiveItem(items[0].itemId);
+                    break;
+                }
+                if (current.kind === 'zone' && current.zone.geocaches_count > 0) {
+                    if (!this.expandedZones.has(current.zone.id)) {
+                        void this.toggleZone(current.zone.id);
+                    } else {
+                        const child = items[currentIndex + 1];
+                        if (child && child.kind === 'geocache' && child.zoneId === current.zone.id) {
+                            this.setActiveItem(child.itemId);
+                        }
+                    }
+                }
+                break;
+            }
+            case 'ArrowLeft': {
+                event.preventDefault();
+                if (!current) {
+                    this.setActiveItem(items[0].itemId);
+                    break;
+                }
+                if (current.kind === 'geocache') {
+                    this.setActiveItem(this.zoneItemId(current.zoneId));
+                } else if (current.kind === 'zone' && this.expandedZones.has(current.zone.id)) {
+                    void this.toggleZone(current.zone.id);
+                }
+                break;
+            }
+            case 'Enter':
+            case ' ': {
+                event.preventDefault();
+                if (!current) {
+                    break;
+                }
+                if (current.kind === 'zone') {
+                    void this.openZoneTable(current.zone);
+                } else if (current.geocache) {
+                    void this.openGeocacheDetails(current.geocache);
+                }
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
     protected render(): React.ReactNode {
         const sortedZones = this.getSortedZones();
 
@@ -927,7 +1096,16 @@ export class ZonesTreeWidget extends ReactWidget {
                             <p style={{ fontSize: '0.85em' }}>Créez une zone pour commencer</p>
                         </div>
                     ) : (
-                        <div>
+                        <div
+                            role='tree'
+                            aria-label='Zones et géocaches'
+                            tabIndex={0}
+                            aria-activedescendant={this.activeItemId ? this.itemDomId(this.activeItemId) : undefined}
+                            onKeyDown={e => this.onTreeKeyDown(e)}
+                            onFocus={() => this.onTreeFocus()}
+                            onBlur={() => this.onTreeBlur()}
+                            style={{ outline: 'none' }}
+                        >
                             {sortedZones.map(zone => this.renderZoneNode(zone))}
                         </div>
                     )}
@@ -998,19 +1176,31 @@ export class ZonesTreeWidget extends ReactWidget {
         const isActive = this.activeZoneId === zone.id;
         const isLoading = this.loadingZones.has(zone.id);
         const geocaches = this.zoneGeocaches.get(zone.id) || [];
+        const hasChildren = zone.geocaches_count > 0;
+        const itemId = this.zoneItemId(zone.id);
+        const isFocused = this.treeFocused && this.activeItemId === itemId;
 
         return (
-            <div key={zone.id} style={{ marginBottom: 4 }}>
+            <div key={zone.id} style={{ marginBottom: 4 }} role='none'>
                 {/* Ligne de la zone */}
-                <div 
+                <div
+                    id={this.itemDomId(itemId)}
+                    role='treeitem'
+                    aria-level={1}
+                    aria-selected={isFocused}
+                    aria-expanded={hasChildren ? isExpanded : undefined}
+                    aria-label={`Zone ${zone.name}, ${zone.geocaches_count} géocache${zone.geocaches_count > 1 ? 's' : ''}`}
                     style={{
                         display: 'flex',
                         alignItems: 'center',
                         padding: '4px 6px',
                         borderRadius: 3,
                         background: isActive ? 'var(--theia-list-activeSelectionBackground)' : 'transparent',
+                        outline: isFocused ? '1px solid var(--theia-focusBorder)' : 'none',
+                        outlineOffset: -1,
                         cursor: 'pointer',
                     }}
+                    onMouseDown={() => this.setActiveItem(itemId, { scroll: false })}
                     onContextMenu={(e) => this.showZoneContextMenu(zone, e)}
                     onMouseEnter={(e) => {
                         if (!isActive) {
@@ -1063,7 +1253,7 @@ export class ZonesTreeWidget extends ReactWidget {
 
                 {/* Géocaches (si la zone est dépliée) */}
                 {isExpanded && (
-                    <div style={{ marginLeft: 20, marginTop: 2 }}>
+                    <div role='group' style={{ marginLeft: 20, marginTop: 2 }}>
                         {isLoading ? (
                             <div style={{ padding: '4px 6px', fontSize: '0.85em', opacity: 0.6 }}>
                                 Chargement...
@@ -1082,9 +1272,17 @@ export class ZonesTreeWidget extends ReactWidget {
     }
 
     protected renderGeocacheNode(geocache: GeocacheDto, zoneId: number): React.ReactNode {
+        const itemId = this.geocacheItemId(zoneId, geocache.id);
+        const isFocused = this.treeFocused && this.activeItemId === itemId;
         return (
             <div
                 key={geocache.id}
+                id={this.itemDomId(itemId)}
+                role='treeitem'
+                aria-level={2}
+                aria-selected={isFocused}
+                aria-label={`${geocache.gc_code} ${geocache.name}, difficulté ${geocache.difficulty}, terrain ${geocache.terrain}${geocache.found ? ', trouvée' : ''}`}
+                onMouseDown={() => this.setActiveItem(itemId, { scroll: false })}
                 onClick={() => this.openGeocacheDetails(geocache)}
                 onContextMenu={(e) => this.showGeocacheContextMenu(geocache, zoneId, e)}
                 style={{
@@ -1093,6 +1291,8 @@ export class ZonesTreeWidget extends ReactWidget {
                     padding: '3px 6px',
                     marginBottom: 2,
                     borderRadius: 3,
+                    outline: isFocused ? '1px solid var(--theia-focusBorder)' : 'none',
+                    outlineOffset: -1,
                     cursor: 'pointer',
                     fontSize: '0.85em',
                 }}
