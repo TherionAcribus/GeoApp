@@ -427,13 +427,17 @@ export class ZonesTreeWidget extends ReactWidget {
     }
 
     protected async deleteZone(zone: ZoneDto): Promise<void> {
+        const count = zone.geocaches_count ?? 0;
+        const msg = count > 0
+            ? `Voulez-vous vraiment supprimer la zone "${zone.name}" et ses ${count} géocache${count > 1 ? 's' : ''} ? Cette action est irréversible.`
+            : `Voulez-vous vraiment supprimer la zone "${zone.name}" ?`;
         const dialog = new ConfirmDialog({
             title: 'Supprimer la zone',
-            msg: `Voulez-vous vraiment supprimer la zone "${zone.name}" ?`,
+            msg,
             ok: Dialog.OK,
             cancel: Dialog.CANCEL
         });
-        
+
         const confirmed = await dialog.open();
         if (!confirmed) {
             return;
@@ -1190,28 +1194,9 @@ export class ZonesTreeWidget extends ReactWidget {
                     aria-selected={isFocused}
                     aria-expanded={hasChildren ? isExpanded : undefined}
                     aria-label={`Zone ${zone.name}, ${zone.geocaches_count} géocache${zone.geocaches_count > 1 ? 's' : ''}`}
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        padding: '4px 6px',
-                        borderRadius: 3,
-                        background: isActive ? 'var(--theia-list-activeSelectionBackground)' : 'transparent',
-                        outline: isFocused ? '1px solid var(--theia-focusBorder)' : 'none',
-                        outlineOffset: -1,
-                        cursor: 'pointer',
-                    }}
+                    className={`zone-node${isActive ? ' zone-node--active' : ''}${isFocused ? ' zone-node--focused' : ''}`}
                     onMouseDown={() => this.setActiveItem(itemId, { scroll: false })}
                     onContextMenu={(e) => this.showZoneContextMenu(zone, e)}
-                    onMouseEnter={(e) => {
-                        if (!isActive) {
-                            (e.currentTarget as HTMLElement).style.background = 'var(--theia-list-hoverBackground)';
-                        }
-                    }}
-                    onMouseLeave={(e) => {
-                        if (!isActive) {
-                            (e.currentTarget as HTMLElement).style.background = 'transparent';
-                        }
-                    }}
                 >
                     {/* Icône expand/collapse */}
                     <span
@@ -1236,12 +1221,8 @@ export class ZonesTreeWidget extends ReactWidget {
 
                     {/* Nom de la zone */}
                     <span
+                        className='zone-name'
                         onClick={() => this.openZoneTable(zone)}
-                        style={{
-                            flex: 1,
-                            fontSize: '0.9em',
-                            fontWeight: isActive ? 600 : 400,
-                        }}
                         title={zone.description || zone.name}
                     >
                         {zone.name}
@@ -1282,26 +1263,10 @@ export class ZonesTreeWidget extends ReactWidget {
                 aria-level={2}
                 aria-selected={isFocused}
                 aria-label={`${geocache.gc_code} ${geocache.name}, difficulté ${geocache.difficulty}, terrain ${geocache.terrain}${geocache.found ? ', trouvée' : ''}`}
+                className={`geocache-node${isFocused ? ' geocache-node--focused' : ''}`}
                 onMouseDown={() => this.setActiveItem(itemId, { scroll: false })}
                 onClick={() => this.openGeocacheDetails(geocache)}
                 onContextMenu={(e) => this.showGeocacheContextMenu(geocache, zoneId, e)}
-                style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    padding: '3px 6px',
-                    marginBottom: 2,
-                    borderRadius: 3,
-                    outline: isFocused ? '1px solid var(--theia-focusBorder)' : 'none',
-                    outlineOffset: -1,
-                    cursor: 'pointer',
-                    fontSize: '0.85em',
-                }}
-                onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLElement).style.background = 'var(--theia-list-hoverBackground)';
-                }}
-                onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLElement).style.background = 'transparent';
-                }}
                 title={`${geocache.gc_code} - ${geocache.name}\nD${geocache.difficulty} T${geocache.terrain}`}
             >
                 {/* Icône type de cache */}

@@ -12,10 +12,57 @@
     font-size: 0.9em;
 }
 
-/* Amélioration du survol */
+/* Ligne d'une zone */
+.theia-zones-tree-widget .zone-node {
+    display: flex;
+    align-items: center;
+    padding: 4px 6px;
+    border-radius: 3px;
+    cursor: pointer;
+    background: transparent;
+    outline: 1px solid transparent;
+    outline-offset: -1px;
+}
+
+/* Ligne d'une géocache */
+.theia-zones-tree-widget .geocache-node {
+    display: flex;
+    align-items: center;
+    padding: 3px 6px;
+    margin-bottom: 2px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 0.85em;
+    outline: 1px solid transparent;
+    outline-offset: -1px;
+}
+
+/* Survol */
 .theia-zones-tree-widget .zone-node:hover,
 .theia-zones-tree-widget .geocache-node:hover {
     background: var(--theia-list-hoverBackground);
+}
+
+/* Zone active (tableau ouvert) — l'emporte sur le survol (règle placée après) */
+.theia-zones-tree-widget .zone-node.zone-node--active {
+    background: var(--theia-list-activeSelectionBackground);
+}
+
+/* Élément actif au clavier (aria-activedescendant) */
+.theia-zones-tree-widget .zone-node.zone-node--focused,
+.theia-zones-tree-widget .geocache-node.geocache-node--focused {
+    outline-color: var(--theia-focusBorder);
+}
+
+/* Nom de la zone */
+.theia-zones-tree-widget .zone-name {
+    flex: 1;
+    font-size: 0.9em;
+    font-weight: 400;
+}
+
+.theia-zones-tree-widget .zone-node--active .zone-name {
+    font-weight: 600;
 }
 
 /* Animation pour l'expansion/collapse */

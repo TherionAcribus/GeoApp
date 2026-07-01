@@ -1,12 +1,17 @@
+import logging
+
 from flask import Blueprint, jsonify, request
 from sqlalchemy import func, or_
 
 from ..database import db
 from ..models import Zone, AppConfig
 from ..geocaches.models import Geocache, GeocacheChecker, GeocacheWaypoint, SolvedGeocacheArchive
+from ..geocaches.archive_service import ArchiveService
+from ..geocaches.image_storage import remove_geocache_dir
 
 
 bp = Blueprint('zones', __name__)
+logger = logging.getLogger(__name__)
 
 
 def _copy_model_columns(model, source, **overrides):
@@ -234,16 +239,48 @@ def merge_zone(zone_id: int):
 
 @bp.delete('/api/zones/<int:zone_id>')
 def delete_zone(zone_id: int):
-    """Supprime une zone."""
+    """Supprime une zone et, en cascade, toutes ses géocaches.
+
+    Chaque géocache est supprimée comme via l'endpoint dédié: on archive d'abord
+    sa résolution (``snapshot_before_delete``) puis on la supprime pour déclencher
+    les cascades de ses données liées (waypoints, checkers, logs, images, ...).
+    Le ``zone_id`` étant ``NOT NULL``, une suppression directe de la zone échouait
+    en ``IntegrityError`` dès qu'elle contenait au moins une géocache.
+    """
     zone = Zone.query.get_or_404(zone_id)
+    zone_name = zone.name
 
-    # Vérifier si la zone contient des géocaches (placeholder - pour l'instant on supprime toujours)
-    # TODO: implémenter la logique de suppression des géocaches associées si nécessaire
+    geocaches = list(zone.geocaches)
+    geocache_ids = [geocache.id for geocache in geocaches]
+    deleted_count = len(geocaches)
 
-    db.session.delete(zone)
-    db.session.commit()
+    try:
+        for geocache in geocaches:
+            ArchiveService.snapshot_before_delete(geocache)
+            db.session.delete(geocache)
 
-    return jsonify({'message': f'Zone "{zone.name}" supprimée', 'id': zone_id}), 200
+        # Si la zone supprimée était active, réinitialiser la zone active.
+        if AppConfig.get_value('active_zone_id') == str(zone.id):
+            AppConfig.set_value('active_zone_id', None)
+
+        db.session.delete(zone)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
+
+    # Nettoyage best-effort des images stockées sur disque (hors transaction).
+    for geocache_id in geocache_ids:
+        try:
+            remove_geocache_dir(geocache_id)
+        except Exception as e:
+            logger.warning(f"Failed to cleanup stored images for geocache {geocache_id}: {e}")
+
+    return jsonify({
+        'message': f'Zone "{zone_name}" supprimée',
+        'id': zone_id,
+        'deleted_geocaches_count': deleted_count,
+    }), 200
 
 
 @bp.get('/api/active-zone')

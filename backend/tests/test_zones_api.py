@@ -214,6 +214,49 @@ def test_merge_zone_moves_unique_geocaches_and_removes_duplicate_source(client, 
         assert Geocache.query.filter_by(zone_id=target_zone_id, gc_code='GCZONE1').one().name == 'Cache deja cible'
 
 
+def test_delete_empty_zone(client, app):
+    with app.app_context():
+        zone = Zone(name='Vide')
+        db.session.add(zone)
+        db.session.commit()
+        zone_id = zone.id
+
+    response = client.delete(f'/api/zones/{zone_id}')
+
+    assert response.status_code == 200
+    assert response.get_json()['deleted_geocaches_count'] == 0
+    with app.app_context():
+        assert Zone.query.get(zone_id) is None
+
+
+def test_delete_zone_cascades_geocaches_and_children(client, app, seeded_zone):
+    with app.app_context():
+        # La zone seed contient 1 géocache avec 1 waypoint et 1 checker.
+        assert Geocache.query.filter_by(zone_id=seeded_zone).count() == 1
+
+    response = client.delete(f'/api/zones/{seeded_zone}')
+
+    assert response.status_code == 200
+    assert response.get_json()['deleted_geocaches_count'] == 1
+
+    with app.app_context():
+        assert Zone.query.get(seeded_zone) is None
+        assert Geocache.query.filter_by(zone_id=seeded_zone).count() == 0
+        # Les données liées sont supprimées en cascade.
+        assert GeocacheWaypoint.query.count() == 0
+        assert GeocacheChecker.query.count() == 0
+
+
+def test_delete_active_zone_resets_active_zone(client, app, seeded_zone):
+    client.post('/api/active-zone', json={'zone_id': seeded_zone})
+
+    response = client.delete(f'/api/zones/{seeded_zone}')
+    assert response.status_code == 200
+
+    active = client.get('/api/active-zone')
+    assert active.get_json() is None
+
+
 def test_merge_zone_rejects_same_source_and_target(client, seeded_zone):
     response = client.post(
         f'/api/zones/{seeded_zone}/merge',
