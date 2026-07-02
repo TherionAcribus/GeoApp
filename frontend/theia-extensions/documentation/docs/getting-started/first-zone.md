@@ -11,11 +11,12 @@ Les **zones** sont la brique de base pour organiser votre travail dans GeoApp. U
 
 ## Créer une zone
 
-1. Dans le panneau gauche, repérez le titre **Zones** avec le bouton `+`
-2. Cliquez sur `+` (ou faites un clic droit dans le panneau → **Nouvelle zone**)
-3. Saisissez un nom pour votre zone et appuyez sur `Entrée`
+1. Dans le panneau gauche **Zones**, saisissez un nom dans le champ **Nouvelle zone** (et une description optionnelle)
+2. Cliquez sur **➕ Ajouter Zone** (ou appuyez sur `Entrée`)
 
 La zone apparaît dans l'arborescence, vide pour l'instant.
+
+> **Astuce :** dans l'arbre, un **simple-clic** sur une zone la déplie/replie (pour voir ses géocaches) ; un **double-clic** ouvre son tableau. Vous pouvez aussi faire **glisser-déposer** une géocache d'une zone vers une autre pour la déplacer.
 
 ## Importer des géocaches
 
@@ -76,10 +77,14 @@ Une fois les géocaches importées :
 
 | Action | Description |
 |---|---|
+| Ouvrir | Ouvre le tableau de la zone |
 | Renommer | Modifie le nom de la zone |
-| Importer dans cette zone | Raccourci vers les options d'import |
-| Supprimer | Supprime la zone et toutes ses géocaches |
-| Exporter en GPX | Exporte toutes les géocaches de la zone |
+| Dupliquer | Copie la zone et toutes ses géocaches |
+| Fusionner vers… | Déplace les géocaches vers une autre zone, puis supprime la zone source |
+| Trier les caches par… | Change l'ordre des géocaches (code GC, titre, type, date d'ajout) |
+| Supprimer | Supprime la zone **et toutes ses géocaches** |
+
+Pour plus de détails, voir [Gérer les zones](../zones/overview.md).
 
 ## Astuces d'organisation
 

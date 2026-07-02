@@ -616,7 +616,7 @@ Permet à `@Aide` de résoudre les références implicites : « cette zone », �
 | Tool | Confirme ? | Service |
 |---|---|---|
 | `aide_get_geocache_details(geocache_id)` | non | `GeocachesService.get()` |
-| `aide_list_geocaches_in_zone(zone_id)` | non | `ZonesService.listGeocaches()` |
+| `aide_list_geocaches_in_zone(zone_id)` | non | `ZonesService.listGeocachesTree()` (endpoint allégé) |
 | `aide_add_geocache_by_code(zone_id, gc_code)` | **⚠ oui** | `GeocachesService.addToZone()` |
 | `aide_copy_geocache_to_zone(geocache_id, target_zone_id)` | **⚠ oui** | `GeocachesService.copy()` |
 | `aide_delete_geocache(geocache_id)` | **⚠ oui** | `GeocachesService.delete()` |
