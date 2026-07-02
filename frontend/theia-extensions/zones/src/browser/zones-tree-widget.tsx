@@ -156,6 +156,8 @@ export class ZonesTreeWidget extends ReactWidget {
     protected geocacheSort: GeocacheSortPreference = { ...DEFAULT_GEOCACHE_SORT };
     /** Élément actuellement "actif" pour la navigation clavier (aria-activedescendant). */
     protected activeItemId: string | undefined;
+    /** Formulaire d'ajout de zone: champ description déplié (replié par défaut pour gagner de la place). */
+    protected zoneFormExpanded = false;
     /** Vrai quand l'arbre a le focus clavier (pour n'afficher l'anneau de focus qu'alors). */
     protected treeFocused = false;
     /** Géocache en cours de glisser-déposer (avec sa zone source), ou null. */
@@ -1028,6 +1030,11 @@ export class ZonesTreeWidget extends ReactWidget {
         this.update();
     }
 
+    protected toggleZoneForm(): void {
+        this.zoneFormExpanded = !this.zoneFormExpanded;
+        this.update();
+    }
+
     protected async onAddZoneSubmit(event: React.FormEvent<HTMLFormElement>): Promise<void> {
         event.preventDefault();
         const form = event.currentTarget;
@@ -1035,10 +1042,11 @@ export class ZonesTreeWidget extends ReactWidget {
         const name = (formData.get('name') as string || '').trim();
         const description = (formData.get('description') as string || '').trim();
         if (!name) { return; }
-        
+
         try {
             await this.zonesService.create({ name, description });
             form.reset();
+            this.zoneFormExpanded = false;
             await this.refresh();
             this.widgetEventsService.notifyZoneListChanged();
             this.messages.info(`Zone "${name}" créée`);
@@ -1295,27 +1303,45 @@ export class ZonesTreeWidget extends ReactWidget {
 
         return (
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '8px' }}>
-                {/* Formulaire d'ajout de zone */}
+                {/* Formulaire d'ajout de zone (compact: une ligne, description repliable) */}
                 <form
                     className='zone-add-form'
                     onSubmit={e => this.onAddZoneSubmit(e)}
                 >
-                    <input
-                        className='zone-add-input'
-                        name='name'
-                        placeholder='Nouvelle zone'
-                    />
-                    <input
-                        className='zone-add-input'
-                        name='description'
-                        placeholder='Description (optionnel)'
-                    />
-                    <button
-                        type='submit'
-                        className='theia-button zone-add-submit'
-                    >
-                        ➕ Ajouter Zone
-                    </button>
+                    <div className='zone-add-row'>
+                        <input
+                            className='zone-add-input'
+                            name='name'
+                            placeholder='Nouvelle zone'
+                            aria-label='Nom de la nouvelle zone'
+                        />
+                        <button
+                            type='button'
+                            className='zone-add-toggle'
+                            onClick={() => this.toggleZoneForm()}
+                            aria-expanded={this.zoneFormExpanded}
+                            aria-label='Ajouter une description'
+                            title={this.zoneFormExpanded ? 'Masquer la description' : 'Ajouter une description'}
+                        >
+                            {this.zoneFormExpanded ? '▴' : '▾'}
+                        </button>
+                        <button
+                            type='submit'
+                            className='theia-button zone-add-submit'
+                            aria-label='Ajouter la zone'
+                            title='Ajouter la zone'
+                        >
+                            ＋
+                        </button>
+                    </div>
+                    {this.zoneFormExpanded && (
+                        <input
+                            className='zone-add-input'
+                            name='description'
+                            placeholder='Description (optionnel)'
+                            aria-label='Description de la zone'
+                        />
+                    )}
                 </form>
 
                 {this.renderSortControls()}

@@ -11,8 +11,8 @@ Les **zones** sont la brique de base pour organiser votre travail dans GeoApp. U
 
 ## Créer une zone
 
-1. Dans le panneau gauche **Zones**, saisissez un nom dans le champ **Nouvelle zone** (et une description optionnelle)
-2. Cliquez sur **➕ Ajouter Zone** (ou appuyez sur `Entrée`)
+1. Dans le panneau gauche **Zones**, saisissez un nom dans le champ **Nouvelle zone**
+2. Appuyez sur `Entrée` (ou cliquez sur le bouton **＋**). Pour ajouter une description, cliquez d'abord sur le bouton **▾**.
 
 La zone apparaît dans l'arborescence, vide pour l'instant.
 

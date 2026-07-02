@@ -12,12 +12,18 @@
     font-size: 0.9em;
 }
 
-/* Formulaire d'ajout de zone */
+/* Formulaire d'ajout de zone (compact) */
 .theia-zones-tree-widget .zone-add-form {
     display: flex;
     flex-direction: column;
     gap: 6px;
-    margin-bottom: 12px;
+    margin-bottom: 8px;
+}
+
+.theia-zones-tree-widget .zone-add-row {
+    display: flex;
+    gap: 4px;
+    align-items: stretch;
 }
 
 .theia-zones-tree-widget .zone-add-input {
@@ -28,8 +34,34 @@
     border-radius: 3px;
 }
 
+/* Le champ nom occupe la place restante sur la ligne */
+.theia-zones-tree-widget .zone-add-row .zone-add-input {
+    flex: 1;
+    min-width: 0;
+}
+
+/* Bouton d'ajout (＋) : carré, compact */
 .theia-zones-tree-widget .zone-add-submit {
-    padding: 4px 8px;
+    flex: 0 0 auto;
+    min-width: 28px;
+    padding: 0 8px;
+}
+
+/* Bouton d'expansion de la description (▾/▴) : discret */
+.theia-zones-tree-widget .zone-add-toggle {
+    flex: 0 0 auto;
+    min-width: 24px;
+    padding: 0 6px;
+    background: transparent;
+    border: 1px solid var(--theia-input-border);
+    color: var(--theia-input-foreground);
+    border-radius: 3px;
+    cursor: pointer;
+    opacity: 0.7;
+}
+
+.theia-zones-tree-widget .zone-add-toggle:hover {
+    opacity: 1;
 }
 
 /* Contrôles de tri des zones */

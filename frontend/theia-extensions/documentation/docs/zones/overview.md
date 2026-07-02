@@ -11,12 +11,12 @@ Le panneau **Zones**, dans la barre latérale gauche, est l'arbre de navigation 
 
 ## Créer une zone
 
-En haut du panneau :
+En haut du panneau, sur une seule ligne :
 
-1. Saisissez un nom dans le champ **Nouvelle zone** (et une **Description** optionnelle).
-2. Cliquez sur **➕ Ajouter Zone** (ou appuyez sur `Entrée`).
+1. Saisissez un nom dans le champ **Nouvelle zone**.
+2. Appuyez sur `Entrée` (ou cliquez sur le bouton **＋**).
 
-Les noms de zones doivent être uniques.
+Pour ajouter une **description** (optionnelle), cliquez sur le bouton **▾** à droite du champ : un second champ apparaît. Les noms de zones doivent être uniques.
 
 ## Trier les zones
 
