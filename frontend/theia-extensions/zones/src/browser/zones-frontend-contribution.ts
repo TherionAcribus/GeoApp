@@ -4,6 +4,7 @@ import { ZoneGeocachesWidget } from './zone-geocaches-widget';
 import { GeocacheLogsWidget } from './geocache-logs-widget';
 import { GeocacheNotesWidget } from './geocache-notes-widget';
 import { GeocacheLogEditorTabsManager } from './geocache-log-editor-tabs-manager';
+import { GeocacheTabsManager } from './geocache-tabs-manager';
 import { MapWidgetFactory } from './map/map-widget-factory';
 
 @injectable()
@@ -17,6 +18,9 @@ export class ZonesFrontendContribution implements FrontendApplicationContributio
 
     @inject(GeocacheLogEditorTabsManager)
     protected readonly geocacheLogEditorTabsManager: GeocacheLogEditorTabsManager;
+
+    @inject(GeocacheTabsManager)
+    protected readonly geocacheTabsManager: GeocacheTabsManager;
 
     async onStart(app: FrontendApplication): Promise<void> {
         window.addEventListener('open-zone-geocaches', async (event: any) => {
@@ -160,5 +164,26 @@ export class ZonesFrontendContribution implements FrontendApplicationContributio
 
         window.addEventListener('open-geocache-log-editor', openLogEditor);
         document.addEventListener('open-geocache-log-editor', openLogEditor);
+
+        // Ouverture des détails d'une géocache (recherche globale, plugin executor…).
+        // Listener global pour fonctionner même si le tableau de zone n'est pas ouvert.
+        const openDetails = async (event: any) => {
+            try {
+                const detail = event?.detail || {};
+                const geocacheId = detail.geocacheId;
+                if (!geocacheId) {
+                    return;
+                }
+                await this.geocacheTabsManager.openGeocacheDetails({
+                    geocacheId,
+                    name: detail.name,
+                });
+            } catch (error) {
+                console.error('[ZonesFrontendContribution] Failed to open geocache details', error);
+            }
+        };
+
+        window.addEventListener('geoapp-open-geocache-details', openDetails);
+        document.addEventListener('geoapp-open-geocache-details', openDetails);
     }
 }

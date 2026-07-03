@@ -552,8 +552,9 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             }
         });
 
-        // Écouter les événements d'ouverture de détails de géocache depuis les cartes
-        window.addEventListener('geoapp-open-geocache-details', this.handleOpenGeocacheDetailsFromMap.bind(this));
+        // Note : l'ouverture des détails via 'geoapp-open-geocache-details' est
+        // désormais gérée globalement dans ZonesFrontendContribution (listener
+        // actif même si ce widget n'est pas monté).
 
         // Écouter les événements "importer autour" depuis la carte
         window.addEventListener('geoapp-import-around', ((event: any) => {
@@ -1279,59 +1280,6 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         this.moveSelectedDialog = null;
         this.update();
     }
-
-    /**
-     * Gère l'ouverture de détails de géocache depuis une carte (événement personnalisé)
-     */
-    private handleOpenGeocacheDetailsFromMap = async (event: CustomEvent): Promise<void> => {
-        const { geocacheId } = event.detail;
-
-        try {
-            // Trouver la géocache dans la liste actuelle
-            const geocache = this.rows.find(row => row.id === geocacheId);
-            if (geocache) {
-                // Ouvrir la carte comme si on cliquait sur la ligne du tableau
-                await this.handleRowClick(geocache);
-            } else {
-                // Si la géocache n'est pas dans la liste actuelle, récupérer ses données et ouvrir quand même
-                const geocacheData = await this.geocachesService.get<GeocacheDetailsResponse>(geocacheId);
-                const tempGeocache: Geocache = {
-                    id: geocacheData.id,
-                    gc_code: geocacheData.gc_code,
-                    name: geocacheData.name,
-                    owner: geocacheData.owner ?? null,
-                    description: geocacheData.description || geocacheData.description_raw,
-                    hint: geocacheData.hint || geocacheData.hints,
-                    cache_type: geocacheData.cache_type || geocacheData.type || '',
-                    difficulty: geocacheData.difficulty,
-                    terrain: geocacheData.terrain,
-                    size: geocacheData.size,
-                    solved: geocacheData.solved,
-                    found: geocacheData.found,
-                    favorites_count: geocacheData.favorites_count,
-                    hidden_date: geocacheData.hidden_date || geocacheData.placed_at || null,
-                    latitude: geocacheData.latitude,
-                    longitude: geocacheData.longitude,
-                    coordinates_raw: geocacheData.coordinates_raw,
-                    is_corrected: geocacheData.is_corrected,
-                    original_latitude: geocacheData.original_latitude,
-                    original_longitude: geocacheData.original_longitude,
-                    waypoints: geocacheData.waypoints || []
-                };
-
-                if (tempGeocache.latitude !== null && tempGeocache.latitude !== undefined &&
-                    tempGeocache.longitude !== null && tempGeocache.longitude !== undefined) {
-                    await this.mapWidgetFactory.openMapForGeocache(
-                        geocacheId,
-                        tempGeocache.gc_code,
-                        this.toMapGeocache(tempGeocache)
-                    );
-                }
-            }
-        } catch (error) {
-            console.error('[ZoneGeocachesWidget] Erreur lors de l\'ouverture de carte depuis la carte:', error);
-        }
-    };
 
     /**
      * Gère l'application d'un plugin sur les géocaches sélectionnées

@@ -11,6 +11,7 @@ import { ApplicationShell } from '@theia/core/lib/browser';
 import { Widget } from '@theia/core/lib/browser/widgets/widget';
 import { SearchOptions, DEFAULT_SEARCH_OPTIONS } from '../common/search-protocol';
 import { searchInDomNode, buildSearchRegex } from './search-engine';
+import { SearchService } from './search-service';
 
 /**
  * Périmètre de recherche. Union unique réutilisée dans le service et le widget
@@ -212,6 +213,9 @@ export class GlobalSearchService {
     @inject(ApplicationShell)
     protected readonly shell!: ApplicationShell;
 
+    @inject(SearchService)
+    protected readonly searchService!: SearchService;
+
     private state: GlobalSearchState = { ...INITIAL_GLOBAL_SEARCH_STATE };
     private listeners: GlobalSearchStateListener[] = [];
     private debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -321,11 +325,76 @@ export class GlobalSearchService {
     /**
      * Ouvre une géocache par son ID (dispatch un custom event).
      * Utilise le même événement que la carte pour ouvrir les détails.
+     * Une fois les détails ouverts, surligne les termes recherchés via la
+     * recherche in-page.
      */
     openGeocache(geocacheId: number): void {
+        const query = this.state.query.trim();
+        const options: SearchOptions = { ...this.state.options };
+
         window.dispatchEvent(new CustomEvent('geoapp-open-geocache-details', {
             detail: { geocacheId }
         }));
+
+        if (query) {
+            this.highlightInDetailsWhenReady(query, options);
+        }
+    }
+
+    /**
+     * Dès que le widget de détails de géocache devient actif, ouvre la
+     * recherche in-page pré-remplie avec la requête pour surligner les termes.
+     * Best-effort : n'interfère pas si le widget n'apparaît pas (timeout).
+     */
+    private highlightInDetailsWhenReady(query: string, options: SearchOptions): void {
+        let settled = false;
+        const cleanup = () => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            disposable.dispose();
+            clearTimeout(timer);
+        };
+
+        const triggerHighlight = () => {
+            try {
+                this.searchService.open();
+                this.searchService.updateOptions({ ...options });
+                this.searchService.updateQuery(query);
+            } catch {
+                // best-effort : le surlignage ne doit jamais casser l'ouverture
+            }
+            // Re-déclenche pour rattraper le contenu chargé de façon asynchrone
+            // (la géocache est fetchée puis rendue après l'activation du widget).
+            setTimeout(() => {
+                try {
+                    if (this.searchService.isOpen) {
+                        this.searchService.updateQuery(query);
+                    }
+                } catch {
+                    // best-effort
+                }
+            }, 900);
+        };
+
+        const onActive = (widget: { id: string | number } | null | undefined) => {
+            if (settled || !widget) {
+                return;
+            }
+            if (!String(widget.id).startsWith('geocache.details.widget')) {
+                return;
+            }
+            cleanup();
+            // Laisser le widget s'attacher/rendre avant de chercher.
+            setTimeout(triggerHighlight, 250);
+        };
+
+        const disposable = this.shell.onDidChangeActiveWidget((args: any) => onActive(args?.newValue));
+        // Filet : ne pas laisser le listener vivre indéfiniment.
+        const timer = setTimeout(cleanup, 4000);
+        // Cas où le widget de détails serait déjà l'actif.
+        onActive(this.shell.activeWidget as { id: string | number } | null);
     }
 
     /**
