@@ -243,6 +243,14 @@
     border-bottom: none;
 }
 
+/* Focus clavier visible (navigation au Tab) */
+.geoapp-gs-result-item:focus-visible,
+.geoapp-gs-section-header:focus-visible {
+    outline: 1px solid var(--theia-focusBorder, #007fd4);
+    outline-offset: -1px;
+    background: var(--theia-list-focusBackground, var(--theia-list-hoverBackground, #2a2d2e));
+}
+
 .geoapp-gs-result-header {
     display: flex;
     align-items: center;

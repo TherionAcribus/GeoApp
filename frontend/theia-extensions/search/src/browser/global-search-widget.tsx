@@ -28,6 +28,22 @@ import { SearchOptions } from '../common/search-protocol';
 const sectionTitle = (name: string, shown: number, total: number): string =>
     total > shown ? `${name} (${shown} sur ${total})` : `${name} (${total})`;
 
+/**
+ * Props rendant un élément non natif accessible au clavier (focusable + activable
+ * par Entrée/Espace), tout en conservant l'activation à la souris.
+ */
+const clickableProps = (onActivate: () => void) => ({
+    role: 'button',
+    tabIndex: 0,
+    onClick: onActivate,
+    onKeyDown: (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onActivate();
+        }
+    }
+});
+
 @injectable()
 export class GlobalSearchWidget extends ReactWidget {
 
@@ -309,7 +325,11 @@ const ResultSection: React.FC<{
 
     return (
         <div className='geoapp-gs-section'>
-            <div className='geoapp-gs-section-header' onClick={() => setCollapsed(!collapsed)}>
+            <div
+                className='geoapp-gs-section-header'
+                aria-expanded={!collapsed}
+                {...clickableProps(() => setCollapsed(!collapsed))}
+            >
                 <span className={`codicon ${collapsed ? 'codicon-chevron-right' : 'codicon-chevron-down'}`} />
                 <span className={`codicon ${icon}`} style={{ marginLeft: 4, marginRight: 6 }} />
                 <span className='geoapp-gs-section-title'>{title}</span>
@@ -341,7 +361,7 @@ const WidgetResultItem: React.FC<{
     result: WidgetSearchResult;
     onReveal: (widgetId: string) => void;
 }> = ({ result, onReveal }) => (
-    <div className='geoapp-gs-result-item' onClick={() => onReveal(result.widgetId)}>
+    <div className='geoapp-gs-result-item' {...clickableProps(() => onReveal(result.widgetId))}>
         <div className='geoapp-gs-result-header'>
             <span className={`geoapp-gs-result-icon ${result.widgetIconClass}`} />
             <span className='geoapp-gs-result-title'>{result.widgetTitle}</span>
@@ -378,7 +398,7 @@ const GeocacheResultItem: React.FC<{
     const matchedFields = Object.keys(result.matches_in);
 
     return (
-        <div className='geoapp-gs-result-item' onClick={() => onOpen(result.id)}>
+        <div className='geoapp-gs-result-item' {...clickableProps(() => onOpen(result.id))}>
             <div className='geoapp-gs-result-header'>
                 <span className='codicon codicon-globe geoapp-gs-result-icon' />
                 <span className='geoapp-gs-result-title'>
@@ -412,7 +432,7 @@ const LogResultItem: React.FC<{
     result: LogSearchResult;
     onOpen: (id: number) => void;
 }> = ({ result, onOpen }) => (
-    <div className='geoapp-gs-result-item' onClick={() => onOpen(result.geocache_id)}>
+    <div className='geoapp-gs-result-item' {...clickableProps(() => onOpen(result.geocache_id))}>
         <div className='geoapp-gs-result-header'>
             <span className='codicon codicon-comment geoapp-gs-result-icon' />
             <span className='geoapp-gs-result-title'>
@@ -463,7 +483,7 @@ const PluginResultItem: React.FC<{
     const matchedFields = Object.keys(result.matches_in);
 
     return (
-        <div className='geoapp-gs-result-item' onClick={() => onOpen(result.name)}>
+        <div className='geoapp-gs-result-item' {...clickableProps(() => onOpen(result.name))}>
             <div className='geoapp-gs-result-header'>
                 <span className='codicon codicon-extensions geoapp-gs-result-icon' />
                 <span className='geoapp-gs-result-title'>
@@ -504,7 +524,7 @@ const AlphabetResultItem: React.FC<{
     const matchedFields = Object.keys(result.matches_in);
 
     return (
-        <div className='geoapp-gs-result-item' onClick={() => onOpen(result.id)}>
+        <div className='geoapp-gs-result-item' {...clickableProps(() => onOpen(result.id))}>
             <div className='geoapp-gs-result-header'>
                 <span className='codicon codicon-symbol-text geoapp-gs-result-icon' />
                 <span className='geoapp-gs-result-title'>
