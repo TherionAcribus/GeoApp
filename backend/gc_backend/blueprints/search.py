@@ -7,6 +7,7 @@ les logs et les notes utilisateur.
 from flask import Blueprint, jsonify, request, current_app
 import logging
 import re
+import time
 
 from ..database import db
 from ..geocaches.models import Geocache, GeocacheLog, Note, GeocacheNote
@@ -29,6 +30,16 @@ CONTEXT_CHARS = 80  # Nombre de caractères de contexte autour du match
 # Marge de candidats récupérés depuis l'index FTS avant raffinage/tri Python.
 FTS_CANDIDATE_FACTOR = 5
 FTS_CANDIDATE_CAP = 500
+
+# --- Garde-fous ReDoS (le module `re` ne peut pas être interrompu en cours
+# d'exécution ; on borne donc de façon préventive). Contexte : app locale
+# mono-utilisateur, le mode regex/wildcard fait un scan complet. ---
+# Longueur max de la query (au-delà -> 400).
+MAX_QUERY_LENGTH = 2000
+# Taille max de texte soumise au moteur regex par champ (borne le coût unitaire).
+MAX_REGEX_FIELD_CHARS = 200_000
+# Budget temps global d'un scan regex/wildcard ; au-delà, arrêt propre (partial).
+SEARCH_TIME_BUDGET_S = 5.0
 
 
 def _build_regex(query: str, case_sensitive: bool = False, use_regex: bool = False, use_wildcard: bool = False):
@@ -53,6 +64,7 @@ def _extract_snippets(text: str, pattern, max_snippets: int = 3) -> list[dict]:
     if not text or not pattern:
         return []
 
+    text = text[:MAX_REGEX_FIELD_CHARS]
     snippets = []
     for match in pattern.finditer(text):
         if len(snippets) >= max_snippets:
@@ -78,7 +90,7 @@ def _count_matches(text: str, pattern) -> int:
     """Compte le nombre total de matches dans un texte."""
     if not text or not pattern:
         return 0
-    return len(pattern.findall(text))
+    return len(pattern.findall(text[:MAX_REGEX_FIELD_CHARS]))
 
 
 @bp.get('/api/search')
@@ -98,6 +110,10 @@ def global_search():
     query = request.args.get('q', '').strip()
     if not query:
         return jsonify({'error': 'Missing query parameter "q"'}), 400
+
+    # Garde-fou ReDoS : rejeter les patterns démesurés avant compilation/scan.
+    if len(query) > MAX_QUERY_LENGTH:
+        return jsonify({'error': f'Query too long (max {MAX_QUERY_LENGTH} characters)'}), 400
 
     case_sensitive = request.args.get('case_sensitive', 'false').lower() == 'true'
     use_regex = request.args.get('use_regex', 'false').lower() == 'true'
@@ -125,6 +141,14 @@ def global_search():
             return None
         return orm_query.filter(model.id.in_(ids))
 
+    # Budget temps : borne les scans regex/wildcard sur toute la base. Le module
+    # `re` n'étant pas interruptible, on vérifie l'échéance entre les lignes ;
+    # au dépassement, on arrête et on signale un résultat partiel.
+    deadline = time.monotonic() + SEARCH_TIME_BUDGET_S
+
+    def _budget_exceeded() -> bool:
+        return time.monotonic() > deadline
+
     results = {
         'query': query,
         'options': {
@@ -138,7 +162,8 @@ def global_search():
         'notes': [],
         'plugins': [],
         'alphabets': [],
-        'total_count': 0
+        'total_count': 0,
+        'partial': False
     }
 
     try:
@@ -156,6 +181,9 @@ def global_search():
             gc_results = []
 
             for gc in geocaches:
+                if _budget_exceeded():
+                    results['partial'] = True
+                    break
                 matches_in = {}
 
                 # Chercher dans les champs texte
@@ -214,6 +242,9 @@ def global_search():
             log_results = []
 
             for log in logs:
+                if _budget_exceeded():
+                    results['partial'] = True
+                    break
                 text = log.text or ''
                 author = log.author or ''
                 combined = f"{author} {text}"
@@ -247,6 +278,9 @@ def global_search():
             note_results = []
 
             for note in notes:
+                if _budget_exceeded():
+                    results['partial'] = True
+                    break
                 text = note.content or ''
                 count = _count_matches(text, pattern)
 
@@ -280,6 +314,9 @@ def global_search():
                 plugins = Plugin.query.all()
 
             for plugin in plugins:
+                if _budget_exceeded():
+                    results['partial'] = True
+                    break
                 count = 0
                 matched_fields = {}
 
