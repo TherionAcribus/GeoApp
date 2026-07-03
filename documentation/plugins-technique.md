@@ -2,7 +2,7 @@
 
 > Système de plugins de chiffrement / déchiffrement / résolution de MysterAI (GeoApp).
 > Couvre le moteur backend (Flask), le format des plugins, l'API REST et l'extension Theia.
-> Dernière mise à jour : juin 2026
+> Dernière mise à jour : juillet 2026
 
 ---
 
@@ -115,6 +115,9 @@ Le `PluginManager` est instancié une fois au démarrage de l'app (dans `gc_back
 | `_schema` | JSON Schema de validation chargé en mémoire |
 | `_plugin_cache` | Cache des métadonnées |
 | `_loading_errors` | `{chemin: message}` des erreurs de découverte/chargement |
+| `_load_lock_guard` / `_plugin_load_locks` | Verrous de chargement **par plugin** (thread-safety, cf. 3.3) |
+| `_metadata_cache` / `_metadata_cache_lock` | Cache mémoire des métadonnées sérialisées de `get_plugin_info` (cf. 3.6) |
+| `_watched_sources` | Suivi `mtime` de la source des plugins **custom** pour le hot-reload (cf. 3.3) |
 | `lazy_mode` | Si `True`, chargement à la demande (défaut) |
 | `default_timeout` | Timeout d'exécution par défaut (60 s) |
 | `allow_long_running` | Si `False`, plafonne les timeouts à `default_timeout` |
@@ -140,12 +143,15 @@ Le hash est stocké dans `metadata_json` pour éviter les écritures inutiles à
 def get_plugin(self, plugin_name, force_reload=False) -> Optional[PluginInterface]
 ```
 
-1. Si déjà en cache et pas de `force_reload` → renvoyé immédiatement.
-2. Sinon : lecture du `Plugin` en DB (doit exister et être `enabled`).
-3. Construction d'un `PluginMetadata` (avec timeout calculé via `_get_timeout_from_metadata`).
-4. Création du wrapper adapté (`create_plugin_wrapper`) selon `plugin_type`.
-5. `wrapper.initialize()` (import dynamique du module Python / vérification du binaire).
-6. Mise en cache dans `loaded_plugins`.
+1. **Hot-reload dev** : si le plugin est `custom` et que son fichier d'entrée a été édité (`mtime` postérieur au chargement, cf. `_is_source_stale`), le rechargement est forcé automatiquement. Les plugins `official` (lecture seule) ne sont pas suivis → aucun coût.
+2. Si déjà en cache et pas de `force_reload` → renvoyé immédiatement.
+3. Sinon, sous un **verrou par plugin** (`_plugin_load_locks`, avec double-check après acquisition pour éviter la double-initialisation quand plusieurs threads — metasolver, batch, watchdog — demandent le même plugin) : lecture du `Plugin` en DB (doit exister et être `enabled`).
+4. Construction d'un `PluginMetadata` (avec timeout calculé via `_get_timeout_from_metadata`).
+5. Création du wrapper adapté (`create_plugin_wrapper`) selon `plugin_type`.
+6. `wrapper.initialize()` (import dynamique du module Python / vérification du binaire).
+7. Mise en cache dans `loaded_plugins` et suivi de la source si `custom` (`_track_source`).
+
+> **Thread-safety** : les verrous sont **par nom de plugin**, donc deux plugins différents s'initialisent toujours en parallèle. L'import dynamique lui-même est sérialisé par un verrou global (`_SYS_PATH_LOCK`, cf. 5.1), car `sys.path`/`sys.modules` sont partagés par tout le process.
 
 ### 3.4 Exécution (`execute_plugin`)
 
@@ -162,9 +168,11 @@ def execute_plugin(self, plugin_name, inputs) -> Dict
   "summary": "Erreur d'exécution: ...",
   "results": [],
   "plugin_info": {"name": "...", "version": "unknown", "execution_time_ms": 0},
-  "error": {"type": "ExceptionClass", "message": "..."}
+  "error": {"type": "ExceptionClass", "code": "...", "message": "..."}
 }
 ```
+
+- Le champ **`error.code`** est structuré et stable (indépendant du wording) : `plugin_unavailable` (plugin introuvable/désactivé/échec de chargement), `timeout` (dépassement du timeout dur, cf. 5.1). Le metasolver s'appuie sur `error.code == "plugin_unavailable"` pour décider de son repli, plutôt que sur des sous-chaînes de message.
 
 ### 3.5 Cycle de vie complémentaire
 
@@ -172,6 +180,16 @@ def execute_plugin(self, plugin_name, inputs) -> Dict
 - `reload_plugin` / `reload_all_plugins` : décharge puis recharge (utile après édition d'un plugin).
 - `preload_enabled_plugins` : précharge tous les plugins actifs lorsque `lazy_mode` est désactivé.
 - `get_plugin_status` : état `{enabled, loaded, error}` de chaque plugin.
+
+### 3.6 Cache des métadonnées (`get_plugin_info`)
+
+`get_plugin_info(name)` sérialise le plugin via `to_dict(include_metadata=True)` : requête DB + `json.loads(metadata_json)` + conversion `input_types → JSON Schema`. C'est coûteux et **appelé en boucle** — le metasolver l'invoque pour chacun des ~84 plugins à chaque exécution.
+
+Le résultat est donc **mis en cache mémoire** (`_metadata_cache`, protégé par un verrou) :
+
+- **Copie défensive** au retour (`deepcopy`) : les appelants lisent librement sans corrompre l'entrée cachée.
+- **Invalidation** : la découverte (`discover_plugins`, seul chemin qui modifie `metadata_json`) vide tout le cache ; `reload_plugin` invalide le plugin concerné.
+- Effet : les ~85 requêtes DB par exécution metasolver tombent à **1** après réchauffement.
 
 ---
 
@@ -220,13 +238,16 @@ La factory `create_plugin_wrapper(plugin_type, metadata, plugin_manager)` choisi
 
 ### 5.1 `PythonPluginWrapper`
 
-- **`initialize()`** : import dynamique du module via `importlib.util.spec_from_file_location`. Le dossier du plugin est temporairement ajouté à `sys.path` (puis retiré) pour permettre les imports relatifs/partagés.
+- **`initialize()`** : import dynamique du module via `importlib.util.spec_from_file_location`. Le module est enregistré dans `sys.modules` sous un **nom préfixé unique** `geoapp_plugin_{name}` (évite qu'un plugin nommé comme un module standard — `json`, `time`… — ne le masque pour tout le process). Le dossier du plugin est temporairement ajouté à `sys.path` puis retiré. Toute cette section (mutation `sys.path`/`sys.modules` + `exec_module`) est **sérialisée par `_SYS_PATH_LOCK`** (global au process) pour rester sûre lors d'initialisations concurrentes.
 - **Découverte de la classe** (`_find_plugin_class`) :
-  1. cherche d'abord une classe nommée par convention `{Nom}Plugin` (ex : `affine_code` → `AffineCodePlugin`) ;
-  2. sinon, la première classe dont le nom se termine par `Plugin`.
+  1. cherche d'abord une classe nommée par convention `{Nom}Plugin` (ex : `affine_code` → `AffineCodePlugin`), y compris ré-exportée ;
+  2. sinon, une classe finissant par `Plugin` mais **définie dans ce module** (`cls.__module__` == module courant) — évite d'attraper une classe de base importée (`from base import CipherPlugin`) ;
+  3. en dernier recours seulement, une classe `…Plugin` importée (repli pour les plugins qui ne font que ré-exporter leur classe).
 - Si le plugin expose `set_plugin_manager(...)`, le manager lui est injecté.
-- **`execute()`** : appelle `instance.execute(inputs)` ; toute exception est convertie en sortie d'erreur standardisée.
-- **`cleanup()`** : appelle `instance.cleanup()` si présent, libère module/instance.
+- **`execute()`** : exécute `instance.execute(inputs)` **sous timeout dur** (cf. ci-dessous). Toute exception est convertie en sortie d'erreur standardisée ; un dépassement renvoie une erreur `error.code = "timeout"`.
+- **`cleanup()`** : appelle `instance.cleanup()` si présent, **retire le module de `sys.modules`** (évite la fuite, garantit un reload propre) et libère module/instance.
+
+**Timeout dur (`_run_with_hard_timeout`)** : `execute()` lance `instance.execute(inputs)` dans un **thread daemon surveillé** avec `join(timeout)`. Si le plugin dépasse le délai, l'appelant reprend la main immédiatement (erreur `timeout`) pendant que le thread orphelin se termine de lui-même. Ce choix préserve l'exécution **in-process** (injection du `plugin_manager`, partage mémoire) qu'un `ProcessPool` casserait ; le **contexte applicatif Flask est propagé** dans le thread worker pour que les plugins accédant à la DB (lecture d'images, etc.) fonctionnent identiquement. *Limite connue* : un plugin bloqué sur une boucle CPU infinie continue de consommer un cœur jusqu'au redémarrage (on ne peut pas tuer un thread Python) — mais l'appelant est toujours libéré. Les **plugins `meta`** (metasolver, `analysis_web_page`) sont **exemptés** (timeout `0`) car ils orchestrent d'autres plugins et bornent déjà chaque enfant individuellement ; leur imposer un mur wall-clock tuerait tout le sous-arbre de threads.
 
 ### 5.2 `BinaryPluginWrapper`
 
@@ -450,7 +471,9 @@ Codes d'erreur : `400` (JSON/champ manquant), `404` (plugin/tâche/géocache int
 
 `/metasolver/recommend` calcule une **signature** du texte (longueur, comptes lettres/chiffres, `looks_like_morse`, `looks_like_binary`, `dominant_input_kind`, `suggested_preset`) puis renvoie une liste de recommandations triées (`priority`, `score`, `confidence`, `tags`, `reasons`).
 
-Événements SSE de `/metasolver/execute-stream` : `init`, `plugin_start`, `plugin_done`, `plugin_error`, `progress`, `result`.
+Événements SSE de `/metasolver/execute-stream` : `init`, `plugin_start`, `plugin_done`, `plugin_error`, `progress`, `result`. L'exécution utilise une **file d'événements** (`queue.Queue`) : les workers émettent `plugin_start` à leur **démarrage réel** (quand un slot du pool les prend, 6 à la fois) et non tous d'un coup à l'avance, tandis que l'agrégation reste mono-thread dans le générateur. Le repli `_execute_plugin_direct` (chargement direct depuis `official/` quand le manager signale `plugin_unavailable`) **plafonne le timeout** selon la même politique que le manager.
+
+**Déduplication** : avant le tri final, le metasolver fusionne les résultats au `text_output` identique (fréquent : ROT13 produit par `caesar` en bruteforce *et* par `rot_cipher`). Clé = texte nettoyé (espaces normalisés, casse conservée) ; le candidat de meilleure confiance est conservé et enrichi de la provenance agrégée `source_plugins` (liste des plugins) + `duplicate_count`. Les compteurs `raw_results` / `duplicates_merged` sont exposés dans `summary_details`.
 
 ### 8.5 Workflow & classification de listing
 
@@ -505,6 +528,13 @@ Dossier : `frontend/theia-extensions/plugins/`.
 
 L'UI applique aussi le `text_handling` (normalisation accents/casse/caractères) avant envoi et exploite `default_value_source` pour pré-remplir les champs en contexte géocache.
 
+Comportements UX notables :
+
+- **Timeout HTTP aligné sur le backend** : `PluginsServiceImpl.getPluginExecutionTimeout` lit la préférence `geoApp.plugins.executor.timeoutSec` (+ marge réseau, et respecte `allowLongRunning`) au lieu d'un `30 s` codé en dur — le client n'abandonne plus pendant que le backend calcule encore. Le metasolver, lui, passe par le `fetch` streaming SSE (sans timeout axios).
+- **Formulaire** (`plugin-executor-form.tsx`) : les champs numériques peuvent être vidés (plus de `0` forcé ni de `NaN` transmis — un champ vide ⇒ valeur non définie, le plugin applique son défaut) ; `placeholder` et `step` (`multipleOf`) issus du `plugin.json` sont désormais appliqués.
+- **Provenance** (`plugin-result-display.tsx`) : quand un résultat metasolver a été produit par plusieurs plugins (`source_plugins`), une puce « 🔁 Produit par N plugins : … » l'indique.
+- **Panneau streaming** (`metasolver-streaming-panel.tsx`) : l'auto-scroll ne colle au bas que si l'utilisateur y est déjà (il n'est plus ramené de force vers le bas s'il a remonté la liste).
+
 ---
 
 ## 11. Ajouter un plugin personnalisé — checklist
@@ -516,24 +546,27 @@ L'UI applique aussi le `text_handling` (normalisation accents/casse/caractères)
 5. Relancer la découverte : `POST /api/plugins/discover` (ou redémarrage du backend).
 6. Vérifier dans `GET /api/plugins/status` que le plugin est `enabled` et sans erreur.
 
+> **Développement** : une fois le plugin découvert, éditer son `main.py` est pris en compte **automatiquement** au prochain appel (hot-reload sur `mtime`, plugins `custom` uniquement). Une modification du `plugin.json` (métadonnées) nécessite en revanche de relancer la découverte.
+
 ---
 
 ## 12. Sécurité & ressources
 
 - **Validation stricte** de chaque `plugin.json` contre le JSON Schema avant enregistrement.
 - **Déclarations de besoins** dans `plugin.json` : `heavy_cpu` (CPU intensif), `needs_network`, `needs_filesystem` — utilisées pour appliquer les bonnes politiques d'exécution.
-- **Timeouts** : `timeout_seconds` (1–300) plafonné à `default_timeout` sauf si `allow_long_running` est activé.
-- **Plugins binaires** : isolés via `subprocess`, communication JSON stdin/stdout, vérification d'exécutabilité.
+- **Timeouts** : `timeout_seconds` (1–300) plafonné à `default_timeout` sauf si `allow_long_running` est activé. Le plafonnement s'applique aussi au repli `_execute_plugin_direct` du metasolver. Les plugins **Python** appliquent désormais un **timeout dur** via thread watchdog (`_run_with_hard_timeout`, cf. 5.1) — plus seulement les binaires ; les plugins `meta` en sont exemptés.
+- **Plugins binaires** : isolés via `subprocess`, communication JSON stdin/stdout, vérification d'exécutabilité, timeout appliqué par `communicate(timeout=…)`.
 - Les plugins `official/` sont en **lecture seule** ; les contributions utilisateur vont dans `custom/`.
 
 ---
 
 ## 13. Points d'attention / dette technique
 
-- `discover_plugins()` contient du code mort après le `return self._discover_plugins_batched()` (ancienne implémentation non batchée conservée mais non exécutée).
-- Quelques chaînes de log dans `_discover_plugins_batched` présentent des caractères mal encodés (`RÃ©pertoire`…) sans impact fonctionnel.
-- L'exécution synchrone (`/<plugin_name>/execute`) ne pose pas de timeout dur côté blueprint : elle dépend de l'implémentation du plugin et du wrapper.
-- Le batch utilise des **threads** (`ThreadPoolExecutor`), pas de `ProcessPool` ; pour des plugins réellement `heavy_cpu`, le GIL peut limiter le parallélisme.
+- Le blueprint (`/<plugin_name>/execute`) ne pose pas lui-même de timeout HTTP dur : le timeout est appliqué **au niveau du wrapper** (`_run_with_hard_timeout`, cf. 5.1). Un plugin bloqué sur une boucle CPU infinie libère l'appelant mais son thread orphelin continue de tourner jusqu'au redémarrage (limite inhérente aux threads Python — un vrai `kill` nécessiterait des process, écartés pour préserver l'injection in-process).
+- Le batch **et** le metasolver utilisent des **threads** (`ThreadPoolExecutor`), pas de `ProcessPool` ; pour des plugins réellement `heavy_cpu`, le GIL limite le parallélisme réel (le gain vient surtout du recouvrement plugins lents/rapides).
+- Le scoring (`scoring/scorer.py`) importe `detect_gps_coordinates` depuis `blueprints.coordinates` via un **import paresseux** (dans la fonction) : pas de cycle à l'import, mais l'inversion de couches reste un point à surveiller (extraction vers un module partagé non faite).
+
+> **Résolus** (juillet 2026) : code mort de `discover_plugins()` supprimé (+ méthodes legacy `_update_plugin_in_db`/`_cleanup_deleted_plugins`) ; chaînes de log mal encodées corrigées ; thread-safety du chargement (verrous par plugin + `sys.path`) ; timeout dur des plugins Python ; cache des métadonnées ; nommage de module préfixé ; déduplication des résultats metasolver.
 
 ---
 
