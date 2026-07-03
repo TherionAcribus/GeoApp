@@ -4,29 +4,31 @@ Permet de chercher dans les géocaches (nom, description, hints, notes personnel
 les logs et les notes utilisateur.
 """
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, current_app
 import logging
 import re
-from html import unescape
 
 from ..database import db
 from ..geocaches.models import Geocache, GeocacheLog, Note, GeocacheNote
 from ..plugins.models import Plugin
+from ..search_index import (
+    KIND_GEOCACHE,
+    KIND_LOG,
+    KIND_NOTE,
+    KIND_PLUGIN,
+    build_fts_match,
+    fts_candidate_ids,
+    strip_html as _strip_html,
+)
 
 bp = Blueprint('search', __name__)
 logger = logging.getLogger(__name__)
 
 CONTEXT_CHARS = 80  # Nombre de caractères de contexte autour du match
 
-
-def _strip_html(html: str | None) -> str:
-    """Convertit du HTML en texte brut."""
-    if not html:
-        return ''
-    text = re.sub(r'<[^>]+>', ' ', html)
-    text = unescape(text)
-    text = re.sub(r'\s+', ' ', text).strip()
-    return text
+# Marge de candidats récupérés depuis l'index FTS avant raffinage/tri Python.
+FTS_CANDIDATE_FACTOR = 5
+FTS_CANDIDATE_CAP = 500
 
 
 def _build_regex(query: str, case_sensitive: bool = False, use_regex: bool = False, use_wildcard: bool = False):
@@ -109,6 +111,20 @@ def global_search():
     if pattern is None:
         return jsonify({'error': 'Invalid regex pattern'}), 400
 
+    # Mode hybride : l'index FTS5 ne gère que la recherche texte simple,
+    # insensible à la casse et non filtrée par zone. Les autres modes (regex,
+    # wildcard, sensible à la casse, zone_id) conservent le scan Python complet.
+    use_fts = not (use_regex or use_wildcard or case_sensitive) and zone_id is None
+    fts_match = build_fts_match(query) if use_fts else None
+    fts_limit = min(limit * FTS_CANDIDATE_FACTOR, FTS_CANDIDATE_CAP)
+
+    def _fts_filter(orm_query, model, kind):
+        """Restreint une requête ORM aux candidats FTS, ou None si aucun candidat."""
+        ids = fts_candidate_ids(db.session, kind, fts_match, fts_limit)
+        if not ids:
+            return None
+        return orm_query.filter(model.id.in_(ids))
+
     results = {
         'query': query,
         'options': {
@@ -132,7 +148,11 @@ def global_search():
             if zone_id is not None:
                 gc_query = gc_query.filter(Geocache.zone_id == zone_id)
 
-            geocaches = gc_query.all()
+            if use_fts:
+                filtered = _fts_filter(gc_query, Geocache, KIND_GEOCACHE)
+                geocaches = filtered.all() if filtered is not None else []
+            else:
+                geocaches = gc_query.all()
             gc_results = []
 
             for gc in geocaches:
@@ -186,7 +206,11 @@ def global_search():
             if zone_id is not None:
                 log_query = log_query.filter(Geocache.zone_id == zone_id)
 
-            logs = log_query.all()
+            if use_fts:
+                filtered = _fts_filter(log_query, GeocacheLog, KIND_LOG)
+                logs = filtered.all() if filtered is not None else []
+            else:
+                logs = log_query.all()
             log_results = []
 
             for log in logs:
@@ -215,7 +239,11 @@ def global_search():
         # --- Recherche dans les notes ---
         if scope in ('all', 'database', 'notes'):
             note_query = Note.query
-            notes = note_query.all()
+            if use_fts:
+                filtered = _fts_filter(note_query, Note, KIND_NOTE)
+                notes = filtered.all() if filtered is not None else []
+            else:
+                notes = note_query.all()
             note_results = []
 
             for note in notes:
@@ -245,7 +273,11 @@ def global_search():
         # --- Recherche dans les plugins ---
         if scope in ('all', 'database', 'plugins'):
             plugin_results = []
-            plugins = Plugin.query.all()
+            if use_fts:
+                filtered = _fts_filter(Plugin.query, Plugin, KIND_PLUGIN)
+                plugins = filtered.all() if filtered is not None else []
+            else:
+                plugins = Plugin.query.all()
 
             for plugin in plugins:
                 count = 0

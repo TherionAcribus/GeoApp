@@ -130,6 +130,11 @@ def init_db(app):
             logger.error('Error creating default zone: %s', error)
             db.session.rollback()
 
+        # Index de recherche plein-texte (FTS5) : création, amorçage et
+        # enregistrement des événements ORM de synchronisation.
+        from .search_index import ensure_search_index
+        ensure_search_index(db)
+
 
 def run_geocache_images_v2_backfill_once(app_config_model) -> None:
     current_version = app_config_model.get_value(GEOCACHE_IMAGES_V2_BACKFILL_KEY)
