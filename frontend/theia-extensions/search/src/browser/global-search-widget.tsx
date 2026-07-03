@@ -19,9 +19,14 @@ import {
     PluginSearchResult,
     AlphabetSearchResult,
     SearchSnippet,
-    SearchScope
+    SearchScope,
+    MIN_QUERY_LENGTH
 } from './global-search-service';
 import { SearchOptions } from '../common/search-protocol';
+
+/** Titre de section : indique le total réel et la troncature éventuelle. */
+const sectionTitle = (name: string, shown: number, total: number): string =>
+    total > shown ? `${name} (${shown} sur ${total})` : `${name} (${total})`;
 
 @injectable()
 export class GlobalSearchWidget extends ReactWidget {
@@ -134,6 +139,7 @@ const GlobalSearchComponent: React.FC<{
         || state.alphabetResults.length > 0;
 
     const hasQuery = localQuery.trim().length > 0;
+    const isShortQuery = hasQuery && localQuery.trim().length < MIN_QUERY_LENGTH;
 
     return (
         <div className='geoapp-gs-container'>
@@ -214,7 +220,13 @@ const GlobalSearchComponent: React.FC<{
                     </div>
                 )}
 
-                {hasQuery && !state.isSearching && !hasResults && !state.error && (
+                {isShortQuery && !state.isSearching && (
+                    <div className='geoapp-gs-placeholder'>
+                        Saisissez au moins {MIN_QUERY_LENGTH} caractères…
+                    </div>
+                )}
+
+                {hasQuery && !isShortQuery && !state.isSearching && !hasResults && !state.error && (
                     <div className='geoapp-gs-no-results'>Aucun résultat pour « {localQuery} »</div>
                 )}
 
@@ -229,7 +241,7 @@ const GlobalSearchComponent: React.FC<{
 
                 {/* Géocaches (DB) */}
                 {state.geocacheResults.length > 0 && (
-                    <ResultSection title={`Géocaches (${state.geocacheResults.length})`} icon='codicon-globe'>
+                    <ResultSection title={sectionTitle('Géocaches', state.geocacheResults.length, state.counts.geocaches)} icon='codicon-globe'>
                         {state.geocacheResults.map(r => (
                             <GeocacheResultItem key={r.id} result={r} onOpen={onOpenGeocache} />
                         ))}
@@ -238,7 +250,7 @@ const GlobalSearchComponent: React.FC<{
 
                 {/* Logs (DB) */}
                 {state.logResults.length > 0 && (
-                    <ResultSection title={`Logs (${state.logResults.length})`} icon='codicon-comment'>
+                    <ResultSection title={sectionTitle('Logs', state.logResults.length, state.counts.logs)} icon='codicon-comment'>
                         {state.logResults.map(r => (
                             <LogResultItem key={r.id} result={r} onOpen={onOpenGeocache} />
                         ))}
@@ -247,7 +259,7 @@ const GlobalSearchComponent: React.FC<{
 
                 {/* Notes (DB) */}
                 {state.noteResults.length > 0 && (
-                    <ResultSection title={`Notes (${state.noteResults.length})`} icon='codicon-note'>
+                    <ResultSection title={sectionTitle('Notes', state.noteResults.length, state.counts.notes)} icon='codicon-note'>
                         {state.noteResults.map(r => (
                             <NoteResultItem key={r.id} result={r} />
                         ))}
@@ -256,7 +268,7 @@ const GlobalSearchComponent: React.FC<{
 
                 {/* Plugins (DB) */}
                 {state.pluginResults.length > 0 && (
-                    <ResultSection title={`Plugins (${state.pluginResults.length})`} icon='codicon-extensions'>
+                    <ResultSection title={sectionTitle('Plugins', state.pluginResults.length, state.counts.plugins)} icon='codicon-extensions'>
                         {state.pluginResults.map(r => (
                             <PluginResultItem key={r.id} result={r} onOpen={onOpenPlugin} />
                         ))}
@@ -265,7 +277,7 @@ const GlobalSearchComponent: React.FC<{
 
                 {/* Alphabets (fichiers) */}
                 {state.alphabetResults.length > 0 && (
-                    <ResultSection title={`Alphabets (${state.alphabetResults.length})`} icon='codicon-symbol-text'>
+                    <ResultSection title={sectionTitle('Alphabets', state.alphabetResults.length, state.counts.alphabets)} icon='codicon-symbol-text'>
                         {state.alphabetResults.map(r => (
                             <AlphabetResultItem key={r.id} result={r} onOpen={onOpenAlphabet} />
                         ))}

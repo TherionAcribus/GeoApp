@@ -200,6 +200,9 @@ def global_search():
         'notes': [],
         'plugins': [],
         'alphabets': [],
+        # Totaux réels par catégorie AVANT troncature `limit` (permet au front
+        # d'afficher « 50+ » quand les résultats sont tronqués).
+        'counts': {'geocaches': 0, 'logs': 0, 'notes': 0, 'plugins': 0, 'alphabets': 0},
         'total_count': 0,
         'partial': False
     }
@@ -264,6 +267,7 @@ def global_search():
 
             # Trier par nombre de matches décroissant
             gc_results.sort(key=lambda x: x['total_matches'], reverse=True)
+            results['counts']['geocaches'] = len(gc_results)
             results['geocaches'] = gc_results[:limit]
 
         # --- Recherche dans les logs ---
@@ -289,7 +293,10 @@ def global_search():
                 count = _count_matches(combined, pattern)
 
                 if count > 0:
-                    snippets = _extract_snippets(text, pattern)
+                    # Snippets extraits du texte combiné (auteur + contenu) pour
+                    # rester cohérent avec le comptage : un match uniquement dans
+                    # l'auteur produit désormais un snippet au lieu d'une liste vide.
+                    snippets = _extract_snippets(combined, pattern)
                     log_results.append({
                         'id': log.id,
                         'geocache_id': log.geocache_id,
@@ -303,6 +310,7 @@ def global_search():
                     })
 
             log_results.sort(key=lambda x: x['total_matches'], reverse=True)
+            results['counts']['logs'] = len(log_results)
             results['logs'] = log_results[:limit]
 
         # --- Recherche dans les notes ---
@@ -340,6 +348,7 @@ def global_search():
                     })
 
             note_results.sort(key=lambda x: x['total_matches'], reverse=True)
+            results['counts']['notes'] = len(note_results)
             results['notes'] = note_results[:limit]
 
         # --- Recherche dans les plugins ---
@@ -413,6 +422,7 @@ def global_search():
                     })
 
             plugin_results.sort(key=lambda x: x['total_matches'], reverse=True)
+            results['counts']['plugins'] = len(plugin_results)
             results['plugins'] = plugin_results[:limit]
 
         # --- Recherche dans les alphabets ---
@@ -422,30 +432,22 @@ def global_search():
             
             alphabets_dir = current_app.config.get('ALPHABETS_DIR') or os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), 'alphabets')
             alphabet_results = []
-            
-            logger.debug(f"Searching alphabets in: {alphabets_dir}, exists: {os.path.exists(alphabets_dir)}")
 
             if os.path.exists(alphabets_dir):
                 alphabet_folders = os.listdir(alphabets_dir)
-                logger.debug(f"Found {len(alphabet_folders)} items in alphabets directory: {alphabet_folders[:5]}")
-                
+
                 for alphabet_name in alphabet_folders:
                     alphabet_path = os.path.join(alphabets_dir, alphabet_name)
                     if not os.path.isdir(alphabet_path):
-                        logger.debug(f"Skipping {alphabet_name} (not a directory)")
                         continue
 
                     alphabet_json_path = os.path.join(alphabet_path, 'alphabet.json')
                     if not os.path.exists(alphabet_json_path):
-                        logger.debug(f"Skipping {alphabet_name} (no alphabet.json)")
                         continue
 
                     try:
-                        logger.debug(f"Reading alphabet.json for {alphabet_name}")
                         with open(alphabet_json_path, 'r', encoding='utf-8') as f:
                             metadata = json.load(f)
-                        
-                        logger.debug(f"Alphabet {alphabet_name}: name={metadata.get('name')}, description={metadata.get('description', '')[:50]}")
 
                         count = 0
                         matched_fields = {}
@@ -484,7 +486,6 @@ def global_search():
                                 count += alias_count
 
                         if count > 0:
-                            logger.debug(f"Alphabet {alphabet_name} matched with {count} occurrences")
                             alphabet_results.append({
                                 'id': alphabet_name,
                                 'name': name,
@@ -493,24 +494,17 @@ def global_search():
                                 'total_matches': count,
                                 'matches_in': matched_fields
                             })
-                        else:
-                            logger.debug(f"Alphabet {alphabet_name} did not match pattern")
 
                     except (json.JSONDecodeError, IOError) as e:
                         logger.warning(f"Error reading alphabet {alphabet_name}: {e}")
                         continue
 
             alphabet_results.sort(key=lambda x: x['total_matches'], reverse=True)
+            results['counts']['alphabets'] = len(alphabet_results)
             results['alphabets'] = alphabet_results[:limit]
-            logger.debug(f"Total alphabets found: {len(alphabet_results)}")
 
-        results['total_count'] = (
-            len(results['geocaches']) +
-            len(results['logs']) +
-            len(results['notes']) +
-            len(results['plugins']) +
-            len(results['alphabets'])
-        )
+        # Total réel (avant troncature), pas seulement les résultats renvoyés.
+        results['total_count'] = sum(results['counts'].values())
 
         return jsonify(results)
 

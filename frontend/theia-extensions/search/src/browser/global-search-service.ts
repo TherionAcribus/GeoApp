@@ -21,6 +21,20 @@ export type SearchScope = 'all' | 'open_tabs' | 'database' | 'geocaches' | 'plug
 /** Endpoint de l'API de recherche backend. */
 const SEARCH_API_URL = 'http://localhost:8000/api/search';
 
+/** Longueur minimale de requête avant de déclencher une recherche. */
+export const MIN_QUERY_LENGTH = 2;
+
+/** Totaux réels par catégorie (avant troncature côté backend). */
+export interface SearchCounts {
+    geocaches: number;
+    logs: number;
+    notes: number;
+    plugins: number;
+    alphabets: number;
+}
+
+const EMPTY_COUNTS: SearchCounts = { geocaches: 0, logs: 0, notes: 0, plugins: 0, alphabets: 0 };
+
 /** Résultats de recherche issus de la base de données backend. */
 interface DatabaseSearchResults {
     geocacheResults: GeocacheSearchResult[];
@@ -28,6 +42,7 @@ interface DatabaseSearchResults {
     noteResults: NoteSearchResult[];
     pluginResults: PluginSearchResult[];
     alphabetResults: AlphabetSearchResult[];
+    counts: SearchCounts;
 }
 
 /**
@@ -143,6 +158,8 @@ export interface GlobalSearchState {
     error: string | null;
     /** Nombre total de résultats */
     totalCount: number;
+    /** Totaux réels par catégorie DB (avant troncature ; pour afficher « 50+ »). */
+    counts: SearchCounts;
     /** Scope actif */
     scope: SearchScope;
 }
@@ -159,6 +176,7 @@ export const INITIAL_GLOBAL_SEARCH_STATE: GlobalSearchState = {
     alphabetResults: [],
     error: null,
     totalCount: 0,
+    counts: { ...EMPTY_COUNTS },
     scope: 'all'
 };
 
@@ -222,7 +240,10 @@ export class GlobalSearchService {
             this.state.scope = scope;
         }
 
-        if (!query.trim()) {
+        // En-deçà de la longueur minimale, on n'interroge ni le backend ni le
+        // DOM (évite les scans inutiles sur 1 caractère). Le widget affiche
+        // alors une invite plutôt qu'un « aucun résultat » trompeur.
+        if (query.trim().length < MIN_QUERY_LENGTH) {
             this.clearResults();
             return;
         }
@@ -472,7 +493,8 @@ export class GlobalSearchService {
             logResults: (data['logs'] as LogSearchResult[]) || [],
             noteResults: (data['notes'] as NoteSearchResult[]) || [],
             pluginResults: (data['plugins'] as PluginSearchResult[]) || [],
-            alphabetResults: (data['alphabets'] as AlphabetSearchResult[]) || []
+            alphabetResults: (data['alphabets'] as AlphabetSearchResult[]) || [],
+            counts: { ...EMPTY_COUNTS, ...(data['counts'] as Partial<SearchCounts> | undefined) }
         };
     }
 
@@ -486,6 +508,7 @@ export class GlobalSearchService {
         this.state.noteResults = results.noteResults;
         this.state.pluginResults = results.pluginResults;
         this.state.alphabetResults = results.alphabetResults;
+        this.state.counts = results.counts;
     }
 
     /**
@@ -556,10 +579,12 @@ export class GlobalSearchService {
         widgetResults: WidgetSearchResult[];
         totalCount: number;
     }> {
-        const empty = { widgetResults: [], geocacheResults: [], logResults: [], noteResults: [], pluginResults: [], alphabetResults: [], totalCount: 0 };
+        const emptyDb: DatabaseSearchResults = {
+            geocacheResults: [], logResults: [], noteResults: [], pluginResults: [], alphabetResults: [], counts: { ...EMPTY_COUNTS }
+        };
         const trimmed = query.trim();
         if (!trimmed) {
-            return empty;
+            return { widgetResults: [], ...emptyDb, totalCount: 0 };
         }
 
         const opts: SearchOptions = { ...DEFAULT_SEARCH_OPTIONS };
@@ -568,9 +593,7 @@ export class GlobalSearchService {
             ? this.collectWidgetResults(trimmed, opts)
             : [];
 
-        let db: DatabaseSearchResults = {
-            geocacheResults: [], logResults: [], noteResults: [], pluginResults: [], alphabetResults: []
-        };
+        let db: DatabaseSearchResults = { ...emptyDb };
         if (scope !== 'open_tabs') {
             try {
                 db = await this.fetchDatabaseResults(trimmed, scope, opts, 20);
