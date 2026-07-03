@@ -13,6 +13,24 @@ import { SearchOptions, DEFAULT_SEARCH_OPTIONS } from '../common/search-protocol
 import { searchInDomNode, buildSearchRegex } from './search-engine';
 
 /**
+ * Périmètre de recherche. Union unique réutilisée dans le service et le widget
+ * (évite la dérive entre les multiples signatures qui la redéclaraient).
+ */
+export type SearchScope = 'all' | 'open_tabs' | 'database' | 'geocaches' | 'plugins' | 'alphabets' | 'logs' | 'notes';
+
+/** Endpoint de l'API de recherche backend. */
+const SEARCH_API_URL = 'http://localhost:8000/api/search';
+
+/** Résultats de recherche issus de la base de données backend. */
+interface DatabaseSearchResults {
+    geocacheResults: GeocacheSearchResult[];
+    logResults: LogSearchResult[];
+    noteResults: NoteSearchResult[];
+    pluginResults: PluginSearchResult[];
+    alphabetResults: AlphabetSearchResult[];
+}
+
+/**
  * Snippet de contexte autour d'un match.
  */
 export interface SearchSnippet {
@@ -126,7 +144,7 @@ export interface GlobalSearchState {
     /** Nombre total de résultats */
     totalCount: number;
     /** Scope actif */
-    scope: 'all' | 'open_tabs' | 'database' | 'geocaches' | 'plugins' | 'alphabets' | 'logs' | 'notes';
+    scope: SearchScope;
 }
 
 export const INITIAL_GLOBAL_SEARCH_STATE: GlobalSearchState = {
@@ -195,7 +213,7 @@ export class GlobalSearchService {
     /**
      * Lance la recherche globale (debounced).
      */
-    search(query: string, options?: Partial<SearchOptions>, scope?: 'all' | 'open_tabs' | 'database'): void {
+    search(query: string, options?: Partial<SearchOptions>, scope?: SearchScope): void {
         this.state.query = query;
         if (options) {
             this.state.options = { ...this.state.options, ...options };
@@ -238,7 +256,7 @@ export class GlobalSearchService {
     /**
      * Met à jour le scope de recherche.
      */
-    updateScope(scope: 'all' | 'open_tabs' | 'database' | 'geocaches' | 'plugins' | 'alphabets' | 'logs' | 'notes'): void {
+    updateScope(scope: SearchScope): void {
         this.state.scope = scope;
         this.notifyListeners();
         if (this.state.query.trim()) {
@@ -375,19 +393,20 @@ export class GlobalSearchService {
     }
 
     /**
-     * Recherche dans tous les widgets GeoApp ouverts.
+     * Collecte les résultats de recherche dans les widgets GeoApp ouverts.
+     * Fonction pure (ne modifie pas l'état), partagée par la recherche
+     * interactive et la recherche programmatique (searchDirect).
      */
-    private searchInOpenWidgets(query: string): void {
+    private collectWidgetResults(query: string, options: SearchOptions): WidgetSearchResult[] {
         const widgets = this.getOpenGeoAppWidgets();
         const results: WidgetSearchResult[] = [];
 
         for (const widget of widgets) {
             try {
-                const matches = searchInDomNode(widget.node, query, this.state.options);
+                const matches = searchInDomNode(widget.node, query, options);
                 if (matches.length > 0) {
-                    // Extraire des snippets depuis le DOM
                     const textContent = this.getWidgetTextContent(widget);
-                    const snippets = this.extractSnippets(textContent, query);
+                    const snippets = this.extractSnippets(textContent, query, 3, options);
 
                     results.push({
                         widgetId: widget.id,
@@ -403,35 +422,70 @@ export class GlobalSearchService {
         }
 
         results.sort((a, b) => b.matchCount - a.matchCount);
-        this.state.widgetResults = results;
+        return results;
     }
 
     /**
-     * Recherche dans la base de données via l'API backend.
+     * Recherche dans tous les widgets GeoApp ouverts (met à jour l'état).
      */
-    private async searchInDatabase(query: string, signal: AbortSignal, scope: 'all' | 'database' | 'geocaches' | 'plugins' | 'alphabets' | 'logs' | 'notes'): Promise<void> {
+    private searchInOpenWidgets(query: string): void {
+        this.state.widgetResults = this.collectWidgetResults(query, this.state.options);
+    }
+
+    /**
+     * Appelle l'API de recherche backend et retourne les résultats bruts.
+     * Source unique de vérité pour l'endpoint et le mapping de la réponse,
+     * partagée par la recherche interactive et searchDirect.
+     */
+    private async fetchDatabaseResults(
+        query: string,
+        scope: SearchScope,
+        options: SearchOptions,
+        limit: number,
+        signal?: AbortSignal
+    ): Promise<DatabaseSearchResults> {
         const params = new URLSearchParams({
             q: query,
-            case_sensitive: String(this.state.options.caseSensitive),
-            use_regex: String(this.state.options.useRegex),
-            use_wildcard: String(this.state.options.useWildcard),
+            case_sensitive: String(options.caseSensitive),
+            use_regex: String(options.useRegex),
+            use_wildcard: String(options.useWildcard),
             scope,
-            limit: '50'
+            limit: String(limit)
         });
 
-        const response = await fetch(`http://localhost:8000/api/search?${params}`, { signal });
+        const response = await fetch(`${SEARCH_API_URL}?${params}`, signal ? { signal } : {});
 
         if (!response.ok) {
-            const data = await response.json();
-            throw new Error(data.error || `HTTP ${response.status}`);
+            let message = `HTTP ${response.status}`;
+            try {
+                const data = await response.json();
+                message = data.error || message;
+            } catch {
+                // corps non-JSON : on garde le message HTTP par défaut
+            }
+            throw new Error(message);
         }
 
-        const data = await response.json();
-        this.state.geocacheResults = data.geocaches || [];
-        this.state.logResults = data.logs || [];
-        this.state.noteResults = data.notes || [];
-        this.state.pluginResults = data.plugins || [];
-        this.state.alphabetResults = data.alphabets || [];
+        const data = await response.json() as Record<string, unknown>;
+        return {
+            geocacheResults: (data['geocaches'] as GeocacheSearchResult[]) || [],
+            logResults: (data['logs'] as LogSearchResult[]) || [],
+            noteResults: (data['notes'] as NoteSearchResult[]) || [],
+            pluginResults: (data['plugins'] as PluginSearchResult[]) || [],
+            alphabetResults: (data['alphabets'] as AlphabetSearchResult[]) || []
+        };
+    }
+
+    /**
+     * Recherche dans la base de données via l'API backend (met à jour l'état).
+     */
+    private async searchInDatabase(query: string, signal: AbortSignal, scope: SearchScope): Promise<void> {
+        const results = await this.fetchDatabaseResults(query, scope, this.state.options, 50, signal);
+        this.state.geocacheResults = results.geocacheResults;
+        this.state.logResults = results.logResults;
+        this.state.noteResults = results.noteResults;
+        this.state.pluginResults = results.pluginResults;
+        this.state.alphabetResults = results.alphabetResults;
     }
 
     /**
@@ -497,82 +551,37 @@ export class GlobalSearchService {
      */
     async searchDirect(
         query: string,
-        scope: GlobalSearchState['scope'] = 'all'
-    ): Promise<{
+        scope: SearchScope = 'all'
+    ): Promise<DatabaseSearchResults & {
         widgetResults: WidgetSearchResult[];
-        geocacheResults: GeocacheSearchResult[];
-        logResults: LogSearchResult[];
-        noteResults: NoteSearchResult[];
-        pluginResults: PluginSearchResult[];
-        alphabetResults: AlphabetSearchResult[];
         totalCount: number;
     }> {
+        const empty = { widgetResults: [], geocacheResults: [], logResults: [], noteResults: [], pluginResults: [], alphabetResults: [], totalCount: 0 };
         const trimmed = query.trim();
         if (!trimmed) {
-            return { widgetResults: [], geocacheResults: [], logResults: [], noteResults: [], pluginResults: [], alphabetResults: [], totalCount: 0 };
+            return empty;
         }
 
         const opts: SearchOptions = { ...DEFAULT_SEARCH_OPTIONS };
-        let widgetResults: WidgetSearchResult[] = [];
 
-        if (scope === 'all' || scope === 'open_tabs') {
-            const widgets = this.getOpenGeoAppWidgets();
-            for (const widget of widgets) {
-                try {
-                    const matches = searchInDomNode(widget.node, trimmed, opts);
-                    if (matches.length > 0) {
-                        const clone = widget.node.cloneNode(true) as HTMLElement;
-                        const overlay = clone.querySelector('#geoapp-search-overlay-container');
-                        if (overlay) { overlay.remove(); }
-                        const textContent = clone.textContent || '';
-                        const snippets = this.extractSnippets(textContent, trimmed, 3, opts);
-                        widgetResults.push({
-                            widgetId: widget.id,
-                            widgetTitle: widget.title.label || widget.id,
-                            widgetIconClass: widget.title.iconClass || '',
-                            matchCount: matches.length,
-                            snippets,
-                        });
-                    }
-                } catch {
-                    // ignore individual widget errors
-                }
-            }
-            widgetResults.sort((a, b) => b.matchCount - a.matchCount);
-        }
+        const widgetResults = (scope === 'all' || scope === 'open_tabs')
+            ? this.collectWidgetResults(trimmed, opts)
+            : [];
 
-        let geocacheResults: GeocacheSearchResult[] = [];
-        let logResults: LogSearchResult[] = [];
-        let noteResults: NoteSearchResult[] = [];
-        let pluginResults: PluginSearchResult[] = [];
-        let alphabetResults: AlphabetSearchResult[] = [];
-
+        let db: DatabaseSearchResults = {
+            geocacheResults: [], logResults: [], noteResults: [], pluginResults: [], alphabetResults: []
+        };
         if (scope !== 'open_tabs') {
             try {
-                const params = new URLSearchParams({
-                    q: trimmed,
-                    case_sensitive: 'false',
-                    use_regex: 'false',
-                    use_wildcard: 'false',
-                    scope,
-                    limit: '20',
-                });
-                const response = await fetch(`http://localhost:8000/api/search?${params}`);
-                if (response.ok) {
-                    const data = await response.json() as Record<string, unknown>;
-                    geocacheResults = (data['geocaches'] as GeocacheSearchResult[]) || [];
-                    logResults = (data['logs'] as LogSearchResult[]) || [];
-                    noteResults = (data['notes'] as NoteSearchResult[]) || [];
-                    pluginResults = (data['plugins'] as PluginSearchResult[]) || [];
-                    alphabetResults = (data['alphabets'] as AlphabetSearchResult[]) || [];
-                }
+                db = await this.fetchDatabaseResults(trimmed, scope, opts, 20);
             } catch {
-                // silently fail
+                // usage programmatique : on échoue silencieusement
             }
         }
 
-        const totalCount = widgetResults.length + geocacheResults.length + logResults.length + noteResults.length + pluginResults.length + alphabetResults.length;
-        return { widgetResults, geocacheResults, logResults, noteResults, pluginResults, alphabetResults, totalCount };
+        const totalCount = widgetResults.length + db.geocacheResults.length + db.logResults.length
+            + db.noteResults.length + db.pluginResults.length + db.alphabetResults.length;
+        return { widgetResults, ...db, totalCount };
     }
 
     private notifyListeners(): void {

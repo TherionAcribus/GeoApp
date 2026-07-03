@@ -18,8 +18,10 @@ import {
     NoteSearchResult,
     PluginSearchResult,
     AlphabetSearchResult,
-    SearchSnippet
+    SearchSnippet,
+    SearchScope
 } from './global-search-service';
+import { SearchOptions } from '../common/search-protocol';
 
 @injectable()
 export class GlobalSearchWidget extends ReactWidget {
@@ -74,7 +76,7 @@ export class GlobalSearchWidget extends ReactWidget {
     protected render(): React.ReactNode {
         return <GlobalSearchComponent
             state={this.searchState}
-            onSearch={(query, options, scope) => this.globalSearchService.search(query, options, scope as any)}
+            onSearch={(query, options, scope) => this.globalSearchService.search(query, options, scope)}
             onUpdateOptions={(options) => this.globalSearchService.updateOptions(options)}
             onUpdateScope={(scope) => this.globalSearchService.updateScope(scope)}
             onClear={() => this.globalSearchService.clearResults()}
@@ -91,9 +93,9 @@ export class GlobalSearchWidget extends ReactWidget {
  */
 const GlobalSearchComponent: React.FC<{
     state: GlobalSearchState;
-    onSearch: (query: string, options?: any, scope?: 'all' | 'open_tabs' | 'database' | 'geocaches' | 'plugins' | 'alphabets') => void;
-    onUpdateOptions: (options: any) => void;
-    onUpdateScope: (scope: 'all' | 'open_tabs' | 'database' | 'geocaches' | 'plugins' | 'alphabets') => void;
+    onSearch: (query: string, options?: Partial<SearchOptions>, scope?: SearchScope) => void;
+    onUpdateOptions: (options: Partial<SearchOptions>) => void;
+    onUpdateScope: (scope: SearchScope) => void;
     onClear: () => void;
     onRevealInWidget: (widgetId: string) => void;
     onOpenGeocache: (id: number) => void;
@@ -181,7 +183,7 @@ const GlobalSearchComponent: React.FC<{
                     <select
                         className='geoapp-gs-scope'
                         value={state.scope}
-                        onChange={(e) => onUpdateScope(e.target.value as any)}
+                        onChange={(e) => onUpdateScope(e.target.value as SearchScope)}
                     >
                         <option value='all'>Tout</option>
                         <option value='open_tabs'>Onglets ouverts</option>
