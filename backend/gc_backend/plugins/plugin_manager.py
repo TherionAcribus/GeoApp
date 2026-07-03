@@ -929,13 +929,22 @@ class PluginManager:
         try:
             if plugin_record.metadata_json:
                 metadata = json.loads(plugin_record.metadata_json)
+
+                # Les plugins meta orchestrent d'autres plugins in-process et bornent
+                # eux-mêmes chaque enfant (qui reçoit son propre timeout dur). Leur
+                # imposer un mur wall-clock tuerait tout le sous-arbre de threads :
+                # timeout 0 => pas de watchdog au niveau du wrapper.
+                kinds = metadata.get('kinds') or []
+                if isinstance(kinds, list) and 'meta' in kinds:
+                    return 0
+
                 timeout = metadata.get('timeout_seconds', default_timeout)
                 if not allow_long_running:
                     return min(timeout, default_timeout)
                 return timeout
         except Exception:
             pass
-        
+
         return default_timeout
     
     # =========================================================================

@@ -237,6 +237,79 @@ class TestPlugin:
         assert wrapper._module is None
         assert wrapper._instance is None
     
+    def test_execute_hard_timeout(self, temp_plugin_dir, basic_metadata):
+        """Un plugin dépassant timeout_seconds retourne une erreur 'timeout'."""
+        plugin_code = '''
+import time
+
+class TestPlugin:
+    def execute(self, inputs):
+        time.sleep(5)
+        return {"status": "ok", "results": []}
+'''
+
+        plugin_file = temp_plugin_dir / 'main.py'
+        plugin_file.write_text(plugin_code)
+
+        basic_metadata.path = str(temp_plugin_dir)
+        basic_metadata.timeout_seconds = 1
+
+        wrapper = PythonPluginWrapper(basic_metadata)
+        wrapper.initialize()
+
+        result = wrapper.execute({})
+
+        assert result["status"] == "error"
+        assert result["error"]["code"] == "timeout"
+        assert "timeout" in result["summary"].lower()
+
+    def test_execute_no_timeout_when_zero(self, temp_plugin_dir, basic_metadata):
+        """timeout_seconds <= 0 désactive le watchdog (plugins meta)."""
+        plugin_code = '''
+import time
+
+class TestPlugin:
+    def execute(self, inputs):
+        time.sleep(0.2)
+        return {"status": "ok", "summary": "slow but fine", "results": []}
+'''
+
+        plugin_file = temp_plugin_dir / 'main.py'
+        plugin_file.write_text(plugin_code)
+
+        basic_metadata.path = str(temp_plugin_dir)
+        basic_metadata.timeout_seconds = 0
+
+        wrapper = PythonPluginWrapper(basic_metadata)
+        wrapper.initialize()
+
+        result = wrapper.execute({})
+
+        assert result["status"] == "ok"
+
+    def test_execute_error_propagates_through_timeout_worker(self, temp_plugin_dir, basic_metadata):
+        """Une exception du plugin reste convertie en erreur standardisée avec watchdog actif."""
+        plugin_code = '''
+class TestPlugin:
+    def execute(self, inputs):
+        raise ValueError("Boom")
+'''
+
+        plugin_file = temp_plugin_dir / 'main.py'
+        plugin_file.write_text(plugin_code)
+
+        basic_metadata.path = str(temp_plugin_dir)
+        basic_metadata.timeout_seconds = 5
+
+        wrapper = PythonPluginWrapper(basic_metadata)
+        wrapper.initialize()
+
+        result = wrapper.execute({})
+
+        assert result["status"] == "error"
+        assert "Boom" in result["summary"]
+        assert result["error"]["type"] == "ValueError"
+
     def test_plugin_manager_injection(self, temp_plugin_dir, basic_metadata):
         """Test injection du plugin_manager dans le plugin."""
         plugin_code = '''

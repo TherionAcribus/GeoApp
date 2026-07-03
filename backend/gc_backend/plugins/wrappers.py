@@ -14,6 +14,8 @@ Chaque wrapper implémente l'interface PluginInterface et gère :
 import os
 import sys
 import json
+import time
+import threading
 import subprocess
 import importlib.util
 from abc import ABC, abstractmethod
@@ -286,22 +288,49 @@ class PythonPluginWrapper(PluginInterface):
             raise NotImplementedError(
                 f"Le plugin {self.metadata.name} n'implémente pas la méthode execute()"
             )
-        
+
+        timeout = getattr(self.metadata, 'timeout_seconds', 0) or 0
+
         try:
             logger.debug(
                 f"Exécution du plugin {self.metadata.name} avec inputs: "
                 f"{list(inputs.keys())}"
             )
-            
-            result = self._instance.execute(inputs)
-            
+
+            if timeout and timeout > 0:
+                result = self._run_with_hard_timeout(inputs, timeout)
+            else:
+                # timeout <= 0 : pas de mur d'exécution (ex. plugins meta qui
+                # orchestrent d'autres plugins et bornent eux-mêmes leurs enfants)
+                result = self._instance.execute(inputs)
+
             logger.debug(
                 f"Plugin {self.metadata.name} exécuté avec succès "
                 f"(status: {result.get('status')})"
             )
-            
+
             return result
-            
+
+        except TimeoutError as e:
+            logger.error(
+                f"Plugin {self.metadata.name} a dépassé le timeout de {timeout}s"
+            )
+            return {
+                "status": "error",
+                "summary": f"Timeout: le plugin {self.metadata.name} a dépassé {timeout}s",
+                "results": [],
+                "plugin_info": {
+                    "name": self.metadata.name,
+                    "version": self.metadata.version,
+                    "execution_time_ms": round(timeout * 1000, 2)
+                },
+                "error": {
+                    "type": "TimeoutError",
+                    "code": "timeout",
+                    "message": str(e)
+                }
+            }
+
         except Exception as e:
             logger.error(
                 f"Erreur lors de l'exécution du plugin {self.metadata.name}: {e}",
@@ -323,11 +352,65 @@ class PythonPluginWrapper(PluginInterface):
                     "message": str(e)
                 }
             }
-    
+
+    def _run_with_hard_timeout(self, inputs: Dict[str, Any], timeout: int) -> Dict[str, Any]:
+        """Exécute ``instance.execute`` dans un thread surveillé avec un timeout dur.
+
+        Le thread worker est un daemon : si le plugin dépasse le délai, l'appelant
+        reprend la main immédiatement (``TimeoutError``) tandis que le thread orphelin
+        se termine de lui-même. C'est le compromis retenu pour préserver l'exécution
+        in-process (injection du ``plugin_manager``, partage mémoire) qu'un
+        ``ProcessPool`` casserait. Limite connue : un plugin bloqué sur une boucle
+        CPU infinie continue de consommer un cœur jusqu'au redémarrage du process.
+
+        Le contexte applicatif Flask est poussé dans le thread worker lorsqu'il est
+        disponible, afin que les plugins accédant à la base (ex. lecture d'images)
+        fonctionnent identiquement à un appel synchrone.
+        """
+        result_box: Dict[str, Any] = {}
+
+        app = None
+        if self.plugin_manager is not None:
+            app = getattr(self.plugin_manager, 'app', None)
+
+        def _target() -> None:
+            ctx = None
+            try:
+                if app is not None:
+                    ctx = app.app_context()
+                    ctx.push()
+                result_box['result'] = self._instance.execute(inputs)
+            except Exception as exc:  # capture pour re-raise dans le thread appelant
+                result_box['error'] = exc
+            finally:
+                if ctx is not None:
+                    try:
+                        ctx.pop()
+                    except Exception:
+                        pass
+
+        worker = threading.Thread(
+            target=_target,
+            daemon=True,
+            name=f"plugin-exec-{self.metadata.name}"
+        )
+        worker.start()
+        worker.join(timeout)
+
+        if worker.is_alive():
+            raise TimeoutError(
+                f"Plugin {self.metadata.name} a dépassé le timeout de {timeout}s"
+            )
+
+        if 'error' in result_box:
+            raise result_box['error']
+
+        return result_box.get('result')
+
     def cleanup(self) -> bool:
         """
         Nettoie les ressources du plugin.
-        
+
         Returns:
             bool: True si le nettoyage a réussi
         """
