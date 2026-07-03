@@ -8,6 +8,8 @@ from flask import Blueprint, jsonify, request, current_app
 import logging
 import re
 import time
+import os
+import json
 
 from ..database import db
 from ..geocaches.models import Geocache, GeocacheLog, Note, GeocacheNote
@@ -129,6 +131,56 @@ def _count_matches(text: str, pattern) -> int:
     if not text or not pattern:
         return 0
     return len(pattern.findall(text[:MAX_REGEX_FIELD_CHARS]))
+
+
+# Cache mémoire des métadonnées d'alphabets (données de référence quasi-statiques).
+# Évite de relire et parser tous les alphabet.json à chaque requête. Invalidé
+# quand le mtime du répertoire change (ajout / suppression d'un alphabet).
+_ALPHABETS_CACHE: dict = {'dir': None, 'mtime': None, 'items': []}
+
+
+def _load_alphabets(alphabets_dir: str) -> list[dict]:
+    """
+    Retourne les métadonnées des alphabets [{id, name, description, aliases}].
+
+    Lit le disque une seule fois par état du répertoire (cache invalidé sur le
+    mtime du dossier). Le matching lui-même reste effectué par requête sur ces
+    données en mémoire.
+    """
+    try:
+        mtime = os.path.getmtime(alphabets_dir)
+    except OSError:
+        return []
+
+    cache = _ALPHABETS_CACHE
+    if cache['dir'] == alphabets_dir and cache['mtime'] == mtime:
+        return cache['items']
+
+    items: list[dict] = []
+    for alphabet_name in os.listdir(alphabets_dir):
+        alphabet_path = os.path.join(alphabets_dir, alphabet_name)
+        if not os.path.isdir(alphabet_path):
+            continue
+        alphabet_json_path = os.path.join(alphabet_path, 'alphabet.json')
+        if not os.path.exists(alphabet_json_path):
+            continue
+        try:
+            with open(alphabet_json_path, 'r', encoding='utf-8') as f:
+                metadata = json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            logger.warning(f"Error reading alphabet {alphabet_name}: {e}")
+            continue
+        items.append({
+            'id': alphabet_name,
+            'name': metadata.get('name', alphabet_name),
+            'description': metadata.get('description', ''),
+            'aliases': metadata.get('aliases', []),
+        })
+
+    cache['dir'] = alphabets_dir
+    cache['mtime'] = mtime
+    cache['items'] = items
+    return items
 
 
 @bp.get('/api/search')
@@ -427,77 +479,59 @@ def global_search():
 
         # --- Recherche dans les alphabets ---
         if scope in ('all', 'alphabets'):
-            import os
-            import json
-            
             alphabets_dir = current_app.config.get('ALPHABETS_DIR') or os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), 'alphabets')
             alphabet_results = []
 
-            if os.path.exists(alphabets_dir):
-                alphabet_folders = os.listdir(alphabets_dir)
+            for meta in _load_alphabets(alphabets_dir):
+                if _budget_exceeded():
+                    results['partial'] = True
+                    break
 
-                for alphabet_name in alphabet_folders:
-                    alphabet_path = os.path.join(alphabets_dir, alphabet_name)
-                    if not os.path.isdir(alphabet_path):
-                        continue
+                count = 0
+                matched_fields = {}
 
-                    alphabet_json_path = os.path.join(alphabet_path, 'alphabet.json')
-                    if not os.path.exists(alphabet_json_path):
-                        continue
+                # Chercher dans le nom
+                name = meta['name']
+                name_count = _count_matches(name, pattern)
+                if name_count > 0:
+                    matched_fields['name'] = {
+                        'count': name_count,
+                        'snippets': _extract_snippets(name, pattern)
+                    }
+                    count += name_count
 
-                    try:
-                        with open(alphabet_json_path, 'r', encoding='utf-8') as f:
-                            metadata = json.load(f)
+                # Chercher dans la description
+                description = meta['description']
+                if description:
+                    desc_count = _count_matches(description, pattern)
+                    if desc_count > 0:
+                        matched_fields['description'] = {
+                            'count': desc_count,
+                            'snippets': _extract_snippets(description, pattern)
+                        }
+                        count += desc_count
 
-                        count = 0
-                        matched_fields = {}
+                # Chercher dans les alias
+                aliases = meta['aliases']
+                if aliases:
+                    aliases_text = ' '.join(aliases)
+                    alias_count = _count_matches(aliases_text, pattern)
+                    if alias_count > 0:
+                        matched_fields['aliases'] = {
+                            'count': alias_count,
+                            'snippets': _extract_snippets(aliases_text, pattern)
+                        }
+                        count += alias_count
 
-                        # Chercher dans le nom
-                        name = metadata.get('name', alphabet_name)
-                        name_count = _count_matches(name, pattern)
-                        if name_count > 0:
-                            matched_fields['name'] = {
-                                'count': name_count,
-                                'snippets': _extract_snippets(name, pattern)
-                            }
-                            count += name_count
-
-                        # Chercher dans la description
-                        description = metadata.get('description', '')
-                        if description:
-                            desc_count = _count_matches(description, pattern)
-                            if desc_count > 0:
-                                matched_fields['description'] = {
-                                    'count': desc_count,
-                                    'snippets': _extract_snippets(description, pattern)
-                                }
-                                count += desc_count
-
-                        # Chercher dans les alias
-                        aliases = metadata.get('aliases', [])
-                        if aliases:
-                            aliases_text = ' '.join(aliases)
-                            alias_count = _count_matches(aliases_text, pattern)
-                            if alias_count > 0:
-                                matched_fields['aliases'] = {
-                                    'count': alias_count,
-                                    'snippets': _extract_snippets(aliases_text, pattern)
-                                }
-                                count += alias_count
-
-                        if count > 0:
-                            alphabet_results.append({
-                                'id': alphabet_name,
-                                'name': name,
-                                'description': description,
-                                'aliases': aliases,
-                                'total_matches': count,
-                                'matches_in': matched_fields
-                            })
-
-                    except (json.JSONDecodeError, IOError) as e:
-                        logger.warning(f"Error reading alphabet {alphabet_name}: {e}")
-                        continue
+                if count > 0:
+                    alphabet_results.append({
+                        'id': meta['id'],
+                        'name': name,
+                        'description': description,
+                        'aliases': aliases,
+                        'total_matches': count,
+                        'matches_in': matched_fields
+                    })
 
             alphabet_results.sort(key=lambda x: x['total_matches'], reverse=True)
             results['counts']['alphabets'] = len(alphabet_results)
