@@ -399,6 +399,11 @@ export const PluginResultDisplay: React.FC<{
                             const itemKey = getItemKey(item, index);
                             const manualCoords = manualDetectedCoordinates[itemKey];
                             const resolvedCoordinates = manualCoords || deriveCoordinatesFromItem(item);
+                            // Provenance metasolver : résultat identique produit par
+                            // plusieurs plugins (fusionné côté backend par déduplication)
+                            const sourcePlugins = Array.isArray((item as any).source_plugins)
+                                ? ((item as any).source_plugins as string[])
+                                : undefined;
                             return (
                                 <div 
                                     key={item.id || index} 
@@ -456,6 +461,35 @@ export const PluginResultDisplay: React.FC<{
                                                 {item.parameters?.shift !== undefined && item.parameters.shift !== null && ` (décalage: ${item.parameters.shift})`}
                                                 {index === 0 && isBruteForce && ' 🏆'}
                                             </strong>
+                                            {sourcePlugins && sourcePlugins.length > 1 && (
+                                                <div
+                                                    title='Résultat identique produit par plusieurs plugins (fusionnés)'
+                                                    style={{
+                                                        fontSize: '11px',
+                                                        opacity: 0.75,
+                                                        marginTop: '3px',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '4px',
+                                                        flexWrap: 'wrap'
+                                                    }}
+                                                >
+                                                    <span>🔁 Produit par {sourcePlugins.length} plugins :</span>
+                                                    {sourcePlugins.map(p => (
+                                                        <span
+                                                            key={p}
+                                                            style={{
+                                                                padding: '1px 6px',
+                                                                background: 'var(--theia-editor-background)',
+                                                                border: '1px solid var(--theia-panel-border)',
+                                                                borderRadius: '3px'
+                                                            }}
+                                                        >
+                                                            {p}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            )}
                                             <div className='output-content' style={{ position: 'relative', marginTop: '8px' }}>
                                                 <pre style={{
                                                     whiteSpace: 'pre-wrap',
