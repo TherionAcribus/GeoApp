@@ -519,6 +519,16 @@ class TestMetadataCache:
         mgr.get_plugin_info('p')
         assert db_hits['n'] == 2
 
+    def test_execute_plugin_unavailable_has_error_code(self):
+        """Un plugin indisponible renvoie un error.code structuré (pas de dépendance au wording)."""
+        from gc_backend.plugins.plugin_manager import PluginManager
+
+        mgr = PluginManager('dummy_path')  # app=None => get_plugin renvoie None
+        result = mgr.execute_plugin('inexistant', {})
+
+        assert result["status"] == "error"
+        assert result["error"]["code"] == "plugin_unavailable"
+
 
 class TestBinaryPluginWrapper:
     """Tests pour le wrapper de plugins binaires."""

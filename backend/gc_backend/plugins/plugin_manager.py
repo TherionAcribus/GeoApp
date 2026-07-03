@@ -100,75 +100,8 @@ class PluginManager:
         Returns:
             List[Dict]: Liste des informations des plugins découverts
         """
-        # Recharger le schéma pour prendre en compte les modifications récentes
         return self._discover_plugins_batched()
 
-        self._load_schema()
-
-        discovered_plugins = []
-        discovered_paths = set()
-        
-        # Scanner official et custom
-        sources = {
-            'official': self.plugins_dir / 'official',
-            'custom': self.plugins_dir / 'custom'
-        }
-        
-        for source_name, source_path in sources.items():
-            if not source_path.exists():
-                logger.warning(f"Répertoire {source_name} non trouvé: {source_path}")
-                continue
-            
-            logger.debug(f"Scan des plugins {source_name} dans: {source_path}")
-            
-            # Parcourir récursivement pour trouver plugin.json
-            for plugin_json_path in source_path.rglob('plugin.json'):
-                plugin_dir = plugin_json_path.parent
-                discovered_paths.add(str(plugin_dir))
-                
-                logger.debug(f"Trouvé plugin.json: {plugin_json_path}")
-                
-                try:
-                    # Charger et valider le plugin
-                    plugin_info = self._load_and_validate_plugin(
-                        plugin_json_path,
-                        source_name
-                    )
-                    
-                    if plugin_info:
-                        plugin_info['path'] = str(plugin_dir)
-                        plugin_info['source'] = source_name
-                        
-                        # Mettre à jour en base de données
-                        self._update_plugin_in_db(plugin_info)
-                        
-                        discovered_plugins.append(plugin_info)
-                        
-                        logger.info(
-                            f"Plugin découvert: {plugin_info['name']} v{plugin_info['version']} "
-                            f"({source_name})"
-                        )
-                    
-                except Exception as e:
-                    logger.opt(exception=e).error(
-                        "Erreur lors du chargement de {}: {}",
-                        plugin_json_path,
-                        e,
-                    )
-                    self._loading_errors[str(plugin_dir)] = str(e)
-        
-        # Nettoyer les plugins qui n'existent plus
-        if self.app:
-            with self.app.app_context():
-                self._cleanup_deleted_plugins(discovered_paths)
-        
-        logger.info(
-            f"Découverte terminée: {len(discovered_plugins)} plugins trouvés "
-            f"({len(self._loading_errors)} erreurs)"
-        )
-        
-        return discovered_plugins
-    
     def _discover_plugins_batched(self) -> List[Dict]:
         self._load_schema()
 
@@ -184,7 +117,7 @@ class PluginManager:
 
             for source_name, source_path in sources.items():
                 if not source_path.exists():
-                    logger.warning(f"RÃ©pertoire {source_name} non trouvÃ©: {source_path}")
+                    logger.warning(f"Répertoire {source_name} non trouvé: {source_path}")
                     continue
 
                 logger.debug(f"Scan des plugins {source_name} dans: {source_path}")
@@ -193,7 +126,7 @@ class PluginManager:
                     plugin_dir = plugin_json_path.parent
                     discovered_paths.add(str(plugin_dir))
 
-                    logger.debug(f"TrouvÃ© plugin.json: {plugin_json_path}")
+                    logger.debug(f"Trouvé plugin.json: {plugin_json_path}")
 
                     try:
                         plugin_info = self._load_and_validate_plugin(plugin_json_path, source_name)
@@ -210,7 +143,7 @@ class PluginManager:
                         discovered_plugins.append(plugin_info)
 
                         logger.info(
-                            f"Plugin dÃ©couvert: {plugin_info['name']} v{plugin_info['version']} "
+                            f"Plugin découvert: {plugin_info['name']} v{plugin_info['version']} "
                             f"({source_name})"
                         )
                     except Exception as error:
@@ -242,7 +175,7 @@ class PluginManager:
         self._invalidate_metadata_cache()
 
         logger.info(
-            f"DÃ©couverte terminÃ©e: {len(discovered_plugins)} plugins trouvÃ©s "
+            f"Découverte terminée: {len(discovered_plugins)} plugins trouvés "
             f"({len(self._loading_errors)} erreurs)"
         )
 
@@ -346,91 +279,6 @@ class PluginManager:
             logger.error(f"Erreur calcul hash pour {plugin_json_path}: {e}")
             return ""
     
-    def _update_plugin_in_db(self, plugin_info: Dict) -> None:
-        """
-        Met à jour ou crée un plugin dans la base de données.
-        
-        Stratégie :
-        - Si le plugin existe (même nom) : mise à jour
-        - Si le plugin n'existe pas : création
-        - Comparaison par hash pour éviter les updates inutiles
-        
-        Args:
-            plugin_info (Dict): Informations du plugin
-        """
-        if not self.app:
-            logger.warning("Pas d'app Flask, impossible de mettre à jour la DB")
-            return
-        
-        try:
-            with self.app.app_context():
-                # Chercher le plugin existant
-                existing = Plugin.query.filter_by(name=plugin_info['name']).first()
-                
-                if existing:
-                    # Vérifier si mise à jour nécessaire (hash différent)
-                    current_hash = plugin_info.get('_hash', '')
-                    
-                    # On stocke le hash dans metadata_json pour comparaison
-                    existing_metadata = {}
-                    if existing.metadata_json:
-                        try:
-                            existing_metadata = json.loads(existing.metadata_json)
-                        except json.JSONDecodeError:
-                            pass
-                    
-                    existing_hash = existing_metadata.get('_hash', '')
-                    
-                    if current_hash and current_hash == existing_hash:
-                        logger.debug(
-                            f"Plugin {plugin_info['name']} inchangé (hash identique)"
-                        )
-                        return
-                    
-                    # Mise à jour
-                    logger.info(
-                        f"Mise à jour plugin {plugin_info['name']} "
-                        f"v{existing.version} -> v{plugin_info['version']}"
-                    )
-                    
-                    self._update_plugin_fields(existing, plugin_info)
-                    
-                else:
-                    # Création
-                    logger.info(f"Création nouveau plugin: {plugin_info['name']}")
-                    
-                    new_plugin = Plugin(
-                        name=plugin_info['name'],
-                        version=plugin_info['version'],
-                        plugin_api_version=plugin_info.get('plugin_api_version', '2.0'),
-                        description=plugin_info.get('description', ''),
-                        author=plugin_info.get('author', ''),
-                        plugin_type=plugin_info['plugin_type'],
-                        source=plugin_info['source'],
-                        path=plugin_info['path'],
-                        entry_point=plugin_info['entry_point'],
-                        categories=plugin_info.get('categories', []),
-                        input_types=plugin_info.get('input_types', {}),
-                        heavy_cpu=plugin_info.get('heavy_cpu', False),
-                        needs_network=plugin_info.get('needs_network', False),
-                        needs_filesystem=plugin_info.get('needs_filesystem', False),
-                        enabled=True,
-                        metadata_json=json.dumps(plugin_info)
-                    )
-                    
-                    db.session.add(new_plugin)
-                
-                db.session.commit()
-                logger.debug(f"Plugin {plugin_info['name']} enregistré en DB")
-                
-        except Exception as e:
-            db.session.rollback()
-            logger.opt(exception=e).error(
-                "Erreur DB pour plugin {}: {}",
-                plugin_info.get('name', 'unknown'),
-                e,
-            )
-    
     def _update_plugin_fields(self, plugin: Plugin, plugin_info: Dict) -> None:
         """
         Met à jour les champs d'un plugin existant.
@@ -473,18 +321,18 @@ class PluginManager:
             existing_hash = existing_metadata.get('_hash', '')
             if current_hash and current_hash == existing_hash:
                 logger.debug(
-                    f"Plugin {plugin_info['name']} inchangÃ© (hash identique)"
+                    f"Plugin {plugin_info['name']} inchangé (hash identique)"
                 )
                 return False
 
             logger.info(
-                f"Mise Ã  jour plugin {plugin_info['name']} "
+                f"Mise à jour plugin {plugin_info['name']} "
                 f"v{existing.version} -> v{plugin_info['version']}"
             )
             self._update_plugin_fields(existing, plugin_info)
             return True
 
-        logger.info(f"CrÃ©ation nouveau plugin: {plugin_info['name']}")
+        logger.info(f"Création nouveau plugin: {plugin_info['name']}")
 
         new_plugin = Plugin(
             name=plugin_info['name'],
@@ -528,37 +376,10 @@ class PluginManager:
             deleted_count += 1
 
         if deleted_count > 0:
-            logger.info(f"{deleted_count} plugin(s) supprimÃ©(s) de la DB")
+            logger.info(f"{deleted_count} plugin(s) supprimé(s) de la DB")
             return True
 
         return False
-    
-    def _cleanup_deleted_plugins(self, discovered_paths: set) -> None:
-        """
-        Supprime de la base de données les plugins qui n'existent plus physiquement.
-        
-        Args:
-            discovered_paths (set): Ensemble des chemins de plugins découverts
-        """
-        try:
-            all_plugins = Plugin.query.all()
-            deleted_count = 0
-            
-            for plugin in all_plugins:
-                if plugin.path not in discovered_paths:
-                    logger.info(
-                        f"Suppression plugin {plugin.name} (dossier introuvable: {plugin.path})"
-                    )
-                    db.session.delete(plugin)
-                    deleted_count += 1
-            
-            if deleted_count > 0:
-                db.session.commit()
-                logger.info(f"{deleted_count} plugin(s) supprimé(s) de la DB")
-                
-        except Exception as e:
-            db.session.rollback()
-            logger.error(f"Erreur lors du nettoyage des plugins: {e}")
     
     # =========================================================================
     # Chargement du schéma
@@ -843,6 +664,11 @@ class PluginManager:
                     "name": plugin_name,
                     "version": "unknown",
                     "execution_time_ms": 0
+                },
+                "error": {
+                    "type": "PluginUnavailable",
+                    "code": "plugin_unavailable",
+                    "message": f"Plugin {plugin_name} non disponible"
                 }
             }
         

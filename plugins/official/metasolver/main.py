@@ -755,15 +755,25 @@ class MetaSolverPlugin:
 
         manager_result = self._plugin_manager.execute_plugin(plugin_name, inputs)
 
+        # Détection d'indisponibilité : privilégier le code d'erreur structuré
+        # renvoyé par le PluginManager ; le repli sur sous-chaînes ne sert que pour
+        # d'anciennes réponses sans champ `error.code`.
+        error_block = (manager_result or {}).get("error") or {}
+        error_code = error_block.get("code")
         summary_text = self._extract_summary_text((manager_result or {}).get("summary"))
-        is_unavailable = (
-            not manager_result
-            or manager_result.get("status") == "error"
+        legacy_summary_match = (
+            manager_result is not None
+            and manager_result.get("status") == "error"
             and (
                 "non disponible" in summary_text.lower()
                 or "introuvable" in summary_text.lower()
                 or "non trouvé" in summary_text.lower()
             )
+        )
+        is_unavailable = (
+            not manager_result
+            or error_code == "plugin_unavailable"
+            or legacy_summary_match
         )
 
         if not is_unavailable:
