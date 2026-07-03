@@ -408,6 +408,57 @@ class TestPlugin:
         assert all(r is results[0] for r in results), "tous reçoivent la même instance"
 
 
+class TestMetadataCache:
+    """Tests du cache de métadonnées de get_plugin_info."""
+
+    def test_get_plugin_info_caches_and_invalidates(self, monkeypatch):
+        import contextlib
+        from gc_backend.plugins import plugin_manager as pm_module
+        from gc_backend.plugins.plugin_manager import PluginManager
+
+        db_hits = {'n': 0}
+
+        class FakePlugin:
+            def to_dict(self, include_metadata=False):
+                return {'name': 'p', 'metadata': {'k': 'v'}}
+
+        class FakeQuery:
+            def filter_by(self, **kwargs):
+                return self
+
+            def first(self):
+                db_hits['n'] += 1
+                return FakePlugin()
+
+        class FakePluginModel:
+            query = FakeQuery()
+
+        class FakeApp:
+            def app_context(self):
+                return contextlib.nullcontext()
+
+        monkeypatch.setattr(pm_module, 'Plugin', FakePluginModel)
+
+        mgr = PluginManager('dummy_path')
+        mgr.app = FakeApp()
+
+        info1 = mgr.get_plugin_info('p')
+        info2 = mgr.get_plugin_info('p')
+        assert db_hits['n'] == 1, "le 2e appel doit être servi par le cache"
+        assert info1 == info2
+
+        # Copie défensive : muter le retour ne corrompt pas l'entrée cachée
+        info1['metadata']['k'] = 'MUTATED'
+        info3 = mgr.get_plugin_info('p')
+        assert info3['metadata']['k'] == 'v'
+        assert db_hits['n'] == 1
+
+        # L'invalidation force une nouvelle lecture DB
+        mgr._invalidate_metadata_cache()
+        mgr.get_plugin_info('p')
+        assert db_hits['n'] == 2
+
+
 class TestBinaryPluginWrapper:
     """Tests pour le wrapper de plugins binaires."""
     

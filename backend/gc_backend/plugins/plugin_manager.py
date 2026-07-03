@@ -11,6 +11,7 @@ Le PluginManager est responsable de :
 """
 
 import os
+import copy
 import json
 import hashlib
 import threading
@@ -66,6 +67,12 @@ class PluginManager:
         # l'initialisation concurrente de plugins différents.
         self._load_lock_guard = threading.Lock()
         self._plugin_load_locks: Dict[str, threading.Lock] = {}
+        # Cache des métadonnées sérialisées (to_dict include_metadata=True). Évite
+        # une requête DB + json.loads + conversion input_types->JSON Schema à chaque
+        # appel de get_plugin_info — notamment le metasolver qui l'appelle pour chacun
+        # des ~84 plugins à chaque exécution. Invalidé lors de la découverte/reload.
+        self._metadata_cache: Dict[str, Optional[Dict]] = {}
+        self._metadata_cache_lock = threading.Lock()
         self.lazy_mode: bool = True
         self.default_timeout: int = 60
         self.allow_long_running: bool = False
@@ -229,6 +236,10 @@ class PluginManager:
                     db.session.commit()
         else:
             scan_sources()
+
+        # La découverte est le seul chemin qui modifie metadata_json en DB :
+        # invalider tout le cache de métadonnées.
+        self._invalidate_metadata_cache()
 
         logger.info(
             f"DÃ©couverte terminÃ©e: {len(discovered_plugins)} plugins trouvÃ©s "
@@ -593,20 +604,41 @@ class PluginManager:
         """
         if not self.app:
             return None
-        
+
+        # Cache hit : renvoyer une copie défensive (les appelants peuvent lire
+        # librement sans risquer de corrompre l'entrée mise en cache).
+        with self._metadata_cache_lock:
+            if plugin_name in self._metadata_cache:
+                cached = self._metadata_cache[plugin_name]
+                return copy.deepcopy(cached) if cached is not None else None
+
+        # Cache miss : charger depuis la DB (hors verrou pour ne pas le tenir
+        # pendant l'I/O). get_plugin_info n'est pas appelé de façon concurrente
+        # pour un même plugin, donc pas de thundering herd notable.
+        info: Optional[Dict] = None
         try:
             with self.app.app_context():
                 plugin = Plugin.query.filter_by(name=plugin_name).first()
-                
                 if plugin:
-                    return plugin.to_dict(include_metadata=True)
-                
-                logger.warning(f"Plugin {plugin_name} non trouvé en DB")
-                return None
-                
+                    info = plugin.to_dict(include_metadata=True)
+                else:
+                    logger.warning(f"Plugin {plugin_name} non trouvé en DB")
         except Exception as e:
             logger.error(f"Erreur récupération plugin {plugin_name}: {e}")
             return None
+
+        with self._metadata_cache_lock:
+            self._metadata_cache[plugin_name] = info
+
+        return copy.deepcopy(info) if info is not None else None
+
+    def _invalidate_metadata_cache(self, plugin_name: Optional[str] = None) -> None:
+        """Vide le cache de métadonnées (tout, ou un plugin précis)."""
+        with self._metadata_cache_lock:
+            if plugin_name is None:
+                self._metadata_cache.clear()
+            else:
+                self._metadata_cache.pop(plugin_name, None)
     
     def list_plugins(
         self,
@@ -926,13 +958,16 @@ class PluginManager:
             bool: True si le rechargement a réussi
         """
         logger.info(f"Rechargement du plugin {plugin_name}")
-        
+
         # Décharger
         self.unload_plugin(plugin_name)
-        
+
+        # Invalider le cache de métadonnées (le plugin.json a pu changer)
+        self._invalidate_metadata_cache(plugin_name)
+
         # Recharger
         plugin = self.get_plugin(plugin_name, force_reload=True)
-        
+
         return plugin is not None
 
     def reload_all_plugins(self) -> int:
