@@ -8,10 +8,23 @@ export const MetasolverStreamingPanel: React.FC<{
     coordsDetectionProgress?: CoordsDetectionProgress | null;
 }> = ({ events, progress, verbosity, coordsDetectionProgress }) => {
     const scrollRef = React.useRef<HTMLDivElement>(null);
+    // Ne coller au bas que si l'utilisateur y est déjà : ne pas le forcer vers
+    // le bas s'il a remonté volontairement la liste pour lire un résultat.
+    const stickToBottomRef = React.useRef(true);
 
-    // Auto-scroll vers le bas quand de nouveaux événements arrivent
+    const handleScroll = React.useCallback(() => {
+        const el = scrollRef.current;
+        if (!el) {
+            return;
+        }
+        const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+        stickToBottomRef.current = distanceFromBottom < 24;
+    }, []);
+
+    // Auto-scroll vers le bas à l'arrivée de nouveaux événements, sauf si
+    // l'utilisateur a remonté la liste.
     React.useEffect(() => {
-        if (scrollRef.current) {
+        if (scrollRef.current && stickToBottomRef.current) {
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
         }
     }, [events.length]);
@@ -174,6 +187,7 @@ export const MetasolverStreamingPanel: React.FC<{
             {verbosity !== 'minimal' && pluginNames.length > 0 && (
                 <div
                     ref={scrollRef}
+                    onScroll={handleScroll}
                     style={{
                         maxHeight: verbosity === 'detailed' ? '400px' : '200px',
                         overflowY: 'auto',

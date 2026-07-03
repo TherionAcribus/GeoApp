@@ -17,6 +17,7 @@ encore la détection automatique de coordonnées.
 from __future__ import annotations
 
 import json
+import queue
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -423,12 +424,23 @@ class MetaSolverPlugin:
             "enable_bruteforce": enable_bruteforce,
         }
 
-        # Build candidate index for SSE event ordering
-        candidate_index = {c["name"]: i for i, c in enumerate(candidates)}
+        total_candidates = len(candidates)
 
-        def _run_streaming(candidate: Dict[str, Any]) -> Dict[str, Any]:
-            """Execute a single plugin (thread-safe)."""
+        # File d'événements alimentée par les workers : permet d'émettre un
+        # plugin_start au démarrage RÉEL de chaque plugin (quand un worker prend
+        # la tâche) plutôt que les N d'un coup avant l'exécution. L'agrégation
+        # reste faite ici, dans le générateur mono-thread : les workers ne font
+        # qu'exécuter et pousser leurs événements.
+        event_queue: "queue.Queue" = queue.Queue()
+
+        def _run_streaming(candidate: Dict[str, Any], idx: int) -> None:
+            """Execute a single plugin and push its events to the queue (thread-safe)."""
             pname = candidate["name"]
+            event_queue.put(("start", {
+                "plugin": pname,
+                "index": idx,
+                "total": total_candidates,
+            }))
             plugin_inputs = dict(request_payload)
             plugin_inputs.update(self._build_additional_inputs(
                 candidate["metadata"],
@@ -439,34 +451,33 @@ class MetaSolverPlugin:
             try:
                 result = self._execute_with_fallback(pname, plugin_inputs, candidate)
                 elapsed = round((time.time() - t0) * 1000, 2)
-                return {"name": pname, "result": result, "elapsed_ms": elapsed, "error": None}
+                event_queue.put(("done", {"name": pname, "index": idx, "result": result, "elapsed_ms": elapsed, "error": None}))
             except Exception as exc:
                 elapsed = round((time.time() - t0) * 1000, 2)
-                return {"name": pname, "result": None, "elapsed_ms": elapsed, "error": str(exc)}
+                event_queue.put(("done", {"name": pname, "index": idx, "result": None, "elapsed_ms": elapsed, "error": str(exc)}))
 
-        # Emit plugin_start for all candidates (they all start immediately)
-        for idx_candidate, candidate in enumerate(candidates):
-            yield {
-                "event": "plugin_start",
-                "data": {
-                    "plugin": candidate["name"],
-                    "index": idx_candidate,
-                    "total": len(candidates),
-                },
-            }
-
-        # Execute all plugins in parallel and yield events as they complete
-        max_workers = min(6, len(candidates))
+        # Soumettre tous les plugins puis drainer la file jusqu'à ce que tous
+        # aient terminé, en relayant les événements dans leur ordre réel.
+        max_workers = min(6, total_candidates)
         completed_count = 0
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(_run_streaming, c): c for c in candidates}
-            for future in as_completed(futures):
-                entry = future.result()
+            for idx_candidate, candidate in enumerate(candidates):
+                executor.submit(_run_streaming, candidate, idx_candidate)
+
+            while completed_count < total_candidates:
+                kind, payload = event_queue.get()
+
+                if kind == "start":
+                    yield {"event": "plugin_start", "data": payload}
+                    continue
+
+                # kind == "done"
+                entry = payload
                 plugin_name = entry["name"]
                 result = entry["result"]
                 error = entry["error"]
                 exec_time_ms = entry["elapsed_ms"]
-                idx_candidate = candidate_index.get(plugin_name, 0)
+                idx_candidate = entry["index"]
 
                 if error or not result:
                     failed_plugins.append({"plugin": plugin_name, "reason": error or "No result"})
