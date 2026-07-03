@@ -17,6 +17,7 @@ encore la détection automatique de coordonnées.
 from __future__ import annotations
 
 import json
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -268,6 +269,8 @@ class MetaSolverPlugin:
                     enriched["confidence"] = 0.0
                 aggregated_results.append(enriched)
 
+        raw_results_count = len(aggregated_results)
+        aggregated_results = self._deduplicate_results(aggregated_results)
         aggregated_results.sort(key=lambda item: float(item.get("confidence", 0)), reverse=True)
 
         status = "success" if aggregated_results else "partial_success"
@@ -310,6 +313,8 @@ class MetaSolverPlugin:
             "summary_details": {
                 "message": summary_message,
                 "total_results": len(aggregated_results),
+                "raw_results": raw_results_count,
+                "duplicates_merged": raw_results_count - len(aggregated_results),
                 "plugins_considered": len(candidates),
                 "plugins_succeeded": len(candidates) - len(failed_plugins),
                 "plugins_failed": len(failed_plugins),
@@ -321,7 +326,7 @@ class MetaSolverPlugin:
                 "avg_plugin_ms": avg_plugin_time,
                 "sum_plugin_ms": round(sum(plugin_times), 2),
                 "parallelism_speedup": round(sum(plugin_times) / total_ms, 2) if total_ms > 0 else 1.0,
-                "total_raw_results": len(aggregated_results),
+                "total_raw_results": raw_results_count,
             },
         }
 
@@ -563,6 +568,8 @@ class MetaSolverPlugin:
                     },
                 }
 
+        raw_results_count = len(aggregated_results)
+        aggregated_results = self._deduplicate_results(aggregated_results)
         aggregated_results.sort(key=lambda item: float(item.get("confidence", 0)), reverse=True)
 
         status = "success" if aggregated_results else "partial_success"
@@ -605,6 +612,8 @@ class MetaSolverPlugin:
             "summary_details": {
                 "message": summary_message,
                 "total_results": len(aggregated_results),
+                "raw_results": raw_results_count,
+                "duplicates_merged": raw_results_count - len(aggregated_results),
                 "plugins_considered": len(candidates),
                 "plugins_succeeded": len(candidates) - len(failed_plugins),
                 "plugins_failed": len(failed_plugins),
@@ -616,7 +625,7 @@ class MetaSolverPlugin:
                 "avg_plugin_ms": avg_s,
                 "sum_plugin_ms": round(sum(plugin_times_s), 2),
                 "parallelism_speedup": round(sum(plugin_times_s) / total_ms, 2) if total_ms > 0 else 1.0,
-                "total_raw_results": len(aggregated_results),
+                "total_raw_results": raw_results_count,
             },
         }
 
@@ -1063,6 +1072,69 @@ class MetaSolverPlugin:
                 summarized["plugin"] = str(entry.get("plugin"))
             summary.append(summarized)
         return summary
+
+    @staticmethod
+    def _dedup_key(text_output: Any) -> Optional[str]:
+        """Clé de déduplication : texte nettoyé (espaces normalisés), casse conservée.
+
+        Retourne None si le texte n'est pas exploitable (le résultat ne sera alors
+        jamais fusionné avec un autre).
+        """
+        if not isinstance(text_output, str):
+            return None
+        stripped = text_output.strip()
+        if not stripped:
+            return None
+        return re.sub(r"\s+", " ", stripped)
+
+    def _deduplicate_results(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Fusionne les résultats au ``text_output`` identique.
+
+        En metasolver, plusieurs plugins produisent souvent le même texte (ex. ROT13
+        obtenu via ``caesar`` en bruteforce ET via ``rot_cipher``). On conserve le
+        candidat de meilleure confiance et on agrège la liste des plugins l'ayant
+        produit (``source_plugins`` / ``duplicate_count``), afin de réduire le bruit
+        sans perdre l'information de provenance.
+        """
+        if not results:
+            return results
+
+        groups: Dict[str, Dict[str, Any]] = {}
+        order: List[str] = []
+
+        for idx, item in enumerate(results):
+            key = self._dedup_key(item.get("text_output"))
+            if key is None:
+                # Résultat sans texte exploitable : clé unique => jamais fusionné
+                key = f"__unique_{idx}__"
+
+            plugin_name = item.get("plugin") or item.get("source_plugin")
+            group = groups.get(key)
+
+            if group is None:
+                group = {"rep": item, "plugins": []}
+                groups[key] = group
+                order.append(key)
+            else:
+                current = float(group["rep"].get("confidence", 0) or 0)
+                candidate = float(item.get("confidence", 0) or 0)
+                if candidate > current:
+                    group["rep"] = item
+
+            if plugin_name and plugin_name not in group["plugins"]:
+                group["plugins"].append(plugin_name)
+
+        deduped: List[Dict[str, Any]] = []
+        for key in order:
+            group = groups[key]
+            rep = group["rep"]
+            plugins = group["plugins"]
+            if len(plugins) > 1:
+                rep["source_plugins"] = plugins
+                rep["duplicate_count"] = len(plugins)
+            deduped.append(rep)
+
+        return deduped
 
     def _build_combined_entry(self, plugin_result: Dict[str, Any]) -> Dict[str, Any]:
         """Synthétise les informations d'un plugin exécuté."""
