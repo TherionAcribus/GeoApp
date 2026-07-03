@@ -335,6 +335,67 @@ class TestPlugin:
         assert wrapper._instance.manager is mock_manager
 
 
+class TestPluginClassDiscovery:
+    """Tests du durcissement de la découverte de classe et du nommage de module."""
+
+    def test_prefers_in_module_class_over_imported_base(self, temp_plugin_dir, basic_metadata):
+        """Une classe de base *Plugin importée ne doit pas masquer la vraie classe."""
+        (temp_plugin_dir / 'base.py').write_text('''
+class BasePlugin:
+    def execute(self, inputs):
+        return {"status": "error", "summary": "base ne doit pas être choisie"}
+''', encoding='utf-8')
+        # 'BasePlugin' vient avant 'WorkerPlugin' dans dir() (tri alphabétique) :
+        # l'ancien code aurait choisi la base importée.
+        (temp_plugin_dir / 'main.py').write_text('''
+from base import BasePlugin
+
+class WorkerPlugin:
+    def execute(self, inputs):
+        return {"status": "ok", "summary": "vraie classe", "results": []}
+''', encoding='utf-8')
+        basic_metadata.path = str(temp_plugin_dir)
+
+        wrapper = PythonPluginWrapper(basic_metadata)
+        assert wrapper.initialize() is True
+        assert wrapper._instance.__class__.__name__ == "WorkerPlugin"
+
+    def test_module_name_prefixed_no_stdlib_shadow(self, temp_plugin_dir, basic_metadata):
+        """Un plugin nommé comme un module standard ne le masque pas dans sys.modules."""
+        (temp_plugin_dir / 'main.py').write_text('''
+class JsonPlugin:
+    def execute(self, inputs):
+        return {"status": "ok", "results": []}
+''', encoding='utf-8')
+        basic_metadata.path = str(temp_plugin_dir)
+        basic_metadata.name = 'json'
+
+        wrapper = PythonPluginWrapper(basic_metadata)
+        assert wrapper.initialize() is True
+        assert wrapper._module_name == 'geoapp_plugin_json'
+        assert 'geoapp_plugin_json' in sys.modules
+        # Le vrai module json reste intact
+        import json as real_json
+        assert real_json.dumps({"a": 1}) == '{"a": 1}'
+
+    def test_cleanup_removes_module_from_sys_modules(self, temp_plugin_dir, basic_metadata):
+        """cleanup() retire le module de sys.modules (pas de fuite)."""
+        (temp_plugin_dir / 'main.py').write_text('''
+class TestPlugin:
+    def execute(self, inputs):
+        return {"status": "ok", "results": []}
+''', encoding='utf-8')
+        basic_metadata.path = str(temp_plugin_dir)
+        basic_metadata.name = 'leaky_plugin'
+
+        wrapper = PythonPluginWrapper(basic_metadata)
+        wrapper.initialize()
+        assert 'geoapp_plugin_leaky_plugin' in sys.modules
+
+        wrapper.cleanup()
+        assert 'geoapp_plugin_leaky_plugin' not in sys.modules
+
+
 class TestConcurrency:
     """Tests de thread-safety du chargement de plugins."""
 

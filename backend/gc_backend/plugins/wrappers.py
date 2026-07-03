@@ -160,8 +160,9 @@ class PythonPluginWrapper(PluginInterface):
         self.metadata = metadata
         self.plugin_manager = plugin_manager
         self._module = None
+        self._module_name = None
         self._instance = None
-        
+
         logger.debug(f"PythonPluginWrapper créé pour {metadata.name}")
     
     def initialize(self) -> bool:
@@ -181,17 +182,23 @@ class PythonPluginWrapper(PluginInterface):
                 logger.error(f"Fichier d'entrée non trouvé: {entry_file}")
                 return False
             
+            # Nom de module préfixé et unique : évite qu'un plugin nommé comme un
+            # module standard (json, time, code...) ne le masque dans sys.modules
+            # pour tout le process.
+            module_name = f"geoapp_plugin_{self.metadata.name}"
+
             # Importer le module dynamiquement
             spec = importlib.util.spec_from_file_location(
-                self.metadata.name,
+                module_name,
                 str(entry_file)
             )
-            
+
             if spec is None or spec.loader is None:
                 logger.error(f"Impossible de créer spec pour {entry_file}")
                 return False
-            
+
             self._module = importlib.util.module_from_spec(spec)
+            self._module_name = module_name
 
             plugin_dir = str(Path(self.metadata.path))
 
@@ -256,23 +263,38 @@ class PythonPluginWrapper(PluginInterface):
         # Convention de nommage : {PluginName}Plugin
         # Ex: caesar → CaesarPlugin
         expected_class_name = f"{self.metadata.name.replace('_', '').title()}Plugin"
-        
-        # Chercher d'abord par nom conventionnel
+
+        # Chercher d'abord par nom conventionnel (fonctionne même si la classe est
+        # ré-exportée depuis un module frère).
         if hasattr(self._module, expected_class_name):
             cls = getattr(self._module, expected_class_name)
             if isinstance(cls, type):
                 logger.debug(f"Classe trouvée par convention: {expected_class_name}")
                 return cls
-        
-        # Sinon, chercher toute classe se terminant par 'Plugin'
+
+        # Sinon, chercher toute classe se terminant par 'Plugin'. Préférer les
+        # classes DÉFINIES dans ce module, pour ne pas attraper une classe de base
+        # importée (ex. `from base import CipherPlugin`) ou un autre plugin importé.
+        module_name = getattr(self._module, '__name__', None)
+        fallback: Optional[type] = None
+
         for attr_name in dir(self._module):
-            if attr_name.endswith('Plugin'):
-                cls = getattr(self._module, attr_name)
-                if isinstance(cls, type):
-                    logger.debug(f"Classe trouvée: {attr_name}")
-                    return cls
-        
-        return None
+            if not attr_name.endswith('Plugin'):
+                continue
+            cls = getattr(self._module, attr_name)
+            if not isinstance(cls, type):
+                continue
+            if getattr(cls, '__module__', None) == module_name:
+                logger.debug(f"Classe trouvée (définie dans le module): {attr_name}")
+                return cls
+            if fallback is None:
+                fallback = cls
+
+        # Aucune classe définie dans le module : replier sur une éventuelle classe
+        # importée (préserve les plugins qui ne font que ré-exporter leur classe).
+        if fallback is not None:
+            logger.debug(f"Classe trouvée (importée, repli): {fallback.__name__}")
+        return fallback
     
     def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -428,10 +450,16 @@ class PythonPluginWrapper(PluginInterface):
             # Appeler cleanup() si le plugin l'implémente
             if self._instance and hasattr(self._instance, 'cleanup'):
                 self._instance.cleanup()
-            
+
+            # Retirer le module de sys.modules pour éviter une fuite et permettre
+            # un rechargement propre (reload_plugin).
+            if self._module_name:
+                sys.modules.pop(self._module_name, None)
+
             self._module = None
+            self._module_name = None
             self._instance = None
-            
+
             logger.debug(f"Plugin {self.metadata.name} nettoyé")
             
             return True
