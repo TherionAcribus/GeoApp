@@ -42,6 +42,37 @@ MAX_REGEX_FIELD_CHARS = 200_000
 SEARCH_TIME_BUDGET_S = 5.0
 
 
+# Groupes de lettres accent-insensibles (variantes minuscules ; le flag
+# re.IGNORECASE couvre les majuscules). Aligne le backend sur le tokenizer FTS
+# (remove_diacritics) et sur la normalisation du front, y compris pour l'étape
+# de raffinage Python qui suit la sélection des candidats FTS.
+_ACCENT_GROUPS = ('aàâäáãå', 'cç', 'eéèêë', 'iïîíì', 'nñ', 'oôöóòõ', 'uùûüú', 'yÿý')
+_ACCENT_CLASS: dict[str, str] = {}
+for _grp in _ACCENT_GROUPS:
+    _cls = '[' + _grp + ']'
+    for _ch in _grp:
+        _ACCENT_CLASS[_ch] = _cls
+
+
+def _accent_insensitive_pattern(query: str, use_wildcard: bool) -> str:
+    """Construit un pattern où chaque lettre accentuable matche ses variantes.
+
+    Les métacaractères wildcard (* et ?) sont préservés ; tout le reste est
+    échappé. Opère sur le texte original (pas de normalisation), donc les
+    snippets conservent leurs accents.
+    """
+    parts = []
+    for ch in query:
+        if use_wildcard and ch == '*':
+            parts.append('.*')
+        elif use_wildcard and ch == '?':
+            parts.append('.')
+        else:
+            cls = _ACCENT_CLASS.get(ch.lower())
+            parts.append(cls if cls else re.escape(ch))
+    return ''.join(parts)
+
+
 def _build_regex(query: str, case_sensitive: bool = False, use_regex: bool = False, use_wildcard: bool = False):
     """Construit un pattern regex à partir de la query utilisateur."""
     flags = 0 if case_sensitive else re.IGNORECASE
@@ -51,12 +82,19 @@ def _build_regex(query: str, case_sensitive: bool = False, use_regex: bool = Fal
             return re.compile(query, flags)
         except re.error:
             return None
-    elif use_wildcard:
+
+    # Texte simple et wildcard, hors sensibilité à la casse : accent-insensible
+    # (cohérent avec les candidats FTS). En mode sensible à la casse, on reste
+    # accent-sensible (comme le front).
+    if not case_sensitive:
+        return re.compile(_accent_insensitive_pattern(query, use_wildcard), flags)
+
+    if use_wildcard:
         escaped = re.escape(query)
         pattern = escaped.replace(r'\*', '.*').replace(r'\?', '.')
         return re.compile(pattern, flags)
-    else:
-        return re.compile(re.escape(query), flags)
+
+    return re.compile(re.escape(query), flags)
 
 
 def _extract_snippets(text: str, pattern, max_snippets: int = 3) -> list[dict]:
