@@ -434,7 +434,18 @@ export class PluginsServiceImpl implements IPluginsService {
             }
             return 45000;
         }
-        return 30000;
+
+        // Aligner le timeout HTTP sur le timeout d'exécution backend (préférence)
+        // + une marge réseau : sinon le client abandonne pendant que le backend
+        // calcule encore, ce qui affiche une erreur et incite à relancer (charge
+        // doublée). Le backend applique déjà un timeout dur côté plugin.
+        const NETWORK_MARGIN_MS = 15000;
+        const timeoutSec = Number(this.preferenceService.get('geoApp.plugins.executor.timeoutSec', 60)) || 60;
+        const allowLongRunning = Boolean(this.preferenceService.get('geoApp.plugins.executor.allowLongRunning', false));
+        // En mode « plugins longs », le backend peut aller jusqu'au timeout déclaré
+        // du plugin (plafonné à 300 s par le schéma) : prévoir large pour ne pas couper.
+        const effectiveSec = allowLongRunning ? Math.max(timeoutSec, 300) : timeoutSec;
+        return Math.max(30000, effectiveSec * 1000 + NETWORK_MARGIN_MS);
     }
 
     private createClient(baseURL: string): AxiosInstance {

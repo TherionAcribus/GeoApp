@@ -164,14 +164,27 @@ export function renderInputField(
 
     // Number/Integer -> Number input
     if (schema.type === 'number' || schema.type === 'integer') {
+        // Laisser le champ se vider (value '' plutôt que 0 forcé) et ne jamais
+        // transmettre NaN au backend : un champ vide => valeur non définie
+        // (le plugin appliquera son défaut).
+        const displayValue = (value === undefined || value === null) ? '' : value;
         return (
             <input
                 type='number'
-                value={value || 0}
+                value={displayValue}
                 min={schema.minimum}
                 max={schema.maximum}
-                step={schema.type === 'integer' ? 1 : 'any'}
-                onChange={(e) => onChange(key, parseFloat(e.target.value))}
+                step={schema.type === 'integer' ? 1 : (schema.multipleOf ?? 'any')}
+                placeholder={schema.placeholder}
+                onChange={(e) => {
+                    const raw = e.target.value;
+                    if (raw === '') {
+                        onChange(key, undefined);
+                        return;
+                    }
+                    const parsed = schema.type === 'integer' ? parseInt(raw, 10) : parseFloat(raw);
+                    onChange(key, Number.isNaN(parsed) ? undefined : parsed);
+                }}
                 disabled={disabled}
             />
         );
@@ -182,6 +195,7 @@ export function renderInputField(
         return (
             <textarea
                 value={value || ''}
+                placeholder={schema.placeholder}
                 onChange={(e) => onChange(key, e.target.value)}
                 disabled={disabled}
                 rows={5}
@@ -194,6 +208,7 @@ export function renderInputField(
         <input
             type='text'
             value={value || ''}
+            placeholder={schema.placeholder}
             onChange={(e) => onChange(key, e.target.value)}
             disabled={disabled}
         />
