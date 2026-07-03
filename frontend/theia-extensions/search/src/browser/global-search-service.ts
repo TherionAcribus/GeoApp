@@ -43,6 +43,8 @@ interface DatabaseSearchResults {
     pluginResults: PluginSearchResult[];
     alphabetResults: AlphabetSearchResult[];
     counts: SearchCounts;
+    /** Le backend a interrompu le scan (budget temps) : résultats partiels. */
+    partial: boolean;
 }
 
 /**
@@ -160,6 +162,8 @@ export interface GlobalSearchState {
     totalCount: number;
     /** Totaux réels par catégorie DB (avant troncature ; pour afficher « 50+ »). */
     counts: SearchCounts;
+    /** Le backend a interrompu le scan (budget temps) : résultats partiels. */
+    partial: boolean;
     /** Scope actif */
     scope: SearchScope;
 }
@@ -177,6 +181,7 @@ export const INITIAL_GLOBAL_SEARCH_STATE: GlobalSearchState = {
     error: null,
     totalCount: 0,
     counts: { ...EMPTY_COUNTS },
+    partial: false,
     scope: 'all'
 };
 
@@ -369,6 +374,7 @@ export class GlobalSearchService {
 
         this.state.isSearching = true;
         this.state.error = null;
+        this.state.partial = false;
         this.notifyListeners();
 
         try {
@@ -494,7 +500,8 @@ export class GlobalSearchService {
             noteResults: (data['notes'] as NoteSearchResult[]) || [],
             pluginResults: (data['plugins'] as PluginSearchResult[]) || [],
             alphabetResults: (data['alphabets'] as AlphabetSearchResult[]) || [],
-            counts: { ...EMPTY_COUNTS, ...(data['counts'] as Partial<SearchCounts> | undefined) }
+            counts: { ...EMPTY_COUNTS, ...(data['counts'] as Partial<SearchCounts> | undefined) },
+            partial: data['partial'] === true
         };
     }
 
@@ -509,6 +516,7 @@ export class GlobalSearchService {
         this.state.pluginResults = results.pluginResults;
         this.state.alphabetResults = results.alphabetResults;
         this.state.counts = results.counts;
+        this.state.partial = results.partial;
     }
 
     /**
@@ -580,7 +588,7 @@ export class GlobalSearchService {
         totalCount: number;
     }> {
         const emptyDb: DatabaseSearchResults = {
-            geocacheResults: [], logResults: [], noteResults: [], pluginResults: [], alphabetResults: [], counts: { ...EMPTY_COUNTS }
+            geocacheResults: [], logResults: [], noteResults: [], pluginResults: [], alphabetResults: [], counts: { ...EMPTY_COUNTS }, partial: false
         };
         const trimmed = query.trim();
         if (!trimmed) {

@@ -111,12 +111,14 @@ const GlobalSearchComponent: React.FC<{
     const inputRef = React.useRef<HTMLInputElement>(null);
     const [localQuery, setLocalQuery] = React.useState(state.query);
 
-    // Synchroniser le localQuery avec le state quand il change de l'extérieur
+    // Synchroniser l'input quand la query est réinitialisée de l'extérieur
+    // (ex: clear programmatique). localQuery est dans les deps pour éviter la
+    // closure obsolète ; l'effet reste idempotent.
     React.useEffect(() => {
-        if (state.query !== localQuery && !state.query) {
+        if (!state.query && localQuery) {
             setLocalQuery('');
         }
-    }, [state.query]);
+    }, [state.query, localQuery]);
 
     const handleQueryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const value = e.target.value;
@@ -210,6 +212,13 @@ const GlobalSearchComponent: React.FC<{
 
             {state.error && (
                 <div className='geoapp-gs-error'>{state.error}</div>
+            )}
+
+            {state.partial && !state.isSearching && (
+                <div className='geoapp-gs-partial'>
+                    <span className='codicon codicon-warning' style={{ marginRight: 6 }} />
+                    Résultats partiels : recherche interrompue (trop de données). Affinez votre requête.
+                </div>
             )}
 
             {/* Résultats */}
