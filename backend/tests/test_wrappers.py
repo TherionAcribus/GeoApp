@@ -530,6 +530,51 @@ class TestMetadataCache:
         assert result["error"]["code"] == "plugin_unavailable"
 
 
+class TestSourceWatch:
+    """Tests du hot-reload des plugins custom sur édition de la source."""
+
+    def _make_record(self, path, entry_point, source):
+        class _Rec:
+            pass
+        rec = _Rec()
+        rec.path = str(path)
+        rec.entry_point = entry_point
+        rec.source = source
+        return rec
+
+    def test_custom_source_edit_marks_stale(self, temp_plugin_dir):
+        import os
+        import time as _time
+        from gc_backend.plugins.plugin_manager import PluginManager
+
+        entry = temp_plugin_dir / 'main.py'
+        entry.write_text('x = 1\n')
+
+        mgr = PluginManager('dummy_path')
+        rec = self._make_record(temp_plugin_dir, 'main.py', 'custom')
+        mgr._track_source('p', rec)
+
+        assert mgr._is_source_stale('p') is False
+
+        # Éditer le fichier avec un mtime strictement postérieur
+        _time.sleep(0.01)
+        new_mtime = os.path.getmtime(entry) + 10
+        os.utime(entry, (new_mtime, new_mtime))
+
+        assert mgr._is_source_stale('p') is True
+
+    def test_official_plugin_not_watched(self, temp_plugin_dir):
+        from gc_backend.plugins.plugin_manager import PluginManager
+
+        (temp_plugin_dir / 'main.py').write_text('x = 1\n')
+        mgr = PluginManager('dummy_path')
+        rec = self._make_record(temp_plugin_dir, 'main.py', 'official')
+        mgr._track_source('p', rec)
+
+        assert 'p' not in mgr._watched_sources
+        assert mgr._is_source_stale('p') is False
+
+
 class TestBinaryPluginWrapper:
     """Tests pour le wrapper de plugins binaires."""
     

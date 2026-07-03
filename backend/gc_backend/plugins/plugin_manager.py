@@ -73,6 +73,11 @@ class PluginManager:
         # des ~84 plugins à chaque exécution. Invalidé lors de la découverte/reload.
         self._metadata_cache: Dict[str, Optional[Dict]] = {}
         self._metadata_cache_lock = threading.Lock()
+        # Suivi de la source des plugins custom (chemin d'entrée + mtime au
+        # chargement) : permet de recharger automatiquement un plugin en cours de
+        # développement quand son main.py est édité. Les plugins officiels
+        # (lecture seule) ne sont pas suivis => aucun coût pour eux.
+        self._watched_sources: Dict[str, Any] = {}
         self.lazy_mode: bool = True
         self.default_timeout: int = 60
         self.allow_long_running: bool = False
@@ -538,6 +543,12 @@ class PluginManager:
         Returns:
             Optional[PluginInterface]: Instance du wrapper du plugin ou None si erreur
         """
+        # Plugin custom édité pendant l'exécution : forcer le rechargement pour
+        # prendre en compte le nouveau code (confort de développement).
+        if not force_reload and self._is_source_stale(plugin_name):
+            logger.info(f"Source du plugin {plugin_name} modifiée, rechargement automatique")
+            force_reload = True
+
         # Fast-path : déjà chargé et pas de force_reload (lecture de dict atomique en CPython)
         if not force_reload and plugin_name in self.loaded_plugins:
             logger.debug(f"Plugin {plugin_name} récupéré du cache")
@@ -567,6 +578,33 @@ class PluginManager:
                 lock = threading.Lock()
                 self._plugin_load_locks[plugin_name] = lock
             return lock
+
+    def _is_source_stale(self, plugin_name: str) -> bool:
+        """Indique si le fichier source d'un plugin custom suivi a été modifié
+        depuis son chargement (mtime plus récent). Retourne False pour les plugins
+        non suivis (officiels, non chargés)."""
+        watch = self._watched_sources.get(plugin_name)
+        if not watch:
+            return False
+        entry_file, loaded_mtime = watch
+        try:
+            return os.path.getmtime(entry_file) > loaded_mtime
+        except OSError:
+            return False
+
+    def _track_source(self, plugin_name: str, plugin_record: Plugin) -> None:
+        """Mémorise le mtime du fichier d'entrée d'un plugin custom (hot-reload).
+
+        Les plugins officiels (lecture seule) ne sont pas suivis.
+        """
+        if getattr(plugin_record, 'source', None) != 'custom':
+            self._watched_sources.pop(plugin_name, None)
+            return
+        try:
+            entry_file = os.path.join(plugin_record.path, plugin_record.entry_point)
+            self._watched_sources[plugin_name] = (entry_file, os.path.getmtime(entry_file))
+        except OSError:
+            self._watched_sources.pop(plugin_name, None)
 
     def _load_plugin_locked(
         self,
@@ -619,12 +657,15 @@ class PluginManager:
                 
                 # Mettre en cache
                 self.loaded_plugins[plugin_name] = wrapper
-                
+
+                # Suivre la source des plugins custom pour le hot-reload en dev
+                self._track_source(plugin_name, plugin_record)
+
                 # Effacer l'erreur si elle existait
                 self._loading_errors.pop(plugin_name, None)
-                
+
                 logger.info(f"Plugin {plugin_name} chargé avec succès")
-                
+
                 return wrapper
                 
         except Exception as e:
@@ -730,6 +771,7 @@ class PluginManager:
             try:
                 plugin.cleanup()
                 del self.loaded_plugins[plugin_name]
+                self._watched_sources.pop(plugin_name, None)
 
                 logger.info(f"Plugin {plugin_name} déchargé")
 

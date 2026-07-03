@@ -828,13 +828,22 @@ class MetaSolverPlugin:
 
         try:
             PluginMetadata, create_plugin_wrapper = _lazy_import_wrappers()
+
+            # Plafonner le timeout comme le fait le PluginManager : ce chemin de
+            # secours ne doit pas échapper à la politique d'exécution (un plugin
+            # sur disque ne peut pas tourner plus longtemps que via le manager).
+            declared_timeout = int(metadata.get("timeout_seconds", 30))
+            default_timeout = int(getattr(self._plugin_manager, "default_timeout", 60) or 60)
+            allow_long_running = bool(getattr(self._plugin_manager, "allow_long_running", False))
+            effective_timeout = declared_timeout if allow_long_running else min(declared_timeout, default_timeout)
+
             wrapper_metadata = PluginMetadata(
                 name=metadata["name"],
                 version=metadata.get("version", "1.0.0"),
                 plugin_type=metadata.get("plugin_type"),
                 entry_point=metadata.get("entry_point", "main.py"),
                 path=str(plugin_dir),
-                timeout_seconds=int(metadata.get("timeout_seconds", 30)),
+                timeout_seconds=effective_timeout,
             )
 
             wrapper = create_plugin_wrapper(
