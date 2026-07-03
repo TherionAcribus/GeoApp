@@ -335,6 +335,79 @@ class TestPlugin:
         assert wrapper._instance.manager is mock_manager
 
 
+class TestConcurrency:
+    """Tests de thread-safety du chargement de plugins."""
+
+    def test_concurrent_initialize_keeps_sys_path_clean(self, temp_plugin_dir, basic_metadata):
+        """Des initialisations concurrentes ne corrompent pas sys.path."""
+        import threading
+
+        plugin_code = '''
+class TestPlugin:
+    def execute(self, inputs):
+        return {"status": "ok", "results": []}
+'''
+        (temp_plugin_dir / 'main.py').write_text(plugin_code)
+        basic_metadata.path = str(temp_plugin_dir)
+
+        sys_path_before = list(sys.path)
+        results = []
+        barrier = threading.Barrier(8)
+
+        def worker():
+            barrier.wait()  # maximiser la contention
+            wrapper = PythonPluginWrapper(basic_metadata)
+            results.append(wrapper.initialize())
+
+        threads = [threading.Thread(target=worker) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+
+        assert all(results), "toutes les initialisations doivent réussir"
+        # Le chemin du plugin ne doit pas fuiter dans sys.path
+        assert str(temp_plugin_dir) not in sys.path
+        assert sys.path == sys_path_before
+
+    def test_get_plugin_concurrent_single_load(self):
+        """get_plugin ne charge le plugin qu'une seule fois sous concurrence."""
+        import threading
+        import time as _time
+        from gc_backend.plugins.plugin_manager import PluginManager
+
+        mgr = PluginManager('dummy_path')
+        mgr.app = object()  # truthy : évite le retour anticipé de get_plugin
+
+        load_calls = {'n': 0}
+
+        def fake_load(name, force_reload):
+            load_calls['n'] += 1
+            _time.sleep(0.1)  # élargir la fenêtre de course
+            wrapper = object()
+            mgr.loaded_plugins[name] = wrapper
+            return wrapper
+
+        mgr._load_plugin_locked = fake_load
+
+        results = []
+        barrier = threading.Barrier(10)
+
+        def worker():
+            barrier.wait()
+            results.append(mgr.get_plugin('some_plugin'))
+
+        threads = [threading.Thread(target=worker) for _ in range(10)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+
+        assert load_calls['n'] == 1, "le plugin ne doit être chargé qu'une fois"
+        assert len(results) == 10
+        assert all(r is results[0] for r in results), "tous reçoivent la même instance"
+
+
 class TestBinaryPluginWrapper:
     """Tests pour le wrapper de plugins binaires."""
     

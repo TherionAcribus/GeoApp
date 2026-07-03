@@ -27,6 +27,12 @@ from enum import Enum
 from loguru import logger
 
 
+# Verrou global sérialisant les imports de plugins : sys.path et sys.modules sont
+# partagés par tout le process, donc deux initialisations concurrentes (metasolver,
+# batch) pourraient se retirer mutuellement le chemin en plein exec_module.
+_SYS_PATH_LOCK = threading.Lock()
+
+
 # =============================================================================
 # Types et énumérations
 # =============================================================================
@@ -186,19 +192,23 @@ class PythonPluginWrapper(PluginInterface):
                 return False
             
             self._module = importlib.util.module_from_spec(spec)
-            sys.modules[spec.name] = self._module
-            
-            # Ajouter le chemin du plugin au sys.path temporairement
+
             plugin_dir = str(Path(self.metadata.path))
-            if plugin_dir not in sys.path:
-                sys.path.insert(0, plugin_dir)
-            
-            try:
-                spec.loader.exec_module(self._module)
-            finally:
-                # Retirer le chemin après le chargement
-                if plugin_dir in sys.path:
-                    sys.path.remove(plugin_dir)
+
+            # Sérialiser l'import : sys.path/sys.modules sont globaux au process.
+            with _SYS_PATH_LOCK:
+                sys.modules[spec.name] = self._module
+
+                added_to_path = plugin_dir not in sys.path
+                if added_to_path:
+                    sys.path.insert(0, plugin_dir)
+
+                try:
+                    spec.loader.exec_module(self._module)
+                finally:
+                    # Ne retirer que si c'est nous qui l'avons ajouté
+                    if added_to_path and plugin_dir in sys.path:
+                        sys.path.remove(plugin_dir)
             
             # Chercher la classe du plugin
             plugin_class = self._find_plugin_class()

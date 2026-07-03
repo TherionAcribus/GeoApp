@@ -13,6 +13,7 @@ Le PluginManager est responsable de :
 import os
 import json
 import hashlib
+import threading
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 from datetime import datetime
@@ -58,6 +59,13 @@ class PluginManager:
         self._schema: Optional[Dict] = None
         self._plugin_cache: Dict[str, Dict] = {}
         self._loading_errors: Dict[str, str] = {}
+        # Verrous de chargement par plugin : évitent la double-initialisation et
+        # les races sur loaded_plugins quand plusieurs threads (metasolver, batch,
+        # watchdog) demandent des plugins en parallèle. Le guard protège le dict
+        # de verrous lui-même ; chaque plugin a son propre verrou pour permettre
+        # l'initialisation concurrente de plugins différents.
+        self._load_lock_guard = threading.Lock()
+        self._plugin_load_locks: Dict[str, threading.Lock] = {}
         self.lazy_mode: bool = True
         self.default_timeout: int = 60
         self.allow_long_running: bool = False
@@ -677,15 +685,42 @@ class PluginManager:
         Returns:
             Optional[PluginInterface]: Instance du wrapper du plugin ou None si erreur
         """
-        # Si déjà chargé et pas de force_reload, retourner du cache
+        # Fast-path : déjà chargé et pas de force_reload (lecture de dict atomique en CPython)
         if not force_reload and plugin_name in self.loaded_plugins:
             logger.debug(f"Plugin {plugin_name} récupéré du cache")
             return self.loaded_plugins[plugin_name]
-        
+
         if not self.app:
             logger.error("Pas d'app Flask, impossible de charger le plugin")
             return None
-        
+
+        # Sérialiser le chargement de CE plugin : deux threads concurrents ne
+        # doivent pas l'initialiser deux fois (import dynamique + wrapper).
+        load_lock = self._get_load_lock(plugin_name)
+        with load_lock:
+            # Double-check après acquisition : un autre thread a pu le charger
+            # pendant qu'on attendait le verrou.
+            if not force_reload and plugin_name in self.loaded_plugins:
+                logger.debug(f"Plugin {plugin_name} récupéré du cache (post-lock)")
+                return self.loaded_plugins[plugin_name]
+
+            return self._load_plugin_locked(plugin_name, force_reload)
+
+    def _get_load_lock(self, plugin_name: str) -> threading.Lock:
+        """Retourne (en le créant si besoin) le verrou de chargement d'un plugin."""
+        with self._load_lock_guard:
+            lock = self._plugin_load_locks.get(plugin_name)
+            if lock is None:
+                lock = threading.Lock()
+                self._plugin_load_locks[plugin_name] = lock
+            return lock
+
+    def _load_plugin_locked(
+        self,
+        plugin_name: str,
+        force_reload: bool
+    ) -> Optional[PluginInterface]:
+        """Charge et instancie un plugin. À appeler sous le verrou du plugin."""
         try:
             with self.app.app_context():
                 # Récupérer les informations du plugin depuis la DB
@@ -826,20 +861,25 @@ class PluginManager:
         if plugin_name not in self.loaded_plugins:
             logger.debug(f"Plugin {plugin_name} n'est pas chargé")
             return True
-        
-        try:
-            plugin = self.loaded_plugins[plugin_name]
-            plugin.cleanup()
-            
-            del self.loaded_plugins[plugin_name]
-            
-            logger.info(f"Plugin {plugin_name} déchargé")
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"Erreur lors du déchargement du plugin {plugin_name}: {e}")
-            return False
+
+        # Même verrou que le chargement : un unload ne doit pas courir avec une
+        # (ré)initialisation en cours du même plugin.
+        load_lock = self._get_load_lock(plugin_name)
+        with load_lock:
+            plugin = self.loaded_plugins.get(plugin_name)
+            if plugin is None:
+                return True
+            try:
+                plugin.cleanup()
+                del self.loaded_plugins[plugin_name]
+
+                logger.info(f"Plugin {plugin_name} déchargé")
+
+                return True
+
+            except Exception as e:
+                logger.error(f"Erreur lors du déchargement du plugin {plugin_name}: {e}")
+                return False
     
     def unload_all_plugins(self) -> None:
         """Décharge tous les plugins chargés."""
