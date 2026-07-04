@@ -1,0 +1,74 @@
+{
+  "_comment": "Cas de calibration pour le systeme de scoring des plugins (backend/gc_backend/plugins/scoring/scorer.py). Ce jeu teste des CONTRAINTES D'ORDRE entre categories (pas des valeurs absolues) afin de rester stable a travers les recalibrages successifs des poids. Les categories 'near_miss' sont derivees programmatiquement des 'correct_decrypt' dans le test (Cesar +1). Voir test_scoring_calibration.py.",
+
+  "correct_decrypt": {
+    "_desc": "Textes en clair, valides, typiques d'une geocache (fr/en/de). Doivent scorer haut.",
+    "cases": [
+      "LA CACHE SE TROUVE AU PIED DU GRAND ARBRE PRES DE LA RIVIERE",
+      "THE TREASURE IS HIDDEN NEAR THE OLD OAK TREE NORTH OF THE RIVER",
+      "DER SCHATZ IST UNTER DEM GROSSEN BAUM VERSTECKT NEBEN DEM FLUSS"
+    ]
+  },
+
+  "half_decrypt": {
+    "_desc": "Moitie claire, moitie encore chiffree. Doivent scorer entre gibberish et correct_decrypt.",
+    "cases": [
+      "LA CACHE SE TROUVE AU QJFE EV HSBOE BSCSF OPSE RVBSBOUF IVJU",
+      "THE TREASURE IS HIDDEN OFBS UIF PME PBL USFF OPSUI EF UIF SJWFS"
+    ]
+  },
+
+  "pure_coords": {
+    "_desc": "Coordonnees GPS pures, formats DDM standards du geocaching, detectees avec forte confiance. Doivent scorer plus haut que n'importe quel texte en clair (le but ultime d'une geocache).",
+    "cases": [
+      "N 48° 51.234 E 002° 21.456",
+      "N 48° 51.234 E 006° 38.803",
+      "S 48° 51.234 W 002° 21.456",
+      "N 48 51.234 E 002 21.456",
+      "N 48 33.787 E 006 38.803"
+    ]
+  },
+
+  "known_weak_coords": {
+    "_desc": "Formats de coordonnees VALIDES mais actuellement sous-notes (voire vetoes) par le scorer. Cibles de regression pour les taches T4/T6. Marques xfail: doivent a terme scorer >= 0.85.",
+    "cases": [
+      "48°51'24\" N 2°21'27\" E",
+      "N48 51.234 E002 21.456",
+      "48.8566, 2.3522"
+    ]
+  },
+
+  "word_coords": {
+    "_desc": "Fragments de coordonnees ecrits en toutes lettres ou en groupes de chiffres. Tres precieux en geocaching. Doivent scorer haut.",
+    "cases": [
+      "nord quarante huit degres cinquante et un est deux degres vingt et un",
+      "NORD 48 51 234 EST 002 21 456"
+    ]
+  },
+
+  "number_enum": {
+    "_desc": "Simple enumeration de nombres SANS structure de coordonnees (pas de separateur, pas de direction, pas de groupes plausibles). Ne doit PAS battre word_coords. Actuellement sature a 1.0 (xfail).",
+    "cases": [
+      "UN DEUX TROIS QUATRE CINQ SIX SEPT HUIT NEUF DIX ONZE DOUZE",
+      "ONE TWO THREE FOUR FIVE SIX SEVEN EIGHT NINE TEN ELEVEN TWELVE"
+    ]
+  },
+
+  "encoded": {
+    "_desc": "Sortie encore encodee (hex, base64, sequences numeriques codees). Doit scorer tres bas (< 0.15).",
+    "cases": [
+      "76 69 6E 67 74 20 64 65 75 78 20 70 6F 69 6E 74",
+      "SGVsbG8gV29ybGQgdGhpcyBpcyBhIHRlc3Q=",
+      "12 34 56 78 90 11 22 33 44 55 66 77 88 99"
+    ]
+  },
+
+  "gibberish": {
+    "_desc": "Charabia: aleatoire, substitution mono-alphabetique (Atbash), et texte repetitif. Doit scorer tres bas (< 0.15).",
+    "cases": [
+      "XQZJW KLMNP VBGHT RDWSA QPLMZ XCVBN JHGFD ASDFG QWERT ZXCVB",
+      "XVXR VHG FM GVHG WV NVHHZTV KLFI OV TVLXZXSRMT",
+      "AAAAAAAA BBBBBBBB AAAAAAAA BBBBBBBB AAAAAAAA"
+    ]
+  }
+}
