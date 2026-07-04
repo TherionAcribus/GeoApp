@@ -1273,6 +1273,14 @@ const PluginExecutorComponent: React.FC<{
                 let buffer = '';
                 let finalResult: PluginResult | null = null;
 
+                // État du parseur SSE : DÉCLARÉ HORS de la boucle de lecture, car un
+                // événement volumineux (ex. `result` avec des centaines de résultats en
+                // bruteforce) est fragmenté sur plusieurs chunks réseau. Si l'état était
+                // réinitialisé à chaque read(), la ligne `event: result` d'un chunk et sa
+                // `data:` d'un chunk suivant ne seraient jamais recollées → événement perdu.
+                let currentEventType = '';
+                let currentData = '';
+
                 try {
                     while (true) {
                         if (abortController.signal.aborted) break;
@@ -1284,9 +1292,6 @@ const PluginExecutorComponent: React.FC<{
                         // Parse SSE events from buffer
                         const lines = buffer.split('\n');
                         buffer = lines.pop() || ''; // keep incomplete line in buffer
-
-                        let currentEventType = '';
-                        let currentData = '';
 
                         for (const line of lines) {
                             if (line.startsWith('event: ')) {
