@@ -40,24 +40,72 @@ export class PluginToolsManager implements FrontendApplicationContribution {
 
     protected isRefreshing = false;
 
-    async onStart(): Promise<void> {
-        console.log('[PluginTools] Initialisation du gestionnaire de tools IA...');
-        await this.refreshTools({ silent: true });
-        console.log('[PluginTools] Gestionnaire de tools IA initialisé');
+    /** Délais de retry quand le backend n'est pas encore joignable (~2 min au total). */
+    protected static readonly BACKEND_RETRY_DELAYS_MS = [2000, 4000, 8000, 16000, 30000, 30000, 30000];
+
+    protected lastRefreshError: unknown;
+
+    onStart(): void {
+        // Ne pas bloquer le démarrage du shell Theia : la synchronisation des
+        // tools IA part en tâche de fond dès que le navigateur est disponible.
+        this.scheduleBackgroundTask(() => {
+            void this.syncToolsUntilBackendReady();
+        });
+    }
+
+    protected scheduleBackgroundTask(task: () => void): void {
+        const win = window as Window & { requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => void };
+        if (typeof win.requestIdleCallback === 'function') {
+            win.requestIdleCallback(() => task(), { timeout: 2000 });
+            return;
+        }
+        setTimeout(task, 0);
+    }
+
+    /**
+     * Synchronisation initiale : réessaie avec backoff tant que le backend est
+     * injoignable (démarrage en cours), abandonne sur toute autre erreur.
+     */
+    protected async syncToolsUntilBackendReady(): Promise<void> {
+        for (const delayMs of [0, ...PluginToolsManager.BACKEND_RETRY_DELAYS_MS]) {
+            if (delayMs > 0) {
+                await new Promise(resolve => setTimeout(resolve, delayMs));
+            }
+            if (await this.refreshTools({ silent: true })) {
+                return;
+            }
+            if (!this.isBackendUnreachable(this.lastRefreshError)) {
+                console.error('[PluginTools] Échec de la synchronisation initiale (erreur non réseau), abandon', this.lastRefreshError);
+                return;
+            }
+            console.warn(`[PluginTools] Backend injoignable, nouvel essai dans ${Math.max(delayMs, 2000) / 1000}s...`);
+        }
+        console.warn('[PluginTools] Backend toujours injoignable, abandon de la synchronisation des tools IA. '
+            + 'Utiliser la commande de rafraîchissement des tools une fois le backend démarré.');
+    }
+
+    /** Erreur réseau axios (pas de réponse HTTP), y compris enveloppée dans `cause`. */
+    protected isBackendUnreachable(error: unknown): boolean {
+        const candidates = [error, (error as { cause?: unknown } | undefined)?.cause];
+        return candidates.some(e =>
+            !!e && typeof e === 'object'
+            && (e as { isAxiosError?: boolean }).isAxiosError === true
+            && (e as { response?: unknown }).response === undefined
+        );
     }
 
     /**
      * Rafraîchit l'ensemble des tools exposés à l'IA.
      */
-    async refreshTools(options?: { silent?: boolean }): Promise<void> {
+    async refreshTools(options?: { silent?: boolean }): Promise<boolean> {
         if (this.isRefreshing) {
-            return;
+            return true;
         }
         this.isRefreshing = true;
         try {
             this.toolRegistry.unregisterAllTools(PluginToolsManager.PROVIDER_NAME);
 
-            const plugins = await this.pluginsService.listPlugins({ enabled: true });
+            const plugins = await this.pluginsService.listPlugins({ enabled: true, includeMetadata: true });
             const toolRequests = await Promise.all(
                 plugins
                     .filter((plugin: Plugin) => plugin.enabled !== false)
@@ -74,7 +122,6 @@ export class PluginToolsManager implements FrontendApplicationContribution {
                 if (tool) {
                     this.toolRegistry.registerTool(tool);
                     registeredTools.push(tool.name);
-                    console.log(`[PluginTools] Tool enregistré: ${tool.name} (${tool.id})`);
                 }
             }
 
@@ -84,11 +131,15 @@ export class PluginToolsManager implements FrontendApplicationContribution {
             if (!options?.silent) {
                 this.messages.info(`Tools IA synchronisés (${totalTools})`);
             }
+            this.lastRefreshError = undefined;
+            return true;
         } catch (error) {
+            this.lastRefreshError = error;
             console.error('[PluginTools] Impossible de synchroniser les tools IA', error);
             if (!options?.silent) {
                 this.messages.error('Impossible de synchroniser les tools IA (voir console)');
             }
+            return false;
         } finally {
             this.isRefreshing = false;
         }

@@ -1,4 +1,11 @@
 import os
+
+# Neutralise SSLKEYLOGFILE injectée par certains logiciels de monitoring réseau
+# (antivirus/panels) : urllib3 tenterait d'ouvrir ce pseudo-fichier via OpenSSL,
+# ce qui tue le process sur ce build Python (pas d'OPENSSL_Applink). Évite aussi
+# de divulguer les clés TLS des sessions geocaching.com à un logiciel tiers.
+os.environ.pop('SSLKEYLOGFILE', None)
+
 import sys
 import time
 

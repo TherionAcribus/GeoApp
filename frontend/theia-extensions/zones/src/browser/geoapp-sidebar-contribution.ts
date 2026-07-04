@@ -1,5 +1,6 @@
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { FrontendApplicationContribution } from '@theia/core/lib/browser';
+import { FrontendApplicationStateService } from '@theia/core/lib/browser/frontend-application-state';
 import { SidebarBottomMenuWidget } from '@theia/core/lib/browser/shell/sidebar-bottom-menu-widget';
 import { MenuModelRegistry, MenuContribution } from '@theia/core/lib/common';
 import { ApplicationShell } from '@theia/core/lib/browser';
@@ -17,6 +18,9 @@ export class GeoAppSidebarContribution implements FrontendApplicationContributio
 
     @inject(PreferenceService)
     protected readonly preferenceService: PreferenceService;
+
+    @inject(FrontendApplicationStateService)
+    protected readonly stateService: FrontendApplicationStateService;
 
     protected sidebarBottomMenu: SidebarBottomMenuWidget | undefined;
     protected isConnected = false;
@@ -64,20 +68,23 @@ export class GeoAppSidebarContribution implements FrontendApplicationContributio
     }
 
     protected scheduleSidebarSetup(): void {
-        setTimeout(() => {
-            this.findSidebarBottomMenu();
-            if (this.sidebarBottomMenu) {
-                this.addGeoAppMenus();
-                return;
-            }
+        // Attendre que le shell soit prêt plutôt que des délais fixes : sur une
+        // machine lente, un setTimeout à durée figée peut expirer avant que la
+        // sidebar existe et les menus n'apparaissent alors jamais.
+        this.stateService.reachedState('ready').then(() => this.trySetupSidebar());
+    }
 
-            setTimeout(() => {
-                this.findSidebarBottomMenu();
-                if (this.sidebarBottomMenu) {
-                    this.addGeoAppMenus();
-                }
-            }, 2000);
-        }, 500);
+    protected trySetupSidebar(attempt: number = 0): void {
+        this.findSidebarBottomMenu();
+        if (this.sidebarBottomMenu) {
+            this.addGeoAppMenus();
+            return;
+        }
+        if (attempt >= 20) {
+            console.warn('[GeoAppSidebar] Menu bas de sidebar introuvable après 20 tentatives, abandon');
+            return;
+        }
+        setTimeout(() => this.trySetupSidebar(attempt + 1), 500);
     }
 
     protected startAuthPolling(): void {

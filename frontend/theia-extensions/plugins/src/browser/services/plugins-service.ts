@@ -68,7 +68,10 @@ export class PluginsServiceImpl implements IPluginsService {
             if (filters?.enabled !== undefined) {
                 params.enabled = filters.enabled.toString();
             }
-            
+            if (filters?.includeMetadata) {
+                params.include_metadata = 'true';
+            }
+
             const response = await this.client.get('/api/plugins', { params });
             
             // L'API retourne { plugins: Plugin[], total: number, filters: {} }
@@ -84,7 +87,11 @@ export class PluginsServiceImpl implements IPluginsService {
             
         } catch (error) {
             console.error('Erreur lors de la récupération des plugins:', error);
-            throw new Error(`Impossible de récupérer les plugins: ${this.getErrorMessage(error)}`);
+            const wrapped = new Error(`Impossible de récupérer les plugins: ${this.getErrorMessage(error)}`);
+            // Conserve l'erreur axios d'origine pour permettre aux appelants de
+            // distinguer un backend injoignable d'une erreur HTTP.
+            (wrapped as Error & { cause?: unknown }).cause = error;
+            throw wrapped;
         }
     }
     

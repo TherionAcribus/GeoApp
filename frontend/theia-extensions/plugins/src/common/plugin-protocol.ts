@@ -142,12 +142,15 @@ export interface PluginInputType {
 export interface PluginFilters {
     /** Filtrer par source */
     source?: 'official' | 'custom';
-    
+
     /** Filtrer par catégorie */
     category?: string;
-    
+
     /** Filtrer par statut enabled */
     enabled?: boolean;
+
+    /** Inclure metadata/input_schema/output_types dans la réponse */
+    includeMetadata?: boolean;
 }
 
 export interface MetasolverPresetInfo {

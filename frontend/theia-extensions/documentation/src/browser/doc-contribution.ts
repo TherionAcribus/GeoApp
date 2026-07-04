@@ -13,6 +13,7 @@ import {
     KeybindingRegistry,
     WidgetManager,
 } from '@theia/core/lib/browser';
+import { FrontendApplicationStateService } from '@theia/core/lib/browser/frontend-application-state';
 import { SidebarBottomMenuWidget } from '@theia/core/lib/browser/shell/sidebar-bottom-menu-widget';
 import { DOC_WIDGET_ID, DOC_WIDGET_LABEL } from './doc-widget';
 
@@ -33,6 +34,9 @@ export class DocContribution implements CommandContribution, MenuContribution, K
 
     @inject(ApplicationShell)
     protected readonly shell: ApplicationShell;
+
+    @inject(FrontendApplicationStateService)
+    protected readonly stateService: FrontendApplicationStateService;
 
     protected sidebarBottomMenu: SidebarBottomMenuWidget | undefined;
 
@@ -68,19 +72,23 @@ export class DocContribution implements CommandContribution, MenuContribution, K
     }
 
     protected scheduleSidebarSetup(): void {
-        setTimeout(() => {
-            this.findSidebarBottomMenu();
-            if (this.sidebarBottomMenu) {
-                this.addDocSidebarIcon();
-                return;
-            }
-            setTimeout(() => {
-                this.findSidebarBottomMenu();
-                if (this.sidebarBottomMenu) {
-                    this.addDocSidebarIcon();
-                }
-            }, 2000);
-        }, 500);
+        // Attendre que le shell soit prêt plutôt que des délais fixes : sur une
+        // machine lente, un setTimeout à durée figée peut expirer avant que la
+        // sidebar existe et l'icône n'apparaît alors jamais.
+        this.stateService.reachedState('ready').then(() => this.trySetupSidebar());
+    }
+
+    protected trySetupSidebar(attempt: number = 0): void {
+        this.findSidebarBottomMenu();
+        if (this.sidebarBottomMenu) {
+            this.addDocSidebarIcon();
+            return;
+        }
+        if (attempt >= 20) {
+            console.warn('[GeoAppDoc] Menu bas de sidebar introuvable après 20 tentatives, abandon');
+            return;
+        }
+        setTimeout(() => this.trySetupSidebar(attempt + 1), 500);
     }
 
     protected findSidebarBottomMenu(): void {

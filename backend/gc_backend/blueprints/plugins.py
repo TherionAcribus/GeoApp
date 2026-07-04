@@ -6214,52 +6214,62 @@ def list_plugins():
         source (str, optional): Filtrer par source ('official', 'custom')
         category (str, optional): Filtrer par catégorie
         enabled (bool, optional): Filtrer par statut (true/false)
-        
+        include_metadata (bool, optional): Inclure metadata/input_schema/output_types (défaut: false)
+
     Returns:
         JSON: {
             "plugins": [liste des plugins],
             "total": nombre total,
             "filters": filtres appliqués
         }
-        
+
     Example:
         GET /api/plugins
         GET /api/plugins?source=official
         GET /api/plugins?category=Substitution
         GET /api/plugins?enabled=true
+        GET /api/plugins?enabled=true&include_metadata=true
     """
     try:
         manager = get_plugin_manager()
-        
+
         # Récupérer les paramètres de filtre
         source = request.args.get('source')
         category = request.args.get('category')
         enabled_param = request.args.get('enabled')
-        
+        include_metadata_param = request.args.get('include_metadata')
+
         # Convertir enabled en booléen
         enabled_only = True  # Par défaut
         if enabled_param is not None:
             enabled_only = enabled_param.lower() in ['true', '1', 'yes']
-        
+
+        include_metadata = False
+        if include_metadata_param is not None:
+            include_metadata = include_metadata_param.lower() in ['true', '1', 'yes']
+
         # Lister les plugins avec filtres
         plugins = manager.list_plugins(
             source=source,
             category=category,
-            enabled_only=enabled_only
+            enabled_only=enabled_only,
+            include_metadata=include_metadata
         )
-        
+
         logger.info(
             f"Liste plugins : {len(plugins)} résultats "
-            f"(source={source}, category={category}, enabled={enabled_only})"
+            f"(source={source}, category={category}, enabled={enabled_only}, "
+            f"include_metadata={include_metadata})"
         )
-        
+
         return jsonify({
             "plugins": plugins,
             "total": len(plugins),
             "filters": {
                 "source": source,
                 "category": category,
-                "enabled": enabled_only
+                "enabled": enabled_only,
+                "include_metadata": include_metadata
             }
         }), 200
         

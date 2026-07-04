@@ -230,15 +230,46 @@ class TestPluginsListAPI:
     def test_list_plugins_with_enabled_filter(self, client, app):
         """Test filtrage par statut enabled."""
         response = client.get('/api/plugins?enabled=true')
-        
+
         assert response.status_code == 200
         data = json.loads(response.data)
-        
+
         assert data['filters']['enabled'] is True
-        
+
         # Tous les plugins doivent être enabled
         for plugin in data['plugins']:
             assert plugin['enabled'] is True
+
+    def test_list_plugins_without_metadata_by_default(self, client, app, caesar_plugin):
+        """Sans include_metadata, la réponse reste identique à l'existant."""
+        response = client.get('/api/plugins')
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+
+        assert data['filters']['include_metadata'] is False
+        assert data['total'] > 0
+        for plugin in data['plugins']:
+            assert 'metadata' not in plugin
+            assert 'input_schema' not in plugin
+
+    def test_list_plugins_with_include_metadata(self, client, app, caesar_plugin):
+        """Avec include_metadata=true, chaque plugin expose son input_schema."""
+        response = client.get('/api/plugins?enabled=true&include_metadata=true')
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+
+        assert data['filters']['include_metadata'] is True
+        assert data['filters']['enabled'] is True
+
+        caesar = next((p for p in data['plugins'] if p['name'] == 'caesar'), None)
+        assert caesar is not None
+        assert 'metadata' in caesar
+        assert caesar['input_schema']['type'] == 'object'
+        assert 'properties' in caesar['input_schema']
+        assert isinstance(caesar['input_schema']['properties'], dict)
+        assert len(caesar['input_schema']['properties']) > 0
 
 
 class TestMetasolverRecommendationAPI:

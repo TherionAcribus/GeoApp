@@ -39,9 +39,22 @@ export class PreferenceSyncService implements FrontendApplicationContribution {
         this.scheduleInitialization();
     }
 
+    /** Délais de retry quand le backend n'est pas encore joignable (~2 min au total). */
+    private static readonly BACKEND_RETRY_DELAYS_MS = [2000, 4000, 8000, 16000, 30000, 30000, 30000];
+
     private async doInitialize(): Promise<void> {
-        this.apiClient.setBaseUrl(String(this.preferenceService.get('geoApp.backend.apiBaseUrl', 'http://localhost:8000')));
-        await this.pullFromBackend();
+        for (const delayMs of [0, ...PreferenceSyncService.BACKEND_RETRY_DELAYS_MS]) {
+            if (delayMs > 0) {
+                await new Promise(resolve => setTimeout(resolve, delayMs));
+            }
+            this.apiClient.setBaseUrl(String(this.preferenceService.get('geoApp.backend.apiBaseUrl', 'http://localhost:8000')));
+            const outcome = await this.pullFromBackend();
+            if (outcome !== 'unreachable') {
+                return;
+            }
+            console.warn(`[GeoPreferences] Backend injoignable, nouvel essai dans ${Math.max(delayMs, 2000) / 1000}s...`);
+        }
+        console.warn('[GeoPreferences] Backend toujours injoignable, abandon du pull initial des préférences.');
     }
 
     private scheduleInitialization(): void {
@@ -71,9 +84,18 @@ export class PreferenceSyncService implements FrontendApplicationContribution {
         setTimeout(task, 0);
     }
 
-    private async pullFromBackend(): Promise<void> {
+    private async pullFromBackend(): Promise<'ok' | 'unreachable' | 'error'> {
+        let preferences: Record<string, unknown>;
         try {
-            const preferences = await this.apiClient.fetchAll();
+            preferences = await this.apiClient.fetchAll();
+        } catch (error) {
+            if (this.isBackendUnreachable(error)) {
+                return 'unreachable';
+            }
+            console.error('[GeoPreferences] Could not fetch backend preferences', error);
+            return 'error';
+        }
+        try {
             this.applyingRemote = true;
             for (const [key, value] of Object.entries(preferences)) {
                 if (!key.startsWith('geoApp.')) {
@@ -96,11 +118,20 @@ export class PreferenceSyncService implements FrontendApplicationContribution {
                 }
             }
         } catch (error) {
-            console.error('[GeoPreferences] Could not fetch backend preferences', error);
+            console.error('[GeoPreferences] Could not apply backend preferences', error);
+            return 'error';
         } finally {
             this.applyingRemote = false;
             this.apiClient.setBaseUrl(String(this.preferenceService.get('geoApp.backend.apiBaseUrl', 'http://localhost:8000')));
         }
+        return 'ok';
+    }
+
+    /** Erreur réseau axios (pas de réponse HTTP) : le backend n'est pas joignable. */
+    private isBackendUnreachable(error: unknown): boolean {
+        return !!error && typeof error === 'object'
+            && (error as { isAxiosError?: boolean }).isAxiosError === true
+            && (error as { response?: unknown }).response === undefined;
     }
 
     private async onPreferenceChanged(event: PreferenceChange): Promise<void> {

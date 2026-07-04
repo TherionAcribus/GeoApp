@@ -470,16 +470,18 @@ class PluginManager:
         self,
         source: Optional[str] = None,
         category: Optional[str] = None,
-        enabled_only: bool = True
+        enabled_only: bool = True,
+        include_metadata: bool = False
     ) -> List[Dict]:
         """
         Liste les plugins disponibles avec filtres optionnels.
-        
+
         Args:
             source (str, optional): Filtrer par source ('official', 'custom')
             category (str, optional): Filtrer par catégorie
             enabled_only (bool): Ne retourner que les plugins activés
-            
+            include_metadata (bool): Inclure metadata/input_schema/output_types
+
         Returns:
             List[Dict]: Liste des plugins correspondant aux critères
         """
@@ -505,7 +507,7 @@ class PluginManager:
                         if category in (p.categories or [])
                     ]
                 
-                return [p.to_dict() for p in plugins]
+                return [p.to_dict(include_metadata=include_metadata) for p in plugins]
                 
         except Exception as e:
             logger.error(f"Erreur listage plugins: {e}")
