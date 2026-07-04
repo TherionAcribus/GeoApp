@@ -505,7 +505,7 @@ En mode `detect` : `confidence = 0.0` (ne doit pas polluer le tri).
 
 - **LangID léger** : sur texte court ou ASCII majuscules, les scores de langues proches (fr/en) sont quasi-identiques → `confidence ≈ 0`. Résolu en v3.2 par le champ `fitness` (ratio brut, avant pénalité d'ambiguïté).
 - **Tables quadgrams wordfreq** : es/it/nl/pt/pl ont ~15–22 k entrées vs ~120 k pour en/fr/de (bigrammes). Un texte roman peut obtenir son meilleur score via la table `fr`. Le signal reste > 0.3 pour les 8 langues sur texte valide.
-- **Coordonnées faibles** : DMS avec guillemets (`48°51'24" N`), compact collé (`N48 51.234`), décimal (`48.8566, 2.3522`) ne sont pas détectés par `detect_gps_coordinates`. Score partiel via `numeric_signal` seulement.
+- **Coordonnées faibles** : depuis le Lot 4 de la refonte détection, `detect_gps_coordinates` reconnaît le **DMS à direction suffixe** (`48°51'24" N 2°21'27" E`, score ≥ 0.85) et la **paire décimale** (`48.8566, 2.3522`, détectée, score ≈ 0.80). Restent sous la cible : la paire décimale (0.80 < 0.85) et le format `N48 51.234 E002 21.456` (0.34) — problèmes de scoring résiduels, non de détection.
 - **`wordfreq`** : outil de génération uniquement, pas dans `requirements.txt`. Les JSONs générés sont versionnés dans le dépôt.
 
 ---

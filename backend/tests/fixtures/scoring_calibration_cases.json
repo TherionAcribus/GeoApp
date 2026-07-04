@@ -30,9 +30,8 @@
   },
 
   "known_weak_coords": {
-    "_desc": "Formats de coordonnees VALIDES mais actuellement sous-notes (voire vetoes) par le scorer. Cibles de regression pour les taches T4/T6. Marques xfail: doivent a terme scorer >= 0.85.",
+    "_desc": "Formats de coordonnees VALIDES mais actuellement sous-notes (voire vetoes) par le scorer. Cibles de regression pour les taches T4/T6. Marques xfail: doivent a terme scorer >= 0.85. NB: le format DMS a direction suffixe (48d51'24\" N ...) est desormais detecte (Lot 4.2) et couvert par un test dedie non-xfail.",
     "cases": [
-      "48°51'24\" N 2°21'27\" E",
       "N48 51.234 E002 21.456",
       "48.8566, 2.3522"
     ]

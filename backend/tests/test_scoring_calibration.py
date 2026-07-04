@@ -314,6 +314,13 @@ class TestKnownWeakCoords:
             f"< cible {self.TARGET} | {text}"
         )
 
+    def test_dms_suffix_direction_now_reaches_target(self):
+        # Format DMS a direction suffixe : detecte depuis le Lot 4.2, doit scorer haut.
+        text = "48°51'24\" N 2°21'27\" E"
+        assert _full(text) >= self.TARGET, (
+            f"DMS suffixe sous-note : full={_full(text):.3f} < cible {self.TARGET}"
+        )
+
 
 # ── T5 : n-gram fitness multilingue + decouplage trigram/langid ─────────
 

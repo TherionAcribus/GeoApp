@@ -2,15 +2,13 @@ from typing import Optional, Dict, List
 import ast
 import re
 import logging
-from datetime import datetime, timezone
 from flask import Blueprint, request, jsonify, current_app
 from werkzeug.exceptions import HTTPException
-from ..database import db
-from ..geocaches.models import Geocache
 import traceback
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+# Le niveau de log est piloté par la configuration applicative : ne pas forcer DEBUG
+# ici (ce module est appelé par le scorer pour chaque candidat bruteforce).
 logger.debug("Coordinates blueprint loaded")
 try:
     from pyproj import Geod
@@ -128,42 +126,6 @@ def _normalize_written_languages(raw) -> List[str]:
         parts = []
     return parts or ['fr']
 
-
-# A PRIORI PLUS UTILISé..... Ne pas l'utiliser.... A supprimer....
-@coordinates_bp.route('/api/geocaches/save/<int:geocache_id>/coordinates', methods=['POST'])
-def save_geocache_coordinates(geocache_id):
-    """
-    Sauvegarde les coordonnées corrigées d'une géocache.
-    """
-    logger.debug(f"Sauvegarde des coordonnées pour la géocache {geocache_id}")
-    try:
-        data = request.get_json()
-        
-        geocache = Geocache.query.get_or_404(geocache_id)
-        
-        # Mise à jour des coordonnées
-        if 'gc_lat_corrected' in data and 'gc_lon_corrected' in data:
-            geocache.gc_lat_corrected = data['gc_lat_corrected']
-            geocache.gc_lon_corrected = data['gc_lon_corrected']
-        
-        # Mise à jour du statut solved et de la date
-        if 'solved' in data:
-            geocache.solved = data['solved']
-            geocache.solved_date = datetime.now(timezone.utc)
-        
-        db.session.commit()
-        
-        return jsonify({
-            'message': 'Coordonnées mises à jour avec succès',
-            'gc_lat_corrected': geocache.gc_lat_corrected,
-            'gc_lon_corrected': geocache.gc_lon_corrected,
-            'solved': geocache.solved,
-            'solved_date': geocache.solved_date.isoformat() if geocache.solved_date else None
-        })
-        
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
 
 @coordinates_bp.route('/api/calculate_coordinates', methods=['POST'])
 def calculate_coordinates():
@@ -715,6 +677,21 @@ def _is_valid_degrees_minutes(lat_deg: int, lat_min: float, lon_deg: int, lon_mi
     except Exception:
         return False
 
+
+def _valid_dms_parts(lat_deg, lat_min, lat_sec, lon_deg, lon_min, lon_sec) -> bool:
+    """Valide des composantes deg/min/millièmes séparées (min et sec/millièmes).
+
+    Reconstitue les minutes décimales (``min.sec``) puis délègue à
+    ``_is_valid_degrees_minutes``. Retourne False sur toute entrée non numérique.
+    """
+    try:
+        return _is_valid_degrees_minutes(
+            int(lat_deg), float(f"{lat_min}.{lat_sec}"),
+            int(lon_deg), float(f"{lon_min}.{lon_sec}"),
+        )
+    except (TypeError, ValueError):
+        return False
+
 # ------------------------------------------------------------------------------
 # Fonction utilitaire pour formater une chaîne de chiffres en DDM
 # ------------------------------------------------------------------------------
@@ -940,7 +917,11 @@ def _detect_specific_tabpoint_coordinates(text: str) -> Optional[Dict[str, Optio
     if match:
         logger.debug(f"_detect_specific_tabpoint_coordinates: Match trouvé! Groupes: {match.groups()}")
         lat_deg, lat_min, lat_sec, lon_deg, lon_min, lon_sec = match.groups()
-        
+
+        if not _valid_dms_parts(lat_deg, lat_min, lat_sec, lon_deg, lon_min, lon_sec):
+            logger.debug("_detect_specific_tabpoint_coordinates: Bornes invalides, rejet")
+            return None
+
         # Formatage des coordonnées
         ddm_lat = f"N {lat_deg}° {lat_min}.{lat_sec}'"
         ddm_lon = f"E {lon_deg}° {lon_min}.{lon_sec}'"
@@ -991,11 +972,15 @@ def _detect_simplified_coordinates(text: str) -> Optional[Dict[str, Optional[str
             if len(lat_parts) >= 3 and len(lon_parts) >= 3:
                 lat_deg, lat_min, lat_sec = lat_parts[0], lat_parts[1], lat_parts[2]
                 lon_deg, lon_min, lon_sec = lon_parts[0], lon_parts[1], lon_parts[2]
-                
+
+                if not _valid_dms_parts(lat_deg, lat_min, lat_sec, lon_deg, lon_min, lon_sec):
+                    logger.debug("_detect_simplified_coordinates: Bornes invalides, rejet")
+                    return None
+
                 # Formatage des coordonnées
                 ddm_lat = f"N {lat_deg}° {lat_min}.{lat_sec}'"
                 ddm_lon = f"E {lon_deg}° {lon_min}.{lon_sec}'"
-                
+
                 logger.debug(f"_detect_simplified_coordinates: Coordonnées formatées: {ddm_lat} {ddm_lon}")
                 
                 return {
@@ -1030,11 +1015,15 @@ def _detect_flexible_coordinates(text: str) -> Optional[Dict[str, Optional[str]]
     if lat_match and lon_match:
         lat_deg, lat_min, lat_sec = lat_match.groups()
         lon_deg, lon_min, lon_sec = lon_match.groups()
-        
+
+        if not _valid_dms_parts(lat_deg, lat_min, lat_sec, lon_deg, lon_min, lon_sec):
+            logger.debug("_detect_flexible_coordinates: Bornes invalides, rejet")
+            return None
+
         # Formatage des coordonnées
         ddm_lat = f"N {lat_deg}° {lat_min}.{lat_sec}'"
         ddm_lon = f"E {lon_deg}° {lon_min}.{lon_sec}'"
-        
+
         logger.debug(f"_detect_flexible_coordinates: Coordonnées formatées: {ddm_lat} {ddm_lon}")
         
         return {
@@ -1070,11 +1059,15 @@ def _detect_nord_est_format(text: str) -> Optional[Dict[str, Optional[str]]]:
     if match:
         logger.debug(f"_detect_nord_est_format: Match trouvé! Groupes: {match.groups()}")
         lat_deg, lat_min, lat_sec, lon_deg, lon_min, lon_sec = match.groups()
-        
+
+        if not _valid_dms_parts(lat_deg, lat_min, lat_sec, lon_deg, lon_min, lon_sec):
+            logger.debug("_detect_nord_est_format: Bornes invalides, rejet")
+            return None
+
         # Formatage des coordonnées
         ddm_lat = f"N {lat_deg}° {lat_min}.{lat_sec}'"
         ddm_lon = f"E {lon_deg}° {lon_min}.{lon_sec}'"
-        
+
         logger.debug(f"_detect_nord_est_format: Coordonnées formatées: {ddm_lat} {ddm_lon}")
         
         return {
@@ -1112,11 +1105,15 @@ def _detect_nord_est_variations(text: str) -> Optional[Dict[str, Optional[str]]]
     if nord_match and est_match:
         lat_deg, lat_min, lat_sec = nord_match.groups()
         lon_deg, lon_min, lon_sec = est_match.groups()
-        
+
+        if not _valid_dms_parts(lat_deg, lat_min, lat_sec, lon_deg, lon_min, lon_sec):
+            logger.debug("_detect_nord_est_variations: Bornes invalides, rejet")
+            return None
+
         # Formatage des coordonnées
         ddm_lat = f"N {lat_deg}° {lat_min}.{lat_sec}'"
         ddm_lon = f"E {lon_deg}° {lon_min}.{lon_sec}'"
-        
+
         logger.debug(f"_detect_nord_est_variations: Coordonnées formatées: {ddm_lat} {ddm_lon}")
         
         return {
@@ -1234,9 +1231,13 @@ def _detect_roman_numerals_coordinates(text: str) -> Optional[Dict[str, Optional
                 lon_deg = roman_to_int(lon_parts[0])
                 lon_min = roman_to_int(lon_parts[1])
                 lon_sec = roman_to_int(lon_parts[2])
-                
+
                 logger.debug(f"_detect_roman_numerals_coordinates: Conversion - lat: {lat_deg} {lat_min} {lat_sec}, lon: {lon_deg} {lon_min} {lon_sec}")
-                
+
+                if not _valid_dms_parts(lat_deg, lat_min, lat_sec, lon_deg, lon_min, lon_sec):
+                    logger.debug("_detect_roman_numerals_coordinates: Bornes invalides, rejet")
+                    return None
+
                 # Formatage des coordonnées
                 ddm_lat = f"N {lat_deg}° {lat_min}.{lat_sec}'"
                 ddm_lon = f"E {lon_deg}° {lon_min}.{lon_sec}'"
@@ -1494,8 +1495,187 @@ def _detect_dmm_dot_separator(text: str) -> Optional[Dict[str, Optional[str]]]:
 
     logger.debug("_detect_dmm_dot_separator: Aucun match trouvé")
     return None
+# ------------------------------------------------------------------------------
+# Détection de paire décimale (ex: "48.8566, 2.3522" ou "-33.8688 151.2093")
+# ------------------------------------------------------------------------------
+
+def _decimal_to_ddm(value: float, deg_digits: int) -> tuple:
+    """Convertit une valeur décimale signée en (direction, chaîne DDM, minutes float)."""
+    magnitude = abs(value)
+    deg = int(magnitude)
+    minutes = (magnitude - deg) * 60.0
+    return deg, minutes
+
+
+def _detect_decimal_pair(text: str) -> Optional[Dict[str, Optional[str]]]:
+    """
+    Détecte une paire de coordonnées en degrés décimaux, par exemple :
+      - "48.8566, 2.3522"
+      - "-33.8688 151.2093"
+    Exige 3 à 8 décimales par valeur (évite les faux positifs type "3.14, 2.71"),
+    et l'absence de lettres cardinales (sinon d'autres détecteurs s'en chargent).
+    Le signe détermine l'hémisphère (S/W).
+    """
+    logger.debug("_detect_decimal_pair: Analyse du texte")
+
+    if re.search(r'[NSEWnsew]\s*\d', text):
+        # Présence de lettres cardinales : laisser les détecteurs DDM/DMS gérer.
+        return None
+
+    pattern = r'(?<![\d.])(-?\d{1,3}\.\d{3,8})\s*[,;]?\s+(-?\d{1,3}\.\d{3,8})(?![\d.])'
+    match = re.search(pattern, text)
+    if not match:
+        return None
+
+    try:
+        lat = float(match.group(1))
+        lon = float(match.group(2))
+    except (TypeError, ValueError):
+        return None
+
+    if abs(lat) > 90 or abs(lon) > 180:
+        logger.debug("_detect_decimal_pair: Hors bornes, rejet")
+        return None
+
+    lat_dir = 'N' if lat >= 0 else 'S'
+    lon_dir = 'E' if lon >= 0 else 'W'
+    lat_deg, lat_min = _decimal_to_ddm(lat, 2)
+    lon_deg, lon_min = _decimal_to_ddm(lon, 3)
+
+    ddm_lat = f"{lat_dir} {lat_deg:02d}° {lat_min:06.3f}'"
+    ddm_lon = f"{lon_dir} {lon_deg:03d}° {lon_min:06.3f}'"
+
+    return {
+        "exist": True,
+        "ddm_lat": ddm_lat,
+        "ddm_lon": ddm_lon,
+        "ddm": f"{ddm_lat} {ddm_lon}",
+        # Décimales déjà connues : évite un aller-retour de conversion
+        "decimal_latitude": round(lat, 8),
+        "decimal_longitude": round(lon, 8),
+    }
+
+
+# ------------------------------------------------------------------------------
+# Détection avec direction en SUFFIXE (ex: "48° 51.234' N 2° 17.567' E")
+# ------------------------------------------------------------------------------
+
+def _detect_dmm_suffix_direction(text: str) -> Optional[Dict[str, Optional[str]]]:
+    """
+    Détecte un DDM où la direction cardinale suit la valeur, par exemple :
+      - "48° 51.234' N 2° 17.567' E"
+      - "48 51.234 N, 2 17.567 E"
+    Fréquent sur les listings internationaux.
+    """
+    logger.debug("_detect_dmm_suffix_direction: Analyse du texte")
+    pattern = (
+        r'(\d{1,2})\s*[°º]?\s*(\d{1,2}(?:[.,]\d+)?)\s*[\'′]?\s*([NS])'
+        r'[\s,]+'
+        r'(\d{1,3})\s*[°º]?\s*(\d{1,2}(?:[.,]\d+)?)\s*[\'′]?\s*([EW])'
+    )
+    match = re.search(pattern, text)
+    if not match:
+        return None
+
+    lat_deg, lat_min_raw, lat_dir, lon_deg, lon_min_raw, lon_dir = match.groups()
+    lat_min_raw = lat_min_raw.replace(',', '.')
+    lon_min_raw = lon_min_raw.replace(',', '.')
+
+    try:
+        if not _is_valid_degrees_minutes(int(lat_deg), float(lat_min_raw), int(lon_deg), float(lon_min_raw)):
+            logger.debug("_detect_dmm_suffix_direction: Bornes invalides, rejet")
+            return None
+    except (TypeError, ValueError):
+        return None
+
+    def _fmt(min_str: str) -> str:
+        if '.' in min_str:
+            whole, dec = min_str.split('.')
+            return f"{whole.zfill(2)}.{dec.ljust(3, '0')[:3]}"
+        return f"{min_str.zfill(2)}.000"
+
+    ddm_lat = f"{lat_dir} {lat_deg.zfill(2)}° {_fmt(lat_min_raw)}'"
+    ddm_lon = f"{lon_dir} {lon_deg.zfill(3)}° {_fmt(lon_min_raw)}'"
+    return {
+        "exist": True,
+        "ddm_lat": ddm_lat,
+        "ddm_lon": ddm_lon,
+        "ddm": f"{ddm_lat} {ddm_lon}",
+    }
+
+
+def _detect_dms_suffix_direction(text: str) -> Optional[Dict[str, Optional[str]]]:
+    """
+    Détecte un DMS (degrés/minutes/secondes) avec direction en suffixe :
+      - "48°51'24.1\" N 2°17'26\" E"
+    Convertit les secondes en minutes décimales (comme _detect_dms_coordinates).
+    """
+    logger.debug("_detect_dms_suffix_direction: Analyse du texte")
+    pattern = (
+        r'(\d{1,2})\s*[°º]\s*(\d{1,2})\s*[\']\s*(\d{1,2}(?:\.\d+)?)\s*["″]?\s*([NS])'
+        r'[\s,]+'
+        r'(\d{1,3})\s*[°º]\s*(\d{1,2})\s*[\']\s*(\d{1,2}(?:\.\d+)?)\s*["″]?\s*([EW])'
+    )
+    match = re.search(pattern, text)
+    if not match:
+        return None
+
+    lat_deg, lat_min, lat_sec, lat_dir, lon_deg, lon_min, lon_sec, lon_dir = match.groups()
+    try:
+        lat_min_dec = int(lat_min) + float(lat_sec) / 60.0
+        lon_min_dec = int(lon_min) + float(lon_sec) / 60.0
+        if not _is_valid_degrees_minutes(int(lat_deg), lat_min_dec, int(lon_deg), lon_min_dec):
+            logger.debug("_detect_dms_suffix_direction: Bornes invalides, rejet")
+            return None
+    except (TypeError, ValueError):
+        return None
+
+    ddm_lat = f"{lat_dir} {int(lat_deg):02d}° {lat_min_dec:06.3f}'"
+    ddm_lon = f"{lon_dir} {int(lon_deg):03d}° {lon_min_dec:06.3f}'"
+    return {
+        "exist": True,
+        "ddm_lat": ddm_lat,
+        "ddm_lon": ddm_lon,
+        "ddm": f"{ddm_lat} {ddm_lon}",
+    }
+
+
 # Fonction principale de détection multi-format
 # ------------------------------------------------------------------------------
+
+def _finalize_detection(result: Dict, source: str, confidence: float, text: str) -> Dict:
+    """Post-traitement commun d'un candidat retenu : provenance, confiance,
+    conversion décimale (centralisée côté backend), et métadonnées de provenance.
+    """
+    result["source"] = source
+    result["confidence"] = confidence
+
+    # Conversion décimale centralisée (évite de la recalculer côté frontend)
+    if result.get("decimal_latitude") is None or result.get("decimal_longitude") is None:
+        ddm_lat = result.get("ddm_lat")
+        ddm_lon = result.get("ddm_lon")
+
+        if (not ddm_lat or not ddm_lon) and result.get("ddm"):
+            combined_match = re.match(r"^([NS][^NSWE]+)[\s,]+([EW].+)$", result["ddm"].strip(), re.IGNORECASE)
+            if combined_match:
+                ddm_lat = ddm_lat or combined_match.group(1).strip()
+                ddm_lon = ddm_lon or combined_match.group(2).strip()
+
+        if ddm_lat and ddm_lon:
+            try:
+                decimal_coords = convert_ddm_to_decimal(ddm_lat, ddm_lon)
+            except Exception as e:
+                logger.debug("detect_gps_coordinates: Erreur conversion DDM->décimal: %s", e)
+                decimal_coords = {}
+
+            if decimal_coords.get('latitude') is not None and decimal_coords.get('longitude') is not None:
+                result.setdefault('decimal_latitude', decimal_coords['latitude'])
+                result.setdefault('decimal_longitude', decimal_coords['longitude'])
+
+    result["matched_text"] = text
+    result["extract"] = {"plugin": source, "version": "1.0"}
+    return result
+
 
 def detect_gps_coordinates(text: str, include_numeric_only: bool = False, origin_coords: Optional[Dict[str, str]] = None, include_written: bool = False) -> Dict[str, Optional[str]]:
     """
@@ -1505,7 +1685,9 @@ def detect_gps_coordinates(text: str, include_numeric_only: bool = False, origin
         text (str): Le texte dans lequel rechercher des coordonnées
         include_numeric_only (bool): Si True, inclut la détection de coordonnées au format numérique pur (sans lettres cardinales ni symboles)
         origin_coords (Optional[Dict[str, str]]): Coordonnées d'origine au format DDM (optionnel)
-        include_written (bool): Si True, inclut la détection de coordonnées écrites en toutes lettres
+        include_written (bool): DÉPRÉCIÉ / ignoré. La détection en toutes lettres est
+            désormais gérée exclusivement par l'endpoint via WrittenCoordinatesService
+            (langues respectées, pas de double exécution). Conservé pour compat de signature.
     
     Le dictionnaire retourné contient :
       - 'exist': True si une coordonnée a été trouvée, sinon False.
@@ -1531,7 +1713,9 @@ def detect_gps_coordinates(text: str, include_numeric_only: bool = False, origin
         _detect_dmm_dot_separator:           0.95,
         _detect_compact_coordinates:         0.95,
         _detect_dmm_coordinates:             0.95,
+        _detect_dmm_suffix_direction:        0.93,
         _detect_dms_coordinates:             0.92,
+        _detect_dms_suffix_direction:        0.90,
         _detect_roman_numerals_coordinates:  0.90,
         _detect_tabspace_coordinates:        0.90,
         _detect_dmm_no_degree_symbol:        0.90,
@@ -1539,72 +1723,45 @@ def detect_gps_coordinates(text: str, include_numeric_only: bool = False, origin
         _detect_nord_est_format:             0.85,
         _detect_dmm_no_symbol_no_dot:        0.85,
         _detect_specific_tabpoint_coordinates:0.82,
+        _detect_decimal_pair:                0.80,
         _detect_simplified_coordinates:      0.80,
         _detect_flexible_coordinates:        0.75,
         _detect_variant_coordinates:         0.70,
     }
 
     detection_functions = list(confidence_map.keys())
-    
+
+    # Collecte de TOUS les candidats, puis sélection par meilleure confiance (et non
+    # « premier détecteur qui matche ») : un format laxiste ne peut plus masquer un
+    # format fiable présent dans le texte. La validation des bornes (désormais dans
+    # tous les détecteurs) élimine en amont les faux positifs.
+    candidates = []  # (confidence, order, source, result)
+
     if include_numeric_only:
         logger.debug("detect_gps_coordinates: Détection de coordonnées numériques pures activée")
-        # Pour la détection numérique, on passe les coordonnées d'origine
-        result = _detect_numeric_only_coordinates(text, origin_coords)
-        if result and result.get("exist"):
-            logger.debug(f"detect_gps_coordinates: Coordonnées numériques pures trouvées: {result}")
-            # Attribuer une confiance légèrement inférieure au format compact complet
-            result["source"] = _detect_numeric_only_coordinates.__name__
-            result["confidence"] = 0.90
-            return result
-    
-    for i, detect_func in enumerate(detection_functions):
-        logger.debug(f"detect_gps_coordinates: Essai de la fonction de détection #{i+1}: {detect_func.__name__}")
+        num_result = _detect_numeric_only_coordinates(text, origin_coords)
+        if num_result and num_result.get("exist"):
+            # -1 : à confiance égale, prioritaire sur les détecteurs à lettres cardinales
+            candidates.append((0.90, -1, _detect_numeric_only_coordinates.__name__, num_result))
+
+    for order, detect_func in enumerate(detection_functions):
         result = detect_func(text)
         if result and result.get("exist"):
-            # Injecter la provenance et la confiance dans le résultat avant de le renvoyer
-            result["source"] = detect_func.__name__
-            result["confidence"] = confidence_map.get(detect_func, 0.75)
-            # 🆕 Conversion décimale centralisée côté backend pour éviter de la recalculer côté frontend
-            if result.get("decimal_latitude") is None or result.get("decimal_longitude") is None:
-                ddm_lat = result.get("ddm_lat")
-                ddm_lon = result.get("ddm_lon")
+            candidates.append(
+                (confidence_map.get(detect_func, 0.75), order, detect_func.__name__, result)
+            )
 
-                # Si nécessaire, tenter d'extraire latitude/longitude à partir du format combiné
-                if (not ddm_lat or not ddm_lon) and result.get("ddm"):
-                    combined_match = re.match(r"^([NS][^NSWE]+)[\s,]+([EW].+)$", result["ddm"].strip(), re.IGNORECASE)
-                    if combined_match:
-                        ddm_lat = ddm_lat or combined_match.group(1).strip()
-                        ddm_lon = ddm_lon or combined_match.group(2).strip()
+    if candidates:
+        # Meilleure confiance ; à confiance égale, l'ordre de priorité (index) tranche.
+        candidates.sort(key=lambda c: (-c[0], c[1]))
+        confidence, _order, source, result = candidates[0]
+        logger.debug("detect_gps_coordinates: %d candidat(s), retenu: %s (%.2f)", len(candidates), source, confidence)
+        return _finalize_detection(result, source, confidence, text)
 
-                if ddm_lat and ddm_lon:
-                    try:
-                        decimal_coords = convert_ddm_to_decimal(ddm_lat, ddm_lon)
-                    except Exception as e:
-                        logger.debug(f"detect_gps_coordinates: Erreur conversion DDM->décimal: {e}")
-                        decimal_coords = {}
-
-                    if decimal_coords.get('latitude') is not None and decimal_coords.get('longitude') is not None:
-                        result.setdefault('decimal_latitude', decimal_coords['latitude'])
-                        result.setdefault('decimal_longitude', decimal_coords['longitude'])
-
-            logger.debug(f"detect_gps_coordinates: Coordonnées trouvées par {detect_func.__name__}: {result}")
-            result["matched_text"] = text
-            result["extract"] = {"plugin": detect_func.__name__, "version": "1.0"}
-
-            return result
-    
-    if include_written:
-        try:
-            written_result = _detect_word_coordinates(text)
-        except Exception:
-            written_result = None
-        if written_result and written_result.get("exist"):
-            written_result.setdefault("source", _detect_word_coordinates.__name__)
-            written_result.setdefault("confidence", 0.98)
-            written_result.setdefault("matched_text", text)
-            written_result.setdefault("extract", {"plugin": _detect_word_coordinates.__name__, "version": "1.0"})
-            return written_result
-
+    # NB : la détection en toutes lettres (written) n'est plus faite ici. Elle est
+    # entièrement pilotée par l'endpoint via WrittenCoordinatesService, qui respecte
+    # les langues demandées (l'ancien chemin interne était figé sur 'fr' et pouvait
+    # relancer le plugin une seconde fois).
     logger.debug("detect_gps_coordinates: Aucune coordonnée GPS détectée")
     return {
         "exist": False,
@@ -1857,40 +2014,6 @@ def detect_coordinates_batch():
         logger.exception("Erreur detect_coordinates_batch: %s", e)
         return jsonify({"error": str(e)}), 500
 
-
-def _detect_word_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]:
-    """Tente de détecter des coordonnées GPS exprimées en toutes lettres en utilisant
-    le plugin `written_coords_converter`. Retourne un dict au même format que les autres
-    fonctions de détection ou None si aucune coordonnée n'est trouvée."""
-    try:
-        plugin_manager = getattr(current_app, 'plugin_manager', None)
-        if plugin_manager is None:
-            return None
-        plugin_result = plugin_manager.execute_plugin(
-            "written_coords_converter",
-            {
-                "text": text,
-                "languages": ["fr"],
-                "max_candidates": 20,
-                "include_deconcat": True,
-            },
-        )
-
-        primary = (plugin_result or {}).get("primary_coordinates")
-        if isinstance(primary, dict) and primary.get("exist"):
-            return primary
-
-        for item in (plugin_result or {}).get("results", []) or []:
-            if not isinstance(item, dict):
-                continue
-            coords = item.get("coordinates")
-            if isinstance(coords, dict) and coords.get("exist"):
-                return coords
-
-        return None
-    except Exception:
-        traceback.print_exc()
-        return None
 
 def _detect_dmm_no_degree_symbol(text: str) -> Optional[Dict[str, Optional[str]]]:
     """
