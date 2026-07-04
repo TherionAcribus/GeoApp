@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import hashlib
 import math
 import re
 import unicodedata
@@ -438,7 +437,7 @@ def _encoded_pattern_penalty(text: str) -> float:
 
 
 # ── Number richness feature ─────────────────────────────────────────────
-def _number_richness_feature(text: str, lang: str) -> float:
+def _number_richness_feature(text: str) -> float:
     """Detect text rich in number words or digits, even without coordinate markers.
 
     In geocaching, decoded text containing number words (e.g. "vingt deux point
@@ -503,7 +502,8 @@ class ScoreResult:
 
 
 def _compute_score(text: str, context: Optional[Dict[str, Any]] = None) -> ScoreResult:
-    context = context or {}
+    # `context` is reserved for future use and is currently unused.
+    _ = context
 
     ic = _compute_ic(text)
     entropy = _shannon_entropy(text)
@@ -522,7 +522,7 @@ def _compute_score(text: str, context: Optional[Dict[str, Any]] = None) -> Score
     repetition_quality = _repetition_quality(text)
     coord_words = _coord_words_feature(text, langid.language)
     encoded_penalty = _encoded_pattern_penalty(text)
-    number_richness = _number_richness_feature(text, langid.language)
+    number_richness = _number_richness_feature(text)
 
     ngram_fitness = float(min(1.0, trigram_fitness * 0.5 + quadgram_fitness * 0.7))
     ngram_fitness *= repetition_quality
@@ -646,38 +646,17 @@ def _compute_score(text: str, context: Optional[Dict[str, Any]] = None) -> Score
     )
 
 
-def _cache_key(text: str, context: Optional[Dict[str, Any]]) -> str:
-    normalized = _normalize_basic(text)
-    ctx = ''
-    if context and isinstance(context, dict):
-        ctx = str(sorted(context.items()))
-    raw = (normalized + '|' + ctx).encode('utf-8')
-    return hashlib.md5(raw).hexdigest()
-
-
 @lru_cache(maxsize=1000)
-def _cached_score(cache_key: str, text: str, context_json: str) -> ScoreResult:
-    _ = cache_key
-    context: Optional[Dict[str, Any]] = None
-    if context_json:
-        try:
-            import json
-            context = json.loads(context_json)
-        except Exception:
-            context = None
-    return _compute_score(text, context)
+def _cached_score(text: str) -> ScoreResult:
+    return _compute_score(text)
 
 
 def score_text(text: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    context = context or {}
-    try:
-        import json
-        context_json = json.dumps(context, sort_keys=True)
-    except Exception:
-        context_json = ''
-
-    key = _cache_key(text, context)
-    result = _cached_score(key, text, context_json)
+    # `context` is reserved for future use and is currently ignored by the
+    # scorer.  It is intentionally excluded from the cache key so that two
+    # calls with the same text share a cache entry regardless of context.
+    _ = context
+    result = _cached_score(text)
     return {
         'score': result.score,
         'metadata': copy.deepcopy(result.metadata),
@@ -746,29 +725,9 @@ def _score_text_fast_cached(letters: str) -> float:
     # Tier 1: quadgram fitness (try EN, then FR, then DE)
     best_fitness = 0.0
     for lang in ('en', 'fr', 'de'):
-        table = load_quadgrams(lang)
-        if not table:
-            continue
-        total = 0.0
-        hits = 0
-        windows = 0
-        for i in range(n - 3):
-            q = letters[i:i + 4]
-            windows += 1
-            v = table.get(q)
-            if v is not None:
-                hits += 1
-                total += float(v)
-            else:
-                total += -6.0
-        if windows > 0:
-            mean_logp = total / windows
-            hit_ratio = hits / windows
-            fitness = (mean_logp + 6.0) / 4.0
-            fitness = max(0.0, min(1.0, fitness))
-            fitness = min(1.0, fitness * 0.7 + hit_ratio * 0.3)
-            if fitness > best_fitness:
-                best_fitness = fitness
+        fitness = _quadgram_fitness_for_lang(letters, lang)
+        if fitness > best_fitness:
+            best_fitness = fitness
 
     # Hard gate: if quadgram fitness is very low, this isn't natural language
     # (monoalphabetic substitutions preserve IC but destroy quadgrams)
@@ -803,7 +762,7 @@ def score_text_fast(text: str) -> float:
         # (e.g. "vingt deux point quatre cent dix sept" has many letters
         #  but some decoded outputs are short). If letters < 4, the
         #  quadgram path can't help, but number richness might.
-        nr = _number_richness_feature(text, 'fr')
+        nr = _number_richness_feature(text)
         if nr > 0.3:
             return float(min(0.5, nr * enc_pen))
         return 0.0
@@ -818,7 +777,7 @@ def score_text_fast(text: str) -> float:
     # the text is rich in number words, nudge the score up so the full
     # scorer gets a chance to evaluate it properly.
     if base_score > 0.05:
-        nr = _number_richness_feature(text, 'fr')
+        nr = _number_richness_feature(text)
         if nr > 0.2:
             base_score = min(1.0, base_score + nr * 0.15)
 
