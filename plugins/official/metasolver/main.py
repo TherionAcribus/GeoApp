@@ -41,6 +41,9 @@ KEY_FIELD_ALIASES = {
 
 GENERIC_KEY_FIELDS = ("key", "keyword", "transpo_key", "polybius_key")
 
+# Plafond de plugins exécutés en parallèle (évite de surcharger le backend).
+MAX_PARALLEL_WORKERS = 6
+
 try:
     from gc_backend.plugins.scoring import score_and_rank_results as _score_and_rank
     from gc_backend.plugins.scoring.scorer import score_text_fast as _score_fast
@@ -257,7 +260,7 @@ class MetaSolverPlugin:
 
         # Soumettre tous les plugins puis drainer la file jusqu'à ce que tous
         # aient terminé, en relayant les événements dans leur ordre réel.
-        max_workers = min(6, total_candidates)
+        max_workers = min(MAX_PARALLEL_WORKERS, total_candidates)
         completed_count = 0
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             for idx_candidate, candidate in enumerate(candidates):

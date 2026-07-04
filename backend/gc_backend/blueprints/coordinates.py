@@ -17,6 +17,12 @@ except ModuleNotFoundError:  # pragma: no cover
 
 coordinates_bp = Blueprint('coordinates', __name__)
 
+# Seuils de la règle géocaching des "2 miles" (distance cache <-> point posté).
+# Extraits en constantes pour éviter les valeurs magiques ; pourront être exposés
+# en préférence utilisateur si le besoin se confirme.
+DISTANCE_WARNING_MILES = 2.0
+DISTANCE_FAR_MILES = 2.5
+
 
 DDM_COMPONENT_REGEX = re.compile(
     r'([NSWE])\s*(\d{1,3})\s*(?:[°º]|deg|degrees)?\s*([0-5]?\d(?:[.,]\d+)?)\s*[\'\'’′]?'
@@ -400,19 +406,17 @@ def calculate_distance_between_coords(origin_lat, origin_lon, dest_lat, dest_lon
     
     logger.debug(f"Distance calculée: {distance_m} mètres ({distance_miles} miles)")
     
-    # Déterminer le statut en fonction de la distance
-    # Moins de 2 miles = ok
-    # Entre 2 et 2.5 miles = warning
-    # Plus de 2.5 miles = far
+    # Déterminer le statut selon la règle géocaching des "2 miles"
+    # (voir DISTANCE_WARNING_MILES / DISTANCE_FAR_MILES).
     status = "ok"
-    if distance_miles > 2.5:
+    if distance_miles > DISTANCE_FAR_MILES:
         status = "far"
-        logger.debug("Statut: FAR - Distance > 2.5 miles")
-    elif distance_miles > 2.0:
+        logger.debug("Statut: FAR - Distance > %s miles", DISTANCE_FAR_MILES)
+    elif distance_miles > DISTANCE_WARNING_MILES:
         status = "warning"
-        logger.debug("Statut: WARNING - Distance entre 2.0 et 2.5 miles")
+        logger.debug("Statut: WARNING - Distance entre %s et %s miles", DISTANCE_WARNING_MILES, DISTANCE_FAR_MILES)
     else:
-        logger.debug("Statut: OK - Distance < 2.0 miles")
+        logger.debug("Statut: OK - Distance < %s miles", DISTANCE_WARNING_MILES)
     
     logger.debug("*** FIN CALCUL DISTANCE ***")
     

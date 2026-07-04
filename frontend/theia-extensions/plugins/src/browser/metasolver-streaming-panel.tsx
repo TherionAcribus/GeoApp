@@ -33,6 +33,11 @@ export const MetasolverStreamingPanel: React.FC<{
     const totalPlugins = initEvent?.data?.total_plugins || progress?.total || 0;
     const pluginNames: string[] = initEvent?.data?.plugins || [];
 
+    // Résultat final (si déjà arrivé) : permet d'expliquer la baisse du compteur
+    // entre le streaming (avant dédup) et l'affichage final (après dédup).
+    const resultEvent = events.find(e => e.event === 'result');
+    const duplicatesMerged: number = resultEvent?.data?.summary_details?.duplicates_merged || 0;
+
     // Construire le statut de chaque plugin
     const pluginStatuses = React.useMemo(() => {
         const statuses: Record<string, { status: 'pending' | 'running' | 'done' | 'error'; time_ms?: number; result_count?: number; reason?: string; results?: any[] }> = {};
@@ -116,6 +121,11 @@ export const MetasolverStreamingPanel: React.FC<{
             <div style={{ fontSize: '11px', opacity: 0.7, marginBottom: '8px', display: 'flex', gap: '10px' }}>
                 <span>{progress?.completed ?? 0}/{totalPlugins} plugins</span>
                 <span>{progress?.results_so_far ?? 0} rés.</span>
+                {duplicatesMerged > 0 && (
+                    <span style={{ opacity: 0.7 }} title='Résultats identiques fusionnés après déduplication'>
+                        {duplicatesMerged} doublon(s) fusionné(s)
+                    </span>
+                )}
                 {(progress?.failures_so_far ?? 0) > 0 && (
                     <span style={{ color: 'var(--theia-errorForeground)' }}>
                         {progress!.failures_so_far} err.

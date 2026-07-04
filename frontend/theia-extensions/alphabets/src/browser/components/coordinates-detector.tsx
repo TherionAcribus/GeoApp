@@ -5,6 +5,21 @@
 import * as React from '@theia/core/shared/react';
 import { DetectedCoordinates, DistanceInfo, AssociatedGeocache } from '../../common/alphabet-protocol';
 
+// Couleurs de statut theme-aware (les valeurs codées en dur type #00ff00 étaient
+// illisibles en thème clair). On s'appuie sur la palette « charts » de Theia avec
+// un repli sûr.
+const STATUS_COLORS = {
+    ok: 'var(--theia-charts-green, #4caf50)',
+    warning: 'var(--theia-charts-yellow, #e6a817)',
+    far: 'var(--theia-charts-red, #f44336)',
+} as const;
+
+const STATUS_TINTS = {
+    ok: 'var(--theia-inputValidation-infoBackground, rgba(76, 175, 80, 0.12))',
+    warning: 'var(--theia-inputValidation-warningBackground, rgba(230, 168, 23, 0.12))',
+    far: 'var(--theia-inputValidation-errorBackground, rgba(244, 67, 54, 0.12))',
+} as const;
+
 export interface CoordinatesDetectorProps {
     text: string;
     alphabetsService: any;
@@ -175,7 +190,7 @@ export const CoordinatesDetector: React.FC<CoordinatesDetectorProps> = ({
                     fontSize: '11px',
                     fontWeight: 'bold'
                 }}>
-                    <i className='fa fa-check-circle' style={{ marginRight: '4px', color: '#00ff00' }}></i>
+                    <i className='fa fa-check-circle' style={{ marginRight: '4px', color: STATUS_COLORS.ok }}></i>
                     Coordonnées trouvées
                 </span>
             );
@@ -280,11 +295,29 @@ export const CoordinatesDetector: React.FC<CoordinatesDetectorProps> = ({
                     {coordinates.ddm && (
                         <div style={{ marginBottom: '12px' }}>
                             <div style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
                                 fontSize: '11px',
                                 color: 'var(--theia-descriptionForeground)',
                                 marginBottom: '4px'
                             }}>
-                                Coordonnées complètes
+                                <span>Coordonnées complètes</span>
+                                <button
+                                    type='button'
+                                    title='Copier les coordonnées'
+                                    onClick={() => navigator.clipboard?.writeText(coordinates.ddm || '')}
+                                    style={{
+                                        background: 'transparent',
+                                        border: 'none',
+                                        color: 'var(--theia-textLink-foreground)',
+                                        cursor: 'pointer',
+                                        fontSize: '11px',
+                                        padding: '2px 4px'
+                                    }}
+                                >
+                                    <i className='fa fa-copy' style={{ marginRight: '4px' }}></i>Copier
+                                </button>
                             </div>
                             <div style={{
                                 padding: '8px',
@@ -300,19 +333,17 @@ export const CoordinatesDetector: React.FC<CoordinatesDetectorProps> = ({
                     )}
 
                     {/* Affichage de la distance si disponible */}
-                    {distance && associatedGeocache && (
+                    {distance && associatedGeocache && (() => {
+                        const dc = (distance.status as keyof typeof STATUS_COLORS) in STATUS_COLORS
+                            ? (distance.status as keyof typeof STATUS_COLORS)
+                            : 'far';
+                        return (
                         <div className={`distance-info ${distance.status}`} style={{
                             padding: '12px',
                             borderRadius: '4px',
                             marginTop: '12px',
-                            backgroundColor: 
-                                distance.status === 'ok' ? 'rgba(0, 255, 0, 0.1)' :
-                                distance.status === 'warning' ? 'rgba(255, 255, 0, 0.1)' :
-                                'rgba(255, 0, 0, 0.1)',
-                            border: 
-                                distance.status === 'ok' ? '1px solid rgba(0, 255, 0, 0.3)' :
-                                distance.status === 'warning' ? '1px solid rgba(255, 255, 0, 0.3)' :
-                                '1px solid rgba(255, 0, 0, 0.3)'
+                            backgroundColor: STATUS_TINTS[dc],
+                            border: `1px solid ${STATUS_COLORS[dc]}`
                         }}>
                             <div style={{
                                 display: 'flex',
@@ -325,35 +356,30 @@ export const CoordinatesDetector: React.FC<CoordinatesDetectorProps> = ({
                                     distance.status === 'ok' ? 'fa fa-check-circle' :
                                     distance.status === 'warning' ? 'fa fa-exclamation-triangle' :
                                     'fa fa-times-circle'
-                                } style={{
-                                    marginRight: '8px',
-                                    color: 
-                                        distance.status === 'ok' ? '#00ff00' :
-                                        distance.status === 'warning' ? '#ffff00' :
-                                        '#ff0000'
-                                }}></i>
+                                } style={{ marginRight: '8px', color: STATUS_COLORS[dc] }}></i>
                                 Distance depuis {associatedGeocache.name}
                             </div>
                             <div style={{ fontSize: '12px', marginLeft: '24px' }}>
                                 <div>{distance.meters.toFixed(0)} mètres ({distance.miles.toFixed(2)} miles)</div>
                                 {distance.status === 'ok' && (
-                                    <div style={{ marginTop: '4px', color: '#00ff00' }}>
+                                    <div style={{ marginTop: '4px', color: STATUS_COLORS.ok }}>
                                         ✓ Point dans la limite de 2 miles
                                     </div>
                                 )}
                                 {distance.status === 'warning' && (
-                                    <div style={{ marginTop: '4px', color: '#ffff00' }}>
+                                    <div style={{ marginTop: '4px', color: STATUS_COLORS.warning }}>
                                         ⚠ Attention : Proche de la limite de 2 miles
                                     </div>
                                 )}
                                 {distance.status === 'far' && (
-                                    <div style={{ marginTop: '4px', color: '#ff0000' }}>
+                                    <div style={{ marginTop: '4px', color: STATUS_COLORS.far }}>
                                         ✗ Trop éloigné ! Plus de 2.5 miles de l'origine
                                     </div>
                                 )}
                             </div>
                         </div>
-                    )}
+                        );
+                    })()}
 
                     {/* Info si pas de géocache associée */}
                     {!associatedGeocache && (
