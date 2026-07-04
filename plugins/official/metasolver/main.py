@@ -20,7 +20,7 @@ import json
 import queue
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -118,227 +118,21 @@ class MetaSolverPlugin:
     # API principale
     # ------------------------------------------------------------------
     def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        """Point d'entrée standard du plugin metasolver."""
+        """Point d'entrée standard du plugin metasolver.
 
-        start_time = time.time()
+        Implémenté comme un consommateur de ``execute_streaming`` : on épuise le
+        générateur et on ne retient que l'événement final ``result``. Les deux modes
+        partagent ainsi la même logique d'agrégation, de rescoring et de construction
+        de réponse (une seule source de vérité, plus de duplication).
+        """
+        final_data: Optional[Dict[str, Any]] = None
+        for event in self.execute_streaming(inputs):
+            if event.get("event") == "result":
+                final_data = event.get("data")
 
-        if not self._plugin_manager:
-            return self._error_response("PluginManager non initialisé", start_time)
-
-        text = (inputs.get("text") or "").strip()
-        if not text:
-            return self._error_response("Aucun texte fourni", start_time)
-
-        mode = (inputs.get("mode") or "decode").lower()
-        if mode not in {"detect", "decode"}:
-            return self._error_response(f"Mode non supporté: {mode}", start_time)
-
-        preset = (inputs.get("preset") or "all").lower()
-        plugin_list_raw = inputs.get("plugin_list") or ""
-        enable_bruteforce = bool(inputs.get("enable_bruteforce", True))
-        detect_coordinates = bool(inputs.get("detect_coordinates", True))
-        key_entries = self._parse_key_entries(inputs)
-        max_plugins = inputs.get("max_plugins")
-        try:
-            max_plugins_int: Optional[int] = None if max_plugins in (None, "") else int(max_plugins)
-            if max_plugins_int is not None and max_plugins_int < 0:
-                max_plugins_int = None
-        except (TypeError, ValueError):
-            max_plugins_int = None
-
-        explicit_plugins = self._parse_plugin_list(plugin_list_raw)
-
-        preset_filter = self._get_preset_filter(preset)
-
-        candidates = self._collect_candidates(
-            mode=mode,
-            preset_filter=preset_filter,
-            explicit_plugins=explicit_plugins,
-            max_plugins=max_plugins_int,
-        )
-
-        if not candidates:
-            return self._error_response(
-                f"Aucun plugin éligible pour le mode '{mode}' avec le preset '{preset}'",
-                start_time,
-            )
-
-        execution_log: List[Dict[str, Any]] = []
-        aggregated_results: List[Dict[str, Any]] = []
-        combined_results: Dict[str, Dict[str, Any]] = {}
-        failed_plugins: List[Dict[str, Any]] = []
-        primary_by_plugin: Dict[str, Any] = {}
-
-        request_payload = {
-            "text": text,
-            "mode": mode,
-            "detect_coordinates": detect_coordinates,
-            "enable_gps_detection": detect_coordinates,
-            "brute_force": enable_bruteforce,
-            "enable_bruteforce": enable_bruteforce,
-        }
-
-        def _run_one(candidate: Dict[str, Any]) -> Dict[str, Any]:
-            """Execute a single candidate plugin (thread-safe)."""
-            pname = candidate["name"]
-            plugin_inputs = dict(request_payload)
-            plugin_inputs.update(self._build_additional_inputs(
-                candidate["metadata"],
-                key_entries=key_entries,
-                plugin_name=pname,
-                detect_coordinates=detect_coordinates,
-            ))
-            t0 = time.time()
-            try:
-                result = self._execute_with_fallback(pname, plugin_inputs, candidate)
-                elapsed = round((time.time() - t0) * 1000, 2)
-                return {"name": pname, "result": result, "elapsed_ms": elapsed, "error": None}
-            except Exception as exc:
-                elapsed = round((time.time() - t0) * 1000, 2)
-                return {"name": pname, "result": None, "elapsed_ms": elapsed, "error": str(exc)}
-
-        # Execute plugins in parallel (max 6 workers to avoid overloading)
-        max_workers = min(6, len(candidates))
-        futures_results: List[Dict[str, Any]] = []
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(_run_one, c): c for c in candidates}
-            for future in as_completed(futures):
-                futures_results.append(future.result())
-
-        # Re-order by original candidate priority order
-        candidate_order = {c["name"]: i for i, c in enumerate(candidates)}
-        futures_results.sort(key=lambda r: candidate_order.get(r["name"], 999))
-
-        for entry in futures_results:
-            plugin_name = entry["name"]
-            result = entry["result"]
-            error = entry["error"]
-
-            if error or not result:
-                failed_plugins.append({"plugin": plugin_name, "reason": error or "No result"})
-                execution_log.append({"plugin": plugin_name, "status": "error", "error": error})
-                continue
-
-            execution_log.append(
-                {
-                    "plugin": plugin_name,
-                    "status": result.get("status"),
-                    "execution_time_ms": entry["elapsed_ms"],
-                }
-            )
-
-            if result.get("status") != "success" and result.get("status") != "ok":
-                reason = self._extract_summary_text(result.get("summary")) or result.get("error", {}).get("message")
-                failed_plugins.append(
-                    {
-                        "plugin": plugin_name,
-                        "reason": reason,
-                    }
-                )
-                continue
-
-            results_block = result.get("results") or []
-            combined_results[plugin_name] = self._build_combined_entry(result)
-            combined_results[plugin_name]["plugin"] = plugin_name
-
-            sub_primary = (
-                result.get("primary_coordinates")
-                or combined_results[plugin_name].get("coordinates")
-            )
-            if sub_primary:
-                primary_by_plugin[plugin_name] = sub_primary
-
-            for idx, item in enumerate(results_block):
-                enriched = dict(item)
-                parameters = dict(enriched.get("parameters") or {})
-                parameters.setdefault("plugin", plugin_name)
-                parameters.setdefault("mode", mode)
-                enriched["parameters"] = parameters
-                original_id = enriched.get("id") or f"result_{idx+1}"
-                unique_id = f"{plugin_name}::{original_id}"
-                enriched["id"] = unique_id
-                enriched.setdefault("original_id", original_id)
-                enriched.setdefault("display_id", f"{plugin_name}_{idx+1}")
-                enriched.setdefault("display_label", f"Résultat {idx+1} · {plugin_name}")
-                enriched.setdefault("plugin", plugin_name)
-                enriched.setdefault("source_plugin", plugin_name)
-                # Override plugin confidence with text quality score
-                enriched["plugin_confidence"] = enriched.get("confidence", 0)
-                text_output = enriched.get("text_output", "")
-                if _score_fast is not None and isinstance(text_output, str) and text_output.strip():
-                    enriched["confidence"] = _score_fast(text_output)
-                else:
-                    # No text output → score 0
-                    enriched["confidence"] = 0.0
-                aggregated_results.append(enriched)
-
-        raw_results_count = len(aggregated_results)
-        aggregated_results = self._deduplicate_results(aggregated_results)
-        aggregated_results.sort(key=lambda item: float(item.get("confidence", 0)), reverse=True)
-
-        primary_coordinates = self._pick_primary_coordinates(candidates, primary_by_plugin)
-
-        status = "success" if aggregated_results else "partial_success"
-        summary_message = (
-            f"{len(aggregated_results)} résultat(s) collecté(s)"
-            if aggregated_results
-            else "Aucun plugin n'a produit de résultat exploitable"
-        )
-
-        total_ms = round((time.time() - start_time) * 1000, 2)
-        plugin_times = [e.get("execution_time_ms", 0) for e in execution_log if e.get("status") in ("success", "ok")]
-        slowest_plugin = max(plugin_times) if plugin_times else 0
-        avg_plugin_time = round(sum(plugin_times) / len(plugin_times), 2) if plugin_times else 0
-
-        response: Dict[str, Any] = {
-            "status": status,
-            "plugin_info": {
-                "name": self.name,
-                "version": self.version,
-                "execution_time_ms": total_ms,
-                "mode": mode,
-                "preset": preset,
-                "executed_plugins": execution_log,
-            },
-            "inputs": {
-                "mode": mode,
-                "preset": preset,
-                "preset_filter": preset_filter if preset_filter else None,
-                "requested_plugins": sorted(explicit_plugins) if explicit_plugins else None,
-                "max_plugins": max_plugins_int,
-                "enable_bruteforce": enable_bruteforce,
-                "detect_coordinates": detect_coordinates,
-                "metasolver_keys": self._summarize_key_entries(key_entries),
-            },
-            "results": aggregated_results,
-            "combined_results": combined_results,
-            "primary_coordinates": primary_coordinates,
-            "failed_plugins": failed_plugins,
-            "summary": summary_message,
-            "summary_details": {
-                "message": summary_message,
-                "total_results": len(aggregated_results),
-                "raw_results": raw_results_count,
-                "duplicates_merged": raw_results_count - len(aggregated_results),
-                "plugins_considered": len(candidates),
-                "plugins_succeeded": len(candidates) - len(failed_plugins),
-                "plugins_failed": len(failed_plugins),
-            },
-            "diagnostics": {
-                "total_execution_ms": total_ms,
-                "parallel_workers": max_workers,
-                "slowest_plugin_ms": slowest_plugin,
-                "avg_plugin_ms": avg_plugin_time,
-                "sum_plugin_ms": round(sum(plugin_times), 2),
-                "parallelism_speedup": round(sum(plugin_times) / total_ms, 2) if total_ms > 0 else 1.0,
-                "total_raw_results": raw_results_count,
-            },
-        }
-
-        if not aggregated_results and failed_plugins:
-            response["status"] = "error"
-
-        return response
+        if final_data is not None:
+            return final_data
+        return self._error_response("Aucun résultat produit", time.time())
 
     # ------------------------------------------------------------------
     # API streaming (SSE)
@@ -534,27 +328,7 @@ class MetaSolverPlugin:
 
                     plugin_aggregated = []
                     for idx, item in enumerate(results_block):
-                        enriched = dict(item)
-                        parameters = dict(enriched.get("parameters") or {})
-                        parameters.setdefault("plugin", plugin_name)
-                        parameters.setdefault("mode", mode)
-                        enriched["parameters"] = parameters
-                        original_id = enriched.get("id") or f"result_{idx+1}"
-                        unique_id = f"{plugin_name}::{original_id}"
-                        enriched["id"] = unique_id
-                        enriched.setdefault("original_id", original_id)
-                        enriched.setdefault("display_id", f"{plugin_name}_{idx+1}")
-                        enriched.setdefault("display_label", f"Résultat {idx+1} · {plugin_name}")
-                        enriched.setdefault("plugin", plugin_name)
-                        enriched.setdefault("source_plugin", plugin_name)
-                        # Override plugin confidence with text quality score
-                        enriched["plugin_confidence"] = enriched.get("confidence", 0)
-                        text_output = enriched.get("text_output", "")
-                        if _score_fast is not None and isinstance(text_output, str) and text_output.strip():
-                            enriched["confidence"] = _score_fast(text_output)
-                        else:
-                            # No text output → score 0
-                            enriched["confidence"] = 0.0
+                        enriched = self._enrich_result_item(item, idx, plugin_name, mode)
                         aggregated_results.append(enriched)
                         plugin_aggregated.append(enriched)
 
@@ -585,71 +359,28 @@ class MetaSolverPlugin:
                     },
                 }
 
-        raw_results_count = len(aggregated_results)
-        aggregated_results = self._deduplicate_results(aggregated_results)
-        aggregated_results.sort(key=lambda item: float(item.get("confidence", 0)), reverse=True)
-
-        primary_coordinates = self._pick_primary_coordinates(candidates, primary_by_plugin)
-
-        status = "success" if aggregated_results else "partial_success"
-        summary_message = (
-            f"{len(aggregated_results)} résultat(s) collecté(s)"
-            if aggregated_results
-            else "Aucun plugin n'a produit de résultat exploitable"
-        )
-
-        total_ms = round((time.time() - start_time) * 1000, 2)
-        plugin_times_s = [e.get("execution_time_ms", 0) for e in execution_log if e.get("status") in ("success", "ok")]
-        slowest_s = max(plugin_times_s) if plugin_times_s else 0
-        avg_s = round(sum(plugin_times_s) / len(plugin_times_s), 2) if plugin_times_s else 0
-
-        response: Dict[str, Any] = {
-            "status": status,
-            "plugin_info": {
-                "name": self.name,
-                "version": self.version,
-                "execution_time_ms": total_ms,
-                "mode": mode,
-                "preset": preset,
-                "executed_plugins": execution_log,
-            },
-            "inputs": {
-                "mode": mode,
-                "preset": preset,
-                "preset_filter": preset_filter if preset_filter else None,
-                "requested_plugins": sorted(explicit_plugins) if explicit_plugins else None,
-                "max_plugins": max_plugins_int,
-                "enable_bruteforce": enable_bruteforce,
-                "detect_coordinates": detect_coordinates,
-                "metasolver_keys": self._summarize_key_entries(key_entries),
-            },
-            "results": aggregated_results,
-            "combined_results": combined_results,
-            "primary_coordinates": primary_coordinates,
-            "failed_plugins": failed_plugins,
-            "summary": summary_message,
-            "summary_details": {
-                "message": summary_message,
-                "total_results": len(aggregated_results),
-                "raw_results": raw_results_count,
-                "duplicates_merged": raw_results_count - len(aggregated_results),
-                "plugins_considered": len(candidates),
-                "plugins_succeeded": len(candidates) - len(failed_plugins),
-                "plugins_failed": len(failed_plugins),
-            },
-            "diagnostics": {
-                "total_execution_ms": total_ms,
-                "parallel_workers": max_workers,
-                "slowest_plugin_ms": slowest_s,
-                "avg_plugin_ms": avg_s,
-                "sum_plugin_ms": round(sum(plugin_times_s), 2),
-                "parallelism_speedup": round(sum(plugin_times_s) / total_ms, 2) if total_ms > 0 else 1.0,
-                "total_raw_results": raw_results_count,
-            },
+        inputs_echo = {
+            "mode": mode,
+            "preset": preset,
+            "preset_filter": preset_filter if preset_filter else None,
+            "requested_plugins": sorted(explicit_plugins) if explicit_plugins else None,
+            "max_plugins": max_plugins_int,
+            "enable_bruteforce": enable_bruteforce,
+            "detect_coordinates": detect_coordinates,
+            "metasolver_keys": self._summarize_key_entries(key_entries),
         }
 
-        if not aggregated_results and failed_plugins:
-            response["status"] = "error"
+        response = self._build_final_response(
+            candidates=candidates,
+            aggregated_results=aggregated_results,
+            combined_results=combined_results,
+            failed_plugins=failed_plugins,
+            execution_log=execution_log,
+            primary_by_plugin=primary_by_plugin,
+            inputs_echo=inputs_echo,
+            start_time=start_time,
+            max_workers=max_workers,
+        )
 
         yield {"event": "result", "data": response}
 
@@ -1182,6 +913,153 @@ class MetaSolverPlugin:
             if coords:
                 return coords
         return None
+
+    def _enrich_result_item(
+        self,
+        item: Dict[str, Any],
+        idx: int,
+        plugin_name: str,
+        mode: str,
+    ) -> Dict[str, Any]:
+        """Normalise et enrichit un résultat brut d'un sous-plugin.
+
+        Attribue un identifiant unique, la provenance, et remplace la confiance
+        native du plugin par le fast score de qualité de texte (tri intermédiaire ;
+        le rescoring complet a lieu en fin de pipeline dans _build_final_response).
+        """
+        enriched = dict(item)
+        parameters = dict(enriched.get("parameters") or {})
+        parameters.setdefault("plugin", plugin_name)
+        parameters.setdefault("mode", mode)
+        enriched["parameters"] = parameters
+        original_id = enriched.get("id") or f"result_{idx+1}"
+        unique_id = f"{plugin_name}::{original_id}"
+        enriched["id"] = unique_id
+        enriched.setdefault("original_id", original_id)
+        enriched.setdefault("display_id", f"{plugin_name}_{idx+1}")
+        enriched.setdefault("display_label", f"Résultat {idx+1} · {plugin_name}")
+        enriched.setdefault("plugin", plugin_name)
+        enriched.setdefault("source_plugin", plugin_name)
+        # Conserver la confiance native du plugin (audit) avant de la remplacer
+        enriched["plugin_confidence"] = enriched.get("confidence", 0)
+        text_output = enriched.get("text_output", "")
+        if _score_fast is not None and isinstance(text_output, str) and text_output.strip():
+            enriched["confidence"] = _score_fast(text_output)
+        else:
+            # Pas de texte exploitable → score 0
+            enriched["confidence"] = 0.0
+        return enriched
+
+    def _build_final_response(
+        self,
+        *,
+        candidates: List[Dict[str, Any]],
+        aggregated_results: List[Dict[str, Any]],
+        combined_results: Dict[str, Dict[str, Any]],
+        failed_plugins: List[Dict[str, Any]],
+        execution_log: List[Dict[str, Any]],
+        primary_by_plugin: Dict[str, Any],
+        inputs_echo: Dict[str, Any],
+        start_time: float,
+        max_workers: int,
+    ) -> Dict[str, Any]:
+        """Construit la réponse finale (dédup + rescoring + tri déterministe).
+
+        Partagée par execute() et execute_streaming() pour garantir des sorties
+        identiques. Les structures sensibles à l'ordre (execution_log, failed_plugins,
+        combined_results) sont triées par ordre de priorité des candidats afin d'être
+        déterministes quel que soit l'ordre d'achèvement des threads.
+        """
+        order = {c["name"]: i for i, c in enumerate(candidates)}
+
+        raw_results_count = len(aggregated_results)
+        deduped = self._deduplicate_results(aggregated_results)
+
+        # 2.1 — Rescoring complet du top-K : le fast score n'a servi qu'au tri
+        # intermédiaire (pré-filtre documenté). On applique le pipeline complet
+        # (lexical, quadgrams multilingues, coordonnées) sur les survivants dédupliqués.
+        full_rescored = False
+        if _score_and_rank is not None and deduped:
+            with_text = [
+                r for r in deduped
+                if isinstance(r.get("text_output"), str) and r.get("text_output").strip()
+            ]
+            without_text = [
+                r for r in deduped
+                if not (isinstance(r.get("text_output"), str) and r.get("text_output").strip())
+            ]
+            if with_text:
+                # top_k = tout, min_score = 0 : aucun résultat n'est perdu, seulement re-noté et re-trié
+                ranked = _score_and_rank(with_text, top_k=len(with_text), min_score=0.0)
+                deduped = ranked + without_text
+                full_rescored = True
+
+        deduped.sort(key=lambda item: float(item.get("confidence", 0)), reverse=True)
+
+        # Ordonnancement déterministe des structures d'audit (priorité des candidats)
+        execution_log = sorted(execution_log, key=lambda e: order.get(e.get("plugin"), 999))
+        failed_plugins = sorted(failed_plugins, key=lambda f: order.get(f.get("plugin"), 999))
+        combined_results = {
+            name: combined_results[name]
+            for name in sorted(combined_results, key=lambda n: order.get(n, 999))
+        }
+
+        primary_coordinates = self._pick_primary_coordinates(candidates, primary_by_plugin)
+
+        status = "success" if deduped else "partial_success"
+        summary_message = (
+            f"{len(deduped)} résultat(s) collecté(s)"
+            if deduped
+            else "Aucun plugin n'a produit de résultat exploitable"
+        )
+
+        total_ms = round((time.time() - start_time) * 1000, 2)
+        plugin_times = [e.get("execution_time_ms", 0) for e in execution_log if e.get("status") in ("success", "ok")]
+        slowest_plugin = max(plugin_times) if plugin_times else 0
+        avg_plugin_time = round(sum(plugin_times) / len(plugin_times), 2) if plugin_times else 0
+
+        response: Dict[str, Any] = {
+            "status": status,
+            "plugin_info": {
+                "name": self.name,
+                "version": self.version,
+                "execution_time_ms": total_ms,
+                "mode": inputs_echo.get("mode"),
+                "preset": inputs_echo.get("preset"),
+                "executed_plugins": execution_log,
+            },
+            "inputs": inputs_echo,
+            "results": deduped,
+            "combined_results": combined_results,
+            "primary_coordinates": primary_coordinates,
+            "failed_plugins": failed_plugins,
+            "summary": summary_message,
+            "summary_details": {
+                "message": summary_message,
+                "total_results": len(deduped),
+                "raw_results": raw_results_count,
+                "duplicates_merged": raw_results_count - len(deduped),
+                "plugins_considered": len(candidates),
+                "plugins_succeeded": len(candidates) - len(failed_plugins),
+                "plugins_failed": len(failed_plugins),
+            },
+            "diagnostics": {
+                "total_execution_ms": total_ms,
+                "parallel_workers": max_workers,
+                "slowest_plugin_ms": slowest_plugin,
+                "avg_plugin_ms": avg_plugin_time,
+                "sum_plugin_ms": round(sum(plugin_times), 2),
+                "parallelism_speedup": round(sum(plugin_times) / total_ms, 2) if total_ms > 0 else 1.0,
+                "total_raw_results": raw_results_count,
+                "full_rescoring": full_rescored,
+                "rescored_results": len(deduped) if full_rescored else 0,
+            },
+        }
+
+        if not deduped and failed_plugins:
+            response["status"] = "error"
+
+        return response
 
     def _build_combined_entry(self, plugin_result: Dict[str, Any]) -> Dict[str, Any]:
         """Synthétise les informations d'un plugin exécuté."""
