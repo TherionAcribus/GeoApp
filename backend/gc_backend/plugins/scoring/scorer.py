@@ -11,14 +11,13 @@ from typing import Any, Dict, List, Optional, Tuple
 from loguru import logger
 
 from .langid import DEFAULT_LANGS_EUROPE, detect_language
-from .resources_loader import load_geo_terms, load_quadgrams, load_stopwords
+from .resources_loader import (
+    load_common_words,
+    load_geo_terms,
+    load_quadgrams,
+    load_stopwords,
+)
 
-
-_STOPLIST_GEO = {
-    'n', 's', 'e', 'w', 'o',
-    'nord', 'sud', 'est', 'ouest',
-    'north', 'south', 'east', 'west',
-}
 
 # Precompiled regex patterns for hot paths
 _RE_NON_ALPHA = re.compile(r'[^A-Z]')
@@ -150,45 +149,93 @@ def _ic_feature(ic: float) -> float:
     return max(0.0, min(1.0, (ic - 0.045) / 0.03))
 
 
-def _lexical_features(tokens: List[str], lang: str) -> Tuple[float, float, List[str]]:
+def _norm_lex_token(t: str) -> str:
+    """NFKD accent-strip + lowercase.
+
+    Matches the normalisation used by scripts/generate_common_words.py so that
+    ASCII-only decoded text (very common in geocaching, e.g. "TROUVE") still
+    matches accented dictionary forms ("trouvé").
+    """
+    s = unicodedata.normalize('NFKD', t)
+    s = ''.join(ch for ch in s if not unicodedata.combining(ch))
+    return s.lower()
+
+
+@lru_cache(maxsize=1)
+def _all_known_words() -> frozenset:
+    """Accent-normalised vocabulary across ALL supported languages, built once.
+
+    Union of stopwords, common words, geo terms and number words for every
+    language in DEFAULT_LANGS_EUROPE. Language-agnostic on purpose: lexical
+    recognition must not depend on langid, which is unreliable on short or
+    ASCII-uppercase decoded text (fr/en trigram confusion is common). A real
+    word is a real word regardless of which language was guessed.
+    """
+    words = set(_CW_NUMBER_WORDS)  # already ASCII/accent-free
+    for lang in DEFAULT_LANGS_EUROPE:
+        words |= set(load_common_words(lang))  # pre-normalised by the generator
+        for w in load_stopwords(lang):
+            words.add(_norm_lex_token(w))
+        for w in load_geo_terms(lang):
+            words.add(_norm_lex_token(w))
+    return frozenset(words)
+
+
+@lru_cache(maxsize=1)
+def _all_geo_words() -> frozenset:
+    """Accent-normalised geo terms across all languages (words_found + bonus)."""
+    out = set()
+    for lang in DEFAULT_LANGS_EUROPE:
+        for w in load_geo_terms(lang):
+            out.add(_norm_lex_token(w))
+    return frozenset(out)
+
+
+def _lexical_features(tokens: List[str]) -> Tuple[float, float, List[str]]:
+    """Measure how much of the text is *recognised* real language.
+
+    Unlike the previous version — which used raw token count and so scored any
+    long enough text high, gibberish included — coverage is now driven by
+    membership in a real vocabulary (stopwords ∪ common_words ∪ geo_terms ∪
+    number_words), pooled across all supported languages. ``coherence`` counts
+    the longest run of consecutive *recognised* tokens.
+    """
     if not tokens:
         return 0.0, 0.0, []
 
-    stopwords = load_stopwords(lang) if lang != 'unknown' else frozenset()
-    geo_terms = load_geo_terms(lang) if lang != 'unknown' else frozenset()
+    known = _all_known_words()
+    geo_set = _all_geo_words()
 
-    filtered: List[str] = []
-    for t in tokens:
-        tl = t.lower()
-        if tl in _STOPLIST_GEO:
-            continue
-        if stopwords and tl in stopwords:
-            continue
-        filtered.append(tl)
+    norm_tokens = [_norm_lex_token(t) for t in tokens]
+    n_total = len(norm_tokens)
 
-    if not filtered:
+    known_flags = [t in known for t in norm_tokens]
+    n_known = sum(known_flags)
+
+    if n_known == 0:
         return 0.0, 0.0, []
 
-    recognized: List[str] = []
-    for t in filtered:
-        if t in geo_terms:
-            recognized.append(t)
+    ratio = n_known / n_total
+    lexical_base = ratio * 0.7 + min(1.0, n_known / 8.0) * 0.3
 
-    coverage = min(1.0, len(filtered) / 12.0)
-    geo_bonus = min(1.0, len(recognized) / max(1, len(filtered)))
-    lexical = min(1.0, coverage * 0.8 + geo_bonus * 0.6)
+    # Geo terms kept as a separate, modest bonus (as before).
+    geo_found = [t for t in norm_tokens if t in geo_set]
+    geo_bonus = min(1.0, len(geo_found) / max(1, n_total))
+    lexical = min(1.0, lexical_base + geo_bonus * 0.15)
 
     longest_run = 0
     current = 0
-    for t in filtered:
-        if len(t) >= 3:
+    for flag in known_flags:
+        if flag:
             current += 1
-            longest_run = max(longest_run, current)
+            if current > longest_run:
+                longest_run = current
         else:
             current = 0
     coherence = min(1.0, longest_run / 5.0)
 
-    words_found = recognized[:50]
+    # Deduplicate while preserving order (geo terms recognised, max 50).
+    words_found = list(dict.fromkeys(geo_found))[:50]
 
     return float(lexical), float(coherence), words_found
 
@@ -513,7 +560,7 @@ def _compute_score(text: str, context: Optional[Dict[str, Any]] = None) -> Score
     langid = detect_language(text, DEFAULT_LANGS_EUROPE)
     tokens = _tokenize_words(text)
 
-    lexical, coherence, words_found = _lexical_features(tokens, langid.language)
+    lexical, coherence, words_found = _lexical_features(tokens)
     ic_v = _ic_feature(ic)
     entropy_v = _entropy_feature(entropy)
 
