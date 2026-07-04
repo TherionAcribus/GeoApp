@@ -1,0 +1,90 @@
+{
+  "name": "coordinate_intersect_circles",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Calcule les points d'intersection entre 2 ou 3 cercles definis par leur centre (coordonnees GPS) et leur rayon (en metres). Affiche les centres, les cercles et les points d'intersection sur la carte.",
+  "author": "MysterAI Team",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": ["Coordinates", "Calculator", "Geometry"],
+  "kinds": ["geo", "calculator"],
+  "brute_force": false,
+  "enable_scoring": false,
+  "accept_accents": true,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 15,
+  "capabilities": {
+    "analyze": false,
+    "decode": false,
+    "encode": false
+  },
+  "defaults": {
+    "include_in_analysis": false,
+    "include_in_decode": false
+  },
+  "input_types": {
+    "center1": {
+      "type": "string",
+      "label": "Centre du cercle 1",
+      "placeholder": "Ex: N 48° 51.502 E 002° 17.669",
+      "required": true,
+      "description": "Coordonnee GPS du centre du cercle 1. Tout format supporte (auto-detection)."
+    },
+    "radius1": {
+      "type": "number",
+      "label": "Rayon cercle 1 (metres)",
+      "default": 100,
+      "min": 0,
+      "required": true
+    },
+    "center2": {
+      "type": "string",
+      "label": "Centre du cercle 2",
+      "placeholder": "Ex: N 48° 51.400 E 002° 17.500",
+      "required": true,
+      "description": "Coordonnee GPS du centre du cercle 2. Tout format supporte (auto-detection)."
+    },
+    "radius2": {
+      "type": "number",
+      "label": "Rayon cercle 2 (metres)",
+      "default": 100,
+      "min": 0,
+      "required": true
+    },
+    "center3": {
+      "type": "string",
+      "label": "Centre du cercle 3 (optionnel)",
+      "placeholder": "Ex: N 48° 51.600 E 002° 17.800 (laisser vide pour 2 cercles)",
+      "required": false,
+      "description": "Coordonnee GPS du centre du cercle 3. Laisser vide pour intersection de 2 cercles seulement."
+    },
+    "radius3": {
+      "type": "number",
+      "label": "Rayon cercle 3 (metres)",
+      "default": 100,
+      "min": 0,
+      "required": false
+    },
+    "source_format": {
+      "type": "select",
+      "label": "Format source (auto-detection par defaut)",
+      "options": ["auto", "dd", "ddm", "dms", "utm", "mgrs", "osgb", "web_mercator", "geohash", "plus_code", "mapcode"],
+      "default": "auto"
+    },
+    "output_format": {
+      "type": "select",
+      "label": "Format de sortie",
+      "options": ["geocaching", "dd", "ddm", "dms", "all"],
+      "default": "geocaching"
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Resultat"
+    }
+  }
+}
