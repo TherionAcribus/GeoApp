@@ -79,3 +79,15 @@ def available_langs() -> List[str]:
     if not path.exists():
         return []
     return sorted([p.stem for p in path.glob('*.json')])
+
+
+@lru_cache(maxsize=1)
+def available_quadgram_langs() -> tuple:
+    """Languages that have a quadgram table, discovered from the resources dir.
+
+    Cached and returned as a tuple so it can seed other lru_cached callers.
+    """
+    path = _RESOURCES_DIR / 'quadgrams'
+    if not path.exists():
+        return ()
+    return tuple(sorted(p.stem for p in path.glob('*.json')))

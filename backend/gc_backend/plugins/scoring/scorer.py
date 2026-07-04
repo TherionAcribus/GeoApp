@@ -12,6 +12,7 @@ from loguru import logger
 
 from .langid import DEFAULT_LANGS_EUROPE, detect_language
 from .resources_loader import (
+    available_quadgram_langs,
     load_common_words,
     load_geo_terms,
     load_quadgrams,
@@ -268,13 +269,18 @@ def _quadgram_fitness_for_lang(letters: str, lang: str) -> float:
 
 
 def _quadgram_fitness(text: str, lang: str) -> float:
-    """Best-of quadgram fitness across detected language + fallback langs."""
+    """Best-of quadgram fitness across the detected language + every available table.
+
+    Using all available tables (not a hardcoded en/fr/de) means es/it/nl/pt/pl
+    text is scored against its own table when that scores best, instead of only
+    the three original languages.
+    """
     letters = _normalize_for_stats(text)
     if len(letters) < 12:
         return 0.0
-    # Try detected language first, then fallback to all available
+    # Detected language first, then every language that ships a quadgram table.
     langs_to_try = [lang] if lang and lang != 'unknown' else []
-    for fallback in ('en', 'fr', 'de'):
+    for fallback in available_quadgram_langs():
         if fallback not in langs_to_try:
             langs_to_try.append(fallback)
     best = 0.0
@@ -536,7 +542,7 @@ def _compute_score(text: str, context: Optional[Dict[str, Any]] = None) -> Score
     ic_v = _ic_feature(ic)
     entropy_v = _entropy_feature(entropy)
 
-    trigram_fitness = float(langid.confidence)
+    trigram_fitness = float(langid.fitness)
     quadgram_fitness = _quadgram_fitness(text, langid.language)
     repetition_quality = _repetition_quality(text)
     encoded_penalty = _encoded_pattern_penalty(text)

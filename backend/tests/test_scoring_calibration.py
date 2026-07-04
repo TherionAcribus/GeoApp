@@ -24,12 +24,18 @@ from typing import Dict, List
 
 import pytest
 
+from gc_backend.plugins.scoring.langid import DEFAULT_LANGS_EUROPE, detect_language
+from gc_backend.plugins.scoring.resources_loader import available_quadgram_langs
 from gc_backend.plugins.scoring.scorer import (
     _numeric_signal_feature,
     score_and_rank_results,
     score_text,
     score_text_fast,
 )
+
+
+def _ngram_fitness(text: str) -> float:
+    return float(score_text(text)["metadata"]["scoring"]["features"]["ngram_fitness"])
 
 # ── Chargement de la fixture ─────────────────────────────────────────
 
@@ -314,4 +320,67 @@ class TestKnownWeakCoords:
         assert _full(text) >= self.TARGET, (
             f"Format de coordonnee sous-note : full={_full(text):.3f} "
             f"< cible {self.TARGET} | {text}"
+        )
+
+
+# ── T5 : n-gram fitness multilingue + decouplage trigram/langid ─────────
+
+
+class TestMultilingualNgram:
+    """Le n-gram fitness doit fonctionner pour les 8 langues, pas seulement
+    en/fr/de. Depend des tables quadgram es/it/nl/pt/pl (T5) et du best-of sur
+    toutes les tables disponibles."""
+
+    def test_all_eight_quadgram_tables_present(self):
+        langs = set(available_quadgram_langs())
+        expected = {"en", "fr", "de", "es", "it", "nl", "pt", "pl"}
+        missing = expected - langs
+        assert not missing, f"Tables quadgram manquantes : {missing}"
+
+    @pytest.mark.parametrize("text", CASES["multilingual_valid"])
+    def test_valid_text_has_ngram_signal(self, text):
+        # Metrique aval reellement utilisee par le scorer (trigram*0.5 +
+        # quadgram*0.7). Les profils langid ne font que ~30 trigrammes, donc
+        # c'est le quadgram multilingue qui porte le signal.
+        ng = _ngram_fitness(text)
+        assert ng > 0.3, f"ngram_fitness={ng:.3f} trop faible | {text}"
+
+    def test_multilingual_valid_survive_ranking(self):
+        valid = CASES["multilingual_valid"]
+        results = [{"text_output": t} for t in valid]
+        ranked = score_and_rank_results(
+            results, top_k=len(valid) + 5, min_score=0.03, fast_reject_threshold=0.01
+        )
+        survivors = {r["text_output"] for r in ranked}
+        missing = [t for t in valid if t not in survivors]
+        assert not missing, f"Textes multilingues valides rejetes : {missing}"
+
+
+class TestLangidFitnessDecoupling:
+    """La fitness trigram (langid.fitness) doit etre DECOUPLEE de la confiance
+    de detection (langid.confidence). confidence s'effondre a ~0 quand deux
+    langues sont quasi a egalite ; fitness conserve le ratio brut de trigrammes.
+    """
+
+    def test_fitness_never_below_confidence(self):
+        # Invariant : fitness = meilleur ratio brut, confidence = ratio penalise
+        # par l'ambiguite -> fitness >= confidence toujours.
+        for text in CASES["multilingual_valid"] + CASES["correct_decrypt"]:
+            r = detect_language(text, DEFAULT_LANGS_EUROPE)
+            assert r.fitness >= r.confidence - 1e-9, (
+                f"fitness ({r.fitness:.3f}) < confidence ({r.confidence:.3f}) | {text}"
+            )
+
+    def test_ambiguity_collapse_is_recovered(self):
+        # Au moins un texte valide subit l'effondrement de confidence (langues
+        # proches) tout en gardant une fitness strictement superieure : c'est
+        # le signal que le decouplage recupere.
+        recovered = []
+        for text in CASES["multilingual_valid"] + CASES["correct_decrypt"]:
+            r = detect_language(text, DEFAULT_LANGS_EUROPE)
+            if r.fitness > r.confidence + 0.02:
+                recovered.append((text, r.confidence, r.fitness))
+        assert recovered, (
+            "Aucun cas d'effondrement de confidence recupere par fitness ; "
+            "le decouplage n'est pas demontre par ce jeu de textes."
         )

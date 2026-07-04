@@ -18,6 +18,11 @@ class LangIdResult:
     language: str
     confidence: float
     candidates: List[Tuple[str, float]]
+    # Raw best trigram hit-ratio, BEFORE the ambiguity penalty applied to
+    # `confidence`. Answers "how much does this look like a real language?"
+    # independently of "which language" — use this for n-gram fitness, not
+    # `confidence`, which collapses to ~0 when two languages are near-tied.
+    fitness: float = 0.0
 
 
 def _normalize_for_trigrams(text: str) -> str:
@@ -70,9 +75,15 @@ def detect_language(text: str, langs: Optional[Sequence[str]] = None) -> LangIdR
 
     confidence = best
     if best < 0.08:
-        return LangIdResult(language='unknown', confidence=float(best), candidates=scores[:3])
+        return LangIdResult(
+            language='unknown', confidence=float(best),
+            candidates=scores[:3], fitness=float(min(1.0, best)),
+        )
 
     if best - second < 0.02:
         confidence = max(0.0, best - second)
 
-    return LangIdResult(language=best_lang, confidence=float(min(1.0, confidence)), candidates=scores[:3])
+    return LangIdResult(
+        language=best_lang, confidence=float(min(1.0, confidence)),
+        candidates=scores[:3], fitness=float(min(1.0, best)),
+    )

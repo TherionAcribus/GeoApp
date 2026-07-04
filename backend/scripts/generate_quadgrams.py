@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """Generate quadgram log-probability tables for the scoring system.
 
-Two modes:
-  1. --from-bigrams  (default)  Use embedded bigram transition matrices to
-     synthesize approximate quadgram frequencies via a Markov chain.  This is
-     fast and requires no external data.  Good enough for distinguishing real
-     text from gibberish.
-  2. --from-corpus <file>       Count quadgrams in a UTF-8 text file for
-     higher accuracy.  You can feed any large plain-text corpus.
+Three modes:
+  1. --from-bigrams   (default)  Use embedded bigram transition matrices to
+     synthesize approximate quadgram frequencies via a Markov chain.  Fast,
+     no external data.  Used for en/fr/de.
+  2. --from-wordfreq             Build frequency-weighted tables from the
+     `wordfreq` package (build-time only).  Best quality; used for the
+     languages without embedded bigram matrices (es/it/nl/pt/pl).
+  3. --from-corpus <file>        Count quadgrams in a UTF-8 text file.
 
 Output: JSON files in gc_backend/plugins/scoring/resources/quadgrams/<lang>.json
+See the resources/quadgrams/README.md for provenance per language.
 """
 
 from __future__ import annotations
@@ -219,6 +221,44 @@ def generate_from_bigrams(lang: str, min_log_prob: float = -7.0) -> Dict[str, fl
     return quadgrams
 
 
+def generate_from_wordfreq(lang: str, top_n: int = 30000, min_log_prob: float = -7.0) -> Dict[str, float]:
+    """Build a frequency-weighted quadgram log10-prob table from ``wordfreq``.
+
+    For each of the top-N words we add the word's linear frequency to every
+    quadgram it contains, then take log10(weighted_count / total). This yields
+    tables on the same log10 scale as the corpus mode, but derived from real
+    frequency data (Wikipedia, subtitles, ...) — far better quality than the
+    synthetic bigram-Markov mode, and self-contained (wordfreq bundles its data).
+
+    Build-time only: ``wordfreq`` is not a runtime dependency of the backend.
+    """
+    import wordfreq
+
+    words = wordfreq.top_n_list(lang, top_n)
+    counts: Dict[str, float] = {}
+    for w in words:
+        freq = wordfreq.word_frequency(w, lang)
+        if freq <= 0:
+            continue
+        norm = unicodedata.normalize("NFKD", w)
+        norm = "".join(ch for ch in norm if not unicodedata.combining(ch))
+        norm = re.sub(r"[^A-Z]", "", norm.upper())
+        for i in range(len(norm) - 3):
+            qg = norm[i : i + 4]
+            counts[qg] = counts.get(qg, 0.0) + freq
+
+    total = sum(counts.values())
+    if total == 0:
+        return {}
+
+    quadgrams: Dict[str, float] = {}
+    for qg, cnt in counts.items():
+        logp = round(math.log10(cnt / total), 4)
+        if logp >= min_log_prob:
+            quadgrams[qg] = logp
+    return quadgrams
+
+
 def generate_from_corpus(filepath: str, min_count: int = 2) -> Dict[str, float]:
     """Count quadgrams from a UTF-8 text file."""
     text = Path(filepath).read_text(encoding="utf-8")
@@ -259,6 +299,18 @@ def main():
         help="Path to a UTF-8 text corpus (overrides bigram mode)",
     )
     parser.add_argument(
+        "--from-wordfreq",
+        action="store_true",
+        help="Generate from wordfreq frequency data (build-time; best quality). "
+        "Applies to every language in --langs.",
+    )
+    parser.add_argument(
+        "--top-n",
+        type=int,
+        default=30000,
+        help="Number of top words to use in --from-wordfreq mode (default 30000).",
+    )
+    parser.add_argument(
         "--corpus-lang",
         type=str,
         default="en",
@@ -274,13 +326,33 @@ def main():
 
     RESOURCES_DIR.mkdir(parents=True, exist_ok=True)
 
-    if args.from_corpus:
+    if args.from_wordfreq:
+        try:
+            import wordfreq  # noqa: F401
+        except ImportError:
+            print(
+                "ERROR: 'wordfreq' is required for --from-wordfreq. "
+                "Install it with `pip install wordfreq` (build-time only).",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        for lang in args.langs:
+            print(f"Generating {lang} quadgrams from wordfreq (top {args.top_n})...")
+            quadgrams = generate_from_wordfreq(lang, top_n=args.top_n, min_log_prob=args.min_log_prob)
+            sorted_qg = dict(sorted(quadgrams.items(), key=lambda x: x[1], reverse=True))
+            outpath = RESOURCES_DIR / f"{lang}.json"
+            outpath.write_text(
+                json.dumps(sorted_qg, indent=None, separators=(",", ":")),
+                encoding="utf-8",
+            )
+            print(f"  -> {outpath}: {len(sorted_qg)} quadgrams ({outpath.stat().st_size / 1024:.1f} KB)")
+    elif args.from_corpus:
         lang = args.corpus_lang
         print(f"Generating {lang} quadgrams from corpus: {args.from_corpus}")
         quadgrams = generate_from_corpus(args.from_corpus)
         outpath = RESOURCES_DIR / f"{lang}.json"
         outpath.write_text(json.dumps(quadgrams, indent=None, separators=(",", ":")), encoding="utf-8")
-        print(f"  → {outpath}: {len(quadgrams)} quadgrams ({outpath.stat().st_size / 1024:.1f} KB)")
+        print(f"  -> {outpath}: {len(quadgrams)} quadgrams ({outpath.stat().st_size / 1024:.1f} KB)")
     else:
         for lang in args.langs:
             if lang not in BIGRAM_DATA:
@@ -295,7 +367,7 @@ def main():
                 json.dumps(sorted_qg, indent=None, separators=(",", ":")),
                 encoding="utf-8",
             )
-            print(f"  → {outpath}: {len(sorted_qg)} quadgrams ({outpath.stat().st_size / 1024:.1f} KB)")
+            print(f"  -> {outpath}: {len(sorted_qg)} quadgrams ({outpath.stat().st_size / 1024:.1f} KB)")
 
 
 if __name__ == "__main__":

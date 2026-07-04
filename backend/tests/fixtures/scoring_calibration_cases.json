@@ -63,6 +63,20 @@
     ]
   },
 
+  "multilingual_valid": {
+    "_desc": "Phrases valides de type geocache dans les 8 langues de DEFAULT_LANGS_EUROPE. Verifie que le n-gram fitness fonctionne au-dela de en/fr/de (T5 : quadgrams es/it/nl/pt/pl + decouplage trigram/langid).",
+    "cases": [
+      "THE TREASURE IS HIDDEN NEAR THE OLD OAK TREE NORTH OF THE RIVER BANK",
+      "LE TRESOR EST CACHE PRES DU GRAND CHENE AU NORD DE LA RIVIERE PROFONDE",
+      "DER SCHATZ IST UNTER DEM GROSSEN BAUM VERSTECKT NEBEN DEM TIEFEN FLUSS",
+      "EL TESORO ESTA ESCONDIDO CERCA DEL GRAN ARBOL AL NORTE DEL RIO PROFUNDO",
+      "IL TESORO E NASCOSTO VICINO AL GRANDE ALBERO A NORD DEL FIUME PROFONDO",
+      "DE SCHAT IS VERBORGEN BIJ DE OUDE EIK TEN NOORDEN VAN DE DIEPE RIVIER",
+      "O TESOURO ESTA ESCONDIDO PERTO DA GRANDE ARVORE AO NORTE DO RIO PROFUNDO",
+      "SKARB JEST UKRYTY BLISKO STAREGO DEBU NA POLNOC OD GLEBOKIEJ RZEKI"
+    ]
+  },
+
   "gibberish": {
     "_desc": "Charabia: aleatoire, substitution mono-alphabetique (Atbash), et texte repetitif. Doit scorer tres bas (< 0.15).",
     "cases": [
