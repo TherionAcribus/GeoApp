@@ -36,7 +36,7 @@ _RE_HEX_PAIRS = re.compile(r'(?:[0-9A-Fa-f]{2}\s){4,}')
 _RE_NUMERIC_CODED = re.compile(r'(?:\d{1,3}\s){5,}')
 _RE_BASE64_LIKE = re.compile(r'^[A-Za-z0-9+/=]{20,}$')
 
-# Separators that indicate numeric structure (point, virgule, etc.) for number_richness
+# Separators that indicate numeric structure (point, virgule, etc.) for numeric_signal
 _NR_SEPARATORS = frozenset({
     'point', 'dot', 'comma', 'virgule', 'komma', 'punto', 'ponto', 'przecinek',
     'et', 'and', 'und',
@@ -314,7 +314,7 @@ def _repetition_quality(text: str) -> float:
     return 1.0
 
 
-# ── Module-level constants for _coord_words_feature (built once) ──────────
+# ── Module-level constants for _numeric_signal_feature (built once) ───────
 
 _CW_DIRECTIONS = frozenset({
     'n', 's', 'e', 'w', 'o',
@@ -376,71 +376,12 @@ _CW_NUMBER_WORDS: frozenset = frozenset({
     'hundert', 'tausend', 'und',
 })
 
-_CW_DE_BASES = ('eins', 'ein', 'zwei', 'drei', 'vier', 'funf', 'fuenf', 'sechs', 'sieben', 'acht', 'neun', 'zehn', 'zwolf', 'zwoelf')
 _CW_DE_TENS = ('zwanzig', 'dreissig', 'vierzig', 'funfzig', 'fuenfzig', 'sechzig')
 
-
-def _looks_like_number_word(t: str, lang: str) -> bool:
-    if not t:
-        return False
-    if any(ch.isdigit() for ch in t):
-        return True
-    if t in _CW_NUMBER_WORDS:
-        return True
-    if lang == 'de':
-        for base in _CW_DE_BASES:
-            if base in t:
-                return True
-        for ten in _CW_DE_TENS:
-            if ten in t:
-                return True
-    return False
-
-
-def _coord_words_feature(text: str, lang: str) -> float:
-    raw_tokens = _tokenize_words(text)
-    if not raw_tokens:
-        return 0.0
-
-    def norm_token(t: str) -> str:
-        s = unicodedata.normalize('NFKD', t)
-        s = ''.join(ch for ch in s if not unicodedata.combining(ch))
-        return s.lower()
-
-    tokens = [norm_token(t) for t in raw_tokens]
-
-    has_dir = any(t in _CW_DIRECTIONS for t in tokens)
-    has_latlon = any(t in _CW_LATLON for t in tokens)
-
-    num_hits = sum(1 for t in tokens if _looks_like_number_word(t, lang))
-
-    # ── Relaxation: partial credit without direction if strong number + separator ──
-    # Texts like "vingt deux point quatre cent dix sept" have no direction but
-    # are very valuable in geocaching (coordinate fragments written as words).
-    if not (has_dir or has_latlon):
-        if num_hits >= 3:
-            has_sep = any(t in _NR_SEPARATORS for t in tokens)
-            if has_sep:
-                # Strong signal: many number words + a separator like "point"/"virgule"
-                num_ratio_relaxed = min(1.0, num_hits / 8.0)
-                return float(min(0.7, 0.35 + 0.35 * num_ratio_relaxed))
-            elif num_hits >= 5:
-                # Weaker signal: lots of number words without separator
-                num_ratio_relaxed = min(1.0, num_hits / 10.0)
-                return float(min(0.5, 0.25 + 0.25 * num_ratio_relaxed))
-        return 0.0
-
-    has_unit = any(t in _CW_UNITS for t in tokens)
-
-    # Sans unités explicites (ex: "N 48 33 787 E 006 38 803"), le GPS strict couvre déjà.
-    # Ici on accepte quand même un signal si on a assez de nombres/nombres-en-mots.
-    has_numeric_signal = num_hits >= 4
-    if not (has_unit or has_numeric_signal):
-        return 0.0
-
-    num_ratio = min(1.0, num_hits / 10.0)
-    base = 0.6 if has_unit else 0.45
-    return float(min(1.0, base + 0.4 * num_ratio))
+# Real coordinate units only (degrees/minutes/seconds), excluding the
+# separators (point/virgule/...) that _CW_UNITS also contains — those are
+# credited through the separator bonus instead, to avoid double-counting.
+_CW_TRUE_UNITS = _CW_UNITS - _NR_SEPARATORS
 
 
 # ── Encoded-pattern penalty ──────────────────────────────────────────────
@@ -483,63 +424,94 @@ def _encoded_pattern_penalty(text: str) -> float:
     return 1.0
 
 
-# ── Number richness feature ─────────────────────────────────────────────
-def _number_richness_feature(text: str) -> float:
-    """Detect text rich in number words or digits, even without coordinate markers.
+# ── Numeric signal feature (coord_words + number_richness, merged) ───────
+def _is_number_token(t: str) -> Tuple[bool, bool]:
+    """Classify a normalised token as a number.
 
-    In geocaching, decoded text containing number words (e.g. "vingt deux point
-    quatre cent dix sept") or digit sequences is extremely valuable — it likely
-    represents coordinate components, puzzle answers, or other numeric data.
+    Returns (is_number, is_plain_digit_group). ``is_plain_digit_group`` is True
+    only for pure-digit tokens of 1-5 digits that are not long binary-like runs
+    (e.g. "0101010101"). Mixed alphanumerics ("XJ12", "6E") are NOT numbers —
+    this is the fix for the old _looks_like_number_word which accepted any token
+    merely containing a digit.
+    """
+    if not t:
+        return False, False
+    if t.isdigit():
+        if len(t) <= 5 and not (len(t) > 4 and set(t) <= {'0', '1'}):
+            return True, True
+        return False, False
+    if t in _CW_NUMBER_WORDS:
+        return True, False
+    # German compound number, e.g. "einundzwanzig" (<unit>und<tens>).
+    if 'und' in t and any(t.endswith(ten) for ten in _CW_DE_TENS):
+        return True, False
+    return False, False
 
-    Returns a float in [0..1]:
-      - 0.0 = no significant number content
-      - 1.0 = text is predominantly numbers/number-words
 
-    This feature is intentionally INDEPENDENT of direction signals (N/S/E/W)
-    and coordinate units.  It complements ``_coord_words_feature`` which
-    requires direction context.
+def _ddm_plausible(digit_groups: List[str]) -> bool:
+    """True if the pure-digit groups look like coordinate components.
+
+    Needs at least a degrees-range value (0-90) and either a minutes-range
+    value (0-59) or a 3-digit group (typical of DDM thousandths / longitude).
+    """
+    if len(digit_groups) < 2:
+        return False
+    vals = [int(g) for g in digit_groups]
+    has_deg = any(0 <= v <= 90 for v in vals)
+    has_min_or_triplet = (
+        any(0 <= v <= 59 for v in vals)
+        or any(len(g) == 3 for g in digit_groups)
+    )
+    return has_deg and has_min_or_triplet
+
+
+def _numeric_signal_feature(text: str) -> float:
+    """Unified signal for coordinate/number content (was coord_words + number_richness).
+
+    A density base capped at 0.45 (so a bare enumeration of numbers can never
+    exceed 0.45) plus cumulative *structure* bonuses that lift genuine
+    coordinate fragments toward 1.0:
+
+      - separator (point/virgule/...) ......... +0.20
+      - direction or lat/lon word ............. +0.25
+      - real unit (degre/minute/seconde/...) .. +0.10
+      - DDM-plausible digit groups ............ +0.15
+
+    This removes the old triple-counting of number tokens across gps_confidence,
+    coord_words and number_richness that let plain enumerations saturate.
     """
     raw_tokens = _tokenize_words(text)
     if not raw_tokens or len(raw_tokens) < 2:
         return 0.0
 
-    def norm_token(t: str) -> str:
-        s = unicodedata.normalize('NFKD', t)
-        s = ''.join(ch for ch in s if not unicodedata.combining(ch))
-        return s.lower()
-
-    tokens = [norm_token(t) for t in raw_tokens]
+    tokens = [_norm_lex_token(t) for t in raw_tokens]
 
     num_count = 0
-    sep_count = 0
+    digit_groups: List[str] = []
     for t in tokens:
-        if t in _CW_NUMBER_WORDS:
-            # Actual number word from dictionary — always counts
+        is_num, is_digit = _is_number_token(t)
+        if is_num:
             num_count += 1
-        elif t.isdigit():
-            # Pure digit token: only count if it's a reasonable number (1-5 digits)
-            # and not binary-like (only 0s and 1s with length > 4)
-            if len(t) <= 5 and not (len(t) > 4 and set(t) <= {'0', '1'}):
-                num_count += 1
-        elif t in _NR_SEPARATORS:
-            sep_count += 1
-        # Skip mixed alphanumeric tokens (e.g. "6E", "XJ12") — not meaningful numbers
+            if is_digit:
+                digit_groups.append(t)
 
     if num_count < 2:
         return 0.0
 
-    # Ratio of number-related tokens (number words + separators) vs total
-    relevant = num_count + sep_count
-    ratio = relevant / len(tokens)
-
-    # A separator among numbers is a strong signal (e.g. "vingt deux point quatre")
-    sep_bonus = min(0.15, sep_count * 0.08) if sep_count > 0 else 0.0
-
-    # Scale: 2 number hits → ~0.15, 4 → ~0.35, 6+ → ~0.55+, with ratio boost
     density = min(1.0, num_count / 8.0)
-    richness = density * 0.55 + ratio * 0.35 + sep_bonus
+    base = 0.45 * density
 
-    return float(min(1.0, richness))
+    bonus = 0.0
+    if any(t in _NR_SEPARATORS for t in tokens):
+        bonus += 0.20
+    if any((t in _CW_DIRECTIONS) or (t in _CW_LATLON) for t in tokens):
+        bonus += 0.25
+    if any(t in _CW_TRUE_UNITS for t in tokens):
+        bonus += 0.10
+    if _ddm_plausible(digit_groups):
+        bonus += 0.15
+
+    return float(min(1.0, base + bonus))
 
 
 @dataclass(frozen=True)
@@ -567,14 +539,18 @@ def _compute_score(text: str, context: Optional[Dict[str, Any]] = None) -> Score
     trigram_fitness = float(langid.confidence)
     quadgram_fitness = _quadgram_fitness(text, langid.language)
     repetition_quality = _repetition_quality(text)
-    coord_words = _coord_words_feature(text, langid.language)
     encoded_penalty = _encoded_pattern_penalty(text)
-    number_richness = _number_richness_feature(text)
+    numeric_signal = _numeric_signal_feature(text)
+
+    # Unified coordinate channel: a formal GPS detection or a strong written
+    # numeric signal. numeric_signal is scaled by 0.85 so a formal GPS hit is
+    # always preferred at equal strength. (Consumed as-is by the T6 recombine.)
+    coord_score = max(gps_conf, numeric_signal * 0.85)
 
     ngram_fitness = float(min(1.0, trigram_fitness * 0.5 + quadgram_fitness * 0.7))
     ngram_fitness *= repetition_quality
 
-    if ic < 0.038 and gps_conf < 0.7 and coord_words < 0.3 and number_richness < 0.2:
+    if ic < 0.038 and gps_conf < 0.7 and numeric_signal < 0.3:
         return ScoreResult(
             score=0.0,
             metadata={
@@ -591,9 +567,9 @@ def _compute_score(text: str, context: Optional[Dict[str, Any]] = None) -> Score
                         'trigram_fitness': trigram_fitness,
                         'quadgram_fitness': quadgram_fitness,
                         'repetition_quality': repetition_quality,
-                        'coord_words': coord_words,
+                        'numeric_signal': numeric_signal,
+                        'coord_score': coord_score,
                         'encoded_penalty': encoded_penalty,
-                        'number_richness': number_richness,
                         'lexical_coverage': lexical,
                         'coherence': coherence,
                     },
@@ -603,28 +579,27 @@ def _compute_score(text: str, context: Optional[Dict[str, Any]] = None) -> Score
         )
 
     weights = {
-        'gps_confidence': 0.80,
+        'coord_score': 0.80,
         'ngram_fitness': 0.40,
         'lexical_coverage': 0.30,
-        'coord_words': 0.35,
-        'number_richness': 0.45,
         'coherence': 0.20,
         'ic_quality': 0.15,
         'repetition_quality': 0.10,
         'entropy_quality': 0.10,
     }
 
-    if gps_conf > 0.9 and ic > 0.05:
+    # A formal GPS detection is a strong standalone signal: coordinates carry
+    # almost no letters (IC ~ 0), so they must not depend on lexical/ngram.
+    # (T6 will replace this early-exit with a noisy-OR combination.)
+    if gps_conf >= 0.9:
         score = 0.98
         early_exit = 'gps_strong'
     else:
         score = (
-            gps_conf * weights['gps_confidence']
+            coord_score * weights['coord_score']
             + lexical * weights['lexical_coverage']
             + ngram_fitness * weights['ngram_fitness']
             + repetition_quality * weights['repetition_quality']
-            + coord_words * weights['coord_words']
-            + number_richness * weights['number_richness']
             + coherence * weights['coherence']
             + ic_v * weights['ic_quality']
             + entropy_v * weights['entropy_quality']
@@ -638,7 +613,7 @@ def _compute_score(text: str, context: Optional[Dict[str, Any]] = None) -> Score
             if encoded_penalty < 0.2:
                 early_exit = 'encoded_pattern'
 
-        if gps_conf <= 0.0 and ngram_fitness < 0.1 and coord_words < 0.2 and number_richness < 0.15:
+        if coord_score <= 0.0 and ngram_fitness < 0.1 and numeric_signal < 0.2:
             score = 0.05
             early_exit = 'ngram_low'
 
@@ -654,8 +629,8 @@ def _compute_score(text: str, context: Optional[Dict[str, Any]] = None) -> Score
         explanation.append(f"lang={langid.language} ({langid.confidence:.2f})")
     explanation.append(f"lex={lexical:.2f}")
     explanation.append(f"coh={coherence:.2f}")
-    if number_richness > 0:
-        explanation.append(f"num_rich={number_richness:.2f}")
+    if numeric_signal > 0:
+        explanation.append(f"num_sig={numeric_signal:.2f}")
     if encoded_penalty < 1.0:
         explanation.append(f"enc_pen={encoded_penalty:.2f}")
 
@@ -678,9 +653,9 @@ def _compute_score(text: str, context: Optional[Dict[str, Any]] = None) -> Score
                     'trigram_fitness': float(trigram_fitness),
                     'quadgram_fitness': float(quadgram_fitness),
                     'repetition_quality': float(repetition_quality),
-                    'coord_words': float(coord_words),
+                    'numeric_signal': float(numeric_signal),
+                    'coord_score': float(coord_score),
                     'encoded_penalty': float(encoded_penalty),
-                    'number_richness': float(number_richness),
                     'lexical_coverage': float(lexical),
                     'coherence': float(coherence),
                     'ic_quality': float(ic_v),
@@ -791,9 +766,9 @@ def score_text_fast(text: str) -> float:
     """Cheap tier-0/tier-1 scoring for bruteforce pre-filtering.
 
     Returns a float 0..1.  Much faster than score_text() because it skips
-    GPS detection, language detection, lexical features, and coord_words.
+    GPS detection, language detection, and lexical features.
     Uses only: IC, repetition quality, quadgram fitness (EN fallback),
-    encoded-pattern penalty, and a lightweight number-word boost.
+    encoded-pattern penalty, and a lightweight numeric-signal boost.
 
     Typical cost: ~0.05 ms per call vs ~1-5 ms for full score_text().
     Results are LRU-cached (4096 entries) keyed by normalised letters.
@@ -805,11 +780,10 @@ def score_text_fast(text: str) -> float:
 
     letters = _normalize_for_stats(text)
     if len(letters) < 4:
-        # Very few letters — check if the text is rich in number words
-        # (e.g. "vingt deux point quatre cent dix sept" has many letters
-        #  but some decoded outputs are short). If letters < 4, the
-        #  quadgram path can't help, but number richness might.
-        nr = _number_richness_feature(text)
+        # Very few letters — likely a bare coordinate string. The quadgram
+        # path can't help, but the numeric signal (digit groups / number
+        # words) can rescue genuine coordinate fragments.
+        nr = _numeric_signal_feature(text)
         if nr > 0.3:
             return float(min(0.5, nr * enc_pen))
         return 0.0
@@ -820,11 +794,11 @@ def score_text_fast(text: str) -> float:
     if enc_pen < 1.0:
         base_score *= enc_pen
 
-    # Lightweight number-word boost: if quadgrams gave a decent score AND
-    # the text is rich in number words, nudge the score up so the full
-    # scorer gets a chance to evaluate it properly.
+    # Lightweight numeric boost: if quadgrams gave a decent score AND the text
+    # carries a numeric signal, nudge the score up so the full scorer gets a
+    # chance to evaluate it properly.
     if base_score > 0.05:
-        nr = _number_richness_feature(text)
+        nr = _numeric_signal_feature(text)
         if nr > 0.2:
             base_score = min(1.0, base_score + nr * 0.15)
 

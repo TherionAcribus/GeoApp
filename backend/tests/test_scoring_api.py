@@ -146,7 +146,7 @@ class TestScoringEndpoint:
         scoring = data['metadata']['scoring']
         features = scoring['features']
 
-        assert features['coord_words'] >= 0.6
+        assert features['numeric_signal'] >= 0.6
         assert scoring.get('early_exit') != 'ngram_low'
         assert data['score'] > 0.2
 
@@ -164,13 +164,13 @@ class TestScoringEndpoint:
         scoring = data['metadata']['scoring']
         features = scoring['features']
 
-        assert features['coord_words'] >= 0.6
+        assert features['numeric_signal'] >= 0.6
         assert scoring.get('early_exit') != 'ngram_low'
         assert data['score'] > 0.2
 
 
 class TestScoringNumberRichness:
-    """Tests for the number_richness and encoded_pattern features."""
+    """Tests for the numeric_signal and encoded_pattern features."""
 
     def test_number_words_fr_without_direction_scores_high(self, client):
         """Number words like 'vingt deux point quatre cent dix sept' should score high
@@ -186,7 +186,7 @@ class TestScoringNumberRichness:
         data = json.loads(response.data)
         features = data['metadata']['scoring']['features']
 
-        assert features['number_richness'] > 0.5
+        assert features['numeric_signal'] > 0.5
         assert data['score'] > 0.7
 
     def test_number_words_en_without_direction_scores_high(self, client):
@@ -202,7 +202,9 @@ class TestScoringNumberRichness:
         data = json.loads(response.data)
         features = data['metadata']['scoring']['features']
 
-        assert features['number_richness'] > 0.5
+        # English "twenty two point four hundred seventeen": number words +
+        # separator but no direction/unit → structured but modest signal.
+        assert features['numeric_signal'] > 0.4
         assert data['score'] > 0.7
 
     def test_hex_pairs_penalized_as_encoded(self, client):
@@ -251,8 +253,8 @@ class TestScoringNumberRichness:
 
         assert data['score'] < 0.15
 
-    def test_number_richness_feature_present_in_metadata(self, client):
-        """number_richness and encoded_penalty should appear in scoring features."""
+    def test_numeric_signal_feature_present_in_metadata(self, client):
+        """numeric_signal and encoded_penalty should appear in scoring features."""
         response = client.post(
             '/api/plugins/score',
             data=json.dumps({
@@ -264,11 +266,11 @@ class TestScoringNumberRichness:
         data = json.loads(response.data)
         features = data['metadata']['scoring']['features']
 
-        assert 'number_richness' in features
+        assert 'numeric_signal' in features
         assert 'encoded_penalty' in features
 
-    def test_coord_words_relaxation_with_separator(self, client):
-        """coord_words should give partial credit for number words + separator
+    def test_numeric_signal_with_separator_no_direction(self, client):
+        """numeric_signal should give partial credit for number words + separator
         even without direction signals."""
         response = client.post(
             '/api/plugins/score',
@@ -281,11 +283,11 @@ class TestScoringNumberRichness:
         data = json.loads(response.data)
         features = data['metadata']['scoring']['features']
 
-        # coord_words should have partial credit via the relaxation path
-        assert features['coord_words'] > 0.0
+        # number words + separator, no direction → partial credit
+        assert features['numeric_signal'] > 0.0
 
     def test_noise_with_binary_still_low(self, client):
-        """Binary-like noise should not trigger number_richness."""
+        """Binary-like noise and mixed alphanumerics must not trigger numeric_signal."""
         response = client.post(
             '/api/plugins/score',
             data=json.dumps({
@@ -297,7 +299,7 @@ class TestScoringNumberRichness:
         data = json.loads(response.data)
         features = data['metadata']['scoring']['features']
 
-        assert features['number_richness'] == 0.0
+        assert features['numeric_signal'] == 0.0
         assert data['score'] <= 0.2
 
 

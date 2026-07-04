@@ -817,8 +817,8 @@ export const PluginResultDisplay: React.FC<{
                                                             {features.gps_confidence !== undefined && (
                                                                 <div><strong>GPS</strong>: {toPercent(features.gps_confidence)}%</div>
                                                             )}
-                                                            {features.coord_words !== undefined && (
-                                                                <div><strong>Mots coords</strong>: {toPercent(features.coord_words)}%</div>
+                                                            {features.numeric_signal !== undefined && (
+                                                                <div><strong>Signal num.</strong>: {toPercent(features.numeric_signal)}%</div>
                                                             )}
                                                             {features.lexical_coverage !== undefined && (
                                                                 <div><strong>Lexical</strong>: {toPercent(features.lexical_coverage)}%</div>

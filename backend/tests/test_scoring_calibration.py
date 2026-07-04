@@ -25,6 +25,7 @@ from typing import Dict, List
 import pytest
 
 from gc_backend.plugins.scoring.scorer import (
+    _numeric_signal_feature,
     score_and_rank_results,
     score_text,
     score_text_fast,
@@ -256,13 +257,31 @@ class TestNumberEnumBelowWordCoords:
     """Une simple enumeration de nombres (sans separateur/direction/groupes
     plausibles) ne doit pas battre un vrai fragment de coordonnees.
 
-    Etat actuel: les deux saturent a 1.0 (triple comptage gps/coord_words/
-    number_richness) -> xfail. A lever apres la fusion en numeric_signal (T4).
+    T4 (fusion en numeric_signal) a corrige la FEATURE : une enumeration pure
+    plafonne a 0.45, un fragment de coordonnees structure monte bien plus haut
+    (cf. test_feature_separates_enum_from_word_coords, qui passe).
+
+    Mais l'ordre au niveau du SCORE FINAL reste bloque par la saturation de la
+    combinaison additive (lexical + coherence eleves car les mots-nombres sont
+    du vrai vocabulaire) : les deux atteignent encore 1.0. A lever apres la
+    de-saturation de T6.
     """
 
+    def test_feature_separates_enum_from_word_coords(self):
+        # Livrable direct de T4 : au niveau de la feature, l'enumeration pure
+        # est plafonnee a 0.45 tandis que les fragments de coords la depassent.
+        enum_max = max(_numeric_signal_feature(t) for t in CASES["number_enum"])
+        word_min = min(_numeric_signal_feature(t) for t in CASES["word_coords"])
+        assert enum_max <= 0.45, f"numeric_signal enum devrait plafonner a 0.45, got {enum_max:.3f}"
+        assert word_min > enum_max, (
+            f"numeric_signal word_coords min ({word_min:.3f}) doit depasser "
+            f"enum max ({enum_max:.3f})"
+        )
+
     @pytest.mark.xfail(
-        reason="number_enum et word_coords saturent tous deux a 1.0. "
-        "A corriger par la fusion coord_words/number_richness (T4).",
+        reason="Ordre au niveau du score final : number_enum et word_coords "
+        "saturent encore tous deux a 1.0 (combinaison additive). La feature est "
+        "corrigee (T4) ; la de-saturation reste a faire en T6.",
         strict=True,
     )
     def test_enum_below_word_coords(self):
