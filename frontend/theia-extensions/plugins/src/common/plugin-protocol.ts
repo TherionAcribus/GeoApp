@@ -851,5 +851,27 @@ export interface PluginsService {
         decimal_latitude?: number;
         decimal_longitude?: number;
         written?: any;
+        error?: string;
+    }>;
+
+    detectCoordinatesBatch(texts: string[], options?: {
+        includeNumericOnly?: boolean;
+        includeWritten?: boolean;
+        writtenLanguages?: string[];
+        writtenMaxCandidates?: number;
+        writtenIncludeDeconcat?: boolean;
+        originCoords?: string | { ddm_lat: string; ddm_lon: string };
+        signal?: AbortSignal;
+    }): Promise<{
+        results: Array<{
+            exist: boolean;
+            ddm_lat?: string;
+            ddm_lon?: string;
+            ddm?: string;
+            decimal_latitude?: number;
+            decimal_longitude?: number;
+        }>;
+        written_truncated?: boolean;
+        error?: string;
     }>;
 }

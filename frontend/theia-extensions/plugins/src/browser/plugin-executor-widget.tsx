@@ -766,46 +766,118 @@ const PluginExecutorComponent: React.FC<{
     const handlePluginListChange = React.useCallback((newList: string) => handleInputChange('plugin_list', newList), [handleInputChange]);
 
     /**
-     * Détecte les coordonnées GPS dans les résultats d'un plugin
+     * Détecte les coordonnées GPS dans les résultats d'un plugin.
+     *
+     * Optimisé : au lieu d'une requête HTTP par résultat (des dizaines/centaines
+     * après un run MetaSolver), on réutilise les coordonnées déjà détectées côté
+     * backend et on soumet les textes restants (dédupliqués) en lots via
+     * /api/detect_coordinates_batch.
      */
     const detectCoordinatesInResults = async (result: PluginResult, signal?: AbortSignal) => {
         if (!result.results || result.results.length === 0) {
             return;
         }
-        
-        const totalResults = result.results.length;
-        let foundCount = 0;
-        console.log('[Coordinates Detection] Analyse de', totalResults, 'résultat(s)');
 
-        // Signaler le début de la phase de détection de coordonnées
+        let foundCount = 0;
+        const pluginLabel = result.plugin_info?.name || state.selectedPlugin || 'Coordonnée détectée';
+
+        // Coordonnées d'origine (mode GEOCACHE) : DDM brut, normalisé côté backend.
+        const originCoords = config.mode === 'geocache'
+            ? (config.geocacheContext?.coordinates?.coordinatesRaw?.trim() || undefined)
+            : undefined;
+
+        // Émet l'événement de surlignage carte pour une coordonnée trouvée.
+        const dispatchHighlight = (
+            item: any,
+            decimalCoordinates: { latitude: number; longitude: number } | null,
+            formatted: string,
+        ) => {
+            if (!decimalCoordinates) {
+                console.warn('[Coordinates Detection] Conversion décimale impossible', { item });
+                return;
+            }
+            window.dispatchEvent(new CustomEvent('geoapp-map-highlight-coordinate', {
+                detail: {
+                    gcCode: context.gcCode,
+                    pluginName: pluginLabel,
+                    coordinates: {
+                        latitude: decimalCoordinates.latitude,
+                        longitude: decimalCoordinates.longitude,
+                        formatted
+                    },
+                    autoSaved: false,
+                    replaceExisting: false,
+                    waypointTitle: context.name,
+                    waypointNote: item.text_output,
+                    sourceResultText: item.text_output
+                }
+            }));
+        };
+
+        // Applique une détection à un item et déclenche le surlignage.
+        const applyDetected = (item: any, coords: any) => {
+            item.coordinates = {
+                latitude: coords.ddm_lat || '',
+                longitude: coords.ddm_lon || '',
+                formatted: coords.ddm || ''
+            };
+            const decimalCoordinates = extractDecimalCoordinates({
+                latitude: coords.decimal_latitude ?? item.coordinates.latitude,
+                longitude: coords.decimal_longitude ?? item.coordinates.longitude,
+                decimalLatitude: coords.decimal_latitude,
+                decimalLongitude: coords.decimal_longitude
+            }, coords.ddm);
+            dispatchHighlight(item, decimalCoordinates, coords.ddm || item.coordinates.formatted);
+        };
+
+        // 1. Réutiliser les coordonnées déjà présentes (détectées côté backend) et
+        //    collecter les textes restants à analyser.
+        const pending: Array<{ item: any; text: string }> = [];
+        for (const item of result.results) {
+            const existing = item.coordinates;
+            if (existing && (existing.formatted || existing.latitude)) {
+                foundCount++;
+                const decimalCoordinates = extractDecimalCoordinates(existing, existing.formatted);
+                dispatchHighlight(item, decimalCoordinates, existing.formatted || '');
+            } else if (item.text_output) {
+                pending.push({ item, text: item.text_output });
+            }
+        }
+
+        // Textes uniques (déduplication : le même décodage revient souvent).
+        const uniqueTexts = Array.from(new Set(pending.map(p => p.text)));
+        const totalToAnalyze = uniqueTexts.length;
+
         setState(prev => ({
             ...prev,
             coordsDetectionProgress: {
                 current: 0,
-                total: totalResults,
-                found: 0,
-                currentText: 'Initialisation…',
+                total: totalToAnalyze,
+                found: foundCount,
+                currentText: totalToAnalyze > 0 ? 'Initialisation…' : 'Aucun texte à analyser',
                 phase: 'running',
             },
         }));
-        
-        // Récupérer les coordonnées d'origine si en mode GEOCACHE.
-        // On envoie le DDM brut de la cache (coordinatesRaw) ; le backend le normalise.
-        // Construire un DDM à partir des coordonnées décimales produisait une chaîne
-        // invalide ("N 48.8566") rejetée silencieusement, et forçait N/E.
-        const originCoords = config.mode === 'geocache'
-            ? (config.geocacheContext?.coordinates?.coordinatesRaw?.trim() || undefined)
-            : undefined;
-        
-        // Parcourir chaque résultat et détecter les coordonnées
-        for (let itemIdx = 0; itemIdx < result.results.length; itemIdx++) {
-            // Vérifier l'annulation
+
+        const writtenMode = state.formInputs.detect_written_coordinates === true;
+        const writtenLangMode = String(state.formInputs.written_coordinates_language || 'auto');
+        const writtenLanguages =
+            writtenLangMode === 'fr,en' ? ['fr', 'en'] :
+            writtenLangMode === 'fr' ? ['fr'] :
+            writtenLangMode === 'en' ? ['en'] :
+            ['auto'];
+
+        // 2. Détection en lots (chunks) pour permettre annulation / pause / progrès.
+        const CHUNK_SIZE = 100;
+        const coordsByText = new Map<string, any>();
+        let processed = 0;
+        let detectionError: string | undefined;
+
+        for (let i = 0; i < uniqueTexts.length; i += CHUNK_SIZE) {
             if (signal?.aborted) {
-                console.log('[Coordinates Detection] Annulé à', itemIdx, '/', totalResults);
+                console.log('[Coordinates Detection] Annulé à', processed, '/', totalToAnalyze);
                 break;
             }
-
-            // Attendre si en pause
             if (isPausedRef.current) {
                 setState(prev => ({
                     ...prev,
@@ -819,105 +891,59 @@ const PluginExecutorComponent: React.FC<{
                 if (signal?.aborted) break;
             }
 
-            const item = result.results[itemIdx];
-            if (item.text_output) {
-                try {
-                    const textSnippet = item.text_output.length > 50
-                        ? item.text_output.substring(0, 50) + '…'
-                        : item.text_output;
-                    console.log('[Coordinates Detection] Analyse du texte:', textSnippet);
+            const chunk = uniqueTexts.slice(i, i + CHUNK_SIZE);
+            setState(prev => ({
+                ...prev,
+                coordsDetectionProgress: {
+                    current: processed,
+                    total: totalToAnalyze,
+                    found: foundCount,
+                    currentText: `Analyse de ${chunk.length} texte(s)…`,
+                    phase: 'running',
+                },
+            }));
 
-                    // Mise à jour du progrès
-                    setState(prev => ({
-                        ...prev,
-                        coordsDetectionProgress: {
-                            current: itemIdx,
-                            total: totalResults,
-                            found: foundCount,
-                            currentText: textSnippet,
-                            phase: 'running',
-                        },
-                    }));
+            const resp = await pluginsService.detectCoordinatesBatch(chunk, {
+                includeNumericOnly: false,
+                includeWritten: writtenMode,
+                writtenLanguages,
+                writtenMaxCandidates: 20,
+                writtenIncludeDeconcat: true,
+                originCoords,
+                signal,
+            });
 
-                    const writtenMode = state.formInputs.detect_written_coordinates === true;
-                    const writtenLangMode = String(state.formInputs.written_coordinates_language || 'auto');
-                    const writtenLanguages =
-                        writtenLangMode === 'fr,en' ? ['fr', 'en'] :
-                        writtenLangMode === 'fr' ? ['fr'] :
-                        writtenLangMode === 'en' ? ['en'] :
-                        ['auto'];
+            if (resp.error) {
+                detectionError = resp.error;
+                console.error('[Coordinates Detection] Détection indisponible:', resp.error);
+                break;
+            }
 
-                    const coords = await pluginsService.detectCoordinates(item.text_output, {
-                        includeNumericOnly: false,
-                        includeWritten: writtenMode,
-                        writtenLanguages,
-                        writtenMaxCandidates: 20,
-                        writtenIncludeDeconcat: true,
-                        originCoords
-                    });
-                    
-                    if (coords.exist) {
-                        foundCount++;
-                        console.log('[Coordinates Detection] Coordonnées détectées!', coords);
-                        item.coordinates = {
-                            latitude: coords.ddm_lat || '',
-                            longitude: coords.ddm_lon || '',
-                            formatted: coords.ddm || ''
-                        };
+            chunk.forEach((t, idx) => coordsByText.set(t, resp.results[idx]));
+            processed += chunk.length;
+        }
 
-                        const pluginLabel = result.plugin_info?.name || state.selectedPlugin || 'Coordonnée détectée';
-                        const decimalCoordinates = extractDecimalCoordinates({
-                            latitude: (coords as any).decimal_latitude ?? item.coordinates.latitude,
-                            longitude: (coords as any).decimal_longitude ?? item.coordinates.longitude,
-                            decimalLatitude: (coords as any).decimal_latitude,
-                            decimalLongitude: (coords as any).decimal_longitude
-                        }, coords.ddm);
-                        if (decimalCoordinates) {
-                            console.log('[Coordinates Detection] Dispatch map highlight', {
-                                gcCode: context.gcCode,
-                                pluginName: pluginLabel,
-                                latitude: decimalCoordinates.latitude,
-                                longitude: decimalCoordinates.longitude,
-                                formatted: coords.ddm || item.coordinates.formatted
-                            });
-                            window.dispatchEvent(new CustomEvent('geoapp-map-highlight-coordinate', {
-                                detail: {
-                                    gcCode: context.gcCode,
-                                    pluginName: pluginLabel,
-                                    coordinates: {
-                                        latitude: decimalCoordinates.latitude,
-                                        longitude: decimalCoordinates.longitude,
-                                        formatted: coords.ddm || item.coordinates.formatted
-                                    },
-                                    autoSaved: false,
-                                    replaceExisting: false,
-                                    // Utiliser le nom de la cache si disponible pour l'affichage dans la popup
-                                    waypointTitle: context.name,
-                                    waypointNote: item.text_output,
-                                    sourceResultText: item.text_output
-                                }
-                            }));
-                        } else {
-                            console.warn('[Coordinates Detection] Impossible de convertir les coordonnées détectées en décimal', {
-                                coords,
-                                itemCoordinates: item.coordinates
-                            });
-                        }
-                    }
-                } catch (error) {
-                    console.error('[Coordinates Detection] Erreur:', error);
+        // 3. Redistribuer les résultats sur les items.
+        if (!detectionError) {
+            for (const { item, text } of pending) {
+                const coords = coordsByText.get(text);
+                if (coords && coords.exist) {
+                    foundCount++;
+                    applyDetected(item, coords);
                 }
             }
         }
 
-        // Signaler la fin de la phase de détection de coordonnées
+        // 4. Fin de phase.
         setState(prev => ({
             ...prev,
             coordsDetectionProgress: {
-                current: totalResults,
-                total: totalResults,
+                current: processed,
+                total: totalToAnalyze,
                 found: foundCount,
-                currentText: foundCount > 0 ? `${foundCount} coordonnée(s) trouvée(s)` : 'Aucune coordonnée trouvée',
+                currentText: detectionError
+                    ? `⚠ Détection indisponible : ${detectionError}`
+                    : (foundCount > 0 ? `${foundCount} coordonnée(s) trouvée(s)` : 'Aucune coordonnée trouvée'),
                 phase: 'done',
             },
         }));

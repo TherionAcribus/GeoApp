@@ -380,6 +380,7 @@ export class PluginsServiceImpl implements IPluginsService {
         decimal_latitude?: number;
         decimal_longitude?: number;
         written?: any;
+        error?: string;
     }> {
         try {
             const requestBody = {
@@ -391,20 +392,73 @@ export class PluginsServiceImpl implements IPluginsService {
                 written_include_deconcat: options?.writtenIncludeDeconcat,
                 origin_coords: options?.originCoords
             };
-            console.log('[DEBUG] Envoi POST /api/detect_coordinates:', JSON.stringify(requestBody).substring(0, 200));
             const response = await this.client.post('/api/detect_coordinates', requestBody);
             return response.data;
-            
+
         } catch (error) {
             console.error('Erreur lors de la détection des coordonnées:', error);
             if (axios.isAxiosError(error) && error.response) {
                 console.error('[DEBUG] Réponse serveur:', error.response.status, error.response.data);
             }
-            // Ne pas throw d'erreur, retourner simplement "pas de coordonnées"
-            return { exist: false };
+            // Ne pas throw, mais distinguer "pas de coordonnées" d'une "détection indisponible"
+            // (backend injoignable) : l'appelant peut afficher un avertissement approprié.
+            return { exist: false, error: this.getErrorMessage(error) };
         }
     }
-    
+
+    /**
+     * Détecte les coordonnées GPS dans un lot de textes, en une seule requête.
+     * Bien plus efficace que N appels à detectCoordinates() en série.
+     * Retourne un tableau aligné sur l'index de `texts`.
+     */
+    async detectCoordinatesBatch(texts: string[], options?: {
+        includeNumericOnly?: boolean;
+        includeWritten?: boolean;
+        writtenLanguages?: string[];
+        writtenMaxCandidates?: number;
+        writtenIncludeDeconcat?: boolean;
+        originCoords?: string | { ddm_lat: string; ddm_lon: string };
+        signal?: AbortSignal;
+    }): Promise<{
+        results: Array<{
+            exist: boolean;
+            ddm_lat?: string;
+            ddm_lon?: string;
+            ddm?: string;
+            decimal_latitude?: number;
+            decimal_longitude?: number;
+        }>;
+        written_truncated?: boolean;
+        error?: string;
+    }> {
+        if (!texts.length) {
+            return { results: [] };
+        }
+        try {
+            const requestBody = {
+                texts,
+                include_numeric_only: options?.includeNumericOnly || false,
+                include_written: options?.includeWritten || false,
+                written_languages: options?.writtenLanguages,
+                written_max_candidates: options?.writtenMaxCandidates,
+                written_include_deconcat: options?.writtenIncludeDeconcat,
+                origin_coords: options?.originCoords
+            };
+            const response = await this.client.post('/api/detect_coordinates_batch', requestBody, {
+                signal: options?.signal,
+                timeout: 120000,
+            });
+            return response.data;
+        } catch (error) {
+            console.error('Erreur lors de la détection batch des coordonnées:', error);
+            // Renvoyer un tableau aligné de "pas de coordonnées" + l'erreur, sans throw.
+            return {
+                results: texts.map(() => ({ exist: false })),
+                error: this.getErrorMessage(error),
+            };
+        }
+    }
+
     /**
      * Extrait le message d'erreur depuis une erreur Axios.
      */

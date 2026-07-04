@@ -1,4 +1,4 @@
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 import ast
 import re
 import logging
@@ -113,6 +113,20 @@ def _normalize_origin_coords(origin) -> Optional[Dict[str, str]]:
         return None
 
     return None
+
+
+def _normalize_written_languages(raw) -> List[str]:
+    """Normalise le paramètre written_languages (str CSV ou liste) en liste de codes.
+
+    Retombe sur ``['fr']`` si l'entrée est vide/invalide.
+    """
+    if isinstance(raw, str):
+        parts = [p.strip().lower() for p in raw.split(',') if p.strip()]
+    elif isinstance(raw, list):
+        parts = [str(x).strip().lower() for x in raw if str(x).strip()]
+    else:
+        parts = []
+    return parts or ['fr']
 
 
 # A PRIORI PLUS UTILISé..... Ne pas l'utiliser.... A supprimer....
@@ -1720,6 +1734,129 @@ def detect_coordinates_in_text():
     except Exception as e:
         logger.exception("Erreur lors de la detection des coordonnees: %s", e)
         return jsonify({"error": str(e)}), 500
+
+
+# Limites de sécurité du batch (évite les payloads abusifs).
+_BATCH_MAX_TEXTS = 1000
+_BATCH_MAX_TOTAL_CHARS = 2_000_000
+# Plafond de textes soumis à la détection écrite (exécution du plugin, coûteuse).
+_BATCH_WRITTEN_CAP = 30
+
+
+@coordinates_bp.route('/api/detect_coordinates_batch', methods=['POST'])
+def detect_coordinates_batch():
+    """
+    Détecte des coordonnées GPS dans un lot de textes, en une seule requête.
+
+    Évite les N allers-retours HTTP de la détection front result-par-result.
+
+    Attend un JSON avec :
+    - 'texts' (list[str])                : textes à analyser (obligatoire)
+    - 'include_numeric_only' (bool)      : format numérique pur
+    - 'include_written' (bool)           : détection en toutes lettres (plafonnée)
+    - 'written_languages' (list|str)     : langues pour la détection écrite
+    - 'written_max_candidates' (int)
+    - 'written_include_deconcat' (bool)
+    - 'origin_coords' (dict|str)         : coordonnées d'origine (directions cardinales)
+
+    Retourne : {"results": [<schéma /api/detect_coordinates>, ...]} aligné sur
+    l'index d'entrée de 'texts', plus 'written_truncated' si le plafond écrit a été
+    atteint.
+    """
+    try:
+        data = request.get_json()
+        if not isinstance(data, dict) or 'texts' not in data:
+            return jsonify({"error": "Le champ 'texts' (liste) est requis"}), 400
+
+        texts = data.get('texts')
+        if not isinstance(texts, list):
+            return jsonify({"error": "'texts' doit être une liste"}), 400
+        if len(texts) > _BATCH_MAX_TEXTS:
+            return jsonify({"error": f"Trop de textes (max {_BATCH_MAX_TEXTS})"}), 400
+
+        texts = ["" if t is None else str(t) for t in texts]
+        if sum(len(t) for t in texts) > _BATCH_MAX_TOTAL_CHARS:
+            return jsonify({"error": "Charge de texte trop volumineuse"}), 400
+
+        include_numeric_only = bool(data.get('include_numeric_only', False))
+        include_written = bool(data.get('include_written', False))
+        written_languages = _normalize_written_languages(data.get('written_languages', ['fr']))
+        try:
+            written_max_candidates = int(data.get('written_max_candidates', 20))
+        except (TypeError, ValueError):
+            written_max_candidates = 20
+        written_include_deconcat = bool(data.get('written_include_deconcat', True))
+        origin_coords = _normalize_origin_coords(data.get('origin_coords'))
+
+        logger.debug(
+            "detect_coordinates_batch: %d textes, numeric_only=%s, written=%s",
+            len(texts), include_numeric_only, include_written,
+        )
+
+        # Service de détection écrite (instancié une seule fois, en lazy)
+        written_service = None
+        if include_written:
+            try:
+                from gc_backend.services import WrittenCoordinatesService
+                plugin_manager = getattr(current_app, 'plugin_manager', None)
+                if plugin_manager is not None:
+                    written_service = WrittenCoordinatesService(plugin_manager)
+            except Exception as e:
+                logger.warning("detect_coordinates_batch: service écrit indisponible: %s", e)
+
+        written_attempts = 0
+        written_truncated = False
+        cache: Dict[str, Dict] = {}
+
+        def _detect_one(text: str) -> Dict:
+            nonlocal written_attempts, written_truncated
+            base = detect_gps_coordinates(
+                text,
+                include_numeric_only=include_numeric_only,
+                origin_coords=origin_coords,
+            )
+            # Détection écrite uniquement si le regex n'a rien trouvé, et plafonnée
+            if base.get('exist') or not include_written or written_service is None:
+                return base
+            if written_attempts >= _BATCH_WRITTEN_CAP:
+                written_truncated = True
+                return base
+            written_attempts += 1
+            try:
+                wr = written_service.find(
+                    text,
+                    languages=written_languages,
+                    max_candidates=written_max_candidates,
+                    include_deconcat=written_include_deconcat,
+                    origin_coords=origin_coords,
+                )
+                if wr.exist and wr.primary_coordinates:
+                    return dict(wr.primary_coordinates)
+            except Exception as e:
+                logger.debug("detect_coordinates_batch: written find a échoué: %s", e)
+            return base
+
+        results: List[Dict] = []
+        for text in texts:
+            # Déduplication : les textes identiques ne sont détectés qu'une fois
+            if text in cache:
+                results.append(cache[text])
+                continue
+            detected = _detect_one(text)
+            cache[text] = detected
+            results.append(detected)
+
+        return jsonify({
+            "results": results,
+            "count": len(results),
+            "unique_count": len(cache),
+            "written_truncated": written_truncated,
+        })
+
+    except Exception as e:
+        logger.exception("Erreur detect_coordinates_batch: %s", e)
+        return jsonify({"error": str(e)}), 500
+
 
 def _detect_word_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]:
     """Tente de détecter des coordonnées GPS exprimées en toutes lettres en utilisant
