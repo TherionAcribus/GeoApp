@@ -1,0 +1,63 @@
+{
+  "name": "coordinate_centroid",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Calcule le centre de gravite (centroid) d'un nombre quelconque de coordonnees GPS. Supporte l'auto-detection du format d'entree (DDM geocaching, DD, DMS, UTM, MGRS, geohash, plus_code, etc.). Affiche les points d'entree et le centre de gravite calcule sur la carte.",
+  "author": "MysterAI Team",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": ["Coordinates", "Calculator", "Geometry"],
+  "kinds": ["geo", "calculator"],
+  "brute_force": false,
+  "enable_scoring": false,
+  "accept_accents": true,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 15,
+  "capabilities": {
+    "analyze": false,
+    "decode": false,
+    "encode": false
+  },
+  "defaults": {
+    "include_in_analysis": false,
+    "include_in_decode": false
+  },
+  "input_types": {
+    "coordinates": {
+      "type": "textarea",
+      "label": "Coordonnees GPS (une par ligne)",
+      "placeholder": "Ex:\nN 48° 51.502 E 002° 17.669\nN 48° 51.400 E 002° 17.500\n48.8566, 2.3522",
+      "required": true,
+      "description": "Saisissez une coordonnee par ligne. Tout format supporte (auto-detection): DDM geocaching, DD, DMS, UTM, MGRS, geohash, plus_code, etc."
+    },
+    "source_format": {
+      "type": "select",
+      "label": "Format source (auto-detection par defaut)",
+      "options": ["auto", "dd", "ddm", "dms", "utm", "mgrs", "osgb", "web_mercator", "geohash", "plus_code", "mapcode"],
+      "default": "auto"
+    },
+    "output_format": {
+      "type": "select",
+      "label": "Format de sortie",
+      "options": ["geocaching", "dd", "ddm", "dms", "all"],
+      "default": "geocaching"
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Resultat"
+    },
+    "decimal_latitude": {
+      "type": "number",
+      "label": "Latitude decimale du centre de gravite"
+    },
+    "decimal_longitude": {
+      "type": "number",
+      "label": "Longitude decimale du centre de gravite"
+    }
+  }
+}

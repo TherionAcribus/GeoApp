@@ -182,6 +182,9 @@ class Plugin(db.Model):
                     prop['minimum'] = field_def['min']
                 if 'max' in field_def:
                     prop['maximum'] = field_def['max']
+            elif field_type == 'textarea':
+                prop['type'] = 'string'
+                prop['format'] = 'multiline'
             else:  # string par défaut
                 prop['type'] = 'string'
             

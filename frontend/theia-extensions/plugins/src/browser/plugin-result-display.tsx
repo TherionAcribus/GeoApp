@@ -276,6 +276,52 @@ export const PluginResultDisplay: React.FC<{
         });
     }, [sortedResults, manualDetectedCoordinates, geocacheContext, pluginName, result.plugin_info?.name]);
 
+    // Dispatch map_points (e.g. from coordinate_centroid) as additional map highlights.
+    // These points are not shown in the text results but should appear on the map.
+    const mapPoints = (result as any).map_points as Array<{
+        id?: string; label?: string;
+        latitude: number; longitude: number;
+        formatted?: string; is_centroid?: boolean;
+    }> | undefined;
+
+    React.useEffect(() => {
+        if (typeof window === 'undefined' || !geocacheContext || !mapPoints || mapPoints.length === 0) {
+            return;
+        }
+
+        const pluginLabel = result.plugin_info?.name || pluginName || 'Coordonnées détectées';
+
+        mapPoints.forEach((pt, index) => {
+            if (typeof pt.latitude !== 'number' || typeof pt.longitude !== 'number') {
+                return;
+            }
+
+            const dispatchKey = `mappt-${pt.id || index}-${pt.latitude}-${pt.longitude}`;
+            if (dispatchedCoordinatesRef.current.has(dispatchKey)) {
+                return;
+            }
+            dispatchedCoordinatesRef.current.add(dispatchKey);
+
+            window.dispatchEvent(new CustomEvent('geoapp-map-highlight-coordinate', {
+                detail: {
+                    gcCode: geocacheContext.gcCode,
+                    geocacheId: geocacheContext.geocacheId,
+                    pluginName: pluginLabel,
+                    coordinates: {
+                        latitude: pt.latitude,
+                        longitude: pt.longitude,
+                        formatted: pt.formatted || `${pt.latitude}, ${pt.longitude}`
+                    },
+                    autoSaved: false,
+                    replaceExisting: false,
+                    waypointTitle: pt.label || geocacheContext.name || pluginLabel,
+                    waypointNote: pt.is_centroid ? 'Centre de gravité' : pt.label,
+                    sourceResultText: pt.label
+                }
+            }));
+        });
+    }, [mapPoints, geocacheContext, pluginName, result.plugin_info?.name]);
+
     console.log('PluginResultDisplay final render');
     console.log('result.status:', result.status);
     console.log('result.summary:', result.summary);
