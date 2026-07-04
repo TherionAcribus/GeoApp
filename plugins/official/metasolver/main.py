@@ -167,7 +167,7 @@ class MetaSolverPlugin:
         aggregated_results: List[Dict[str, Any]] = []
         combined_results: Dict[str, Dict[str, Any]] = {}
         failed_plugins: List[Dict[str, Any]] = []
-        primary_coordinates: Optional[Dict[str, Any]] = None
+        primary_by_plugin: Dict[str, Any] = {}
 
         request_payload = {
             "text": text,
@@ -186,6 +186,7 @@ class MetaSolverPlugin:
                 candidate["metadata"],
                 key_entries=key_entries,
                 plugin_name=pname,
+                detect_coordinates=detect_coordinates,
             ))
             t0 = time.time()
             try:
@@ -240,11 +241,12 @@ class MetaSolverPlugin:
             combined_results[plugin_name] = self._build_combined_entry(result)
             combined_results[plugin_name]["plugin"] = plugin_name
 
-            if not primary_coordinates:
-                primary_coordinates = (
-                    result.get("primary_coordinates")
-                    or combined_results[plugin_name].get("coordinates")
-                )
+            sub_primary = (
+                result.get("primary_coordinates")
+                or combined_results[plugin_name].get("coordinates")
+            )
+            if sub_primary:
+                primary_by_plugin[plugin_name] = sub_primary
 
             for idx, item in enumerate(results_block):
                 enriched = dict(item)
@@ -273,6 +275,8 @@ class MetaSolverPlugin:
         raw_results_count = len(aggregated_results)
         aggregated_results = self._deduplicate_results(aggregated_results)
         aggregated_results.sort(key=lambda item: float(item.get("confidence", 0)), reverse=True)
+
+        primary_coordinates = self._pick_primary_coordinates(candidates, primary_by_plugin)
 
         status = "success" if aggregated_results else "partial_success"
         summary_message = (
@@ -413,7 +417,7 @@ class MetaSolverPlugin:
         aggregated_results: List[Dict[str, Any]] = []
         combined_results: Dict[str, Dict[str, Any]] = {}
         failed_plugins: List[Dict[str, Any]] = []
-        primary_coordinates: Optional[Dict[str, Any]] = None
+        primary_by_plugin: Dict[str, Any] = {}
 
         request_payload = {
             "text": text,
@@ -446,6 +450,7 @@ class MetaSolverPlugin:
                 candidate["metadata"],
                 key_entries=key_entries,
                 plugin_name=pname,
+                detect_coordinates=detect_coordinates,
             ))
             t0 = time.time()
             try:
@@ -520,11 +525,12 @@ class MetaSolverPlugin:
                     combined_results[plugin_name] = self._build_combined_entry(result)
                     combined_results[plugin_name]["plugin"] = plugin_name
 
-                    if not primary_coordinates:
-                        primary_coordinates = (
-                            result.get("primary_coordinates")
-                            or combined_results[plugin_name].get("coordinates")
-                        )
+                    sub_primary = (
+                        result.get("primary_coordinates")
+                        or combined_results[plugin_name].get("coordinates")
+                    )
+                    if sub_primary:
+                        primary_by_plugin[plugin_name] = sub_primary
 
                     plugin_aggregated = []
                     for idx, item in enumerate(results_block):
@@ -582,6 +588,8 @@ class MetaSolverPlugin:
         raw_results_count = len(aggregated_results)
         aggregated_results = self._deduplicate_results(aggregated_results)
         aggregated_results.sort(key=lambda item: float(item.get("confidence", 0)), reverse=True)
+
+        primary_coordinates = self._pick_primary_coordinates(candidates, primary_by_plugin)
 
         status = "success" if aggregated_results else "partial_success"
         summary_message = (
@@ -869,17 +877,19 @@ class MetaSolverPlugin:
         *,
         key_entries: Optional[List[Dict[str, Any]]] = None,
         plugin_name: str = "",
+        detect_coordinates: bool = True,
     ) -> Dict[str, Any]:
         """Prépare les champs additionnels à transmettre à un plugin cible."""
 
         extras: Dict[str, Any] = {}
         input_types = metadata.get("input_types") or {}
 
-        # Si le plugin cible accepte un champ detect_coordinates
+        # Propager le choix utilisateur de détection de coordonnées au plugin cible
+        # (et non un True forcé qui ignorait le toggle du formulaire).
         if "detect_coordinates" in input_types:
-            extras["detect_coordinates"] = True
+            extras["detect_coordinates"] = detect_coordinates
         elif "enable_gps_detection" in input_types:
-            extras["enable_gps_detection"] = True
+            extras["enable_gps_detection"] = detect_coordinates
 
         extras.update(self._build_key_inputs_for_plugin(
             input_types=input_types,
@@ -1155,6 +1165,23 @@ class MetaSolverPlugin:
             deduped.append(rep)
 
         return deduped
+
+    @staticmethod
+    def _pick_primary_coordinates(
+        candidates: List[Dict[str, Any]],
+        primary_by_plugin: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Choisit les coordonnées primaires de façon déterministe.
+
+        On retient le premier plugin (dans l'ordre de priorité des candidats, et non
+        dans l'ordre d'achèvement des threads) ayant produit des coordonnées. Garantit
+        un résultat identique en mode ``execute`` et ``execute_streaming``.
+        """
+        for candidate in candidates:
+            coords = primary_by_plugin.get(candidate["name"])
+            if coords:
+                return coords
+        return None
 
     def _build_combined_entry(self, plugin_result: Dict[str, Any]) -> Dict[str, Any]:
         """Synthétise les informations d'un plugin exécuté."""

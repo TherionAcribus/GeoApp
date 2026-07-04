@@ -188,14 +188,13 @@ export const PluginResultDisplay: React.FC<{
         );
     };
 
-    const buildOriginCoords = (): { ddm_lat: string; ddm_lon: string } | undefined => {
-        if (!geocacheContext?.coordinates?.latitude || !geocacheContext?.coordinates?.longitude) {
-            return undefined;
-        }
-        return {
-            ddm_lat: `N ${geocacheContext.coordinates.latitude}`,
-            ddm_lon: `E ${geocacheContext.coordinates.longitude}`
-        };
+    const buildOriginCoords = (): string | undefined => {
+        // Renvoyer le DDM brut de la géocache (ex: "N 48° 39.286 E 006° 11.685").
+        // Le backend sait normaliser cette chaîne ; construire un DDM à partir des
+        // latitude/longitude *décimales* produisait une chaîne invalide ("N 48.8566")
+        // que le parser rejetait silencieusement, et forçait N/E (hémisphère faux).
+        const raw = geocacheContext?.coordinates?.coordinatesRaw;
+        return raw && raw.trim() ? raw.trim() : undefined;
     };
 
     const buildGcCoords = (coords?: {

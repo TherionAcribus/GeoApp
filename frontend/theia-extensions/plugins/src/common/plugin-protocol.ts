@@ -842,7 +842,7 @@ export interface PluginsService {
         writtenLanguages?: string[];
         writtenMaxCandidates?: number;
         writtenIncludeDeconcat?: boolean;
-        originCoords?: { ddm_lat: string; ddm_lon: string };
+        originCoords?: string | { ddm_lat: string; ddm_lon: string };
     }): Promise<{
         exist: boolean;
         ddm_lat?: string;

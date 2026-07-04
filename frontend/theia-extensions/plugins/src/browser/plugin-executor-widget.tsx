@@ -789,12 +789,12 @@ const PluginExecutorComponent: React.FC<{
             },
         }));
         
-        // Récupérer les coordonnées d'origine si en mode GEOCACHE
-        const originCoords = config.mode === 'geocache' && config.geocacheContext?.coordinates 
-            ? {
-                ddm_lat: `N ${config.geocacheContext.coordinates.latitude}`,
-                ddm_lon: `E ${config.geocacheContext.coordinates.longitude}`
-              }
+        // Récupérer les coordonnées d'origine si en mode GEOCACHE.
+        // On envoie le DDM brut de la cache (coordinatesRaw) ; le backend le normalise.
+        // Construire un DDM à partir des coordonnées décimales produisait une chaîne
+        // invalide ("N 48.8566") rejetée silencieusement, et forçait N/E.
+        const originCoords = config.mode === 'geocache'
+            ? (config.geocacheContext?.coordinates?.coordinatesRaw?.trim() || undefined)
             : undefined;
         
         // Parcourir chaque résultat et détecter les coordonnées

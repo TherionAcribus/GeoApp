@@ -1,4 +1,5 @@
 from typing import Optional, Dict
+import ast
 import re
 import logging
 from datetime import datetime, timezone
@@ -72,6 +73,47 @@ def convert_ddm_to_decimal(lat_ddm: str, lon_ddm: str) -> Dict[str, Optional[flo
         "latitude": latitude,
         "longitude": longitude
     }
+
+
+# Découpe une chaîne DDM combinée "N 48° 39.286 E 006° 11.685" en (lat, lon).
+_ORIGIN_COMBINED_REGEX = re.compile(r"^([NS][^NSWE]+?)[\s,]+([EW].+)$", re.IGNORECASE)
+
+
+def _normalize_origin_coords(origin) -> Optional[Dict[str, str]]:
+    """
+    Normalise des coordonnées d'origine en dict ``{ddm_lat, ddm_lon}``.
+
+    Accepte deux formes, car les appelants (front, batch, scorer) envoient
+    indifféremment :
+      - un dict ``{"ddm_lat": "N 48° 39.286'", "ddm_lon": "E 006° 11.685'"}`` ;
+      - une chaîne DDM combinée ``"N 48° 39.286 E 006° 11.685"`` (ex: le champ
+        ``coordinatesRaw`` d'une géocache côté front).
+
+    Retourne ``None`` si l'entrée est vide ou impossible à interpréter, sans
+    lever d'exception (les directions cardinales/distance restent alors sur leurs
+    valeurs par défaut plutôt que de faire échouer la détection).
+    """
+    if not origin:
+        return None
+
+    if isinstance(origin, dict):
+        ddm_lat = str(origin.get("ddm_lat") or "").strip()
+        ddm_lon = str(origin.get("ddm_lon") or "").strip()
+        if ddm_lat and ddm_lon:
+            return {"ddm_lat": ddm_lat, "ddm_lon": ddm_lon}
+        return None
+
+    if isinstance(origin, str):
+        match = _ORIGIN_COMBINED_REGEX.match(origin.strip())
+        if match:
+            return {
+                "ddm_lat": match.group(1).strip(),
+                "ddm_lon": match.group(2).strip(),
+            }
+        return None
+
+    return None
+
 
 # A PRIORI PLUS UTILISé..... Ne pas l'utiliser.... A supprimer....
 @coordinates_bp.route('/api/geocaches/save/<int:geocache_id>/coordinates', methods=['POST'])
@@ -537,22 +579,68 @@ def _process_formula_part(formula_part, variables):
             return f"({parts[2]})"
     return result
 
+# Opérateurs autorisés dans l'évaluateur arithmétique sûr.
+# La puissance (Pow) est volontairement exclue : la regex de parsing de formule
+# ne l'autorise pas, et elle permettrait des expressions coûteuses (ex: 9**9**9).
+_SAFE_BINOPS = (ast.Add, ast.Sub, ast.Mult, ast.Div)
+_SAFE_UNARYOPS = (ast.UAdd, ast.USub)
+
+
+def _safe_eval_arithmetic(expression: str) -> float:
+    """
+    Évalue une expression purement arithmétique (+ - * / et parenthèses) sans
+    utiliser eval(). Remplace l'ancien eval() qui exposait le endpoint
+    /api/calculate_coordinates à de l'exécution de code arbitraire.
+
+    Lève ValueError si l'expression contient autre chose que des nombres et les
+    opérateurs autorisés.
+    """
+    try:
+        tree = ast.parse(expression, mode='eval')
+    except SyntaxError as exc:
+        raise ValueError(f"Expression invalide: {expression}") from exc
+
+    def _eval(node):
+        if isinstance(node, ast.Expression):
+            return _eval(node.body)
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, bool) or not isinstance(node.value, (int, float)):
+                raise ValueError(f"Constante non numérique: {node.value!r}")
+            return node.value
+        if isinstance(node, ast.BinOp) and isinstance(node.op, _SAFE_BINOPS):
+            left = _eval(node.left)
+            right = _eval(node.right)
+            if isinstance(node.op, ast.Add):
+                return left + right
+            if isinstance(node.op, ast.Sub):
+                return left - right
+            if isinstance(node.op, ast.Mult):
+                return left * right
+            return left / right
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, _SAFE_UNARYOPS):
+            operand = _eval(node.operand)
+            return operand if isinstance(node.op, ast.UAdd) else -operand
+        raise ValueError(f"Élément non autorisé dans l'expression: {ast.dump(node)}")
+
+    return _eval(tree)
+
+
 def _evaluate_math_expression(expression):
     """
     Évalue une expression mathématique et vérifie que le résultat est un entier.
-    
+
     Args:
         expression: L'expression mathématique à évaluer (sans lettres, uniquement des chiffres et opérateurs)
-        
+
     Returns:
         Le résultat arrondi si c'est un nombre entier ou proche d'un entier
         Sinon, retourne l'expression originale entre parenthèses avec un marqueur d'erreur
     """
     logger.debug(f"_evaluate_math_expression: Évaluation de '{expression}'")
-    
+
     try:
-        # Évaluer l'expression
-        result = eval(expression)
+        # Évaluer l'expression via un évaluateur AST restreint (pas d'eval())
+        result = _safe_eval_arithmetic(expression)
         logger.debug(f"_evaluate_math_expression: Résultat brut = {result}")
         
         # Vérifier si le résultat est un nombre
@@ -1414,6 +1502,9 @@ def detect_gps_coordinates(text: str, include_numeric_only: bool = False, origin
     logger.debug(f"detect_gps_coordinates: Début de la détection sur texte de {len(text)} caractères")
     logger.debug(f"detect_gps_coordinates: Extrait du texte: '{text[:100]}...' (tronqué)")
     logger.debug(f"detect_gps_coordinates: include_numeric_only={include_numeric_only}, origin_coords={origin_coords}, include_written={include_written}")
+
+    # Accepte un dict {ddm_lat, ddm_lon} ou une chaîne DDM combinée (coordinatesRaw)
+    origin_coords = _normalize_origin_coords(origin_coords)
     
     # ------------------------------------------------------------------
     # Carte <fonction de détection> -> score de confiance (0-1)
@@ -1551,9 +1642,10 @@ def detect_coordinates_in_text():
         written_languages = data.get('written_languages', ['fr'])
         written_max_candidates = data.get('written_max_candidates', 20)
         written_include_deconcat = data.get('written_include_deconcat', True)
-        # Récupérer les coordonnées d'origine (None par défaut)
-        origin_coords = data.get('origin_coords')
-        
+        # Récupérer les coordonnées d'origine (None par défaut) et les normaliser
+        # (accepte un dict {ddm_lat, ddm_lon} ou une chaîne DDM combinée)
+        origin_coords = _normalize_origin_coords(data.get('origin_coords'))
+
         logger.debug("Analyse du texte pour detecter des coordonnees: %r", text[:50])
         logger.debug("Detection de format numerique pur activee: %s", include_numeric_only)
         logger.debug("Detection de coordonnees ecrites activee: %s", include_written)
