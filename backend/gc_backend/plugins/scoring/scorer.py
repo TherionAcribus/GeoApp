@@ -584,49 +584,46 @@ def _compute_score(text: str, context: Optional[Dict[str, Any]] = None) -> Score
             }
         )
 
+    # ── Two-channel noisy-OR combination ────────────────────────────────
+    # lang_score : "is this natural language?" — a NORMALISED weighted mean
+    #              (weights sum to 1) so it can never saturate on its own.
+    # coord_score: "is this a coordinate?" — max(formal GPS, written numeric).
+    # A strong signal in EITHER channel is enough; both strong -> ~1.0. The
+    # 0.9 factor on the language channel keeps coordinates marginally ahead at
+    # equal strength (a coordinate is the actual goal of a geocache).
     weights = {
-        'coord_score': 0.80,
-        'ngram_fitness': 0.40,
-        'lexical_coverage': 0.30,
-        'coherence': 0.20,
-        'ic_quality': 0.15,
-        'repetition_quality': 0.10,
-        'entropy_quality': 0.10,
+        'ngram_fitness': 0.45,
+        'lexical_coverage': 0.35,
+        'coherence': 0.10,
+        'ic_quality': 0.07,
+        'entropy_quality': 0.03,
+        'coord_channel': 0.90,  # noisy-OR weight on the language channel
     }
 
-    # A formal GPS detection is a strong standalone signal: coordinates carry
-    # almost no letters (IC ~ 0), so they must not depend on lexical/ngram.
-    # (T6 will replace this early-exit with a noisy-OR combination.)
-    if gps_conf >= 0.9:
-        score = 0.98
-        early_exit = 'gps_strong'
-    else:
-        score = (
-            coord_score * weights['coord_score']
-            + lexical * weights['lexical_coverage']
-            + ngram_fitness * weights['ngram_fitness']
-            + repetition_quality * weights['repetition_quality']
-            + coherence * weights['coherence']
-            + ic_v * weights['ic_quality']
-            + entropy_v * weights['entropy_quality']
-        )
-        early_exit = None
+    lang_score = (
+        ngram_fitness * weights['ngram_fitness']
+        + lexical * weights['lexical_coverage']
+        + coherence * weights['coherence']
+        + ic_v * weights['ic_quality']
+        + entropy_v * weights['entropy_quality']
+    )
 
-        # Apply encoded-pattern penalty as a multiplicative factor
-        # This heavily penalizes outputs that still look like hex/base64/numeric codes
-        if encoded_penalty < 1.0:
-            score *= encoded_penalty
-            if encoded_penalty < 0.2:
-                early_exit = 'encoded_pattern'
+    score = 1.0 - (1.0 - coord_score) * (1.0 - lang_score * weights['coord_channel'])
+    early_exit = None
 
-        if coord_score <= 0.0 and ngram_fitness < 0.1 and numeric_signal < 0.2:
-            score = 0.05
-            early_exit = 'ngram_low'
+    # Apply encoded-pattern penalty as a multiplicative factor.
+    # Heavily penalizes outputs that still look like hex/base64/numeric codes.
+    if encoded_penalty < 1.0:
+        score *= encoded_penalty
+        if encoded_penalty < 0.2:
+            early_exit = 'encoded_pattern'
 
-        if gps_conf > 0.7 and lexical > 0.3:
-            score += 0.2
+    # No signal at all (no coordinate, no n-gram, no numbers): force a floor.
+    if coord_score <= 0.0 and ngram_fitness < 0.1 and numeric_signal < 0.2:
+        score = 0.05
+        early_exit = 'ngram_low'
 
-        score = min(1.0, float(score))
+    score = min(1.0, max(0.0, float(score)))
 
     explanation = []
     if gps_conf > 0:

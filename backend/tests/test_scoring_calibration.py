@@ -115,14 +115,10 @@ class TestSanity:
 class TestCoordsBeatProse:
     """Le but d'une geocache est une coordonnee : elle doit primer sur la prose."""
 
-    @pytest.mark.xfail(
-        reason="Saturation du scorer : depuis que le lexical est honnete (T3), un "
-        "texte en clair valide atteint aussi 1.0 et fait jeu egal avec les "
-        "coordonnees. La combinaison finale sature (somme des poids = 2.85). "
-        "A corriger par le recalibrage T6 (coords doivent primer strictement).",
-        strict=True,
-    )
     def test_every_pure_coord_beats_every_correct_decrypt(self):
+        # Resolu par T6 : la combinaison noisy-OR de-sature. Une coordonnee
+        # pure (canal coord ~0.95) prime sur la prose valide (canal langue
+        # plafonne a 0.9 * 0.9 = 0.81, en pratique ~0.68).
         coord_min = min(_full(t) for t in CASES["pure_coords"])
         prose_max = max(_full(t) for t in CASES["correct_decrypt"])
         assert coord_min > prose_max, (
@@ -284,13 +280,9 @@ class TestNumberEnumBelowWordCoords:
             f"enum max ({enum_max:.3f})"
         )
 
-    @pytest.mark.xfail(
-        reason="Ordre au niveau du score final : number_enum et word_coords "
-        "saturent encore tous deux a 1.0 (combinaison additive). La feature est "
-        "corrigee (T4) ; la de-saturation reste a faire en T6.",
-        strict=True,
-    )
     def test_enum_below_word_coords(self):
+        # Resolu par T6 : apres de-saturation, une enumeration pure (numeric_signal
+        # plafonne a 0.45) reste sous un vrai fragment de coordonnees structure.
         enum_max = max(_full(t) for t in CASES["number_enum"])
         word_min = min(_full(t) for t in CASES["word_coords"])
         assert enum_max < word_min, (
