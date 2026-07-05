@@ -30,6 +30,7 @@ import {
     GeoAppChatSessionKind,
     GeoAppChatWorkflowBehaviorProfile,
     GeoAppChatWorkflowKind,
+    normalizeGeoAppChatBehaviorProfile,
 } from './geoapp-chat-shared';
 import {
     GeoAppChatPolicy,
@@ -397,8 +398,13 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
     }
 
     protected getActivePresetId(): string | undefined {
-        const behavior = this.preferenceService.get(GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF, 'guided');
-        const promptPack = this.preferenceService.get(GEOAPP_CHAT_PROMPT_PACK_PREF, 'guided');
+        const behavior = normalizeGeoAppChatBehaviorProfile(
+            this.preferenceService.get(GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF, 'guided')
+        ) || 'guided';
+        // Comme resolvePolicy : un prompt pack "auto"/non reconnu suit le profil comportemental.
+        const promptPack = normalizeGeoAppChatBehaviorProfile(
+            this.preferenceService.get(GEOAPP_CHAT_PROMPT_PACK_PREF, behavior)
+        ) || behavior;
         const skillPack = this.preferenceService.get(GEOAPP_CHAT_SKILL_PACK_PREF, 'workflow');
         return PRESET_OPTIONS.find(preset =>
             preset.behavior === behavior && preset.promptPack === promptPack && preset.skillPack === skillPack

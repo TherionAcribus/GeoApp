@@ -522,7 +522,7 @@ Préférence :
 geoApp.chat.promptPack
 ```
 
-Si aucune valeur n'est définie, le prompt pack suit le profil comportemental.
+Si aucune valeur n'est définie, le prompt pack suit le profil comportemental. La préférence est enregistrée dans le schéma Theia avec la valeur `auto` par défaut : `auto` n'étant pas un profil valide, `normalizeGeoAppChatBehaviorProfile` le rejette et `resolvePolicy` retombe sur le profil comportemental. Un profil concret comme défaut de schéma figerait au contraire le prompt pack (le défaut de schéma l'emporte sur le fallback passé à `preferenceService.get`).
 
 ### Prompt final
 
@@ -883,6 +883,21 @@ Valeurs :
 | `geoApp.chat.skillPack` | `workflow` |
 | `geoApp.chat.skillPolicy.overrides` | `{}` |
 | `geoApp.chat.toolPolicy.overrides` | `{}` |
+
+`GEOAPP_CHAT_POLICY_DEFAULTS` sert à l'import/export et au reset (il réécrit `geoApp.chat.promptPack` en `guided`).
+
+### Schéma de préférences Theia
+
+Les préférences `geoApp.chat.*` sont aussi déclarées dans un schéma Theia (`geoapp-preference-contribution.ts`), ce qui les rend visibles, décrites et validées dans l'éditeur de Settings. Les enums correspondent aux valeurs acceptées (profils modèle, profils comportementaux, `default`/`enabled`/`disabled`/`confirm` pour les overrides).
+
+Défauts de schéma notables :
+
+- `geoApp.chat.defaultProfile` : `fast` ;
+- `geoApp.chat.behaviorProfile.default` : `guided` ;
+- les overrides de workflow (`workflowProfile.*`, `behaviorProfile.workflow.*`) : `default` ;
+- `geoApp.chat.promptPack` : `auto` (voir §12) ;
+- `geoApp.chat.skillPack` : `workflow` ;
+- `geoApp.chat.toolPolicy.overrides` / `skillPolicy.overrides` : `{}`.
 
 ## 21. Wiring Theia
 
