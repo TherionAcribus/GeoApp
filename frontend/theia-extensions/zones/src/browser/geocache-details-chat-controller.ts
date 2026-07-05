@@ -29,6 +29,12 @@ export interface GeocacheChatRoutingState {
 
 @injectable()
 export class GeocacheDetailsChatController {
+
+    // Cache du workflowKind derive du reseau, par geocache. On ne cache que la partie
+    // couteuse (l'appel /workflow/preview) ; le profil est recalcule a chaque appel a
+    // partir des preferences courantes, pour rester juste si l'utilisateur les modifie.
+    private readonly workflowPreviewCache = new Map<number, GeoAppChatWorkflowKind>();
+
     constructor(
         @inject(PreferenceService) protected readonly preferenceService: PreferenceService,
         @inject(GeocacheDetailsService) protected readonly geocacheDetailsService: GeocacheDetailsService
@@ -39,9 +45,18 @@ export class GeocacheDetailsChatController {
             return this.createDefaultRoutingState();
         }
 
+        const cachedWorkflow = this.workflowPreviewCache.get(geocacheId);
+        if (cachedWorkflow) {
+            return {
+                workflowPreview: cachedWorkflow,
+                profilePreview: this.resolveChatProfileForWorkflow(cachedWorkflow)
+            };
+        }
+
         try {
-            const preview = await this.geocacheDetailsService.resolveWorkflow<GeoAppWorkflowResolutionPreview>(geocacheId);
+            const preview = await this.geocacheDetailsService.previewWorkflow<GeoAppWorkflowResolutionPreview>(geocacheId);
             const workflowPreview = resolveGeoAppChatWorkflowKindFromOrchestrator(preview);
+            this.workflowPreviewCache.set(geocacheId, workflowPreview);
             return {
                 workflowPreview,
                 profilePreview: this.resolveChatProfileForWorkflow(workflowPreview)
@@ -49,6 +64,18 @@ export class GeocacheDetailsChatController {
         } catch (error) {
             console.warn('[GeocacheDetailsChatController] resolveRoutingPreview error', error);
             return this.createDefaultRoutingState();
+        }
+    }
+
+    /**
+     * Invalide l'apercu de routage cache pour une geocache (ou tout le cache si aucun
+     * id), a appeler quand le listing change (edition, traduction, statut resolu...).
+     */
+    invalidateRoutingPreview(geocacheId?: number): void {
+        if (typeof geocacheId === 'number') {
+            this.workflowPreviewCache.delete(geocacheId);
+        } else {
+            this.workflowPreviewCache.clear();
         }
     }
 

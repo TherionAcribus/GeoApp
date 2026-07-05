@@ -4863,15 +4863,16 @@ def _build_resolution_plan(
     return _inject_hybrid_review_steps(plan, classification)
 
 
-def _resolve_workflow_orchestrator(
+def _select_primary_workflow(
     data: Dict[str, Any],
-    *,
-    max_secret_fragments: int,
-    max_plugins: int,
-    auto_execute: bool,
-) -> Dict[str, Any]:
-    listing_inputs = _load_listing_analysis_inputs(data)
-    classification_response = _build_listing_classification_response(listing_inputs, max_secret_fragments)
+    classification_response: Dict[str, Any],
+) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    """Choisit le workflow principal a partir d'une classification deja calculee.
+
+    Retourne le couple (workflow choisi, liste des candidats). Partage par
+    l'orchestrateur complet (_resolve_workflow_orchestrator) et par l'apercu leger
+    (/workflow/preview) pour garantir une decision identique.
+    """
     workflow_candidates = _build_workflow_candidates(classification_response)
 
     preferred_workflow = _normalize_workflow_kind(data.get('preferred_workflow'))
@@ -4885,18 +4886,29 @@ def _resolve_workflow_orchestrator(
                 'reason': "Workflow force explicitement par la requete.",
                 'supporting_labels': [],
             }
-        workflow = {**forced_candidate, 'forced': True}
-    elif workflow_candidates:
-        workflow = {**_select_primary_workflow_candidate(workflow_candidates, classification_response), 'forced': False}
-    else:
-        workflow = {
-            'kind': 'general',
-            'confidence': 0.2,
-            'score': 0.2,
-            'reason': "Aucun workflow specialise ne ressort nettement du listing.",
-            'supporting_labels': [],
-            'forced': False,
-        }
+        return {**forced_candidate, 'forced': True}, workflow_candidates
+    if workflow_candidates:
+        return {**_select_primary_workflow_candidate(workflow_candidates, classification_response), 'forced': False}, workflow_candidates
+    return {
+        'kind': 'general',
+        'confidence': 0.2,
+        'score': 0.2,
+        'reason': "Aucun workflow specialise ne ressort nettement du listing.",
+        'supporting_labels': [],
+        'forced': False,
+    }, workflow_candidates
+
+
+def _resolve_workflow_orchestrator(
+    data: Dict[str, Any],
+    *,
+    max_secret_fragments: int,
+    max_plugins: int,
+    auto_execute: bool,
+) -> Dict[str, Any]:
+    listing_inputs = _load_listing_analysis_inputs(data)
+    classification_response = _build_listing_classification_response(listing_inputs, max_secret_fragments)
+    workflow, workflow_candidates = _select_primary_workflow(data, classification_response)
 
     secret_payload: Optional[Dict[str, Any]] = None
     formula_payload: Optional[Dict[str, Any]] = None
@@ -6439,6 +6451,61 @@ def classify_listing():
             "error": "Erreur classification listing",
             "message": str(e)
         }), 500
+
+
+@bp.route('/workflow/preview', methods=['POST'])
+def preview_workflow():
+    """Apercu leger du workflow principal d'un listing.
+
+    Execute la meme decision que /workflow/resolve (classification -> candidats ->
+    candidat primaire) mais s'arrete avant la construction des payloads et toute
+    execution de plugin. Concu pour l'apercu de routage du Chat IA a l'ouverture
+    d'une geocache, ou seul `workflow.kind` est necessaire.
+
+    Request body:
+        { "geocache_id": 123, "preferred_workflow": "secret_code" }
+    """
+    try:
+        data = request.get_json(force=True)
+    except Exception as json_error:
+        return jsonify({
+            "error": "JSON invalide",
+            "message": f"Le body doit etre un JSON valide: {str(json_error)}"
+        }), 400
+
+    if not data or not isinstance(data, dict):
+        return jsonify({
+            "error": "Requete invalide",
+            "message": "Le body doit etre un objet JSON"
+        }), 400
+
+    max_secret_fragments = _normalize_max_plugins(data.get('max_secret_fragments'), default=6)
+
+    try:
+        listing_inputs = _load_listing_analysis_inputs(data)
+        classification_response = _build_listing_classification_response(listing_inputs, max_secret_fragments)
+        workflow, _workflow_candidates = _select_primary_workflow(data, classification_response)
+        labels = [
+            {'name': item.get('name'), 'confidence': item.get('confidence')}
+            for item in (classification_response.get('labels') or [])
+            if isinstance(item, dict)
+        ]
+        return jsonify({
+            'workflow': {
+                'kind': workflow.get('kind'),
+                'confidence': workflow.get('confidence'),
+                'reason': workflow.get('reason'),
+                'forced': workflow.get('forced', False),
+            },
+            'classification': {'labels': labels},
+        }), 200
+    except ValueError as value_error:
+        return jsonify({"error": "Requete invalide", "message": str(value_error)}), 400
+    except LookupError as lookup_error:
+        return jsonify({"error": "Geocache introuvable", "message": str(lookup_error)}), 404
+    except Exception as e:
+        logger.error(f"Erreur apercu workflow: {e}", exc_info=True)
+        return jsonify({"error": "Erreur apercu workflow", "message": str(e)}), 500
 
 
 @bp.route('/workflow/resolve', methods=['POST'])

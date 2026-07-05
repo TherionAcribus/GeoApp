@@ -159,4 +159,16 @@ export class GeocacheDetailsService {
             'Erreur lors de la résolution du workflow'
         );
     }
+
+    /**
+     * Apercu leger du workflow principal (kind + confiance), sans construire les
+     * payloads ni executer de plugin. Utilise pour l'apercu de routage du Chat IA.
+     */
+    async previewWorkflow<T>(geocacheId: number): Promise<T> {
+        return this.apiClient.requestJson<T>(
+            '/api/plugins/workflow/preview',
+            this.apiClient.createJsonInit('POST', { geocache_id: geocacheId }),
+            'Erreur lors de l\'aperçu du workflow'
+        );
+    }
 }

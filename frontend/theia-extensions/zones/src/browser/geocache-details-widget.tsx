@@ -337,6 +337,9 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         if (!this.geocacheId) {
             return;
         }
+        // Le listing a change : l'apercu de routage du chat cache pour cette geocache
+        // n'est plus fiable, on le laisse se recalculer au prochain refresh.
+        this.chatController.invalidateRoutingPreview(this.geocacheId);
         this.widgetEventsService.notifyGeocacheChanged({
             geocacheId: this.geocacheId,
             reason,
@@ -733,6 +736,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         try {
             await this.translationController.translateDescription(this.geocacheId, sourceHtml);
             this.descriptionVariant = 'modified';
+            this.chatController.invalidateRoutingPreview(this.geocacheId);
             await this.load();
             this.messages.info('Traduction enregistrée dans la description modifiée');
         } catch (e) {
@@ -1163,6 +1167,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                 waypoints: sourceWaypoints,
             });
             this.descriptionVariant = 'modified';
+            this.chatController.invalidateRoutingPreview(this.geocacheId);
             await this.load();
             this.messages.info('Traduction enregistrée (description + indices + waypoints)');
         } catch (e) {
