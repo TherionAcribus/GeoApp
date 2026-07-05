@@ -860,3 +860,105 @@
         grid-template-columns: 1fr;
     }
 }
+
+/* --- Presets combines --- */
+.geoapp-chat-policy-presets {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 8px 0;
+}
+
+.geoapp-chat-policy-presets-head p {
+    color: var(--theia-ui-font-color2);
+    font-size: 11px;
+    margin: 2px 0 0;
+}
+
+.geoapp-chat-policy-presets-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.geoapp-chat-policy-preset {
+    flex: 1 1 180px;
+    min-width: 160px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 8px 10px;
+    text-align: left;
+    cursor: pointer;
+    color: var(--theia-foreground);
+    background: var(--theia-editorWidget-background);
+    border: 1px solid var(--theia-editorWidget-border);
+    border-radius: 4px;
+}
+
+.geoapp-chat-policy-preset:hover {
+    border-color: var(--theia-focusBorder);
+}
+
+.geoapp-chat-policy-preset.active {
+    border-color: var(--theia-focusBorder);
+    background: var(--theia-list-activeSelectionBackground);
+}
+
+.geoapp-chat-policy-preset strong {
+    font-size: 13px;
+}
+
+.geoapp-chat-policy-preset span {
+    color: var(--theia-ui-font-color2);
+    font-size: 11px;
+}
+
+.geoapp-chat-policy-preset em {
+    color: var(--theia-descriptionForeground);
+    font-size: 10px;
+    font-style: normal;
+}
+
+/* --- Modeles par agent --- */
+.geoapp-chat-policy-agents {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 8px 0;
+}
+
+.geoapp-chat-policy-agents-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.geoapp-chat-policy-agents-head p {
+    color: var(--theia-ui-font-color2);
+    font-size: 11px;
+    margin: 2px 0 0;
+}
+
+.geoapp-chat-policy-agent-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.geoapp-chat-policy-agent-table th,
+.geoapp-chat-policy-agent-table td {
+    text-align: left;
+    padding: 5px 8px;
+    border-bottom: 1px solid var(--theia-editorWidget-border);
+}
+
+.geoapp-chat-policy-agent-table th {
+    color: var(--theia-ui-font-color2);
+    font-weight: 600;
+}
+
+.geoapp-chat-policy-warn {
+    color: var(--theia-editorWarning-foreground, var(--theia-errorForeground));
+}

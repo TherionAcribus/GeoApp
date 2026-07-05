@@ -796,6 +796,8 @@ geoapp.chat.policy.open
 
 La vue permet :
 
+- d'appliquer un **preset combiné** (profil comportemental par défaut + prompt pack + skill pack en un clic) ;
+- de voir le **modèle résolu pour chaque agent** GeoApp (chat et internes) via `LanguageModelRegistry` ;
 - de prévisualiser une policy pour un workflow ;
 - de changer le skill pack ;
 - de voir tools actifs, bloqués et à confirmation ;
@@ -808,6 +810,23 @@ La vue permet :
 - de voir le prompt final ;
 - de voir les diagnostics runtime ;
 - d'importer/exporter la configuration complète.
+
+### Presets combinés
+
+Quatre presets règlent les trois axes de configuration d'un seul clic, en écrivant les préférences correspondantes (`geoApp.chat.behaviorProfile.default`, `geoApp.chat.promptPack`, `geoApp.chat.skillPack`) :
+
+| Preset | Comportement | Prompt pack | Skill pack |
+|---|---|---|---|
+| Découverte | `guided` | `guided` | `workflow` |
+| Autonome | `automation` | `automation` | `full` |
+| Prudent | `safe` | `safe` | `minimal` |
+| Hors-ligne | `offline` | `offline` | `minimal` |
+
+Le preset actif (celui dont les trois préférences correspondent) est mis en évidence. Appliquer un preset remet l'aperçu comportemental sur `Préférence effective`.
+
+### Modèles par agent
+
+Un panneau liste les agents GeoApp (chat et internes) et résout le modèle effectif de chacun via `LanguageModelRegistry.selectLanguageModel`, en respectant le `purpose` propre à l'agent (`chat`, ou `vision-ocr` pour l'OCR). Il répond à la question « quel modèle pour quoi ? » sans parcourir les réglages IA Theia un par un. Un bouton `Rafraîchir` relance la résolution (l'assignation des modèles se fait, elle, dans « Config IA Theia »).
 
 ### Matrice des tools
 

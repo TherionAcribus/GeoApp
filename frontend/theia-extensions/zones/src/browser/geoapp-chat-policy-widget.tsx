@@ -4,6 +4,7 @@ import { CommandService, MessageService } from '@theia/core';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import { PreferenceScope } from '@theia/core/lib/common/preferences/preference-scope';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
+import { LanguageModelRegistry } from '@theia/ai-core';
 import { SkillService } from '@theia/ai-core/lib/browser/skill-service';
 import {
     PromptFragment,
@@ -68,6 +69,48 @@ const SKILL_PACK_OPTIONS: Array<{ value: GeoAppChatSkillPack; label: string }> =
     { value: 'minimal', label: 'Minimal' },
     { value: 'full', label: 'Full' },
     { value: 'disabled', label: 'Disabled' },
+];
+
+interface GeoAppChatPreset {
+    id: string;
+    label: string;
+    description: string;
+    behavior: GeoAppChatBehaviorProfile;
+    promptPack: GeoAppChatBehaviorProfile;
+    skillPack: GeoAppChatSkillPack;
+}
+
+// Presets combines : reglent d'un clic les trois axes (profil comportemental par defaut,
+// prompt pack, skill pack) qui sont sinon a configurer separement.
+const PRESET_OPTIONS: GeoAppChatPreset[] = [
+    { id: 'discovery', label: 'Découverte', description: 'Aide active, confirmation sur les actions sensibles.', behavior: 'guided', promptPack: 'guided', skillPack: 'workflow' },
+    { id: 'autonomous', label: 'Autonome', description: 'Exécute davantage d\'étapes, toutes les skills exposées.', behavior: 'automation', promptPack: 'automation', skillPack: 'full' },
+    { id: 'cautious', label: 'Prudent', description: 'Peu d\'automatisation, skills essentielles seulement.', behavior: 'safe', promptPack: 'safe', skillPack: 'minimal' },
+    { id: 'offline', label: 'Hors-ligne', description: 'Aucun réseau ni checker, calculs locaux.', behavior: 'offline', promptPack: 'offline', skillPack: 'minimal' },
+];
+
+type GeoAppChatAgentModelKind = 'chat' | 'internal';
+
+interface GeoAppChatAgentModelRow {
+    id: string;
+    label: string;
+    kind: GeoAppChatAgentModelKind;
+    purpose: string;
+}
+
+// Agents GeoApp exposes aux reglages IA Theia. Le panneau resout le modele effectif de
+// chacun pour repondre a la question "quel modele pour quoi ?" en un seul endroit.
+const AGENT_MODEL_ROWS: GeoAppChatAgentModelRow[] = [
+    { id: 'GeoApp', label: 'GeoApp (principal)', kind: 'chat', purpose: 'chat' },
+    { id: 'geoapp-chat-local', label: 'GeoApp Chat (Local)', kind: 'chat', purpose: 'chat' },
+    { id: 'geoapp-chat-fast', label: 'GeoApp Chat (Fast)', kind: 'chat', purpose: 'chat' },
+    { id: 'geoapp-chat-strong', label: 'GeoApp Chat (Strong)', kind: 'chat', purpose: 'chat' },
+    { id: 'geoapp-chat-web', label: 'GeoApp Chat (Web)', kind: 'chat', purpose: 'chat' },
+    { id: 'geoapp-ocr', label: 'OCR vision (galerie)', kind: 'internal', purpose: 'vision-ocr' },
+    { id: 'geoapp-translate-description', label: 'Traduction descriptions', kind: 'internal', purpose: 'chat' },
+    { id: 'geoapp-logs-analyzer', label: 'Analyse des logs', kind: 'internal', purpose: 'chat' },
+    { id: 'geoapp-log-writer', label: 'Rédaction de logs', kind: 'internal', purpose: 'chat' },
+    { id: 'geoapp-ai-scorer', label: 'AI Scorer (plugins)', kind: 'internal', purpose: 'chat' },
 ];
 
 const CATEGORY_ORDER: GeoAppAiToolCategory[] = [
@@ -159,9 +202,15 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
     protected skillStatesLoaded = false;
     protected selectedPromptVariantId = GeoAppChatPromptVariantByPack.guided;
     protected promptImportText = '';
+    protected agentModels = new Map<string, string>();
+    protected agentModelsLoading = false;
+    protected agentModelsLoaded = false;
 
     @inject(SkillService) @optional()
     protected readonly skillService: SkillService | undefined;
+
+    @inject(LanguageModelRegistry) @optional()
+    protected readonly languageModelRegistry: LanguageModelRegistry | undefined;
 
     @inject(PromptService) @optional()
     protected readonly promptService: PromptService | undefined;
@@ -231,6 +280,8 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                     </div>
                 </header>
 
+                {this.renderPresets()}
+
                 <section className='geoapp-chat-policy-controls'>
                     <label>
                         Workflow
@@ -269,6 +320,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                     <div><span>Skills</span><strong>{policy.recommendedSkillNames.length}</strong></div>
                 </section>
 
+                {this.renderAgentModels()}
                 {this.renderPolicyHelp()}
                 {this.renderDiagnostics()}
                 {this.renderPromptPreview(policy)}
@@ -315,6 +367,134 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
                 </div>
             </div>
         );
+    }
+
+    protected renderPresets(): React.ReactNode {
+        const activePresetId = this.getActivePresetId();
+        return (
+            <section className='geoapp-chat-policy-presets'>
+                <div className='geoapp-chat-policy-presets-head'>
+                    <h3>Presets</h3>
+                    <p>Reglent d'un clic le profil comportemental par defaut, le prompt pack et le skill pack.</p>
+                </div>
+                <div className='geoapp-chat-policy-presets-list'>
+                    {PRESET_OPTIONS.map(preset => (
+                        <button
+                            key={preset.id}
+                            type='button'
+                            className={`geoapp-chat-policy-preset${preset.id === activePresetId ? ' active' : ''}`}
+                            title={preset.description}
+                            onClick={() => { void this.applyPreset(preset); }}
+                        >
+                            <strong>{preset.label}{preset.id === activePresetId ? ' ✓' : ''}</strong>
+                            <span>{preset.description}</span>
+                            <em>{preset.behavior} · prompt {preset.promptPack} · skills {preset.skillPack}</em>
+                        </button>
+                    ))}
+                </div>
+            </section>
+        );
+    }
+
+    protected getActivePresetId(): string | undefined {
+        const behavior = this.preferenceService.get(GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF, 'guided');
+        const promptPack = this.preferenceService.get(GEOAPP_CHAT_PROMPT_PACK_PREF, 'guided');
+        const skillPack = this.preferenceService.get(GEOAPP_CHAT_SKILL_PACK_PREF, 'workflow');
+        return PRESET_OPTIONS.find(preset =>
+            preset.behavior === behavior && preset.promptPack === promptPack && preset.skillPack === skillPack
+        )?.id;
+    }
+
+    protected async applyPreset(preset: GeoAppChatPreset): Promise<void> {
+        try {
+            await Promise.all([
+                this.preferenceService.set(GEOAPP_CHAT_BEHAVIOR_DEFAULT_PROFILE_PREF, preset.behavior, PreferenceScope.User),
+                this.preferenceService.set(GEOAPP_CHAT_PROMPT_PACK_PREF, preset.promptPack, PreferenceScope.User),
+                this.preferenceService.set(GEOAPP_CHAT_SKILL_PACK_PREF, preset.skillPack, PreferenceScope.User),
+            ]);
+            // Revenir a "Preference effective" pour que l'apercu reflete le nouveau defaut.
+            this.behaviorOverride = 'default';
+            this.messages.info(`Preset « ${preset.label} » applique.`);
+        } catch (error) {
+            this.messages.error(`Impossible d'appliquer le preset « ${preset.label} ».`);
+            console.error('[GeoAppChatPolicyWidget] applyPreset error', error);
+        }
+        this.update();
+    }
+
+    protected renderAgentModels(): React.ReactNode {
+        void this.ensureAgentModels();
+        return (
+            <section className='geoapp-chat-policy-agents'>
+                <div className='geoapp-chat-policy-agents-head'>
+                    <div>
+                        <h3>Modeles par agent</h3>
+                        <p>Modele resolu pour chaque agent GeoApp. L'assignation se fait dans « Config IA Theia ».</p>
+                    </div>
+                    <button className='theia-button secondary' type='button' onClick={() => this.refreshAgentModels()}>
+                        Rafraichir
+                    </button>
+                </div>
+                {!this.languageModelRegistry && (
+                    <p className='geoapp-chat-policy-muted'>Registre de modeles indisponible.</p>
+                )}
+                {this.agentModelsLoading && <p className='geoapp-chat-policy-muted'>Resolution des modeles en cours...</p>}
+                <table className='geoapp-chat-policy-agent-table'>
+                    <thead>
+                        <tr><th>Agent</th><th>Type</th><th>Modele resolu</th></tr>
+                    </thead>
+                    <tbody>
+                        {AGENT_MODEL_ROWS.map(row => {
+                            const model = this.agentModels.get(row.id);
+                            return (
+                                <tr key={row.id}>
+                                    <td>{row.label}</td>
+                                    <td>{row.kind === 'chat' ? 'Chat' : 'Interne'}</td>
+                                    <td>
+                                        {model
+                                            ? model
+                                            : <span className='geoapp-chat-policy-warn'>Aucun modele assigne</span>}
+                                    </td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
+            </section>
+        );
+    }
+
+    protected refreshAgentModels(): void {
+        this.agentModelsLoaded = false;
+        this.agentModels = new Map();
+        void this.ensureAgentModels();
+    }
+
+    protected async ensureAgentModels(): Promise<void> {
+        if (this.agentModelsLoaded || this.agentModelsLoading || !this.languageModelRegistry) {
+            return;
+        }
+        this.agentModelsLoading = true;
+        try {
+            const registry = this.languageModelRegistry;
+            const resolved = await Promise.all(AGENT_MODEL_ROWS.map(async row => {
+                try {
+                    const model = await registry.selectLanguageModel({
+                        agent: row.id,
+                        purpose: row.purpose,
+                        identifier: 'default/universal',
+                    });
+                    return [row.id, model ? (model.name || model.id) : ''] as const;
+                } catch {
+                    return [row.id, ''] as const;
+                }
+            }));
+            this.agentModels = new Map(resolved.filter(([, model]) => model));
+            this.agentModelsLoaded = true;
+        } finally {
+            this.agentModelsLoading = false;
+            this.update();
+        }
     }
 
     protected renderPromptPackEditor(): React.ReactNode {
