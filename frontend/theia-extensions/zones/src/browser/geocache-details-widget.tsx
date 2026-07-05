@@ -999,7 +999,12 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         }
         try {
             this.isChatProfileMenuOpen = false;
-            this.chatController.openGeocacheChat(this.data, this.chatWorkflowPreview, this.chatProfileOverride);
+            // Garantir un workflow a jour meme si l'apercu de routage initial n'est pas
+            // encore resolu (clic rapide apres l'ouverture). L'appel est mis en cache.
+            const routing = await this.chatController.resolveRoutingPreview(this.geocacheId);
+            this.chatWorkflowPreview = routing.workflowPreview;
+            this.chatProfilePreview = routing.profilePreview;
+            this.chatController.openGeocacheChat(this.data, routing.workflowPreview, this.chatProfileOverride);
             this.messages.info('Chat IA lance pour cette geocache.');
         } catch (error) {
             console.error('[GeocacheDetailsWidget] openGeocacheAIChat error', error);

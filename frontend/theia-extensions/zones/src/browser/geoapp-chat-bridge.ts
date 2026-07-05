@@ -249,35 +249,89 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
         }));
     }
 
+    /** Long cote cible pour les images envoyees au modele : optimum tokens/qualite pour la vision. */
+    protected static readonly MAX_IMAGE_DIMENSION = 1568;
+
     protected async fetchImagesAsVariables(imageContexts: GeoAppChatImageContext[]): Promise<AIVariableResolutionRequest[]> {
-        const variables: AIVariableResolutionRequest[] = [];
-        for (const imageContext of imageContexts) {
-            let url = imageContext.url;
-            try {
-                let response = await this.fetchImageForChat(url);
-                if (!response && imageContext.id) {
-                    const storedUrl = await this.storeImageForChat(imageContext.id);
-                    if (storedUrl) {
-                        url = storedUrl;
-                        response = await this.fetchImageForChat(storedUrl);
-                    }
+        // Traitement en parallele : les images sont independantes, inutile de serialiser
+        // les telechargements. Promise.all preserve l'ordre d'origine.
+        const variables = await Promise.all(imageContexts.map(context => this.fetchImageAsVariable(context)));
+        return variables.filter((variable): variable is AIVariableResolutionRequest => variable !== undefined);
+    }
+
+    protected async fetchImageAsVariable(imageContext: GeoAppChatImageContext): Promise<AIVariableResolutionRequest | undefined> {
+        let url = imageContext.url;
+        try {
+            let response = await this.fetchImageForChat(url);
+            if (!response && imageContext.id) {
+                const storedUrl = await this.storeImageForChat(imageContext.id);
+                if (storedUrl) {
+                    url = storedUrl;
+                    response = await this.fetchImageForChat(storedUrl);
                 }
-                if (!response) { continue; }
-                const blob = await response.blob();
-                const dataUrl = await this.readBlobAsDataUrl(blob);
-                const base64data = dataUrl.substring(dataUrl.indexOf(',') + 1);
-                const mimeType = blob.type || 'image/jpeg';
-                const fallbackName = url.split('/').pop()?.split('?')[0] || 'image';
-                const name = [
-                    imageContext.origin,
-                    imageContext.label || imageContext.id || fallbackName,
-                ].filter(Boolean).join(' - ');
-                variables.push(ImageContextVariable.createRequest({ data: base64data, mimeType, name }));
-            } catch {
-                // CORS or network error — skip silently
             }
+            if (!response) { return undefined; }
+            const blob = await response.blob();
+            const { data, mimeType } = await this.downscaleImage(blob, GeoAppChatBridge.MAX_IMAGE_DIMENSION);
+            const fallbackName = url.split('/').pop()?.split('?')[0] || 'image';
+            const name = [
+                imageContext.origin,
+                imageContext.label || imageContext.id || fallbackName,
+            ].filter(Boolean).join(' - ');
+            return ImageContextVariable.createRequest({ data, mimeType, name });
+        } catch {
+            // CORS or network error — skip silently
+            return undefined;
         }
-        return variables;
+    }
+
+    /**
+     * Redimensionne l'image si son plus grand cote depasse maxDimension, puis renvoie
+     * le base64 (sans prefixe data:). Reduit la latence d'ouverture et le cout tokens
+     * vision a chaque tour. Retombe sur l'image d'origine si le canvas echoue.
+     */
+    protected async downscaleImage(blob: Blob, maxDimension: number): Promise<{ data: string; mimeType: string }> {
+        const original = async (): Promise<{ data: string; mimeType: string }> => {
+            const dataUrl = await this.readBlobAsDataUrl(blob);
+            return { data: dataUrl.substring(dataUrl.indexOf(',') + 1), mimeType: blob.type || 'image/jpeg' };
+        };
+        try {
+            const image = await this.loadImageSource(blob);
+            const largestSide = Math.max(image.width, image.height);
+            if (!largestSide || largestSide <= maxDimension) {
+                return original();
+            }
+            const scale = maxDimension / largestSide;
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(image.width * scale));
+            canvas.height = Math.max(1, Math.round(image.height * scale));
+            const context = canvas.getContext('2d');
+            if (!context) {
+                return original();
+            }
+            context.drawImage(image, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            return { data: dataUrl.substring(dataUrl.indexOf(',') + 1), mimeType: 'image/jpeg' };
+        } catch {
+            return original();
+        }
+    }
+
+    protected async loadImageSource(blob: Blob): Promise<CanvasImageSource & { width: number; height: number }> {
+        if (typeof createImageBitmap === 'function') {
+            return await createImageBitmap(blob);
+        }
+        const objectUrl = URL.createObjectURL(blob);
+        try {
+            return await new Promise<HTMLImageElement>((resolve, reject) => {
+                const image = new Image();
+                image.onload = () => resolve(image);
+                image.onerror = () => reject(new Error('Failed to load image'));
+                image.src = objectUrl;
+            });
+        } finally {
+            URL.revokeObjectURL(objectUrl);
+        }
     }
 
     protected async fetchImageForChat(url: string): Promise<Response | undefined> {
