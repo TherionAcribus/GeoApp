@@ -123,7 +123,11 @@ export class GeoAppChatPolicyService {
 
         for (const entry of entries) {
             const profileDecision = this.getProfileDecision(entry, behaviorProfile);
-            const override = overrides[entry.registryId] || overrides[entry.publicName];
+            // Rechercher l'override par presence de cle plutot que par truthiness : un override
+            // legacy stocke comme booleen `false` (desactivation) serait sinon perdu par `||`.
+            const override = Object.prototype.hasOwnProperty.call(overrides, entry.registryId)
+                ? overrides[entry.registryId]
+                : overrides[entry.publicName];
             const decision = this.applyOverride(profileDecision, override);
 
             if (decision.enabled) {

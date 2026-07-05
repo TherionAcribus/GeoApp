@@ -162,6 +162,7 @@ def _call_openai_compatible(
     api_key: Optional[str] = None,
     provider: str = "openai-compatible",
     timeout_sec: int = 60,
+    max_tokens: int = 2048,
 ) -> str:
     """Appelle un endpoint OpenAI-compatible et retourne la réponse textuelle brute."""
     v1 = normalize_openai_compatible_base_url(
@@ -169,7 +170,7 @@ def _call_openai_compatible(
         "https://openrouter.ai/api/v1" if provider == "openrouter" else "http://localhost:1234",
     )
     endpoint = f"{v1}/chat/completions"
-    payload = _build_chat_payload(model, user_message)
+    payload = _build_chat_payload(model, user_message, max_tokens=max_tokens)
 
     headers: Dict[str, str] = {"Content-Type": "application/json"}
     clean_key = (api_key or "").strip()
@@ -378,6 +379,11 @@ def ai_score_results(
             texts_block=texts_block,
         )
 
+        # Dimensionner le budget de sortie sur la taille du batch : chaque item peut
+        # demander ~250 tokens (score + explication + coordonnees DDM). Un plafond fixe
+        # trop bas tronque le JSON et fait retomber tout le batch en fallback (confidence 0).
+        batch_max_tokens = min(8192, max(1024, 256 * len(batch) + 256))
+
         t0 = time.time()
         try:
             raw_response = _call_openai_compatible(
@@ -387,6 +393,7 @@ def ai_score_results(
                 api_key=api_key,
                 provider=provider,
                 timeout_sec=timeout_sec,
+                max_tokens=batch_max_tokens,
             )
             elapsed_ms = round((time.time() - t0) * 1000, 1)
             ai_items = _parse_ai_response(raw_response, len(batch))
@@ -405,6 +412,10 @@ def ai_score_results(
             ai_confidence = ai_item["confidence"]
             ai_coords = ai_item.get("coordinates") or {"exist": False}
 
+            # Capturer la confiance algo AVANT de l'écraser, sinon algo_confidence
+            # finirait par contenir le score IA lui-même.
+            original_confidence = item.get("confidence")
+
             # Mise à jour de la confiance (l'IA remplace l'algo)
             item["confidence"] = ai_confidence
 
@@ -415,8 +426,8 @@ def ai_score_results(
                 item["metadata"] = item_metadata
 
             # Conserver la confiance algo originale
-            if "confidence" in item and "algo_confidence" not in item_metadata:
-                item_metadata["algo_confidence"] = item.get("_original_confidence", ai_confidence)
+            if original_confidence is not None and "algo_confidence" not in item_metadata:
+                item_metadata["algo_confidence"] = original_confidence
 
             item_metadata["ai_scoring"] = {
                 "score": ai_confidence,

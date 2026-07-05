@@ -36,6 +36,42 @@ export class GeocacheDetailsTranslationController {
 
     async translateDescription(geocacheId: number, sourceHtml: string): Promise<void> {
         const languageModel = await this.selectTranslationLanguageModel();
+        const translatedHtml = await this.translateHtmlFragment(languageModel, sourceHtml, 'description');
+        if (!translatedHtml) {
+            throw new Error('Traduction IA: reponse vide');
+        }
+
+        await this.geocacheDetailsService.updateDescription(geocacheId, {
+            description_override_html: translatedHtml,
+            description_override_raw: htmlToRawText(translatedHtml),
+        });
+    }
+
+    async translateAllContent(input: TranslateAllContentInput): Promise<void> {
+        const languageModel = await this.selectTranslationLanguageModel();
+
+        // Decoupage volontaire: la description (souvent volumineuse) est traduite en HTML brut,
+        // separement des hints + waypoints (petit JSON). Un unique appel qui renvoie tout dans un
+        // seul JSON depasse frequemment la limite de generation des petits modeles locaux et se
+        // retrouve tronque, faisant echouer l'ensemble.
+        const description = (input.descriptionHtml || '').trim();
+        const translatedHtml = description
+            ? await this.translateHtmlFragment(languageModel, description, 'description')
+            : '';
+
+        const meta = await this.translateHintsAndWaypoints(languageModel, input.hintsDecoded, input.waypoints);
+
+        const payload: UpdateTranslatedContentInput = {
+            description_override_html: translatedHtml,
+            description_override_raw: htmlToRawText(translatedHtml),
+            hints_decoded_override: meta.hintsDecoded,
+            waypoints: meta.waypoints,
+        };
+
+        await this.geocacheDetailsService.updateTranslatedContent(input.geocacheId, payload);
+    }
+
+    private async translateHtmlFragment(languageModel: any, sourceHtml: string, kind: string): Promise<string> {
         const prompt =
             'Tu es un traducteur. Traduis en francais le contenu TEXTUEL du HTML fourni, en conservant le HTML.\n'
             + '- Ne change pas les balises, attributs, liens, images, classes, ids.\n'
@@ -47,8 +83,8 @@ export class GeocacheDetailsTranslationController {
                 { actor: 'user', type: 'text', text: `${prompt}\n\nHTML:\n${sourceHtml}` },
             ],
             agentId: GeoAppTranslateDescriptionAgentId,
-            requestId: `geoapp-translate-description-${Date.now()}`,
-            sessionId: `geoapp-translate-description-session-${Date.now()}`,
+            requestId: `geoapp-translate-${kind}-${Date.now()}`,
+            sessionId: `geoapp-translate-${kind}-session-${Date.now()}`,
         };
 
         const response = await this.languageModelService.sendRequest(languageModel, request);
@@ -64,58 +100,85 @@ export class GeocacheDetailsTranslationController {
             }
         }
 
-        translatedHtml = this.sanitizeTranslatedHtml(translatedHtml);
-        if (!translatedHtml) {
-            throw new Error('Traduction IA: reponse vide');
-        }
-
-        await this.geocacheDetailsService.updateDescription(geocacheId, {
-            description_override_html: translatedHtml,
-            description_override_raw: htmlToRawText(translatedHtml),
-        });
+        return this.sanitizeTranslatedHtml(translatedHtml);
     }
 
-    async translateAllContent(input: TranslateAllContentInput): Promise<void> {
-        const languageModel = await this.selectTranslationLanguageModel();
+    private async translateHintsAndWaypoints(
+        languageModel: any,
+        hintsDecoded: string,
+        waypoints: TranslateAllWaypointInput[]
+    ): Promise<{ hintsDecoded: string; waypoints: Array<{ id: number; note_override: string }> }> {
+        const hasHints = (hintsDecoded || '').trim().length > 0;
+        const hasWaypoints = waypoints.length > 0;
+        if (!hasHints && !hasWaypoints) {
+            return { hintsDecoded: '', waypoints: [] };
+        }
+
         const request: UserRequest = {
             messages: [
                 {
                     actor: 'user',
                     type: 'text',
-                    text: `${this.createTranslateAllPrompt()}\nINPUT_JSON:\n${JSON.stringify({
-                        description_html: input.descriptionHtml,
-                        hints_decoded: input.hintsDecoded,
-                        waypoints: input.waypoints,
+                    text: `${this.createHintsWaypointsPrompt()}\nINPUT_JSON:\n${JSON.stringify({
+                        hints_decoded: hintsDecoded,
+                        waypoints,
                     })}`
                 },
             ],
             agentId: GeoAppTranslateDescriptionAgentId,
-            requestId: `geoapp-translate-all-${Date.now()}`,
-            sessionId: `geoapp-translate-all-session-${Date.now()}`,
+            requestId: `geoapp-translate-meta-${Date.now()}`,
+            sessionId: `geoapp-translate-meta-session-${Date.now()}`,
         };
 
         const response = await this.languageModelService.sendRequest(languageModel, request);
-        let parsed: any;
-        try {
-            parsed = await getJsonOfResponse(response) as any;
-        } catch {
-            const text = await getTextOfResponse(response);
-            parsed = JSON.parse(text);
-        }
+        const parsed = await this.parseJsonResponse(response);
 
-        const translatedHtml = (parsed?.description_html || '').toString();
         const translatedHints = (parsed?.hints_decoded || '').toString();
         const translatedWaypoints = Array.isArray(parsed?.waypoints) ? parsed.waypoints : [];
-        const payload: UpdateTranslatedContentInput = {
-            description_override_html: translatedHtml,
-            description_override_raw: htmlToRawText(translatedHtml),
-            hints_decoded_override: translatedHints,
+        return {
+            hintsDecoded: translatedHints,
             waypoints: translatedWaypoints
                 .filter((waypoint: any) => waypoint && typeof waypoint.id === 'number' && waypoint.note !== undefined && waypoint.note !== null)
                 .map((waypoint: any) => ({ id: waypoint.id, note_override: String(waypoint.note) })),
         };
+    }
 
-        await this.geocacheDetailsService.updateTranslatedContent(input.geocacheId, payload);
+    /**
+     * Parse une reponse LLM censee etre du JSON, en tolerant les blocs de raisonnement
+     * (<think>...</think>) et les fences markdown que certains modeles locaux ajoutent.
+     */
+    private async parseJsonResponse(response: any): Promise<any> {
+        try {
+            return await getJsonOfResponse(response);
+        } catch {
+            const raw = await getTextOfResponse(response);
+            return this.extractJson(raw);
+        }
+    }
+
+    private extractJson(raw: string): any {
+        const cleaned = this.sanitizeTranslatedHtml(raw);
+        try {
+            return JSON.parse(cleaned);
+        } catch {
+            const fence = cleaned.match(/```(?:json)?\s*([\s\S]+?)```/i);
+            if (fence) {
+                try {
+                    return JSON.parse(fence[1].trim());
+                } catch {
+                    // continue avec l'extraction du premier objet
+                }
+            }
+            const obj = cleaned.match(/\{[\s\S]+\}/);
+            if (obj) {
+                try {
+                    return JSON.parse(obj[0]);
+                } catch {
+                    // echec final ci-dessous
+                }
+            }
+            throw new Error('Traduction IA: reponse JSON invalide');
+        }
     }
 
     private async selectTranslationLanguageModel(): Promise<any> {
@@ -141,12 +204,12 @@ export class GeocacheDetailsTranslationController {
             .trim();
     }
 
-    private createTranslateAllPrompt(): string {
+    private createHintsWaypointsPrompt(): string {
         return 'Traduis en francais le contenu suivant et renvoie UNIQUEMENT un JSON valide.\n'
             + 'Contraintes :\n'
-            + '- description_html : conserve strictement le HTML (balises/attributs/liens/images), ne traduis que le texte.\n'
+            + '- hints_decoded : traduis le texte de l indice.\n'
             + '- Ne traduis pas les coordonnees, codes GC, URLs, ni les identifiants techniques.\n'
             + '- waypoints : conserve les ids, traduis uniquement la note.\n'
-            + 'Schema JSON de sortie : {"description_html": string, "hints_decoded": string, "waypoints": [{"id": number, "note": string}] }\n';
+            + 'Schema JSON de sortie : {"hints_decoded": string, "waypoints": [{"id": number, "note": string}] }\n';
     }
 }

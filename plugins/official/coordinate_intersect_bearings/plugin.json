@@ -1,0 +1,78 @@
+{
+  "name": "coordinate_intersect_bearings",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Calcule le point d'intersection de deux lignes definies chacune par un point de depart (coordonnee GPS) et un azimut (angle depuis le Nord). Affiche les points de depart, les lignes de bearing et le point d'intersection sur la carte.",
+  "author": "MysterAI Team",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": ["Coordinates", "Calculator", "Geometry"],
+  "kinds": ["geo", "calculator"],
+  "brute_force": false,
+  "enable_scoring": false,
+  "accept_accents": true,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 15,
+  "capabilities": {
+    "analyze": false,
+    "decode": false,
+    "encode": false
+  },
+  "defaults": {
+    "include_in_analysis": false,
+    "include_in_decode": false
+  },
+  "input_types": {
+    "coord1": {
+      "type": "string",
+      "label": "Point de depart 1",
+      "placeholder": "Ex: N 48° 51.502 E 002° 17.669",
+      "required": true,
+      "description": "Coordonnee GPS du point de depart de la ligne 1. Tout format supporte (auto-detection)."
+    },
+    "bearing1": {
+      "type": "number",
+      "label": "Azimut 1 (degres, 0=Nord)",
+      "default": 0,
+      "min": 0,
+      "max": 360,
+      "required": true
+    },
+    "coord2": {
+      "type": "string",
+      "label": "Point de depart 2",
+      "placeholder": "Ex: N 48° 51.400 E 002° 17.500",
+      "required": true,
+      "description": "Coordonnee GPS du point de depart de la ligne 2. Tout format supporte (auto-detection)."
+    },
+    "bearing2": {
+      "type": "number",
+      "label": "Azimut 2 (degres, 0=Nord)",
+      "default": 90,
+      "min": 0,
+      "max": 360,
+      "required": true
+    },
+    "source_format": {
+      "type": "select",
+      "label": "Format source (auto-detection par defaut)",
+      "options": ["auto", "dd", "ddm", "dms", "utm", "mgrs", "osgb", "web_mercator", "geohash", "plus_code", "mapcode"],
+      "default": "auto"
+    },
+    "output_format": {
+      "type": "select",
+      "label": "Format de sortie",
+      "options": ["geocaching", "dd", "ddm", "dms", "all"],
+      "default": "geocaching"
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Resultat"
+    }
+  }
+}
