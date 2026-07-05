@@ -2,7 +2,7 @@
 title: "Comprendre le Chat IA GeoApp"
 description: "Fonctionnement du Chat IA GeoApp, profils, tools, skills, confirmations et réglages utiles."
 order: 20
-tags: [IA, chat, GeoApp, tools, skills, profils, geocaching]
+tags: [IA, chat, GeoApp, tools, skills, profils, presets, modèles, geocaching]
 ---
 
 # Comprendre le Chat IA GeoApp
@@ -34,11 +34,15 @@ La section **Chat IA GeoApp** contient aussi deux boutons importants :
 
 Vous pouvez aussi ouvrir la vue **Policy Chat IA GeoApp** depuis les menus GeoApp ou depuis la palette de commandes.
 
+Ces réglages sont également accessibles depuis les **Paramètres** de l'IDE : cherchez `geoApp.chat` pour voir chaque préférence avec sa description et ses valeurs possibles. Pour une configuration rapide, préférez toutefois les **presets** de la vue Policy (voir plus bas).
+
 ## Ce que le Chat IA peut faire
 
 Selon les réglages actifs, le Chat IA peut notamment :
 
 - analyser le texte d'une géocache ;
+- relire le listing complet d'une géocache quand l'extrait affiché est trop court pour contenir toute l'énigme ;
+- rechercher sur Internet un fait, une liste ou une référence nécessaire à la résolution, puis lire la source ;
 - repérer des formules et des variables ;
 - chercher des questions associées aux variables ;
 - calculer une coordonnée finale ;
@@ -87,7 +91,7 @@ Le pack de prompt définit les consignes données à l'IA : manière de raisonne
 
 Les packs disponibles suivent les mêmes noms que les profils comportementaux : `guided`, `safe`, `offline`, `automation`, `debug`.
 
-Dans la plupart des cas, gardez le pack de prompt aligné avec le profil comportemental. Par exemple : comportement `guided` avec prompt pack `guided`.
+Par défaut, le pack de prompt **suit automatiquement le profil comportemental** : si vous passez le comportement en `automation`, le prompt pack devient `automation` sans réglage supplémentaire. Vous ne fixez un pack précis que si vous voulez délibérément un comportement et des consignes différents.
 
 ### Tools
 
@@ -130,6 +134,7 @@ GeoApp fournit actuellement ces skills :
 | `geoapp-image-puzzle` | Images, OCR, QR codes et indices visuels. |
 | `geoapp-secret-code` | Codes secrets, metasolver, contenu caché. |
 | `geoapp-coordinates` | Coordonnées candidates, projections, intersections, affichage et sauvegarde. |
+| `geoapp-research` | Énigmes de connaissance : recherche web de faits, listes, dates et références, puis lecture des sources. |
 
 Les skills n'exécutent rien toutes seules. Elles guident l'IA et l'aident à choisir les bons outils.
 
@@ -185,6 +190,25 @@ Elle affiche :
 - les overrides manuels.
 
 Cette vue est utile quand vous vous demandez : "Pourquoi l'IA n'a pas utilisé ce checker ?", "Pourquoi ce tool demande confirmation ?" ou "Pourquoi une skill n'est pas disponible ?"
+
+### Presets
+
+En haut de la vue, quatre **presets** règlent d'un seul clic les trois réglages qui vont généralement ensemble : le profil comportemental par défaut, le pack de prompt et le pack de skills. C'est le moyen le plus simple de configurer le Chat IA sans toucher à chaque réglage séparément.
+
+| Preset | Pour quoi | Comportement | Prompt pack | Skill pack |
+|---|---|---|---|---|
+| **Découverte** | Usage recommandé au quotidien. | `guided` | `guided` | `workflow` |
+| **Autonome** | Aller vite, l'IA enchaîne davantage d'étapes. | `automation` | `automation` | `full` |
+| **Prudent** | Plus de confirmations, moins d'automatisation. | `safe` | `safe` | `minimal` |
+| **Hors-ligne** | Travail local, sans réseau ni checker. | `offline` | `offline` | `minimal` |
+
+Le preset dont les trois réglages correspondent à votre configuration actuelle est mis en évidence. Vous pouvez toujours affiner ensuite chaque réglage individuellement : appliquer un preset ne fait qu'écrire ces trois préférences.
+
+### Modèles par agent
+
+Le panneau **Modèles par agent** répond à la question « quel modèle est utilisé pour quoi ? ». Il liste les agents GeoApp — les agents de chat (principal, Local, Fast, Strong, Web) et les agents internes (OCR, traduction, analyse de logs, rédaction de logs, AI Scorer) — avec le modèle réellement résolu pour chacun.
+
+L'assignation des modèles se fait, elle, dans **Configurer IA Theia**. Un bouton **Rafraîchir** relance la résolution après un changement. Si un agent affiche **Aucun modèle assigné**, c'est qu'aucun modèle n'est configuré pour lui côté Theia.
 
 ### Tester une policy
 
@@ -529,7 +553,7 @@ Vérifiez que :
 
 ### L'IA n'utilise pas la bonne stratégie
 
-Vérifiez le workflow, le pack de skills et les skills actives. Pour une énigme à formule, la skill `geoapp-formula` doit être active. Pour une image, la skill `geoapp-image-puzzle` est souvent utile.
+Vérifiez le workflow, le pack de skills et les skills actives. Pour une énigme à formule, la skill `geoapp-formula` doit être active. Pour une image, la skill `geoapp-image-puzzle` est souvent utile. Pour une énigme qui demande de chercher un fait ou une liste sur Internet, la skill `geoapp-research` doit être active et les tools réseau autorisés.
 
 ### Une skill est marquée personnalisée
 
