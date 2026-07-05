@@ -72,6 +72,13 @@ const STATIC_TOOL_METADATA: Record<string, Omit<GeoAppAiToolMetadata, 'publicNam
         requiresAuth: true,
         defaultEnabled: true,
     },
+    'geoapp.geocache.get-listing': {
+        registryId: 'geoapp.geocache.get-listing',
+        category: 'workflow',
+        risk: 'read_only',
+        workflowKinds: ['general', 'secret_code', 'formula', 'checker', 'hidden_content', 'image_puzzle'],
+        defaultEnabled: true,
+    },
     'geoapp.plugins.workflow.resolve': {
         registryId: 'geoapp.plugins.workflow.resolve',
         category: 'workflow',

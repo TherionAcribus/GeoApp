@@ -181,9 +181,14 @@ export function buildGeocacheChatPrompt(data: GeocachePromptData): string {
             : undefined,
     ].filter((value): value is string => Boolean(value));
 
-    const descriptionSnippet = sanitizeRichText(data.description_html, 1500);
-    if (descriptionSnippet) {
-        lines.push('', 'Description (extrait) :', descriptionSnippet);
+    const fullDescriptionText = data.description_html
+        ? stripHtml(data.description_html).replace(/\s+/g, ' ').trim()
+        : '';
+    if (fullDescriptionText) {
+        lines.push('', 'Description (extrait) :', truncateText(fullDescriptionText, 1500));
+        if (fullDescriptionText.length > 1500) {
+            lines.push('(Description tronquee ci-dessus. Appelle get_geocache_listing(geocache_id) pour le texte complet du listing avant de conclure si l enigme n est pas entierement visible ici.)');
+        }
     }
 
     const decodedHints = getDecodedHints(data);
@@ -260,6 +265,66 @@ export function buildGeocacheFreeChatContext(data: GeocachePromptData): string {
 
     lines.push('', '--- FIN DU CONTEXTE ---');
     return lines.join('\n');
+}
+
+export interface GeocacheFullListingResult {
+    text: string;
+    descriptionTruncated: boolean;
+}
+
+/**
+ * Construit le listing COMPLET d'une geocache (description integrale, indices decodes,
+ * waypoints, checkers), sans la troncature appliquee au contexte initial du chat.
+ * Utilise par le tool get_geocache_listing pour donner au modele un moyen deterministe
+ * de recuperer ce qui a ete coupe dans l'extrait de contexte.
+ */
+export function buildGeocacheFullListingContext(
+    data: GeocachePromptData,
+    options?: { maxDescriptionChars?: number }
+): GeocacheFullListingResult {
+    const maxDescriptionChars = options?.maxDescriptionChars ?? 12000;
+    const fullDescription = data.description_html
+        ? stripHtml(data.description_html).replace(/\s+/g, ' ').trim()
+        : '';
+    const descriptionTruncated = fullDescription.length > maxDescriptionChars;
+    const description = descriptionTruncated ? truncateText(fullDescription, maxDescriptionChars) : fullDescription;
+
+    const lines = [
+        '--- LISTING COMPLET GEOCACHE ---',
+        `Nom : ${data.name}`,
+        data.id !== undefined ? `ID (geocache_id) : ${data.id}` : undefined,
+        `Code : ${data.gc_code ?? 'Inconnu'} • Type : ${data.type ?? 'Inconnu'} • Taille : ${data.size ?? 'N/A'}`,
+        `Difficulte / Terrain : ${data.difficulty ?? '?'} / ${data.terrain ?? '?'}`,
+        `Proprietaire : ${data.owner ?? 'Inconnu'} • Statut : ${data.status ?? 'Inconnu'}`,
+        `Coordonnees : ${data.coordinates_raw ?? data.original_coordinates_raw ?? 'Non renseignees'}`,
+        data.original_coordinates_raw && data.coordinates_raw && data.original_coordinates_raw !== data.coordinates_raw
+            ? `Coordonnees originales : ${data.original_coordinates_raw}`
+            : undefined,
+        data.placed_at ? `Placee le : ${data.placed_at}` : undefined,
+        `Favoris : ${data.favorites_count ?? 0} • Logs : ${data.logs_count ?? 0}`,
+        data.checkers?.length
+            ? `Checkers : ${data.checkers.map(c => (c.url ? `${c.name || 'Checker'}: ${c.url}` : (c.name || 'Checker'))).join(' • ')}`
+            : undefined,
+    ].filter((v): v is string => Boolean(v));
+
+    if (description) {
+        lines.push('', 'Description complete :', description);
+        if (descriptionTruncated) {
+            lines.push(`(Description tronquee a ${maxDescriptionChars} caracteres.)`);
+        }
+    }
+
+    const decodedHints = getDecodedHints(data);
+    if (decodedHints) {
+        lines.push('', 'Indices :', decodedHints.trim());
+    }
+
+    if (data.waypoints?.length) {
+        lines.push('', 'Waypoints (details) :', ...buildWaypointsDetails(data.waypoints));
+    }
+
+    lines.push('', '--- FIN DU LISTING ---');
+    return { text: lines.join('\n'), descriptionTruncated };
 }
 
 export function buildGeocacheFreeChatFinalPrompt(draft: string, imageUrls: string[]): string {

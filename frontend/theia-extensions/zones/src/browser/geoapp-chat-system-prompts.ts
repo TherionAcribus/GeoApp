@@ -32,6 +32,7 @@ const BASE_GUARDRAILS = [
 
 const WORKFLOW_RULES = [
     'Orchestration GeoApp :',
+    '- Si le contexte fourni signale une description tronquee, ou si l enigme n est pas entierement visible dans l extrait, appelle get_geocache_listing(geocache_id) pour recuperer le listing complet avant de conclure.',
     '- Commence par resolve_geocache_workflow(geocache_id) quand ce tool est expose, afin d obtenir la classification, le workflow principal et un plan d execution.',
     '- Utilise ensuite la politique active pour choisir les tools et skills autorises. Ne tente jamais un tool absent de la section "Tools exposes au modele".',
     '- Charge les skills GeoApp recommandes avant de derouler une strategie metier detaillee.',

@@ -24,6 +24,7 @@ import { GeocacheImageEditorFrontendContribution } from './geocache-image-editor
 import { ZoneTabsManager } from './zone-tabs-manager';
 import { CheckerToolsManager } from './checker-tools-manager';
 import { FoundCoordinatesToolsManager } from './found-coordinates-tools-manager';
+import { GeocacheListingToolsManager } from './geocache-listing-tools-manager';
 import {
     GeoAppChatAgent,
     GeoAppChatAgentContribution,
@@ -251,6 +252,9 @@ export default new ContainerModule(bind => {
 
     bind(FoundCoordinatesToolsManager).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(FoundCoordinatesToolsManager);
+
+    bind(GeocacheListingToolsManager).toSelf().inSingletonScope();
+    bind(FrontendApplicationContribution).toService(GeocacheListingToolsManager);
 
     bind(GeoAppOcrAgentContribution).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(GeoAppOcrAgentContribution);
