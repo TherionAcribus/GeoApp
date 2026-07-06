@@ -21,6 +21,7 @@ import { parseValueList } from './utils/value-parser';
 import { ensureFormulaFragments } from './utils/formula-fragments';
 import { extractVariablesFromFormula as extractFormulaVariables } from './utils/formula-variables';
 import { CoordinatePreviewEngine } from './preview/coordinate-preview-engine';
+import { CoordinatePreviewState } from './preview/types';
 import {
     DetectedFormulasComponent,
     QuestionFieldCard,
@@ -76,6 +77,17 @@ export class FormulaSolverWidget extends ReactWidget {
     protected previewMapOverlayEnabled: boolean = true;
 
     protected readonly previewEngine = new CoordinatePreviewEngine();
+
+    // Cache mono-entrée de la preview : la formule et la Map de valeurs changent de
+    // référence ensemble (nouvelle Map à chaque saisie). Les 3 consommateurs d'un
+    // même cycle (overlay carte, lettres suspectes, composant preview) partagent
+    // ainsi un seul calcul au lieu de reconstruire la preview 3 fois.
+    private previewCache?: {
+        north: string;
+        east: string;
+        values: Map<string, LetterValue>;
+        result: CoordinatePreviewState;
+    };
 
     // Profil IA par question (override)
     protected perQuestionProfiles: Map<string, FormulaSolverAiProfile> = new Map();
@@ -308,6 +320,24 @@ export class FormulaSolverWidget extends ReactWidget {
         this.answersEngine = 'ai';
     }
 
+    /**
+     * Construit la preview de coordonnées avec un cache mono-entrée.
+     * Réutilise le résultat tant que la formule et la référence de la Map de
+     * valeurs sont identiques (cas d'un même cycle de rendu / de saisie).
+     */
+    protected getPreview(
+        formula: { north: string; east: string },
+        values: Map<string, LetterValue>
+    ): CoordinatePreviewState {
+        const cache = this.previewCache;
+        if (cache && cache.north === formula.north && cache.east === formula.east && cache.values === values) {
+            return cache.result;
+        }
+        const result = this.previewEngine.build({ north: formula.north, east: formula.east }, values);
+        this.previewCache = { north: formula.north, east: formula.east, values, result };
+        return result;
+    }
+
     protected updateMapPreviewOverlay(valuesOverride?: Map<string, LetterValue>): void {
         if (typeof window === 'undefined') {
             return;
@@ -341,7 +371,7 @@ export class FormulaSolverWidget extends ReactWidget {
         }
 
         const values = valuesOverride ?? this.state.values;
-        const preview = this.previewEngine.build({ north: formula.north, east: formula.east }, values);
+        const preview = this.getPreview({ north: formula.north, east: formula.east }, values);
         const n = preview.north;
         const e = preview.east;
 
@@ -3046,7 +3076,7 @@ export class FormulaSolverWidget extends ReactWidget {
             return new Set<string>();
         }
         try {
-            const preview = this.previewEngine.build({ north: formula.north, east: formula.east }, this.state.values);
+            const preview = this.getPreview({ north: formula.north, east: formula.east }, this.state.values);
             const suspects = [
                 ...(preview.north?.suspectLetters || []),
                 ...(preview.east?.suspectLetters || [])
@@ -3068,6 +3098,10 @@ export class FormulaSolverWidget extends ReactWidget {
                 <FormulaPreviewComponent
                     formula={this.state.selectedFormula}
                     values={this.state.values}
+                    preview={this.getPreview(
+                        { north: this.state.selectedFormula.north, east: this.state.selectedFormula.east },
+                        this.state.values
+                    )}
                     onPartialCalculate={(part, result) => {
                         console.log(`[FORMULA-SOLVER] Partie ${part} calculée automatiquement:`, result);
                         // Vérifier si les deux parties sont complètes pour calculer automatiquement

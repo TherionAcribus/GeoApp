@@ -6,17 +6,25 @@
 import * as React from '@theia/core/shared/react';
 import { Formula, LetterValue } from '../../common/types';
 import { CoordinatePreviewEngine } from '../preview/coordinate-preview-engine';
-import type { AxisPreview } from '../preview/types';
+import type { AxisPreview, CoordinatePreviewState } from '../preview/types';
 
 interface FormulaPreviewProps {
     formula: Formula;
     values: Map<string, LetterValue>;
+    /**
+     * Preview déjà calculée par le parent (mémoïsée). Si fournie, on l'utilise
+     * directement au lieu de reconstruire la preview dans le composant.
+     */
+    preview?: CoordinatePreviewState;
     onPartialCalculate?: (part: 'north' | 'east', result: string) => void;
 }
 
-const InnerFormulaPreviewComponent: React.FC<FormulaPreviewProps> = ({ formula, values, onPartialCalculate }) => {
+const InnerFormulaPreviewComponent: React.FC<FormulaPreviewProps> = ({ formula, values, preview: providedPreview, onPartialCalculate }) => {
     const engine = React.useMemo(() => new CoordinatePreviewEngine(), []);
-    const preview = React.useMemo(() => engine.build({ north: formula.north, east: formula.east }, values), [engine, formula.north, formula.east, values]);
+    const preview = React.useMemo(
+        () => providedPreview ?? engine.build({ north: formula.north, east: formula.east }, values),
+        [providedPreview, engine, formula.north, formula.east, values]
+    );
 
     const northPreview = preview.north;
     const eastPreview = preview.east;

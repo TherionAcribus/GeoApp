@@ -288,6 +288,8 @@ Ces tools permettent à l'agent conversationnel GeoApp de résoudre des géocach
 
 Le moteur de preview calcule les coordonnées **en temps réel** à chaque changement de valeur, sans appeler le backend.
 
+> **Mémoïsation** — À chaque saisie, la preview était reconstruite 3 fois (overlay carte, calcul des lettres suspectes, composant `FormulaPreviewComponent`). Le widget expose désormais `getPreview(formula, values)`, un **cache mono-entrée** clé sur `(north, east, référence de la Map de valeurs)`. Comme la formule et la Map changent de référence ensemble (une nouvelle Map est créée à chaque `updateValue`), les 3 consommateurs d'un même cycle partagent un seul calcul ; le résultat mémoïsé est passé en prop à `FormulaPreviewComponent`. La sortie est identique, seul le nombre de calculs passe de 3 à 1 par frappe.
+
 ### 9.1 Fonctionnement
 
 1. **Parse** la formule en template : cardinal + degrés + minutes + décimales
