@@ -96,7 +96,7 @@ export class GeocachesService {
         );
     }
 
-    async importGpx(file: File, zoneId: number, updateExisting: boolean): Promise<Response> {
+    async importGpx(file: File, zoneId: number, updateExisting: boolean, signal?: AbortSignal): Promise<Response> {
         const formData = new FormData();
         formData.append('gpxFile', file);
         formData.append('zone_id', zoneId.toString());
@@ -106,29 +106,29 @@ export class GeocachesService {
 
         return this.apiClient.requestResponse(
             '/api/geocaches/import-gpx',
-            { method: 'POST', body: formData },
+            { method: 'POST', body: formData, signal },
             'Erreur lors de l\'import du fichier GPX'
         );
     }
 
-    async importBookmarkList(bookmarkCode: string, zoneId: number): Promise<Response> {
+    async importBookmarkList(bookmarkCode: string, zoneId: number, signal?: AbortSignal): Promise<Response> {
         return this.apiClient.requestResponse(
             '/api/geocaches/import-bookmark-list',
             this.apiClient.createJsonInit('POST', {
                 bookmark_code: bookmarkCode,
                 zone_id: zoneId
-            }),
+            }, { signal }),
             'Erreur lors de l\'import de la liste de favoris'
         );
     }
 
-    async importPocketQuery(pqCode: string, zoneId: number): Promise<Response> {
+    async importPocketQuery(pqCode: string, zoneId: number, signal?: AbortSignal): Promise<Response> {
         return this.apiClient.requestResponse(
             '/api/geocaches/import-pocket-query',
             this.apiClient.createJsonInit('POST', {
                 pq_code: pqCode,
                 zone_id: zoneId
-            }),
+            }, { signal }),
             'Erreur lors de l\'import de la pocket query'
         );
     }

@@ -27,13 +27,14 @@ logger = logging.getLogger(__name__)
 
 
 def _new_import_counts() -> dict:
-    """Compteurs pour un import de masse (créées / déjà présentes / déplacées / erreurs)."""
-    return {'created': 0, 'existing': 0, 'moved': 0, 'errors': 0}
+    """Compteurs pour un import de masse (créées / màj / déjà présentes / déplacées / erreurs)."""
+    return {'created': 0, 'updated': 0, 'existing': 0, 'moved': 0, 'errors': 0}
 
 
 def _import_item_label(outcome: str) -> str:
     return {
         'created': 'Importée',
+        'updated': 'Mise à jour',
         'existing': 'Déjà présente',
         'moved': 'Déplacée (autre zone)',
     }.get(outcome, 'Importée')
@@ -43,6 +44,8 @@ def _bulk_import_summary(counts: dict) -> str:
     parts = []
     if counts.get('created'):
         parts.append(f"{counts['created']} importée(s)")
+    if counts.get('updated'):
+        parts.append(f"{counts['updated']} mise(s) à jour")
     if counts.get('existing'):
         parts.append(f"{counts['existing']} déjà présente(s)")
     if counts.get('moved'):
@@ -54,12 +57,13 @@ def _bulk_import_summary(counts: dict) -> str:
 
 def _import_stats(counts: dict, total: int) -> dict:
     """Stats renvoyées au frontend (rétro-compatibles: success/errors/total)."""
-    success = counts['created'] + counts['existing'] + counts['moved']
+    success = counts['created'] + counts['updated'] + counts['existing'] + counts['moved']
     return {
         'success': success,
         'errors': counts['errors'],
         'total': total,
         'created': counts['created'],
+        'updated': counts['updated'],
         'existing': counts['existing'],
         'moved': counts['moved'],
     }
@@ -1459,7 +1463,7 @@ def import_gpx():
     try:
         uploaded_file = request.files.get('gpxFile')
         zone_id_raw = request.form.get('zone_id')
-        _update_existing = request.form.get('updateExisting') == 'on'  # réservé, non utilisé ici
+        update_existing = request.form.get('updateExisting') == 'on'
 
         if not uploaded_file:
             return jsonify({'error': 'Aucun fichier sélectionné'}), 400
@@ -1531,7 +1535,9 @@ def import_gpx():
                 for sc in full_by_code.values():
                     idx += 1
                     try:
-                        _, outcome = importer.import_from_scraped(zone_id, sc, return_outcome=True)
+                        _, outcome = importer.import_from_scraped(
+                            zone_id, sc, return_outcome=True, update_existing=update_existing
+                        )
                         counts[outcome] += 1
                         msg = f'{_import_item_label(outcome)}: {sc.gc_code} ({idx}/{total})'
                     except Exception as e:
@@ -1544,7 +1550,9 @@ def import_gpx():
                 for code in scrape_codes:
                     idx += 1
                     try:
-                        _, outcome = importer.import_by_code(zone_id, code, return_outcome=True)
+                        _, outcome = importer.import_by_code(
+                            zone_id, code, return_outcome=True, update_existing=update_existing
+                        )
                         counts[outcome] += 1
                         msg = f'{_import_item_label(outcome)} (téléchargée): {code} ({idx}/{total})'
                     except Exception as e:

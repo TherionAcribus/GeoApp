@@ -223,6 +223,33 @@ export class GeocachingAuthWidget extends ReactWidget {
         }
     }
 
+    protected async forget(): Promise<void> {
+        this.loading = true;
+        this.error = null;
+        this.update();
+
+        try {
+            const baseUrl = this.getApiBaseUrl();
+            const response = await fetch(`${baseUrl}/api/auth/forget`, {
+                method: 'POST'
+            });
+
+            const result = await response.json();
+            this.authState = result;
+            this.authConfig = { configured_method: null, has_saved_credentials: false };
+            this.username = '';
+            this.password = '';
+            // Émettre un événement pour notifier le changement d'état
+            this.dispatchAuthChangeEvent();
+        } catch (err) {
+            this.error = 'Erreur lors de la suppression du compte';
+            console.error('Forget failed:', err);
+        } finally {
+            this.loading = false;
+            this.update();
+        }
+    }
+
     protected async testConnection(): Promise<void> {
         this.loading = true;
         this.error = null;
@@ -425,9 +452,19 @@ export class GeocachingAuthWidget extends ReactWidget {
                         className="theia-button secondary"
                         onClick={() => this.logout()}
                         disabled={this.loading}
+                        title="Ferme la session courante ; le compte reste enregistré pour une reconnexion en un clic."
                     >
                         <span className="codicon codicon-sign-out"></span>
                         {' Déconnexion'}
+                    </button>
+                    <button
+                        className="theia-button secondary"
+                        onClick={() => this.forget()}
+                        disabled={this.loading}
+                        title="Supprime définitivement les identifiants enregistrés (fichier + trousseau système)."
+                    >
+                        <span className="codicon codicon-trash"></span>
+                        {' Oublier'}
                     </button>
                 </div>
             </div>
@@ -500,8 +537,50 @@ export class GeocachingAuthWidget extends ReactWidget {
     }
 
     protected renderLoginForm(): React.ReactNode {
+        const captchaBlocked = this.authState?.status === 'captcha_required';
+        const hasSavedAccount = this.authConfig?.has_saved_credentials === true;
         return (
             <div>
+                {/* Captcha: proposer la bascule directe vers les cookies navigateur */}
+                {captchaBlocked && this.selectedMethod === 'credentials' && (
+                    <div style={{
+                        padding: '12px',
+                        marginBottom: '16px',
+                        backgroundColor: 'var(--theia-inputValidation-warningBackground)',
+                        border: '1px solid var(--theia-inputValidation-warningBorder)',
+                        borderRadius: '4px'
+                    }}>
+                        <div style={{ marginBottom: '8px' }}>
+                            <span className="codicon codicon-shield"></span>
+                            {' Geocaching.com demande un captcha. Contournez-le en réutilisant '
+                             + 'la session déjà ouverte dans votre navigateur.'}
+                        </div>
+                        <button
+                            className="theia-button"
+                            onClick={() => { this.selectedMethod = 'browser_cookies'; this.update(); }}
+                            style={{ width: '100%' }}
+                        >
+                            <span className="codicon codicon-browser"></span>
+                            {' Utiliser les cookies du navigateur'}
+                        </button>
+                    </div>
+                )}
+
+                {/* Compte enregistré mais déconnecté: permettre de l'oublier */}
+                {hasSavedAccount && (
+                    <div style={{ marginBottom: '16px', textAlign: 'right' }}>
+                        <button
+                            className="theia-button secondary"
+                            onClick={() => this.forget()}
+                            disabled={this.loading}
+                            title="Supprime définitivement les identifiants enregistrés."
+                        >
+                            <span className="codicon codicon-trash"></span>
+                            {' Oublier le compte enregistré'}
+                        </button>
+                    </div>
+                )}
+
                 {/* Method selector */}
                 <div style={{ marginBottom: '16px' }}>
                     <label style={{ display: 'block', marginBottom: '8px', fontWeight: 'bold' }}>

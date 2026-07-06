@@ -184,6 +184,30 @@ def logout():
     return jsonify(result)
 
 
+@bp.route('/forget', methods=['POST'])
+def forget():
+    """
+    Oublie le compte : déconnexion + suppression des identifiants enregistrés
+    (fichier de credentials, entrée du trousseau système et cookies persistés).
+
+    Returns:
+        {
+            "success": true,
+            "status": "logged_out",
+            "method": "none"
+        }
+    """
+    logger.info("Forget account request")
+
+    auth_service = get_auth_service()
+    state = auth_service.forget()
+
+    result = _auth_state_to_dict(state)
+    result["success"] = True
+
+    return jsonify(result)
+
+
 @bp.route('/config', methods=['GET'])
 def get_auth_config():
     """

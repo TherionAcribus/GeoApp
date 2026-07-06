@@ -58,6 +58,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     protected showBookmarkListDialog = false;
     protected showPocketQueryDialog = false;
     protected isImporting = false;
+    protected importAbortController?: AbortController;
     protected copySelectedDialog: { geocacheIds: number[] } | null = null;
     protected moveSelectedDialog: { geocacheIds: number[] } | null = null;
     protected importAroundDialogOpen = false;
@@ -1410,13 +1411,15 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             return;
         }
 
+        const controller = new AbortController();
+        this.importAbortController = controller;
         try {
             this.isImporting = true;
             if (onProgress) {
                 onProgress(0, 'Préparation de l\'import...');
             }
 
-            const response = await this.geocachesService.importGpx(file, this.zoneId, updateExisting);
+            const response = await this.geocachesService.importGpx(file, this.zoneId, updateExisting, controller.signal);
             const lastMessage = await this.consumeImportStream(response, onProgress);
             this.messages.info(lastMessage || 'Import terminé');
 
@@ -1424,14 +1427,23 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             this.showImportDialog = false;
             await this.refreshZoneData();
         } catch (e) {
-            console.error('Import GPX error', e);
-            this.messages.error(getErrorMessage(e, 'Erreur lors de l\'import du fichier GPX'));
-            if (onProgress) {
-                onProgress(0, 'Erreur lors de l\'import');
+            if ((e as { name?: string })?.name === 'AbortError') {
+                this.messages.info('Import interrompu');
+                onProgress?.(0, 'Import interrompu');
+                await this.refreshZoneData();
+            } else {
+                console.error('Import GPX error', e);
+                this.messages.error(getErrorMessage(e, 'Erreur lors de l\'import du fichier GPX'));
+                onProgress?.(0, 'Erreur lors de l\'import');
             }
         } finally {
             this.isImporting = false;
+            this.importAbortController = undefined;
         }
+    }
+
+    protected cancelImport(): void {
+        this.importAbortController?.abort();
     }
 
     protected async handleImportBookmarkList(bookmarkCode: string, onProgress?: (percentage: number, message: string) => void): Promise<void> {
@@ -1440,24 +1452,31 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             return;
         }
 
+        const controller = new AbortController();
+        this.importAbortController = controller;
         this.isImporting = true;
         this.update();
 
         try {
-            const response = await this.geocachesService.importBookmarkList(bookmarkCode, this.zoneId);
+            const response = await this.geocachesService.importBookmarkList(bookmarkCode, this.zoneId, controller.signal);
             const lastMessage = await this.consumeImportStream(response, onProgress);
             this.messages.info(lastMessage || 'Import terminé');
 
             this.showBookmarkListDialog = false;
             await this.refreshZoneData();
         } catch (e) {
-            console.error('Import bookmark list error', e);
-            this.messages.error(getErrorMessage(e, 'Erreur lors de l\'import de la liste de favoris'));
-            if (onProgress) {
-                onProgress(0, 'Erreur lors de l\'import');
+            if ((e as { name?: string })?.name === 'AbortError') {
+                this.messages.info('Import interrompu');
+                onProgress?.(0, 'Import interrompu');
+                await this.refreshZoneData();
+            } else {
+                console.error('Import bookmark list error', e);
+                this.messages.error(getErrorMessage(e, 'Erreur lors de l\'import de la liste de favoris'));
+                onProgress?.(0, 'Erreur lors de l\'import');
             }
         } finally {
             this.isImporting = false;
+            this.importAbortController = undefined;
         }
     }
 
@@ -1467,24 +1486,31 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             return;
         }
 
+        const controller = new AbortController();
+        this.importAbortController = controller;
         this.isImporting = true;
         this.update();
 
         try {
-            const response = await this.geocachesService.importPocketQuery(pqCode, this.zoneId);
+            const response = await this.geocachesService.importPocketQuery(pqCode, this.zoneId, controller.signal);
             const lastMessage = await this.consumeImportStream(response, onProgress);
             this.messages.info(lastMessage || 'Import terminé');
 
             this.showPocketQueryDialog = false;
             await this.refreshZoneData();
         } catch (e) {
-            console.error('Import pocket query error', e);
-            this.messages.error(getErrorMessage(e, 'Erreur lors de l\'import de la pocket query'));
-            if (onProgress) {
-                onProgress(0, 'Erreur lors de l\'import');
+            if ((e as { name?: string })?.name === 'AbortError') {
+                this.messages.info('Import interrompu');
+                onProgress?.(0, 'Import interrompu');
+                await this.refreshZoneData();
+            } else {
+                console.error('Import pocket query error', e);
+                this.messages.error(getErrorMessage(e, 'Erreur lors de l\'import de la pocket query'));
+                onProgress?.(0, 'Erreur lors de l\'import');
             }
         } finally {
             this.isImporting = false;
+            this.importAbortController = undefined;
         }
     }
 
@@ -1599,6 +1625,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 onCancelImportDialog={() => this.closeImportDialog()}
                 onCancelBookmarkListDialog={() => this.closeBookmarkListDialog()}
                 onCancelPocketQueryDialog={() => this.closePocketQueryDialog()}
+                onCancelImport={() => this.cancelImport()}
                 onConfirmCopySelected={targetZoneId => this.performCopySelected(this.copySelectedDialog!.geocacheIds, targetZoneId)}
                 onCancelCopySelected={() => this.closeCopySelectedDialog()}
                 onConfirmMoveSelected={targetZoneId => this.performMoveSelected(this.moveSelectedDialog!.geocacheIds, targetZoneId)}

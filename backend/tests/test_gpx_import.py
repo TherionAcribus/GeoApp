@@ -145,6 +145,48 @@ def test_import_outcomes_created_existing_moved(app):
         assert moved.zone_id == zone_b.id
 
 
+def test_import_update_existing_updates_fields_and_keeps_waypoints(app):
+    from gc_backend.geocaches.models import GeocacheWaypoint
+    from gc_backend.geocaches.scraper import ScrapedGeocache
+
+    with app.app_context():
+        zone = Zone(name='Zone update')
+        db.session.add(zone)
+        db.session.flush()
+
+        caches, _ = parse_gpx_caches(GPX_SAMPLE)
+        importer = _bare_importer()
+
+        g = importer.import_from_scraped(zone.id, caches[0])
+        # Ajouter un waypoint local (comme s'il venait d'un scrape antérieur)
+        db.session.add(GeocacheWaypoint(geocache_id=g.id, prefix='PK', name='Parking'))
+        db.session.commit()
+        gc_id = g.id
+
+        # Sans update_existing -> ignorée
+        _, outcome = importer.import_from_scraped(zone.id, caches[0], return_outcome=True)
+        assert outcome == 'existing'
+
+        # Avec update_existing + données modifiées -> mise à jour
+        updated_sc = ScrapedGeocache(
+            gc_code='GC1TEST', name='Nom modifié', url=None, type='Mystery', size='regular',
+            owner='NewOwner', difficulty=4.0, terrain=3.5,
+            latitude=1.0, longitude=1.0, placed_at=None, status='active',
+            waypoints=[],  # GPX standard: pas de waypoints -> ne doit pas les effacer
+        )
+        _, outcome = importer.import_from_scraped(
+            zone.id, updated_sc, return_outcome=True, update_existing=True
+        )
+        assert outcome == 'updated'
+
+        refreshed = Geocache.query.get(gc_id)
+        assert refreshed.name == 'Nom modifié'
+        assert refreshed.difficulty == 4.0
+        assert refreshed.size == 'regular'
+        # Waypoint existant préservé (nouveau jeu vide)
+        assert GeocacheWaypoint.query.filter_by(geocache_id=gc_id).count() == 1
+
+
 def test_refresh_preserves_local_solved_coordinates(app, monkeypatch):
     from gc_backend.geocaches.scraper import ScrapedGeocache
     import gc_backend.blueprints.geocaches as gc_bp

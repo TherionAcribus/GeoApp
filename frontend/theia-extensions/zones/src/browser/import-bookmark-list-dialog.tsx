@@ -11,6 +11,7 @@ export interface ImportBookmarkListDialogProps {
     zoneId: number;
     onImport: (bookmarkCode: string, onProgress?: (percentage: number, message: string) => void) => Promise<void>;
     onCancel: () => void;
+    onCancelImport?: () => void;
     isImporting: boolean;
     backendUrl?: string;
 }
@@ -19,6 +20,7 @@ export const ImportBookmarkListDialog: React.FC<ImportBookmarkListDialogProps> =
     zoneId,
     onImport,
     onCancel,
+    onCancelImport,
     isImporting,
     backendUrl = 'http://localhost:8000'
 }) => {
@@ -234,6 +236,22 @@ export const ImportBookmarkListDialog: React.FC<ImportBookmarkListDialogProps> =
                     )}
 
                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                        {isImporting && onCancelImport && (
+                            <button
+                                type="button"
+                                onClick={onCancelImport}
+                                style={{
+                                    padding: '8px 16px',
+                                    backgroundColor: 'var(--theia-inputValidation-errorBackground)',
+                                    color: 'var(--theia-errorForeground)',
+                                    border: '1px solid var(--theia-inputValidation-errorBorder)',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Interrompre
+                            </button>
+                        )}
                         <button
                             type="button"
                             onClick={onCancel}

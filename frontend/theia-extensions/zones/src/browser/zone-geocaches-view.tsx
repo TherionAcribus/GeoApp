@@ -48,6 +48,7 @@ export interface ZoneGeocachesViewProps {
     onCancelImportDialog: () => void;
     onCancelBookmarkListDialog: () => void;
     onCancelPocketQueryDialog: () => void;
+    onCancelImport: () => void;
     onConfirmCopySelected: (targetZoneId: number) => void | Promise<void>;
     onCancelCopySelected: () => void;
     onConfirmMoveSelected: (targetZoneId: number) => void | Promise<void>;
@@ -170,6 +171,7 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
                 zoneId={props.zoneId}
                 onImport={props.onImportGpx}
                 onCancel={props.onCancelImportDialog}
+                onCancelImport={props.onCancelImport}
                 isImporting={props.isImporting}
             />
         )}
@@ -179,6 +181,7 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
                 zoneId={props.zoneId}
                 onImport={props.onImportBookmarkList}
                 onCancel={props.onCancelBookmarkListDialog}
+                onCancelImport={props.onCancelImport}
                 isImporting={props.isImporting}
             />
         )}
@@ -188,6 +191,7 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
                 zoneId={props.zoneId}
                 onImport={props.onImportPocketQuery}
                 onCancel={props.onCancelPocketQueryDialog}
+                onCancelImport={props.onCancelImport}
                 isImporting={props.isImporting}
             />
         )}

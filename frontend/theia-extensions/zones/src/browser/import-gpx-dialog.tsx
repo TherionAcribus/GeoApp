@@ -4,6 +4,7 @@ export interface ImportGpxDialogProps {
     zoneId: number;
     onImport: (file: File, updateExisting: boolean, onProgress?: (percentage: number, message: string) => void) => Promise<void>;
     onCancel: () => void;
+    onCancelImport?: () => void;
     isImporting: boolean;
 }
 
@@ -11,6 +12,7 @@ export const ImportGpxDialog: React.FC<ImportGpxDialogProps> = ({
     zoneId,
     onImport,
     onCancel,
+    onCancelImport,
     isImporting
 }) => {
     const [selectedFile, setSelectedFile] = React.useState<File | null>(null);
@@ -141,11 +143,12 @@ export const ImportGpxDialog: React.FC<ImportGpxDialogProps> = ({
                                 style={{ marginRight: '8px', cursor: isImporting ? 'not-allowed' : 'pointer' }}
                             />
                             <span style={{ color: 'var(--theia-foreground)' }}>
-                                Mettre à jour les waypoints des géocaches existantes
+                                Mettre à jour les géocaches déjà présentes
                             </span>
                         </label>
                         <p style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)', marginTop: '4px', marginLeft: '24px' }}>
-                            Si coché, les waypoints additionnels seront ajoutés aux géocaches déjà existantes
+                            Si coché, les géocaches déjà importées sont mises à jour avec les données du fichier
+                            (nom, coordonnées, difficulté…). Vos coordonnées résolues localement et notes personnelles sont préservées.
                         </p>
                     </div>
 
@@ -186,6 +189,22 @@ export const ImportGpxDialog: React.FC<ImportGpxDialogProps> = ({
                     )}
 
                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                        {isImporting && onCancelImport && (
+                            <button
+                                type="button"
+                                onClick={onCancelImport}
+                                style={{
+                                    padding: '8px 16px',
+                                    backgroundColor: 'var(--theia-inputValidation-errorBackground)',
+                                    color: 'var(--theia-errorForeground)',
+                                    border: '1px solid var(--theia-inputValidation-errorBorder)',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Interrompre
+                            </button>
+                        )}
                         <button
                             type="button"
                             onClick={onCancel}

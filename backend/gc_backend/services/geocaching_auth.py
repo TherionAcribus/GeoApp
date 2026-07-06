@@ -1153,27 +1153,41 @@ class GeocachingAuthService:
     
     # ==================== LOGOUT & STATUS ====================
     
-    def logout(self) -> AuthState:
-        """Déconnexion de Geocaching.com."""
+    def logout(self, forget: bool = False) -> AuthState:
+        """Déconnexion de Geocaching.com.
+
+        Args:
+            forget: Si True, supprime aussi les identifiants enregistrés (fichier
+                + trousseau) — « Oublier ce compte ». Si False (défaut), le compte
+                reste mémorisé : seule la session courante est fermée.
+        """
         with self._session_lock:
             if self._session:
                 try:
                     self._session.post(self.LOGOUT_URI, timeout=30)
                 except Exception as e:
                     logger.warning(f"Logout request failed: {e}")
-                
+
                 self._session.cookies.clear()
 
-        self._clear_saved_credentials()
+        # Toujours invalider la session persistée (on se déconnecte réellement).
         self._clear_cookies()
 
-        self._auth_state = AuthState(
-            status=AuthStatus.LOGGED_OUT,
-            method=AuthMethod.NONE
-        )
-        
-        logger.info("Logged out from Geocaching.com")
+        if forget:
+            self._clear_saved_credentials()
+
+        with self._state_lock:
+            self._auth_state = AuthState(
+                status=AuthStatus.LOGGED_OUT,
+                method=AuthMethod.NONE
+            )
+
+        logger.info("Forgot account" if forget else "Logged out from Geocaching.com")
         return self._auth_state
+
+    def forget(self) -> AuthState:
+        """Déconnexion + suppression des identifiants enregistrés."""
+        return self.logout(forget=True)
     
     def get_auth_state(self, force_check: bool = False) -> AuthState:
         """
