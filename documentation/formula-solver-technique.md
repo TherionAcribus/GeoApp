@@ -233,6 +233,7 @@ Blueprint : `formula_solver_bp`, préfixe `/api/formula-solver`
 | POST | `/detect-formulas` | Détecte les formules GPS (texte brut ou geocache_id) |
 | POST | `/extract-questions` | Extrait les questions par regex pour des lettres données |
 | POST | `/calculate` | Calcule les coordonnées finales (formule + valeurs) |
+| POST | `/calculate-batch` | Calcule N combinaisons en un seul appel (brute force). Renvoie `results[]` (chaque entrée : `values`, `status`, `coordinates?`, `distance?`, `error?`), plus `success_count`/`error_count`. Limite backend : 2000 combinaisons |
 | GET | `/geocache/<id>` | Récupère le texte d'une géocache pour le solver |
 | POST | `/geocache/<id>/waypoint` | Crée un waypoint depuis le résultat |
 
@@ -375,7 +376,7 @@ Les URL des résultats web (`AnswerDetail.webResults[].source`) sont rendues com
 
 Le widget supporte un mode brute force :
 1. `BruteForceComponent` génère les combinaisons de valeurs possibles pour les lettres incomplètes
-2. `executeBruteForceFromCombinations()` teste chaque combinaison via le backend `/calculate`
+2. `executeBruteForceFromCombinations()` teste toutes les combinaisons en un seul appel `/calculate-batch` (`executeBruteForceFromFields()` génère les combinaisons puis délègue à cette méthode)
 3. Les résultats valides sont affichés avec boutons "Créer waypoint" / "Ajouter & valider"
 
 ---
@@ -462,7 +463,7 @@ GeoAppFormulaSolverAgents   → singleton (agents IA)
 
 ## 14. Points d'extension / évolutions possibles
 
-- **Brute force batch** : ajouter un endpoint `/calculate-batch` pour envoyer toutes les combinaisons en un POST au lieu de N appels séquentiels
+- ~~**Brute force batch** : ajouter un endpoint `/calculate-batch`~~ ✅ Implémenté — le brute force envoie désormais toutes les combinaisons en un seul POST au lieu de N appels séquentiels
 - **Nouveaux moteurs de recherche** : ajouter Google Custom Search, Bing, etc. au `WebSearchService`
 - **Persistance** : sauvegarder l'état du solver (formule + valeurs) dans la BDD pour reprendre plus tard
 - **Export** : exporter les résultats (coordonnées + raisonnement) en format texte/CSV

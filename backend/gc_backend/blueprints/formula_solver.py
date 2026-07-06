@@ -362,6 +362,152 @@ def calculate_coordinates():
         }), 500
 
 
+@formula_solver_bp.post('/calculate-batch')
+def calculate_coordinates_batch():
+    """
+    Calcule les coordonnées pour plusieurs combinaisons de valeurs en une seule requête.
+
+    Évite d'envoyer N requêtes séquentielles depuis le frontend (brute force).
+
+    Body JSON:
+        {
+            "north_formula": "N 47° 5A.BC",
+            "east_formula": "E 006° 5D.EF",
+            "combinations": [
+                {"A": 3, "B": 5, "C": 1, "D": 2, "E": 8},
+                {"A": 3, "B": 5, "C": 1, "D": 2, "E": 9}
+            ],
+            "origin_lat": 47.123,  // optionnel (distance)
+            "origin_lon": 6.456    // optionnel
+        }
+
+    Returns:
+        {
+            "status": "success",
+            "results": [
+                {
+                    "values": {...},
+                    "status": "success",
+                    "coordinates": {...},
+                    "distance": {...}   // si origine fournie
+                },
+                {
+                    "values": {...},
+                    "status": "error",
+                    "error": "Valeurs manquantes pour les variables: F"
+                }
+            ],
+            "success_count": 1,
+            "error_count": 1
+        }
+    """
+    # Limite de sécurité côté backend (le frontend limite déjà à 1000)
+    MAX_COMBINATIONS = 2000
+
+    try:
+        data = request.get_json(silent=True) or {}
+
+        north_formula = data.get('north_formula')
+        east_formula = data.get('east_formula')
+        combinations = data.get('combinations')
+        origin_lat = data.get('origin_lat')
+        origin_lon = data.get('origin_lon')
+
+        if not north_formula or not east_formula:
+            return jsonify({
+                'status': 'error',
+                'error': 'Paramètres north_formula et east_formula requis'
+            }), 400
+
+        if not isinstance(combinations, list) or not combinations:
+            return jsonify({
+                'status': 'error',
+                'error': 'Paramètre combinations requis (liste non vide de dictionnaires)'
+            }), 400
+
+        if len(combinations) > MAX_COMBINATIONS:
+            return jsonify({
+                'status': 'error',
+                'error': f'Trop de combinaisons ({len(combinations)}). Maximum autorisé : {MAX_COMBINATIONS}.'
+            }), 400
+
+        has_origin = origin_lat is not None and origin_lon is not None
+
+        calculator = CoordinateCalculator()
+        results = []
+        success_count = 0
+        error_count = 0
+
+        for combination in combinations:
+            if not isinstance(combination, dict):
+                error_count += 1
+                results.append({
+                    'values': combination,
+                    'status': 'error',
+                    'error': 'Combinaison invalide (dictionnaire attendu)'
+                })
+                continue
+
+            try:
+                result = calculator.calculate_coordinates(north_formula, east_formula, combination)
+            except ValueError as calc_error:
+                error_count += 1
+                results.append({
+                    'values': combination,
+                    'status': 'error',
+                    'error': str(calc_error)
+                })
+                continue
+
+            if result.get('status') != 'success':
+                error_count += 1
+                results.append({
+                    'values': combination,
+                    'status': 'error',
+                    'error': result.get('error', 'Erreur inconnue')
+                })
+                continue
+
+            if has_origin:
+                distance_km = calculator.calculate_distance(
+                    origin_lat, origin_lon,
+                    result['coordinates']['latitude'],
+                    result['coordinates']['longitude']
+                )
+                result['distance'] = {
+                    'km': round(distance_km, 2),
+                    'miles': round(distance_km * 0.621371, 2)
+                }
+
+            success_count += 1
+            results.append({
+                'values': combination,
+                'status': 'success',
+                'coordinates': result['coordinates'],
+                'distance': result.get('distance'),
+                'calculation_steps': result.get('calculation_steps')
+            })
+
+        logger.info(
+            f"Calcul batch: {len(combinations)} combinaison(s) → "
+            f"{success_count} succès, {error_count} erreur(s)"
+        )
+
+        return jsonify({
+            'status': 'success',
+            'results': results,
+            'success_count': success_count,
+            'error_count': error_count
+        })
+
+    except Exception as e:
+        logger.error(f"Erreur lors du calcul batch de coordonnées : {e}")
+        return jsonify({
+            'status': 'error',
+            'error': str(e)
+        }), 500
+
+
 @formula_solver_bp.get('/geocache/<int:geocache_id>')
 def get_geocache_for_solver(geocache_id: int):
     """

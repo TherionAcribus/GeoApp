@@ -342,6 +342,122 @@ class TestCalculateRoute:
         assert 'manquantes' in data['error'].lower() or 'missing' in data['error'].lower()
 
 
+class TestCalculateBatchRoute:
+    """Tests de la route /api/formula-solver/calculate-batch"""
+
+    def test_batch_simple(self, client):
+        """Test : Calcul batch de plusieurs combinaisons"""
+        response = client.post(
+            '/api/formula-solver/calculate-batch',
+            json={
+                'north_formula': 'N 47° 5E.AB',
+                'east_formula': 'E 006° 5C.DE',
+                'combinations': [
+                    {'A': 3, 'B': 5, 'C': 1, 'D': 2, 'E': 8},
+                    {'A': 3, 'B': 5, 'C': 1, 'D': 2, 'E': 9}
+                ]
+            }
+        )
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+
+        assert data['status'] == 'success'
+        assert data['success_count'] == 2
+        assert data['error_count'] == 0
+        assert len(data['results']) == 2
+        # Chaque résultat renvoie les valeurs d'origine + les coordonnées
+        assert data['results'][0]['values'] == {'A': 3, 'B': 5, 'C': 1, 'D': 2, 'E': 8}
+        assert 'coordinates' in data['results'][0]
+        assert 'ddm' in data['results'][0]['coordinates']
+
+    def test_batch_with_distance(self, client):
+        """Test : Distance calculée si origine fournie"""
+        response = client.post(
+            '/api/formula-solver/calculate-batch',
+            json={
+                'north_formula': 'N 47° 5E.AB',
+                'east_formula': 'E 006° 5C.DE',
+                'combinations': [
+                    {'A': 3, 'B': 5, 'C': 1, 'D': 2, 'E': 8}
+                ],
+                'origin_lat': 47.0,
+                'origin_lon': 6.0
+            }
+        )
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data['results'][0]['distance'] is not None
+        assert data['results'][0]['distance']['km'] > 0
+
+    def test_batch_partial_errors(self, client):
+        """Test : Une combinaison invalide n'empêche pas les autres"""
+        response = client.post(
+            '/api/formula-solver/calculate-batch',
+            json={
+                'north_formula': 'N 47° 5E.AB',
+                'east_formula': 'E 006° 5C.DE',
+                'combinations': [
+                    {'A': 3, 'B': 5, 'C': 1, 'D': 2, 'E': 8},
+                    {'A': 3}  # valeurs manquantes → erreur pour cette combinaison
+                ]
+            }
+        )
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data['success_count'] == 1
+        assert data['error_count'] == 1
+        # Le résultat en erreur conserve ses valeurs et un message
+        error_result = next(r for r in data['results'] if r['status'] == 'error')
+        assert 'error' in error_result
+
+    def test_batch_missing_formula(self, client):
+        """Test : Erreur 400 si formule manquante"""
+        response = client.post(
+            '/api/formula-solver/calculate-batch',
+            json={
+                'north_formula': 'N 47° 5E.AB',
+                'combinations': [{'A': 1}]
+            }
+        )
+
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert data['status'] == 'error'
+
+    def test_batch_empty_combinations(self, client):
+        """Test : Erreur 400 si combinations vide ou absent"""
+        response = client.post(
+            '/api/formula-solver/calculate-batch',
+            json={
+                'north_formula': 'N 47° 5E.AB',
+                'east_formula': 'E 006° 5C.DE',
+                'combinations': []
+            }
+        )
+
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert data['status'] == 'error'
+
+    def test_batch_too_many_combinations(self, client):
+        """Test : Erreur 400 au-delà de la limite de sécurité"""
+        response = client.post(
+            '/api/formula-solver/calculate-batch',
+            json={
+                'north_formula': 'N 47° 5E.AB',
+                'east_formula': 'E 006° 5C.DE',
+                'combinations': [{'A': 1, 'B': 2, 'C': 3, 'D': 4, 'E': 5}] * 2001
+            }
+        )
+
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert data['status'] == 'error'
+
+
 class TestCoordinateCalculatorSecurity:
     """Tests de sécurité pour le calculateur de coordonnées"""
     

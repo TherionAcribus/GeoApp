@@ -1460,36 +1460,34 @@ export class FormulaSolverWidget extends ReactWidget {
         this.messageService.info(`Calcul de ${combinations.length} combinaisons...`);
 
         try {
+            // Un seul appel batch au backend au lieu de N requêtes séquentielles
+            const batchResults = await this.formulaSolverService.calculateCoordinatesBatch({
+                northFormula: this.state.selectedFormula.north,
+                eastFormula: this.state.selectedFormula.east,
+                combinations
+            });
+
             const results: Array<{ id: string; label: string; values: Record<string, number>; coordinates?: any }> = [];
 
-            // Calculer chaque combinaison
-            for (const combination of combinations) {
-                try {
-                    const result = await this.formulaSolverService.calculateCoordinates({
-                        northFormula: this.state.selectedFormula.north,
-                        eastFormula: this.state.selectedFormula.east,
-                        values: combination
-                    });
-
-                    if (result.status === 'success' && result.coordinates) {
-                        // Générer un ID unique basé sur les valeurs
-                        const id = Object.entries(combination)
-                            .map(([k, v]) => `${k}${v}`)
-                            .join('-');
-
-                        const label = `Solution ${results.length + 1}`;
-
-                        results.push({
-                            id,
-                            label,
-                            values: combination,
-                            coordinates: result.coordinates
-                        });
-                    }
-                } catch (error) {
-                    // Ignorer les erreurs de calcul individuelles
-                    console.warn('[FORMULA-SOLVER] Erreur pour combinaison', combination, error);
+            for (const item of batchResults) {
+                if (item.status !== 'success' || !item.coordinates) {
+                    // Les combinaisons invalides (ex: coordonnée hors limites) sont ignorées
+                    continue;
                 }
+
+                // Générer un ID unique basé sur les valeurs
+                const id = Object.entries(item.values)
+                    .map(([k, v]) => `${k}${v}`)
+                    .join('-');
+
+                const label = `Solution ${results.length + 1}`;
+
+                results.push({
+                    id,
+                    label,
+                    values: item.values,
+                    coordinates: item.coordinates
+                });
             }
 
             this.bruteForceResults = results;
@@ -1513,7 +1511,8 @@ export class FormulaSolverWidget extends ReactWidget {
     }
 
     /**
-     * Exécute le brute force automatiquement depuis les champs remplis
+     * Exécute le brute force automatiquement depuis les champs remplis.
+     * Génère les combinaisons puis délègue au calcul batch commun.
      */
     protected async executeBruteForceFromFields(): Promise<void> {
         if (!this.state.selectedFormula) {
@@ -1523,7 +1522,7 @@ export class FormulaSolverWidget extends ReactWidget {
 
         // Générer les combinaisons depuis les valeurs des champs
         const letterValuesMap: Record<string, number[]> = {};
-        
+
         for (const [letter, letterValue] of this.state.values.entries()) {
             if (letterValue.values && letterValue.values.length > 0) {
                 // Utiliser la liste de valeurs
@@ -1537,7 +1536,7 @@ export class FormulaSolverWidget extends ReactWidget {
         const totalCombinations = Object.values(letterValuesMap).reduce((total, values) => total * values.length, 1);
         const maxCombinations = 1000;
         const combinations = this.generateCombinations(letterValuesMap, maxCombinations);
-        
+
         if (combinations.length === 0) {
             this.messageService.warn('Aucune combinaison à tester');
             return;
@@ -1547,63 +1546,7 @@ export class FormulaSolverWidget extends ReactWidget {
             this.messageService.warn(`${totalCombinations} combinaisons détectées. Limité à ${maxCombinations} pour éviter les calculs trop longs.`);
         }
 
-        this.bruteForceMode = true;
-        this.bruteForceResults = [];
-        this.updateState({ loading: true, error: undefined });
-
-        this.messageService.info(`Calcul de ${combinations.length} combinaisons...`);
-
-        try {
-            const results: Array<{ id: string; label: string; values: Record<string, number>; coordinates?: any }> = [];
-
-            // Calculer chaque combinaison
-            for (const combination of combinations) {
-                try {
-                    const result = await this.formulaSolverService.calculateCoordinates({
-                        northFormula: this.state.selectedFormula.north,
-                        eastFormula: this.state.selectedFormula.east,
-                        values: combination
-                    });
-
-                    if (result.status === 'success' && result.coordinates) {
-                        // Générer un ID unique basé sur les valeurs
-                        const id = Object.entries(combination)
-                            .map(([k, v]) => `${k}${v}`)
-                            .join('-');
-                        
-                        const label = `Solution ${results.length + 1}`;
-
-                        results.push({
-                            id,
-                            label,
-                            values: combination,
-                            coordinates: result.coordinates
-                        });
-                    }
-                } catch (error) {
-                    // Ignorer les erreurs de calcul individuelles
-                    console.warn('[FORMULA-SOLVER] Erreur pour combinaison', combination, error);
-                }
-            }
-
-            this.bruteForceResults = results;
-            this.updateState({ loading: false });
-
-            // Afficher tous les points sur la carte (uniquement ceux avec coordonnées)
-            const validResults = results.filter((r): r is { id: string; label: string; values: Record<string, number>; coordinates: any } => 
-                r.coordinates !== undefined
-            );
-            this.showAllResultsOnMap(validResults);
-
-            this.messageService.info(
-                `${results.length} résultat${results.length > 1 ? 's' : ''} calculé${results.length > 1 ? 's' : ''} avec succès !`
-            );
-
-        } catch (error) {
-            const message = error instanceof Error ? error.message : 'Erreur inconnue';
-            this.messageService.error(`Erreur brute force : ${message}`);
-            this.updateState({ loading: false, error: message });
-        }
+        await this.executeBruteForceFromCombinations(combinations);
     }
 
     /**

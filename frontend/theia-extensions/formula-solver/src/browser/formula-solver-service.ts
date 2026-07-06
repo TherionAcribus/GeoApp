@@ -29,6 +29,22 @@ export interface CalculateCoordinatesParams {
     originLon?: number;
 }
 
+export interface CalculateBatchParams {
+    northFormula: string;
+    eastFormula: string;
+    combinations: Array<Record<string, number>>;
+    originLat?: number;
+    originLon?: number;
+}
+
+export interface BatchCalculationResult {
+    values: Record<string, number>;
+    status: 'success' | 'error';
+    coordinates?: CalculationResult['coordinates'];
+    distance?: { km: number; miles: number };
+    error?: string;
+}
+
 export interface SearchAnswerWebParams {
     question: string;
     context?: string;
@@ -64,6 +80,7 @@ export interface FormulaSolverService {
     detectFormulas(params: DetectFormulasParams): Promise<Formula[]>;
     extractQuestions(params: ExtractQuestionsParams): Promise<Map<string, string>>;
     calculateCoordinates(params: CalculateCoordinatesParams): Promise<CalculationResult>;
+    calculateCoordinatesBatch(params: CalculateBatchParams): Promise<BatchCalculationResult[]>;
     getGeocache(id: number): Promise<FormulaSolverGeocache>;
     searchAnswerWeb(params: SearchAnswerWebParams): Promise<SearchAnswerWebResult>;
     searchAnswersWebBatch(params: SearchAnswersWebBatchParams): Promise<Map<string, SearchAnswerWebResult>>;
@@ -112,6 +129,17 @@ export class FormulaSolverServiceImpl implements FormulaSolverService {
             origin_lon: params.originLon
         });
         return response.data;
+    }
+
+    async calculateCoordinatesBatch(params: CalculateBatchParams): Promise<BatchCalculationResult[]> {
+        const response = await this.api.post('/calculate-batch', {
+            north_formula: params.northFormula,
+            east_formula: params.eastFormula,
+            combinations: params.combinations,
+            origin_lat: params.originLat,
+            origin_lon: params.originLon
+        });
+        return response.data?.results ?? [];
     }
 
     async getGeocache(id: number): Promise<FormulaSolverGeocache> {
