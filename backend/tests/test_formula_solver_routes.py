@@ -458,6 +458,82 @@ class TestCalculateBatchRoute:
         assert data['status'] == 'error'
 
 
+class TestSearchAnswersBatchParallel:
+    """Tests de la route /api/formula-solver/ai/search-answers (parallélisation)"""
+
+    def test_batch_runs_in_parallel(self, client, monkeypatch):
+        """Test : les recherches s'exécutent en parallèle (temps << séquentiel)"""
+        import time
+        from gc_backend.blueprints import formula_solver
+
+        def slow_search(question, context=None, max_results=5, raw=False):
+            time.sleep(0.3)
+            return [{'text': f'answer for {question}', 'source': 'x', 'score': 0.9, 'type': 'snippet'}]
+
+        monkeypatch.setattr(formula_solver.web_search_service, 'search', slow_search)
+        monkeypatch.setattr(formula_solver.web_search_service, 'extract_answer', lambda results: results[0]['text'])
+
+        start = time.perf_counter()
+        response = client.post(
+            '/api/formula-solver/ai/search-answers',
+            json={'questions': {'A': 'q1', 'B': 'q2', 'C': 'q3', 'D': 'q4'}}
+        )
+        elapsed = time.perf_counter() - start
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data['status'] == 'success'
+        assert set(data['answers'].keys()) == {'A', 'B', 'C', 'D'}
+        # Séquentiel prendrait ~1.2s (4 x 0.3) ; en parallèle (4 workers) ~0.3s.
+        assert elapsed < 0.8, f"Recherche batch trop lente ({elapsed:.2f}s), parallélisation inopérante ?"
+
+    def test_batch_error_isolation(self, client, monkeypatch):
+        """Test : une recherche en échec n'interrompt pas les autres"""
+        from gc_backend.blueprints import formula_solver
+
+        def flaky_search(question, context=None, max_results=5, raw=False):
+            if question == 'boom':
+                raise RuntimeError('search failed')
+            return [{'text': 'ok', 'source': 'x', 'score': 0.9, 'type': 'snippet'}]
+
+        monkeypatch.setattr(formula_solver.web_search_service, 'search', flaky_search)
+        monkeypatch.setattr(formula_solver.web_search_service, 'extract_answer', lambda results: results[0]['text'])
+
+        response = client.post(
+            '/api/formula-solver/ai/search-answers',
+            json={'questions': {'A': 'good', 'B': 'boom'}}
+        )
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data['answers']['A']['best_answer'] == 'ok'
+        # La question en échec renvoie une réponse vide sans planter le lot.
+        assert data['answers']['B']['best_answer'] == ''
+
+    def test_batch_empty_question_skips_search(self, client, monkeypatch):
+        """Test : une question vide ne déclenche pas de recherche"""
+        from gc_backend.blueprints import formula_solver
+
+        called = {'count': 0}
+
+        def counting_search(question, context=None, max_results=5, raw=False):
+            called['count'] += 1
+            return [{'text': 'ok', 'source': 'x', 'score': 0.9, 'type': 'snippet'}]
+
+        monkeypatch.setattr(formula_solver.web_search_service, 'search', counting_search)
+        monkeypatch.setattr(formula_solver.web_search_service, 'extract_answer', lambda results: results[0]['text'])
+
+        response = client.post(
+            '/api/formula-solver/ai/search-answers',
+            json={'questions': {'A': 'good', 'B': ''}}
+        )
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert called['count'] == 1
+        assert data['answers']['B'] == {'best_answer': '', 'results': []}
+
+
 class TestCoordinateCalculatorSecurity:
     """Tests de sécurité pour le calculateur de coordonnées"""
     

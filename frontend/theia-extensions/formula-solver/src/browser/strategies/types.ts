@@ -48,6 +48,13 @@ export interface AnsweringContext {
     webContext?: string;
 
     /**
+     * Nombre maximum de réponses IA traitées simultanément (mode par question).
+     * Par défaut 3, ramené à 1 si toutes les lettres utilisent un modèle local
+     * (les serveurs LMStudio/Ollama traitent une requête à la fois).
+     */
+    maxConcurrency?: number;
+
+    /**
      * Overrides UI (si l'utilisateur veut contrôler le contexte / consignes).
      */
     preparedContextOverride?: PreparedAnsweringContext;

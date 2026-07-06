@@ -125,6 +125,8 @@ Deux axes de configuration :
 
 **Sortie** : `AnsweringResult { answersByLetter, detailsByLetter?, meta }`.
 
+**Concurrence (`ai-per-question`)** : les lettres sont résolues en parallèle via `runWithConcurrency` (3 max par défaut, réglable par `AnsweringContext.maxConcurrency`). La concurrence est **ramenée à 1 si toutes les lettres utilisent le profil `local`** (les serveurs LMStudio/Ollama traitent une requête à la fois). Le callback `onAnswer` reste appelé au fil de l'eau (dans l'ordre de complétion). La sémantique « la première erreur interrompt le lot » est préservée : dès qu'une lettre échoue, on cesse d'en lancer et l'erreur remonte à l'appelant une fois les tâches en cours terminées.
+
 Chaque `AnswerDetail` contient :
 - `answer`, `source` (`'ai' | 'web'`), `profile`, `explanation`
 - `valueType` (`'value' | 'checksum' | 'reduced' | 'length'`)
@@ -244,7 +246,7 @@ Blueprint : `formula_solver_bp`, préfixe `/api/formula-solver`
 | POST | `/ai/detect-formula` | Détection enrichie pour l'agent IA |
 | POST | `/ai/find-questions` | Recherche questions pour l'agent IA |
 | POST | `/ai/search-answer` | Recherche web une question (DuckDuckGo) |
-| POST | `/ai/search-answers` | Recherche web batch (plusieurs questions) |
+| POST | `/ai/search-answers` | Recherche web batch (plusieurs questions), exécutée **en parallèle** (`ThreadPoolExecutor`, 4 workers max pour limiter le rate-limiting DuckDuckGo) ; une recherche en échec n'interrompt pas le lot |
 | POST | `/ai/suggest-calculation-type` | Suggère le type de calcul pour une réponse |
 
 ### 7.3 Utilitaire

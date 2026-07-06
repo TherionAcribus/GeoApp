@@ -3,6 +3,7 @@ Blueprint Formula Solver
 Routes API pour la résolution de formules de coordonnées GPS
 """
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import Blueprint, request, jsonify, current_app
 from loguru import logger
 from bs4 import BeautifulSoup
@@ -1033,22 +1034,44 @@ def ai_search_answers():
             }), 400
 
         answers = {}
+
+        # Les questions vides ont une réponse immédiate ; on ne lance de recherche
+        # que pour les questions non vides.
+        pending = []
         for key, question in items:
             if not question:
-                answers[key] = {
-                    'best_answer': '',
-                    'results': []
-                }
-                continue
+                answers[key] = {'best_answer': '', 'results': []}
+            else:
+                pending.append((key, question))
 
+        def _run_search(question):
             results = web_search_service.search(question, context, max_results)
             best_answer = web_search_service.extract_answer(results)
-            answers[key] = {
-                'best_answer': best_answer,
-                'results': results
-            }
+            return {'best_answer': best_answer, 'results': results}
 
-        logger.info(f"[AI] Recherche web batch: {len(items)} question(s)")
+        if pending:
+            # Recherches lancées en parallèle pour diviser le temps total.
+            # Concurrence volontairement modérée (4 max) pour ne pas déclencher
+            # le rate-limiting de DuckDuckGo.
+            max_workers = min(4, len(pending))
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_key = {
+                    executor.submit(_run_search, question): key
+                    for key, question in pending
+                }
+                for future in as_completed(future_to_key):
+                    key = future_to_key[future]
+                    try:
+                        answers[key] = future.result()
+                    except Exception as search_error:
+                        # Une recherche en échec n'interrompt pas les autres.
+                        logger.warning(f"[AI] Erreur recherche web pour '{key}': {search_error}")
+                        answers[key] = {'best_answer': '', 'results': []}
+
+        logger.info(
+            f"[AI] Recherche web batch: {len(items)} question(s), "
+            f"{len(pending)} recherche(s) en parallèle (max {min(4, len(pending)) if pending else 0} workers)"
+        )
 
         return jsonify({
             'status': 'success',
