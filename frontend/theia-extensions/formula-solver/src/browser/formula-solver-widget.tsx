@@ -96,6 +96,10 @@ export class FormulaSolverWidget extends ReactWidget {
     protected stepConfigPanelOpen: boolean = false;
     protected showAdvancedAnswerFields: boolean = false;
 
+    // UI: menus des boutons "split" (questions / réponses)
+    protected questionsActionMenuOpen: boolean = false;
+    protected answersActionMenuOpen: boolean = false;
+
     // --- IA: contexte & prompts (visualisation / overrides) ---
     protected answeringContextOpen: boolean = false;
     protected answeringContextUseOverride: boolean = false;
@@ -247,6 +251,7 @@ export class FormulaSolverWidget extends ReactWidget {
                 'geoapp-map-remove-brute-force-point',
                 this.handleExternalBruteForceRemoval as EventListener
             );
+            window.addEventListener('click', this.handleGlobalClickForMenus);
         }
 
         // Charger les préférences
@@ -260,6 +265,7 @@ export class FormulaSolverWidget extends ReactWidget {
                 'geoapp-map-remove-brute-force-point',
                 this.handleExternalBruteForceRemoval as EventListener
             );
+            window.removeEventListener('click', this.handleGlobalClickForMenus);
             // Nettoyer l'overlay preview si le widget se ferme
             window.dispatchEvent(new CustomEvent('geoapp-map-formula-solver-preview-overlay-clear'));
         }
@@ -1666,6 +1672,23 @@ export class FormulaSolverWidget extends ReactWidget {
     };
 
     /**
+     * Ferme les menus des boutons "split" (questions / réponses) au clic
+     * en dehors de leur conteneur (identifié par l'attribut data-fs-menu-root).
+     */
+    private handleGlobalClickForMenus = (event: MouseEvent): void => {
+        if (!this.questionsActionMenuOpen && !this.answersActionMenuOpen) {
+            return;
+        }
+        const target = event.target as HTMLElement | null;
+        if (target && typeof target.closest === 'function' && target.closest('[data-fs-menu-root]')) {
+            return;
+        }
+        this.questionsActionMenuOpen = false;
+        this.answersActionMenuOpen = false;
+        this.update();
+    };
+
+    /**
      * Affiche tous les résultats du brute force sur la carte
      */
     protected showAllResultsOnMap(results: Array<{ id: string; label: string; values: Record<string, number>; coordinates: any }>): void {
@@ -1950,6 +1973,9 @@ export class FormulaSolverWidget extends ReactWidget {
                         border-radius: 50%;
                         animation: formula-solver-spin 0.8s linear infinite;
                         margin: 0 6px;
+                    }
+                    .formula-solver-menu-item:hover {
+                        background-color: var(--theia-list-hoverBackground);
                     }
                 `}</style>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -2455,6 +2481,109 @@ export class FormulaSolverWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Bouton "split" : action principale + caret ouvrant un menu d'actions alternatives.
+     * Remplace des groupes de boutons redondants (ex: "Répondre (auto)" / "Répondre
+     * (écraser)" / "Réponses (IA)" / "Réponses (Web)") par un seul contrôle compact.
+     */
+    protected renderSplitButton(options: {
+        id: string;
+        label: string;
+        title: string;
+        onClick: () => void;
+        disabled?: boolean;
+        loading?: boolean;
+        primary?: boolean;
+        isMenuOpen: boolean;
+        onToggleMenu: () => void;
+        menuItems: Array<{ label: string; title?: string; onClick: () => void }>;
+    }): React.ReactNode {
+        const { id, label, title, onClick, disabled, loading, primary, isMenuOpen, onToggleMenu, menuItems } = options;
+        const backgroundColor = primary ? 'var(--theia-button-background)' : 'var(--theia-button-secondaryBackground)';
+        const color = primary ? 'var(--theia-button-foreground)' : 'var(--theia-button-secondaryForeground)';
+
+        return (
+            <div data-fs-menu-root={id} style={{ position: 'relative', display: 'inline-flex' }}>
+                <button
+                    style={{
+                        padding: '6px 10px',
+                        backgroundColor,
+                        color,
+                        border: 'none',
+                        borderRadius: '4px 0 0 4px',
+                        cursor: disabled ? 'default' : 'pointer',
+                        fontSize: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                    }}
+                    onClick={onClick}
+                    disabled={disabled}
+                    title={title}
+                >
+                    {loading ? <span className="formula-solver-spinner" style={{ width: '12px', height: '12px', margin: 0 }} /> : null}
+                    {label}
+                </button>
+                <button
+                    style={{
+                        padding: '6px 6px',
+                        backgroundColor,
+                        color,
+                        border: 'none',
+                        borderLeft: '1px solid var(--theia-panel-border)',
+                        borderRadius: '0 4px 4px 0',
+                        cursor: disabled ? 'default' : 'pointer',
+                        fontSize: '12px'
+                    }}
+                    onClick={onToggleMenu}
+                    disabled={disabled}
+                    title="Autres options"
+                >
+                    <span className="codicon codicon-chevron-down" />
+                </button>
+
+                {isMenuOpen && (
+                    <div style={{
+                        position: 'absolute',
+                        top: '100%',
+                        left: 0,
+                        marginTop: '4px',
+                        backgroundColor: 'var(--theia-dropdown-background)',
+                        border: '1px solid var(--theia-dropdown-border)',
+                        borderRadius: '4px',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                        zIndex: 10,
+                        minWidth: '220px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        overflow: 'hidden'
+                    }}>
+                        {menuItems.map((item, idx) => (
+                            <button
+                                key={idx}
+                                className="formula-solver-menu-item"
+                                style={{
+                                    padding: '8px 12px',
+                                    backgroundColor: 'transparent',
+                                    color: 'var(--theia-dropdown-foreground)',
+                                    border: 'none',
+                                    textAlign: 'left',
+                                    cursor: 'pointer',
+                                    fontSize: '12px',
+                                    whiteSpace: 'nowrap'
+                                }}
+                                onClick={item.onClick}
+                                title={item.title}
+                            >
+                                {item.label}
+                            </button>
+                        ))}
+                    </div>
+                )}
+            </div>
+        );
+    }
+
     protected renderDetectionStep(): React.ReactNode {
         return (
             <div className='detection-step' style={{ marginBottom: '20px' }}>
@@ -2610,7 +2739,7 @@ export class FormulaSolverWidget extends ReactWidget {
         return (
             <div className='questions-step' style={{ marginBottom: '20px' }}>
                 <h3>2. Questions pour les variables</h3>
-                
+
                 <div style={{
                     padding: '20px',
                     backgroundColor: 'var(--theia-editor-background)',
@@ -2618,8 +2747,6 @@ export class FormulaSolverWidget extends ReactWidget {
                     borderRadius: '4px',
                     marginBottom: '20px'
                 }}>
-                    <h3 style={{ marginTop: 0 }}>2. Questions pour les variables</h3>
-
                     <div style={{
                         display: 'flex',
                         gap: '8px',
@@ -2627,60 +2754,43 @@ export class FormulaSolverWidget extends ReactWidget {
                         alignItems: 'center',
                         marginBottom: '12px'
                     }}>
-                        <button
-                            style={{
-                                padding: '6px 10px',
-                                backgroundColor: 'var(--theia-button-secondaryBackground)',
-                                color: 'var(--theia-button-secondaryForeground)',
-                                border: 'none',
-                                borderRadius: '4px',
-                                cursor: 'pointer',
-                                fontSize: '12px'
-                            }}
-                            onClick={() => void this.runQuestionsStep(this.state.selectedFormula!)}
-                            disabled={this.state.loading}
-                            title="Relance l'étape Questions avec la méthode choisie"
-                        >
-                            Rejouer questions
-                        </button>
+                        {this.renderSplitButton({
+                            id: 'questions-actions',
+                            label: 'Rejouer questions',
+                            title: "Relance l'étape Questions avec la méthode choisie",
+                            disabled: this.state.loading,
+                            isMenuOpen: this.questionsActionMenuOpen,
+                            onToggleMenu: () => {
+                                this.questionsActionMenuOpen = !this.questionsActionMenuOpen;
+                                this.answersActionMenuOpen = false;
+                                this.update();
+                            },
+                            onClick: () => {
+                                this.questionsActionMenuOpen = false;
+                                void this.runQuestionsStep(this.state.selectedFormula!);
+                            },
+                            menuItems: [
+                                {
+                                    label: 'Forcer via Regex',
+                                    title: "Relance l'extraction des questions via regex (backend)",
+                                    onClick: () => {
+                                        this.questionsActionMenuOpen = false;
+                                        void this.runQuestionsStep(this.state.selectedFormula!, { method: 'algorithm' });
+                                    }
+                                },
+                                {
+                                    label: 'Forcer via IA',
+                                    title: "Relance l'extraction des questions via IA",
+                                    onClick: () => {
+                                        this.questionsActionMenuOpen = false;
+                                        void this.runQuestionsStep(this.state.selectedFormula!, { method: 'ai' });
+                                    }
+                                }
+                            ]
+                        })}
 
                         <button
                             style={{
-                                padding: '6px 10px',
-                                backgroundColor: 'var(--theia-button-secondaryBackground)',
-                                color: 'var(--theia-button-secondaryForeground)',
-                                border: 'none',
-                                borderRadius: '4px',
-                                cursor: 'pointer',
-                                fontSize: '12px'
-                            }}
-                            onClick={() => void this.runQuestionsStep(this.state.selectedFormula!, { method: 'algorithm' })}
-                            disabled={this.state.loading}
-                            title="Relance l'extraction des questions via regex (backend)"
-                        >
-                            Questions (Regex)
-                        </button>
-
-                        <button
-                            style={{
-                                padding: '6px 10px',
-                                backgroundColor: 'var(--theia-button-secondaryBackground)',
-                                color: 'var(--theia-button-secondaryForeground)',
-                                border: 'none',
-                                borderRadius: '4px',
-                                cursor: 'pointer',
-                                fontSize: '12px'
-                            }}
-                            onClick={() => void this.runQuestionsStep(this.state.selectedFormula!, { method: 'ai' })}
-                            disabled={this.state.loading}
-                            title="Relance l'extraction des questions via IA"
-                        >
-                            Questions (IA)
-                        </button>
-
-                        <button
-                            style={{
-                                marginLeft: 'auto',
                                 padding: '6px 10px',
                                 backgroundColor: 'transparent',
                                 color: 'var(--theia-foreground)',
@@ -2717,115 +2827,54 @@ export class FormulaSolverWidget extends ReactWidget {
                             {this.showAdvancedAnswerFields ? 'Masquer champs IA' : 'Afficher champs IA'}
                         </button>
 
-                        <button
-                            style={{
-                                padding: '6px 10px',
-                                backgroundColor: 'var(--theia-button-background)',
-                                color: 'var(--theia-button-foreground)',
-                                border: 'none',
-                                borderRadius: '4px',
-                                cursor: 'pointer',
-                                fontSize: '12px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '6px'
-                            }}
-                            onClick={() => void this.answerAllQuestions({ overwrite: false })}
-                            disabled={this.state.loading}
-                            title="Remplit automatiquement les champs vides via IA ou recherche web"
-                        >
-                            {this.isAnsweringLoading ? <span className="formula-solver-spinner" style={{ width: '12px', height: '12px', margin: 0 }} /> : null}
-                            Répondre (auto)
-                        </button>
-                        <button
-                            style={{
-                                padding: '6px 10px',
-                                backgroundColor: 'var(--theia-button-secondaryBackground)',
-                                color: 'var(--theia-button-secondaryForeground)',
-                                border: 'none',
-                                borderRadius: '4px',
-                                cursor: 'pointer',
-                                fontSize: '12px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '6px'
-                            }}
-                            onClick={() => void this.answerAllQuestions({ overwrite: true })}
-                            disabled={this.state.loading}
-                            title="Écrase les champs existants via IA ou recherche web"
-                        >
-                            {this.isAnsweringLoading ? <span className="formula-solver-spinner" style={{ width: '12px', height: '12px', margin: 0 }} /> : null}
-                            Répondre (écraser)
-                        </button>
-
-                        <button
-                            style={{
-                                padding: '6px 10px',
-                                backgroundColor: 'var(--theia-button-secondaryBackground)',
-                                color: 'var(--theia-button-secondaryForeground)',
-                                border: 'none',
-                                borderRadius: '4px',
-                                cursor: 'pointer',
-                                fontSize: '12px'
-                            }}
-                            onClick={() => void this.answerAllQuestions({ overwrite: false })}
-                            disabled={this.state.loading}
-                            title="Relance l'étape Réponses avec le mode et moteur sélectionnés (ne remplit que les champs vides)"
-                        >
-                            Rejouer réponses
-                        </button>
-
-                        <button
-                            style={{
-                                padding: '6px 10px',
-                                backgroundColor: 'var(--theia-button-secondaryBackground)',
-                                color: 'var(--theia-button-secondaryForeground)',
-                                border: 'none',
-                                borderRadius: '4px',
-                                cursor: 'pointer',
-                                fontSize: '12px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '6px'
-                            }}
-                            onClick={() => {
-                                this.answersEngine = 'ai';
-                                void this.answerAllQuestions({ overwrite: true });
-                            }}
-                            disabled={this.state.loading}
-                            title="Force le mode IA pour répondre (écrase tout)"
-                        >
-                            {this.isAnsweringLoading && this.answersEngine === 'ai' ? (
-                                <span className="formula-solver-spinner" style={{ width: '12px', height: '12px', margin: 0 }} />
-                            ) : null}
-                            Réponses (IA)
-                        </button>
-
-                        <button
-                            style={{
-                                padding: '6px 10px',
-                                backgroundColor: 'var(--theia-button-secondaryBackground)',
-                                color: 'var(--theia-button-secondaryForeground)',
-                                border: 'none',
-                                borderRadius: '4px',
-                                cursor: 'pointer',
-                                fontSize: '12px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '6px'
-                            }}
-                            onClick={() => {
-                                this.answersEngine = 'backend-web-search';
-                                void this.answerAllQuestions({ overwrite: true });
-                            }}
-                            disabled={this.state.loading}
-                            title="Force la recherche web backend pour répondre (écrase tout)"
-                        >
-                            {this.isAnsweringLoading && this.answersEngine === 'backend-web-search' ? (
-                                <span className="formula-solver-spinner" style={{ width: '12px', height: '12px', margin: 0 }} />
-                            ) : null}
-                            Réponses (Web)
-                        </button>
+                        <div style={{ marginLeft: 'auto' }}>
+                            {this.renderSplitButton({
+                                id: 'answers-actions',
+                                label: 'Répondre',
+                                title: 'Remplit automatiquement les champs vides via IA ou recherche web (mode configuré)',
+                                disabled: this.state.loading,
+                                loading: this.isAnsweringLoading,
+                                primary: true,
+                                isMenuOpen: this.answersActionMenuOpen,
+                                onToggleMenu: () => {
+                                    this.answersActionMenuOpen = !this.answersActionMenuOpen;
+                                    this.questionsActionMenuOpen = false;
+                                    this.update();
+                                },
+                                onClick: () => {
+                                    this.answersActionMenuOpen = false;
+                                    void this.answerAllQuestions({ overwrite: false });
+                                },
+                                menuItems: [
+                                    {
+                                        label: 'Écraser les champs existants',
+                                        title: 'Écrase les champs existants via IA ou recherche web (mode configuré)',
+                                        onClick: () => {
+                                            this.answersActionMenuOpen = false;
+                                            void this.answerAllQuestions({ overwrite: true });
+                                        }
+                                    },
+                                    {
+                                        label: 'Forcer réponses IA (écraser)',
+                                        title: 'Force le mode IA pour répondre (écrase tout)',
+                                        onClick: () => {
+                                            this.answersActionMenuOpen = false;
+                                            this.answersEngine = 'ai';
+                                            void this.answerAllQuestions({ overwrite: true });
+                                        }
+                                    },
+                                    {
+                                        label: 'Forcer réponses Web (écraser)',
+                                        title: 'Force la recherche web backend pour répondre (écrase tout)',
+                                        onClick: () => {
+                                            this.answersActionMenuOpen = false;
+                                            this.answersEngine = 'backend-web-search';
+                                            void this.answerAllQuestions({ overwrite: true });
+                                        }
+                                    }
+                                ]
+                            })}
+                        </div>
                     </div>
 
                     {this.questionsAiHintOpen && (
