@@ -48,37 +48,51 @@ export class AiPerQuestionAnswering implements AnsweringStrategy {
         }
 
         // Résout une lettre (appel LLM ou web + LLM) et propage la réponse.
+        // L'échec d'une lettre est capturé ICI (jamais propagé) : il ne doit pas
+        // empêcher les autres lettres du lot d'être traitées. L'erreur est stockée
+        // dans AnswerDetail.error pour être affichée sur la carte de cette lettre.
         const processLetter = async ([letter, question]: [string, string]): Promise<void> => {
             const profile = context.perQuestionProfile?.get(letter) ?? defaultProfile;
 
-            let answer: string;
+            let answer = '';
             let detail: AnswerDetail;
 
-            // Si le profil est "web", faire d'abord une recherche web puis passer les résultats au LLM
-            if (profile === 'web') {
-                const webResult = await this._answerWithWebSearch(letter, question, context, preparedContext);
-                answer = webResult.answer;
-                detail = webResult.detail;
-            } else {
-                const extraUserInfo = [
-                    (context.additionalInstructions || '').trim(),
-                    (context.perLetterExtraInfo?.[letter] || '').trim()
-                ].filter(Boolean).join('\n\n');
-                const result = await this.llmService.answerSingleQuestionWithContext({
-                    letter,
-                    question,
-                    geocacheTitle: context.geocacheTitle,
-                    geocacheCode: context.geocacheCode,
-                    context: preparedContext,
-                    extraUserInfo
-                }, profile);
-                answer = result.answer;
+            try {
+                // Si le profil est "web", faire d'abord une recherche web puis passer les résultats au LLM
+                if (profile === 'web') {
+                    const webResult = await this._answerWithWebSearch(letter, question, context, preparedContext);
+                    answer = webResult.answer;
+                    detail = webResult.detail;
+                } else {
+                    const extraUserInfo = [
+                        (context.additionalInstructions || '').trim(),
+                        (context.perLetterExtraInfo?.[letter] || '').trim()
+                    ].filter(Boolean).join('\n\n');
+                    const result = await this.llmService.answerSingleQuestionWithContext({
+                        letter,
+                        question,
+                        geocacheTitle: context.geocacheTitle,
+                        geocacheCode: context.geocacheCode,
+                        context: preparedContext,
+                        extraUserInfo
+                    }, profile);
+                    answer = result.answer;
+                    detail = {
+                        answer: result.answer,
+                        source: 'ai',
+                        profile,
+                        explanation: result.explanation || undefined,
+                        valueType: (result.valueType as ValueType) || undefined,
+                        timestampMs: Date.now()
+                    };
+                }
+            } catch (error) {
+                const message = error instanceof Error ? error.message : 'Erreur inconnue';
                 detail = {
-                    answer: result.answer,
-                    source: 'ai',
+                    answer: '',
+                    source: profile === 'web' ? 'web' : 'ai',
                     profile,
-                    explanation: result.explanation || undefined,
-                    valueType: (result.valueType as ValueType) || undefined,
+                    error: message,
                     timestampMs: Date.now()
                 };
             }
@@ -191,10 +205,13 @@ export class AiPerQuestionAnswering implements AnsweringStrategy {
 /**
  * Exécute `worker` sur chaque item avec au plus `limit` tâches simultanées.
  *
- * Préserve la sémantique « la première erreur interrompt le lot » : dès qu'une
- * tâche échoue, on cesse d'en lancer de nouvelles et on rejette avec cette
- * erreur une fois les tâches déjà en cours terminées (comportement identique à
- * l'ancienne boucle séquentielle, vu par l'appelant).
+ * Utilitaire générique fail-fast : si `worker` rejette pour un item, on cesse
+ * d'en lancer de nouveaux et on rejette avec cette erreur une fois les tâches
+ * déjà en cours terminées. `AiPerQuestionAnswering` n'exploite plus ce
+ * comportement pour les échecs individuels par lettre : `processLetter` capture
+ * ses propres erreurs (voir plus haut) pour que l'échec d'une lettre ne bloque
+ * jamais les autres. Ce fail-fast reste utile pour des erreurs de programmation
+ * réellement inattendues (`worker` qui lève sans rapport avec un échec métier).
  */
 export async function runWithConcurrency<T>(
     items: T[],

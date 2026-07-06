@@ -110,19 +110,51 @@ async function testEmptyQuestionSkipsLlm(): Promise<void> {
     assert.deepEqual(llm.calls.sort(), ['A']);
 }
 
-async function testFirstErrorPropagates(): Promise<void> {
+async function testFailedLetterDoesNotBlockOthers(): Promise<void> {
     const llm = new FakeLLMService();
     llm.failOn = 'B';
     const strategy = makeStrategy(llm);
 
-    await assert.rejects(
-        () => strategy.answer({
-            text: '',
-            questionsByLetter: questionsMap(['A', 'B', 'C']),
-            aiProfile: 'fast'
-        } as AnsweringContext),
-        /fail B/
-    );
+    // La résolution ne doit JAMAIS rejeter : l'échec d'une lettre est isolé
+    // (stocké dans AnswerDetail.error) et ne doit pas empêcher les autres
+    // lettres du même lot d'être traitées.
+    const result = await strategy.answer({
+        text: '',
+        questionsByLetter: questionsMap(['A', 'B', 'C']),
+        aiProfile: 'fast'
+    } as AnsweringContext);
+
+    assert.equal(result.answersByLetter.get('A'), 'ans-A');
+    assert.equal(result.answersByLetter.get('C'), 'ans-C');
+    assert.equal(result.answersByLetter.get('B'), '');
+
+    assert.equal(result.detailsByLetter?.get('A')?.error, undefined);
+    assert.equal(result.detailsByLetter?.get('C')?.error, undefined);
+    assert.match(result.detailsByLetter?.get('B')?.error ?? '', /fail B/);
+}
+
+async function testFailedWebLetterCapturesErrorOnDetail(): Promise<void> {
+    const llm = new FakeLLMService();
+    const strategy = makeStrategy(llm);
+    // Le profil "web" appelle formulaSolverService.searchAnswerWeb avant le LLM ;
+    // on simule un échec réseau à ce niveau.
+    (strategy as any).formulaSolverService = {
+        searchAnswerWeb: async () => { throw new Error('network down'); }
+    };
+
+    const result = await strategy.answer({
+        text: '',
+        questionsByLetter: questionsMap(['A', 'B']),
+        aiProfile: 'fast',
+        perQuestionProfile: new Map([['A', 'web'], ['B', 'fast']])
+    } as AnsweringContext);
+
+    assert.equal(result.answersByLetter.get('B'), 'ans-B');
+    assert.equal(result.detailsByLetter?.get('B')?.error, undefined);
+
+    assert.equal(result.answersByLetter.get('A'), '');
+    assert.match(result.detailsByLetter?.get('A')?.error ?? '', /network down/);
+    assert.equal(result.detailsByLetter?.get('A')?.source, 'web');
 }
 
 async function testRunWithConcurrencyLimit(): Promise<void> {
@@ -158,7 +190,8 @@ async function run(): Promise<void> {
     await testAllLocalSerializes();
     await testMixedProfilesParallelize();
     await testEmptyQuestionSkipsLlm();
-    await testFirstErrorPropagates();
+    await testFailedLetterDoesNotBlockOthers();
+    await testFailedWebLetterCapturesErrorOnDetail();
     await testRunWithConcurrencyLimit();
     await testRunWithConcurrencyStopsAfterError();
     // eslint-disable-next-line no-console

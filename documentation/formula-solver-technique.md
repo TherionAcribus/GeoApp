@@ -125,12 +125,15 @@ Deux axes de configuration :
 
 **Sortie** : `AnsweringResult { answersByLetter, detailsByLetter?, meta }`.
 
-**Concurrence (`ai-per-question`)** : les lettres sont résolues en parallèle via `runWithConcurrency` (3 max par défaut, réglable par `AnsweringContext.maxConcurrency`). La concurrence est **ramenée à 1 si toutes les lettres utilisent le profil `local`** (les serveurs LMStudio/Ollama traitent une requête à la fois). Le callback `onAnswer` reste appelé au fil de l'eau (dans l'ordre de complétion). La sémantique « la première erreur interrompt le lot » est préservée : dès qu'une lettre échoue, on cesse d'en lancer et l'erreur remonte à l'appelant une fois les tâches en cours terminées.
+**Concurrence (`ai-per-question`)** : les lettres sont résolues en parallèle via `runWithConcurrency` (3 max par défaut, réglable par `AnsweringContext.maxConcurrency`). La concurrence est **ramenée à 1 si toutes les lettres utilisent le profil `local`** (les serveurs LMStudio/Ollama traitent une requête à la fois). Le callback `onAnswer` reste appelé au fil de l'eau (dans l'ordre de complétion).
+
+**Isolation des erreurs par lettre** : l'échec d'une lettre (LLM ou recherche web) **n'interrompt jamais le lot**. `AiPerQuestionAnswering.processLetter()` capture ses propres erreurs et les stocke dans `AnswerDetail.error` au lieu de les propager ; les autres lettres continuent d'être traitées normalement. Même principe appliqué au niveau du fallback séquentiel de `FormulaSolverService.searchAnswersWebBatch()` (utilisé par `BackendWebSearchAnswering` quand l'endpoint batch backend est indisponible) : chaque recherche y est isolée individuellement. Le widget agrège ces erreurs dans un message récapitulatif (`answerAllQuestions()`) tout en affichant le détail sur la carte de chaque lettre concernée (voir §10.2, `QuestionFieldCard`).
 
 Chaque `AnswerDetail` contient :
 - `answer`, `source` (`'ai' | 'web'`), `profile`, `explanation`
 - `valueType` (`'value' | 'checksum' | 'reduced' | 'length'`)
 - `webResults` (si source web) : `{ text, source (URL), score, type }`
+- `error` : message d'échec si la résolution de cette lettre a échoué (absent si succès)
 - `timestampMs`
 
 ### 3.4 Mode "Web + IA" (profil `web`)
@@ -339,12 +342,31 @@ interface FormulaSolverState {
 }
 ```
 
+### 10.1bis Fil d'Ariane (`renderStepper()`)
+
+Un stepper visuel (3 puces reliées : Détecter / Questions / Calculer) est affiché en haut du widget, juste avant les sections. Statut par étape (`pending` / `current` / `done`) dérivé **des mêmes conditions que les guards de rendu** (`currentStep !== 'detect'`, `questions.length > 0`), pour ne jamais afficher une étape « accessible » qui ne le serait pas réellement :
+- **Détecter** : `done` dès que `currentStep !== 'detect'`.
+- **Questions** : `pending` si aucune formule sélectionnée ; `done` si un résultat existe (`currentStep === 'calculate'` **ou** `bruteForceResults.length > 0` — le brute force ne fait jamais transiter `currentStep` vers `'calculate'`) ; `current` sinon.
+- **Calculer** : mêmes règles, gatées par `questions.length > 0`.
+
+Ce n'est **pas un wizard** : cliquer sur une étape accessible fait défiler (`scrollIntoView`) jusqu'à son ancre (`#formula-solver-step-detect|questions|calculate`) sans masquer les autres sections — les 3 restent visibles simultanément, car la preview de l'étape 3 se met à jour en temps réel pendant la saisie des valeurs de l'étape 2.
+
+### 10.1ter Panneau "Options IA" — persistance automatique
+
+Chaque changement dans le panneau Options (méthode/profil par étape, case "Web", nombre max de résultats web) est **persisté silencieusement** comme préférence par défaut (`PreferenceScope.User`), sans bouton "Sauver" explicite — comportement calqué sur les panneaux de préférences natifs de l'IDE.
+
+- `updateAndPersistStepConfig(partial)` — met à jour `stepConfig` et persiste chaque champ modifié via la table `STEP_CONFIG_PREFERENCE_KEYS`.
+- `setWebSearchEnabled(value)` — persiste immédiatement (case à cocher).
+- `setWebMaxResults(value)` — **débounce 500 ms** avant persistance (champ numérique modifié à chaque frappe) ; le debounce en attente est flush immédiatement dans `onBeforeDetach()` pour ne pas perdre la dernière valeur saisie si le widget se ferme juste après.
+- Écriture silencieuse via `persistPreference()` : pas de toast par changement (éviterait le spam en cas de sélection rapide dans plusieurs dropdowns) ; une erreur d'écriture est journalisée en console sans bloquer l'UI (le réglage reste actif en mémoire pour la session).
+- **Volontairement exclu** : `answersEngine` (choix IA vs recherche web pour l'étape Réponses) n'est **pas** persisté — ce choix dépend souvent de la géocache en cours, pas d'une préférence globale par défaut ; le commentaire dans le code documente ce choix explicite.
+
 ### 10.2 Composants React extraits
 
 | Composant | Fichier | Rôle |
 |-----------|---------|------|
 | `DetectedFormulasComponent` | `components/DetectedFormulasComponent.tsx` | Liste des formules détectées, sélection, édition |
-| `QuestionFieldCard` | `components/QuestionFieldsComponent.tsx` | Carte par lettre : question éditable, profil IA, boutons IA/Internet, détail réponse, valeur |
+| `QuestionFieldCard` | `components/QuestionFieldsComponent.tsx` | Carte par lettre : question éditable, profil IA, boutons IA/Internet, détail réponse, valeur. Si `AnswerDetail.error` est défini, une bannière rouge « Échec de la réponse » s'affiche **directement** sur la carte (pas besoin de déplier le détail) ; l'icône de détail passe en warning rouge |
 | `FormulaPreviewComponent` | `components/FormulaPreviewComponent.tsx` | Preview coordonnées temps réel |
 | `ResultDisplayComponent` | `components/ResultDisplayComponent.tsx` | Résultat final (coordonnées, copie, waypoint) |
 | `BruteForceComponent` | `components/BruteForceComponent.tsx` | Configuration et lancement du brute force |

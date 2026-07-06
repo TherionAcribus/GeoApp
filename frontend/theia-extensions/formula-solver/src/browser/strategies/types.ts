@@ -81,6 +81,12 @@ export interface AnswerDetail {
         score?: number;
         type?: string;
     }>;
+    /**
+     * Message d'erreur si la résolution de cette lettre a échoué (LLM ou recherche
+     * web en échec). Isolé par lettre : un échec ne doit jamais empêcher les
+     * autres lettres d'un même lot d'être traitées.
+     */
+    error?: string;
     timestampMs: number;
 }
 

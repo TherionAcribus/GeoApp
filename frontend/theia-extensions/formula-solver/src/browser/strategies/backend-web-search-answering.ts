@@ -33,6 +33,7 @@ export class BackendWebSearchAnswering implements AnsweringStrategy {
                 answer: bestAnswer,
                 source: 'web',
                 webResults: item?.results,
+                error: item?.error,
                 timestampMs: Date.now()
             });
         });

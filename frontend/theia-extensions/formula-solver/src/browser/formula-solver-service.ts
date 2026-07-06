@@ -59,6 +59,8 @@ export interface SearchAnswerWebResult {
         score?: number;
         type?: string;
     }>;
+    /** Message d'erreur si la recherche web a échoué pour cette question. */
+    error?: string;
 }
 
 export interface SearchAnswersWebBatchParams {
@@ -180,6 +182,8 @@ export class FormulaSolverServiceImpl implements FormulaSolverService {
             );
         } catch (error) {
             // Fallback: exécuter question par question si l'endpoint batch n'est pas disponible.
+            // Chaque question est isolée : l'échec de l'une n'empêche pas les suivantes
+            // d'être tentées (comportement identique au batch backend, cf. /ai/search-answers).
             const entries = Object.entries(params.questions);
             const results = new Map<string, SearchAnswerWebResult>();
             for (const [letter, question] of entries) {
@@ -187,12 +191,17 @@ export class FormulaSolverServiceImpl implements FormulaSolverService {
                     results.set(letter, { bestAnswer: '', results: [] });
                     continue;
                 }
-                const single = await this.searchAnswerWeb({
-                    question,
-                    context: params.context,
-                    maxResults: params.maxResults
-                });
-                results.set(letter, single);
+                try {
+                    const single = await this.searchAnswerWeb({
+                        question,
+                        context: params.context,
+                        maxResults: params.maxResults
+                    });
+                    results.set(letter, single);
+                } catch (singleError) {
+                    const message = singleError instanceof Error ? singleError.message : 'Erreur inconnue';
+                    results.set(letter, { bestAnswer: '', results: [], error: message });
+                }
             }
             return results;
         }

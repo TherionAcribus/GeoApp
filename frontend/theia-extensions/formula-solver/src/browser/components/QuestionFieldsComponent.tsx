@@ -192,20 +192,39 @@ export const QuestionFieldCard: React.FC<QuestionFieldProps> = (props) => {
                             style={{
                                 padding: '4px 8px',
                                 backgroundColor: 'transparent',
-                                color: 'var(--theia-descriptionForeground)',
-                                border: '1px solid var(--theia-panel-border)',
+                                color: detail.error ? 'var(--theia-errorText)' : 'var(--theia-descriptionForeground)',
+                                border: `1px solid ${detail.error ? 'var(--theia-errorText)' : 'var(--theia-panel-border)'}`,
                                 borderRadius: '4px',
                                 cursor: 'pointer',
                                 fontSize: '11px'
                             }}
                             onClick={() => onToggleDetail(question.letter)}
-                            title={isDetailExpanded ? 'Masquer les détails' : 'Voir les détails de la réponse'}
+                            title={isDetailExpanded ? 'Masquer les détails' : (detail.error ? 'La réponse a échoué — voir le détail' : 'Voir les détails de la réponse')}
                         >
-                            <span className={`codicon ${isDetailExpanded ? 'codicon-chevron-up' : 'codicon-info'}`} />
+                            <span className={`codicon ${detail.error ? 'codicon-warning' : (isDetailExpanded ? 'codicon-chevron-up' : 'codicon-info')}`} />
                         </button>
                     )}
                 </div>
             </div>
+
+            {/* Bannière d'échec : toujours visible (pas besoin de déplier les détails) */}
+            {detail?.error && (
+                <div style={{
+                    marginBottom: '8px',
+                    padding: '6px 10px',
+                    backgroundColor: 'var(--theia-inputValidation-errorBackground)',
+                    border: '1px solid var(--theia-errorText)',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    color: 'var(--theia-errorText)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                }}>
+                    <span className="codicon codicon-error" />
+                    <span>Échec de la réponse ({detail.source === 'web' ? 'Internet' : 'IA'}) : {detail.error}</span>
+                </div>
+            )}
 
             {/* Expandable answer detail bubble */}
             {detail && isDetailExpanded && (
