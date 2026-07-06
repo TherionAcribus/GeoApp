@@ -1,5 +1,5 @@
 """
-Tests unitaires pour la garde SSRF de WebSearchService.fetch_page()
+Tests unitaires pour WebSearchService : garde SSRF de fetch_page() et cache de search()
 """
 
 import pytest
@@ -76,6 +76,81 @@ class TestFetchPageSSRFGuard:
         result = service.fetch_page('ftp://example.com/file')
         assert result['status'] == 'error'
         assert 'http' in result['error'].lower()
+
+
+class TestSearchCache:
+    """Tests du cache TTL de search() : évite de re-solliciter DuckDuckGo pour une requête identique"""
+
+    def test_identical_query_hits_cache(self, monkeypatch):
+        """Deux appels identiques ne doivent déclencher qu'une seule recherche DDG réelle."""
+        service = WebSearchService()
+
+        call_count = {'n': 0}
+
+        def fake_search_ddgs(query, max_results=5):
+            call_count['n'] += 1
+            return [{'text': f'answer for {query}', 'source': 'x', 'score': 0.9, 'type': 'snippet'}]
+
+        monkeypatch.setattr(service, '_search_ddgs', fake_search_ddgs)
+        monkeypatch.setattr('gc_backend.services.web_search_service.HAS_DDG_SEARCH', True)
+
+        first = service.search('quelle est la capitale de la France', context=None, max_results=5)
+        second = service.search('quelle est la capitale de la France', context=None, max_results=5)
+
+        assert call_count['n'] == 1, "le second appel identique aurait dû être servi depuis le cache"
+        assert first == second
+
+    def test_different_query_misses_cache(self, monkeypatch):
+        service = WebSearchService()
+
+        call_count = {'n': 0}
+
+        def fake_search_ddgs(query, max_results=5):
+            call_count['n'] += 1
+            return [{'text': f'answer for {query}', 'source': 'x', 'score': 0.9, 'type': 'snippet'}]
+
+        monkeypatch.setattr(service, '_search_ddgs', fake_search_ddgs)
+        monkeypatch.setattr('gc_backend.services.web_search_service.HAS_DDG_SEARCH', True)
+
+        service.search('question A', context=None, max_results=5)
+        service.search('question B', context=None, max_results=5)
+
+        assert call_count['n'] == 2
+
+    def test_expired_cache_entry_triggers_new_search(self, monkeypatch):
+        """Une entrée expirée (TTL dépassé) ne doit plus être servie depuis le cache."""
+        service = WebSearchService()
+        service._CACHE_TTL_SECONDS = 0  # expire immédiatement
+
+        call_count = {'n': 0}
+
+        def fake_search_ddgs(query, max_results=5):
+            call_count['n'] += 1
+            return [{'text': 'ok', 'source': 'x', 'score': 0.9, 'type': 'snippet'}]
+
+        monkeypatch.setattr(service, '_search_ddgs', fake_search_ddgs)
+        monkeypatch.setattr('gc_backend.services.web_search_service.HAS_DDG_SEARCH', True)
+
+        service.search('question', context=None, max_results=5)
+        service.search('question', context=None, max_results=5)
+
+        assert call_count['n'] == 2, "le TTL expiré aurait dû invalider le cache"
+
+    def test_cache_returns_a_copy_not_shared_reference(self, monkeypatch):
+        """Muter le résultat retourné ne doit pas corrompre l'entrée en cache."""
+        service = WebSearchService()
+
+        def fake_search_ddgs(query, max_results=5):
+            return [{'text': 'ok', 'source': 'x', 'score': 0.9, 'type': 'snippet'}]
+
+        monkeypatch.setattr(service, '_search_ddgs', fake_search_ddgs)
+        monkeypatch.setattr('gc_backend.services.web_search_service.HAS_DDG_SEARCH', True)
+
+        first = service.search('question', context=None, max_results=5)
+        first.append({'text': 'injected', 'source': 'x', 'score': 0.1, 'type': 'snippet'})
+
+        second = service.search('question', context=None, max_results=5)
+        assert len(second) == 1, "la mutation de la première liste ne doit pas affecter le cache"
 
 
 if __name__ == '__main__':

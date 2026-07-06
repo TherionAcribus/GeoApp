@@ -200,6 +200,12 @@ Fichier : `backend/gc_backend/services/web_search_service.py`
 2. Fallback DuckDuckGo Instant Answer API (`api.duckduckgo.com`, JSON)
 3. Fallback DuckDuckGo HTML Lite (`html.duckduckgo.com/html/`, scraping BeautifulSoup)
 
+**Cache TTL** (`search()`) : les résultats sont mis en cache en mémoire pendant 10 min (`_CACHE_TTL_SECONDS = 600`), clé `(query, context, max_results, raw)`, purge grossière au-delà de 500 entrées (`_CACHE_MAX_ENTRIES`). Évite de re-solliciter DuckDuckGo pour une question identique (ex: "Répondre (écraser)" relance toutes les lettres) et réduit le risque de rate-limiting. Copie défensive à l'écriture **et** à la lecture : la liste retournée à l'appelant n'est jamais la référence stockée en cache (une mutation par l'appelant ne doit pas corrompre les futurs cache hits).
+
+### 6.1bis Garde SSRF (`fetch_page`)
+
+`_is_allowed_url()`/`_is_forbidden_host()` valident le schéma (http/https uniquement) et résolvent l'hôte pour rejeter les adresses privées/loopback/link-local (`ipaddress.is_private/is_loopback/is_link_local/is_reserved/is_multicast/is_unspecified`) avant toute requête. Une redirection HTTP est suivie manuellement une fois (`allow_redirects=False` + revalidation de la cible), pour empêcher un contournement du filtre via un premier hop public redirigeant vers une adresse interne.
+
 ### 6.2 Nettoyage des requêtes (`_clean_query_for_search`)
 
 Les questions de géocaching contiennent du bruit (instructions de calcul) qui pollue les recherches web. Le service nettoie automatiquement :
@@ -258,7 +264,13 @@ Blueprint : `formula_solver_bp`, préfixe `/api/formula-solver`
 
 | Méthode | Route | Description |
 |---------|-------|-------------|
-| POST | `/update-description-raw` | Migration : extrait description_raw depuis description_html |
+| POST | `/update-description-raw` | Migration (idempotente) : extrait description_raw depuis description_html. **Requiert `{"confirm": true}`** dans le corps de la requête (400 sinon) — évite un déclenchement accidentel, ce n'est pas un endpoint du flux normal de l'app |
+
+### 7.3bis Sanitisation des erreurs internes (`_internal_error_response()`)
+
+Toutes les routes qui attrapaient `except Exception as e` et renvoyaient `str(e)` brut au client utilisent désormais `_internal_error_response(log_message, exception)` : le détail complet de l'exception est journalisé côté serveur (loguru), mais le client ne reçoit qu'un message générique (`"{log_message}. Consultez les logs backend pour plus de détails."`). Les messages de validation volontairement clairs (`ValueError` → 400, ex. "Valeurs manquantes pour les variables: ...") restent inchangés — seuls les 500 génériques sont concernés.
+
+Motivation : `app.py`/`run.py` lancent le serveur avec `debug=True` et, pour `app.py`, `host="0.0.0.0"` (accessible depuis le réseau local, pas seulement `localhost`) — un `str(e)` brut pouvait donc exposer des détails internes (chemins de fichiers, messages de driver DB) au-delà du poste de l'utilisateur.
 
 ### 7.4 Helper partagé `_get_geocache_text()`
 

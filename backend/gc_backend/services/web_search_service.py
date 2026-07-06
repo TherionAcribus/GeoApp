@@ -7,6 +7,7 @@ Fallback sur requests + DuckDuckGo Instant Answer API + HTML scraping si duckduc
 import ipaddress
 import re
 import socket
+import time
 import requests as http_requests
 from typing import List, Dict, Optional
 from urllib.parse import urlparse
@@ -156,11 +157,42 @@ class WebSearchService:
     Service pour rechercher des informations sur Internet.
     Utilise la librairie duckduckgo-search pour de vrais résultats de recherche.
     """
-    
+
+    # Cache TTL des recherches web : les mêmes questions sont souvent relancées
+    # (ex: "Répondre (écraser)" relance toutes les lettres) ; ce cache évite de
+    # re-solliciter DuckDuckGo pour une requête identique et réduit le risque de
+    # rate-limiting. Volontairement en mémoire (pas de dépendance externe) et
+    # purgé grossièrement au-delà d'une taille limite pour éviter une croissance
+    # illimitée sur un process longue durée.
+    _CACHE_TTL_SECONDS = 600
+    _CACHE_MAX_ENTRIES = 500
+
     def __init__(self):
         self.timeout = 15
         self.max_results = 5
-    
+        self._search_cache: Dict[tuple, tuple] = {}
+
+    def _cache_get(self, key: tuple) -> Optional[List[Dict[str, any]]]:
+        entry = self._search_cache.get(key)
+        if not entry:
+            return None
+        timestamp, results = entry
+        if time.monotonic() - timestamp > self._CACHE_TTL_SECONDS:
+            del self._search_cache[key]
+            return None
+        # Copie défensive : les appelants ne doivent pas muter l'entrée partagée en cache.
+        return list(results)
+
+    def _cache_set(self, key: tuple, results: List[Dict[str, any]]) -> None:
+        if len(self._search_cache) >= self._CACHE_MAX_ENTRIES:
+            self._search_cache.clear()
+        # Copie défensive à l'écriture aussi : la liste retournée à l'appelant du
+        # calcul initial (cache miss) est la même référence que `results` ici ;
+        # sans cette copie, une mutation par l'appelant corromprait l'entrée
+        # stockée (et donc les futurs cache hits).
+        self._search_cache[key] = (time.monotonic(), list(results))
+
+
     def _clean_query_for_search(self, raw_question: str) -> str:
         """
         Nettoie une question de géocaching pour en faire une requête de recherche web efficace.
@@ -364,7 +396,13 @@ class WebSearchService:
         """
         if max_results is None:
             max_results = self.max_results
-        
+
+        cache_key = (query, context, max_results, raw)
+        cached_results = self._cache_get(cache_key)
+        if cached_results is not None:
+            logger.info(f"Web search cache hit: '{query}' ({len(cached_results)} résultat(s))")
+            return cached_results
+
         # Construire la requête de recherche web.
         # - mode formule (défaut) : on isole le sujet en retirant les instructions de calcul.
         # - mode brut (raw) : on garde la question quasi intacte pour la recherche documentaire.
@@ -372,7 +410,7 @@ class WebSearchService:
             clean_query = self._light_cleanup_for_search(query)
         else:
             clean_query = self._clean_query_for_search(query)
-        
+
         # En mode brut, le contexte (titre/localisation de la cache) est précieux,
         # on l'ajoute même s'il est un peu plus long.
         max_context_len = 160 if raw else 80
@@ -380,9 +418,9 @@ class WebSearchService:
             search_query = f"{clean_query} {context.strip()}"
         else:
             search_query = clean_query
-        
+
         logger.info(f"Web search (raw={raw}): original='{query}' -> cleaned='{search_query}'")
-        
+
         results = []
         
         if HAS_DDG_SEARCH:
@@ -409,7 +447,8 @@ class WebSearchService:
             })
         
         logger.info(f"Web search completed: {len(results)} résultats")
-        
+
+        self._cache_set(cache_key, results)
         return results
     
     def _search_ddgs(self, query: str, max_results: int = 5) -> List[Dict[str, any]]:

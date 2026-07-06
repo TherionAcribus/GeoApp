@@ -16,6 +16,23 @@ from gc_backend.geocaches.models import Geocache
 formula_solver_bp = Blueprint('formula_solver', __name__, url_prefix='/api/formula-solver')
 
 
+def _internal_error_response(log_message: str, exception: Exception, status: int = 500):
+    """
+    Journalise le détail complet de l'exception côté serveur (loguru) mais ne
+    renvoie qu'un message générique au client.
+
+    Le frontend affiche directement `error` à l'utilisateur (toast) : renvoyer
+    `str(exception)` brut peut faire fuiter des détails internes (chemins de
+    fichiers, messages de driver DB, etc.), potentiellement exposés sur le
+    réseau local puisque le backend écoute sur `0.0.0.0` en développement.
+    """
+    logger.error(f"{log_message}: {exception}")
+    return jsonify({
+        'status': 'error',
+        'error': f"{log_message}. Consultez les logs backend pour plus de détails."
+    }), status
+
+
 def _is_formula_parser_unavailable(result) -> bool:
     if not isinstance(result, dict) or result.get('status') != 'error':
         return False
@@ -151,11 +168,7 @@ def detect_formulas():
         })
     
     except Exception as e:
-        logger.error(f"Erreur lors de la détection de formules : {e}")
-        return jsonify({
-            'status': 'error',
-            'error': str(e)
-        }), 500
+        return _internal_error_response("Erreur lors de la détection de formules", e)
 
 
 @formula_solver_bp.post('/extract-questions')
@@ -247,11 +260,7 @@ def extract_questions():
         })
     
     except Exception as e:
-        logger.error(f"Erreur lors de l'extraction de questions : {e}")
-        return jsonify({
-            'status': 'error',
-            'error': str(e)
-        }), 500
+        return _internal_error_response("Erreur lors de l'extraction de questions", e)
 
 
 @formula_solver_bp.post('/calculate')
@@ -355,11 +364,7 @@ def calculate_coordinates():
         }), 400
     
     except Exception as e:
-        logger.error(f"Erreur lors du calcul de coordonnées : {e}")
-        return jsonify({
-            'status': 'error',
-            'error': str(e)
-        }), 500
+        return _internal_error_response("Erreur lors du calcul de coordonnées", e)
 
 
 @formula_solver_bp.post('/calculate-batch')
@@ -501,11 +506,7 @@ def calculate_coordinates_batch():
         })
 
     except Exception as e:
-        logger.error(f"Erreur lors du calcul batch de coordonnées : {e}")
-        return jsonify({
-            'status': 'error',
-            'error': str(e)
-        }), 500
+        return _internal_error_response("Erreur lors du calcul batch de coordonnées", e)
 
 
 @formula_solver_bp.get('/geocache/<int:geocache_id>')
@@ -555,11 +556,7 @@ def get_geocache_for_solver(geocache_id: int):
         })
         
     except Exception as e:
-        logger.error(f"Erreur lors de la récupération de la geocache {geocache_id}: {e}")
-        return jsonify({
-            'status': 'error',
-            'error': str(e)
-        }), 500
+        return _internal_error_response(f"Erreur lors de la récupération de la geocache {geocache_id}", e)
 
 
 # ============================================================================
@@ -640,11 +637,7 @@ def ai_detect_formula():
         })
     
     except Exception as e:
-        logger.error(f"[AI] Erreur détection formule: {e}")
-        return jsonify({
-            'status': 'error',
-            'error': str(e)
-        }), 500
+        return _internal_error_response("[AI] Erreur détection formule", e)
 
 
 @formula_solver_bp.post('/ai/find-questions')
@@ -694,11 +687,7 @@ def ai_find_questions():
         })
     
     except Exception as e:
-        logger.error(f"[AI] Erreur recherche questions: {e}")
-        return jsonify({
-            'status': 'error',
-            'error': str(e)
-        }), 500
+        return _internal_error_response("[AI] Erreur recherche questions", e)
 
 
 @formula_solver_bp.post('/ai/search-answer')
@@ -761,11 +750,7 @@ def ai_search_answer():
         })
     
     except Exception as e:
-        logger.error(f"[AI] Erreur recherche web: {e}")
-        return jsonify({
-            'status': 'error',
-            'error': str(e)
-        }), 500
+        return _internal_error_response("[AI] Erreur recherche web", e)
 
 
 def _calculate_checksum(text: str) -> int:
@@ -839,11 +824,7 @@ def ai_fetch_url():
         return jsonify(result), status_code
 
     except Exception as e:
-        logger.error(f"[AI] Erreur lecture page web: {e}")
-        return jsonify({
-            'status': 'error',
-            'error': str(e)
-        }), 500
+        return _internal_error_response("[AI] Erreur lecture page web", e)
 
 
 @formula_solver_bp.post('/ai/search-answers')
@@ -948,11 +929,7 @@ def ai_search_answers():
         })
 
     except Exception as e:
-        logger.error(f"[AI] Erreur recherche web batch: {e}")
-        return jsonify({
-            'status': 'error',
-            'error': str(e)
-        }), 500
+        return _internal_error_response("[AI] Erreur recherche web batch", e)
 
 
 @formula_solver_bp.post('/ai/suggest-calculation-type')
@@ -1060,21 +1037,31 @@ def ai_suggest_calculation_type():
         })
     
     except Exception as e:
-        logger.error(f"[AI] Erreur suggestion calcul: {e}")
-        return jsonify({
-            'status': 'error',
-            'error': str(e)
-        }), 500
+        return _internal_error_response("[AI] Erreur suggestion calcul", e)
 
 
 @formula_solver_bp.post('/update-description-raw')
 def update_description_raw():
     """
-    Met à jour le champ description_raw pour les géocaches existantes.
+    Migration : met à jour le champ description_raw pour les géocaches existantes.
 
-    Cette fonction parcoure toutes les géocaches qui ont description_html
-    mais pas description_raw, et extrait le texte brut.
+    Cette fonction parcourt toutes les géocaches qui ont description_html
+    mais pas description_raw, et extrait le texte brut. Idempotente (ne touche
+    que les lignes encore manquantes), mais c'est une opération d'admin/migration
+    ponctuelle plutôt qu'un endpoint du flux normal de l'app : `confirm: true`
+    est requis dans le corps de la requête pour éviter un déclenchement accidentel
+    (ex: appel HTTP mal formé, script de test générique).
+
+    Body JSON:
+        { "confirm": true }
     """
+    data = request.get_json(silent=True) or {}
+    if data.get('confirm') is not True:
+        return jsonify({
+            'status': 'error',
+            'error': 'Opération de migration : passez {"confirm": true} pour confirmer.'
+        }), 400
+
     try:
         logger.info("Début mise à jour description_raw...")
 
@@ -1116,11 +1103,7 @@ def update_description_raw():
 
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Erreur mise à jour description_raw: {e}")
-        return jsonify({
-            'status': 'error',
-            'error': str(e)
-        }), 500
+        return _internal_error_response("Erreur mise à jour description_raw", e)
 
 
 # Alias pour l'import dans __init__.py

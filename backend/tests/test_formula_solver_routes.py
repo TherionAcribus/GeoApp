@@ -598,6 +598,77 @@ class TestSuggestCalculationTypeChecksum:
         assert _calculate_checksum('1867') == 1 + 8 + 6 + 7
 
 
+class TestInternalErrorSanitization:
+    """Vérifie que les erreurs 500 ne fuient pas de détails internes au client"""
+
+    def test_internal_error_response_sanitizes_message(self, app):
+        """
+        _internal_error_response() doit journaliser le détail complet côté serveur
+        mais ne renvoyer qu'un message générique (préfixé du contexte fourni) au client.
+        """
+        from gc_backend.blueprints.formula_solver import _internal_error_response
+
+        with app.test_request_context():
+            response, status = _internal_error_response(
+                "Erreur test",
+                ValueError("secret internal detail: /etc/passwd")
+            )
+
+        assert status == 500
+        data = json.loads(response.get_data())
+        assert data['status'] == 'error'
+        assert 'secret internal detail' not in data['error']
+        assert '/etc/passwd' not in data['error']
+        assert 'Erreur test' in data['error']
+
+    def test_detect_formulas_error_message_is_sanitized(self, client, monkeypatch):
+        """
+        Force une exception interne dans /detect-formulas (indépendamment de la
+        disponibilité réelle du plugin formula_parser, qui varie selon la façon
+        dont pytest est invoqué / sys.path) et vérifie que le message renvoyé au
+        client ne contient pas le détail brut de l'exception.
+        """
+        from gc_backend.blueprints import formula_solver
+
+        def fake_execute_formula_parser(text):
+            raise RuntimeError("secret internal detail: /etc/passwd")
+
+        monkeypatch.setattr(formula_solver, '_execute_formula_parser', fake_execute_formula_parser)
+
+        response = client.post(
+            '/api/formula-solver/detect-formulas',
+            json={'text': 'N 47° 5A.BC E 006° 5D.EF'}
+        )
+
+        assert response.status_code == 500
+        data = json.loads(response.data)
+        assert data['status'] == 'error'
+        assert 'secret internal detail' not in data['error']
+        assert '/etc/passwd' not in data['error']
+        assert 'Consultez les logs' in data['error']
+
+
+class TestUpdateDescriptionRawGuard:
+    """Tests de la garde de confirmation sur la migration /update-description-raw"""
+
+    def test_requires_confirm_true(self, client):
+        response = client.post('/api/formula-solver/update-description-raw', json={})
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert data['status'] == 'error'
+
+    def test_confirm_false_is_rejected(self, client):
+        response = client.post('/api/formula-solver/update-description-raw', json={'confirm': False})
+        assert response.status_code == 400
+
+    def test_confirm_true_runs_migration(self, client):
+        response = client.post('/api/formula-solver/update-description-raw', json={'confirm': True})
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data['status'] == 'success'
+        assert 'updated_count' in data
+
+
 class TestCoordinateCalculatorSecurity:
     """Tests de sécurité pour le calculateur de coordonnées"""
     
