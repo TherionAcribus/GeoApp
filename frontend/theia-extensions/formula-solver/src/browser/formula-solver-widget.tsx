@@ -2082,18 +2082,7 @@ export class FormulaSolverWidget extends ReactWidget {
                             <button
                                 onClick={() => this.saveCurrentSession()}
                                 title="Sauvegarder la session en cours pour y revenir plus tard"
-                                style={{
-                                    padding: '6px 10px',
-                                    backgroundColor: 'var(--theia-button-secondaryBackground)',
-                                    color: 'var(--theia-button-secondaryForeground)',
-                                    border: 'none',
-                                    borderRadius: '4px',
-                                    cursor: 'pointer',
-                                    fontSize: '12px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '6px'
-                                }}
+                                className="fs-btn fs-btn--icon fs-btn--secondary"
                             >
                                 <span className="codicon codicon-save" />
                                 Sauvegarder
@@ -2107,22 +2096,7 @@ export class FormulaSolverWidget extends ReactWidget {
                                     this.update();
                                 }}
                                 title="Voir les sessions sauvegardées"
-                                style={{
-                                    padding: '6px 10px',
-                                    backgroundColor: this.showSessionsPanel
-                                        ? 'var(--theia-button-background)'
-                                        : 'var(--theia-button-secondaryBackground)',
-                                    color: this.showSessionsPanel
-                                        ? 'var(--theia-button-foreground)'
-                                        : 'var(--theia-button-secondaryForeground)',
-                                    border: 'none',
-                                    borderRadius: '4px',
-                                    cursor: 'pointer',
-                                    fontSize: '12px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '6px'
-                                }}
+                                className={`fs-btn fs-btn--icon ${this.showSessionsPanel ? 'fs-btn--primary' : 'fs-btn--secondary'}`}
                             >
                                 <span className="codicon codicon-history" />
                                 Sessions ({this.savedSessionsIndex.length})
@@ -2178,11 +2152,10 @@ export class FormulaSolverWidget extends ReactWidget {
                                     }
                                     this.messageService.info(`Nouvelle recherche pour ${gcCode}.`);
                                 }}
+                                className="fs-btn--secondary"
                                 style={{
                                     fontSize: '12px',
                                     padding: '5px 12px',
-                                    backgroundColor: 'var(--theia-button-secondaryBackground)',
-                                    color: 'var(--theia-button-secondaryForeground)',
                                     border: 'none',
                                     borderRadius: '3px',
                                     cursor: 'pointer',
@@ -2371,11 +2344,9 @@ export class FormulaSolverWidget extends ReactWidget {
     protected renderSessionsPanel(): React.ReactNode {
         const sessions = this.savedSessionsIndex;
         return (
-            <div style={{
+            <div className="fs-panel" style={{
                 marginBottom: '16px',
                 padding: '12px 16px',
-                backgroundColor: 'var(--theia-editor-background)',
-                border: '1px solid var(--theia-panel-border)',
                 borderRadius: '6px'
             }}>
                 <h4 style={{ margin: '0 0 10px 0', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
@@ -2474,18 +2445,7 @@ export class FormulaSolverWidget extends ReactWidget {
         if (!this.stepConfigPanelOpen) {
             return (
                 <button
-                    style={{
-                        padding: '6px 10px',
-                        backgroundColor: 'var(--theia-button-secondaryBackground)',
-                        color: 'var(--theia-button-secondaryForeground)',
-                        border: 'none',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        fontSize: '12px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px'
-                    }}
+                    className="fs-btn fs-btn--icon fs-btn--secondary"
                     onClick={() => {
                         this.stepConfigPanelOpen = true;
                         this.update();
@@ -2506,18 +2466,7 @@ export class FormulaSolverWidget extends ReactWidget {
                 flexWrap: 'wrap'
             }}>
                 <button
-                    style={{
-                        padding: '6px 10px',
-                        backgroundColor: 'transparent',
-                        color: 'var(--theia-foreground)',
-                        border: '1px solid var(--theia-panel-border)',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        fontSize: '12px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px'
-                    }}
+                    className="fs-btn fs-btn--icon fs-btn--outline"
                     onClick={() => {
                         this.stepConfigPanelOpen = false;
                         this.update();
@@ -2528,13 +2477,11 @@ export class FormulaSolverWidget extends ReactWidget {
                     Replier
                 </button>
 
-                <div style={{
+                <div className="fs-panel" style={{
                     display: 'flex',
                     gap: '10px',
                     padding: '10px',
-                    border: '1px solid var(--theia-panel-border)',
                     borderRadius: '6px',
-                    backgroundColor: 'var(--theia-editor-background)',
                     alignItems: 'center',
                     flexWrap: 'wrap'
                 }}>
@@ -2560,13 +2507,11 @@ export class FormulaSolverWidget extends ReactWidget {
                     </select>
                 </div>
 
-                <div style={{
+                <div className="fs-panel" style={{
                     display: 'flex',
                     gap: '10px',
                     padding: '10px',
-                    border: '1px solid var(--theia-panel-border)',
                     borderRadius: '6px',
-                    backgroundColor: 'var(--theia-editor-background)',
                     alignItems: 'center',
                     flexWrap: 'wrap'
                 }}>
@@ -2592,13 +2537,11 @@ export class FormulaSolverWidget extends ReactWidget {
                     </select>
                 </div>
 
-                <div style={{
+                <div className="fs-panel" style={{
                     display: 'flex',
                     gap: '10px',
                     padding: '10px',
-                    border: '1px solid var(--theia-panel-border)',
                     borderRadius: '6px',
-                    backgroundColor: 'var(--theia-editor-background)',
                     alignItems: 'center',
                     flexWrap: 'wrap'
                 }}>
@@ -2787,11 +2730,10 @@ export class FormulaSolverWidget extends ReactWidget {
                     value={this.state.text || ''}
                 />
                 <button
+                    className="fs-btn--primary"
                     style={{
                         marginTop: '10px',
                         padding: '8px 16px',
-                        backgroundColor: 'var(--theia-button-background)',
-                        color: 'var(--theia-button-foreground)',
                         border: 'none',
                         borderRadius: '4px',
                         cursor: 'pointer'
@@ -2802,11 +2744,9 @@ export class FormulaSolverWidget extends ReactWidget {
                     Détecter la formule
                 </button>
 
-                <div style={{
+                <div className="fs-panel" style={{
                     marginTop: '12px',
                     padding: '12px',
-                    backgroundColor: 'var(--theia-editor-background)',
-                    border: '1px solid var(--theia-panel-border)',
                     borderRadius: '4px'
                 }}>
                     <button
@@ -2872,10 +2812,9 @@ export class FormulaSolverWidget extends ReactWidget {
                             />
                             <div style={{ display: 'flex', gap: '8px' }}>
                                 <button
+                                    className="fs-btn--primary"
                                     style={{
                                         padding: '8px 16px',
-                                        backgroundColor: 'var(--theia-button-background)',
-                                        color: 'var(--theia-button-foreground)',
                                         border: 'none',
                                         borderRadius: '4px',
                                         cursor: 'pointer'
@@ -2923,10 +2862,8 @@ export class FormulaSolverWidget extends ReactWidget {
             <div id='formula-solver-step-questions' className='questions-step' style={{ marginBottom: '20px' }}>
                 <h3>2. Questions pour les variables</h3>
 
-                <div style={{
+                <div className="fs-panel" style={{
                     padding: '20px',
-                    backgroundColor: 'var(--theia-editor-background)',
-                    border: '1px solid var(--theia-panel-border)',
                     borderRadius: '4px',
                     marginBottom: '20px'
                 }}>
@@ -2973,15 +2910,7 @@ export class FormulaSolverWidget extends ReactWidget {
                         })}
 
                         <button
-                            style={{
-                                padding: '6px 10px',
-                                backgroundColor: 'transparent',
-                                color: 'var(--theia-foreground)',
-                                border: '1px solid var(--theia-panel-border)',
-                                borderRadius: '4px',
-                                cursor: 'pointer',
-                                fontSize: '12px'
-                            }}
+                            className="fs-btn fs-btn--outline"
                             onClick={() => {
                                 this.questionsAiHintOpen = !this.questionsAiHintOpen;
                                 this.update();
@@ -2992,15 +2921,7 @@ export class FormulaSolverWidget extends ReactWidget {
                         </button>
 
                         <button
-                            style={{
-                                padding: '6px 10px',
-                                backgroundColor: 'transparent',
-                                color: 'var(--theia-foreground)',
-                                border: '1px solid var(--theia-panel-border)',
-                                borderRadius: '4px',
-                                cursor: 'pointer',
-                                fontSize: '12px'
-                            }}
+                            className="fs-btn fs-btn--outline"
                             onClick={() => {
                                 this.showAdvancedAnswerFields = !this.showAdvancedAnswerFields;
                                 this.update();
@@ -3092,10 +3013,8 @@ export class FormulaSolverWidget extends ReactWidget {
                         </div>
                     )}
 
-                    <div style={{
+                    <div className="fs-panel" style={{
                         padding: '10px',
-                        backgroundColor: 'var(--theia-editor-background)',
-                        border: '1px solid var(--theia-panel-border)',
                         borderRadius: '4px',
                         marginBottom: '12px'
                     }}>
@@ -3126,15 +3045,7 @@ export class FormulaSolverWidget extends ReactWidget {
                             <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                                     <button
-                                        style={{
-                                            padding: '6px 10px',
-                                            backgroundColor: 'var(--theia-button-background)',
-                                            color: 'var(--theia-button-foreground)',
-                                            border: 'none',
-                                            borderRadius: '4px',
-                                            cursor: 'pointer',
-                                            fontSize: '12px'
-                                        }}
+                                        className="fs-btn fs-btn--primary"
                                         disabled={this.state.loading}
                                         onClick={() => void this.refreshAnsweringContext(false)}
                                         title="Construit (ou relit du cache) le contexte IA"
@@ -3142,15 +3053,7 @@ export class FormulaSolverWidget extends ReactWidget {
                                         Charger / rafraîchir
                                     </button>
                                     <button
-                                        style={{
-                                            padding: '6px 10px',
-                                            backgroundColor: 'var(--theia-button-secondaryBackground)',
-                                            color: 'var(--theia-button-secondaryForeground)',
-                                            border: 'none',
-                                            borderRadius: '4px',
-                                            cursor: 'pointer',
-                                            fontSize: '12px'
-                                        }}
+                                        className="fs-btn fs-btn--secondary"
                                         disabled={this.state.loading}
                                         onClick={() => void this.refreshAnsweringContext(true)}
                                         title="Force le recalcul du contexte IA (ignore le cache)"
