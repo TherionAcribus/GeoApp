@@ -109,3 +109,91 @@ def test_import_from_scraped_persists_without_network(app):
         assert stored.size == 'small'
         assert stored.hints_decoded == 'Sous la pierre'
         assert stored.zone_id == zone.id
+
+
+def _bare_importer():
+    """Importer dont le scraper ne doit jamais être appelé (chemin sans réseau)."""
+    from gc_backend.geocaches.scraper import GeocachingScraper
+    importer = GeocacheImporter.__new__(GeocacheImporter)
+    importer.scraper = GeocachingScraper.__new__(GeocachingScraper)
+    return importer
+
+
+def test_import_outcomes_created_existing_moved(app):
+    with app.app_context():
+        zone_a = Zone(name='Zone A')
+        zone_b = Zone(name='Zone B')
+        db.session.add_all([zone_a, zone_b])
+        db.session.flush()
+
+        caches, _ = parse_gpx_caches(GPX_SAMPLE)
+        sc = caches[0]
+        importer = _bare_importer()
+
+        # 1) Première fois -> created
+        _, outcome = importer.import_from_scraped(zone_a.id, sc, return_outcome=True)
+        assert outcome == 'created'
+
+        # 2) Ré-import dans la même zone -> existing
+        _, outcome = importer.import_from_scraped(zone_a.id, sc, return_outcome=True)
+        assert outcome == 'existing'
+
+        # 3) Import dans une autre zone -> moved
+        _, outcome = importer.import_from_scraped(zone_b.id, sc, return_outcome=True)
+        assert outcome == 'moved'
+        moved = Geocache.query.filter_by(gc_code='GC1TEST').first()
+        assert moved.zone_id == zone_b.id
+
+
+def test_refresh_preserves_local_solved_coordinates(app, monkeypatch):
+    from gc_backend.geocaches.scraper import ScrapedGeocache
+    import gc_backend.blueprints.geocaches as gc_bp
+
+    with app.app_context():
+        zone = Zone(name='Zone refresh')
+        db.session.add(zone)
+        db.session.flush()
+
+        # Cache résolue localement (coords corrigées non poussées sur GC)
+        gc = Geocache(
+            gc_code='GCLOCAL1', name='Mystery', zone_id=zone.id,
+            latitude=48.5, longitude=2.5, coordinates_raw='N 48 30.000 E 002 30.000',
+            is_corrected=True, solved='solved',
+        )
+        db.session.add(gc)
+        db.session.commit()
+        gc_id = gc.id
+
+        # Le scrape renvoie les coords du listing (non corrigées sur GC)
+        scraped = ScrapedGeocache(
+            gc_code='GCLOCAL1', name='Mystery', url=None, type='Mystery', size='small',
+            owner='O', difficulty=3.0, terrain=1.5,
+            latitude=48.0, longitude=2.0, placed_at=None, status='active',
+            coordinates_raw='N 48 00.000 E 002 00.000', is_corrected=False,
+            original_latitude=48.0, original_longitude=2.0,
+            original_coordinates_raw='N 48 00.000 E 002 00.000',
+        )
+
+        class _FakeScraper:
+            def __init__(self, *a, **k):
+                pass
+
+            def scrape(self, code):
+                return scraped
+
+        monkeypatch.setattr(gc_bp, 'GeocachingScraper', _FakeScraper)
+        monkeypatch.setattr(gc_bp, 'ensure_images_v2_for_geocache', lambda *a, **k: None)
+
+        client = app.test_client()
+        resp = client.post(f'/api/geocaches/{gc_id}/refresh')
+        assert resp.status_code == 200
+
+        refreshed = Geocache.query.get(gc_id)
+        # Coordonnées locales préservées...
+        assert refreshed.latitude == 48.5
+        assert refreshed.longitude == 2.5
+        assert refreshed.is_corrected is True
+        # ...mais les coordonnées d'origine (listing) sont bien mises à jour
+        assert refreshed.original_latitude == 48.0
+        # ...et les autres champs rafraîchis
+        assert refreshed.difficulty == 3.0

@@ -17,6 +17,15 @@ from ..services.geocaching_auth import get_auth_service
 logger = logging.getLogger(__name__)
 
 
+# lxml est nettement plus rapide que html.parser sur les grosses pages listing
+# (300-500 Ko). On l'utilise s'il est présent, avec repli gracieux sinon.
+try:
+    import lxml  # noqa: F401
+    _BS4_PARSER = 'lxml'
+except Exception:  # pragma: no cover - dépend de l'environnement
+    _BS4_PARSER = 'html.parser'
+
+
 GEOCACHING_CACHE_TYPE_ID_MAP = {
     '2': 'Traditional',
     '3': 'Multi',
@@ -139,7 +148,7 @@ class GeocachingScraper:
             raise RuntimeError(f"Unexpected error scraping {code}")
 
         logger.debug(f"Parsing HTML for {code}")
-        soup = BeautifulSoup(resp.text, 'html.parser')
+        soup = BeautifulSoup(resp.text, _BS4_PARSER)
 
         def text_or_none(el):
             return el.get_text(strip=True) if el else None

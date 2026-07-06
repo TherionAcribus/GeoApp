@@ -24,11 +24,42 @@ class BookmarkListImporter:
     
     BOOKMARK_LIST_URL = 'https://www.geocaching.com/plan/lists/'
     USER_LISTS_URL = 'https://www.geocaching.com/my/lists.aspx'
-    
+    NEXTJS_LISTS_PAGE = 'https://www.geocaching.com/plan/lists'
+
+    # Build ID Next.js par défaut si la détection échoue. Il change à chaque
+    # déploiement de Geocaching.com : on tente d'abord de l'extraire de la page.
+    DEFAULT_BUILD_ID = 'release-20260122.1.2725'
+
     def __init__(self, session: Optional[requests.Session] = None) -> None:
         self.session = session or requests.Session()
         self.session.headers.setdefault('User-Agent', GEOAPP_USER_AGENT)
-    
+        self._build_id: Optional[str] = None
+
+    def _get_build_id(self) -> str:
+        """Détecte le build ID Next.js courant depuis ``__NEXT_DATA__``.
+
+        Le résultat est mis en cache pour la durée de vie de l'instance. En cas
+        d'échec (page indisponible, structure changée), on retombe sur la valeur
+        par défaut — l'appelant a de toute façon un repli HTML/scraping.
+        """
+        if self._build_id:
+            return self._build_id
+        try:
+            resp = self.session.get(self.NEXTJS_LISTS_PAGE, timeout=30)
+            if resp.status_code == 200:
+                match = re.search(r'"buildId"\s*:\s*"([^"]+)"', resp.text)
+                if match:
+                    self._build_id = match.group(1)
+                    logger.debug(f"Detected Next.js buildId: {self._build_id}")
+                    return self._build_id
+            logger.debug(
+                f"Could not detect Next.js buildId (status {resp.status_code}), using default"
+            )
+        except Exception as e:
+            logger.debug(f"Failed to detect Next.js buildId: {e}")
+        self._build_id = self.DEFAULT_BUILD_ID
+        return self._build_id
+
     @staticmethod
     def validate_bookmark_code(code: str) -> str:
         """Validate and normalize a bookmark list code (e.g., BM1234)."""
@@ -60,7 +91,7 @@ class BookmarkListImporter:
         # Try the Next.js data endpoint first
         logger.debug(f"Starting geocache extraction for {code}")
         try:
-            build_id = 'release-20260122.1.2725'  # Default build ID
+            build_id = self._get_build_id()
             nextjs_url = f'https://www.geocaching.com/_next/data/{build_id}/en/plan/lists/{code}.json?bmCode={code}'
             logger.debug(f"Trying Next.js data endpoint: {nextjs_url}")
             
@@ -240,9 +271,9 @@ class BookmarkListImporter:
         
         # Try the Next.js data endpoint first (modern approach)
         try:
-            # Try to get the build ID from the main page first
-            build_id = 'release-20260122.1.2725'  # Default, will be updated if we can detect it
-            
+            # Détecter le build ID courant (avec cache + repli par défaut)
+            build_id = self._get_build_id()
+
             # Try the Next.js data endpoint for the lists page
             nextjs_url = f'https://www.geocaching.com/_next/data/{build_id}/en/plan/lists.json'
             logger.debug(f"Trying Next.js data endpoint: {nextjs_url}")

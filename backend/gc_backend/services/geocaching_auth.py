@@ -131,9 +131,15 @@ class GeocachingAuthService:
             method=AuthMethod.NONE
         )
         self._credentials_file = self._get_credentials_file_path()
+        # Cookies de session persistés à côté des credentials, pour restaurer une
+        # session sans rejouer le login (username/password) à chaque démarrage.
+        self._cookies_file = self._credentials_file.parent / ".gc_cookies.json"
         self._session_lock = threading.Lock()
+        # Verrou dédié aux lectures/écritures de _auth_state (dataclass mutable
+        # partagée entre threads Flask). Le réseau est fait hors de ce verrou.
+        self._state_lock = threading.RLock()
         self._initialized = True
-        
+
         logger.info("GeocachingAuthService initialized")
     
     def _get_credentials_file_path(self) -> Path:
@@ -179,12 +185,19 @@ class GeocachingAuthService:
         # 1. Essayer les credentials sauvegardés
         saved = self._load_saved_credentials()
         if saved and saved.get("method") == "credentials":
+            # a) D'abord les cookies persistés : évite un login réseau complet
+            #    (plus rapide et moins susceptible de déclencher un captcha).
+            if self._restore_from_cookies(AuthMethod.CREDENTIALS):
+                return
+
+            # b) Sinon, re-login avec les credentials sauvegardés
             username = saved.get("username")
             password = saved.get("password")
             if username and password:
                 logger.info("Attempting to restore session with saved credentials...")
                 status = self._do_login(username, password)
                 if status == AuthStatus.LOGGED_IN:
+                    self._save_cookies()
                     logger.info("Session restored successfully")
                     return
         
@@ -332,7 +345,104 @@ class GeocachingAuthService:
                 self._credentials_file.unlink()
         except Exception as e:
             logger.warning(f"Failed to clear saved credentials: {e}")
-    
+
+    # ---- Persistance des cookies de session ----
+
+    def _save_cookies(self) -> None:
+        """Persiste les cookies de la session courante sur le disque."""
+        if self._session is None:
+            return
+        try:
+            data = [
+                {
+                    'name': c.name,
+                    'value': c.value,
+                    'domain': c.domain,
+                    'path': c.path,
+                    'expires': c.expires,
+                    'secure': c.secure,
+                }
+                for c in self._session.cookies
+            ]
+            with open(self._cookies_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f)
+            try:
+                os.chmod(self._cookies_file, 0o600)
+            except (OSError, AttributeError):
+                pass  # Windows ou autre
+            logger.debug(f"Persisted {len(data)} session cookies")
+        except Exception as e:
+            logger.warning(f"Failed to persist session cookies: {e}")
+
+    def _load_cookies_into_session(self) -> bool:
+        """Charge les cookies persistés dans la session. True si au moins un cookie."""
+        if self._session is None or not self._cookies_file.exists():
+            return False
+        try:
+            with open(self._cookies_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        except Exception as e:
+            logger.warning(f"Failed to read persisted cookies: {e}")
+            return False
+
+        if not isinstance(data, list) or not data:
+            return False
+
+        import requests.cookies as rc
+
+        count = 0
+        for item in data:
+            try:
+                cookie = rc.create_cookie(
+                    name=item['name'],
+                    value=item['value'],
+                    domain=item.get('domain', ''),
+                    path=item.get('path', '/'),
+                    expires=item.get('expires'),
+                    secure=bool(item.get('secure', False)),
+                )
+                self._session.cookies.set_cookie(cookie)
+                count += 1
+            except Exception:
+                continue
+
+        logger.debug(f"Loaded {count} persisted cookies into session")
+        return count > 0
+
+    def _clear_cookies(self) -> None:
+        """Supprime le fichier de cookies persistés."""
+        try:
+            if self._cookies_file.exists():
+                self._cookies_file.unlink()
+        except Exception as e:
+            logger.warning(f"Failed to clear persisted cookies: {e}")
+
+    def _restore_from_cookies(self, method: AuthMethod) -> bool:
+        """Tente de restaurer la session à partir des cookies persistés.
+
+        Retourne True si la session est valide (utilisateur connecté) sans avoir
+        eu besoin de rejouer le login. Nettoie les cookies périmés le cas échéant.
+        """
+        if not self._load_cookies_into_session():
+            return False
+
+        params = self._fetch_server_parameters()
+        if self._params_is_logged_in(params):
+            self._auth_state = AuthState(
+                status=AuthStatus.LOGGED_IN,
+                method=method,
+                last_check=datetime.now(),
+            )
+            self._fetch_user_info(params)
+            logger.info("Session restored from persisted cookies (no login required)")
+            return True
+
+        # Cookies périmés : repartir sur une session propre pour le login de repli.
+        logger.info("Persisted cookies expired or invalid, will re-login")
+        self._session.cookies.clear()
+        self._clear_cookies()
+        return False
+
     # ==================== LOGIN METHODS ====================
     
     def login_with_credentials(
@@ -358,10 +468,12 @@ class GeocachingAuthService:
             self._session = self._create_session()
         
         status = self._do_login(username, password)
-        
+
         if status == AuthStatus.LOGGED_IN and remember:
             self._save_credentials("credentials", username=username, password=password)
-        
+            # Persister les cookies pour restaurer la session sans re-login.
+            self._save_cookies()
+
         return self._auth_state
     
     def _do_login(self, username: str, password: str) -> AuthStatus:
@@ -766,21 +878,21 @@ class GeocachingAuthService:
                 timeout=30
             )
             
-            logger.info(f"Profile stats API response: status={resp.status_code}")
-            
+            logger.debug(f"Profile stats API response: status={resp.status_code}")
+
             if resp.status_code != 200:
                 logger.warning(f"Failed to fetch profile stats: status {resp.status_code}, body={resp.text[:500]}")
                 # Essayer la méthode alternative via le dashboard
                 return self._fetch_profile_stats_from_dashboard()
-            
+
             data = resp.json()
-            
+
             # Log pour debug
-            logger.info(f"API response keys: {list(data.keys())}")
+            logger.debug(f"API response keys: {list(data.keys())}")
             logger.debug(f"Full API response: {data}")
 
             if 'awardedFavoritePoints' not in data:
-                logger.info("Profile stats API does not include awardedFavoritePoints, falling back to dashboard")
+                logger.debug("Profile stats API does not include awardedFavoritePoints, falling back to dashboard")
                 return self._fetch_profile_stats_from_dashboard()
             
             # Extraire les stats
@@ -850,12 +962,13 @@ class GeocachingAuthService:
             html = resp.text
             
             # Log un échantillon du HTML pour debug (section Favorites)
-            favorites_sample = re.search(r'Favorites?.{0,500}', html, re.IGNORECASE | re.DOTALL)
-            if favorites_sample:
-                logger.info(f"=== FAVORITES HTML SAMPLE ===\n{favorites_sample.group(0)}\n=== END SAMPLE ===")
-            
+            if logger.isEnabledFor(logging.DEBUG):
+                favorites_sample = re.search(r'Favorites?.{0,500}', html, re.IGNORECASE | re.DOTALL)
+                if favorites_sample:
+                    logger.debug(f"=== FAVORITES HTML SAMPLE ===\n{favorites_sample.group(0)}\n=== END SAMPLE ===")
+
             dashboard_stats = self._extract_dashboard_favorite_stats(html)
-            logger.info(
+            logger.debug(
                 "Dashboard favorite stats: remaining=%s, logs_until_next=%s, total=%s",
                 dashboard_stats.get('remaining_points'),
                 dashboard_stats.get('logs_until_next_point'),
@@ -909,13 +1022,13 @@ class GeocachingAuthService:
                     if not fp_match:
                         fp_match = re.search(r'(\d+)\s*(?:Favorite\s+Points?|FP)', stats_html, re.IGNORECASE)
             
-            logger.info(f"Dashboard parsing: finds={bool(finds_match)}, hides={bool(hides_match)}, fp={bool(fp_match)}")
-            
+            logger.debug(f"Dashboard parsing: finds={bool(finds_match)}, hides={bool(hides_match)}, fp={bool(fp_match)}")
+
             # Si toujours pas trouvé, chercher n'importe quel nombre près de "hide" pour debug
-            if not hides_match:
+            if not hides_match and logger.isEnabledFor(logging.DEBUG):
                 all_hides = re.findall(r'hide[^>]{0,50}?(\d+)', html, re.IGNORECASE)
                 if all_hides:
-                    logger.info(f"Found potential hide counts: {all_hides[:5]}")
+                    logger.debug(f"Found potential hide counts: {all_hides[:5]}")
             
             if self._auth_state.user_info:
                 if finds_match:
@@ -928,9 +1041,9 @@ class GeocachingAuthService:
                     self._auth_state.user_info.favorite_points = dashboard_stats['total_favorite_points']
                 
                 self._auth_state.user_info.stats_last_updated = datetime.now()
-                
-                logger.info(f"Profile stats from dashboard: finds={self._auth_state.user_info.finds_count}")
-            
+
+                logger.debug(f"Profile stats from dashboard: finds={self._auth_state.user_info.finds_count}")
+
             return self._get_current_stats()
             
         except Exception as e:
@@ -1052,7 +1165,8 @@ class GeocachingAuthService:
                 self._session.cookies.clear()
 
         self._clear_saved_credentials()
-        
+        self._clear_cookies()
+
         self._auth_state = AuthState(
             status=AuthStatus.LOGGED_OUT,
             method=AuthMethod.NONE
@@ -1075,29 +1189,34 @@ class GeocachingAuthService:
         if self._session is None:
             self.get_session()
 
-        # Vérifier si le cache est encore valide
-        if not force_check and self._auth_state.last_check:
-            age = datetime.now() - self._auth_state.last_check
-            if age < timedelta(seconds=self.STATE_CACHE_TTL):
-                return self._auth_state
-        
-        # Vérifier le statut réel (un seul fetch serverparameters réutilisé ci-dessous)
+        # Vérifier si le cache est encore valide (lecture rapide sous verrou)
+        with self._state_lock:
+            if not force_check and self._auth_state.last_check:
+                age = datetime.now() - self._auth_state.last_check
+                if age < timedelta(seconds=self.STATE_CACHE_TTL):
+                    return self._auth_state
+
+        # Vérifier le statut réel — le fetch réseau est fait HORS verrou pour ne
+        # pas sérialiser les requêtes concurrentes (scrapes/refresh simultanés).
         params = self._fetch_server_parameters() if self._session else None
-        if self._params_is_logged_in(params):
-            self._auth_state.status = AuthStatus.LOGGED_IN
-            if not self._auth_state.user_info:
-                self._fetch_user_info(params)
-        elif self._auth_state.status == AuthStatus.LOGGED_IN:
-            # Était connecté mais plus maintenant
-            self._auth_state.status = AuthStatus.LOGGED_OUT
+        logged_in = self._params_is_logged_in(params)
 
-        # Toujours amorcer le cache, y compris en état déconnecté/non configuré,
-        # sinon chaque is_logged_in() redéclenche un GET serverparameters (~300-800 ms).
-        # De nombreux appelants (GeocachingScraper, GeocachingSearchClient, routes)
-        # instancient et vérifient l'état à chaque requête.
-        self._auth_state.last_check = datetime.now()
+        with self._state_lock:
+            if logged_in:
+                self._auth_state.status = AuthStatus.LOGGED_IN
+                if not self._auth_state.user_info:
+                    self._fetch_user_info(params)  # params fournis => pas de réseau
+            elif self._auth_state.status == AuthStatus.LOGGED_IN:
+                # Était connecté mais plus maintenant
+                self._auth_state.status = AuthStatus.LOGGED_OUT
 
-        return self._auth_state
+            # Toujours amorcer le cache, y compris en état déconnecté/non configuré,
+            # sinon chaque is_logged_in() redéclenche un GET serverparameters (~300-800 ms).
+            # De nombreux appelants (GeocachingScraper, GeocachingSearchClient, routes)
+            # instancient et vérifient l'état à chaque requête.
+            self._auth_state.last_check = datetime.now()
+
+            return self._auth_state
     
     def is_logged_in(self) -> bool:
         """Vérifie rapidement si l'utilisateur est connecté."""

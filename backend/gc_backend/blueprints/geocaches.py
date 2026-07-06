@@ -25,6 +25,45 @@ from ..utils.preferences import get_value_or_default
 bp = Blueprint('geocaches', __name__)
 logger = logging.getLogger(__name__)
 
+
+def _new_import_counts() -> dict:
+    """Compteurs pour un import de masse (créées / déjà présentes / déplacées / erreurs)."""
+    return {'created': 0, 'existing': 0, 'moved': 0, 'errors': 0}
+
+
+def _import_item_label(outcome: str) -> str:
+    return {
+        'created': 'Importée',
+        'existing': 'Déjà présente',
+        'moved': 'Déplacée (autre zone)',
+    }.get(outcome, 'Importée')
+
+
+def _bulk_import_summary(counts: dict) -> str:
+    parts = []
+    if counts.get('created'):
+        parts.append(f"{counts['created']} importée(s)")
+    if counts.get('existing'):
+        parts.append(f"{counts['existing']} déjà présente(s)")
+    if counts.get('moved'):
+        parts.append(f"{counts['moved']} déplacée(s) depuis une autre zone")
+    if counts.get('errors'):
+        parts.append(f"{counts['errors']} erreur(s)")
+    return 'Importation terminée : ' + (', '.join(parts) if parts else 'aucune géocache')
+
+
+def _import_stats(counts: dict, total: int) -> dict:
+    """Stats renvoyées au frontend (rétro-compatibles: success/errors/total)."""
+    success = counts['created'] + counts['existing'] + counts['moved']
+    return {
+        'success': success,
+        'errors': counts['errors'],
+        'total': total,
+        'created': counts['created'],
+        'existing': counts['existing'],
+        'moved': counts['moved'],
+    }
+
 def _as_gpx_time(value: datetime | None) -> str:
     if value is None:
         value = datetime.now(timezone.utc)
@@ -878,16 +917,15 @@ def import_around():
                 yield json.dumps({'message': f'{total} géocache(s) trouvée(s)', 'progress': 10}) + '\n'
                 yield json.dumps({'message': f'Import de {total} géocache(s)...', 'progress': 15}) + '\n'
 
-                success = 0
-                errors = 0
+                counts = _new_import_counts()
 
                 for idx, code in enumerate(gc_codes, start=1):
                     try:
-                        importer.import_by_code(zone_id, code)
-                        success += 1
-                        msg = f'Importée: {code} ({idx}/{total})'
+                        _, outcome = importer.import_by_code(zone_id, code, return_outcome=True)
+                        counts[outcome] += 1
+                        msg = f'{_import_item_label(outcome)}: {code} ({idx}/{total})'
                     except Exception as e:
-                        errors += 1
+                        counts['errors'] += 1
                         msg = f'Erreur {code}: {e}'
 
                     pct = 15 + int(idx / total * 85)
@@ -895,15 +933,11 @@ def import_around():
 
                     time.sleep(0.2)
 
-                summary = f'Importation terminée: {success} succès'
-                if errors:
-                    summary += f', {errors} erreurs'
-
                 yield json.dumps({
                     'progress': 100,
-                    'message': summary,
+                    'message': _bulk_import_summary(counts),
                     'final_summary': True,
-                    'stats': {'success': success, 'errors': errors, 'total': total},
+                    'stats': _import_stats(counts, total),
                     'center': {'lat': center_lat, 'lon': center_lon},
                     **({'radius_km': radius_km} if radius_km is not None else {}),
                     **({'min_km': min_km} if min_km is not None else {}),
@@ -1159,17 +1193,32 @@ def refresh_geocache(geocache_id: int):
         geocache.owner = s.owner
         geocache.difficulty = s.difficulty
         geocache.terrain = s.terrain
-        geocache.latitude = s.latitude
-        geocache.longitude = s.longitude
         geocache.placed_at = s.placed_at
         geocache.status = s.status or 'active'
-        
-        # Mettre à jour les données enrichies
-        geocache.coordinates_raw = getattr(s, 'coordinates_raw', None)
-        geocache.is_corrected = getattr(s, 'is_corrected', None)
+
+        # Coordonnées : ne pas écraser une solution résolue localement mais non
+        # poussée sur Geocaching.com. Si GC possède des coordonnées corrigées,
+        # elles font foi ; sinon, on conserve les coordonnées locales corrigées.
+        scrape_has_corrected = bool(getattr(s, 'is_corrected', False))
+        preserve_local_coords = bool(geocache.is_corrected) and not scrape_has_corrected
+
+        if preserve_local_coords:
+            logger.info(
+                f"Preserving locally-solved coordinates for {gc_code} "
+                f"(no corrected coordinates on Geocaching.com)"
+            )
+        else:
+            geocache.latitude = s.latitude
+            geocache.longitude = s.longitude
+            geocache.coordinates_raw = getattr(s, 'coordinates_raw', None)
+            geocache.is_corrected = getattr(s, 'is_corrected', None)
+
+        # Les coordonnées d'origine (listing) proviennent toujours du scrape.
         geocache.original_latitude = getattr(s, 'original_latitude', None)
         geocache.original_longitude = getattr(s, 'original_longitude', None)
         geocache.original_coordinates_raw = getattr(s, 'original_coordinates_raw', None)
+
+        # Mettre à jour les données enrichies
         geocache.description_html = getattr(s, 'description_html', None)
         geocache.hints = getattr(s, 'hints', None)
         geocache.attributes = getattr(s, 'attributes', None)
@@ -1475,19 +1524,18 @@ def import_gpx():
                     }) + '\n'
                 yield json.dumps({'message': f'Import de {total} géocache(s)...', 'progress': 10}) + '\n'
 
-                success = 0
-                errors = 0
+                counts = _new_import_counts()
                 idx = 0
 
                 # 1) Import rapide des caches complètes (pas de réseau)
                 for sc in full_by_code.values():
                     idx += 1
                     try:
-                        importer.import_from_scraped(zone_id, sc)
-                        success += 1
-                        msg = f'Importée: {sc.gc_code} ({idx}/{total})'
+                        _, outcome = importer.import_from_scraped(zone_id, sc, return_outcome=True)
+                        counts[outcome] += 1
+                        msg = f'{_import_item_label(outcome)}: {sc.gc_code} ({idx}/{total})'
                     except Exception as e:
-                        errors += 1
+                        counts['errors'] += 1
                         msg = f'Erreur {sc.gc_code}: {e}'
                     pct = 10 + int(idx / total * 90)
                     yield json.dumps({'message': msg, 'progress': pct}) + '\n'
@@ -1496,20 +1544,22 @@ def import_gpx():
                 for code in scrape_codes:
                     idx += 1
                     try:
-                        importer.import_by_code(zone_id, code)
-                        success += 1
-                        msg = f'Importée (téléchargée): {code} ({idx}/{total})'
+                        _, outcome = importer.import_by_code(zone_id, code, return_outcome=True)
+                        counts[outcome] += 1
+                        msg = f'{_import_item_label(outcome)} (téléchargée): {code} ({idx}/{total})'
                     except Exception as e:
-                        errors += 1
+                        counts['errors'] += 1
                         msg = f'Erreur {code}: {e}'
                     pct = 10 + int(idx / total * 90)
                     yield json.dumps({'message': msg, 'progress': pct}) + '\n'
                     time.sleep(0.2)  # ménager Geocaching.com uniquement en mode scraping
 
-                summary = f'Importation terminée: {success} succès'
-                if errors:
-                    summary += f', {errors} erreurs'
-                yield json.dumps({'progress': 100, 'message': summary, 'final_summary': True, 'stats': {'success': success, 'errors': errors, 'total': total}}) + '\n'
+                yield json.dumps({
+                    'progress': 100,
+                    'message': _bulk_import_summary(counts),
+                    'final_summary': True,
+                    'stats': _import_stats(counts, total),
+                }) + '\n'
             except Exception as e:
                 logger.error(f"Erreur import GPX: {e}", exc_info=True)
                 yield json.dumps({'error': True, 'message': f'Erreur: {str(e)}'}) + '\n'
@@ -1608,30 +1658,26 @@ def import_bookmark_list():
                 total = len(gc_codes)
                 yield json.dumps({'message': f'{total} géocache(s) trouvée(s) dans la liste', 'progress': 10}) + '\n'
                 
-                success = 0
-                errors = 0
+                counts = _new_import_counts()
                 for idx, code in enumerate(gc_codes, start=1):
                     try:
-                        importer.import_by_code(zone_id, code)
-                        success += 1
-                        msg = f'Importée: {code} ({idx}/{total})'
+                        _, outcome = importer.import_by_code(zone_id, code, return_outcome=True)
+                        counts[outcome] += 1
+                        msg = f'{_import_item_label(outcome)}: {code} ({idx}/{total})'
                     except Exception as e:
-                        errors += 1
+                        counts['errors'] += 1
                         msg = f'Erreur {code}: {e}'
-                    
+
                     pct = 10 + int(idx / total * 90)
                     yield json.dumps({'message': msg, 'progress': pct}) + '\n'
-                
-                summary = f'Importation terminée: {success} succès'
-                if errors:
-                    summary += f', {errors} erreurs'
+
                 yield json.dumps({
                     'progress': 100,
-                    'message': summary,
+                    'message': _bulk_import_summary(counts),
                     'final_summary': True,
-                    'stats': {'success': success, 'errors': errors, 'total': total}
+                    'stats': _import_stats(counts, total),
                 }) + '\n'
-                
+
             except Exception as e:
                 logger.error(f"Erreur import bookmark list: {e}", exc_info=True)
                 yield json.dumps({'error': True, 'message': f'Erreur: {str(e)}'}) + '\n'
@@ -1729,19 +1775,18 @@ def import_pocket_query():
 
                 yield json.dumps({'message': f'{total} géocache(s) trouvée(s)', 'progress': 20}) + '\n'
 
-                success = 0
-                errors = 0
+                counts = _new_import_counts()
                 idx = 0
 
                 # 1) Import rapide des caches complètes (pas de réseau)
                 for sc in full_by_code.values():
                     idx += 1
                     try:
-                        importer.import_from_scraped(zone_id, sc)
-                        success += 1
-                        msg = f'Importée: {sc.gc_code} ({idx}/{total})'
+                        _, outcome = importer.import_from_scraped(zone_id, sc, return_outcome=True)
+                        counts[outcome] += 1
+                        msg = f'{_import_item_label(outcome)}: {sc.gc_code} ({idx}/{total})'
                     except Exception as e:
-                        errors += 1
+                        counts['errors'] += 1
                         msg = f'Erreur {sc.gc_code}: {e}'
                     pct = 20 + int(idx / total * 80)
                     yield json.dumps({'message': msg, 'progress': pct}) + '\n'
@@ -1750,24 +1795,21 @@ def import_pocket_query():
                 for code in scrape_codes:
                     idx += 1
                     try:
-                        importer.import_by_code(zone_id, code)
-                        success += 1
-                        msg = f'Importée (téléchargée): {code} ({idx}/{total})'
+                        _, outcome = importer.import_by_code(zone_id, code, return_outcome=True)
+                        counts[outcome] += 1
+                        msg = f'{_import_item_label(outcome)} (téléchargée): {code} ({idx}/{total})'
                     except Exception as e:
-                        errors += 1
+                        counts['errors'] += 1
                         msg = f'Erreur {code}: {e}'
                     pct = 20 + int(idx / total * 80)
                     yield json.dumps({'message': msg, 'progress': pct}) + '\n'
                     time.sleep(0.2)
 
-                summary = f'Importation terminée: {success} succès'
-                if errors:
-                    summary += f', {errors} erreurs'
                 yield json.dumps({
                     'progress': 100,
-                    'message': summary,
+                    'message': _bulk_import_summary(counts),
                     'final_summary': True,
-                    'stats': {'success': success, 'errors': errors, 'total': total}
+                    'stats': _import_stats(counts, total),
                 }) + '\n'
 
             except Exception as e:

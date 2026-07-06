@@ -18,15 +18,20 @@ class GeocacheImporter:
     def __init__(self, scraper: Optional[GeocachingScraper] = None) -> None:
         self.scraper = scraper or GeocachingScraper()
 
-    def import_by_code(self, zone_id: int, gc_code: str) -> Geocache:
-        """Importe une géocache en la téléchargeant depuis Geocaching.com."""
+    def import_by_code(self, zone_id: int, gc_code: str, return_outcome: bool = False):
+        """Importe une géocache en la téléchargeant depuis Geocaching.com.
+
+        Si ``return_outcome`` est vrai, retourne ``(geocache, outcome)`` où
+        ``outcome`` vaut ``'created'``, ``'existing'`` ou ``'moved'`` — utile pour
+        les imports de masse afin de distinguer les cas dans le résumé.
+        """
         logger.info(f"Importing geocache {gc_code} into zone {zone_id}")
 
         code = self._validate_zone_and_code(zone_id, gc_code)
 
-        existing = self._resolve_existing(zone_id, code)
+        existing, outcome = self._resolve_existing(zone_id, code)
         if existing is not None:
-            return existing
+            return (existing, outcome) if return_outcome else existing
 
         logger.info(f"Geocache {code} not found locally, scraping...")
         try:
@@ -35,9 +40,10 @@ class GeocacheImporter:
             logger.error(f"Failed to scrape geocache {code}: {e}")
             raise
 
-        return self._persist_new_geocache(zone_id, code, scraped)
+        g = self._persist_new_geocache(zone_id, code, scraped)
+        return (g, 'created') if return_outcome else g
 
-    def import_from_scraped(self, zone_id: int, scraped: ScrapedGeocache) -> Geocache:
+    def import_from_scraped(self, zone_id: int, scraped: ScrapedGeocache, return_outcome: bool = False):
         """Importe une géocache depuis des données déjà parsées (ex: GPX/Pocket Query).
 
         Évite tout appel réseau : même logique de déduplication et de persistance
@@ -46,12 +52,13 @@ class GeocacheImporter:
         """
         code = self._validate_zone_and_code(zone_id, scraped.gc_code)
 
-        existing = self._resolve_existing(zone_id, code)
+        existing, outcome = self._resolve_existing(zone_id, code)
         if existing is not None:
-            return existing
+            return (existing, outcome) if return_outcome else existing
 
         logger.info(f"Geocache {code} not found locally, importing from parsed data...")
-        return self._persist_new_geocache(zone_id, code, scraped)
+        g = self._persist_new_geocache(zone_id, code, scraped)
+        return (g, 'created') if return_outcome else g
 
     # ------------------------------------------------------------------
     # Helpers internes partagés
@@ -73,24 +80,29 @@ class GeocacheImporter:
         logger.debug(f"Validated GC code: {code}")
         return code
 
-    def _resolve_existing(self, zone_id: int, code: str) -> Optional[Geocache]:
-        """Gère la déduplication. Retourne la géocache existante (éventuellement
-        déplacée vers ``zone_id``) ou ``None`` si elle doit être créée."""
+    def _resolve_existing(self, zone_id: int, code: str) -> tuple[Optional[Geocache], Optional[str]]:
+        """Gère la déduplication.
+
+        Retourne ``(geocache, outcome)`` :
+        - ``(None, None)`` si la géocache n'existe pas encore (à créer) ;
+        - ``(geocache, 'existing')`` si déjà présente dans la zone cible ;
+        - ``(geocache, 'moved')`` si elle a été déplacée d'une autre zone.
+        """
         existing = Geocache.query.filter_by(gc_code=code).first()
         if not existing:
-            return None
+            return None, None
 
         logger.info(f"Geocache {code} already exists (id={existing.id})")
         if existing.zone_id == zone_id:
             logger.info(f"Geocache {code} already in zone {zone_id}")
-            return existing
+            return existing, 'existing'
 
         # Sinon, pour ce MVP: réassocier à la nouvelle zone (simple)
         logger.info(f"Moving geocache {code} from zone {existing.zone_id} to {zone_id}")
         existing.zone_id = zone_id
         db.session.commit()
         logger.info(f"Geocache {code} moved successfully")
-        return existing
+        return existing, 'moved'
 
     def _persist_new_geocache(self, zone_id: int, code: str, s: ScrapedGeocache) -> Geocache:
         logger.info(f"Creating geocache {code} in database")
