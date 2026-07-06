@@ -64,8 +64,9 @@ L'interface de GeoApp est construite sur **Eclipse Theia**, un environnement de 
 ## Premiers pas recommandés
 
 1. **Configurer un modèle IA** — Allez dans `Fichier > Préférences > Préférences ouvertes` et cherchez `GeoApp` pour configurer vos clés API
-2. **Créer une zone** — Cliquez sur `+` dans le panneau Zones pour créer votre premier regroupement
-3. **Importer des géocaches** — Utilisez le menu `GeoApp > Importer` pour charger un fichier GPX ou une pocket query
-4. **Ouvrir une géocache** — Double-cliquez sur une géocache dans la liste pour l'analyser
+2. **Se connecter à Geocaching.com** — Icône en bas de la barre d'activité gauche, nécessaire pour importer des pocket queries/listes de favoris et synchroniser logs, notes et coordonnées (voir [Se connecter à Geocaching.com](./connexion-geocaching.md))
+3. **Créer une zone** — Cliquez sur `+` dans le panneau Zones pour créer votre premier regroupement
+4. **Importer des géocaches** — Utilisez le menu `GeoApp > Importer` pour charger un fichier GPX ou une pocket query
+5. **Ouvrir une géocache** — Double-cliquez sur une géocache dans la liste pour l'analyser
 
 → Continuez avec [Présentation de l'interface](./interface.md) pour un tour complet de l'écran.

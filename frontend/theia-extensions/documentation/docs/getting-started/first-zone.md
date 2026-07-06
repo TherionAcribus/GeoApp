@@ -38,17 +38,21 @@ Le format le plus universel. Geocaching.com vous permet de télécharger des fic
 Si vous avez un compte Premium Geocaching.com :
 
 1. Menu `GeoApp > Importer > Importer une Pocket Query`
-2. Authentifiez-vous si ce n'est pas déjà fait (icône en bas de la barre d'activité)
+2. [Connectez-vous à Geocaching.com](./connexion-geocaching.md) si ce n'est pas déjà fait (icône en bas de la barre d'activité)
 3. Sélectionnez votre pocket query dans la liste
 4. Choisissez la zone de destination
 
 ### Depuis une liste de favoris
+
+Nécessite aussi d'être [connecté à Geocaching.com](./connexion-geocaching.md).
 
 1. Menu `GeoApp > Importer > Importer une liste de favoris`
 2. Saisissez l'URL de la liste ou son identifiant
 3. Choisissez la zone de destination
 
 ### Autour d'un point (importation par zone géographique)
+
+Nécessite aussi d'être [connecté à Geocaching.com](./connexion-geocaching.md).
 
 1. Menu `GeoApp > Importer > Importer autour d'un point`
 2. Saisissez les coordonnées du centre (format DD° MM.MMM')

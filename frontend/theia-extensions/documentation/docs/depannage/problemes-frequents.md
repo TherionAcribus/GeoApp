@@ -18,3 +18,4 @@ tags: [dépannage, erreur, problème, aide, support]
 - Un plugin retourne toujours une erreur
 - L'interface est désorganisée ou des panneaux ont disparu
 - Comment réinitialiser GeoApp à l'état par défaut
+- La connexion à Geocaching.com échoue (captcha, identifiants, session expirée) — voir [Se connecter à Geocaching.com](../getting-started/connexion-geocaching.md#résoudre-les-problèmes-de-connexion)

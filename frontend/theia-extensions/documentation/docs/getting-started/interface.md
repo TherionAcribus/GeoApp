@@ -20,7 +20,7 @@ La colonne d'icônes sur le bord gauche de l'écran permet de basculer entre les
 | Puzzle | **Plugins** | Lanceur de plugins de déchiffrement |
 | Loupe | **Recherche** | Recherche globale dans vos géocaches |
 
-En bas de la barre d'activité se trouvent également des raccourcis vers les **préférences GeoApp** et la **gestion de la connexion Geocaching.com**.
+En bas de la barre d'activité se trouvent également des raccourcis vers les **préférences GeoApp** et la [gestion de la connexion Geocaching.com](./connexion-geocaching.md) — l'icône change d'aspect selon que vous êtes connecté ou non.
 
 ## Le panneau gauche — Zones
 
