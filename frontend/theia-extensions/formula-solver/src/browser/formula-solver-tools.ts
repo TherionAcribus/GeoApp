@@ -15,6 +15,7 @@ import {
 import { FrontendApplicationContribution } from '@theia/core/lib/browser';
 import axios, { AxiosInstance } from 'axios';
 import { PreferenceService, PreferenceChange } from '@theia/core/lib/common/preferences/preference-service';
+import { FormulaSolverService } from './formula-solver-service';
 
 /**
  * Gestionnaire des Tool Functions Formula Solver
@@ -29,6 +30,9 @@ export class FormulaSolverToolsManager implements FrontendApplicationContributio
 
     @inject(MessageService)
     protected readonly messages!: MessageService;
+
+    @inject(FormulaSolverService)
+    protected readonly formulaSolverService!: FormulaSolverService;
 
     private apiClient: AxiosInstance;
     private baseUrl: string;
@@ -398,11 +402,14 @@ export class FormulaSolverToolsManager implements FrontendApplicationContributio
                     break;
                 
                 case 'checksum':
-                    result = this.calculateChecksum(answer);
+                    // Délégué à FormulaSolverService : même algorithme que le champ
+                    // "Checksum" du widget (lettres A=1..Z=26 + chiffres), pour que
+                    // l'agent IA et la saisie manuelle produisent le même résultat.
+                    result = this.formulaSolverService.calculateChecksum(answer);
                     break;
-                
+
                 case 'reduced_checksum':
-                    result = this.calculateReducedChecksum(answer);
+                    result = this.formulaSolverService.calculateReducedChecksum(answer);
                     break;
                 
                 case 'length':
@@ -546,18 +553,6 @@ export class FormulaSolverToolsManager implements FrontendApplicationContributio
         return entries.length > 0 ? Object.fromEntries(entries) : undefined;
     }
 
-    private calculateChecksum(value: string | number): number {
-        const str = value.toString().replace(/\D/g, '');
-        return str.split('').reduce((sum, digit) => sum + parseInt(digit, 10), 0);
-    }
-
-    private calculateReducedChecksum(value: string | number): number {
-        let result = this.calculateChecksum(value);
-        while (result >= 10) {
-            result = this.calculateChecksum(result);
-        }
-        return result;
-    }
 
     @inject(PreferenceService)
     protected readonly preferenceService!: PreferenceService;

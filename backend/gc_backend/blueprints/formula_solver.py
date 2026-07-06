@@ -12,7 +12,6 @@ from gc_backend.services.web_search_service import web_search_service
 from gc_backend.utils.coordinate_calculator import CoordinateCalculator
 from gc_backend.database import db
 from gc_backend.geocaches.models import Geocache
-from sqlalchemy import text
 
 formula_solver_bp = Blueprint('formula_solver', __name__, url_prefix='/api/formula-solver')
 
@@ -563,153 +562,6 @@ def get_geocache_for_solver(geocache_id: int):
         }), 500
 
 
-@formula_solver_bp.post('/geocache/<int:geocache_id>/waypoint')
-def create_waypoint_from_formula(geocache_id: int):
-    """
-    Crée un waypoint depuis le résultat du Formula Solver.
-    
-    Args:
-        geocache_id: ID de la geocache
-        
-    Body JSON:
-        {
-            "name": "Solution formule",
-            "latitude": 47.123,
-            "longitude": 6.456,
-            "note": "Formule: N 47° AB.CDE E 006° FG.HIJ\nValeurs: A=1, B=2...",
-            "type": "Reference Point"  // optionnel
-        }
-        
-    Returns:
-        JSON avec le waypoint créé
-    """
-    try:
-        data = request.get_json()
-        
-        if not data:
-            return jsonify({
-                'status': 'error',
-                'error': 'Pas de données fournies'
-            }), 400
-        
-        # Validation des champs requis
-        name = data.get('name')
-        latitude = data.get('latitude')
-        longitude = data.get('longitude')
-        
-        if not name or latitude is None or longitude is None:
-            return jsonify({
-                'status': 'error',
-                'error': 'Champs requis: name, latitude, longitude'
-            }), 400
-        
-        # Validation des coordonnées
-        try:
-            lat = float(latitude)
-            lon = float(longitude)
-            
-            if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
-                raise ValueError("Coordonnées hors limites")
-        except (ValueError, TypeError) as e:
-            return jsonify({
-                'status': 'error',
-                'error': f'Coordonnées invalides: {e}'
-            }), 400
-        
-        # Vérifier que la geocache existe
-        geocache = Geocache.query.filter_by(id=geocache_id).first()
-        
-        if not geocache:
-            return jsonify({
-                'status': 'error',
-                'error': f'Geocache {geocache_id} non trouvée'
-            }), 404
-        
-        # Générer le prefix automatiquement (WP01, WP02, etc.)
-        result = db.session.execute(
-            text('SELECT prefix FROM waypoints WHERE geocache_id = :geocache_id ORDER BY prefix DESC'),
-            {'geocache_id': geocache_id}
-        )
-        existing_waypoints = result.fetchall()
-        
-        # Extraire les numéros existants
-        existing_numbers = []
-        for wp in existing_waypoints:
-            if wp[0] and wp[0].startswith('WP'):
-                try:
-                    num = int(wp[0][2:])
-                    existing_numbers.append(num)
-                except ValueError:
-                    pass
-        
-        # Générer le prochain numéro
-        next_number = 1
-        if existing_numbers:
-            next_number = max(existing_numbers) + 1
-        
-        prefix = f"WP{next_number:02d}"
-        
-        # Formater les coordonnées en DDM
-        lat_deg = int(abs(lat))
-        lat_min = (abs(lat) - lat_deg) * 60
-        lat_dir = 'N' if lat >= 0 else 'S'
-        
-        lon_deg = int(abs(lon))
-        lon_min = (abs(lon) - lon_deg) * 60
-        lon_dir = 'E' if lon >= 0 else 'W'
-        
-        gc_coords = f"{lat_dir} {lat_deg}° {lat_min:.3f} {lon_dir} {lon_deg}° {lon_min:.3f}"
-        
-        # Créer le waypoint
-        note = data.get('note', '')
-        waypoint_type = data.get('type', 'Reference Point')
-        
-        result = db.session.execute(
-            text('''
-            INSERT INTO waypoints (
-                geocache_id, prefix, name, type, 
-                latitude, longitude, gc_coords, note
-            ) VALUES (:geocache_id, :prefix, :name, :type, :latitude, :longitude, :gc_coords, :note)
-            '''),
-            {
-                'geocache_id': geocache_id,
-                'prefix': prefix,
-                'name': name,
-                'type': waypoint_type,
-                'latitude': lat,
-                'longitude': lon,
-                'gc_coords': gc_coords,
-                'note': note
-            }
-        )
-        
-        waypoint_id = result.lastrowid
-        db.session.commit()
-        
-        logger.info(f"Waypoint {prefix} créé pour geocache {geocache.gc_code} (ID: {waypoint_id})")
-        
-        return jsonify({
-            'status': 'success',
-            'waypoint': {
-                'id': waypoint_id,
-                'prefix': prefix,
-                'name': name,
-                'type': waypoint_type,
-                'latitude': lat,
-                'longitude': lon,
-                'gc_coords': gc_coords,
-                'note': note
-            }
-        })
-        
-    except Exception as e:
-        logger.error(f"Erreur lors de la création du waypoint: {e}")
-        return jsonify({
-            'status': 'error',
-            'error': str(e)
-        }), 500
-
-
 # ============================================================================
 # ENDPOINTS AI POUR TOOLS
 # ============================================================================
@@ -756,11 +608,11 @@ def ai_detect_formula():
                 }), 404
             
             text = _get_geocache_text(geocache)
-        
-        # Appeler le plugin formula_parser
-        plugin_manager = current_app.plugin_manager
-        result = plugin_manager.execute_plugin('formula_parser', {'text': text})
-        
+
+        # Appeler le plugin formula_parser (même helper que /detect-formulas,
+        # avec fallback si le PluginManager est indisponible)
+        result = _execute_formula_parser(text)
+
         if result.get('status') == 'error':
             return jsonify({
                 'status': 'error',
@@ -914,6 +766,23 @@ def ai_search_answer():
             'status': 'error',
             'error': str(e)
         }), 500
+
+
+def _calculate_checksum(text: str) -> int:
+    """
+    Somme des positions des lettres (A=1..Z=26) et des valeurs des chiffres.
+
+    Aligné sur `FormulaSolverServiceImpl.calculateChecksum()` (frontend, utilisé
+    par le champ "Checksum" du widget) pour que la suggestion IA et la saisie
+    manuelle produisent le même résultat pour la même réponse.
+    """
+    total = 0
+    for ch in (text or '').upper():
+        if 'A' <= ch <= 'Z':
+            total += ord(ch) - ord('A') + 1
+        elif '0' <= ch <= '9':
+            total += ord(ch) - ord('0')
+    return total
 
 
 def _build_geocache_search_context(geocache_id) -> str:
@@ -1140,22 +1009,20 @@ def ai_suggest_calculation_type():
             'description': 'Longueur du texte (sans espaces)'
         })
         
-        # 2. Checksum (somme des chiffres)
-        import re
-        digits = re.findall(r'\d', answer)
-        checksum = sum(int(d) for d in digits)
-        checksum_confidence = 0.7 if digits else 0.1
+        # 2. Checksum (lettres A=1..Z=26 + chiffres)
+        checksum = _calculate_checksum(answer)
+        checksum_confidence = 0.7 if checksum > 0 else 0.1
         suggestions.append({
             'type': 'checksum',
             'confidence': checksum_confidence,
             'result': checksum,
-            'description': f'Checksum (somme de {len(digits)} chiffres)'
+            'description': 'Checksum (lettres A=1..Z=26 + chiffres)'
         })
-        
+
         # 3. Checksum réduit
         reduced_checksum = checksum
         while reduced_checksum >= 10:
-            reduced_checksum = sum(int(d) for d in str(reduced_checksum))
+            reduced_checksum = _calculate_checksum(str(reduced_checksum))
         suggestions.append({
             'type': 'reduced_checksum',
             'confidence': checksum_confidence * 0.9,

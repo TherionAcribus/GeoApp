@@ -72,7 +72,7 @@ frontend/theia-extensions/formula-solver/
 ```
 backend/gc_backend/
 ├── blueprints/
-│   └── formula_solver.py          # Blueprint Flask (13 endpoints, préfixe /api/formula-solver)
+│   └── formula_solver.py          # Blueprint Flask (12 endpoints, préfixe /api/formula-solver)
 ├── services/
 │   ├── web_search_service.py      # Recherche web DuckDuckGo (+ fallback HTML lite)
 │   └── formula_questions_service.py # Extraction questions par regex
@@ -240,17 +240,19 @@ Blueprint : `formula_solver_bp`, préfixe `/api/formula-solver`
 | POST | `/calculate` | Calcule les coordonnées finales (formule + valeurs) |
 | POST | `/calculate-batch` | Calcule N combinaisons en un seul appel (brute force). Renvoie `results[]` (chaque entrée : `values`, `status`, `coordinates?`, `distance?`, `error?`), plus `success_count`/`error_count`. Limite backend : 2000 combinaisons |
 | GET | `/geocache/<id>` | Récupère le texte d'une géocache pour le solver |
-| POST | `/geocache/<id>/waypoint` | Crée un waypoint depuis le résultat |
+
+> ~~`POST /geocache/<id>/waypoint`~~ **Supprimé** — cet endpoint faisait du SQL brut sur une table `waypoints` inexistante (la vraie table est `geocache_waypoint`, modèle ORM `GeocacheWaypoint`) : il aurait planté à chaque appel. Il n'avait par ailleurs aucun appelant (le widget crée ses waypoints via l'événement DOM `geoapp-plugin-add-waypoint`, géré ailleurs et aboutissant au vrai endpoint `POST /api/geocaches/<id>/waypoints`, fonctionnel). Code mort + cassé retiré plutôt que réparé, faute d'appelant identifié.
 
 ### 7.2 Endpoints IA / Tools
 
 | Méthode | Route | Description |
 |---------|-------|-------------|
-| POST | `/ai/detect-formula` | Détection enrichie pour l'agent IA |
+| POST | `/ai/detect-formula` | Détection enrichie pour l'agent IA. Utilise le même helper `_execute_formula_parser()` (avec fallback) que `/detect-formulas` |
 | POST | `/ai/find-questions` | Recherche questions pour l'agent IA |
 | POST | `/ai/search-answer` | Recherche web une question (DuckDuckGo) |
 | POST | `/ai/search-answers` | Recherche web batch (plusieurs questions), exécutée **en parallèle** (`ThreadPoolExecutor`, 4 workers max pour limiter le rate-limiting DuckDuckGo) ; une recherche en échec n'interrompt pas le lot |
-| POST | `/ai/suggest-calculation-type` | Suggère le type de calcul pour une réponse |
+| POST | `/ai/fetch-url` | Lit le contenu textuel d'une page web. **Garde SSRF** : rejette les schémas non http/https et les hôtes qui résolvent vers une IP privée/loopback/link-local (`_is_forbidden_host`/`_is_allowed_url` dans `web_search_service.py`) ; une redirection est suivie manuellement une fois, avec revalidation de la cible |
+| POST | `/ai/suggest-calculation-type` | Suggère le type de calcul pour une réponse. Le checksum utilise `_calculate_checksum()` (lettres A=1..Z=26 + chiffres), aligné sur `FormulaSolverServiceImpl.calculateChecksum()` (frontend widget) et `FormulaSolverToolsManager` (agent IA, qui délègue désormais au même service au lieu de dupliquer l'algorithme) |
 
 ### 7.3 Utilitaire
 

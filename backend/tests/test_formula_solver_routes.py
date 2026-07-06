@@ -534,6 +534,70 @@ class TestSearchAnswersBatchParallel:
         assert data['answers']['B'] == {'best_answer': '', 'results': []}
 
 
+class TestAiDetectFormulaFallback:
+    """Tests de la route /api/formula-solver/ai/detect-formula"""
+
+    def test_uses_shared_helper_with_fallback(self, client, monkeypatch):
+        """
+        Avant le correctif, /ai/detect-formula appelait plugin_manager.execute_plugin()
+        directement (sans filet de sécurité), contrairement à /detect-formulas qui
+        utilise _execute_formula_parser() (fallback si le PluginManager est indisponible).
+        Ce test verrouille le fait que /ai/detect-formula utilise désormais le même
+        helper partagé.
+        """
+        from gc_backend.blueprints import formula_solver
+
+        calls = []
+
+        def fake_execute_formula_parser(text):
+            calls.append(text)
+            return {
+                'status': 'success',
+                'results': [{'id': 'r1', 'north': 'N 47° 5A.BC', 'east': 'E 006° 5D.EF', 'confidence': 0.9}],
+                'summary': '1 formule détectée'
+            }
+
+        monkeypatch.setattr(formula_solver, '_execute_formula_parser', fake_execute_formula_parser)
+
+        response = client.post(
+            '/api/formula-solver/ai/detect-formula',
+            json={'text': 'N 47° 5A.BC E 006° 5D.EF'}
+        )
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data['status'] == 'success'
+        assert len(data['formulas']) == 1
+        assert calls == ['N 47° 5A.BC E 006° 5D.EF']
+
+
+class TestSuggestCalculationTypeChecksum:
+    """Tests de la route /api/formula-solver/ai/suggest-calculation-type"""
+
+    def test_checksum_includes_letters(self, client):
+        """
+        Avant le correctif, le checksum ne sommait que les chiffres ("Paris" -> 0).
+        Il doit désormais aussi convertir les lettres en positions (A=1..Z=26),
+        aligné sur FormulaSolverServiceImpl.calculateChecksum() (frontend widget)
+        et FormulaSolverToolsManager (agent IA).
+        """
+        response = client.post(
+            '/api/formula-solver/ai/suggest-calculation-type',
+            json={'answer': 'Paris'}
+        )
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        checksum_suggestion = next(s for s in data['suggestions'] if s['type'] == 'checksum')
+        # P=16, A=1, R=18, I=9, S=19 => 63
+        assert checksum_suggestion['result'] == 63
+
+    def test_checksum_digits_only_unchanged(self):
+        """Réponse purement numérique : comportement inchangé (somme des chiffres)."""
+        from gc_backend.blueprints.formula_solver import _calculate_checksum
+        assert _calculate_checksum('1867') == 1 + 8 + 6 + 7
+
+
 class TestCoordinateCalculatorSecurity:
     """Tests de sécurité pour le calculateur de coordonnées"""
     

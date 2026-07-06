@@ -4,9 +4,12 @@ Permet de rechercher des réponses sur Internet via DuckDuckGo (duckduckgo-searc
 Fallback sur requests + DuckDuckGo Instant Answer API + HTML scraping si duckduckgo-search absent.
 """
 
+import ipaddress
 import re
+import socket
 import requests as http_requests
 from typing import List, Dict, Optional
+from urllib.parse import urlparse
 from loguru import logger
 
 try:
@@ -15,6 +18,44 @@ try:
 except ImportError:
     HAS_DDG_SEARCH = False
     logger.warning("duckduckgo-search non installé, fallback sur API Instant Answer + HTML lite")
+
+
+def _is_forbidden_host(hostname: str) -> bool:
+    """
+    Résout `hostname` et indique si une des adresses obtenues est privée,
+    loopback, link-local ou autrement non routable publiquement.
+
+    Protection SSRF pour fetch_page() : sans ce filtre, un agent IA pourrait
+    faire lire au backend n'importe quelle URL fournie par le modèle/l'utilisateur,
+    y compris des adresses internes (http://127.0.0.1/..., http://192.168.x.x/...).
+    """
+    if not hostname:
+        return True
+
+    try:
+        infos = socket.getaddrinfo(hostname, None)
+    except socket.gaierror:
+        # Résolution DNS impossible : on laisse la requête HTTP échouer naturellement.
+        return False
+
+    for info in infos:
+        ip_str = info[4][0]
+        try:
+            ip = ipaddress.ip_address(ip_str)
+        except ValueError:
+            continue
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved \
+                or ip.is_multicast or ip.is_unspecified:
+            return True
+    return False
+
+
+def _is_allowed_url(url: str) -> bool:
+    """Valide le schéma (http/https) et l'hôte (public) d'une URL avant de la récupérer."""
+    if not re.match(r'^https?://', url or '', flags=re.IGNORECASE):
+        return False
+    hostname = urlparse(url).hostname or ''
+    return not _is_forbidden_host(hostname)
 
 # ── Nettoyage des questions de géocaching pour la recherche web ──
 
@@ -211,16 +252,36 @@ class WebSearchService:
                 "error": "URL invalide: seuls les schémas http/https sont autorisés.",
             }
 
+        if not _is_allowed_url(cleaned_url):
+            logger.warning(f"fetch_page bloqué (hôte privé/interne interdit): {cleaned_url}")
+            return {
+                "status": "error",
+                "url": cleaned_url,
+                "error": "URL refusée : accès aux adresses privées/locales interdit.",
+            }
+
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                          '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
+        }
+
         try:
-            resp = http_requests.get(
-                cleaned_url,
-                timeout=self.timeout,
-                headers={
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-                                  '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                    'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
-                },
-            )
+            # Redirections désactivées puis suivies manuellement (1 saut max) : une
+            # redirection vers une adresse privée serait sinon un contournement direct
+            # du filtre ci-dessus (la cible n'est connue qu'après la 1ère réponse).
+            resp = http_requests.get(cleaned_url, timeout=self.timeout, headers=headers, allow_redirects=False)
+            if resp.is_redirect or resp.is_permanent_redirect:
+                redirect_url = resp.headers.get('Location', '')
+                if not redirect_url or not _is_allowed_url(redirect_url):
+                    logger.warning(f"fetch_page redirection refusée depuis {cleaned_url} -> {redirect_url}")
+                    return {
+                        "status": "error",
+                        "url": cleaned_url,
+                        "error": "URL refusée : la redirection pointe vers une adresse interdite.",
+                    }
+                cleaned_url = redirect_url
+                resp = http_requests.get(cleaned_url, timeout=self.timeout, headers=headers, allow_redirects=False)
         except Exception as e:
             logger.warning(f"fetch_page error for {cleaned_url}: {e}")
             return {"status": "error", "url": cleaned_url, "error": str(e)}
