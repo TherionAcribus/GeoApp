@@ -20,8 +20,8 @@ class GeocachingPersonalNotesClient:
         else:
             auth_service = get_auth_service()
             self.session = auth_service.get_session()
-        
-        self.session.headers.setdefault("User-Agent", "GeoApp/1.0 (+https://example.local)")
+        # Le User-Agent provient de la session partagée (GEOAPP_USER_AGENT) ;
+        # ne pas le surcharger ici pour rester cohérent sur toute la session.
 
     def _get_user_token(self, gc_code: str) -> str | None:
         client = GeocachingLogsClient(session=self.session)

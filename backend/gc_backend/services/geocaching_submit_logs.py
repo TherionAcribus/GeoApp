@@ -7,7 +7,7 @@ from typing import Any, Optional
 
 import requests
 
-from .geocaching_auth import get_auth_service
+from .geocaching_auth import GEOAPP_USER_AGENT, get_auth_service
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +21,7 @@ class GeocachingSubmitLogsClient:
             auth_service = get_auth_service()
             self.session = auth_service.get_session()
         
-        self.session.headers.setdefault('User-Agent', 'GeoApp/1.0 (+https://example.local)')
-        self.session.headers.setdefault('Accept', 'application/json')
+        self.session.headers.setdefault('User-Agent', GEOAPP_USER_AGENT)
 
     def get_csrf_token(self) -> str | None:
         url = 'https://www.geocaching.com/api/auth/csrf'

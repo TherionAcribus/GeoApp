@@ -18,7 +18,7 @@ from typing import Any, Optional
 
 import requests
 
-from .geocaching_auth import get_auth_service
+from .geocaching_auth import GEOAPP_USER_AGENT, get_auth_service
 
 logger = logging.getLogger(__name__)
 
@@ -42,11 +42,7 @@ class GeocachingPushCoordinatesClient:
             auth_service = get_auth_service()
             self.session = auth_service.get_session()
 
-        self.session.headers.setdefault(
-            'User-Agent',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-            '(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        )
+        self.session.headers.setdefault('User-Agent', GEOAPP_USER_AGENT)
 
     def get_user_token(self, gc_code: str) -> str | None:
         """Extrait le userToken depuis la page HTML de la géocache.

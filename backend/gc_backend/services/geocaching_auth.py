@@ -28,7 +28,26 @@ import browser_cookie3
 import requests
 from bs4 import BeautifulSoup
 
+try:  # keyring est optionnel : repli sur le stockage JSON s'il est absent
+    import keyring
+    from keyring.errors import KeyringError
+    _KEYRING_AVAILABLE = True
+except Exception:  # pragma: no cover - dépend de l'environnement
+    keyring = None
+    KeyringError = Exception
+    _KEYRING_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
+
+# Nom du service utilisé dans le trousseau système (Windows Credential Manager,
+# macOS Keychain, Secret Service sous Linux) pour stocker le mot de passe.
+KEYRING_SERVICE = "GeoApp:Geocaching.com"
+
+
+# User-Agent unique pour toutes les requêtes vers Geocaching.com.
+# Changer d'UA sur une même session est un signal de bot : on garde une valeur
+# stable et partagée par tous les clients (auth, scraper, logs, notes, recherche).
+GEOAPP_USER_AGENT = "GeoApp/1.0 (+https://mysterai.io)"
 
 
 class AuthMethod(Enum):
@@ -135,7 +154,7 @@ class GeocachingAuthService:
         """Crée une nouvelle session requests avec les headers appropriés."""
         session = requests.Session()
         session.headers.update({
-            'User-Agent': 'GeoApp/1.0 (+https://mysterai.io)',
+            'User-Agent': GEOAPP_USER_AGENT,
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
         })
@@ -180,40 +199,134 @@ class GeocachingAuthService:
                 method=AuthMethod.BROWSER_COOKIES
             )
     
+    # ---- Stockage du mot de passe dans le trousseau système ----
+
+    @staticmethod
+    def _store_password(username: str, password: str) -> bool:
+        """Stocke le mot de passe dans le trousseau système. True si réussi."""
+        if not _KEYRING_AVAILABLE or not username:
+            return False
+        try:
+            keyring.set_password(KEYRING_SERVICE, username, password)
+            return True
+        except KeyringError as e:  # pragma: no cover - dépend de l'OS
+            logger.warning(f"Failed to store password in keyring: {e}")
+            return False
+
+    @staticmethod
+    def _load_password(username: Optional[str]) -> Optional[str]:
+        """Récupère le mot de passe depuis le trousseau système."""
+        if not _KEYRING_AVAILABLE or not username:
+            return None
+        try:
+            return keyring.get_password(KEYRING_SERVICE, username)
+        except KeyringError as e:  # pragma: no cover - dépend de l'OS
+            logger.warning(f"Failed to read password from keyring: {e}")
+            return None
+
+    @staticmethod
+    def _delete_password(username: Optional[str]) -> None:
+        """Supprime le mot de passe du trousseau système (silencieux si absent)."""
+        if not _KEYRING_AVAILABLE or not username:
+            return
+        try:
+            keyring.delete_password(KEYRING_SERVICE, username)
+        except Exception:  # pragma: no cover - absent ou non supporté
+            pass
+
+    def _write_credentials_file(self, data: dict) -> None:
+        """Écrit le fichier de credentials (sans mot de passe en clair)."""
+        with open(self._credentials_file, 'w', encoding='utf-8') as f:
+            json.dump(data, f)
+        # Restreindre les permissions (Unix only)
+        try:
+            os.chmod(self._credentials_file, 0o600)
+        except (OSError, AttributeError):
+            pass  # Windows ou autre
+
     def _load_saved_credentials(self) -> Optional[dict]:
-        """Charge les credentials sauvegardés (si existants)."""
+        """Charge les credentials sauvegardés (si existants).
+
+        Le mot de passe n'est pas stocké dans le JSON mais dans le trousseau
+        système ; il est réinjecté ici pour les appelants (restauration de
+        session). Les anciens fichiers contenant un mot de passe en clair sont
+        automatiquement migrés vers le trousseau puis réécrits sans le secret.
+        """
         if not self._credentials_file.exists():
             return None
-        
+
         try:
             with open(self._credentials_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                data = json.load(f)
         except Exception as e:
             logger.warning(f"Failed to load saved credentials: {e}")
             return None
-    
+
+        if data.get("method") != "credentials":
+            return data
+
+        username = data.get("username")
+        legacy_password = data.get("password")
+
+        if legacy_password:
+            # Migration: ancien fichier avec mot de passe en clair sur le disque.
+            if self._store_password(username, legacy_password):
+                logger.info("Migrating plaintext password to system keyring")
+                migrated = {k: v for k, v in data.items() if k != "password"}
+                migrated["password_in_keyring"] = True
+                try:
+                    self._write_credentials_file(migrated)
+                except Exception as e:
+                    logger.warning(f"Failed to rewrite credentials without password: {e}")
+            # On garde le mot de passe dans le dict retourné pour cette session.
+            return data
+
+        # Cas normal: mot de passe dans le trousseau, à réinjecter.
+        password = self._load_password(username)
+        if password is not None:
+            data["password"] = password
+        return data
+
     def _save_credentials(self, method: str, **kwargs) -> None:
-        """Sauvegarde les credentials de manière sécurisée."""
+        """Sauvegarde les credentials de manière sécurisée.
+
+        Pour la méthode ``credentials``, le mot de passe est stocké dans le
+        trousseau système et jamais écrit en clair. Si le trousseau est
+        indisponible, on retombe (en avertissant) sur l'ancien stockage JSON.
+        """
         data = {"method": method, **kwargs}
-        
+
+        if method == "credentials":
+            username = data.get("username")
+            password = data.pop("password", None)
+            if password is not None:
+                if self._store_password(username, password):
+                    data["password_in_keyring"] = True
+                else:
+                    logger.warning(
+                        "keyring indisponible : le mot de passe sera stocké en clair "
+                        "dans %s", self._credentials_file,
+                    )
+                    data["password"] = password
+
         try:
             logger.info(f"Saving credentials to {self._credentials_file}...")
-            with open(self._credentials_file, 'w', encoding='utf-8') as f:
-                json.dump(data, f)
-            
-            # Restreindre les permissions (Unix only)
-            try:
-                os.chmod(self._credentials_file, 0o600)
-            except (OSError, AttributeError):
-                pass  # Windows ou autre
-            
+            self._write_credentials_file(data)
             logger.info(f"Credentials saved successfully (method: {method})")
-                
         except Exception as e:
             logger.error(f"Failed to save credentials: {e}", exc_info=True)
-    
+
     def _clear_saved_credentials(self) -> None:
-        """Supprime les credentials sauvegardés."""
+        """Supprime les credentials sauvegardés (fichier + entrée trousseau)."""
+        try:
+            if self._credentials_file.exists():
+                with open(self._credentials_file, 'r', encoding='utf-8') as f:
+                    saved = json.load(f)
+                if saved.get("method") == "credentials":
+                    self._delete_password(saved.get("username"))
+        except Exception:
+            pass
+
         try:
             if self._credentials_file.exists():
                 self._credentials_file.unlink()
@@ -276,14 +389,15 @@ class GeocachingAuthService:
             # Vérifier si déjà connecté (mais vérifier vraiment avec serverparameters)
             if self._is_logged_in_page(resp.text):
                 logger.info(f"Login page suggests already logged in, verifying...")
-                if self._verify_login_status():
+                params = self._fetch_server_parameters()
+                if self._verify_login_status(params):
                     logger.info(f"Confirmed: already logged in as {username}")
                     self._auth_state = AuthState(
                         status=AuthStatus.LOGGED_IN,
                         method=AuthMethod.CREDENTIALS,
                         last_check=datetime.now()
                     )
-                    self._fetch_user_info()
+                    self._fetch_user_info(params)
                     return AuthStatus.LOGGED_IN
                 else:
                     logger.info("False positive on login page, proceeding with login...")
@@ -389,29 +503,15 @@ class GeocachingAuthService:
             )
             self._fetch_user_info()
             return AuthStatus.LOGGED_IN
-        
-        # Captcha requis
-        if 'g-recaptcha' in html or 'recaptcha' in html.lower():
-            logger.warning(f"Captcha required for {username}")
-            self._auth_state = AuthState(
-                status=AuthStatus.CAPTCHA_REQUIRED,
-                method=AuthMethod.CREDENTIALS,
-                error_message="Captcha required. Please try again later or use browser cookies method."
-            )
-            return AuthStatus.CAPTCHA_REQUIRED
-        
-        # Identifiants incorrects
-        if 'signup-validation-error' in html or 'incorrect' in html.lower():
-            logger.warning(f"Wrong credentials for {username}")
-            self._auth_state = AuthState(
-                status=AuthStatus.LOGIN_FAILED,
-                method=AuthMethod.CREDENTIALS,
-                error_message="Username or password incorrect"
-            )
-            return AuthStatus.LOGIN_FAILED
-        
-        # Compte non validé
-        if 'account/join/success' in html or 'validate' in html.lower():
+
+        html_lower = html.lower()
+
+        # Compte non validé — marqueurs spécifiques (pas le simple mot "validate"
+        # qui matche jquery.validate.js et n'importe quel formulaire).
+        if 'account/join/success' in html_lower or re.search(
+            r'(not been validated|validate your account|valider votre compte|confirm your email)',
+            html_lower,
+        ):
             logger.warning(f"Account not validated for {username}")
             self._auth_state = AuthState(
                 status=AuthStatus.ACCOUNT_NOT_VALIDATED,
@@ -419,7 +519,51 @@ class GeocachingAuthService:
                 error_message="Account not validated. Please check your email."
             )
             return AuthStatus.ACCOUNT_NOT_VALIDATED
-        
+
+        # Identifiants incorrects — vérifié AVANT le captcha : un mauvais mot de
+        # passe re-rend la page signin, qui embarque toujours le script reCAPTCHA.
+        # On s'appuie sur des marqueurs d'erreur réels (validation summary ASP.NET
+        # ou message explicite), pas sur un vague "incorrect" présent ailleurs.
+        wrong_credentials = (
+            'signup-validation-error' in html_lower
+            or 'validation-summary-errors' in html_lower
+            or re.search(
+                r'(username|e-?mail)[^<]{0,80}(password|mot de passe)[^<]{0,80}'
+                r'(incorrect|invalid|erron)',
+                html_lower,
+            )
+            or re.search(
+                r'(password|mot de passe)[^<]{0,40}(incorrect|invalid|erron)',
+                html_lower,
+            )
+        )
+        if wrong_credentials:
+            logger.warning(f"Wrong credentials for {username}")
+            self._auth_state = AuthState(
+                status=AuthStatus.LOGIN_FAILED,
+                method=AuthMethod.CREDENTIALS,
+                error_message="Username or password incorrect"
+            )
+            return AuthStatus.LOGIN_FAILED
+
+        # Captcha réellement requis — exiger un widget captcha rendu dans un <div>
+        # (l'attribut class="g-recaptcha" du conteneur, ou un challenge hCaptcha),
+        # et non la simple présence du script api.js toujours chargé par la page.
+        captcha_required = (
+            re.search(r'class="[^"]*\bg-recaptcha\b[^"]*"', html_lower)
+            or re.search(r'class="[^"]*\bh-captcha\b[^"]*"', html_lower)
+            or 'data-sitekey' in html_lower
+            or 'unusual activity' in html_lower
+        )
+        if captcha_required:
+            logger.warning(f"Captcha required for {username}")
+            self._auth_state = AuthState(
+                status=AuthStatus.CAPTCHA_REQUIRED,
+                method=AuthMethod.CREDENTIALS,
+                error_message="Captcha required. Please try again later or use browser cookies method."
+            )
+            return AuthStatus.CAPTCHA_REQUIRED
+
         # Échec générique
         logger.warning(f"Login failed for {username} (unknown reason)")
         # Log un extrait de la réponse pour débogage
@@ -454,15 +598,16 @@ class GeocachingAuthService:
                 self._session.cookies.clear()
         
         self._load_browser_cookies(browser)
-        
-        if self._verify_login_status():
+
+        params = self._fetch_server_parameters()
+        if self._verify_login_status(params):
             self._auth_state = AuthState(
                 status=AuthStatus.LOGGED_IN,
                 method=AuthMethod.BROWSER_COOKIES,
                 last_check=datetime.now()
             )
-            self._fetch_user_info()
-            
+            self._fetch_user_info(params)
+
             if remember:
                 self._save_credentials("browser_cookies", browser=browser)
             
@@ -511,51 +656,66 @@ class GeocachingAuthService:
         
         logger.warning("No browser cookies could be loaded")
     
-    def _verify_login_status(self) -> bool:
-        """Vérifie si la session actuelle est authentifiée."""
-        try:
-            # Utiliser SERVER_PARAMS_URI qui est plus fiable pour vérifier la connexion
-            resp = self._session.get(self.SERVER_PARAMS_URI, timeout=30)
-            
-            if resp.status_code != 200:
-                logger.debug(f"Verify login failed: status {resp.status_code}")
-                return False
-            
-            # Vérifier si les données contiennent isLoggedIn: true
-            text = resp.text
-            logger.debug(f"Server params response (first 300 chars): {text[:300]}")
-            
-            if '"isLoggedIn":true' in text or '"isLoggedIn": true' in text:
-                logger.debug("Login verification successful")
-                return True
-            
-            logger.debug("Login verification failed: isLoggedIn not found or false")
-            return False
-            
-        except Exception as e:
-            logger.warning(f"Failed to verify login status: {e}")
-            return False
-    
-    def _fetch_user_info(self) -> None:
-        """Récupère les informations de l'utilisateur connecté."""
+    def _fetch_server_parameters(self) -> Optional[dict]:
+        """GET SERVER_PARAMS_URI une seule fois et retourne le dict JSON parsé.
+
+        La page renvoie du JavaScript de la forme ``var serverParameters = {...};``.
+        Retourne ``None`` en cas d'échec réseau, HTTP != 200 ou JSON introuvable.
+        Ce point d'entrée unique évite de télécharger deux fois la même ressource
+        pour vérifier la connexion puis récupérer les infos utilisateur.
+        """
         try:
             resp = self._session.get(self.SERVER_PARAMS_URI, timeout=30)
             if resp.status_code != 200:
-                logger.warning(f"Failed to fetch user info: status {resp.status_code}")
-                return
-            
-            # Parser le JavaScript: var serverParameters = {...};
+                logger.debug(f"serverparameters returned status {resp.status_code}")
+                return None
+
             text = resp.text
             start = text.find('{')
             end = text.rfind(';')
-            if start == -1 or end == -1:
-                logger.warning("Failed to parse server parameters: no JSON found")
+            if start == -1 or end == -1 or end <= start:
+                logger.debug("serverparameters: no JSON payload found")
+                return None
+
+            return json.loads(text[start:end])
+        except Exception as e:
+            logger.warning(f"Failed to fetch server parameters: {e}")
+            return None
+
+    @staticmethod
+    def _params_is_logged_in(params: Optional[dict]) -> bool:
+        """Détermine l'état connecté depuis les serverParameters parsés."""
+        if not params:
+            return False
+        user_info = params.get('user:info')
+        if isinstance(user_info, dict) and user_info.get('isLoggedIn'):
+            return True
+        return bool(params.get('isLoggedIn'))
+
+    def _verify_login_status(self, params: Optional[dict] = None) -> bool:
+        """Vérifie si la session actuelle est authentifiée.
+
+        ``params`` peut être fourni pour réutiliser un fetch serverparameters déjà
+        effectué (voir _fetch_server_parameters) et éviter un aller-retour réseau.
+        """
+        if params is None:
+            params = self._fetch_server_parameters()
+        return self._params_is_logged_in(params)
+
+    def _fetch_user_info(self, params: Optional[dict] = None) -> None:
+        """Récupère les informations de l'utilisateur connecté.
+
+        ``params`` peut être fourni pour réutiliser un fetch serverparameters déjà
+        effectué et éviter un second téléchargement.
+        """
+        try:
+            if params is None:
+                params = self._fetch_server_parameters()
+            if params is None:
+                logger.warning("Failed to fetch user info: no server parameters")
                 return
-            
-            json_str = text[start:end]
-            data = json.loads(json_str)
-            
-            user_info_data = data.get('user:info', {})
+
+            user_info_data = params.get('user:info', {})
             if user_info_data and user_info_data.get('isLoggedIn'):
                 self._auth_state.user_info = UserInfo(
                     username=user_info_data.get('username', 'Unknown'),
@@ -568,7 +728,7 @@ class GeocachingAuthService:
                 logger.info(f"User info fetched: {self._auth_state.user_info.username} ({self._auth_state.user_info.user_type})")
             else:
                 logger.warning(f"User info indicates not logged in: isLoggedIn={user_info_data.get('isLoggedIn')}")
-                
+
         except Exception as e:
             logger.warning(f"Failed to fetch user info: {e}", exc_info=True)
     
@@ -921,17 +1081,22 @@ class GeocachingAuthService:
             if age < timedelta(seconds=self.STATE_CACHE_TTL):
                 return self._auth_state
         
-        # Vérifier le statut réel
-        if self._session and self._verify_login_status():
+        # Vérifier le statut réel (un seul fetch serverparameters réutilisé ci-dessous)
+        params = self._fetch_server_parameters() if self._session else None
+        if self._params_is_logged_in(params):
             self._auth_state.status = AuthStatus.LOGGED_IN
-            self._auth_state.last_check = datetime.now()
             if not self._auth_state.user_info:
-                self._fetch_user_info()
+                self._fetch_user_info(params)
         elif self._auth_state.status == AuthStatus.LOGGED_IN:
             # Était connecté mais plus maintenant
             self._auth_state.status = AuthStatus.LOGGED_OUT
-            self._auth_state.last_check = datetime.now()
-        
+
+        # Toujours amorcer le cache, y compris en état déconnecté/non configuré,
+        # sinon chaque is_logged_in() redéclenche un GET serverparameters (~300-800 ms).
+        # De nombreux appelants (GeocachingScraper, GeocachingSearchClient, routes)
+        # instancient et vérifient l'état à chaque requête.
+        self._auth_state.last_check = datetime.now()
+
         return self._auth_state
     
     def is_logged_in(self) -> bool:

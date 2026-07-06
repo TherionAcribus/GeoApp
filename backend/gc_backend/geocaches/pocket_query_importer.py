@@ -12,6 +12,8 @@ import re
 from typing import Optional
 import requests
 
+from ..services.geocaching_auth import GEOAPP_USER_AGENT
+
 logger = logging.getLogger(__name__)
 
 
@@ -23,7 +25,7 @@ class PocketQueryImporter:
     
     def __init__(self, session: Optional[requests.Session] = None) -> None:
         self.session = session or requests.Session()
-        self.session.headers.setdefault('User-Agent', 'GeoApp/1.0 (+https://example.local)')
+        self.session.headers.setdefault('User-Agent', GEOAPP_USER_AGENT)
     
     @staticmethod
     def validate_pocket_query_code(code: str) -> str:

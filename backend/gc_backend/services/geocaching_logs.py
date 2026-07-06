@@ -57,10 +57,11 @@ class GeocachingLogsClient:
         else:
             auth_service = get_auth_service()
             self.session = auth_service.get_session()
-        
-        self.session.headers.setdefault('User-Agent', 'GeoApp/1.0 (+https://example.local)')
-        self.session.headers.setdefault('Accept', 'application/json')
-        self.session.headers.setdefault('X-Requested-With', 'XMLHttpRequest')
+
+        # NB: ne pas muter les headers de la session partagée ici. Les headers
+        # spécifiques (Accept JSON, X-Requested-With) sont passés par requête dans
+        # _get_user_token / _fetch_logs_with_token ; sinon ils fuiteraient sur les
+        # requêtes HTML du scraper qui réutilise la même session singleton.
     
     def get_logs(
         self, 

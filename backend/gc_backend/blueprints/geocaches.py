@@ -19,6 +19,7 @@ from ..geocaches.image_storage import remove_geocache_dir
 from ..geocaches.image_sync import ensure_images_v2_for_geocache
 from ..geocaches.bookmark_list_importer import BookmarkListImporter
 from ..geocaches.pocket_query_importer import PocketQueryImporter
+from ..geocaches.gpx_parser import parse_gpx_caches
 from ..utils.preferences import get_value_or_default
 
 bp = Blueprint('geocaches', __name__)
@@ -1423,40 +1424,6 @@ def import_gpx():
 
         importer = GeocacheImporter()
 
-        def extract_gc_codes_from_gpx_bytes(data: bytes) -> list[str]:
-            codes: list[str] = []
-            try:
-                root = ET.fromstring(data)
-            except ET.ParseError:
-                return codes
-
-            # Essayer GPX 1.0 et 1.1
-            namespaces = [
-                {'default': 'http://www.topografix.com/GPX/1/0'},
-                {'default': 'http://www.topografix.com/GPX/1/1'},
-                {},  # sans namespace (fallback)
-            ]
-
-            seen = set()
-            for ns in namespaces:
-                # wpt nodes
-                if ns:
-                    wpts = root.findall('default:wpt', ns)
-                else:
-                    wpts = root.findall('wpt')
-                for w in wpts:
-                    # name element
-                    name_elem = w.find('default:name', ns) if ns else w.find('name')
-                    if name_elem is None or not (name_elem.text or '').strip():
-                        continue
-                    waypoint_code = name_elem.text.strip()
-                    # Garder uniquement les codes principaux commençant par GC et sans suffixe '-...'
-                    if waypoint_code.startswith('GC') and '-' not in waypoint_code:
-                        if waypoint_code not in seen:
-                            seen.add(waypoint_code)
-                            codes.append(waypoint_code)
-            return codes
-
         # Lire le fichier entier AVANT le streaming pour éviter les fermetures
         _filename = (uploaded_file.filename or '').lower()
         _file_bytes = uploaded_file.read()
@@ -1465,7 +1432,19 @@ def import_gpx():
             try:
                 yield json.dumps({'message': 'Analyse du fichier...', 'progress': 0}) + '\n'
 
-                gc_codes: list[str] = []
+                # full_caches: données Groundspeak complètes (import sans réseau)
+                # scrape_codes: codes GC sans données (GPX générique) -> scraping
+                full_by_code: dict[str, object] = {}
+                scrape_codes: list[str] = []
+
+                def ingest(data: bytes) -> tuple[int, int]:
+                    caches, codes = parse_gpx_caches(data)
+                    for sc in caches:
+                        full_by_code.setdefault(sc.gc_code, sc)
+                    for code in codes:
+                        if code not in full_by_code and code not in scrape_codes:
+                            scrape_codes.append(code)
+                    return len(caches), len(codes)
 
                 if _filename.endswith('.zip'):
                     with zipfile.ZipFile(io.BytesIO(_file_bytes), 'r') as zf:
@@ -1474,39 +1453,58 @@ def import_gpx():
                             yield json.dumps({'error': True, 'message': 'Aucun fichier GPX dans l\'archive ZIP'}) + '\n'
                             return
                         yield json.dumps({'message': f'{len(members)} fichier(s) GPX détecté(s) dans le ZIP', 'progress': 5}) + '\n'
-                        for i, m in enumerate(members, start=1):
-                            data = zf.read(m)
-                            codes = extract_gc_codes_from_gpx_bytes(data)
-                            gc_codes.extend(codes)
-                            # Progression fixe pendant l'extraction (5%), pas dépendante du nombre de fichiers
-                            yield json.dumps({'message': f'Lecture {m}: {len(codes)} code(s) GC', 'progress': 5}) + '\n'
+                        for m in members:
+                            n_full, n_codes = ingest(zf.read(m))
+                            yield json.dumps({'message': f'Lecture {m}: {n_full} cache(s) complète(s), {n_codes} code(s)', 'progress': 5}) + '\n'
                 else:
-                    codes = extract_gc_codes_from_gpx_bytes(_file_bytes)
-                    gc_codes.extend(codes)
-                    yield json.dumps({'message': f'{len(codes)} code(s) GC détecté(s)', 'progress': 5}) + '\n'
+                    n_full, n_codes = ingest(_file_bytes)
+                    yield json.dumps({'message': f'{n_full} cache(s) complète(s), {n_codes} code(s) sans données', 'progress': 5}) + '\n'
 
-                # Dédupliquer
-                gc_codes = list(dict.fromkeys(gc_codes))
-                total = len(gc_codes)
+                # Les codes déjà couverts par des données complètes ne sont pas scrapés.
+                scrape_codes = [c for c in scrape_codes if c not in full_by_code]
+                total = len(full_by_code) + len(scrape_codes)
                 if total == 0:
                     yield json.dumps({'error': True, 'message': 'Aucun code GC détecté dans le fichier'}) + '\n'
                     return
 
+                if full_by_code:
+                    yield json.dumps({
+                        'message': f'{len(full_by_code)} cache(s) importée(s) depuis le GPX (sans téléchargement)'
+                                   + (f', {len(scrape_codes)} à télécharger' if scrape_codes else ''),
+                        'progress': 8,
+                    }) + '\n'
                 yield json.dumps({'message': f'Import de {total} géocache(s)...', 'progress': 10}) + '\n'
 
                 success = 0
                 errors = 0
-                for idx, code in enumerate(gc_codes, start=1):
+                idx = 0
+
+                # 1) Import rapide des caches complètes (pas de réseau)
+                for sc in full_by_code.values():
+                    idx += 1
+                    try:
+                        importer.import_from_scraped(zone_id, sc)
+                        success += 1
+                        msg = f'Importée: {sc.gc_code} ({idx}/{total})'
+                    except Exception as e:
+                        errors += 1
+                        msg = f'Erreur {sc.gc_code}: {e}'
+                    pct = 10 + int(idx / total * 90)
+                    yield json.dumps({'message': msg, 'progress': pct}) + '\n'
+
+                # 2) Repli scraping pour les GPX génériques sans données Groundspeak
+                for code in scrape_codes:
+                    idx += 1
                     try:
                         importer.import_by_code(zone_id, code)
                         success += 1
-                        msg = f'Importée: {code} ({idx}/{total})'
+                        msg = f'Importée (téléchargée): {code} ({idx}/{total})'
                     except Exception as e:
                         errors += 1
                         msg = f'Erreur {code}: {e}'
-                    # Progression linéaire basée sur le nombre de geocaches traitées (10% à 100%)
                     pct = 10 + int(idx / total * 90)
                     yield json.dumps({'message': msg, 'progress': pct}) + '\n'
+                    time.sleep(0.2)  # ménager Geocaching.com uniquement en mode scraping
 
                 summary = f'Importation terminée: {success} succès'
                 if errors:
@@ -1669,41 +1667,11 @@ def import_pocket_query():
         
         importer = GeocacheImporter()
         pq_importer = PocketQueryImporter(session=importer.scraper.session)
-        
-        def extract_gc_codes_from_gpx_bytes(data: bytes) -> list[str]:
-            codes: list[str] = []
-            try:
-                root = ET.fromstring(data)
-            except ET.ParseError:
-                return codes
-            
-            namespaces = [
-                {'default': 'http://www.topografix.com/GPX/1/0'},
-                {'default': 'http://www.topografix.com/GPX/1/1'},
-                {},
-            ]
-            
-            seen = set()
-            for ns in namespaces:
-                if ns:
-                    wpts = root.findall('default:wpt', ns)
-                else:
-                    wpts = root.findall('wpt')
-                for w in wpts:
-                    name_elem = w.find('default:name', ns) if ns else w.find('name')
-                    if name_elem is None or not (name_elem.text or '').strip():
-                        continue
-                    waypoint_code = name_elem.text.strip()
-                    if waypoint_code.startswith('GC') and '-' not in waypoint_code:
-                        if waypoint_code not in seen:
-                            seen.add(waypoint_code)
-                            codes.append(waypoint_code)
-            return codes
-        
+
         def generate():
             try:
                 yield json.dumps({'message': f'Téléchargement de la Pocket Query {pq_code}...', 'progress': 0}) + '\n'
-                
+
                 # Download the pocket query
                 try:
                     file_bytes = pq_importer.download_pocket_query_gpx(pq_code)
@@ -1720,13 +1688,22 @@ def import_pocket_query():
                 except Exception as e:
                     yield json.dumps({'error': True, 'message': f'Erreur lors du téléchargement: {str(e)}'}) + '\n'
                     return
-                
-                # Extract GC codes from the downloaded file
+
+                # Parse full Groundspeak data (une Pocket Query contient toutes les
+                # données : on importe sans re-télécharger chaque page cache).
                 yield json.dumps({'message': 'Analyse du fichier...', 'progress': 10}) + '\n'
-                
-                gc_codes: list[str] = []
-                
-                # Check if it's a ZIP file
+
+                full_by_code: dict[str, object] = {}
+                scrape_codes: list[str] = []
+
+                def ingest(data: bytes) -> None:
+                    caches, codes = parse_gpx_caches(data)
+                    for sc in caches:
+                        full_by_code.setdefault(sc.gc_code, sc)
+                    for code in codes:
+                        if code not in full_by_code and code not in scrape_codes:
+                            scrape_codes.append(code)
+
                 if file_bytes[:2] == b'PK':
                     try:
                         with zipfile.ZipFile(io.BytesIO(file_bytes), 'r') as zf:
@@ -1736,41 +1713,53 @@ def import_pocket_query():
                                 return
                             yield json.dumps({'message': f'{len(members)} fichier(s) GPX détecté(s)', 'progress': 15}) + '\n'
                             for m in members:
-                                data = zf.read(m)
-                                codes = extract_gc_codes_from_gpx_bytes(data)
-                                gc_codes.extend(codes)
+                                ingest(zf.read(m))
                     except Exception as e:
                         yield json.dumps({'error': True, 'message': f'Erreur lors de la lecture du ZIP: {str(e)}'}) + '\n'
                         return
                 else:
-                    # Assume it's a GPX file
-                    codes = extract_gc_codes_from_gpx_bytes(file_bytes)
-                    gc_codes.extend(codes)
-                
-                # Deduplicate
-                gc_codes = list(dict.fromkeys(gc_codes))
-                total = len(gc_codes)
-                
+                    ingest(file_bytes)
+
+                scrape_codes = [c for c in scrape_codes if c not in full_by_code]
+                total = len(full_by_code) + len(scrape_codes)
+
                 if total == 0:
                     yield json.dumps({'error': True, 'message': 'Aucun code GC détecté dans le fichier'}) + '\n'
                     return
-                
+
                 yield json.dumps({'message': f'{total} géocache(s) trouvée(s)', 'progress': 20}) + '\n'
-                
+
                 success = 0
                 errors = 0
-                for idx, code in enumerate(gc_codes, start=1):
+                idx = 0
+
+                # 1) Import rapide des caches complètes (pas de réseau)
+                for sc in full_by_code.values():
+                    idx += 1
+                    try:
+                        importer.import_from_scraped(zone_id, sc)
+                        success += 1
+                        msg = f'Importée: {sc.gc_code} ({idx}/{total})'
+                    except Exception as e:
+                        errors += 1
+                        msg = f'Erreur {sc.gc_code}: {e}'
+                    pct = 20 + int(idx / total * 80)
+                    yield json.dumps({'message': msg, 'progress': pct}) + '\n'
+
+                # 2) Repli scraping pour les entrées sans données Groundspeak
+                for code in scrape_codes:
+                    idx += 1
                     try:
                         importer.import_by_code(zone_id, code)
                         success += 1
-                        msg = f'Importée: {code} ({idx}/{total})'
+                        msg = f'Importée (téléchargée): {code} ({idx}/{total})'
                     except Exception as e:
                         errors += 1
                         msg = f'Erreur {code}: {e}'
-                    
                     pct = 20 + int(idx / total * 80)
                     yield json.dumps({'message': msg, 'progress': pct}) + '\n'
-                
+                    time.sleep(0.2)
+
                 summary = f'Importation terminée: {success} succès'
                 if errors:
                     summary += f', {errors} erreurs'
@@ -1780,7 +1769,7 @@ def import_pocket_query():
                     'final_summary': True,
                     'stats': {'success': success, 'errors': errors, 'total': total}
                 }) + '\n'
-                
+
             except Exception as e:
                 logger.error(f"Erreur import pocket query: {e}", exc_info=True)
                 yield json.dumps({'error': True, 'message': f'Erreur: {str(e)}'}) + '\n'
