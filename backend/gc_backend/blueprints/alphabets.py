@@ -15,6 +15,13 @@ alphabets_bp = Blueprint('alphabets', __name__)
 # Fallback si accédé hors contexte Flask (ne devrait pas arriver en pratique)
 _DEFAULT_ALPHABETS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), 'alphabets')
 
+# Les ressources d'alphabets (images, polices) sont quasi immuables. On autorise
+# un cache navigateur long pour éviter de re-valider chaque fichier à chaque
+# réouverture d'un viewer. La validation conditionnelle (ETag/Last-Modified)
+# reste active via send_file(conditional=True) : un fichier remplacé finit par
+# être repris après expiration, et un rechargement forcé renvoie un 304 léger.
+_DEFAULT_ASSET_MAX_AGE = 60 * 60 * 24  # 1 jour
+
 SEARCH_SYNONYMS = {
     'alien': ['extraterrestre', 'fiction', 'sf', 'science fiction', 'aurebesh', 'kryptonian', 'borg', 'fremen', 'romulan'],
     'ancien': ['antique', 'rune', 'runique', 'templier', 'theban', 'malachim', 'enochian', 'futhark'],
@@ -44,8 +51,18 @@ def _get_alphabets_dir():
         return _DEFAULT_ALPHABETS_DIR
 
 
+def _get_asset_max_age():
+    """Durée de cache navigateur (en secondes) pour les ressources d'alphabets."""
+    try:
+        configured = current_app.config.get('ALPHABET_ASSET_MAX_AGE')
+    except RuntimeError:
+        configured = None
+    return _DEFAULT_ASSET_MAX_AGE if configured is None else configured
+
+
 def send_alphabet_file(path, **kwargs):
     """Sert une ressource d'alphabet avec les headers requis par les webfonts."""
+    kwargs.setdefault('max_age', _get_asset_max_age())
     response = send_file(path, **kwargs)
     response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Cross-Origin-Resource-Policy'] = 'cross-origin'

@@ -177,6 +177,12 @@ fichiers JSON sur disque, elle corrige uniquement la reponse API.
 | `GET` | `/api/alphabets/<alphabet_id>/readme` | Retourne le README si present. |
 | `POST` | `/api/alphabets/discover` | Rescan simple du dossier et retour de la liste. |
 
+Les ressources binaires (images, polices) sont servies par `send_alphabet_file`
+avec un `Cache-Control: max-age` (defaut 1 jour, surchargeable via la config
+`ALPHABET_ASSET_MAX_AGE`). La validation conditionnelle `send_file` reste active :
+un rechargement apres expiration renvoie un `304` leger si le fichier n'a pas
+change. Cela evite de re-telecharger chaque image a chaque reouverture d'un viewer.
+
 ### 4.4 Recherche
 
 `GET /api/alphabets` accepte :
