@@ -269,6 +269,7 @@ du dossier.
 | `hasUpperCase` | boolean | tous | Indique si l'alphabet distingue les majuscules. |
 | `upperCaseOnly` | boolean | tous | Indique que seules les majuscules doivent etre proposees. |
 | `characters` | object | tous | Lettres, chiffres, symboles speciaux. |
+| `imageFiles` | string[] | images | Injecte par le backend : fichiers presents dans `imageDir`. Absent des fichiers JSON sur disque. |
 
 ### 5.3 `characters`
 
@@ -340,6 +341,17 @@ Les candidats d'image sont calcules par :
 ```ts
 getImageResourcePathCandidates(alphabetConfig, char)
 ```
+
+Pour un alphabet `type: "images"`, le backend renseigne
+`alphabetConfig.imageFiles` : la liste des fichiers reellement presents dans
+`imageDir` (noms de fichiers, sans chemin). Quand ce manifeste est disponible,
+le resolveur choisit le premier candidat dont le nom de fichier appartient a la
+liste et n'effectue **aucune** requete reseau. Le probing d'images
+(`probeImageUrl`, chargement d'un `Image()` par URL candidate) n'est conserve
+que comme repli pour les anciens payloads sans `imageFiles`.
+
+Le manifeste est mis en cache cote backend (`list_alphabet_image_files`) et vide
+par `POST /api/alphabets/discover`, en meme temps que le cache README.
 
 Pour une lettre, le resolveur teste plusieurs conventions :
 

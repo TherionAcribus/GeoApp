@@ -52,17 +52,48 @@ def send_alphabet_file(path, **kwargs):
     return response
 
 
+@lru_cache(maxsize=512)
+def list_alphabet_image_files(alphabet_id, image_dir):
+    """Liste les fichiers présents dans le dossier d'images d'un alphabet.
+
+    Le résultat (tuple pour la mise en cache) permet au frontend de résoudre
+    l'image d'un caractère localement, sans tester chaque URL candidate via des
+    requêtes réseau qui finissent en 404. Le cache est vidé par /discover.
+    """
+    directory = os.path.join(_get_alphabets_dir(), alphabet_id, image_dir)
+    if not os.path.isdir(directory):
+        return ()
+    try:
+        return tuple(sorted(
+            name for name in os.listdir(directory)
+            if os.path.isfile(os.path.join(directory, name))
+        ))
+    except OSError:
+        return ()
+
+
+def attach_image_files(config):
+    """Ajoute la liste des fichiers d'images disponibles pour un alphabet image."""
+    alphabet_config = config.get('alphabetConfig', {})
+    image_dir = alphabet_config.get('imageDir')
+    if alphabet_config.get('type') == 'images' and image_dir:
+        alphabet_config['imageFiles'] = list(
+            list_alphabet_image_files(config.get('id', ''), image_dir)
+        )
+    return config
+
+
 def load_alphabet_config(alphabet_id):
     """Charge la configuration d'un alphabet depuis son dossier."""
     alphabet_path = os.path.join(_get_alphabets_dir(), alphabet_id, 'alphabet.json')
     if not os.path.exists(alphabet_path):
         return None
-        
+
     with open(alphabet_path, 'r', encoding='utf-8') as f:
         config = json.load(f)
         # Ajouter l'ID de l'alphabet (nom du dossier)
         config['id'] = alphabet_id
-        return normalize_alphabet_config(config)
+        return attach_image_files(normalize_alphabet_config(config))
 
 
 def normalize_character_list(value):
@@ -483,6 +514,9 @@ def discover_alphabets():
     Force la redécouverte des alphabets (scan du répertoire).
     Retourne la liste mise à jour des alphabets.
     """
+    # Vider les caches disque pour refléter d'éventuels ajouts/modifications.
+    list_alphabet_image_files.cache_clear()
+    load_alphabet_readme.cache_clear()
     alphabets = get_all_alphabets()
     return jsonify({
         "status": "success",

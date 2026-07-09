@@ -34,6 +34,12 @@ export interface AlphabetConfig {
     hasUpperCase: boolean;
     upperCaseOnly?: boolean;
     characters: AlphabetCharacters;
+    /**
+     * Liste des fichiers réellement présents dans `imageDir`, fournie par le
+     * backend pour les alphabets `type: "images"`. Permet au résolveur de choisir
+     * le bon fichier localement, sans tester les URLs candidates via le réseau.
+     */
+    imageFiles?: string[];
 }
 
 /**

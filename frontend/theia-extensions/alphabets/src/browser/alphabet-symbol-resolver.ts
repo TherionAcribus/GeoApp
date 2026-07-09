@@ -193,6 +193,36 @@ export const probeImageUrl = (src: string): Promise<boolean> => {
     return loadPromise;
 };
 
+const getResourceBasename = (resourcePath: string): string => {
+    const separatorIndex = resourcePath.lastIndexOf('/');
+    return separatorIndex >= 0 ? resourcePath.slice(separatorIndex + 1) : resourcePath;
+};
+
+/**
+ * Résout localement le fichier d'un caractère à partir de la liste `imageFiles`
+ * fournie par le backend. Retourne `undefined` si la liste n'est pas disponible
+ * (anciens payloads), auquel cas l'appelant retombe sur le probing réseau.
+ */
+const resolveImageSourceFromManifest = (
+    alphabetId: string,
+    alphabetConfig: AlphabetConfig,
+    resourcePaths: string[],
+    alphabetsService: AlphabetsService
+): string | null | undefined => {
+    const imageFiles = alphabetConfig.imageFiles;
+    if (!Array.isArray(imageFiles)) {
+        return undefined;
+    }
+
+    const availableFiles = new Set(imageFiles);
+    for (const resourcePath of resourcePaths) {
+        if (availableFiles.has(getResourceBasename(resourcePath))) {
+            return alphabetsService.getResourceUrl(alphabetId, resourcePath);
+        }
+    }
+    return null;
+};
+
 export const resolveAlphabetImageSource = async (
     alphabetId: string,
     alphabetConfig: AlphabetConfig,
@@ -208,6 +238,18 @@ export const resolveAlphabetImageSource = async (
 
     if (resolvingImageCache.has(cacheKey)) {
         return resolvingImageCache.get(cacheKey)!;
+    }
+
+    // Résolution déterministe via le manifeste backend : aucun aller-retour réseau.
+    const manifestResult = resolveImageSourceFromManifest(
+        alphabetId,
+        alphabetConfig,
+        resourcePaths,
+        alphabetsService
+    );
+    if (manifestResult !== undefined) {
+        resolvedImageCache.set(cacheKey, manifestResult);
+        return manifestResult;
     }
 
     const resolvePromise = (async () => {
