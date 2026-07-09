@@ -873,33 +873,19 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
                         onClick={() => this.undo()}
                         disabled={!canUndo}
                         title='Annuler (Ctrl+Z)'
-                        style={{
-                            padding: '6px 12px',
-                            backgroundColor: 'var(--theia-button-background)',
-                            color: 'var(--theia-button-foreground)',
-                            border: 'none',
-                            borderRadius: '3px',
-                            cursor: canUndo ? 'pointer' : 'not-allowed',
-                            opacity: canUndo ? 1 : 0.5
-                        }}
+                        aria-label='Annuler (Ctrl+Z)'
+                        className='alpha-btn alpha-btn--primary'
                     >
-                        <i className='fa fa-undo'></i>
+                        <i className='fa fa-undo' aria-hidden='true'></i>
                     </button>
                     <button
                         onClick={() => this.redo()}
                         disabled={!canRedo}
                         title='Refaire (Ctrl+Y)'
-                        style={{
-                            padding: '6px 12px',
-                            backgroundColor: 'var(--theia-button-background)',
-                            color: 'var(--theia-button-foreground)',
-                            border: 'none',
-                            borderRadius: '3px',
-                            cursor: canRedo ? 'pointer' : 'not-allowed',
-                            opacity: canRedo ? 1 : 0.5
-                        }}
+                        aria-label='Refaire (Ctrl+Y)'
+                        className='alpha-btn alpha-btn--primary'
                     >
-                        <i className='fa fa-redo'></i>
+                        <i className='fa fa-redo' aria-hidden='true'></i>
                     </button>
                 </div>
 
@@ -908,31 +894,19 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
                 <button
                     onClick={() => this.exportState()}
                     title='Exporter (Ctrl+E)'
-                    style={{
-                        padding: '6px 12px',
-                        backgroundColor: 'var(--theia-button-background)',
-                        color: 'var(--theia-button-foreground)',
-                        border: 'none',
-                        borderRadius: '3px',
-                        cursor: 'pointer'
-                    }}
+                    aria-label='Exporter (Ctrl+E)'
+                    className='alpha-btn alpha-btn--primary'
                 >
-                    <i className='fa fa-download'></i> Exporter
+                    <i className='fa fa-download' aria-hidden='true'></i> Exporter
                 </button>
 
                 <button
                     onClick={() => this.importState()}
                     title='Importer (Ctrl+I)'
-                    style={{
-                        padding: '6px 12px',
-                        backgroundColor: 'var(--theia-button-background)',
-                        color: 'var(--theia-button-foreground)',
-                        border: 'none',
-                        borderRadius: '3px',
-                        cursor: 'pointer'
-                    }}
+                    aria-label='Importer (Ctrl+I)'
+                    className='alpha-btn alpha-btn--primary'
                 >
-                    <i className='fa fa-upload'></i> Importer
+                    <i className='fa fa-upload' aria-hidden='true'></i> Importer
                 </button>
 
                 {this.history.length > 0 && (
@@ -1175,47 +1149,38 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
                                 onClick={() => this.adjustZoom(isPinned ? 'pinnedSymbols' : 'enteredSymbols', -0.25)}
                                 disabled={scale <= 0.25}
                                 title='Diminuer'
+                                aria-label='Diminuer'
                             >
-                                <i className='fa fa-minus'></i>
+                                <i className='fa fa-minus' aria-hidden='true'></i>
                             </button>
                             <span style={{ fontSize: '11px', padding: '0 8px' }}>{Math.round(scale * 100)}%</span>
                             <button
                                 onClick={() => this.adjustZoom(isPinned ? 'pinnedSymbols' : 'enteredSymbols', 0.25)}
                                 disabled={scale >= 1.5}
                                 title='Augmenter'
+                                aria-label='Augmenter'
                             >
-                                <i className='fa fa-plus'></i>
+                                <i className='fa fa-plus' aria-hidden='true'></i>
                             </button>
                         </div>
                         <button
                             onClick={() => this.togglePin('symbols')}
                             title={this.pinnedState.symbols ? 'Désépingler les symboles' : 'Épingler les symboles'}
-                            style={{
-                                padding: '4px 8px',
-                                backgroundColor: this.pinnedState.symbols
-                                    ? 'var(--theia-button-hoverBackground)'
-                                    : 'var(--theia-button-background)',
-                                color: 'var(--theia-button-foreground)',
-                                border: 'none',
-                                borderRadius: '3px',
-                                cursor: 'pointer'
-                            }}
+                            aria-label={this.pinnedState.symbols ? 'Désépingler les symboles' : 'Épingler les symboles'}
+                            aria-pressed={this.pinnedState.symbols}
+                            className={`alpha-btn alpha-btn--primary${this.pinnedState.symbols ? ' alpha-btn--active' : ''}`}
+                            style={{ padding: '4px 8px' }}
                         >
                             📌
                         </button>
                         <button
                             onClick={() => this.clearSymbols()}
                             title='Tout effacer'
-                            style={{
-                                padding: '4px 8px',
-                                backgroundColor: 'var(--theia-button-background)',
-                                color: 'var(--theia-button-foreground)',
-                                border: 'none',
-                                borderRadius: '3px',
-                                cursor: 'pointer'
-                            }}
+                            aria-label='Tout effacer'
+                            className='alpha-btn alpha-btn--primary'
+                            style={{ padding: '4px 8px' }}
                         >
-                            <i className='fa fa-trash'></i> Effacer
+                            <i className='fa fa-trash' aria-hidden='true'></i> Effacer
                         </button>
                     </div>
                 </div>
@@ -1295,31 +1260,27 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
                                 onClick={() => this.adjustZoom(isPinned ? 'pinnedText' : 'decodedText', -0.25)}
                                 disabled={scale <= 0.5}
                                 title='Diminuer'
+                                aria-label='Diminuer'
                             >
-                                <i className='fa fa-minus'></i>
+                                <i className='fa fa-minus' aria-hidden='true'></i>
                             </button>
                             <span style={{ fontSize: '11px', padding: '0 8px' }}>{Math.round(scale * 100)}%</span>
                             <button
                                 onClick={() => this.adjustZoom(isPinned ? 'pinnedText' : 'decodedText', 0.25)}
                                 disabled={scale >= 2.0}
                                 title='Augmenter'
+                                aria-label='Augmenter'
                             >
-                                <i className='fa fa-plus'></i>
+                                <i className='fa fa-plus' aria-hidden='true'></i>
                             </button>
                         </div>
                         <button
                             onClick={() => this.togglePin('text')}
                             title={this.pinnedState.text ? 'Désépingler le texte' : 'Épingler le texte'}
-                            style={{
-                                padding: '4px 8px',
-                                backgroundColor: this.pinnedState.text
-                                    ? 'var(--theia-button-hoverBackground)'
-                                    : 'var(--theia-button-background)',
-                                color: 'var(--theia-button-foreground)',
-                                border: 'none',
-                                borderRadius: '3px',
-                                cursor: 'pointer'
-                            }}
+                            aria-label={this.pinnedState.text ? 'Désépingler le texte' : 'Épingler le texte'}
+                            aria-pressed={this.pinnedState.text}
+                            className={`alpha-btn alpha-btn--primary${this.pinnedState.text ? ' alpha-btn--active' : ''}`}
+                            style={{ padding: '4px 8px' }}
                         >
                             📌
                         </button>
@@ -1376,16 +1337,10 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
                     <button
                         onClick={() => this.togglePin('coordinates')}
                         title={this.pinnedState.coordinates ? 'Désépingler les coordonnées' : 'Épingler les coordonnées'}
-                        style={{
-                            padding: '4px 8px',
-                            backgroundColor: this.pinnedState.coordinates
-                                ? 'var(--theia-button-hoverBackground)'
-                                : 'var(--theia-button-background)',
-                            color: 'var(--theia-button-foreground)',
-                            border: 'none',
-                            borderRadius: '3px',
-                            cursor: 'pointer'
-                        }}
+                        aria-label={this.pinnedState.coordinates ? 'Désépingler les coordonnées' : 'Épingler les coordonnées'}
+                        aria-pressed={this.pinnedState.coordinates}
+                        className={`alpha-btn alpha-btn--primary${this.pinnedState.coordinates ? ' alpha-btn--active' : ''}`}
+                        style={{ padding: '4px 8px' }}
                     >
                         📌
                     </button>
@@ -1854,16 +1809,18 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
                                 onClick={() => this.adjustZoom('availableSymbols', -0.25)}
                                 disabled={scale <= 0.5}
                                 title='Diminuer'
+                                aria-label='Diminuer'
                             >
-                                <i className='fa fa-minus'></i>
+                                <i className='fa fa-minus' aria-hidden='true'></i>
                             </button>
                             <span style={{ fontSize: '11px', padding: '0 8px' }}>{Math.round(scale * 100)}%</span>
                             <button
                                 onClick={() => this.adjustZoom('availableSymbols', 0.25)}
                                 disabled={scale >= 2.0}
                                 title='Augmenter'
+                                aria-label='Augmenter'
                             >
-                                <i className='fa fa-plus'></i>
+                                <i className='fa fa-plus' aria-hidden='true'></i>
                             </button>
                         </div>
                     </div>

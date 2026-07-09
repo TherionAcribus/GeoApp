@@ -101,6 +101,8 @@ export const GeocacheAssociation: React.FC<GeocacheAssociationProps> = ({
                         <button
                             onClick={handleAssociate}
                             disabled={loading || !gcCode}
+                            aria-label='Associer'
+                            aria-busy={loading}
                             style={{
                                 padding: '6px 12px',
                                 backgroundColor: 'var(--theia-button-background)',
@@ -111,7 +113,7 @@ export const GeocacheAssociation: React.FC<GeocacheAssociationProps> = ({
                                 opacity: (loading || !gcCode) ? 0.5 : 1
                             }}
                         >
-                            {loading ? <i className='fa fa-spinner fa-spin'></i> : 'Associer'}
+                            {loading ? <i className='fa fa-spinner fa-spin' aria-hidden='true'></i> : 'Associer'}
                         </button>
                     </div>
 
@@ -142,7 +144,7 @@ export const GeocacheAssociation: React.FC<GeocacheAssociationProps> = ({
                             fontWeight: 'bold',
                             marginBottom: '8px'
                         }}>
-                            <i className='fa fa-check-circle' style={{ marginRight: '8px', color: '#00ff00' }}></i>
+                            <i className='fa fa-check-circle' aria-hidden='true' style={{ marginRight: '8px', color: '#00ff00' }}></i>
                             {associatedGeocache.code} - {associatedGeocache.name}
                         </div>
 
@@ -166,7 +168,7 @@ export const GeocacheAssociation: React.FC<GeocacheAssociationProps> = ({
                                            'var(--theia-textLink-activeForeground)',
                                     fontWeight: 'bold'
                                 }}>
-                                    <i className='fa fa-route' style={{ marginRight: '4px' }}></i>
+                                    <i className='fa fa-route' aria-hidden='true' style={{ marginRight: '4px' }}></i>
                                     Distance: {distanceInfo.meters < 1000 ?
                                         `${Math.round(distanceInfo.meters)} m` :
                                         `${(distanceInfo.meters / 1000).toFixed(1)} km`}
@@ -189,7 +191,7 @@ export const GeocacheAssociation: React.FC<GeocacheAssociationProps> = ({
                                     fontSize: '12px'
                                 }}
                             >
-                                <i className='fa fa-map' style={{ marginRight: '6px' }}></i>
+                                <i className='fa fa-map' aria-hidden='true' style={{ marginRight: '6px' }}></i>
                                 Afficher sur la carte !
                             </button>
                         )}
@@ -206,7 +208,7 @@ export const GeocacheAssociation: React.FC<GeocacheAssociationProps> = ({
                                 fontSize: '12px'
                             }}
                         >
-                            <i className='fa fa-times' style={{ marginRight: '6px' }}></i>
+                            <i className='fa fa-times' aria-hidden='true' style={{ marginRight: '6px' }}></i>
                             Supprimer l'association
                         </button>
                     </div>

@@ -515,7 +515,43 @@ preview au survol) ne re-rend que cet item : le widget parent n'appelle plus
 `update()` sur les evenements souris. Ne pas reintroduire de `this.update()` dans
 les handlers de survol.
 
-### 7.5 Viewer alphabet
+`AlphabetListItem` est navigable au clavier : `role="button"`, `tabIndex={0}`,
+`aria-label` (nom + description), et `Entree`/`Espace` declenchent l'ouverture
+via un `onKeyDown` qui ignore les evenements remontant d'un controle imbrique
+(le bouton favori) pour eviter un double declenchement. L'etat de focus clavier
+partage la meme surbrillance que le survol souris (`hovered || focused`), avec
+un indicateur de focus explicite en CSS (`.alpha-list-item:focus-visible`) pour
+ne pas dependre du reset de focus du theme. La navigation par fleches façon
+listbox n'est pas implementee : Tab/Shift+Tab suffit pour atteindre chaque item
+(chacun a son propre `tabIndex`), ce qui couvre l'exigence clavier de base sans
+la complexite d'un roving tabindex.
+
+### 7.5 Boutons factorises
+
+`alphabets.css` definit des classes `.alpha-btn` (meme principe que `.fs-btn`
+dans formula-solver) pour remplacer les styles inline redondants des boutons de
+toolbar, d'epinglage et de filtres :
+
+- `.alpha-btn` : forme de base (padding, border-radius, cursor) ;
+- `.alpha-btn--primary` / `.alpha-btn--outline` / `.alpha-btn--ghost` : variante
+  de couleur ;
+- `.alpha-btn--active` (combine avec `--primary` ou `--outline`) : etat
+  selectionne/epingle ;
+- `.alpha-btn:disabled` : cursor et opacite geres par CSS, plus besoin de les
+  calculer en JS sur chaque bouton desactivable.
+
+Padding et taille de police specifiques a une instance (puces de filtre plus
+petites que les boutons de toolbar) restent en inline, comme dans
+formula-solver.
+
+Tous les boutons dont le contenu est une icone seule (etoile favori, epingle,
+zoom, actualiser, effacer la recherche) portent un `aria-label` identique au
+`title`, et leur icone `<i className="fa ...">` porte `aria-hidden="true"` pour
+eviter une double annonce. Les boutons avec un libelle visible (Exporter,
+Importer, Effacer, Associer...) gardent leur icone en `aria-hidden="true"`
+egalement, le texte visible servant de nom accessible.
+
+### 7.6 Viewer alphabet
 
 `AlphabetViewerWidget` :
 
@@ -547,7 +583,7 @@ entree d'undo au lieu d'une par caractere, et n'evince plus l'historique de clic
 frappe en attente (`flushPendingHistorySnapshot`) ; `undo`/`redo` le figent aussi
 avant de naviguer dans l'historique.
 
-### 7.6 Reponses obsoletes
+### 7.7 Reponses obsoletes
 
 Les operations asynchrones lentes sont protegees par des compteurs de sequence :
 

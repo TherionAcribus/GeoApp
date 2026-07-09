@@ -316,7 +316,7 @@ export const CoordinatesDetector: React.FC<CoordinatesDetectorProps> = ({
                                         padding: '2px 4px'
                                     }}
                                 >
-                                    <i className='fa fa-copy' style={{ marginRight: '4px' }}></i>Copier
+                                    <i className='fa fa-copy' aria-hidden='true' style={{ marginRight: '4px' }}></i>Copier
                                 </button>
                             </div>
                             <div style={{

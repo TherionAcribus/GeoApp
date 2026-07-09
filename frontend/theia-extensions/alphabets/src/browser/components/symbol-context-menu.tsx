@@ -100,7 +100,7 @@ export class SymbolContextMenu extends React.Component<SymbolContextMenuProps> {
                     onMouseOver={(e) => (e.currentTarget.style.backgroundColor = 'var(--theia-menu-selectionBackground)')}
                     onMouseOut={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                 >
-                    <i className='fa fa-trash' style={{ width: '16px' }}></i>
+                    <i className='fa fa-trash' aria-hidden='true' style={{ width: '16px' }}></i>
                     <span>Supprimer</span>
                 </button>
                 <button
@@ -109,7 +109,7 @@ export class SymbolContextMenu extends React.Component<SymbolContextMenuProps> {
                     onMouseOver={(e) => (e.currentTarget.style.backgroundColor = 'var(--theia-menu-selectionBackground)')}
                     onMouseOut={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                 >
-                    <i className='fa fa-copy' style={{ width: '16px' }}></i>
+                    <i className='fa fa-copy' aria-hidden='true' style={{ width: '16px' }}></i>
                     <span>Dupliquer</span>
                 </button>
             </div>

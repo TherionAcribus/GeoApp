@@ -391,6 +391,7 @@ const AlphabetListItem: React.FC<AlphabetListItemProps> = React.memo(({
     onToggleFavorite
 }) => {
     const [hovered, setHovered] = React.useState(false);
+    const [focused, setFocused] = React.useState(false);
 
     const hasSearchMatches = Boolean(
         searchQuery && alphabet.search_matches && alphabet.search_matches.length > 0
@@ -401,16 +402,35 @@ const AlphabetListItem: React.FC<AlphabetListItemProps> = React.memo(({
         !isCompact &&
         (previewMode === 'always' || hovered)
     );
+    const favoriteLabel = isFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris';
+    const openLabel = alphabet.description ? `${alphabet.name} — ${alphabet.description}` : alphabet.name;
 
     return (
         <div
+            role='button'
+            tabIndex={0}
+            aria-label={openLabel}
+            className='alpha-list-item'
             onClick={() => onOpen(alphabet)}
+            onKeyDown={event => {
+                // Ignorer les touches qui remontent d'un contrôle imbriqué (ex.
+                // le bouton favori) : celui-ci gère déjà sa propre activation.
+                if (event.target !== event.currentTarget) {
+                    return;
+                }
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    onOpen(alphabet);
+                }
+            }}
             onMouseEnter={() => setHovered(true)}
             onMouseLeave={() => setHovered(false)}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
             style={{
                 padding: isCompact ? '7px 8px' : '10px',
                 marginBottom: isCompact ? '5px' : '8px',
-                backgroundColor: hovered
+                backgroundColor: (hovered || focused)
                     ? 'var(--theia-list-hoverBackground)'
                     : 'var(--theia-list-activeSelectionBackground)',
                 border: '1px solid var(--theia-list-inactiveSelectionBackground)',
@@ -420,24 +440,22 @@ const AlphabetListItem: React.FC<AlphabetListItemProps> = React.memo(({
             }}
         >
             <div style={{ marginBottom: isCompact ? '2px' : '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                {isCistercianTool && <i className='fa fa-calculator' style={{ marginRight: '8px' }} />}
+                {isCistercianTool && <i className='fa fa-calculator' aria-hidden='true' style={{ marginRight: '8px' }} />}
                 <button
                     onClick={event => {
                         event.stopPropagation();
                         onToggleFavorite(alphabet.id);
                     }}
-                    title={isFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+                    title={favoriteLabel}
+                    aria-label={favoriteLabel}
+                    className='alpha-btn alpha-btn--ghost'
                     style={{
-                        border: 'none',
-                        background: 'transparent',
                         color: isFavorite ? 'var(--theia-button-background)' : 'var(--theia-descriptionForeground)',
-                        cursor: 'pointer',
                         padding: '0 2px',
-                        fontSize: '14px',
-                        lineHeight: 1
+                        fontSize: '14px'
                     }}
                 >
-                    <i className={isFavorite ? 'fa fa-star' : 'fa fa-star-o'} />
+                    <i className={isFavorite ? 'fa fa-star' : 'fa fa-star-o'} aria-hidden='true' />
                 </button>
                 <span style={{ fontWeight: 'bold', flex: 1, color: 'var(--theia-foreground)' }}>
                     {alphabet.name}
@@ -904,31 +922,21 @@ export class AlphabetsListWidget extends ReactWidget {
                                 this.loadAlphabets();
                             }}
                             title='Effacer la recherche'
-                            style={{
-                                padding: '6px 10px',
-                                backgroundColor: 'var(--theia-button-background)',
-                                color: 'var(--theia-button-foreground)',
-                                border: 'none',
-                                borderRadius: '3px',
-                                cursor: 'pointer'
-                            }}
+                            aria-label='Effacer la recherche'
+                            className='alpha-btn alpha-btn--primary'
+                            style={{ padding: '6px 10px' }}
                         >
-                            <i className='fa fa-times'></i>
+                            <i className='fa fa-times' aria-hidden='true'></i>
                         </button>
                     )}
                     <button
                         onClick={() => this.refresh()}
                         title='Actualiser'
-                        style={{
-                            padding: '6px 10px',
-                            backgroundColor: 'var(--theia-button-background)',
-                            color: 'var(--theia-button-foreground)',
-                            border: 'none',
-                            borderRadius: '3px',
-                            cursor: 'pointer'
-                        }}
+                        aria-label='Actualiser'
+                        className='alpha-btn alpha-btn--primary'
+                        style={{ padding: '6px 10px' }}
                     >
-                        <i className='fa fa-refresh'></i>
+                        <i className='fa fa-refresh' aria-hidden='true'></i>
                     </button>
                 </div>
                 
@@ -1040,7 +1048,7 @@ export class AlphabetsListWidget extends ReactWidget {
                         this.saveListPreferences();
                         this.update();
                     })}
-                    {this.renderFilterButton(`Recents (${this.recentAlphabetIds.length})`, this.scopeFilter === 'recent', () => {
+                    {this.renderFilterButton(`Récents (${this.recentAlphabetIds.length})`, this.scopeFilter === 'recent', () => {
                         this.scopeFilter = 'recent';
                         this.saveListPreferences();
                         this.update();
@@ -1069,7 +1077,7 @@ export class AlphabetsListWidget extends ReactWidget {
                         this.saveListPreferences();
                         this.update();
                     })}
-                    {this.renderFilterButton('Speciaux', this.capabilityFilter === 'special', () => {
+                    {this.renderFilterButton('Spéciaux', this.capabilityFilter === 'special', () => {
                         this.capabilityFilter = 'special';
                         this.saveListPreferences();
                         this.update();
@@ -1083,7 +1091,8 @@ export class AlphabetsListWidget extends ReactWidget {
                             this.saveListPreferences();
                             this.update();
                         }}
-                        title='Densite de la liste'
+                        title='Densité de la liste'
+                        aria-label='Densité de la liste'
                         style={{
                             flex: '1 1 120px',
                             minWidth: '120px',
@@ -1095,7 +1104,7 @@ export class AlphabetsListWidget extends ReactWidget {
                             fontSize: '11px'
                         }}
                     >
-                        <option value='detailed'>Vue detaillee</option>
+                        <option value='detailed'>Vue détaillée</option>
                         <option value='compact'>Vue compacte</option>
                     </select>
                     <select
@@ -1107,6 +1116,7 @@ export class AlphabetsListWidget extends ReactWidget {
                         }}
                         disabled={!this.showExamples}
                         title='Chargement des exemples'
+                        aria-label='Chargement des exemples'
                         style={{
                             flex: '1 1 120px',
                             minWidth: '120px',
@@ -1119,8 +1129,8 @@ export class AlphabetsListWidget extends ReactWidget {
                             opacity: this.showExamples ? 1 : 0.6
                         }}
                     >
-                        <option value='hover'>Preview au survol</option>
-                        <option value='always'>Preview partout</option>
+                        <option value='hover'>Prévisualisation au survol</option>
+                        <option value='always'>Prévisualisation partout</option>
                     </select>
                 </div>
             </div>
@@ -1131,15 +1141,9 @@ export class AlphabetsListWidget extends ReactWidget {
         return (
             <button
                 onClick={onClick}
-                style={{
-                    border: `1px solid ${active ? 'var(--theia-focusBorder)' : 'var(--theia-input-border)'}`,
-                    backgroundColor: active ? 'var(--theia-button-background)' : 'var(--theia-input-background)',
-                    color: active ? 'var(--theia-button-foreground)' : 'var(--theia-input-foreground)',
-                    borderRadius: '3px',
-                    padding: '3px 7px',
-                    cursor: 'pointer',
-                    fontSize: '11px'
-                }}
+                aria-pressed={active}
+                className={`alpha-btn alpha-btn--outline${active ? ' alpha-btn--active' : ''}`}
+                style={{ padding: '3px 7px', fontSize: '11px' }}
             >
                 {label}
             </button>

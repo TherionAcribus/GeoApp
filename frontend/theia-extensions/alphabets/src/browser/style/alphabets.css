@@ -22,6 +22,62 @@
     transform: scale(0.95);
 }
 
+/*
+ * Boutons factorises (meme principe que .fs-btn dans formula-solver) :
+ * `.alpha-btn` fixe la forme de base, une variante de couleur
+ * (`--primary` / `--outline` / `--ghost`) donne le fond/bordure, et
+ * `--active` bascule l'etat selectionne/epingle. Padding et taille de police
+ * restent en inline par instance quand ils different du standard (toolbar vs
+ * puces de filtre), comme dans formula-solver.
+ */
+.alpha-btn {
+    padding: 6px 12px;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.alpha-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.alpha-btn--primary {
+    background-color: var(--theia-button-background);
+    color: var(--theia-button-foreground);
+}
+
+.alpha-btn--outline {
+    background-color: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: 1px solid var(--theia-input-border);
+}
+
+.alpha-btn--ghost {
+    background: transparent;
+    border: none;
+    line-height: 1;
+}
+
+/* Selecteur compose (2 classes) : specificite plus elevee que --primary/--outline seuls. */
+.alpha-btn--active.alpha-btn--primary {
+    background-color: var(--theia-button-hoverBackground);
+}
+
+.alpha-btn--active.alpha-btn--outline {
+    background-color: var(--theia-button-background);
+    color: var(--theia-button-foreground);
+    border-color: var(--theia-focusBorder);
+}
+
+/* Item de liste cliquable au clavier : indicateur de focus visible explicite
+   (ne pas compter sur l'outline navigateur, souvent reinitialise par le theme). */
+.alpha-list-item:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: -1px;
+}
+
 /* ============================================
    Widget de visualisation (à compléter)
    ============================================ */
