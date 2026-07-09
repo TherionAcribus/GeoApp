@@ -191,6 +191,22 @@ avec un `Cache-Control: max-age` (defaut 1 jour, surchargeable via la config
 un rechargement apres expiration renvoie un `304` leger si le fichier n'a pas
 change. Cela evite de re-telecharger chaque image a chaque reouverture d'un viewer.
 
+`alphabet_id` et le chemin relatif (`resource_path` ou `fontFile`) viennent de
+l'URL / du JSON et ne doivent jamais etre concatenes directement dans un
+`os.path.join` passe a `send_file`. Le flux securise est :
+
+1. `resolve_alphabet_directory(alphabet_id)` verifie que le dossier resolu reste
+   sous `ALPHABETS_DIR` (protection contre un `alphabet_id` contenant des
+   segments `..`) et retourne `None` sinon ;
+2. `send_alphabet_file(directory, relative_path, **kwargs)` delegue a
+   `flask.send_from_directory`, qui fait le safe-join du chemin relatif et leve
+   `NotFound` (capte dans les vues, transforme en 404 JSON) en cas d'evasion.
+
+Ne jamais reintroduire `os.path.join(_get_alphabets_dir(), alphabet_id, ...)`
+suivi de `send_file()` sur le resultat : c'est le pattern qui permettait une
+traversee de chemin (`curl --path-as-is` ne normalise pas les `..`, contrairement
+aux navigateurs).
+
 ### 4.4 Recherche
 
 `GET /api/alphabets` accepte :

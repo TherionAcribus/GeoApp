@@ -8,7 +8,8 @@ import mimetypes
 import re
 import unicodedata
 from functools import lru_cache
-from flask import Blueprint, jsonify, send_file, request, current_app
+from flask import Blueprint, jsonify, send_from_directory, request, current_app
+from werkzeug.exceptions import NotFound
 
 alphabets_bp = Blueprint('alphabets', __name__)
 
@@ -60,10 +61,34 @@ def _get_asset_max_age():
     return _DEFAULT_ASSET_MAX_AGE if configured is None else configured
 
 
-def send_alphabet_file(path, **kwargs):
-    """Sert une ressource d'alphabet avec les headers requis par les webfonts."""
+def resolve_alphabet_directory(alphabet_id):
+    """Résout le dossier d'un alphabet en s'assurant qu'il reste sous ALPHABETS_DIR.
+
+    `alphabet_id` vient de l'URL : un client pourrait y injecter des segments
+    `..` (les navigateurs les normalisent, mais pas tous les clients HTTP).
+    On protège donc explicitement contre l'évasion ici, avant même que
+    `send_from_directory` ne valide le chemin relatif demandé à l'intérieur de
+    ce dossier.
+    """
+    base_dir = os.path.realpath(_get_alphabets_dir())
+    candidate = os.path.realpath(os.path.join(base_dir, alphabet_id))
+
+    if candidate != base_dir and not candidate.startswith(base_dir + os.sep):
+        return None
+    if not os.path.isdir(candidate):
+        return None
+    return candidate
+
+
+def send_alphabet_file(directory, relative_path, **kwargs):
+    """Sert une ressource d'alphabet avec les headers requis par les webfonts.
+
+    Utilise `send_from_directory`, qui rejette (404) toute tentative de
+    `relative_path` sortant de `directory` (le dossier lui-même doit avoir été
+    validé au préalable via `resolve_alphabet_directory`).
+    """
     kwargs.setdefault('max_age', _get_asset_max_age())
-    response = send_file(path, **kwargs)
+    response = send_from_directory(directory, relative_path, **kwargs)
     response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Cross-Origin-Resource-Policy'] = 'cross-origin'
     return response
@@ -427,15 +452,18 @@ def get_alphabet_resource(alphabet_id, resource_path):
     Récupère une ressource (image ou police) d'un alphabet.
     Utilisé pour les images individuelles des symboles.
     """
-    resource_full_path = os.path.join(_get_alphabets_dir(), alphabet_id, resource_path)
-    
-    current_app.logger.info(f"Requested resource: {resource_full_path}")
-    
-    if not os.path.exists(resource_full_path) or not os.path.isfile(resource_full_path):
-        current_app.logger.error(f"Resource not found: {resource_full_path}")
+    alphabet_dir = resolve_alphabet_directory(alphabet_id)
+    if alphabet_dir is None:
+        current_app.logger.error(f"Alphabet not found: {alphabet_id}")
+        return jsonify({"error": f"Alphabet {alphabet_id} non trouvé"}), 404
+
+    current_app.logger.info(f"Requested resource: {alphabet_id}/{resource_path}")
+
+    try:
+        return send_alphabet_file(alphabet_dir, resource_path)
+    except NotFound:
+        current_app.logger.error(f"Resource not found: {alphabet_id}/{resource_path}")
         return jsonify({"error": f"Resource {resource_path} not found"}), 404
-        
-    return send_alphabet_file(resource_full_path)
 
 
 @alphabets_bp.route('/api/alphabets/<alphabet_id>/font')
@@ -448,30 +476,35 @@ def get_alphabet_font(alphabet_id):
     if not config:
         current_app.logger.error(f"Alphabet not found: {alphabet_id}")
         return jsonify({"error": f"Alphabet {alphabet_id} non trouvé"}), 404
-        
+
     if config['alphabetConfig']['type'] != 'font':
         current_app.logger.error(f"Not a font-based alphabet: {alphabet_id}")
         return jsonify({"error": "Not a font-based alphabet"}), 404
-    
-    font_path = os.path.join(_get_alphabets_dir(), alphabet_id, config['alphabetConfig']['fontFile'])
-    
-    current_app.logger.info(f"Loading font: {font_path}")
-    
-    if not os.path.exists(font_path):
-        current_app.logger.error(f"Font file not found: {font_path}")
-        return jsonify({"error": f"Police {config['alphabetConfig']['fontFile']} non trouvée"}), 404
-    
-    mimetype = mimetypes.guess_type(font_path)[0]
-    if font_path.lower().endswith('.ttf'):
+
+    alphabet_dir = resolve_alphabet_directory(alphabet_id)
+    if alphabet_dir is None:
+        current_app.logger.error(f"Alphabet not found: {alphabet_id}")
+        return jsonify({"error": f"Alphabet {alphabet_id} non trouvé"}), 404
+
+    font_file = config['alphabetConfig']['fontFile']
+    current_app.logger.info(f"Loading font: {alphabet_id}/{font_file}")
+
+    mimetype = mimetypes.guess_type(font_file)[0]
+    lower_font_file = font_file.lower()
+    if lower_font_file.endswith('.ttf'):
         mimetype = 'font/ttf'
-    elif font_path.lower().endswith('.otf'):
+    elif lower_font_file.endswith('.otf'):
         mimetype = 'font/otf'
-    elif font_path.lower().endswith('.woff'):
+    elif lower_font_file.endswith('.woff'):
         mimetype = 'font/woff'
-    elif font_path.lower().endswith('.woff2'):
+    elif lower_font_file.endswith('.woff2'):
         mimetype = 'font/woff2'
 
-    return send_alphabet_file(font_path, mimetype=mimetype)
+    try:
+        return send_alphabet_file(alphabet_dir, font_file, mimetype=mimetype)
+    except NotFound:
+        current_app.logger.error(f"Font file not found: {alphabet_id}/{font_file}")
+        return jsonify({"error": f"Police {font_file} non trouvée"}), 404
 
 
 @alphabets_bp.route('/api/alphabets/<alphabet_id>/sources', methods=['GET'])
