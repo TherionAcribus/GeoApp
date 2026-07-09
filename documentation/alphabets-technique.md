@@ -490,6 +490,12 @@ Regles importantes :
   backend GeoApp, avec `localStorage` comme cache/fallback ;
 - ignore les reponses obsoletes via un compteur de requete.
 
+Chaque ligne est rendue par le composant isole `AlphabetListItem`, qui gere son
+propre etat de survol local. Survoler un item (surbrillance, apparition de la
+preview au survol) ne re-rend que cet item : le widget parent n'appelle plus
+`update()` sur les evenements souris. Ne pas reintroduire de `this.update()` dans
+les handlers de survol.
+
 ### 7.5 Viewer alphabet
 
 `AlphabetViewerWidget` :

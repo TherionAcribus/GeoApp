@@ -323,6 +323,202 @@ const AlphabetPreview: React.FC<AlphabetPreviewProps> = React.memo(
     }
 );
 
+const alphabetHasLetters = (alphabet: Alphabet): boolean => {
+    const letters = alphabet.alphabetConfig.characters?.letters;
+    return letters === 'all' || (Array.isArray(letters) && letters.length > 0);
+};
+
+const alphabetHasNumbers = (alphabet: Alphabet): boolean => {
+    const numbers = alphabet.alphabetConfig.characters?.numbers;
+    return numbers === 'all' || (Array.isArray(numbers) && numbers.length > 0);
+};
+
+const alphabetHasSpecialCharacters = (alphabet: Alphabet): boolean => {
+    const special = alphabet.alphabetConfig.characters?.special;
+    return Boolean(special && Object.keys(special).length > 0);
+};
+
+const computeAlphabetBadges = (alphabet: Alphabet, isCistercianTool: boolean): string[] => {
+    const badges: string[] = [];
+    if (isCistercianTool) {
+        badges.push('outil');
+    } else {
+        badges.push(alphabet.alphabetConfig.type === 'font' ? 'font' : 'images');
+    }
+    if (alphabetHasLetters(alphabet)) {
+        badges.push('A-Z');
+    }
+    if (alphabetHasNumbers(alphabet)) {
+        badges.push('0-9');
+    }
+    if (alphabetHasSpecialCharacters(alphabet)) {
+        badges.push('special');
+    }
+    return badges;
+};
+
+interface AlphabetListItemProps {
+    alphabet: Alphabet;
+    isCistercianTool: boolean;
+    isCompact: boolean;
+    isFavorite: boolean;
+    badges: string[];
+    previewText: string;
+    previewMode: AlphabetPreviewMode;
+    fontSize: number;
+    searchQuery: string;
+    alphabetsService: AlphabetsService;
+    onOpen: (alphabet: Alphabet) => void;
+    onToggleFavorite: (alphabetId: string) => void;
+}
+
+/**
+ * Item de liste isolé avec état de survol local. Le survol ne re-rend que cet
+ * item (apparition de la preview + surbrillance), sans re-render du widget entier.
+ */
+const AlphabetListItem: React.FC<AlphabetListItemProps> = React.memo(({
+    alphabet,
+    isCistercianTool,
+    isCompact,
+    isFavorite,
+    badges,
+    previewText,
+    previewMode,
+    fontSize,
+    searchQuery,
+    alphabetsService,
+    onOpen,
+    onToggleFavorite
+}) => {
+    const [hovered, setHovered] = React.useState(false);
+
+    const hasSearchMatches = Boolean(
+        searchQuery && alphabet.search_matches && alphabet.search_matches.length > 0
+    );
+    const shouldShowPreview = Boolean(
+        previewText &&
+        !isCistercianTool &&
+        !isCompact &&
+        (previewMode === 'always' || hovered)
+    );
+
+    return (
+        <div
+            onClick={() => onOpen(alphabet)}
+            onMouseEnter={() => setHovered(true)}
+            onMouseLeave={() => setHovered(false)}
+            style={{
+                padding: isCompact ? '7px 8px' : '10px',
+                marginBottom: isCompact ? '5px' : '8px',
+                backgroundColor: hovered
+                    ? 'var(--theia-list-hoverBackground)'
+                    : 'var(--theia-list-activeSelectionBackground)',
+                border: '1px solid var(--theia-list-inactiveSelectionBackground)',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+            }}
+        >
+            <div style={{ marginBottom: isCompact ? '2px' : '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                {isCistercianTool && <i className='fa fa-calculator' style={{ marginRight: '8px' }} />}
+                <button
+                    onClick={event => {
+                        event.stopPropagation();
+                        onToggleFavorite(alphabet.id);
+                    }}
+                    title={isFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+                    style={{
+                        border: 'none',
+                        background: 'transparent',
+                        color: isFavorite ? 'var(--theia-button-background)' : 'var(--theia-descriptionForeground)',
+                        cursor: 'pointer',
+                        padding: '0 2px',
+                        fontSize: '14px',
+                        lineHeight: 1
+                    }}
+                >
+                    <i className={isFavorite ? 'fa fa-star' : 'fa fa-star-o'} />
+                </button>
+                <span style={{ fontWeight: 'bold', flex: 1, color: 'var(--theia-foreground)' }}>
+                    {alphabet.name}
+                </span>
+                <span style={{ display: 'flex', flexWrap: 'wrap', gap: '3px', justifyContent: 'flex-end' }}>
+                    {badges.map(badge => (
+                        <span
+                            key={`${alphabet.id}-badge-${badge}`}
+                            style={{
+                                padding: '1px 4px',
+                                borderRadius: '2px',
+                                backgroundColor: 'var(--theia-badge-background)',
+                                color: 'var(--theia-badge-foreground)',
+                                fontSize: '9px',
+                                lineHeight: 1.4,
+                                whiteSpace: 'nowrap'
+                            }}
+                        >
+                            {badge}
+                        </span>
+                    ))}
+                </span>
+            </div>
+            {!isCompact && (
+                <div style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)', marginBottom: '4px' }}>
+                    {alphabet.description}
+                </div>
+            )}
+            {hasSearchMatches && (
+                <div style={{ marginBottom: '4px' }}>
+                    <div style={{ color: 'var(--theia-linkForeground)', fontSize: '10px', fontWeight: 600 }}>
+                        Correspondances trouvées :
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '4px' }}>
+                        {alphabet.search_matches!.map(match => (
+                            <span
+                                key={`${alphabet.id}-match-${match}`}
+                                style={{
+                                    backgroundColor: 'var(--theia-badge-background)',
+                                    color: 'var(--theia-badge-foreground)',
+                                    borderRadius: '3px',
+                                    padding: '2px 6px',
+                                    fontSize: '10px'
+                                }}
+                            >
+                                {match}
+                            </span>
+                        ))}
+                    </div>
+                </div>
+            )}
+            {!isCompact && alphabet.tags && alphabet.tags.length > 0 && (
+                <div style={{ fontSize: '10px', color: 'var(--theia-descriptionForeground)' }}>
+                    {alphabet.tags.slice(0, 3).map(tag => (
+                        <span
+                            key={tag}
+                            style={{
+                                marginRight: '4px',
+                                padding: '1px 4px',
+                                backgroundColor: 'var(--theia-badge-background)',
+                                color: 'var(--theia-badge-foreground)',
+                                borderRadius: '2px'
+                            }}
+                        >
+                            {tag}
+                        </span>
+                    ))}
+                </div>
+            )}
+            {shouldShowPreview && (
+                <AlphabetPreview
+                    alphabet={alphabet}
+                    previewText={previewText}
+                    fontSize={fontSize}
+                    alphabetsService={alphabetsService}
+                />
+            )}
+        </div>
+    );
+});
+
 @injectable()
 export class AlphabetsListWidget extends ReactWidget {
 
@@ -356,7 +552,6 @@ export class AlphabetsListWidget extends ReactWidget {
     private previewMode: AlphabetPreviewMode = 'hover';
     private favoriteAlphabetIds: string[] = [];
     private recentAlphabetIds: string[] = [];
-    private hoveredAlphabetId: string | null = null;
     private loadRequestSeq: number = 0;
     private persistListPreferencesTimer: NodeJS.Timeout | null = null;
 
@@ -816,30 +1011,6 @@ export class AlphabetsListWidget extends ReactWidget {
         );
     }
 
-    private renderFavoriteButton(alphabet: Alphabet): React.ReactNode {
-        const isFavorite = this.isFavorite(alphabet.id);
-        return (
-            <button
-                onClick={event => {
-                    event.stopPropagation();
-                    this.toggleFavorite(alphabet.id);
-                }}
-                title={isFavorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}
-                style={{
-                    border: 'none',
-                    background: 'transparent',
-                    color: isFavorite ? 'var(--theia-button-background)' : 'var(--theia-descriptionForeground)',
-                    cursor: 'pointer',
-                    padding: '0 2px',
-                    fontSize: '14px',
-                    lineHeight: 1
-                }}
-            >
-                <i className={isFavorite ? 'fa fa-star' : 'fa fa-star-o'} />
-            </button>
-        );
-    }
-
     private isFavorite(alphabetId: string): boolean {
         return this.favoriteAlphabetIds.includes(alphabetId);
     }
@@ -1157,160 +1328,32 @@ export class AlphabetsListWidget extends ReactWidget {
      */
     private renderAlphabetItem(alphabet: Alphabet, previewText: string): React.ReactNode {
         const isCistercianTool = alphabet.id === CISTERCIAN_TOOL_ID;
-        const hasSearchMatches = Boolean(
-            this.searchQuery &&
-            alphabet.search_matches &&
-            alphabet.search_matches.length > 0
-        );
-        const isCompact = this.viewMode === 'compact';
-        const shouldShowPreview = Boolean(
-            previewText &&
-            !isCistercianTool &&
-            this.viewMode === 'detailed' &&
-            (this.previewMode === 'always' || this.hoveredAlphabetId === alphabet.id)
-        );
-
         return (
-            <div
+            <AlphabetListItem
                 key={alphabet.id}
-                onClick={() => this.openAlphabet(alphabet)}
-                style={{
-                    padding: isCompact ? '7px 8px' : '10px',
-                    marginBottom: isCompact ? '5px' : '8px',
-                    backgroundColor: 'var(--theia-list-activeSelectionBackground)',
-                    border: '1px solid var(--theia-list-inactiveSelectionBackground)',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s'
-                }}
-                onMouseEnter={e => {
-                    this.hoveredAlphabetId = alphabet.id;
-                    e.currentTarget.style.backgroundColor = 'var(--theia-list-hoverBackground)';
-                    if (this.previewMode === 'hover' && this.showExamples && this.viewMode === 'detailed') {
-                        this.update();
-                    }
-                }}
-                onMouseLeave={e => {
-                    this.hoveredAlphabetId = null;
-                    e.currentTarget.style.backgroundColor = 'var(--theia-list-activeSelectionBackground)';
-                    if (this.previewMode === 'hover' && this.showExamples && this.viewMode === 'detailed') {
-                        this.update();
-                    }
-                }}
-            >
-                <div style={{ marginBottom: isCompact ? '2px' : '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    {isCistercianTool && <i className='fa fa-calculator' style={{ marginRight: '8px' }} />}
-                    {this.renderFavoriteButton(alphabet)}
-                    <span style={{
-                        fontWeight: 'bold',
-                        flex: 1,
-                        color: 'var(--theia-foreground)'
-                    }}>
-                        {alphabet.name}
-                    </span>
-                    {this.renderAlphabetBadges(alphabet)}
-                </div>
-                {!isCompact && (
-                    <div style={{
-                        fontSize: '11px',
-                        color: 'var(--theia-descriptionForeground)',
-                        marginBottom: '4px'
-                    }}>
-                        {alphabet.description}
-                    </div>
-                )}
-                {hasSearchMatches && (
-                    <div style={{ marginBottom: '4px' }}>
-                        <div style={{ color: 'var(--theia-linkForeground)', fontSize: '10px', fontWeight: 600 }}>
-                            Correspondances trouvées :
-                        </div>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '4px' }}>
-                            {alphabet.search_matches!.map(match => (
-                                <span
-                                    key={`${alphabet.id}-match-${match}`}
-                                    style={{
-                                        backgroundColor: 'var(--theia-badge-background)',
-                                        color: 'var(--theia-badge-foreground)',
-                                        borderRadius: '3px',
-                                        padding: '2px 6px',
-                                        fontSize: '10px'
-                                    }}
-                                >
-                                    {match}
-                                </span>
-                            ))}
-                        </div>
-                    </div>
-                )}
-                {!isCompact && alphabet.tags && alphabet.tags.length > 0 && (
-                    <div style={{ 
-                        fontSize: '10px',
-                        color: 'var(--theia-descriptionForeground)'
-                    }}>
-                        {alphabet.tags.slice(0, 3).map(tag => (
-                            <span key={tag} style={{ 
-                                marginRight: '4px',
-                                padding: '1px 4px',
-                                backgroundColor: 'var(--theia-badge-background)',
-                                color: 'var(--theia-badge-foreground)',
-                                borderRadius: '2px'
-                            }}>
-                                {tag}
-                            </span>
-                        ))}
-                    </div>
-                )}
-                {shouldShowPreview && (
-                    <AlphabetPreview
-                        alphabet={alphabet}
-                        previewText={previewText}
-                        fontSize={this.fontSize}
-                        alphabetsService={this.alphabetsService}
-                    />
-                )}
-            </div>
+                alphabet={alphabet}
+                isCistercianTool={isCistercianTool}
+                isCompact={this.viewMode === 'compact'}
+                isFavorite={this.isFavorite(alphabet.id)}
+                badges={computeAlphabetBadges(alphabet, isCistercianTool)}
+                previewText={previewText}
+                previewMode={this.previewMode}
+                fontSize={this.fontSize}
+                searchQuery={this.searchQuery}
+                alphabetsService={this.alphabetsService}
+                onOpen={this.handleOpenAlphabet}
+                onToggleFavorite={this.handleToggleFavorite}
+            />
         );
     }
 
-    private renderAlphabetBadges(alphabet: Alphabet): React.ReactNode {
-        const badges: string[] = [];
-        if (alphabet.id === CISTERCIAN_TOOL_ID) {
-            badges.push('outil');
-        } else {
-            badges.push(alphabet.alphabetConfig.type === 'font' ? 'font' : 'images');
-        }
+    private readonly handleOpenAlphabet = (alphabet: Alphabet): void => {
+        this.openAlphabet(alphabet);
+    };
 
-        if (this.hasLetters(alphabet)) {
-            badges.push('A-Z');
-        }
-        if (this.hasNumbers(alphabet)) {
-            badges.push('0-9');
-        }
-        if (this.hasSpecialCharacters(alphabet)) {
-            badges.push('special');
-        }
-
-        return (
-            <span style={{ display: 'flex', flexWrap: 'wrap', gap: '3px', justifyContent: 'flex-end' }}>
-                {badges.map(badge => (
-                    <span
-                        key={`${alphabet.id}-badge-${badge}`}
-                        style={{
-                            padding: '1px 4px',
-                            borderRadius: '2px',
-                            backgroundColor: 'var(--theia-badge-background)',
-                            color: 'var(--theia-badge-foreground)',
-                            fontSize: '9px',
-                            lineHeight: 1.4,
-                            whiteSpace: 'nowrap'
-                        }}
-                    >
-                        {badge}
-                    </span>
-                ))}
-            </span>
-        );
-    }
+    private readonly handleToggleFavorite = (alphabetId: string): void => {
+        this.toggleFavorite(alphabetId);
+    };
 
     /**
      * Ouvre un alphabet en exécutant la commande OPEN_VIEWER.
@@ -1377,13 +1420,13 @@ export class AlphabetsListWidget extends ReactWidget {
             return false;
         }
 
-        if (this.capabilityFilter === 'letters' && !this.hasLetters(alphabet)) {
+        if (this.capabilityFilter === 'letters' && !alphabetHasLetters(alphabet)) {
             return false;
         }
-        if (this.capabilityFilter === 'numbers' && !this.hasNumbers(alphabet)) {
+        if (this.capabilityFilter === 'numbers' && !alphabetHasNumbers(alphabet)) {
             return false;
         }
-        if (this.capabilityFilter === 'special' && !this.hasSpecialCharacters(alphabet)) {
+        if (this.capabilityFilter === 'special' && !alphabetHasSpecialCharacters(alphabet)) {
             return false;
         }
 
@@ -1443,21 +1486,6 @@ export class AlphabetsListWidget extends ReactWidget {
             .normalize('NFD')
             .replace(/[\u0300-\u036f]/g, '')
             .toLowerCase();
-    }
-
-    private hasLetters(alphabet: Alphabet): boolean {
-        const letters = alphabet.alphabetConfig.characters?.letters;
-        return letters === 'all' || (Array.isArray(letters) && letters.length > 0);
-    }
-
-    private hasNumbers(alphabet: Alphabet): boolean {
-        const numbers = alphabet.alphabetConfig.characters?.numbers;
-        return numbers === 'all' || (Array.isArray(numbers) && numbers.length > 0);
-    }
-
-    private hasSpecialCharacters(alphabet: Alphabet): boolean {
-        const special = alphabet.alphabetConfig.characters?.special;
-        return Boolean(special && Object.keys(special).length > 0);
     }
 
     private matchesLocalSearch(alphabet: Alphabet, query: string): boolean {
