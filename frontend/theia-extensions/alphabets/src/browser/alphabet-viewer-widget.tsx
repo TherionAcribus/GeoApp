@@ -26,6 +26,10 @@ import './font-api';
 
 const PREF_AVAILABLE_SYMBOLS_SHOW_VALUE = 'geoApp.alphabets.availableSymbols.showValue';
 
+// Regroupe les snapshots d'historique pendant la saisie textarea : une rafale de
+// frappe produit une seule entrée d'undo au lieu d'une par caractère.
+const HISTORY_SNAPSHOT_DEBOUNCE_MS = 400;
+
 interface SerializedAlphabetViewerState {
     alphabetId?: string;
     lastAccessTimestamp?: number;
@@ -101,6 +105,7 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
     private history: string[][] = [[]];
     private historyIndex: number = 0;
     private maxHistorySize: number = 50;
+    private historySnapshotTimer: number | undefined;
 
     private interactionTimerId: number | undefined;
     private lastAccessTimestamp: number = Date.now();
@@ -362,6 +367,7 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
         this.alphabet = null;
         this.fontLoaded = false;
         this.enteredChars = [];
+        this.clearPendingHistorySnapshot();
         this.resetHistory();
         this.detectedCoordinates = null;
         this.associatedGeocache = undefined;
@@ -461,11 +467,68 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
             return;
         }
 
+        if (saveHistory) {
+            // Action discrète (clic, suppression, drag…) : figer d'abord un
+            // éventuel snapshot de frappe en attente pour ne pas le perdre.
+            this.flushPendingHistorySnapshot();
+        }
         this.enteredChars = [...nextChars];
         if (saveHistory) {
             this.saveState();
         }
         this.update();
+    }
+
+    /**
+     * Applique une saisie textarea : met à jour l'état immédiatement mais diffère
+     * (et regroupe) le snapshot d'historique pour ne pas créer une entrée d'undo
+     * par caractère tapé.
+     */
+    private commitTypedChars(nextChars: string[]): void {
+        if (this.areCharsEqual(this.enteredChars, nextChars)) {
+            return;
+        }
+        this.enteredChars = [...nextChars];
+        this.scheduleHistorySnapshot();
+        this.update();
+    }
+
+    private scheduleHistorySnapshot(): void {
+        if (typeof window === 'undefined') {
+            this.saveState();
+            return;
+        }
+        if (this.historySnapshotTimer !== undefined) {
+            window.clearTimeout(this.historySnapshotTimer);
+        }
+        this.historySnapshotTimer = window.setTimeout(() => {
+            this.historySnapshotTimer = undefined;
+            this.saveState();
+        }, HISTORY_SNAPSHOT_DEBOUNCE_MS);
+    }
+
+    /**
+     * Fige immédiatement le snapshot de frappe en attente (s'il existe).
+     */
+    private flushPendingHistorySnapshot(): void {
+        if (this.historySnapshotTimer === undefined) {
+            return;
+        }
+        if (typeof window !== 'undefined') {
+            window.clearTimeout(this.historySnapshotTimer);
+        }
+        this.historySnapshotTimer = undefined;
+        this.saveState();
+    }
+
+    /**
+     * Annule un snapshot en attente sans le sauvegarder (changement d'alphabet, dispose).
+     */
+    private clearPendingHistorySnapshot(): void {
+        if (this.historySnapshotTimer !== undefined && typeof window !== 'undefined') {
+            window.clearTimeout(this.historySnapshotTimer);
+        }
+        this.historySnapshotTimer = undefined;
     }
 
     /**
@@ -528,6 +591,7 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
      */
     private handleDragEnd = (): void => {
         if (this.draggedIndex !== null) {
+            this.flushPendingHistorySnapshot();
             this.saveState();
         }
         this.draggedIndex = null;
@@ -625,6 +689,8 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
      * Annule la dernière action (Undo).
      */
     private undo(): void {
+        // Figer une frappe en attente pour que Ctrl+Z l'annule d'un bloc.
+        this.flushPendingHistorySnapshot();
         if (this.historyIndex > 0) {
             this.historyIndex--;
             this.enteredChars = [...this.history[this.historyIndex]];
@@ -639,6 +705,8 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
      * Refait la dernière action annulée (Redo).
      */
     private redo(): void {
+        // Une frappe en attente invalide la pile de rétablissement.
+        this.flushPendingHistorySnapshot();
         if (this.historyIndex < this.history.length - 1) {
             this.historyIndex++;
             this.enteredChars = [...this.history[this.historyIndex]];
@@ -1261,7 +1329,8 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
                     value={decodedText}
                     onChange={e => {
                         // Synchroniser le textarea avec le tableau des caractères
-                        this.commitEnteredChars(e.target.value.split(''));
+                        // (snapshot d'historique différé pour regrouper la frappe).
+                        this.commitTypedChars(e.target.value.split(''));
                     }}
                     placeholder='Le texte décodé apparaîtra ici...'
                     style={{
@@ -1947,6 +2016,7 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
      * Cleanup lors de la destruction du widget.
      */
     dispose(): void {
+        this.clearPendingHistorySnapshot();
         super.dispose();
     }
 }

@@ -4,6 +4,7 @@
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { PreferenceChange, PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import { Alphabet, AlphabetSearchOptions, AssociatedGeocache, DetectedCoordinates, DistanceInfo } from '../../common/alphabet-protocol';
+import { clearAlphabetResolverCaches } from '../alphabet-symbol-resolver';
 import axios, { AxiosInstance } from 'axios';
 
 const BACKEND_BASE_URL_PREF = 'geoApp.backend.apiBaseUrl';
@@ -16,11 +17,6 @@ interface BackendGeocache {
     name: string;
     gc_lat?: string;
     gc_lon?: string;
-}
-
-interface BackendPreferenceResponse<T> {
-    key: string;
-    value: T;
 }
 
 @injectable()
@@ -237,15 +233,19 @@ export class AlphabetsService {
         };
     }
 
-    async getPreference<T>(key: string, fallback: T): Promise<T> {
+    /**
+     * Récupère toutes les préférences en un seul appel réseau. Retourne un objet
+     * vide si le backend est indisponible (les appelants appliquent leurs fallbacks).
+     */
+    async getAllPreferences(): Promise<Record<string, unknown>> {
         try {
-            const response = await this.client.get<BackendPreferenceResponse<T>>(
-                `/api/preferences/${encodeURIComponent(key)}`
+            const response = await this.client.get<{ preferences?: Record<string, unknown> }>(
+                '/api/preferences'
             );
-            return response.data.value ?? fallback;
+            return response.data.preferences ?? {};
         } catch (error) {
-            console.warn(`AlphabetsService: preference ${key} unavailable`, error);
-            return fallback;
+            console.warn('AlphabetsService: preferences unavailable', error);
+            return {};
         }
     }
 
@@ -264,6 +264,9 @@ export class AlphabetsService {
         this.baseUrl = this.normalizeBaseUrl(url);
         this.client = this.createClient(this.baseUrl);
         this.invalidateCache();
+        // Les caches du résolveur mémorisent des URLs absolues construites sur
+        // l'ancienne base : les vider pour éviter des images/polices cassées.
+        clearAlphabetResolverCaches();
     }
 
     private normalizeBaseUrl(url: string): string {

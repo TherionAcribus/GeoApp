@@ -10,6 +10,20 @@ const loadingFontFamilies: Map<string, Promise<void>> = new Map();
 
 export const FONT_FAMILY_PREFIX = 'alphabet-font-';
 
+/**
+ * Vide tous les caches module (URLs résolues, disponibilité d'images, polices
+ * chargées). À appeler quand la base URL backend change : les URLs mémorisées
+ * pointent sinon vers l'ancienne base.
+ */
+export const clearAlphabetResolverCaches = (): void => {
+    previewImageAvailabilityCache.clear();
+    previewImageAvailabilityLoading.clear();
+    resolvedImageCache.clear();
+    resolvingImageCache.clear();
+    loadedFontFamilies.clear();
+    loadingFontFamilies.clear();
+};
+
 export const sanitizeAlphabetId = (alphabetId: string): string =>
     alphabetId.replace(/[^a-zA-Z0-9_-]/g, '-');
 
@@ -221,6 +235,41 @@ const resolveImageSourceFromManifest = (
         }
     }
     return null;
+};
+
+/**
+ * Résout l'URL d'un caractère de manière **synchrone** quand c'est possible :
+ * - `string` / `null` : résultat connu (déjà en cache ou via le manifeste) ;
+ * - `undefined` : indéterminé, un probing asynchrone est nécessaire.
+ *
+ * Permet aux composants d'afficher l'image sans scintillement lorsqu'un symbole
+ * change de position (ex. suppression au milieu de la liste).
+ */
+export const resolveAlphabetImageSourceSync = (
+    alphabetId: string,
+    alphabetConfig: AlphabetConfig,
+    char: string,
+    alphabetsService: AlphabetsService
+): string | null | undefined => {
+    const resourcePaths = getImageResourcePathCandidates(alphabetConfig, char);
+    const cacheKey = `${alphabetId}:${resourcePaths.join('|')}`;
+
+    if (resolvedImageCache.has(cacheKey)) {
+        return resolvedImageCache.get(cacheKey)!;
+    }
+
+    const manifestResult = resolveImageSourceFromManifest(
+        alphabetId,
+        alphabetConfig,
+        resourcePaths,
+        alphabetsService
+    );
+    if (manifestResult !== undefined) {
+        resolvedImageCache.set(cacheKey, manifestResult);
+        return manifestResult;
+    }
+
+    return undefined;
 };
 
 export const resolveAlphabetImageSource = async (

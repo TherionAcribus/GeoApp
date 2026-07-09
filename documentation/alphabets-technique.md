@@ -474,8 +474,11 @@ Regles importantes :
 
 - ne pas ajouter de `fetch` direct dans les composants ;
 - passer par `AlphabetsService` pour garder base URL, timeout et cache coherents ;
-- lors d'un changement de preference backend, le client Axios est reconstruit et
-  le cache est invalide.
+- lors d'un changement de preference backend, le client Axios est reconstruit, le
+  cache du service est invalide **et** les caches du resolveur d'images/polices
+  sont vides (`clearAlphabetResolverCaches`) car ils memorisent des URLs absolues ;
+- les preferences persistantes de la liste sont chargees en un seul appel
+  (`getAllPreferences`), pas une requete par cle.
 
 ### 7.4 Liste des alphabets
 
@@ -516,8 +519,17 @@ La fonction cle d'ecriture d'etat est :
 commitEnteredChars(nextChars, saveHistory = true)
 ```
 
-Toute modification de `enteredChars` doit passer par cette fonction pour eviter
+Toute modification de `enteredChars` par une action discrète (clic, suppression,
+duplication, insertion, drag, import) doit passer par cette fonction pour eviter
 les doublons d'historique et les divergences textarea/symboles.
+
+La saisie clavier dans le textarea passe par `commitTypedChars`, qui met a jour
+l'etat immediatement mais **diffère et regroupe** le snapshot d'historique
+(`HISTORY_SNAPSHOT_DEBOUNCE_MS`). Une rafale de frappe produit ainsi une seule
+entree d'undo au lieu d'une par caractere, et n'evince plus l'historique de clics
+(taille `maxHistorySize`). Toute action discrete fige d'abord le snapshot de
+frappe en attente (`flushPendingHistorySnapshot`) ; `undo`/`redo` le figent aussi
+avant de naviguer dans l'historique.
 
 ### 7.6 Reponses obsoletes
 

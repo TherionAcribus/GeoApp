@@ -679,11 +679,11 @@ export class AlphabetsListWidget extends ReactWidget {
         const localFavorites = [...this.favoriteAlphabetIds];
         const localRecents = [...this.recentAlphabetIds];
 
-        const [storedListPreferences, storedFavorites, storedRecents] = await Promise.all([
-            this.alphabetsService.getPreference<Record<string, unknown>>(LIST_PREFERENCES_PREF, {}),
-            this.alphabetsService.getPreference<string[]>(FAVORITE_ALPHABETS_PREF, []),
-            this.alphabetsService.getPreference<string[]>(RECENT_ALPHABETS_PREF, [])
-        ]);
+        // Un seul appel réseau pour les trois préférences (au lieu de trois).
+        const allPreferences = await this.alphabetsService.getAllPreferences();
+        const storedListPreferences = allPreferences[LIST_PREFERENCES_PREF];
+        const storedFavorites = allPreferences[FAVORITE_ALPHABETS_PREF];
+        const storedRecents = allPreferences[RECENT_ALPHABETS_PREF];
 
         if (this.isRecord(storedListPreferences) && Object.keys(storedListPreferences).length > 0) {
             this.applyListPreferences(storedListPreferences);
