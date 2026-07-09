@@ -380,13 +380,58 @@ def search_alphabets(query, alphabets, search_in_name=True, search_in_tags=True,
     return results
 
 
+# Cache mémoire de la liste complète des alphabets normalisés. Évite de relire et
+# re-parser les dizaines de fichiers alphabet.json à chaque GET /api/alphabets
+# (notamment lors des recherches débouncées). Invalidé automatiquement par une
+# signature basée sur les mtime des fichiers alphabet.json (donc une édition est
+# détectée) et explicitement par POST /api/alphabets/discover.
+_alphabets_cache = None
+_alphabets_cache_signature = None
+
+
+def _compute_alphabets_signature(base_dir):
+    """Signature du dossier : (nom, mtime) de chaque alphabet.json, triée."""
+    try:
+        names = os.listdir(base_dir)
+    except OSError:
+        return None
+
+    entries = []
+    for name in names:
+        config_path = os.path.join(base_dir, name, 'alphabet.json')
+        try:
+            entries.append((name, os.stat(config_path).st_mtime))
+        except OSError:
+            continue
+    entries.sort()
+    return tuple(entries)
+
+
+def invalidate_alphabets_cache():
+    """Force la reconstruction du cache liste au prochain appel."""
+    global _alphabets_cache, _alphabets_cache_signature
+    _alphabets_cache = None
+    _alphabets_cache_signature = None
+
+
 def get_all_alphabets():
-    """Récupère tous les alphabets disponibles."""
+    """Récupère tous les alphabets disponibles (avec cache mémoire)."""
+    global _alphabets_cache, _alphabets_cache_signature
+
+    base_dir = _get_alphabets_dir()
+    signature = _compute_alphabets_signature(base_dir)
+
+    if (
+        signature is not None
+        and signature == _alphabets_cache_signature
+        and _alphabets_cache is not None
+    ):
+        return _alphabets_cache
+
     alphabets = []
-    
-    if os.path.exists(_get_alphabets_dir()):
-        for dirname in os.listdir(_get_alphabets_dir()):
-            alphabet_dir = os.path.join(_get_alphabets_dir(), dirname)
+    if os.path.exists(base_dir):
+        for dirname in os.listdir(base_dir):
+            alphabet_dir = os.path.join(base_dir, dirname)
             if os.path.isdir(alphabet_dir):
                 config = load_alphabet_config(dirname)
                 if config:
@@ -394,7 +439,9 @@ def get_all_alphabets():
                     # Pour l'instant, tous sont considérés comme "official"
                     config['source'] = 'official'
                     alphabets.append(config)
-    
+
+    _alphabets_cache = alphabets
+    _alphabets_cache_signature = signature
     return alphabets
 
 
@@ -421,8 +468,16 @@ def get_alphabets():
     search_in_readme = request.args.get('search_in_readme', 'false').lower() == 'true'
     
     if search_query:
-        alphabets = search_alphabets(search_query, alphabets, search_in_name, search_in_tags, search_in_readme)
-    
+        # Copie défensive : search_alphabets ajoute search_score/search_matches
+        # sur les dicts. On protège ainsi les objets partagés du cache mémoire.
+        alphabets = search_alphabets(
+            search_query,
+            [dict(alphabet) for alphabet in alphabets],
+            search_in_name,
+            search_in_tags,
+            search_in_readme
+        )
+
     return jsonify(alphabets)
 
 
@@ -531,7 +586,8 @@ def discover_alphabets():
     Force la redécouverte des alphabets (scan du répertoire).
     Retourne la liste mise à jour des alphabets.
     """
-    # Vider les caches disque pour refléter d'éventuels ajouts/modifications.
+    # Vider les caches pour refléter d'éventuels ajouts/modifications.
+    invalidate_alphabets_cache()
     list_alphabet_image_files.cache_clear()
     load_alphabet_readme.cache_clear()
     alphabets = get_all_alphabets()

@@ -144,6 +144,14 @@ avec fallback vers :
 <repo>/alphabets
 ```
 
+La liste complète des configs normalisées est mise en cache mémoire par
+`get_all_alphabets()`. Le cache est invalidé automatiquement via une signature
+`(nom, mtime)` de chaque `alphabet.json` (une édition est donc détectée sans
+redémarrage) et explicitement par `POST /api/alphabets/discover`
+(`invalidate_alphabets_cache()`). Comme la recherche ajoute `search_score` /
+`search_matches` sur les dicts, l'endpoint `GET /api/alphabets` opère sur une
+copie défensive pour ne pas polluer les objets partagés du cache.
+
 ### 4.2 Normalisation backend
 
 La fonction centrale est :
@@ -775,7 +783,6 @@ Le texte decode doit contenir `"."`, jamais `"dot"`.
 
 Pistes futures sans changer le contrat actuel :
 
-- ajouter un cache backend des configs normalisees ;
 - ajouter un endpoint de validation backend pour un alphabet donne ;
 - afficher les erreurs de ressources manquantes dans l'UI de liste ;
 - ajouter des tests unitaires frontend pour `alphabet-symbol-resolver.ts` ;
