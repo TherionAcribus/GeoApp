@@ -938,12 +938,13 @@ export class AlphabetsListWidget extends ReactWidget {
                     )}
                     <button
                         onClick={() => this.refresh()}
-                        title='Actualiser'
-                        aria-label='Actualiser'
+                        disabled={this.loading}
+                        title={this.loading ? 'Chargement en cours...' : 'Actualiser'}
+                        aria-label={this.loading ? 'Chargement en cours' : 'Actualiser'}
                         className='alpha-btn alpha-btn--primary'
                         style={{ padding: '6px 10px' }}
                     >
-                        <i className='fa fa-refresh' aria-hidden='true'></i>
+                        <i className={`fa ${this.loading ? 'fa-spinner fa-spin' : 'fa-refresh'}`} aria-hidden='true'></i>
                     </button>
                 </div>
                 
@@ -1375,7 +1376,12 @@ export class AlphabetsListWidget extends ReactWidget {
      * Rendu du contenu (liste des alphabets ou loading).
      */
     private renderContent(): React.ReactNode {
-        if (this.loading) {
+        // Spinner plein ecran uniquement pour le tout premier chargement (rien a
+        // montrer encore). Pour une recherche/actualisation ulterieure, on garde
+        // la liste precedente affichee (this.alphabets n'est ecrase qu'a la
+        // reponse) et on signale le chargement en cours via l'icone actualiser
+        // (voir renderHeader) plutot que de vider tout le panneau.
+        if (this.loading && this.alphabets.length === 0) {
             return (
                 <div style={{ textAlign: 'center', padding: '20px', color: 'var(--theia-descriptionForeground)' }}>
                     <i className='fa fa-spinner fa-spin' style={{ marginRight: '8px' }}></i>

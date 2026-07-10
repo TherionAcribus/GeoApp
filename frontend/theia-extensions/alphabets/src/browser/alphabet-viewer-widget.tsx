@@ -982,9 +982,16 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
                 color: 'var(--theia-errorForeground)',
                 padding: '20px'
             }}>
-                <i className='fa fa-exclamation-triangle' style={{ fontSize: '48px', marginBottom: '16px' }}></i>
+                <i className='fa fa-exclamation-triangle' aria-hidden='true' style={{ fontSize: '48px', marginBottom: '16px' }}></i>
                 <h3>Erreur de chargement</h3>
                 <p>Impossible de charger l'alphabet "{this.alphabetId}"</p>
+                <button
+                    onClick={() => void this.loadAlphabet()}
+                    className='alpha-btn alpha-btn--primary'
+                    style={{ marginTop: '8px' }}
+                >
+                    <i className='fa fa-refresh' aria-hidden='true'></i> Réessayer
+                </button>
             </div>
         );
     }
@@ -1013,36 +1020,23 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
                 waypoints: []
             };
 
-            // Approche alternative : utiliser window.postMessage pour communiquer entre extensions
+            // Canal principal : postMessage entre extensions.
             window.postMessage({
                 type: 'open-geocache-map',
                 geocache: geocacheData,
                 source: 'alphabets-extension'
             }, '*');
 
-            // Fallback : événement avec délai plus long
-            setTimeout(() => {
-                const event = new CustomEvent('open-geocache-map', {
-                    detail: { geocache: geocacheData },
-                    bubbles: true,
-                    cancelable: true
-                });
-
-                // Essayer sur tous les contextes possibles
-                let result = false;
-                result = result || document.dispatchEvent(event);
-                result = result || window.dispatchEvent(event);
-
-                // Essayer aussi sur le document body et html
-                if (document.body) {
-                    result = result || document.body.dispatchEvent(event);
-                }
-                if (document.documentElement) {
-                    result = result || document.documentElement.dispatchEvent(event);
-                }
-            }, 2000); // Délai plus long
-
-            this.messageService.info(`Ouverture de la carte pour ${geocache.code}...`);
+            // Filet de securite via CustomEvent, envoye immediatement en parallele.
+            // ZonesFrontendContribution ecoute les deux canaux des le demarrage de
+            // l'app : pas besoin d'un delai artificiel avant de le declencher.
+            const event = new CustomEvent('open-geocache-map', {
+                detail: { geocache: geocacheData },
+                bubbles: true,
+                cancelable: true
+            });
+            document.dispatchEvent(event);
+            window.dispatchEvent(event);
         } catch (error) {
             console.error('[AlphabetViewerWidget] Erreur lors de l\'ouverture de la carte:', error);
             this.messageService.error('Erreur lors de l\'ouverture de la carte');
