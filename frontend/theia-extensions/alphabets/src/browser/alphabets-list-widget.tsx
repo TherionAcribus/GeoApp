@@ -1059,7 +1059,7 @@ export class AlphabetsListWidget extends ReactWidget {
                         this.familyFilter = filter.id;
                         this.saveListPreferences();
                         this.update();
-                    }))}
+                    }, filter.id))}
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
                     {this.renderFilterButton('Tout contenu', this.capabilityFilter === 'all', () => {
@@ -1137,9 +1137,10 @@ export class AlphabetsListWidget extends ReactWidget {
         );
     }
 
-    private renderFilterButton(label: string, active: boolean, onClick: () => void): React.ReactNode {
+    private renderFilterButton(label: string, active: boolean, onClick: () => void, key?: string): React.ReactNode {
         return (
             <button
+                key={key}
                 onClick={onClick}
                 aria-pressed={active}
                 className={`alpha-btn alpha-btn--outline${active ? ' alpha-btn--active' : ''}`}

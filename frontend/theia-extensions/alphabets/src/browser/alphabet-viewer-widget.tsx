@@ -79,6 +79,7 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
     };
     
     // Géocache associée et distance
+    private showGeocachePanel: boolean = false;
     private associatedGeocache?: AssociatedGeocache;
     private distance?: DistanceInfo;
     private detectedCoordinates: DetectedCoordinates | null = null;
@@ -370,6 +371,7 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
         this.clearPendingHistorySnapshot();
         this.resetHistory();
         this.detectedCoordinates = null;
+        this.showGeocachePanel = false;
         this.associatedGeocache = undefined;
         this.distance = undefined;
         this.hasActiveCoordinateHighlight = false;
@@ -773,6 +775,9 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
                 this.zoomState = { ...this.zoomState, ...state.zoomState };
                 this.pinnedState = { ...this.pinnedState, ...state.pinnedState };
                 this.associatedGeocache = state.associatedGeocache;
+                if (this.associatedGeocache) {
+                    this.showGeocachePanel = true;
+                }
                 this.commitEnteredChars(state.enteredChars || []);
                 
                 this.saveZoomState();
@@ -792,6 +797,14 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
     /**
      * Bascule l'état d'épinglage pour une section.
      */
+    /**
+     * Bascule l'affichage du panneau d'association géocache (replié par défaut).
+     */
+    private toggleGeocachePanel(): void {
+        this.showGeocachePanel = !this.showGeocachePanel;
+        this.update();
+    }
+
     private togglePin = (section: 'symbols' | 'text' | 'coordinates'): void => {
         this.pinnedState[section] = !this.pinnedState[section];
         this.update();
@@ -822,8 +835,8 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
             }}>
                 {this.renderHeader()}
                 {this.renderToolbar()}
-                {this.renderGeocacheAssociation()}
-                
+                {this.showGeocachePanel && this.renderGeocacheAssociation()}
+
                 {/* Zone épinglée */}
                 {(this.pinnedState.symbols || this.pinnedState.text || this.pinnedState.coordinates) && (
                     <div className='pinned-area' style={{
@@ -840,12 +853,17 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
                         {this.pinnedState.coordinates && this.renderCoordinatesDetector(true)}
                     </div>
                 )}
-                
-                {/* Contenu normal */}
+
+                {/* Contenu normal : la palette de symboles disponibles est remontee
+                    juste apres les symboles entres, pour eviter de scroller sous
+                    plusieurs sections vides avant de pouvoir cliquer un premier
+                    symbole. L'association geocache n'est pas necessaire pour
+                    demarrer : elle est repliee par defaut et affichee en haut de
+                    page (juste sous la toolbar) via le bouton "Géocache". */}
                 {!this.pinnedState.symbols && this.renderEnteredSymbols(false)}
+                {this.renderAvailableSymbols()}
                 {!this.pinnedState.text && this.renderDecodedText(false)}
                 {!this.pinnedState.coordinates && this.renderCoordinatesDetector(false)}
-                {this.renderAvailableSymbols()}
                 {this.renderSources()}
             </div>
         );
@@ -907,6 +925,20 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
                     className='alpha-btn alpha-btn--primary'
                 >
                     <i className='fa fa-upload' aria-hidden='true'></i> Importer
+                </button>
+
+                <div style={{ width: '1px', height: '24px', backgroundColor: 'var(--theia-panel-border)' }}></div>
+
+                <button
+                    onClick={() => this.toggleGeocachePanel()}
+                    title={this.showGeocachePanel ? 'Masquer l\'association géocache' : 'Associer une géocache'}
+                    aria-label={this.showGeocachePanel ? 'Masquer l\'association géocache' : 'Associer une géocache'}
+                    aria-pressed={this.showGeocachePanel}
+                    className={`alpha-btn alpha-btn--primary${this.showGeocachePanel ? ' alpha-btn--active' : ''}`}
+                >
+                    <i className='fa fa-map-marker' aria-hidden='true'></i>
+                    {' Géocache'}
+                    {this.associatedGeocache ? ` (${this.associatedGeocache.code})` : ''}
                 </button>
 
                 {this.history.length > 0 && (
