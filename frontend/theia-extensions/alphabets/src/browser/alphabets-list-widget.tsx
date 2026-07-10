@@ -48,6 +48,7 @@ interface AlphabetListPreferencesPayload {
     capabilityFilter?: AlphabetCapabilityFilter;
     viewMode?: AlphabetViewMode;
     previewMode?: AlphabetPreviewMode;
+    filtersExpanded?: boolean;
 }
 
 const FAMILY_FILTERS: Array<{ id: AlphabetFamilyFilter; label: string; keywords: string[] }> = [
@@ -568,6 +569,7 @@ export class AlphabetsListWidget extends ReactWidget {
     private capabilityFilter: AlphabetCapabilityFilter = 'all';
     private viewMode: AlphabetViewMode = 'detailed';
     private previewMode: AlphabetPreviewMode = 'hover';
+    private filtersExpanded: boolean = false;
     private favoriteAlphabetIds: string[] = [];
     private recentAlphabetIds: string[] = [];
     private loadRequestSeq: number = 0;
@@ -673,6 +675,7 @@ export class AlphabetsListWidget extends ReactWidget {
             this.previewMode = preferences.previewMode === 'always' || preferences.previewMode === 'hover'
                 ? preferences.previewMode
                 : this.previewMode;
+            this.filtersExpanded = Boolean(preferences.filtersExpanded);
             this.favoriteAlphabetIds = this.normalizeStoredIds(preferences.favoriteAlphabetIds);
             this.recentAlphabetIds = this.normalizeStoredIds(preferences.recentAlphabetIds).slice(0, MAX_RECENT_ALPHABETS);
         } catch (error) {
@@ -744,7 +747,8 @@ export class AlphabetsListWidget extends ReactWidget {
             familyFilter: this.familyFilter,
             capabilityFilter: this.capabilityFilter,
             viewMode: this.viewMode,
-            previewMode: this.previewMode
+            previewMode: this.previewMode,
+            filtersExpanded: this.filtersExpanded
         };
     }
 
@@ -775,6 +779,9 @@ export class AlphabetsListWidget extends ReactWidget {
         }
         if (preferences.previewMode === 'always' || preferences.previewMode === 'hover') {
             this.previewMode = preferences.previewMode;
+        }
+        if ('filtersExpanded' in preferences) {
+            this.filtersExpanded = Boolean(preferences.filtersExpanded);
         }
     }
 
@@ -869,7 +876,7 @@ export class AlphabetsListWidget extends ReactWidget {
                 backgroundColor: 'var(--theia-layout-color1)'
             }}>
                 {this.renderHeader()}
-                {this.renderExampleControls()}
+                {this.filtersExpanded && this.renderExampleControls()}
                 {this.renderContent()}
             </div>
         );
@@ -940,82 +947,153 @@ export class AlphabetsListWidget extends ReactWidget {
                     </button>
                 </div>
                 
-                {/* Options de recherche */}
-                <div style={{ 
-                    marginBottom: '8px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '4px',
-                    fontSize: '11px'
-                }}>
-                    <label style={{ 
-                        display: 'flex', 
-                        alignItems: 'center',
-                        cursor: 'pointer',
-                        color: 'var(--theia-foreground)'
-                    }}>
-                        <input
-                            type='checkbox'
-                            checked={this.searchInName}
-                            onChange={e => {
-                                this.searchInName = e.target.checked;
-                                this.update();
-                                if (this.searchQuery) {
-                                    this.performSearch();
-                                }
-                            }}
-                            style={{ marginRight: '6px' }}
-                        />
-                        Nom & Description
-                    </label>
-                    <label style={{ 
-                        display: 'flex', 
-                        alignItems: 'center',
-                        cursor: 'pointer',
-                        color: 'var(--theia-foreground)'
-                    }}>
-                        <input
-                            type='checkbox'
-                            checked={this.searchInTags}
-                            onChange={e => {
-                                this.searchInTags = e.target.checked;
-                                this.update();
-                                if (this.searchQuery) {
-                                    this.performSearch();
-                                }
-                            }}
-                            style={{ marginRight: '6px' }}
-                        />
-                        Tags
-                    </label>
-                    <label style={{ 
-                        display: 'flex', 
-                        alignItems: 'center',
-                        cursor: 'pointer',
-                        color: 'var(--theia-foreground)'
-                    }}>
-                        <input
-                            type='checkbox'
-                            checked={this.searchInReadme}
-                            onChange={e => {
-                                this.searchInReadme = e.target.checked;
-                                this.update();
-                                if (this.searchQuery) {
-                                    this.performSearch();
-                                }
-                            }}
-                            style={{ marginRight: '6px' }}
-                        />
-                        Description longue (README)
-                    </label>
-                </div>
-
-                {this.renderQuickFilters()}
-
-                <div style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)' }}>
+                <div style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)', marginBottom: '8px' }}>
                     {this.getDisplayedAlphabets().length} alphabet(s) disponible(s)
                 </div>
+
+                {this.renderFiltersToggle()}
+
+                {this.filtersExpanded && (
+                    <div style={{ marginTop: '10px' }}>
+                        {/* Options de recherche */}
+                        <div style={{
+                            marginBottom: '8px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '4px',
+                            fontSize: '11px'
+                        }}>
+                            <label style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                cursor: 'pointer',
+                                color: 'var(--theia-foreground)'
+                            }}>
+                                <input
+                                    type='checkbox'
+                                    checked={this.searchInName}
+                                    onChange={e => {
+                                        this.searchInName = e.target.checked;
+                                        this.update();
+                                        if (this.searchQuery) {
+                                            this.performSearch();
+                                        }
+                                    }}
+                                    style={{ marginRight: '6px' }}
+                                />
+                                Nom & Description
+                            </label>
+                            <label style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                cursor: 'pointer',
+                                color: 'var(--theia-foreground)'
+                            }}>
+                                <input
+                                    type='checkbox'
+                                    checked={this.searchInTags}
+                                    onChange={e => {
+                                        this.searchInTags = e.target.checked;
+                                        this.update();
+                                        if (this.searchQuery) {
+                                            this.performSearch();
+                                        }
+                                    }}
+                                    style={{ marginRight: '6px' }}
+                                />
+                                Tags
+                            </label>
+                            <label style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                cursor: 'pointer',
+                                color: 'var(--theia-foreground)'
+                            }}>
+                                <input
+                                    type='checkbox'
+                                    checked={this.searchInReadme}
+                                    onChange={e => {
+                                        this.searchInReadme = e.target.checked;
+                                        this.update();
+                                        if (this.searchQuery) {
+                                            this.performSearch();
+                                        }
+                                    }}
+                                    style={{ marginRight: '6px' }}
+                                />
+                                Description longue (README)
+                            </label>
+                        </div>
+
+                        {this.renderQuickFilters()}
+                    </div>
+                )}
             </div>
+        );
+    }
+
+    /**
+     * Nombre de filtres actifs (hors defaut) : signal visible meme replie.
+     */
+    private countActiveFilters(): number {
+        let count = 0;
+        if (this.scopeFilter !== 'all') {
+            count++;
+        }
+        if (this.familyFilter !== 'all') {
+            count++;
+        }
+        if (this.capabilityFilter !== 'all') {
+            count++;
+        }
+        return count;
+    }
+
+    /**
+     * Bouton repliable regroupant options de recherche, filtres rapides et
+     * controles d'exemples : evite que l'en-tete "mange" tout le panneau avant
+     * la premiere entree de la liste.
+     */
+    private renderFiltersToggle(): React.ReactNode {
+        const activeCount = this.countActiveFilters();
+        return (
+            <button
+                onClick={() => {
+                    this.filtersExpanded = !this.filtersExpanded;
+                    this.saveListPreferences();
+                    this.update();
+                }}
+                aria-expanded={this.filtersExpanded}
+                className='alpha-btn alpha-btn--outline'
+                style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    width: '100%',
+                    padding: '6px 10px',
+                    fontSize: '12px'
+                }}
+            >
+                <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <i
+                        className={`fa fa-chevron-${this.filtersExpanded ? 'down' : 'right'}`}
+                        aria-hidden='true'
+                        style={{ fontSize: '10px', width: '10px' }}
+                    ></i>
+                    Filtres et affichage
+                </span>
+                {activeCount > 0 && (
+                    <span style={{
+                        backgroundColor: 'var(--theia-badge-background)',
+                        color: 'var(--theia-badge-foreground)',
+                        borderRadius: '10px',
+                        padding: '1px 7px',
+                        fontSize: '10px'
+                    }}>
+                        {activeCount}
+                    </span>
+                )}
+            </button>
         );
     }
 
