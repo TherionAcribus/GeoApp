@@ -697,10 +697,9 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
             this.historyIndex--;
             this.enteredChars = [...this.history[this.historyIndex]];
             this.update();
-            this.messageService.info(`Annulation (${this.history.length - this.historyIndex - 1} à refaire)`);
-        } else {
-            this.messageService.info('Rien à annuler');
         }
+        // Rien a annuler : pas de toast, le bouton est deja desactive et le
+        // compteur X/Y de la toolbar montre la position courante.
     }
 
     /**
@@ -713,10 +712,8 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
             this.historyIndex++;
             this.enteredChars = [...this.history[this.historyIndex]];
             this.update();
-            this.messageService.info(`Rétablissement (${this.historyIndex + 1}/${this.history.length})`);
-        } else {
-            this.messageService.info('Rien à refaire');
         }
+        // Rien a refaire : idem, pas de toast (voir undo()).
     }
 
     // =================== Export/Import ===================
@@ -808,9 +805,8 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
     private togglePin = (section: 'symbols' | 'text' | 'coordinates'): void => {
         this.pinnedState[section] = !this.pinnedState[section];
         this.update();
-        
-        const status = this.pinnedState[section] ? 'épinglée' : 'désépinglée';
-        this.messageService.info(`Section ${section} ${status}`);
+        // Pas de toast : le bouton epingle lui-meme (surbrillance active) suffit
+        // a confirmer l'etat, inutile de le repeter a chaque bascule.
     };
 
     /**
@@ -1095,7 +1091,8 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
                         this.associatedGeocache = geocache;
                         this.lastOpenedGeocacheCode = geocache.code;
                         this.update();
-                        this.messageService.info(`Géocache ${geocache.code} associée`);
+                        // Pas de toast : la carte "Géocache associée" (code + nom) et le
+                        // libellé du bouton toolbar confirment deja l'association.
                         if (this.detectedCoordinates) {
                             this.highlightDetectedCoordinateOnMap(this.detectedCoordinates);
                         }
@@ -1109,7 +1106,8 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
                             this.highlightDetectedCoordinateOnMap(this.detectedCoordinates);
                         }
                         this.update();
-                        this.messageService.info('Association supprimée');
+                        // Pas de toast : le formulaire d'association qui reapparait
+                        // suffit a confirmer la suppression.
                     }}
                     onShowMap={this.handleShowMap}
                     distanceInfo={this.distance}
