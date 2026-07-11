@@ -219,6 +219,74 @@ class BookmarkListImporter:
         
         return gc_codes
     
+    def download_list_gpx(self, bookmark_code: str) -> Optional[bytes]:
+        """Télécharge une liste de favoris entière au format GPX/ZIP (Premium).
+
+        Le téléchargement GPX contient déjà toutes les données Groundspeak :
+        une seule requête remplace le scraping page par page (voir la même
+        stratégie pour les Pocket Queries). Retourne les octets bruts (GPX ou
+        ZIP), ou ``None`` si le téléchargement n'est pas disponible (liste non
+        Premium, endpoint indisponible, structure du site modifiée) — l'appelant
+        retombe alors sur l'extraction des codes GC + scraping page par page.
+
+        Ne lève pas : tout échec réseau/format renvoie ``None``.
+        """
+        code = self.validate_bookmark_code(bookmark_code)
+
+        def _looks_like_gpx(content: bytes) -> bool:
+            return bool(content) and (content[:2] == b'PK' or content[:5] == b'<?xml')
+
+        # 1) Endpoints de téléchargement direct connus.
+        candidate_urls = [
+            f'https://www.geocaching.com/api/proxy/web/v1/lists/{code}/geocaches/gpx',
+            f'https://www.geocaching.com/plan/lists/{code}/download',
+        ]
+        for url in candidate_urls:
+            try:
+                resp = self.session.get(url, timeout=60, allow_redirects=True)
+            except requests.RequestException as e:
+                logger.debug(f"List GPX download failed for {url}: {e}")
+                continue
+            if resp.status_code == 200 and _looks_like_gpx(resp.content):
+                logger.info(
+                    f"Downloaded list {code} as GPX from {url} ({len(resp.content)} bytes)"
+                )
+                return resp.content
+            logger.debug(f"List GPX candidate {url} -> status {resp.status_code}")
+
+        # 2) Repli : chercher un lien de téléchargement (GPX) dans la page liste.
+        try:
+            page = self.session.get(f'{self.BOOKMARK_LIST_URL}{code}', timeout=30)
+        except requests.RequestException as e:
+            logger.debug(f"Failed to load list page to find GPX link: {e}")
+            page = None
+
+        if page is not None and page.status_code == 200:
+            soup = BeautifulSoup(page.text, 'html.parser')
+            for link in soup.find_all('a', href=True):
+                href = link['href']
+                if 'gpx' not in href.lower() and 'download' not in href.lower():
+                    continue
+                if href.startswith('http'):
+                    dl = href
+                elif href.startswith('/'):
+                    dl = f'https://www.geocaching.com{href}'
+                else:
+                    dl = f'https://www.geocaching.com/plan/lists/{href}'
+                try:
+                    resp = self.session.get(dl, timeout=60, allow_redirects=True)
+                except requests.RequestException:
+                    continue
+                if resp.status_code == 200 and _looks_like_gpx(resp.content):
+                    logger.info(
+                        f"Downloaded list {code} as GPX via page link {dl} "
+                        f"({len(resp.content)} bytes)"
+                    )
+                    return resp.content
+
+        logger.info(f"No GPX download available for list {code}; falling back to scraping")
+        return None
+
     def get_list_info(self, bookmark_code: str) -> dict:
         """
         Get information about a bookmark list.

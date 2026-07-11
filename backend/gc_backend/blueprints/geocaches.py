@@ -1636,47 +1636,111 @@ def import_bookmark_list():
         def generate():
             try:
                 yield json.dumps({'message': f'Récupération de la liste {bookmark_code}...', 'progress': 0}) + '\n'
-                
+
                 # Get list info
                 try:
                     list_info = bookmark_importer.get_list_info(bookmark_code)
                     yield json.dumps({'message': f'Liste: {list_info.get("name", bookmark_code)}', 'progress': 5}) + '\n'
                 except Exception as e:
                     logger.warning(f"Could not get list info: {e}")
-                
-                # Get geocache codes from the list
+
+                # full_by_code: données Groundspeak complètes (import sans réseau)
+                # scrape_codes: codes GC restants -> scraping page par page (throttlé)
+                full_by_code: dict[str, object] = {}
+                scrape_codes: list[str] = []
+
+                def ingest(data: bytes) -> None:
+                    caches, codes = parse_gpx_caches(data)
+                    for sc in caches:
+                        full_by_code.setdefault(sc.gc_code, sc)
+                    for c in codes:
+                        if c not in full_by_code and c not in scrape_codes:
+                            scrape_codes.append(c)
+
+                # 0) Tentative de téléchargement GPX complet (Premium) : 1 requête
+                # au lieu d'un scrape par cache. Échoue en silence -> repli scraping.
+                gpx_bytes = None
                 try:
-                    gc_codes = bookmark_importer.get_geocaches_from_list(bookmark_code)
-                except LookupError as e:
-                    error_msg = str(e)
-                    if 'not_found' in error_msg:
-                        yield json.dumps({'error': True, 'message': 'Liste de favoris introuvable'}) + '\n'
-                    elif 'private' in error_msg:
-                        yield json.dumps({'error': True, 'message': 'Liste de favoris privée ou authentification requise'}) + '\n'
-                    elif 'no_geocaches' in error_msg:
-                        yield json.dumps({'error': True, 'message': 'Aucune géocache trouvée dans cette liste'}) + '\n'
-                    else:
-                        yield json.dumps({'error': True, 'message': f'Erreur: {error_msg}'}) + '\n'
-                    return
+                    gpx_bytes = bookmark_importer.download_list_gpx(bookmark_code)
                 except Exception as e:
-                    yield json.dumps({'error': True, 'message': f'Erreur lors de la récupération de la liste: {str(e)}'}) + '\n'
+                    logger.debug(f"List GPX download error: {e}")
+
+                if gpx_bytes:
+                    yield json.dumps({'message': 'Liste téléchargée en GPX, analyse...', 'progress': 8}) + '\n'
+                    try:
+                        if gpx_bytes[:2] == b'PK':
+                            with zipfile.ZipFile(io.BytesIO(gpx_bytes), 'r') as zf:
+                                for m in [x for x in zf.namelist() if x.lower().endswith('.gpx')]:
+                                    ingest(zf.read(m))
+                        else:
+                            ingest(gpx_bytes)
+                    except Exception as e:
+                        logger.warning(f"Failed to parse list GPX, falling back to scraping: {e}")
+                        full_by_code.clear()
+                        scrape_codes.clear()
+
+                # 1) Repli : extraction des codes GC + scraping (si pas de données GPX)
+                if not full_by_code:
+                    try:
+                        gc_codes = bookmark_importer.get_geocaches_from_list(bookmark_code)
+                    except LookupError as e:
+                        error_msg = str(e)
+                        if 'not_found' in error_msg:
+                            yield json.dumps({'error': True, 'message': 'Liste de favoris introuvable'}) + '\n'
+                        elif 'private' in error_msg:
+                            yield json.dumps({'error': True, 'message': 'Liste de favoris privée ou authentification requise'}) + '\n'
+                        elif 'no_geocaches' in error_msg:
+                            yield json.dumps({'error': True, 'message': 'Aucune géocache trouvée dans cette liste'}) + '\n'
+                        else:
+                            yield json.dumps({'error': True, 'message': f'Erreur: {error_msg}'}) + '\n'
+                        return
+                    except Exception as e:
+                        yield json.dumps({'error': True, 'message': f'Erreur lors de la récupération de la liste: {str(e)}'}) + '\n'
+                        return
+                    scrape_codes = [c for c in gc_codes if c not in full_by_code]
+
+                scrape_codes = [c for c in scrape_codes if c not in full_by_code]
+                total = len(full_by_code) + len(scrape_codes)
+                if total == 0:
+                    yield json.dumps({'error': True, 'message': 'Aucune géocache trouvée dans cette liste'}) + '\n'
                     return
-                
-                total = len(gc_codes)
-                yield json.dumps({'message': f'{total} géocache(s) trouvée(s) dans la liste', 'progress': 10}) + '\n'
-                
+
+                if full_by_code:
+                    yield json.dumps({
+                        'message': f'{len(full_by_code)} cache(s) importée(s) depuis le GPX (sans téléchargement page par page)'
+                                   + (f', {len(scrape_codes)} à télécharger' if scrape_codes else ''),
+                        'progress': 9,
+                    }) + '\n'
+                yield json.dumps({'message': f'{total} géocache(s) à importer...', 'progress': 10}) + '\n'
+
                 counts = _new_import_counts()
-                for idx, code in enumerate(gc_codes, start=1):
+                idx = 0
+
+                # 2) Import rapide (par lots, sans réseau) des caches complètes
+                for result in importer.import_scraped_bulk(zone_id, list(full_by_code.values())):
+                    idx += 1
+                    if result['error']:
+                        counts['errors'] += 1
+                        msg = f"Erreur {result['gc_code']}: {result['error']}"
+                    else:
+                        counts[result['outcome']] += 1
+                        msg = f"{_import_item_label(result['outcome'])}: {result['gc_code']} ({idx}/{total})"
+                    pct = 10 + int(idx / total * 90)
+                    yield json.dumps({'message': msg, 'progress': pct}) + '\n'
+
+                # 3) Scraping des codes restants (throttlé pour ménager Geocaching.com)
+                for code in scrape_codes:
+                    idx += 1
                     try:
                         _, outcome = importer.import_by_code(zone_id, code, return_outcome=True)
                         counts[outcome] += 1
-                        msg = f'{_import_item_label(outcome)}: {code} ({idx}/{total})'
+                        msg = f'{_import_item_label(outcome)} (téléchargée): {code} ({idx}/{total})'
                     except Exception as e:
                         counts['errors'] += 1
                         msg = f'Erreur {code}: {e}'
-
                     pct = 10 + int(idx / total * 90)
                     yield json.dumps({'message': msg, 'progress': pct}) + '\n'
+                    time.sleep(0.2)
 
                 yield json.dumps({
                     'progress': 100,
