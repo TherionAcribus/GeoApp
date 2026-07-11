@@ -325,6 +325,30 @@ class ArchiveService:
         return entry.to_dict() if entry else None
 
     @staticmethod
+    def get_many_by_gc_code(gc_codes) -> dict:
+        """Retourne un mapping ``{gc_code: archive_dict}`` pour les codes fournis.
+
+        Évite une requête par cache lors des imports de masse : les archives
+        sont chargées en quelques requêtes ``IN`` (chunkées pour rester sous la
+        limite de variables SQLite). Seuls les codes ayant une archive figurent
+        dans le résultat.
+        """
+        from .models import SolvedGeocacheArchive
+        codes = [c.strip().upper() for c in gc_codes if c and c.strip()]
+        if not codes:
+            return {}
+        result: dict[str, dict] = {}
+        CHUNK = 500
+        for i in range(0, len(codes), CHUNK):
+            chunk = codes[i:i + CHUNK]
+            entries = SolvedGeocacheArchive.query.filter(
+                SolvedGeocacheArchive.gc_code.in_(chunk)
+            ).all()
+            for entry in entries:
+                result[entry.gc_code] = entry.to_dict()
+        return result
+
+    @staticmethod
     def delete_archive(gc_code: str) -> bool:
         """Supprime explicitement l'archive d'un GC code."""
         from ..database import db

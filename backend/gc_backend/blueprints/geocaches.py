@@ -1531,18 +1531,17 @@ def import_gpx():
                 counts = _new_import_counts()
                 idx = 0
 
-                # 1) Import rapide des caches complètes (pas de réseau)
-                for sc in full_by_code.values():
+                # 1) Import rapide des caches complètes (pas de réseau), par lots
+                for result in importer.import_scraped_bulk(
+                    zone_id, list(full_by_code.values()), update_existing=update_existing
+                ):
                     idx += 1
-                    try:
-                        _, outcome = importer.import_from_scraped(
-                            zone_id, sc, return_outcome=True, update_existing=update_existing
-                        )
-                        counts[outcome] += 1
-                        msg = f'{_import_item_label(outcome)}: {sc.gc_code} ({idx}/{total})'
-                    except Exception as e:
+                    if result['error']:
                         counts['errors'] += 1
-                        msg = f'Erreur {sc.gc_code}: {e}'
+                        msg = f"Erreur {result['gc_code']}: {result['error']}"
+                    else:
+                        counts[result['outcome']] += 1
+                        msg = f"{_import_item_label(result['outcome'])}: {result['gc_code']} ({idx}/{total})"
                     pct = 10 + int(idx / total * 90)
                     yield json.dumps({'message': msg, 'progress': pct}) + '\n'
 
@@ -1786,16 +1785,17 @@ def import_pocket_query():
                 counts = _new_import_counts()
                 idx = 0
 
-                # 1) Import rapide des caches complètes (pas de réseau)
-                for sc in full_by_code.values():
+                # 1) Import rapide des caches complètes (pas de réseau), par lots
+                for result in importer.import_scraped_bulk(
+                    zone_id, list(full_by_code.values())
+                ):
                     idx += 1
-                    try:
-                        _, outcome = importer.import_from_scraped(zone_id, sc, return_outcome=True)
-                        counts[outcome] += 1
-                        msg = f'{_import_item_label(outcome)}: {sc.gc_code} ({idx}/{total})'
-                    except Exception as e:
+                    if result['error']:
                         counts['errors'] += 1
-                        msg = f'Erreur {sc.gc_code}: {e}'
+                        msg = f"Erreur {result['gc_code']}: {result['error']}"
+                    else:
+                        counts[result['outcome']] += 1
+                        msg = f"{_import_item_label(result['outcome'])}: {result['gc_code']} ({idx}/{total})"
                     pct = 20 + int(idx / total * 80)
                     yield json.dumps({'message': msg, 'progress': pct}) + '\n'
 

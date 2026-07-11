@@ -187,6 +187,75 @@ def test_import_update_existing_updates_fields_and_keeps_waypoints(app):
         assert GeocacheWaypoint.query.filter_by(geocache_id=gc_id).count() == 1
 
 
+def test_import_scraped_bulk_outcomes_and_batching(app):
+    """import_scraped_bulk crée/déplace/màj en lots avec préchargement."""
+    from gc_backend.geocaches.scraper import ScrapedGeocache
+
+    with app.app_context():
+        zone_a = Zone(name='Zone bulk A')
+        zone_b = Zone(name='Zone bulk B')
+        db.session.add_all([zone_a, zone_b])
+        db.session.flush()
+
+        caches, _ = parse_gpx_caches(GPX_SAMPLE)
+        sc = caches[0]
+        importer = _bare_importer()
+
+        # 1) Premier passage -> created (batch_size volontairement petit)
+        results = list(importer.import_scraped_bulk(zone_a.id, [sc], batch_size=1))
+        assert results == [{'gc_code': 'GC1TEST', 'outcome': 'created', 'error': None}]
+        assert Geocache.query.filter_by(gc_code='GC1TEST').first().zone_id == zone_a.id
+
+        # 2) Ré-import même zone sans update -> existing
+        results = list(importer.import_scraped_bulk(zone_a.id, [sc]))
+        assert results[0]['outcome'] == 'existing'
+
+        # 3) Import dans une autre zone -> moved
+        results = list(importer.import_scraped_bulk(zone_b.id, [sc]))
+        assert results[0]['outcome'] == 'moved'
+        assert Geocache.query.filter_by(gc_code='GC1TEST').first().zone_id == zone_b.id
+
+        # 4) update_existing -> updated
+        updated_sc = ScrapedGeocache(
+            gc_code='GC1TEST', name='Nom bulk', url=None, type='Mystery', size='regular',
+            owner='O', difficulty=4.0, terrain=3.5,
+            latitude=1.0, longitude=1.0, placed_at=None, status='active', waypoints=[],
+        )
+        results = list(importer.import_scraped_bulk(
+            zone_b.id, [updated_sc], update_existing=True
+        ))
+        assert results[0]['outcome'] == 'updated'
+        assert Geocache.query.filter_by(gc_code='GC1TEST').first().name == 'Nom bulk'
+
+
+def test_import_scraped_bulk_isolates_errors(app):
+    """Un code invalide n'interrompt pas le lot ; les autres caches passent."""
+    from gc_backend.geocaches.scraper import ScrapedGeocache
+
+    with app.app_context():
+        zone = Zone(name='Zone bulk err')
+        db.session.add(zone)
+        db.session.flush()
+
+        caches, _ = parse_gpx_caches(GPX_SAMPLE)
+        good = caches[0]
+        bad = ScrapedGeocache(
+            gc_code='NOT_A_GC', name='X', url=None, type='Traditional', size='small',
+            owner='O', difficulty=1.0, terrain=1.0,
+            latitude=0.0, longitude=0.0, placed_at=None, status='active', waypoints=[],
+        )
+        importer = _bare_importer()
+
+        results = list(importer.import_scraped_bulk(zone.id, [bad, good]))
+        by_code = {r['gc_code']: r for r in results}
+
+        assert by_code['NOT_A_GC']['outcome'] is None
+        assert by_code['NOT_A_GC']['error'] is not None
+        assert by_code['GC1TEST']['outcome'] == 'created'
+        # La cache valide est bien persistée malgré l'erreur voisine
+        assert Geocache.query.filter_by(gc_code='GC1TEST').first() is not None
+
+
 def test_refresh_preserves_local_solved_coordinates(app, monkeypatch):
     from gc_backend.geocaches.scraper import ScrapedGeocache
     import gc_backend.blueprints.geocaches as gc_bp
