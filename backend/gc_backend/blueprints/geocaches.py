@@ -68,6 +68,22 @@ def _import_stats(counts: dict, total: int) -> dict:
         'moved': counts['moved'],
     }
 
+
+def _attach_waypoints(full_by_code: dict, waypoints_by_code: dict) -> int:
+    """Rattache les waypoints additionnels (parsés d'un ``-wpts.gpx``) aux caches.
+
+    Écrase ``sc.waypoints`` pour les caches de ``full_by_code`` qui ont des
+    waypoints, et retourne le nombre total rattaché. Les waypoints orphelins
+    (cache parente absente de l'import) sont ignorés.
+    """
+    total = 0
+    for code, sc in full_by_code.items():
+        wl = waypoints_by_code.get(code)
+        if wl:
+            sc.waypoints = list(wl)
+            total += len(wl)
+    return total
+
 def _as_gpx_time(value: datetime | None) -> str:
     if value is None:
         value = datetime.now(timezone.utc)
@@ -1487,13 +1503,18 @@ def import_gpx():
 
                 # full_caches: données Groundspeak complètes (import sans réseau)
                 # scrape_codes: codes GC sans données (GPX générique) -> scraping
+                # waypoints_by_code: waypoints additionnels (fichier -wpts.gpx),
+                #   accumulés puis rattachés à leur cache parente.
                 full_by_code: dict[str, object] = {}
                 scrape_codes: list[str] = []
+                waypoints_by_code: dict[str, list] = {}
 
                 def ingest(data: bytes) -> tuple[int, int]:
-                    caches, codes = parse_gpx_caches(data)
+                    caches, codes, wpts = parse_gpx_caches(data)
                     for sc in caches:
                         full_by_code.setdefault(sc.gc_code, sc)
+                    for parent, wl in wpts.items():
+                        waypoints_by_code.setdefault(parent, []).extend(wl)
                     for code in codes:
                         if code not in full_by_code and code not in scrape_codes:
                             scrape_codes.append(code)
@@ -1512,6 +1533,11 @@ def import_gpx():
                 else:
                     n_full, n_codes = ingest(_file_bytes)
                     yield json.dumps({'message': f'{n_full} cache(s) complète(s), {n_codes} code(s) sans données', 'progress': 5}) + '\n'
+
+                # Rattacher les waypoints additionnels à leur cache parente.
+                n_wpts = _attach_waypoints(full_by_code, waypoints_by_code)
+                if n_wpts:
+                    yield json.dumps({'message': f'{n_wpts} waypoint(s) additionnel(s) rattaché(s)', 'progress': 6}) + '\n'
 
                 # Les codes déjà couverts par des données complètes ne sont pas scrapés.
                 scrape_codes = [c for c in scrape_codes if c not in full_by_code]
@@ -1648,11 +1674,14 @@ def import_bookmark_list():
                 # scrape_codes: codes GC restants -> scraping page par page (throttlé)
                 full_by_code: dict[str, object] = {}
                 scrape_codes: list[str] = []
+                waypoints_by_code: dict[str, list] = {}
 
                 def ingest(data: bytes) -> None:
-                    caches, codes = parse_gpx_caches(data)
+                    caches, codes, wpts = parse_gpx_caches(data)
                     for sc in caches:
                         full_by_code.setdefault(sc.gc_code, sc)
+                    for parent, wl in wpts.items():
+                        waypoints_by_code.setdefault(parent, []).extend(wl)
                     for c in codes:
                         if c not in full_by_code and c not in scrape_codes:
                             scrape_codes.append(c)
@@ -1674,10 +1703,12 @@ def import_bookmark_list():
                                     ingest(zf.read(m))
                         else:
                             ingest(gpx_bytes)
+                        _attach_waypoints(full_by_code, waypoints_by_code)
                     except Exception as e:
                         logger.warning(f"Failed to parse list GPX, falling back to scraping: {e}")
                         full_by_code.clear()
                         scrape_codes.clear()
+                        waypoints_by_code.clear()
 
                 # 1) Repli : extraction des codes GC + scraping (si pas de données GPX)
                 if not full_by_code:
@@ -1812,11 +1843,14 @@ def import_pocket_query():
 
                 full_by_code: dict[str, object] = {}
                 scrape_codes: list[str] = []
+                waypoints_by_code: dict[str, list] = {}
 
                 def ingest(data: bytes) -> None:
-                    caches, codes = parse_gpx_caches(data)
+                    caches, codes, wpts = parse_gpx_caches(data)
                     for sc in caches:
                         full_by_code.setdefault(sc.gc_code, sc)
+                    for parent, wl in wpts.items():
+                        waypoints_by_code.setdefault(parent, []).extend(wl)
                     for code in codes:
                         if code not in full_by_code and code not in scrape_codes:
                             scrape_codes.append(code)
@@ -1837,6 +1871,9 @@ def import_pocket_query():
                 else:
                     ingest(file_bytes)
 
+                # Rattacher les waypoints additionnels (fichier -wpts.gpx du ZIP).
+                n_wpts = _attach_waypoints(full_by_code, waypoints_by_code)
+
                 scrape_codes = [c for c in scrape_codes if c not in full_by_code]
                 total = len(full_by_code) + len(scrape_codes)
 
@@ -1844,7 +1881,11 @@ def import_pocket_query():
                     yield json.dumps({'error': True, 'message': 'Aucun code GC détecté dans le fichier'}) + '\n'
                     return
 
-                yield json.dumps({'message': f'{total} géocache(s) trouvée(s)', 'progress': 20}) + '\n'
+                yield json.dumps({
+                    'message': f'{total} géocache(s) trouvée(s)'
+                               + (f', {n_wpts} waypoint(s) additionnel(s)' if n_wpts else ''),
+                    'progress': 20,
+                }) + '\n'
 
                 counts = _new_import_counts()
                 idx = 0

@@ -39,10 +39,19 @@ GPX_SAMPLE = b"""<?xml version="1.0" encoding="utf-8"?>
 
 
 def test_parse_gpx_extracts_full_cache_and_bare_code():
-    caches, codes = parse_gpx_caches(GPX_SAMPLE)
+    caches, codes, waypoints = parse_gpx_caches(GPX_SAMPLE)
 
     assert codes == ['GC9BARE']  # pas de bloc groundspeak -> code seul
     assert len(caches) == 1
+
+    # PK1TEST (nom sans préfixe GC) -> waypoint additionnel rattaché à GC1TEST
+    assert 'GC1TEST' in waypoints
+    wp = waypoints['GC1TEST'][0]
+    assert wp['lookup'] == 'PK1TEST'
+    assert wp['prefix'] == 'PK'
+    assert wp['latitude'] == pytest.approx(48.0)
+    # Rattachement intra-fichier direct sur le ScrapedGeocache
+    assert caches[0].waypoints and caches[0].waypoints[0]['lookup'] == 'PK1TEST'
 
     c = caches[0]
     assert c.gc_code == 'GC1TEST'
@@ -64,11 +73,11 @@ def test_parse_gpx_extracts_full_cache_and_bare_code():
 
 def test_parse_gpx_status_variants():
     archived = GPX_SAMPLE.replace(b'archived="False"', b'archived="True"')
-    caches, _ = parse_gpx_caches(archived)
+    caches, _, _ = parse_gpx_caches(archived)
     assert caches[0].status == 'archived'
 
     disabled = GPX_SAMPLE.replace(b'available="True"', b'available="False"')
-    caches, _ = parse_gpx_caches(disabled)
+    caches, _, _ = parse_gpx_caches(disabled)
     assert caches[0].status == 'disabled'
 
 
@@ -91,7 +100,7 @@ def test_import_from_scraped_persists_without_network(app):
         db.session.add(zone)
         db.session.flush()
 
-        caches, _ = parse_gpx_caches(GPX_SAMPLE)
+        caches, _, _ = parse_gpx_caches(GPX_SAMPLE)
 
         # scraper=None interdit tout accès réseau involontaire : on passe un
         # importer dont le scraper ne sera jamais appelé sur ce chemin.
@@ -126,7 +135,7 @@ def test_import_outcomes_created_existing_moved(app):
         db.session.add_all([zone_a, zone_b])
         db.session.flush()
 
-        caches, _ = parse_gpx_caches(GPX_SAMPLE)
+        caches, _, _ = parse_gpx_caches(GPX_SAMPLE)
         sc = caches[0]
         importer = _bare_importer()
 
@@ -154,14 +163,16 @@ def test_import_update_existing_updates_fields_and_keeps_waypoints(app):
         db.session.add(zone)
         db.session.flush()
 
-        caches, _ = parse_gpx_caches(GPX_SAMPLE)
+        caches, _, _ = parse_gpx_caches(GPX_SAMPLE)
         importer = _bare_importer()
 
         g = importer.import_from_scraped(zone.id, caches[0])
         # Ajouter un waypoint local (comme s'il venait d'un scrape antérieur)
-        db.session.add(GeocacheWaypoint(geocache_id=g.id, prefix='PK', name='Parking'))
+        db.session.add(GeocacheWaypoint(geocache_id=g.id, prefix='XX', name='Extra'))
         db.session.commit()
         gc_id = g.id
+        count_before = GeocacheWaypoint.query.filter_by(geocache_id=gc_id).count()
+        assert count_before >= 1
 
         # Sans update_existing -> ignorée
         _, outcome = importer.import_from_scraped(zone.id, caches[0], return_outcome=True)
@@ -183,8 +194,8 @@ def test_import_update_existing_updates_fields_and_keeps_waypoints(app):
         assert refreshed.name == 'Nom modifié'
         assert refreshed.difficulty == 4.0
         assert refreshed.size == 'regular'
-        # Waypoint existant préservé (nouveau jeu vide)
-        assert GeocacheWaypoint.query.filter_by(geocache_id=gc_id).count() == 1
+        # Waypoints existants préservés (nouveau jeu vide -> pas d'effacement)
+        assert GeocacheWaypoint.query.filter_by(geocache_id=gc_id).count() == count_before
 
 
 def test_import_scraped_bulk_outcomes_and_batching(app):
@@ -197,7 +208,7 @@ def test_import_scraped_bulk_outcomes_and_batching(app):
         db.session.add_all([zone_a, zone_b])
         db.session.flush()
 
-        caches, _ = parse_gpx_caches(GPX_SAMPLE)
+        caches, _, _ = parse_gpx_caches(GPX_SAMPLE)
         sc = caches[0]
         importer = _bare_importer()
 
@@ -228,6 +239,64 @@ def test_import_scraped_bulk_outcomes_and_batching(app):
         assert Geocache.query.filter_by(gc_code='GC1TEST').first().name == 'Nom bulk'
 
 
+WPTS_SAMPLE = b"""<?xml version="1.0" encoding="utf-8"?>
+<gpx xmlns="http://www.topografix.com/GPX/1/0">
+ <wpt lat="48.90" lon="2.30">
+  <name>PK1TEST</name>
+  <desc>Parking de la cache</desc>
+  <sym>Parking Area</sym>
+  <type>Waypoint|Parking Area</type>
+  <cmt>Se garer ici</cmt>
+ </wpt>
+ <wpt lat="48.91" lon="2.31">
+  <name>011TEST</name>
+  <desc>Etape 1</desc>
+  <type>Waypoint|Virtual Stage</type>
+  <cmt>Compter les arbres</cmt>
+ </wpt>
+</gpx>"""
+
+
+def test_waypoints_attached_across_files_and_persisted(app):
+    """Les waypoints d'un -wpts.gpx séparé sont rattachés puis persistés."""
+    from gc_backend.geocaches.models import GeocacheWaypoint
+
+    with app.app_context():
+        zone = Zone(name='Zone wpts')
+        db.session.add(zone)
+        db.session.flush()
+
+        # Fichier principal (caches) et fichier waypoints, parsés séparément
+        main_caches, _, main_wpts = parse_gpx_caches(GPX_SAMPLE)
+        _, _, extra_wpts = parse_gpx_caches(WPTS_SAMPLE)
+
+        # Accumulation cross-fichier comme le fait l'endpoint
+        waypoints_by_code: dict = {}
+        for parent, wl in list(main_wpts.items()) + list(extra_wpts.items()):
+            waypoints_by_code.setdefault(parent, []).extend(wl)
+
+        full_by_code = {sc.gc_code: sc for sc in main_caches}
+        for code, sc in full_by_code.items():
+            wl = waypoints_by_code.get(code)
+            if wl:
+                sc.waypoints = list(wl)
+
+        importer = _bare_importer()
+        results = list(importer.import_scraped_bulk(zone.id, list(full_by_code.values())))
+        assert all(r['error'] is None for r in results)
+
+        gc = Geocache.query.filter_by(gc_code='GC1TEST').first()
+        wps = GeocacheWaypoint.query.filter_by(geocache_id=gc.id).all()
+        lookups = {w.lookup for w in wps}
+        # PK1TEST (fichier principal via GPX_SAMPLE) + PK1TEST/011TEST (WPTS)
+        assert '011TEST' in lookups
+        assert 'PK1TEST' in lookups
+        parking = next(w for w in wps if w.lookup == 'PK1TEST' and w.note == 'Se garer ici')
+        assert parking.prefix == 'PK'
+        assert parking.type == 'Parking Area'
+        assert parking.gc_coords and parking.gc_coords.startswith('N 48')
+
+
 def test_import_scraped_bulk_isolates_errors(app):
     """Un code invalide n'interrompt pas le lot ; les autres caches passent."""
     from gc_backend.geocaches.scraper import ScrapedGeocache
@@ -237,7 +306,7 @@ def test_import_scraped_bulk_isolates_errors(app):
         db.session.add(zone)
         db.session.flush()
 
-        caches, _ = parse_gpx_caches(GPX_SAMPLE)
+        caches, _, _ = parse_gpx_caches(GPX_SAMPLE)
         good = caches[0]
         bad = ScrapedGeocache(
             gc_code='NOT_A_GC', name='X', url=None, type='Traditional', size='small',

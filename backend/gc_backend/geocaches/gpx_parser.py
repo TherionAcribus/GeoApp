@@ -201,23 +201,80 @@ def _cache_status(cache_el: ET.Element) -> str:
     return 'active'
 
 
-def parse_gpx_caches(data: bytes) -> tuple[list[ScrapedGeocache], list[str]]:
+def _parent_code_for_waypoint(wpt_name: str) -> Optional[str]:
+    """Déduit le code GC de la cache parente d'un waypoint additionnel.
+
+    Convention Groundspeak : le nom d'un waypoint additionnel est un préfixe de
+    deux caractères suivi du code de la cache privé de son "GC"
+    (ex. ``P09PJ4T`` -> parent ``GC9PJ4T``, ``019PJ4T`` -> ``GC9PJ4T``).
+    Certains outils utilisent la forme ``GC9PJ4T-1`` : le parent est alors la
+    partie avant le tiret.
+    """
+    name = (wpt_name or '').strip().upper()
+    if len(name) < 3:
+        return None
+    if name.startswith('GC') and '-' in name:
+        return name.split('-', 1)[0]
+    return 'GC' + name[2:]
+
+
+def _build_waypoint_from_wpt(wpt: ET.Element, wpt_name: str) -> dict:
+    """Construit un dict waypoint (format attendu par ``GeocacheImporter``)."""
+    latitude = _parse_float(wpt.get('lat'))
+    longitude = _parse_float(wpt.get('lon'))
+    gc_coords = _decimal_to_gc_coordinates(latitude, longitude)
+
+    human_name = _text(_find_child(wpt, 'desc')) or _text(_find_child(wpt, 'urlname'))
+    note = _text(_find_child(wpt, 'cmt'))
+
+    raw_type = _text(_find_child(wpt, 'type')) or _text(_find_child(wpt, 'sym'))
+    wp_type = None
+    if raw_type:
+        # "Waypoint|Parking Area" -> "Parking Area"
+        wp_type = raw_type.split('|', 1)[-1].strip() or None
+
+    prefix = wpt_name[:2].upper() if len(wpt_name) >= 2 else None
+
+    return {
+        'prefix': prefix,
+        'lookup': wpt_name,
+        'name': human_name,
+        'type': wp_type,
+        'latitude': latitude,
+        'longitude': longitude,
+        'gc_coords': gc_coords,
+        'note': note,
+    }
+
+
+def parse_gpx_caches(
+    data: bytes,
+) -> tuple[list[ScrapedGeocache], list[str], dict[str, list[dict]]]:
     """Parse un fichier GPX unique.
 
     Returns:
         - la liste des géocaches complètes (bloc ``groundspeak:cache`` présent),
-          sous forme de ``ScrapedGeocache`` prêts pour ``import_from_scraped``.
+          sous forme de ``ScrapedGeocache`` prêts pour ``import_from_scraped`` ;
         - la liste des codes GC repérés sans données Groundspeak (GPX générique) :
-          l'appelant peut les compléter par scraping.
+          l'appelant peut les compléter par scraping ;
+        - un mapping ``{code_parent: [waypoint, ...]}`` des waypoints additionnels
+          (parkings, étapes de multi, final…). Les GPX Groundspeak livrent ces
+          waypoints dans un fichier ``-wpts.gpx`` séparé : l'appelant accumule ce
+          mapping sur tous les fichiers puis rattache les waypoints à leur cache.
+
+    Par commodité pour les appels sur un fichier unique, les waypoints dont la
+    cache parente figure dans ce même fichier sont directement attachés à son
+    ``ScrapedGeocache.waypoints``.
     """
     caches: list[ScrapedGeocache] = []
     codes_without_data: list[str] = []
+    waypoints_by_code: dict[str, list[dict]] = {}
 
     try:
         root = ET.fromstring(data)
     except ET.ParseError as e:
         logger.warning(f"GPX parse error: {e}")
-        return caches, codes_without_data
+        return caches, codes_without_data, waypoints_by_code
 
     for wpt in root:
         if _local(wpt.tag) != 'wpt':
@@ -225,26 +282,42 @@ def parse_gpx_caches(data: bytes) -> tuple[list[ScrapedGeocache], list[str]]:
 
         name_el = _find_child(wpt, 'name')
         wpt_name = (name_el.text or '').strip() if name_el is not None else ''
-        # On ne traite que les points principaux (code GC) ; les waypoints
-        # additionnels (préfixes PK/S1/...) sont ignorés dans cette passe.
-        if not wpt_name.startswith('GC') or '-' in wpt_name:
+        if not wpt_name:
             continue
 
-        cache_el = _find_groundspeak_cache(wpt)
-        if cache_el is None:
-            # GPX générique sans bloc Groundspeak : on ne connaît que le code.
-            if wpt_name not in codes_without_data:
-                codes_without_data.append(wpt_name)
-            continue
+        # Point principal (code GC sans tiret) vs waypoint additionnel.
+        is_main = wpt_name.startswith('GC') and '-' not in wpt_name
+        if is_main:
+            cache_el = _find_groundspeak_cache(wpt)
+            if cache_el is None:
+                # GPX générique sans bloc Groundspeak : on ne connaît que le code.
+                if wpt_name not in codes_without_data:
+                    codes_without_data.append(wpt_name)
+                continue
+            try:
+                caches.append(_build_scraped_from_wpt(wpt, cache_el, wpt_name))
+            except Exception as e:  # pragma: no cover - robustesse par cache
+                logger.warning(f"Failed to parse GPX cache {wpt_name}: {e}")
+                if wpt_name not in codes_without_data:
+                    codes_without_data.append(wpt_name)
+        else:
+            parent = _parent_code_for_waypoint(wpt_name)
+            if not parent:
+                continue
+            try:
+                waypoints_by_code.setdefault(parent, []).append(
+                    _build_waypoint_from_wpt(wpt, wpt_name)
+                )
+            except Exception as e:  # pragma: no cover - robustesse par waypoint
+                logger.warning(f"Failed to parse GPX waypoint {wpt_name}: {e}")
 
-        try:
-            caches.append(_build_scraped_from_wpt(wpt, cache_el, wpt_name))
-        except Exception as e:  # pragma: no cover - robustesse par cache
-            logger.warning(f"Failed to parse GPX cache {wpt_name}: {e}")
-            if wpt_name not in codes_without_data:
-                codes_without_data.append(wpt_name)
+    # Rattachement intra-fichier (cas GPX unique contenant caches + waypoints).
+    for sc in caches:
+        wl = waypoints_by_code.get(sc.gc_code)
+        if wl:
+            sc.waypoints = list(wl)
 
-    return caches, codes_without_data
+    return caches, codes_without_data, waypoints_by_code
 
 
 def _build_scraped_from_wpt(wpt: ET.Element, cache_el: ET.Element, code: str) -> ScrapedGeocache:
