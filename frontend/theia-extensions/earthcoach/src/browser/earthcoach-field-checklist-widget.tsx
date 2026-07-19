@@ -24,6 +24,20 @@ function EarthCoachFieldChecklistView(props: EarthCoachFieldChecklistViewProps):
         <div style={{ padding: 16, overflow: 'auto' }}>
             <style>
                 {`@media print {
+                    /* window.print() imprime toute la page: on masque l'IDE entier
+                       (barre laterale, editeurs, panneaux) et on ne laisse visible
+                       que le widget checklist, ramene en pleine page. */
+                    body * { visibility: hidden !important; }
+                    .earthcoach-field-checklist-widget,
+                    .earthcoach-field-checklist-widget * { visibility: visible !important; }
+                    .earthcoach-field-checklist-widget {
+                        position: fixed !important;
+                        inset: 0 !important;
+                        overflow: visible !important;
+                        background: #fff !important;
+                        color: #111 !important;
+                    }
+                    .earthcoach-field-checklist-widget * { overflow: visible !important; }
                     .earthcoach-field-actions { display: none !important; }
                     .earthcoach-field-root { color: #111 !important; background: #fff !important; }
                 }`}

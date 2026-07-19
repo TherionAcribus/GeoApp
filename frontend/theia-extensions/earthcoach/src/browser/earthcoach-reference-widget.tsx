@@ -105,6 +105,12 @@ function EarthCoachReferenceView(props: EarthCoachReferenceViewProps): React.Rea
                         </section>
                     ) : undefined}
 
+                    {!props.result.articles.length && !props.result.images.length ? (
+                        <div style={{ opacity: 0.7, fontStyle: 'italic' }}>
+                            Aucun resultat pour "{props.result.query}". Essaie un autre terme ou change de langue.
+                        </div>
+                    ) : undefined}
+
                     {props.result.images.length ? (
                         <section style={{ display: 'grid', gap: 8 }}>
                             <h3 style={{ margin: 0, fontSize: 14 }}>Images pedagogiques</h3>
@@ -130,6 +136,8 @@ function EarthCoachReferenceView(props: EarthCoachReferenceViewProps): React.Rea
                                                 <img
                                                     src={image.thumbnailUrl}
                                                     alt={image.title}
+                                                    loading='lazy'
+                                                    decoding='async'
                                                     style={{
                                                         display: 'block',
                                                         width: '100%',
@@ -179,6 +187,7 @@ export class EarthCoachReferenceWidget extends ReactWidget {
     protected isLoading = false;
     protected error: string | undefined;
     protected result: EarthCoachReferenceSearchResult | undefined;
+    protected searchRequestToken = 0;
 
     @inject(EarthCoachReferenceTools)
     protected readonly referenceTools!: EarthCoachReferenceTools;
@@ -210,19 +219,31 @@ export class EarthCoachReferenceWidget extends ReactWidget {
         this.language = language;
         this.isLoading = true;
         this.error = undefined;
+        // Deux recherches rapprochees peuvent se terminer dans le desordre; on
+        // ne retient que la reponse de la derniere requete emise.
+        const requestToken = ++this.searchRequestToken;
         this.update();
         try {
-            this.result = await this.referenceTools.searchReference({
+            const result = await this.referenceTools.searchReference({
                 query: normalized,
                 language,
                 includeImages: true,
             });
+            if (requestToken !== this.searchRequestToken) {
+                return;
+            }
+            this.result = result;
         } catch (error: any) {
+            if (requestToken !== this.searchRequestToken) {
+                return;
+            }
             this.error = error?.message || String(error);
             this.result = undefined;
         } finally {
-            this.isLoading = false;
-            this.update();
+            if (requestToken === this.searchRequestToken) {
+                this.isLoading = false;
+                this.update();
+            }
         }
     }
 

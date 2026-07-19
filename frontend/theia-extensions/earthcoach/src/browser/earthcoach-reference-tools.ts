@@ -16,6 +16,9 @@ import {
 
 const PROVIDER_NAME = 'geoapp.earthcoach';
 const REFERENCE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+// Plafond du cache references: sans limite, chaque requete unique (query x langue
+// x sources) ajoute une entree qui n'est purgee qu'a la relecture de la meme cle.
+const REFERENCE_CACHE_MAX_ENTRIES = 200;
 const DEFAULT_ALLOWED_SOURCES = 'wikipedia,wikimedia,brgm,infoterre,geowiki,planet-terre';
 type EarthCoachReferenceSource =
     | 'wikipedia'
@@ -62,6 +65,17 @@ function parseArgs(argString: string): Record<string, unknown> {
     } catch {
         return {};
     }
+}
+
+// Timeout des appels externes (Wikipedia/Commons): sans borne, une API lente
+// bloque le tool indefiniment pendant une session de chat.
+const EXTERNAL_FETCH_TIMEOUT_MS = 12 * 1000;
+
+function fetchWithTimeout(input: string, timeoutMs = EXTERNAL_FETCH_TIMEOUT_MS): Promise<Response> {
+    if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+        return fetch(input, { signal: AbortSignal.timeout(timeoutMs) });
+    }
+    return fetch(input);
 }
 
 interface WikipediaSearchPage {
@@ -247,6 +261,14 @@ export class EarthCoachReferenceTools implements FrontendApplicationContribution
             from_cache: false,
             usage_rule: 'Ces resultats sont des references pedagogiques externes. Les portails BRGM/InfoTerre/GeoWiki/Planet-Terre guident vers des sources a consulter; ne les presente jamais comme une observation utilisateur ni comme une image du listing.',
         };
+        if (this.referenceCache.size >= REFERENCE_CACHE_MAX_ENTRIES) {
+            // Purge de l'entree la plus ancienne inseree (les Map conservent
+            // l'ordre d'insertion) pour borner l'empreinte memoire.
+            const oldestKey = this.referenceCache.keys().next().value;
+            if (oldestKey !== undefined) {
+                this.referenceCache.delete(oldestKey);
+            }
+        }
         this.referenceCache.set(cacheKey, {
             createdAt: Date.now(),
             result: this.cloneResult(result),
@@ -272,7 +294,7 @@ export class EarthCoachReferenceTools implements FrontendApplicationContribution
             format: 'json',
             origin: '*',
         });
-        const response = await fetch(`${endpoint}?${params.toString()}`);
+        const response = await fetchWithTimeout(`${endpoint}?${params.toString()}`);
         if (!response.ok) {
             throw new Error(`Wikipedia HTTP ${response.status}`);
         }
@@ -359,7 +381,7 @@ export class EarthCoachReferenceTools implements FrontendApplicationContribution
             format: 'json',
             origin: '*',
         });
-        const response = await fetch(`https://commons.wikimedia.org/w/api.php?${params.toString()}`);
+        const response = await fetchWithTimeout(`https://commons.wikimedia.org/w/api.php?${params.toString()}`);
         if (!response.ok) {
             throw new Error(`Wikimedia Commons HTTP ${response.status}`);
         }

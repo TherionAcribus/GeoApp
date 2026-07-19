@@ -75,6 +75,16 @@ export class EarthCoachContextService implements FrontendApplicationContribution
         this.ensureInitialized();
     }
 
+    /**
+     * Resout seulement la geocache active (sans charger images, observations,
+     * notes ni logging tasks). Utile pour verifier tot qu'il s'agit d'une
+     * EarthCache et afficher le QuickPick avant la collecte reseau complete.
+     */
+    async resolveGeocache(input?: { geocacheData?: EarthCoachGeocacheData; geocacheId?: number }): Promise<EarthCoachGeocacheData | undefined> {
+        this.ensureInitialized();
+        return this.resolveGeocacheData(input);
+    }
+
     async collectContext(input?: { geocacheData?: EarthCoachGeocacheData; geocacheId?: number }): Promise<EarthCoachContext | undefined> {
         this.ensureInitialized();
         const geocacheData = await this.resolveGeocacheData(input);
@@ -82,10 +92,14 @@ export class EarthCoachContextService implements FrontendApplicationContribution
             return undefined;
         }
 
-        const images = await this.loadImages(geocacheData);
-        const structuredObservations = await this.loadStructuredObservations(geocacheData.id);
-        const loggingTasks = await this.loadLoggingTasks(geocacheData.id);
-        const notesResponse = await this.loadNotes(geocacheData.id);
+        // Ces quatre appels sont independants: on les lance en parallele pour
+        // diviser la latence d'ouverture d'EarthCoach au lieu de la cumuler.
+        const [images, structuredObservations, loggingTasks, notesResponse] = await Promise.all([
+            this.loadImages(geocacheData),
+            this.loadStructuredObservations(geocacheData.id),
+            this.loadLoggingTasks(geocacheData.id),
+            this.loadNotes(geocacheData.id),
+        ]);
         const noteObservations = structuredObservations.length
             ? []
             : this.notesToObservations(geocacheData.id, notesResponse?.notes || []);

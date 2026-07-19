@@ -253,6 +253,8 @@ function ObservationForm(props: ObservationFormProps): React.ReactElement {
                                 <img
                                     src={image.fileUri}
                                     alt={image.label || image.id}
+                                    loading='lazy'
+                                    decoding='async'
                                     style={{ width: 48, height: 48, objectFit: 'cover', background: 'var(--theia-editorWidget-background)' }}
                                 />
                                 <span style={{ minWidth: 0, display: 'grid', gap: 2 }}>
@@ -359,6 +361,8 @@ function ObservationCard(props: ObservationCardProps): React.ReactElement {
                             <img
                                 src={image.fileUri}
                                 alt={image.label || image.id}
+                                loading='lazy'
+                                decoding='async'
                                 style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 4, background: 'var(--theia-editorWidget-background)' }}
                             />
                         </a>

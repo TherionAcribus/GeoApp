@@ -82,10 +82,13 @@ function truncateText(value: string, maxLength: number): string {
 }
 
 function stripHtml(value: string): string {
-    if (typeof document !== 'undefined') {
-        const temp = document.createElement('div');
-        temp.innerHTML = value;
-        return (temp.textContent || temp.innerText || '').trim();
+    // On evite `div.innerHTML = value`: assigner innerHTML declenche le
+    // telechargement des <img src> du listing (requetes reseau vers
+    // geocaching.com a chaque ouverture d'EarthCoach). DOMParser produit un
+    // document inerte qui n'effectue aucun chargement de ressource.
+    if (typeof DOMParser !== 'undefined') {
+        const parsed = new DOMParser().parseFromString(value, 'text/html');
+        return (parsed.body.textContent || '').trim();
     }
     return value.replace(/<[^>]+>/g, ' ').trim();
 }

@@ -216,12 +216,16 @@ export class EarthCoachCommandContribution implements CommandContribution, MenuC
     }
 
     protected async openEarthCoach(request?: EarthCoachOpenRequest): Promise<void> {
-        const context = await this.contextService.collectContext(request);
-        if (!context) {
+        // On resout d'abord la geocache (leger) pour verifier le type et afficher
+        // le QuickPick tout de suite. La collecte reseau complete (images,
+        // observations, notes, logging tasks) n'a lieu qu'ensuite, et seulement
+        // pour les actions qui en ont besoin.
+        const geocacheData = await this.contextService.resolveGeocache(request);
+        if (!geocacheData) {
             this.messages.warn('Aucune geocache active pour EarthCoach.');
             return;
         }
-        if (!isEarthCacheGeocache(context.geocacheData)) {
+        if (!isEarthCacheGeocache(geocacheData)) {
             this.messages.warn('EarthCoach est prevu pour les EarthCaches. Ouvre une EarthCache pour l utiliser.');
             return;
         }
@@ -239,6 +243,12 @@ export class EarthCoachCommandContribution implements CommandContribution, MenuC
             if (term?.trim()) {
                 await this.openReferenceWidget(term.trim());
             }
+            return;
+        }
+
+        const context = await this.contextService.collectContext({ geocacheData });
+        if (!context) {
+            this.messages.warn('Aucune geocache active pour EarthCoach.');
             return;
         }
         if (action === 'field_checklist') {

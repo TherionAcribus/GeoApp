@@ -27,6 +27,8 @@ function ImageCard(props: { image: GeoImage }): React.ReactElement {
                 <img
                     src={image.fileUri}
                     alt={image.label || image.id}
+                    loading='lazy'
+                    decoding='async'
                     style={{
                         width: '100%',
                         height: 150,

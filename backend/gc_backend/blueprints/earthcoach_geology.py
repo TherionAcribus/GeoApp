@@ -21,6 +21,10 @@ MACROSTRAT_URL = 'https://macrostrat.org/api/v2/geologic_units/map'
 ATTRIBUTION = 'Donnees geologiques: Macrostrat (macrostrat.org, CC-BY 4.0)'
 REQUEST_TIMEOUT = 15
 CACHE_TTL_SECONDS = 24 * 60 * 60
+# Plafond du cache: chaque coordonnee arrondie unique ajoute une entree a vie du
+# process. On borne comme WebSearchService (purge grossiere au-dela de la limite)
+# pour eviter une croissance illimitee sur un serveur longue duree.
+CACHE_MAX_ENTRIES = 500
 _USER_AGENT = 'GeoApp-EarthCoach/1.0 (geological context lookup)'
 
 # Cache memoire simple: cle = "lat,lon" arrondis, valeur = (timestamp, payload).
@@ -126,5 +130,7 @@ def geology_at_point():
         'units': units,
         'from_cache': False,
     }
+    if len(_cache) >= CACHE_MAX_ENTRIES:
+        _cache.clear()
     _cache[cache_key] = (time.time(), result)
     return jsonify(result)
