@@ -9,7 +9,7 @@ interface BookmarkList {
 
 export interface ImportBookmarkListDialogProps {
     zoneId: number;
-    onImport: (bookmarkCode: string, onProgress?: (percentage: number, message: string) => void) => Promise<void>;
+    onImport: (bookmarkCode: string, updateExisting: boolean, onProgress?: (percentage: number, message: string) => void) => Promise<void>;
     onCancel: () => void;
     onCancelImport?: () => void;
     isImporting: boolean;
@@ -26,6 +26,7 @@ export const ImportBookmarkListDialog: React.FC<ImportBookmarkListDialogProps> =
 }) => {
     const [lists, setLists] = React.useState<BookmarkList[]>([]);
     const [selectedCode, setSelectedCode] = React.useState('');
+    const [updateExisting, setUpdateExisting] = React.useState(false);
     const [loading, setLoading] = React.useState(true);
     const [error, setError] = React.useState('');
     const [progressVisible, setProgressVisible] = React.useState(false);
@@ -72,7 +73,7 @@ export const ImportBookmarkListDialog: React.FC<ImportBookmarkListDialogProps> =
         e.preventDefault();
         if (selectedCode) {
             resetProgress();
-            await onImport(selectedCode, handleProgressUpdate);
+            await onImport(selectedCode, updateExisting, handleProgressUpdate);
         }
     };
 
@@ -196,6 +197,25 @@ export const ImportBookmarkListDialog: React.FC<ImportBookmarkListDialogProps> =
                         </p>
                         <p style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)', margin: '8px 0 0 0' }}>
                             💡 Les géocaches de la liste seront importées dans cette zone. Assurez-vous d'être connecté à geocaching.com dans votre navigateur.
+                        </p>
+                    </div>
+
+                    <div style={{ marginBottom: '16px' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', fontSize: '13px', cursor: isImporting ? 'not-allowed' : 'pointer' }}>
+                            <input
+                                type="checkbox"
+                                checked={updateExisting}
+                                onChange={(e) => setUpdateExisting(e.target.checked)}
+                                disabled={isImporting}
+                                style={{ marginRight: '8px', cursor: isImporting ? 'not-allowed' : 'pointer' }}
+                            />
+                            <span style={{ color: 'var(--theia-foreground)' }}>
+                                Mettre à jour les géocaches déjà présentes
+                            </span>
+                        </label>
+                        <p style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)', marginTop: '4px', marginLeft: '24px' }}>
+                            Si coché, les géocaches déjà importées sont rafraîchies (nom, statut, difficulté…).
+                            Vos coordonnées résolues localement et notes personnelles sont préservées.
                         </p>
                     </div>
 

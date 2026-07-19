@@ -111,23 +111,25 @@ export class GeocachesService {
         );
     }
 
-    async importBookmarkList(bookmarkCode: string, zoneId: number, signal?: AbortSignal): Promise<Response> {
+    async importBookmarkList(bookmarkCode: string, zoneId: number, updateExisting: boolean, signal?: AbortSignal): Promise<Response> {
         return this.apiClient.requestResponse(
             '/api/geocaches/import-bookmark-list',
             this.apiClient.createJsonInit('POST', {
                 bookmark_code: bookmarkCode,
-                zone_id: zoneId
+                zone_id: zoneId,
+                update_existing: updateExisting
             }, { signal }),
             'Erreur lors de l\'import de la liste de favoris'
         );
     }
 
-    async importPocketQuery(pqCode: string, zoneId: number, signal?: AbortSignal): Promise<Response> {
+    async importPocketQuery(pqCode: string, zoneId: number, updateExisting: boolean, signal?: AbortSignal): Promise<Response> {
         return this.apiClient.requestResponse(
             '/api/geocaches/import-pocket-query',
             this.apiClient.createJsonInit('POST', {
                 pq_code: pqCode,
-                zone_id: zoneId
+                zone_id: zoneId,
+                update_existing: updateExisting
             }, { signal }),
             'Erreur lors de l\'import de la pocket query'
         );

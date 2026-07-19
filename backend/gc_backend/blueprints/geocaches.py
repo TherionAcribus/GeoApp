@@ -1645,7 +1645,8 @@ def import_bookmark_list():
         data = request.get_json(silent=True) or {}
         bookmark_code = data.get('bookmark_code', '').strip()
         zone_id_raw = data.get('zone_id')
-        
+        update_existing = bool(data.get('update_existing'))
+
         if not bookmark_code:
             return jsonify({'error': 'Code de liste de favoris manquant'}), 400
         if not zone_id_raw:
@@ -1748,7 +1749,9 @@ def import_bookmark_list():
                 idx = 0
 
                 # 2) Import rapide (par lots, sans réseau) des caches complètes
-                for result in importer.import_scraped_bulk(zone_id, list(full_by_code.values())):
+                for result in importer.import_scraped_bulk(
+                    zone_id, list(full_by_code.values()), update_existing=update_existing
+                ):
                     idx += 1
                     if result['error']:
                         counts['errors'] += 1
@@ -1763,7 +1766,9 @@ def import_bookmark_list():
                 for code in scrape_codes:
                     idx += 1
                     try:
-                        _, outcome = importer.import_by_code(zone_id, code, return_outcome=True)
+                        _, outcome = importer.import_by_code(
+                            zone_id, code, return_outcome=True, update_existing=update_existing
+                        )
                         counts[outcome] += 1
                         msg = f'{_import_item_label(outcome)} (téléchargée): {code} ({idx}/{total})'
                     except Exception as e:
@@ -1802,7 +1807,8 @@ def import_pocket_query():
         data = request.get_json(silent=True) or {}
         pq_code = data.get('pq_code', '').strip()
         zone_id_raw = data.get('zone_id')
-        
+        update_existing = bool(data.get('update_existing'))
+
         if not pq_code:
             return jsonify({'error': 'Code de Pocket Query manquant'}), 400
         if not zone_id_raw:
@@ -1892,7 +1898,7 @@ def import_pocket_query():
 
                 # 1) Import rapide des caches complètes (pas de réseau), par lots
                 for result in importer.import_scraped_bulk(
-                    zone_id, list(full_by_code.values())
+                    zone_id, list(full_by_code.values()), update_existing=update_existing
                 ):
                     idx += 1
                     if result['error']:
@@ -1908,7 +1914,9 @@ def import_pocket_query():
                 for code in scrape_codes:
                     idx += 1
                     try:
-                        _, outcome = importer.import_by_code(zone_id, code, return_outcome=True)
+                        _, outcome = importer.import_by_code(
+                            zone_id, code, return_outcome=True, update_existing=update_existing
+                        )
                         counts[outcome] += 1
                         msg = f'{_import_item_label(outcome)} (téléchargée): {code} ({idx}/{total})'
                     except Exception as e:

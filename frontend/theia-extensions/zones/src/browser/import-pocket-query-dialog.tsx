@@ -8,7 +8,7 @@ interface PocketQuery {
 
 export interface ImportPocketQueryDialogProps {
     zoneId: number;
-    onImport: (pqCode: string, onProgress?: (percentage: number, message: string) => void) => Promise<void>;
+    onImport: (pqCode: string, updateExisting: boolean, onProgress?: (percentage: number, message: string) => void) => Promise<void>;
     onCancel: () => void;
     onCancelImport?: () => void;
     isImporting: boolean;
@@ -25,6 +25,7 @@ export const ImportPocketQueryDialog: React.FC<ImportPocketQueryDialogProps> = (
 }) => {
     const [queries, setQueries] = React.useState<PocketQuery[]>([]);
     const [selectedGuid, setSelectedGuid] = React.useState('');
+    const [updateExisting, setUpdateExisting] = React.useState(false);
     const [loading, setLoading] = React.useState(true);
     const [error, setError] = React.useState('');
     const [progressVisible, setProgressVisible] = React.useState(false);
@@ -71,7 +72,7 @@ export const ImportPocketQueryDialog: React.FC<ImportPocketQueryDialogProps> = (
         e.preventDefault();
         if (selectedGuid) {
             resetProgress();
-            await onImport(selectedGuid, handleProgressUpdate);
+            await onImport(selectedGuid, updateExisting, handleProgressUpdate);
         }
     };
 
@@ -195,6 +196,25 @@ export const ImportPocketQueryDialog: React.FC<ImportPocketQueryDialogProps> = (
                         </p>
                         <p style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)', margin: '8px 0 0 0' }}>
                             💡 <strong>Compte Premium requis:</strong> Les Pocket Queries sont une fonctionnalité Premium de Geocaching.com. Assurez-vous d'être connecté avec un compte Premium dans votre navigateur.
+                        </p>
+                    </div>
+
+                    <div style={{ marginBottom: '16px' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', fontSize: '13px', cursor: isImporting ? 'not-allowed' : 'pointer' }}>
+                            <input
+                                type="checkbox"
+                                checked={updateExisting}
+                                onChange={(e) => setUpdateExisting(e.target.checked)}
+                                disabled={isImporting}
+                                style={{ marginRight: '8px', cursor: isImporting ? 'not-allowed' : 'pointer' }}
+                            />
+                            <span style={{ color: 'var(--theia-foreground)' }}>
+                                Mettre à jour les géocaches déjà présentes
+                            </span>
+                        </label>
+                        <p style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)', marginTop: '4px', marginLeft: '24px' }}>
+                            Si coché, les géocaches déjà importées sont rafraîchies (nom, statut, difficulté…).
+                            Vos coordonnées résolues localement et notes personnelles sont préservées.
                         </p>
                     </div>
 

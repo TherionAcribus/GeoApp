@@ -419,15 +419,17 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     private async consumeImportStream(
         response: Response,
         onProgress?: (percentage: number, message: string) => void
-    ): Promise<string | undefined> {
+    ): Promise<{ lastMessage?: string; hadError: boolean }> {
         const reader = response.body?.getReader();
         if (!reader) {
-            return undefined;
+            return { hadError: false };
         }
 
         const decoder = new TextDecoder();
         let buffer = '';
         let lastMessage: string | undefined;
+        let hadError = false;
+        let errorMessage: string | undefined;
 
         const processLine = (rawLine: string): void => {
             const line = rawLine.trim();
@@ -444,7 +446,10 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 };
 
                 if (data.error) {
+                    // Erreur fatale du flux (téléchargement échoué, aucun code…).
                     const message = data.message || 'Erreur lors de l\'import';
+                    hadError = true;
+                    errorMessage = message;
                     this.messages.error(message);
                     onProgress?.(0, message);
                     return;
@@ -480,7 +485,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
 
         buffer += decoder.decode();
         processLine(buffer);
-        return lastMessage;
+        return { lastMessage: errorMessage ?? lastMessage, hadError };
     }
 
     protected async handleExportGpxSelected(geocacheIds: number[]): Promise<void> {
@@ -1420,7 +1425,12 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             }
 
             const response = await this.geocachesService.importGpx(file, this.zoneId, updateExisting, controller.signal);
-            const lastMessage = await this.consumeImportStream(response, onProgress);
+            const { lastMessage, hadError } = await this.consumeImportStream(response, onProgress);
+            if (hadError) {
+                // Erreur déjà affichée : garder la dialog ouverte pour réessayer.
+                await this.refreshZoneData();
+                return;
+            }
             this.messages.info(lastMessage || 'Import terminé');
 
             // Fermer la dialog et recharger les données
@@ -1446,7 +1456,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         this.importAbortController?.abort();
     }
 
-    protected async handleImportBookmarkList(bookmarkCode: string, onProgress?: (percentage: number, message: string) => void): Promise<void> {
+    protected async handleImportBookmarkList(bookmarkCode: string, updateExisting: boolean, onProgress?: (percentage: number, message: string) => void): Promise<void> {
         if (!this.zoneId) {
             this.messages.error('Zone non définie');
             return;
@@ -1458,8 +1468,12 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         this.update();
 
         try {
-            const response = await this.geocachesService.importBookmarkList(bookmarkCode, this.zoneId, controller.signal);
-            const lastMessage = await this.consumeImportStream(response, onProgress);
+            const response = await this.geocachesService.importBookmarkList(bookmarkCode, this.zoneId, updateExisting, controller.signal);
+            const { lastMessage, hadError } = await this.consumeImportStream(response, onProgress);
+            if (hadError) {
+                await this.refreshZoneData();
+                return;
+            }
             this.messages.info(lastMessage || 'Import terminé');
 
             this.showBookmarkListDialog = false;
@@ -1480,7 +1494,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         }
     }
 
-    protected async handleImportPocketQuery(pqCode: string, onProgress?: (percentage: number, message: string) => void): Promise<void> {
+    protected async handleImportPocketQuery(pqCode: string, updateExisting: boolean, onProgress?: (percentage: number, message: string) => void): Promise<void> {
         if (!this.zoneId) {
             this.messages.error('Zone non définie');
             return;
@@ -1492,8 +1506,12 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         this.update();
 
         try {
-            const response = await this.geocachesService.importPocketQuery(pqCode, this.zoneId, controller.signal);
-            const lastMessage = await this.consumeImportStream(response, onProgress);
+            const response = await this.geocachesService.importPocketQuery(pqCode, this.zoneId, updateExisting, controller.signal);
+            const { lastMessage, hadError } = await this.consumeImportStream(response, onProgress);
+            if (hadError) {
+                await this.refreshZoneData();
+                return;
+            }
             this.messages.info(lastMessage || 'Import terminé');
 
             this.showPocketQueryDialog = false;
@@ -1620,8 +1638,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 onTableVisibleColumnIdsChange={this.handleTableVisibleColumnIdsChange}
                 onFilteredDataChange={geocaches => this.handleFilteredDataChange(geocaches)}
                 onImportGpx={(file, updateExisting, onProgress) => this.handleImportGpx(file, updateExisting, onProgress)}
-                onImportBookmarkList={(bookmarkCode, onProgress) => this.handleImportBookmarkList(bookmarkCode, onProgress)}
-                onImportPocketQuery={(pqCode, onProgress) => this.handleImportPocketQuery(pqCode, onProgress)}
+                onImportBookmarkList={(bookmarkCode, updateExisting, onProgress) => this.handleImportBookmarkList(bookmarkCode, updateExisting, onProgress)}
+                onImportPocketQuery={(pqCode, updateExisting, onProgress) => this.handleImportPocketQuery(pqCode, updateExisting, onProgress)}
                 onCancelImportDialog={() => this.closeImportDialog()}
                 onCancelBookmarkListDialog={() => this.closeBookmarkListDialog()}
                 onCancelPocketQueryDialog={() => this.closePocketQueryDialog()}

@@ -149,3 +149,44 @@ def test_endpoint_uses_gpx_first_without_per_cache_scraping(app, monkeypatch):
         assert stored.zone_id == zone_id
         # Le flux mentionne l'import GPX sans téléchargement page par page
         assert 'GPX' in body
+
+
+def test_endpoint_update_existing_flag_refreshes_caches(app, monkeypatch):
+    """update_existing=True rafraîchit une cache déjà importée via la liste."""
+    import requests
+    from gc_backend.database import db
+    from gc_backend.models import Zone
+    from gc_backend.geocaches.models import Geocache
+    from gc_backend.geocaches.scraper import GeocachingScraper
+
+    def _fake_init(self, session=None):
+        self.session = session if session is not None else requests.Session()
+    monkeypatch.setattr(GeocachingScraper, '__init__', _fake_init)
+    monkeypatch.setattr(BookmarkListImporter, 'get_list_info', lambda self, code: {'name': 'L'})
+
+    gpx_modified = GPX_LIST.replace(b'Cache Liste', b'Cache Modifiee')
+
+    with app.app_context():
+        zone = Zone(name='Zone maj')
+        db.session.add(zone)
+        db.session.commit()
+        zone_id = zone.id
+
+        client = app.test_client()
+
+        # 1) Import initial (lire le body force l'exécution du flux streamé)
+        monkeypatch.setattr(BookmarkListImporter, 'download_list_gpx', lambda self, code: GPX_LIST)
+        client.post('/api/geocaches/import-bookmark-list',
+                    json={'bookmark_code': 'BM1234', 'zone_id': zone_id}).get_data()
+        assert Geocache.query.filter_by(gc_code='GC1LIST').first().name == 'Cache Liste'
+
+        # 2) Ré-import SANS update_existing -> inchangée
+        monkeypatch.setattr(BookmarkListImporter, 'download_list_gpx', lambda self, code: gpx_modified)
+        client.post('/api/geocaches/import-bookmark-list',
+                    json={'bookmark_code': 'BM1234', 'zone_id': zone_id}).get_data()
+        assert Geocache.query.filter_by(gc_code='GC1LIST').first().name == 'Cache Liste'
+
+        # 3) Ré-import AVEC update_existing -> mise à jour
+        client.post('/api/geocaches/import-bookmark-list',
+                    json={'bookmark_code': 'BM1234', 'zone_id': zone_id, 'update_existing': True}).get_data()
+        assert Geocache.query.filter_by(gc_code='GC1LIST').first().name == 'Cache Modifiee'
