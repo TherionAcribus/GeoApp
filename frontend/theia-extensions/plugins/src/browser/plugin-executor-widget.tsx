@@ -2224,6 +2224,7 @@ const PluginExecutorComponent: React.FC<{
                                     className='theia-button secondary'
                                     onClick={handlePauseToggle}
                                     title={isPaused ? 'Reprendre' : 'Mettre en pause'}
+                                    aria-label={isPaused ? 'Reprendre' : 'Mettre en pause'}
                                     style={{
                                         minWidth: '32px',
                                         padding: '4px 8px',
@@ -2243,6 +2244,7 @@ const PluginExecutorComponent: React.FC<{
                                     className='theia-button secondary'
                                     onClick={handleStop}
                                     title={"Arrêter l'exécution"}
+                                    aria-label={"Arrêter l'exécution"}
                                     style={{
                                         minWidth: '32px',
                                         padding: '4px 8px',

@@ -146,12 +146,14 @@ export const BruteForceComponent: React.FC<BruteForceComponentProps> = ({
                     Mode Brute Force
                 </h4>
                 {results.length > 0 && (
-                    <div style={{
+                    <div role='tablist' aria-label='Mode Brute Force' style={{
                         display: 'flex',
                         gap: '4px',
                         marginLeft: 'auto'
                     }}>
                         <button
+                            role='tab'
+                            aria-selected={activeTab === 'inputs'}
                             onClick={() => setActiveTab('inputs')}
                             style={{
                                 padding: '4px 12px',
@@ -167,10 +169,12 @@ export const BruteForceComponent: React.FC<BruteForceComponentProps> = ({
                                 cursor: 'pointer'
                             }}
                         >
-                            <span className="codicon codicon-edit" style={{ marginRight: '4px' }} />
+                            <span className="codicon codicon-edit" style={{ marginRight: '4px' }} aria-hidden='true' />
                             Entrées
                         </button>
                         <button
+                            role='tab'
+                            aria-selected={activeTab === 'results'}
                             onClick={() => setActiveTab('results')}
                             style={{
                                 padding: '4px 12px',
@@ -186,7 +190,7 @@ export const BruteForceComponent: React.FC<BruteForceComponentProps> = ({
                                 cursor: 'pointer'
                             }}
                         >
-                            <span className="codicon codicon-checklist" style={{ marginRight: '4px' }} />
+                            <span className="codicon codicon-checklist" style={{ marginRight: '4px' }} aria-hidden='true' />
                             Résultats ({results.length})
                         </button>
                     </div>

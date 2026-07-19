@@ -189,7 +189,7 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
                             padding: '2px 6px',
                             borderRadius: 3,
                             fontSize: 12,
-                            background: '#2ecc71',
+                            background: 'var(--theia-charts-green, #22c55e)',
                             color: '#fff',
                             fontWeight: 700,
                             whiteSpace: 'nowrap'
@@ -207,7 +207,7 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
                             padding: '2px 6px',
                             borderRadius: 3,
                             fontSize: 12,
-                            background: '#f39c12',
+                            background: 'var(--theia-charts-orange, #f59e0b)',
                             color: '#fff',
                             fontWeight: 700,
                             whiteSpace: 'nowrap'
@@ -242,7 +242,7 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
                         padding: '2px 6px',
                         borderRadius: 3,
                         fontSize: 12,
-                        background: '#7f8c8d',
+                        background: 'var(--theia-charts-lines, #6b7280)',
                         color: '#fff',
                         fontWeight: 700,
                         whiteSpace: 'nowrap'
@@ -1897,7 +1897,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                         padding: '2px 6px',
                         borderRadius: 3,
                         fontSize: 12,
-                        background: '#2ecc71',
+                        background: 'var(--theia-charts-green, #22c55e)',
                         color: '#fff',
                         fontWeight: 700,
                         whiteSpace: 'nowrap'
@@ -1915,7 +1915,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                         padding: '2px 6px',
                         borderRadius: 3,
                         fontSize: 12,
-                        background: '#f39c12',
+                        background: 'var(--theia-charts-orange, #f59e0b)',
                         color: '#fff',
                         fontWeight: 700,
                         whiteSpace: 'nowrap'
@@ -1950,7 +1950,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                     padding: '2px 6px',
                     borderRadius: 3,
                     fontSize: 12,
-                    background: '#7f8c8d',
+                    background: 'var(--theia-charts-lines, #6b7280)',
                     color: '#fff',
                     fontWeight: 700,
                     whiteSpace: 'nowrap'
@@ -2831,7 +2831,7 @@ ${geocacheContext}`;
                                                     padding: '2px 6px',
                                                     borderRadius: 3,
                                                     fontSize: 12,
-                                                    background: '#2ecc71',
+                                                    background: 'var(--theia-charts-green, #22c55e)',
                                                     color: '#fff',
                                                     fontWeight: 700,
                                                     whiteSpace: 'nowrap'

@@ -89,7 +89,7 @@ export const GeocacheIcon: React.FC<GeocacheIconProps> = ({
                         display: 'inline-block',
                         width: size,
                         height: size,
-                        background: '#999',
+                        background: 'var(--theia-charts-lines, #9ca3af)',
                         borderRadius: '50%',
                         fontSize: size * 0.6,
                         lineHeight: `${size}px`,

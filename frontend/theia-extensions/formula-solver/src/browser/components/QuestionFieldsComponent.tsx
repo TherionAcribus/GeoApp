@@ -182,8 +182,9 @@ export const QuestionFieldCard: React.FC<QuestionFieldProps> = (props) => {
                                 }}
                                 onClick={() => window.open(buildGoogleSearchUrl(question.question), '_blank')}
                                 title="Ouvrir dans Google (navigateur externe)"
+                                aria-label="Ouvrir dans Google (navigateur externe)"
                             >
-                                <span className="codicon codicon-link-external" />
+                                <span className="codicon codicon-link-external" aria-hidden='true' />
                             </button>
                         </>
                     )}
@@ -200,8 +201,10 @@ export const QuestionFieldCard: React.FC<QuestionFieldProps> = (props) => {
                             }}
                             onClick={() => onToggleDetail(question.letter)}
                             title={isDetailExpanded ? 'Masquer les détails' : (detail.error ? 'La réponse a échoué — voir le détail' : 'Voir les détails de la réponse')}
+                            aria-label={isDetailExpanded ? 'Masquer les détails' : (detail.error ? 'La réponse a échoué — voir le détail' : 'Voir les détails de la réponse')}
+                            aria-expanded={isDetailExpanded}
                         >
-                            <span className={`codicon ${detail.error ? 'codicon-warning' : (isDetailExpanded ? 'codicon-chevron-up' : 'codicon-info')}`} />
+                            <span className={`codicon ${detail.error ? 'codicon-warning' : (isDetailExpanded ? 'codicon-chevron-up' : 'codicon-info')}`} aria-hidden='true' />
                         </button>
                     )}
                 </div>

@@ -167,7 +167,7 @@ export const LogsRecentSummary: React.FC<LogsRecentSummaryProps> = ({
                                             top: -2,
                                             right: -2,
                                             fontSize: 8,
-                                            color: '#fbbf24',
+                                            color: 'var(--theia-charts-yellow, #fbbf24)',
                                             lineHeight: 1,
                                         }}
                                         title="Log favori"

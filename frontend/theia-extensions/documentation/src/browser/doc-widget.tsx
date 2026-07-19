@@ -197,8 +197,9 @@ export class DocWidget extends ReactWidget {
                                     className="doc-search-clear"
                                     onClick={() => this.handleSearchChange('')}
                                     title="Effacer la recherche"
+                                    aria-label="Effacer la recherche"
                                 >
-                                    <span className="codicon codicon-close" />
+                                    <span className="codicon codicon-close" aria-hidden="true" />
                                 </button>
                             )}
                             {isSearching && (

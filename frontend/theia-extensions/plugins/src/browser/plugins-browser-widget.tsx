@@ -229,9 +229,10 @@ export class PluginsBrowserWidget extends ReactWidget {
                     className="theia-button"
                     onClick={() => this.refresh()}
                     title="Rafraîchir la liste"
+                    aria-label="Rafraîchir la liste"
                     disabled={this.loading}
                 >
-                    <i className="fa fa-refresh" />
+                    <i className="fa fa-refresh" aria-hidden="true" />
                 </button>
                 <button
                     className="theia-button"

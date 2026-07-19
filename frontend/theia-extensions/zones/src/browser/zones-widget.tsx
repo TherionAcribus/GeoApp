@@ -178,8 +178,8 @@ export class ZonesWidget extends ReactWidget {
                                         marginLeft: 8,
                                         padding: '2px 6px',
                                         background: 'transparent',
-                                        color: '#ef4444',
-                                        border: '1px solid #ef4444',
+                                        color: 'var(--theia-errorForeground, #ef4444)',
+                                        border: '1px solid var(--theia-errorForeground, #ef4444)',
                                         borderRadius: 3,
                                         cursor: 'pointer',
                                         fontSize: '12px'

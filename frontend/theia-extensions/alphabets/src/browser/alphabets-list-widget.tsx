@@ -14,6 +14,7 @@ import {
     getImageResourcePathCandidates,
     resolveAlphabetImageSource
 } from './alphabet-symbol-resolver';
+import { EmptyState, LoadingState } from './state-views';
 
 const PRESET_EXAMPLE_OPTIONS: Array<{ label: string; value: string }> = [
     { label: 'ABC…', value: 'ABCDEFGHIJKLM' },
@@ -1382,21 +1383,17 @@ export class AlphabetsListWidget extends ReactWidget {
         // reponse) et on signale le chargement en cours via l'icone actualiser
         // (voir renderHeader) plutot que de vider tout le panneau.
         if (this.loading && this.alphabets.length === 0) {
-            return (
-                <div style={{ textAlign: 'center', padding: '20px', color: 'var(--theia-descriptionForeground)' }}>
-                    <i className='fa fa-spinner fa-spin' style={{ marginRight: '8px' }}></i>
-                    Chargement...
-                </div>
-            );
+            return <LoadingState />;
         }
 
         const displayedAlphabets = this.getDisplayedAlphabets();
 
         if (displayedAlphabets.length === 0) {
             return (
-                <div style={{ textAlign: 'center', padding: '20px', color: 'var(--theia-descriptionForeground)' }}>
-                    {this.searchQuery ? 'Aucun alphabet trouvé pour cette recherche' : 'Aucun alphabet disponible'}
-                </div>
+                <EmptyState
+                    icon='fa-font'
+                    title={this.searchQuery ? 'Aucun alphabet trouvé pour cette recherche' : 'Aucun alphabet disponible'}
+                />
             );
         }
 

@@ -532,13 +532,13 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
                 <div style={{ display: 'grid', gap: 8, maxWidth: 900 }}>
                     {/* Barre d'outils de l'éditeur */}
                     <div style={toolbarStyle}>
-                        <button type='button' title='Gras' style={toolbarBtnStyle} onClick={() => execFormat('bold')}>
+                        <button type='button' title='Gras' aria-label='Gras' style={toolbarBtnStyle} onClick={() => execFormat('bold')}>
                             <i className='fa fa-bold' aria-hidden='true' />
                         </button>
-                        <button type='button' title='Italique' style={toolbarBtnStyle} onClick={() => execFormat('italic')}>
+                        <button type='button' title='Italique' aria-label='Italique' style={toolbarBtnStyle} onClick={() => execFormat('italic')}>
                             <i className='fa fa-italic' aria-hidden='true' />
                         </button>
-                        <button type='button' title='Souligné' style={toolbarBtnStyle} onClick={() => execFormat('underline')}>
+                        <button type='button' title='Souligné' aria-label='Souligné' style={toolbarBtnStyle} onClick={() => execFormat('underline')}>
                             <i className='fa fa-underline' aria-hidden='true' />
                         </button>
                         <span style={toolbarSepStyle} />
@@ -563,29 +563,30 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
                             <option value='48px'>48</option>
                         </select>
                         <span style={toolbarSepStyle} />
-                        <button type='button' title='Liste à puces' style={toolbarBtnStyle} onClick={() => execFormat('insertUnorderedList')}>
+                        <button type='button' title='Liste à puces' aria-label='Liste à puces' style={toolbarBtnStyle} onClick={() => execFormat('insertUnorderedList')}>
                             <i className='fa fa-list-ul' aria-hidden='true' />
                         </button>
-                        <button type='button' title='Liste numérotée' style={toolbarBtnStyle} onClick={() => execFormat('insertOrderedList')}>
+                        <button type='button' title='Liste numérotée' aria-label='Liste numérotée' style={toolbarBtnStyle} onClick={() => execFormat('insertOrderedList')}>
                             <i className='fa fa-list-ol' aria-hidden='true' />
                         </button>
                         <span style={toolbarSepStyle} />
-                        <button type='button' title='Aligner à gauche' style={toolbarBtnStyle} onClick={() => execFormat('justifyLeft')}>
+                        <button type='button' title='Aligner à gauche' aria-label='Aligner à gauche' style={toolbarBtnStyle} onClick={() => execFormat('justifyLeft')}>
                             <i className='fa fa-align-left' aria-hidden='true' />
                         </button>
-                        <button type='button' title='Centrer' style={toolbarBtnStyle} onClick={() => execFormat('justifyCenter')}>
+                        <button type='button' title='Centrer' aria-label='Centrer' style={toolbarBtnStyle} onClick={() => execFormat('justifyCenter')}>
                             <i className='fa fa-align-center' aria-hidden='true' />
                         </button>
-                        <button type='button' title='Aligner à droite' style={toolbarBtnStyle} onClick={() => execFormat('justifyRight')}>
+                        <button type='button' title='Aligner à droite' aria-label='Aligner à droite' style={toolbarBtnStyle} onClick={() => execFormat('justifyRight')}>
                             <i className='fa fa-align-right' aria-hidden='true' />
                         </button>
-                        <button type='button' title='Justifier' style={toolbarBtnStyle} onClick={() => execFormat('justifyFull')}>
+                        <button type='button' title='Justifier' aria-label='Justifier' style={toolbarBtnStyle} onClick={() => execFormat('justifyFull')}>
                             <i className='fa fa-align-justify' aria-hidden='true' />
                         </button>
                         <span style={toolbarSepStyle} />
                         {/* Couleur du texte — label invisible sur input type=color pour ouvrir le picker natif */}
                         <label
                             title='Couleur du texte'
+                            aria-label='Couleur du texte'
                             style={{ ...toolbarBtnStyle, cursor: 'pointer', position: 'relative', display: 'inline-flex', alignItems: 'center' }}
                             onMouseDown={saveSelection}
                         >
@@ -600,6 +601,7 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
                         {/* Couleur de fond du texte (surlignage) */}
                         <label
                             title='Couleur de fond du texte'
+                            aria-label='Couleur de fond du texte'
                             style={{ ...toolbarBtnStyle, cursor: 'pointer', position: 'relative', display: 'inline-flex', alignItems: 'center' }}
                             onMouseDown={saveSelection}
                         >
@@ -615,6 +617,7 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
                         <button
                             type='button'
                             title='Insérer un lien'
+                            aria-label='Insérer un lien'
                             style={toolbarBtnStyle}
                             onClick={() => {
                                 const url = window.prompt('URL du lien :');
@@ -623,11 +626,11 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
                         >
                             <i className='fa fa-link' aria-hidden='true' />
                         </button>
-                        <button type='button' title='Supprimer le lien' style={toolbarBtnStyle} onClick={() => execFormat('unlink')}>
+                        <button type='button' title='Supprimer le lien' aria-label='Supprimer le lien' style={toolbarBtnStyle} onClick={() => execFormat('unlink')}>
                             <i className='fa fa-unlink' aria-hidden='true' />
                         </button>
                         <span style={toolbarSepStyle} />
-                        <button type='button' title='Supprimer la mise en forme' style={toolbarBtnStyle} onClick={() => execFormat('removeFormat')}>
+                        <button type='button' title='Supprimer la mise en forme' aria-label='Supprimer la mise en forme' style={toolbarBtnStyle} onClick={() => execFormat('removeFormat')}>
                             <i className='fa fa-eraser' aria-hidden='true' />
                         </button>
                     </div>

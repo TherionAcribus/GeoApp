@@ -29,6 +29,7 @@ import {
     FormulaPreviewComponent,
     BruteForceComponent
 } from './components';
+import { EmptyState, LoadingState } from './state-views';
 
 @injectable()
 export class FormulaSolverWidget extends ReactWidget {
@@ -2184,12 +2185,7 @@ export class FormulaSolverWidget extends ReactWidget {
                 {this.state.questions.length > 0 && this.renderCalculateStep()}
                 
                 {/* État de chargement */}
-                {this.state.loading && (
-                    <div style={{ textAlign: 'center', marginTop: '20px' }}>
-                        <span className='theia-animation-spin codicon codicon-loading'></span>
-                        <span style={{ marginLeft: '10px' }}>Chargement...</span>
-                    </div>
-                )}
+                {this.state.loading && <LoadingState />}
                 
                 {/* Message d'erreur */}
                 {this.state.error && (
@@ -2354,9 +2350,7 @@ export class FormulaSolverWidget extends ReactWidget {
                     Sessions sauvegardées
                 </h4>
                 {sessions.length === 0 ? (
-                    <div style={{ fontSize: '12px', color: 'var(--theia-descriptionForeground)' }}>
-                        Aucune session sauvegardée.
-                    </div>
+                    <EmptyState icon='codicon-save' title='Aucune session sauvegardée' />
                 ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                         {sessions.map(session => (
@@ -3132,9 +3126,11 @@ export class FormulaSolverWidget extends ReactWidget {
                     </div>
 
                     {this.state.questions.length === 0 ? (
-                        <div style={{ color: 'var(--theia-descriptionForeground)' }}>
-                            Aucune question trouvée. Lancez la détection pour extraire les questions.
-                        </div>
+                        <EmptyState
+                            icon='codicon-question'
+                            title='Aucune question trouvée'
+                            description='Lancez la détection pour extraire les questions.'
+                        />
                     ) : (
                         <div>
                             <div style={{ marginBottom: '10px', fontSize: '14px' }}>

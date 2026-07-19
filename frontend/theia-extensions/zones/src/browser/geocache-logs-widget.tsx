@@ -136,7 +136,7 @@ const LogItem: React.FC<LogItemProps> = ({ log }) => {
                         <div style={{ fontWeight: 'bold', color }}>
                             {log.log_type}
                             {log.is_favorite && (
-                                <span style={{ marginLeft: 6, color: '#fbbf24' }} title="Favori">
+                                <span style={{ marginLeft: 6, color: 'var(--theia-charts-yellow, #fbbf24)' }} title="Favori">
                                     <i className="fa fa-star" />
                                 </span>
                             )}

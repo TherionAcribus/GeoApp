@@ -10,6 +10,7 @@ import { ApplicationShell, StatefulWidget, WidgetManager } from '@theia/core/lib
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import { PreferenceScope } from '@theia/core/lib/common/preferences/preference-scope';
 import { AlphabetsService } from './services/alphabets-service';
+import { LoadingState } from './state-views';
 import { Alphabet, ZoomState, PinnedState, AssociatedGeocache, DistanceInfo, DetectedCoordinates } from '../common/alphabet-protocol';
 import { CoordinatesDetector } from './components/coordinates-detector';
 import { GeocacheAssociation } from './components/geocache-association';
@@ -954,18 +955,7 @@ export class AlphabetViewerWidget extends ReactWidget implements StatefulWidget 
      * Rendu du chargement.
      */
     private renderLoading(): React.ReactNode {
-        return (
-            <div style={{
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-                height: '100%',
-                color: 'var(--theia-descriptionForeground)'
-            }}>
-                <i className='fa fa-spinner fa-spin' style={{ marginRight: '8px', fontSize: '24px' }}></i>
-                <span>Chargement de l'alphabet...</span>
-            </div>
-        );
+        return <LoadingState fullHeight message="Chargement de l'alphabet…" />;
     }
 
     /**
