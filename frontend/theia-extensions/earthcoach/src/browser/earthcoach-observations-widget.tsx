@@ -354,6 +354,7 @@ const ObservationCard = React.memo(function ObservationCard(props: ObservationCa
                         type='button'
                         onClick={() => { void props.onDelete(observation); }}
                         disabled={props.isDeleting}
+                        style={{ color: 'var(--theia-errorForeground)' }}
                     >
                         {props.isDeleting ? 'Suppression...' : 'Supprimer'}
                     </button>
@@ -588,6 +589,15 @@ export class EarthCoachObservationsWidget extends ReactWidget {
     }
 
     setContext(context: EarthCoachContext): void {
+        // Un changement de cache reinitialise les brouillons (ils sont propres a
+        // une cache: waypoints, images et coordonnees differents). On previent
+        // l'utilisateur si une saisie non enregistree est ainsi abandonnee.
+        const previousId = this.context?.geocacheData.id;
+        const nextId = context.geocacheData.id;
+        const hadDraft = this.createDraft.content.trim().length > 0 || this.editingObservationId != null;
+        if (previousId != null && previousId !== nextId && hadDraft) {
+            this.messages.warn('Brouillon d observation non enregistre abandonne (changement de cache).');
+        }
         this.context = context;
         this.images = [...context.images];
         this.observations = [];

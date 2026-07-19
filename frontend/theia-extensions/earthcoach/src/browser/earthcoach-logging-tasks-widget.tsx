@@ -241,6 +241,7 @@ const LoggingTaskCard = React.memo(function LoggingTaskCard(props: LoggingTaskCa
                         type='button'
                         onClick={() => { void props.onDelete(task); }}
                         disabled={props.isDeleting}
+                        style={{ color: 'var(--theia-errorForeground)' }}
                     >
                         {props.isDeleting ? 'Suppression...' : 'Supprimer'}
                     </button>
@@ -456,6 +457,14 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
     }
 
     setContext(context: EarthCoachContext): void {
+        // Cf. widget Observations: on previent si un brouillon de question non
+        // enregistre est abandonne par le changement de cache.
+        const previousId = this.context?.geocacheData.id;
+        const nextId = context.geocacheData.id;
+        const hadDraft = this.createDraft.question.trim().length > 0 || this.editingTaskId != null;
+        if (previousId != null && previousId !== nextId && hadDraft) {
+            this.messages.warn('Brouillon de question non enregistre abandonne (changement de cache).');
+        }
         this.context = context;
         this.tasks = [];
         this.loadError = undefined;
