@@ -2,6 +2,7 @@ import * as React from 'react';
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { CommandService } from '@theia/core';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
+import { StatefulWidget } from '@theia/core/lib/browser';
 import { PreferenceScope } from '@theia/core/lib/common/preferences/preference-scope';
 
 import { GeoPreferenceStore, GeoPreferenceSnapshot } from './geo-preference-store';
@@ -211,7 +212,7 @@ const ENUM_VALUE_LABELS: Record<string, string> = {
 };
 
 @injectable()
-export class GeoPreferencesWidget extends ReactWidget {
+export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget {
 
     static readonly ID = 'geo-preferences-widget';
     static readonly LABEL = 'Préférences GeoApp';
@@ -237,6 +238,8 @@ export class GeoPreferencesWidget extends ReactWidget {
     private readonly textDrafts = new Map<string, string>();
     /** Clés dont le dernier JSON saisi était invalide (feedback inline). */
     private readonly jsonErrors = new Set<string>();
+    /** Valeur JSON figée pendant l'édition d'un textarea, pour éviter tout remount qui écraserait la saisie. */
+    private readonly jsonEditingSnapshot = new Map<string, string>();
 
     constructor(
         @inject(GeoPreferenceStore) private readonly store: GeoPreferenceStore,
@@ -278,6 +281,49 @@ export class GeoPreferencesWidget extends ReactWidget {
             this.updateScheduled = false;
             this.update();
         });
+    }
+
+    storeState(): object {
+        return {
+            searchQuery: this.searchQuery,
+            targetFilter: this.targetFilter,
+            valueFilter: this.valueFilter,
+            complexityFilter: this.complexityFilter,
+            selectedGuideId: this.selectedGuideId,
+            expandedCategories: Array.from(this.expandedCategories)
+        };
+    }
+
+    restoreState(state: object): void {
+        const restored = state as Partial<{
+            searchQuery: string;
+            targetFilter: GeoPreferenceTargetFilter;
+            valueFilter: GeoPreferenceValueFilter;
+            complexityFilter: GeoPreferenceComplexityFilter;
+            selectedGuideId: string;
+            expandedCategories: string[];
+        }>;
+        if (typeof restored.searchQuery === 'string') {
+            this.searchQuery = restored.searchQuery;
+        }
+        if (restored.targetFilter) {
+            this.targetFilter = restored.targetFilter;
+        }
+        if (restored.valueFilter) {
+            this.valueFilter = restored.valueFilter;
+        }
+        if (restored.complexityFilter) {
+            this.complexityFilter = restored.complexityFilter;
+        }
+        if (typeof restored.selectedGuideId === 'string') {
+            this.selectedGuideId = restored.selectedGuideId;
+        }
+        if (Array.isArray(restored.expandedCategories)) {
+            this.expandedCategories = new Set(restored.expandedCategories);
+            // On a un état explicite : ne pas ré-déplier toutes les catégories au premier render.
+            this.expandedCategoriesInitialized = true;
+        }
+        this.update();
     }
 
     revealCategory(category?: string): void {
@@ -441,6 +487,7 @@ export class GeoPreferencesWidget extends ReactWidget {
             <button
                 className={`theia-button secondary geo-preferences-filter-button${active ? ' active' : ''}`}
                 type='button'
+                aria-pressed={active}
                 onClick={onClick}
             >
                 {label}
@@ -459,6 +506,7 @@ export class GeoPreferencesWidget extends ReactWidget {
             <button
                 className={`theia-button secondary geo-preferences-guide-button${active ? ' active' : ''}`}
                 type='button'
+                aria-pressed={active}
                 onClick={onClick}
                 title={title ?? label}
             >
@@ -500,6 +548,7 @@ export class GeoPreferencesWidget extends ReactWidget {
                     <button
                         className='geo-preferences-section-toggle'
                         type='button'
+                        aria-expanded={expanded}
                         onClick={() => this.toggleCategory(section.category)}
                         title={expanded ? 'Replier la section' : 'Déplier la section'}
                     >
@@ -741,17 +790,25 @@ export class GeoPreferencesWidget extends ReactWidget {
     ): React.ReactNode {
         const jsonValue = this.formatJsonValue(value, fallback);
         const hasError = this.jsonErrors.has(key);
+        // Pendant l'édition, on fige la valeur utilisée comme `key` React : une mise à jour
+        // externe (sync backend) ne doit pas remonter le textarea et écraser la saisie en cours.
+        const frozen = this.jsonEditingSnapshot.get(key);
+        const reactKey = `${key}:${frozen ?? jsonValue}`;
         return (
             <div className='geo-preference-json-wrapper'>
                 <textarea
-                    key={`${key}:${jsonValue}`}
+                    key={reactKey}
                     id={key}
                     className={`geo-preference-json${hasError ? ' invalid' : ''}`}
                     rows={8}
                     defaultValue={jsonValue}
                     spellCheck={false}
                     aria-invalid={hasError}
-                    onBlur={event => onBlur(event.currentTarget.value)}
+                    onFocus={() => { this.jsonEditingSnapshot.set(key, jsonValue); }}
+                    onBlur={event => {
+                        this.jsonEditingSnapshot.delete(key);
+                        onBlur(event.currentTarget.value);
+                    }}
                 />
                 {hasError && (
                     <p className='geo-preference-json-error' role='alert'>
