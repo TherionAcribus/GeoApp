@@ -149,6 +149,8 @@ def test_endpoint_uses_gpx_first_without_per_cache_scraping(app, monkeypatch):
         assert stored.zone_id == zone_id
         # Le flux mentionne l'import GPX sans téléchargement page par page
         assert 'GPX' in body
+        # Le flux transporte les compteurs cumulés (compteur live du dialogue)
+        assert '"counts"' in body
 
 
 def test_endpoint_update_existing_flag_refreshes_caches(app, monkeypatch):

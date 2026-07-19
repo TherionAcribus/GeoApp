@@ -5,6 +5,7 @@ import { ImportBookmarkListDialog } from './import-bookmark-list-dialog';
 import { ImportPocketQueryDialog } from './import-pocket-query-dialog';
 import { MoveGeocacheDialog } from './move-geocache-dialog';
 import { ImportAroundDialog, ImportAroundCenter, ImportAroundRequest } from './import-around-dialog';
+import { ImportProgressCallback } from './import-dialog-shell';
 
 type SelectionDialogState = { geocacheIds: number[] } | null;
 
@@ -42,9 +43,9 @@ export interface ZoneGeocachesViewProps {
     onImportAround: (geocache: Geocache) => void | Promise<void>;
     onTableVisibleColumnIdsChange: (columnIds: GeocachesTableColumnId[]) => void;
     onFilteredDataChange?: (geocaches: Geocache[]) => void;
-    onImportGpx: (file: File, updateExisting: boolean, onProgress?: (percentage: number, message: string) => void) => Promise<void>;
-    onImportBookmarkList: (bookmarkCode: string, updateExisting: boolean, onProgress?: (percentage: number, message: string) => void) => Promise<void>;
-    onImportPocketQuery: (pqCode: string, updateExisting: boolean, onProgress?: (percentage: number, message: string) => void) => Promise<void>;
+    onImportGpx: (file: File, updateExisting: boolean, onProgress?: ImportProgressCallback) => Promise<void>;
+    onImportBookmarkList: (bookmarkCode: string, updateExisting: boolean, onProgress?: ImportProgressCallback) => Promise<void>;
+    onImportPocketQuery: (pqCode: string, updateExisting: boolean, onProgress?: ImportProgressCallback) => Promise<void>;
     onCancelImportDialog: () => void;
     onCancelBookmarkListDialog: () => void;
     onCancelPocketQueryDialog: () => void;
@@ -179,6 +180,7 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
         {props.showBookmarkListDialog && props.zoneId && (
             <ImportBookmarkListDialog
                 zoneId={props.zoneId}
+                zoneName={props.zones.find(z => z.id === props.zoneId)?.name}
                 onImport={props.onImportBookmarkList}
                 onCancel={props.onCancelBookmarkListDialog}
                 onCancelImport={props.onCancelImport}
@@ -189,6 +191,7 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
         {props.showPocketQueryDialog && props.zoneId && (
             <ImportPocketQueryDialog
                 zoneId={props.zoneId}
+                zoneName={props.zones.find(z => z.id === props.zoneId)?.name}
                 onImport={props.onImportPocketQuery}
                 onCancel={props.onCancelPocketQueryDialog}
                 onCancelImport={props.onCancelImport}

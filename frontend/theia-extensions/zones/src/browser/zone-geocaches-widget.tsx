@@ -17,6 +17,7 @@ import {
 import { ImportGpxDialog } from './import-gpx-dialog';
 import { ImportBookmarkListDialog } from './import-bookmark-list-dialog';
 import { ImportPocketQueryDialog } from './import-pocket-query-dialog';
+import { ImportProgressCallback, ImportCounts } from './import-dialog-shell';
 import { MoveGeocacheDialog } from './move-geocache-dialog';
 import { MapWidgetFactory } from './map/map-widget-factory';
 import type { MapWidget } from './map/map-widget';
@@ -418,7 +419,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
 
     private async consumeImportStream(
         response: Response,
-        onProgress?: (percentage: number, message: string) => void
+        onProgress?: ImportProgressCallback
     ): Promise<{ lastMessage?: string; hadError: boolean }> {
         const reader = response.body?.getReader();
         if (!reader) {
@@ -443,6 +444,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                     progress?: number;
                     message?: string;
                     final_summary?: boolean;
+                    counts?: ImportCounts;
+                    error_item?: string;
                 };
 
                 if (data.error) {
@@ -456,7 +459,10 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 }
 
                 if (typeof data.progress === 'number') {
-                    onProgress?.(data.progress, data.message || '');
+                    onProgress?.(data.progress, data.message || '', {
+                        counts: data.counts,
+                        errorItem: data.error_item
+                    });
                 }
 
                 if (data.final_summary && data.message) {
@@ -1410,7 +1416,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         }
     }
 
-    protected async handleImportGpx(file: File, updateExisting: boolean, onProgress?: (percentage: number, message: string) => void): Promise<void> {
+    protected async handleImportGpx(file: File, updateExisting: boolean, onProgress?: ImportProgressCallback): Promise<void> {
         if (!this.zoneId) {
             this.messages.warn('Zone active manquante');
             return;
@@ -1456,7 +1462,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         this.importAbortController?.abort();
     }
 
-    protected async handleImportBookmarkList(bookmarkCode: string, updateExisting: boolean, onProgress?: (percentage: number, message: string) => void): Promise<void> {
+    protected async handleImportBookmarkList(bookmarkCode: string, updateExisting: boolean, onProgress?: ImportProgressCallback): Promise<void> {
         if (!this.zoneId) {
             this.messages.error('Zone non définie');
             return;
@@ -1494,7 +1500,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         }
     }
 
-    protected async handleImportPocketQuery(pqCode: string, updateExisting: boolean, onProgress?: (percentage: number, message: string) => void): Promise<void> {
+    protected async handleImportPocketQuery(pqCode: string, updateExisting: boolean, onProgress?: ImportProgressCallback): Promise<void> {
         if (!this.zoneId) {
             this.messages.error('Zone non définie');
             return;

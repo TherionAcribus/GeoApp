@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { ImportDialogShell, ImportCounts, ImportProgressCallback } from './import-dialog-shell';
 
 interface BookmarkList {
     code: string;
@@ -9,7 +10,8 @@ interface BookmarkList {
 
 export interface ImportBookmarkListDialogProps {
     zoneId: number;
-    onImport: (bookmarkCode: string, updateExisting: boolean, onProgress?: (percentage: number, message: string) => void) => Promise<void>;
+    zoneName?: string;
+    onImport: (bookmarkCode: string, updateExisting: boolean, onProgress?: ImportProgressCallback) => Promise<void>;
     onCancel: () => void;
     onCancelImport?: () => void;
     isImporting: boolean;
@@ -18,6 +20,7 @@ export interface ImportBookmarkListDialogProps {
 
 export const ImportBookmarkListDialog: React.FC<ImportBookmarkListDialogProps> = ({
     zoneId,
+    zoneName,
     onImport,
     onCancel,
     onCancelImport,
@@ -32,6 +35,8 @@ export const ImportBookmarkListDialog: React.FC<ImportBookmarkListDialogProps> =
     const [progressVisible, setProgressVisible] = React.useState(false);
     const [progressPercentage, setProgressPercentage] = React.useState(0);
     const [progressMessage, setProgressMessage] = React.useState('');
+    const [counts, setCounts] = React.useState<ImportCounts | undefined>(undefined);
+    const [errorItems, setErrorItems] = React.useState<string[]>([]);
 
     React.useEffect(() => {
         const fetchLists = async () => {
@@ -57,16 +62,20 @@ export const ImportBookmarkListDialog: React.FC<ImportBookmarkListDialogProps> =
         fetchLists();
     }, [backendUrl]);
 
-    const handleProgressUpdate = React.useCallback((percentage: number, message: string) => {
+    const handleProgressUpdate = React.useCallback<ImportProgressCallback>((percentage, message, extra) => {
         setProgressPercentage(percentage);
         setProgressMessage(message);
         setProgressVisible(true);
+        if (extra?.counts) { setCounts(extra.counts); }
+        if (extra?.errorItem) { setErrorItems(prev => [...prev, extra.errorItem!]); }
     }, []);
 
     const resetProgress = React.useCallback(() => {
         setProgressVisible(false);
         setProgressPercentage(0);
         setProgressMessage('');
+        setCounts(undefined);
+        setErrorItems([]);
     }, []);
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -82,250 +91,101 @@ export const ImportBookmarkListDialog: React.FC<ImportBookmarkListDialogProps> =
     }, [lists, selectedCode]);
 
     return (
-        <div 
-            style={{
-                position: 'fixed',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: 'rgba(0, 0, 0, 0.5)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                zIndex: 10000
-            }}
-            onClick={onCancel}
+        <ImportDialogShell
+            title="Importer depuis une liste de favoris"
+            isImporting={isImporting}
+            canSubmit={!!selectedCode && !loading && lists.length > 0}
+            onSubmit={handleSubmit}
+            onCancel={onCancel}
+            onCancelImport={onCancelImport}
+            progressVisible={progressVisible}
+            progressPercentage={progressPercentage}
+            progressMessage={progressMessage}
+            counts={counts}
+            errorItems={errorItems}
         >
-            <div 
-                style={{
-                    backgroundColor: 'var(--theia-editor-background)',
-                    padding: '24px',
-                    borderRadius: '8px',
-                    width: '500px',
-                    maxWidth: '90vw',
-                    border: '1px solid var(--theia-panel-border)',
-                    boxShadow: '0 4px 6px rgba(0, 0, 0, 0.3)'
-                }}
-                onClick={(e) => e.stopPropagation()}
-            >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                    <h3 style={{ margin: 0, fontSize: '18px', color: 'var(--theia-foreground)' }}>
-                        Importer depuis une liste de favoris
-                    </h3>
-                    <button
-                        onClick={onCancel}
+            {loading ? (
+                <div style={{ padding: '20px', textAlign: 'center', color: 'var(--theia-descriptionForeground)' }}>
+                    Chargement de vos listes...
+                </div>
+            ) : error ? (
+                <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: 'var(--theia-inputValidation-errorBackground)', borderRadius: '4px' }}>
+                    <p style={{ fontSize: '13px', color: 'var(--theia-errorForeground)', margin: 0 }}>
+                        {error}
+                    </p>
+                </div>
+            ) : lists.length === 0 ? (
+                <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: 'var(--theia-input-background)', borderRadius: '4px' }}>
+                    <p style={{ fontSize: '13px', color: 'var(--theia-descriptionForeground)', margin: 0 }}>
+                        Aucune liste de favoris trouvée. Créez-en une sur geocaching.com.
+                    </p>
+                </div>
+            ) : (
+                <div style={{ marginBottom: '16px' }}>
+                    <label
+                        htmlFor="listSelect"
+                        style={{ display: 'block', fontSize: '13px', marginBottom: '8px', color: 'var(--theia-foreground)' }}
+                    >
+                        Sélectionnez une liste de favoris
+                    </label>
+                    <select
+                        id="listSelect"
+                        value={selectedCode}
+                        onChange={(e) => setSelectedCode(e.target.value)}
                         disabled={isImporting}
                         style={{
-                            background: 'none',
-                            border: 'none',
-                            color: 'var(--theia-foreground)',
+                            display: 'block',
+                            width: '100%',
+                            padding: '8px',
+                            backgroundColor: 'var(--theia-input-background)',
+                            color: 'var(--theia-input-foreground)',
+                            border: '1px solid var(--theia-input-border)',
+                            borderRadius: '4px',
                             cursor: isImporting ? 'not-allowed' : 'pointer',
-                            padding: '4px',
-                            opacity: isImporting ? 0.5 : 1,
-                            fontSize: '20px'
+                            fontSize: '14px'
                         }}
                     >
-                        ✕
-                    </button>
+                        {lists.map(list => (
+                            <option key={list.code} value={list.code}>
+                                {list.name} ({list.count} caches)
+                            </option>
+                        ))}
+                    </select>
+                    {selectedList && (
+                        <p style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)', marginTop: '4px' }}>
+                            Code: {selectedList.code}
+                        </p>
+                    )}
                 </div>
+            )}
 
-                <form onSubmit={handleSubmit}>
-                    {loading ? (
-                        <div style={{ padding: '20px', textAlign: 'center', color: 'var(--theia-descriptionForeground)' }}>
-                            Chargement de vos listes...
-                        </div>
-                    ) : error ? (
-                        <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: 'var(--theia-inputValidation-errorBackground)', borderRadius: '4px' }}>
-                            <p style={{ fontSize: '13px', color: 'var(--theia-errorForeground)', margin: 0 }}>
-                                {error}
-                            </p>
-                        </div>
-                    ) : lists.length === 0 ? (
-                        <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: 'var(--theia-input-background)', borderRadius: '4px' }}>
-                            <p style={{ fontSize: '13px', color: 'var(--theia-descriptionForeground)', margin: 0 }}>
-                                Aucune liste de favoris trouvée. Créez-en une sur geocaching.com.
-                            </p>
-                        </div>
-                    ) : (
-                        <div style={{ marginBottom: '16px' }}>
-                            <label 
-                                htmlFor="listSelect"
-                                style={{ 
-                                    display: 'block', 
-                                    fontSize: '13px', 
-                                    marginBottom: '8px',
-                                    color: 'var(--theia-foreground)'
-                                }}
-                            >
-                                Sélectionnez une liste de favoris
-                            </label>
-                            <select
-                                id="listSelect"
-                                value={selectedCode}
-                                onChange={(e) => setSelectedCode(e.target.value)}
-                                disabled={isImporting}
-                                style={{
-                                    display: 'block',
-                                    width: '100%',
-                                    padding: '8px',
-                                    backgroundColor: 'var(--theia-input-background)',
-                                    color: 'var(--theia-input-foreground)',
-                                    border: '1px solid var(--theia-input-border)',
-                                    borderRadius: '4px',
-                                    cursor: isImporting ? 'not-allowed' : 'pointer',
-                                    fontSize: '14px'
-                                }}
-                            >
-                                {lists.map(list => (
-                                    <option key={list.code} value={list.code}>
-                                        {list.name} ({list.count} caches)
-                                    </option>
-                                ))}
-                            </select>
-                            {selectedList && (
-                                <p style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)', marginTop: '4px' }}>
-                                    Code: {selectedList.code}
-                                </p>
-                            )}
-                        </div>
-                    )}
-
-                    <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: 'var(--theia-input-background)', borderRadius: '4px' }}>
-                        <p style={{ fontSize: '12px', color: 'var(--theia-descriptionForeground)', margin: 0 }}>
-                            <strong>Zone cible:</strong> {zoneId}
-                        </p>
-                        <p style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)', margin: '8px 0 0 0' }}>
-                            💡 Les géocaches de la liste seront importées dans cette zone. Assurez-vous d'être connecté à geocaching.com dans votre navigateur.
-                        </p>
-                    </div>
-
-                    <div style={{ marginBottom: '16px' }}>
-                        <label style={{ display: 'flex', alignItems: 'center', fontSize: '13px', cursor: isImporting ? 'not-allowed' : 'pointer' }}>
-                            <input
-                                type="checkbox"
-                                checked={updateExisting}
-                                onChange={(e) => setUpdateExisting(e.target.checked)}
-                                disabled={isImporting}
-                                style={{ marginRight: '8px', cursor: isImporting ? 'not-allowed' : 'pointer' }}
-                            />
-                            <span style={{ color: 'var(--theia-foreground)' }}>
-                                Mettre à jour les géocaches déjà présentes
-                            </span>
-                        </label>
-                        <p style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)', marginTop: '4px', marginLeft: '24px' }}>
-                            Si coché, les géocaches déjà importées sont rafraîchies (nom, statut, difficulté…).
-                            Vos coordonnées résolues localement et notes personnelles sont préservées.
-                        </p>
-                    </div>
-
-                    {progressVisible && (
-                        <div style={{ marginBottom: '16px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                                <span style={{ fontSize: '13px', color: 'var(--theia-foreground)' }}>
-                                    Progression
-                                </span>
-                                <span style={{ fontSize: '13px', color: 'var(--theia-descriptionForeground)' }}>
-                                    {progressPercentage}%
-                                </span>
-                            </div>
-                            <div
-                                style={{
-                                    width: '100%',
-                                    height: '8px',
-                                    backgroundColor: 'var(--theia-progressBar-background)',
-                                    borderRadius: '4px',
-                                    overflow: 'hidden'
-                                }}
-                            >
-                                <div
-                                    style={{
-                                        width: `${progressPercentage}%`,
-                                        height: '100%',
-                                        backgroundColor: 'var(--theia-progressBar-foreground)',
-                                        transition: 'width 0.3s ease'
-                                    }}
-                                />
-                            </div>
-                            {progressMessage && (
-                                <p style={{ fontSize: '12px', color: 'var(--theia-descriptionForeground)', marginTop: '4px' }}>
-                                    {progressMessage}
-                                </p>
-                            )}
-                        </div>
-                    )}
-
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-                        {isImporting && onCancelImport && (
-                            <button
-                                type="button"
-                                onClick={onCancelImport}
-                                style={{
-                                    padding: '8px 16px',
-                                    backgroundColor: 'var(--theia-inputValidation-errorBackground)',
-                                    color: 'var(--theia-errorForeground)',
-                                    border: '1px solid var(--theia-inputValidation-errorBorder)',
-                                    borderRadius: '4px',
-                                    cursor: 'pointer'
-                                }}
-                            >
-                                Interrompre
-                            </button>
-                        )}
-                        <button
-                            type="button"
-                            onClick={onCancel}
-                            disabled={isImporting}
-                            style={{
-                                padding: '8px 16px',
-                                backgroundColor: 'var(--theia-button-secondaryBackground)',
-                                color: 'var(--theia-button-secondaryForeground)',
-                                border: 'none',
-                                borderRadius: '4px',
-                                cursor: isImporting ? 'not-allowed' : 'pointer',
-                                opacity: isImporting ? 0.5 : 1
-                            }}
-                        >
-                            Annuler
-                        </button>
-                        <button
-                            type="submit"
-                            disabled={!selectedCode || isImporting || loading || lists.length === 0}
-                            style={{
-                                padding: '8px 16px',
-                                backgroundColor: (!selectedCode || isImporting || loading || lists.length === 0) ? 'var(--theia-button-disabledBackground)' : 'var(--theia-button-background)',
-                                color: (!selectedCode || isImporting || loading || lists.length === 0) ? 'var(--theia-button-disabledForeground)' : 'var(--theia-button-foreground)',
-                                border: 'none',
-                                borderRadius: '4px',
-                                cursor: (!selectedCode || isImporting || loading || lists.length === 0) ? 'not-allowed' : 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px'
-                            }}
-                        >
-                            <span>Importer</span>
-                            {isImporting && (
-                                <div 
-                                    style={{
-                                        width: '16px',
-                                        height: '16px',
-                                        border: '2px solid currentColor',
-                                        borderTopColor: 'transparent',
-                                        borderRadius: '50%',
-                                        animation: 'spin 1s linear infinite'
-                                    }}
-                                />
-                            )}
-                        </button>
-                    </div>
-                </form>
+            <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: 'var(--theia-input-background)', borderRadius: '4px' }}>
+                <p style={{ fontSize: '12px', color: 'var(--theia-descriptionForeground)', margin: 0 }}>
+                    <strong>Zone cible:</strong> {zoneName || `#${zoneId}`}
+                </p>
+                <p style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)', margin: '8px 0 0 0' }}>
+                    💡 Les géocaches de la liste seront importées dans cette zone. Assurez-vous d'être connecté à geocaching.com dans votre navigateur.
+                </p>
             </div>
 
-            <style>{`
-                @keyframes spin {
-                    to { transform: rotate(360deg); }
-                }
-            `}</style>
-        </div>
+            <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', fontSize: '13px', cursor: isImporting ? 'not-allowed' : 'pointer' }}>
+                    <input
+                        type="checkbox"
+                        checked={updateExisting}
+                        onChange={(e) => setUpdateExisting(e.target.checked)}
+                        disabled={isImporting}
+                        style={{ marginRight: '8px', cursor: isImporting ? 'not-allowed' : 'pointer' }}
+                    />
+                    <span style={{ color: 'var(--theia-foreground)' }}>
+                        Mettre à jour les géocaches déjà présentes
+                    </span>
+                </label>
+                <p style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground)', marginTop: '4px', marginLeft: '24px' }}>
+                    Si coché, les géocaches déjà importées sont rafraîchies (nom, statut, difficulté…).
+                    Vos coordonnées résolues localement et notes personnelles sont préservées.
+                </p>
+            </div>
+        </ImportDialogShell>
     );
 };

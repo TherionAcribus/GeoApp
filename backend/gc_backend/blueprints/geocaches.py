@@ -69,6 +69,22 @@ def _import_stats(counts: dict, total: int) -> dict:
     }
 
 
+def _progress_line(message: str, progress: int, counts: dict | None = None,
+                   error_item: str | None = None) -> str:
+    """Sérialise une ligne de progression d'import (JSON + saut de ligne).
+
+    ``counts`` (compteurs cumulés) et ``error_item`` (message d'une cache en
+    erreur) permettent au frontend d'afficher un compteur en direct et la liste
+    des erreurs dans le dialogue d'import.
+    """
+    payload: dict = {'message': message, 'progress': progress}
+    if counts is not None:
+        payload['counts'] = dict(counts)
+    if error_item is not None:
+        payload['error_item'] = error_item
+    return json.dumps(payload) + '\n'
+
+
 def _attach_waypoints(full_by_code: dict, waypoints_by_code: dict) -> int:
     """Rattache les waypoints additionnels (parsés d'un ``-wpts.gpx``) aux caches.
 
@@ -1562,18 +1578,21 @@ def import_gpx():
                     zone_id, list(full_by_code.values()), update_existing=update_existing
                 ):
                     idx += 1
+                    err_item = None
                     if result['error']:
                         counts['errors'] += 1
                         msg = f"Erreur {result['gc_code']}: {result['error']}"
+                        err_item = msg
                     else:
                         counts[result['outcome']] += 1
                         msg = f"{_import_item_label(result['outcome'])}: {result['gc_code']} ({idx}/{total})"
                     pct = 10 + int(idx / total * 90)
-                    yield json.dumps({'message': msg, 'progress': pct}) + '\n'
+                    yield _progress_line(msg, pct, counts=counts, error_item=err_item)
 
                 # 2) Repli scraping pour les GPX génériques sans données Groundspeak
                 for code in scrape_codes:
                     idx += 1
+                    err_item = None
                     try:
                         _, outcome = importer.import_by_code(
                             zone_id, code, return_outcome=True, update_existing=update_existing
@@ -1583,8 +1602,9 @@ def import_gpx():
                     except Exception as e:
                         counts['errors'] += 1
                         msg = f'Erreur {code}: {e}'
+                        err_item = msg
                     pct = 10 + int(idx / total * 90)
-                    yield json.dumps({'message': msg, 'progress': pct}) + '\n'
+                    yield _progress_line(msg, pct, counts=counts, error_item=err_item)
                     time.sleep(0.2)  # ménager Geocaching.com uniquement en mode scraping
 
                 yield json.dumps({
@@ -1753,18 +1773,21 @@ def import_bookmark_list():
                     zone_id, list(full_by_code.values()), update_existing=update_existing
                 ):
                     idx += 1
+                    err_item = None
                     if result['error']:
                         counts['errors'] += 1
                         msg = f"Erreur {result['gc_code']}: {result['error']}"
+                        err_item = msg
                     else:
                         counts[result['outcome']] += 1
                         msg = f"{_import_item_label(result['outcome'])}: {result['gc_code']} ({idx}/{total})"
                     pct = 10 + int(idx / total * 90)
-                    yield json.dumps({'message': msg, 'progress': pct}) + '\n'
+                    yield _progress_line(msg, pct, counts=counts, error_item=err_item)
 
                 # 3) Scraping des codes restants (throttlé pour ménager Geocaching.com)
                 for code in scrape_codes:
                     idx += 1
+                    err_item = None
                     try:
                         _, outcome = importer.import_by_code(
                             zone_id, code, return_outcome=True, update_existing=update_existing
@@ -1774,8 +1797,9 @@ def import_bookmark_list():
                     except Exception as e:
                         counts['errors'] += 1
                         msg = f'Erreur {code}: {e}'
+                        err_item = msg
                     pct = 10 + int(idx / total * 90)
-                    yield json.dumps({'message': msg, 'progress': pct}) + '\n'
+                    yield _progress_line(msg, pct, counts=counts, error_item=err_item)
                     time.sleep(0.2)
 
                 yield json.dumps({
@@ -1911,18 +1935,21 @@ def import_pocket_query():
                     zone_id, list(full_by_code.values()), update_existing=update_existing
                 ):
                     idx += 1
+                    err_item = None
                     if result['error']:
                         counts['errors'] += 1
                         msg = f"Erreur {result['gc_code']}: {result['error']}"
+                        err_item = msg
                     else:
                         counts[result['outcome']] += 1
                         msg = f"{_import_item_label(result['outcome'])}: {result['gc_code']} ({idx}/{total})"
                     pct = 20 + int(idx / total * 80)
-                    yield json.dumps({'message': msg, 'progress': pct}) + '\n'
+                    yield _progress_line(msg, pct, counts=counts, error_item=err_item)
 
                 # 2) Repli scraping pour les entrées sans données Groundspeak
                 for code in scrape_codes:
                     idx += 1
+                    err_item = None
                     try:
                         _, outcome = importer.import_by_code(
                             zone_id, code, return_outcome=True, update_existing=update_existing
@@ -1932,8 +1959,9 @@ def import_pocket_query():
                     except Exception as e:
                         counts['errors'] += 1
                         msg = f'Erreur {code}: {e}'
+                        err_item = msg
                     pct = 20 + int(idx / total * 80)
-                    yield json.dumps({'message': msg, 'progress': pct}) + '\n'
+                    yield _progress_line(msg, pct, counts=counts, error_item=err_item)
                     time.sleep(0.2)
 
                 yield json.dumps({
