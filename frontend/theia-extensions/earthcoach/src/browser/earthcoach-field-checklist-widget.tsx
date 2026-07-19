@@ -6,11 +6,14 @@ import { EarthCoachContext } from './earthcoach-context-service';
 import {
     buildEarthCoachFieldChecklist,
     EarthCoachFieldChecklist,
+    fieldChecklistItemKey,
     formatEarthCoachFieldChecklistMarkdown,
 } from './earthcoach-field-checklist';
 
 interface EarthCoachFieldChecklistViewProps {
     checklist?: EarthCoachFieldChecklist;
+    checkedKeys: ReadonlySet<string>;
+    onToggle: (key: string) => void;
     onCopy: () => void | Promise<void>;
     onPrint: () => void;
 }
@@ -89,21 +92,28 @@ function EarthCoachFieldChecklistView(props: EarthCoachFieldChecklistViewProps):
                             {section.title}
                         </h3>
                         <div style={{ display: 'grid', gap: 6 }}>
-                            {section.items.map(item => (
-                                <label
-                                    key={item}
-                                    style={{
-                                        display: 'grid',
-                                        gridTemplateColumns: '18px 1fr',
-                                        gap: 8,
-                                        alignItems: 'start',
-                                        lineHeight: 1.35,
-                                    }}
-                                >
-                                    <input type='checkbox' />
-                                    <span>{item}</span>
-                                </label>
-                            ))}
+                            {section.items.map(item => {
+                                const key = fieldChecklistItemKey(section.title, item);
+                                return (
+                                    <label
+                                        key={item}
+                                        style={{
+                                            display: 'grid',
+                                            gridTemplateColumns: '18px 1fr',
+                                            gap: 8,
+                                            alignItems: 'start',
+                                            lineHeight: 1.35,
+                                        }}
+                                    >
+                                        <input
+                                            type='checkbox'
+                                            checked={props.checkedKeys.has(key)}
+                                            onChange={() => props.onToggle(key)}
+                                        />
+                                        <span>{item}</span>
+                                    </label>
+                                );
+                            })}
                         </div>
                     </section>
                 ))}
@@ -119,6 +129,8 @@ export class EarthCoachFieldChecklistWidget extends ReactWidget {
     static readonly LABEL = 'Terrain EarthCoach';
 
     protected checklist: EarthCoachFieldChecklist | undefined;
+    protected checkedKeys = new Set<string>();
+    protected storageKey: string | undefined;
 
     @inject(MessageService)
     protected readonly messages!: MessageService;
@@ -136,7 +148,41 @@ export class EarthCoachFieldChecklistWidget extends ReactWidget {
 
     setContext(context: EarthCoachContext): void {
         this.checklist = buildEarthCoachFieldChecklist(context);
+        const cacheRef = context.geocacheData.gc_code || String(context.geocacheData.id);
+        this.storageKey = `geoapp.earthcoach.fieldChecklist.${cacheRef}`;
+        this.checkedKeys = this.loadCheckedKeys(this.storageKey);
         this.title.label = `${EarthCoachFieldChecklistWidget.LABEL} - ${context.geocacheData.gc_code || context.geocacheData.name}`;
+        this.update();
+    }
+
+    protected loadCheckedKeys(storageKey: string): Set<string> {
+        try {
+            const raw = window.localStorage.getItem(storageKey);
+            const parsed = raw ? JSON.parse(raw) : undefined;
+            return Array.isArray(parsed) ? new Set(parsed.map(value => String(value))) : new Set();
+        } catch {
+            return new Set();
+        }
+    }
+
+    protected persistCheckedKeys(): void {
+        if (!this.storageKey) {
+            return;
+        }
+        try {
+            window.localStorage.setItem(this.storageKey, JSON.stringify([...this.checkedKeys]));
+        } catch (error) {
+            console.warn('[EarthCoach] Unable to persist field checklist state', error);
+        }
+    }
+
+    protected toggleItem(key: string): void {
+        if (this.checkedKeys.has(key)) {
+            this.checkedKeys.delete(key);
+        } else {
+            this.checkedKeys.add(key);
+        }
+        this.persistCheckedKeys();
         this.update();
     }
 
@@ -145,7 +191,7 @@ export class EarthCoachFieldChecklistWidget extends ReactWidget {
             return;
         }
         try {
-            await navigator.clipboard.writeText(formatEarthCoachFieldChecklistMarkdown(this.checklist));
+            await navigator.clipboard.writeText(formatEarthCoachFieldChecklistMarkdown(this.checklist, this.checkedKeys));
             this.messages.info('Checklist EarthCoach copiee dans le presse-papiers.');
         } catch (error) {
             console.warn('[EarthCoach] Unable to copy field checklist', error);
@@ -157,6 +203,8 @@ export class EarthCoachFieldChecklistWidget extends ReactWidget {
         return (
             <EarthCoachFieldChecklistView
                 checklist={this.checklist}
+                checkedKeys={this.checkedKeys}
+                onToggle={key => this.toggleItem(key)}
                 onCopy={() => this.copyMarkdown()}
                 onPrint={() => window.print()}
             />

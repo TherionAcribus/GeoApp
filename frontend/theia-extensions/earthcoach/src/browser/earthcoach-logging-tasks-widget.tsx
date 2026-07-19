@@ -172,7 +172,9 @@ interface LoggingTaskCardProps {
     isDeleting: boolean;
 }
 
-function LoggingTaskCard(props: LoggingTaskCardProps): React.ReactElement {
+// Memoise avec callbacks stables (voir widget): taper dans le formulaire de
+// creation ne re-rend pas les cartes de questions existantes.
+const LoggingTaskCard = React.memo(function LoggingTaskCard(props: LoggingTaskCardProps): React.ReactElement {
     const task = props.task;
     const badges = [
         getLoggingTaskStatusLabel(task.status),
@@ -246,7 +248,7 @@ function LoggingTaskCard(props: LoggingTaskCardProps): React.ReactElement {
             </header>
         </article>
     );
-}
+});
 
 interface LoggingTasksViewProps {
     context?: EarthCoachContext;
@@ -256,6 +258,7 @@ interface LoggingTasksViewProps {
     editingTaskId?: number;
     editingDraft: LoggingTaskDraft;
     isLoading: boolean;
+    loadError?: string;
     isSaving: boolean;
     deletingTaskId?: number;
     onRefresh: () => void | Promise<void>;
@@ -323,6 +326,24 @@ function LoggingTasksView(props: LoggingTasksViewProps): React.ReactElement {
                 <h3 style={{ margin: 0, fontSize: 14 }}>Questions enregistrees</h3>
                 {props.isLoading ? (
                     <div style={{ opacity: 0.7 }}>Chargement des questions...</div>
+                ) : props.loadError ? (
+                    <div
+                        style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            gap: 10,
+                            flexWrap: 'wrap',
+                            border: '1px solid var(--theia-errorForeground)',
+                            borderRadius: 6,
+                            padding: '8px 12px',
+                        }}
+                    >
+                        <span style={{ color: 'var(--theia-errorForeground)' }}>{props.loadError}</span>
+                        <button className='theia-button secondary' type='button' onClick={() => { void props.onRefresh(); }}>
+                            Reessayer
+                        </button>
+                    </div>
                 ) : props.tasks.length ? (
                     props.tasks.map(task => (
                         props.editingTaskId === task.id ? (
@@ -372,6 +393,7 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
     protected editingTaskId: number | undefined;
     protected editingDraft: LoggingTaskDraft = createLoggingTaskDraft();
     protected isLoading = false;
+    protected loadError: string | undefined;
     protected isSaving = false;
     protected deletingTaskId: number | undefined;
     protected loadRequestToken = 0;
@@ -384,6 +406,11 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
 
     @inject(EarthCoachLoggingTaskService)
     protected readonly loggingTaskService!: EarthCoachLoggingTaskService;
+
+    // References stables pour l'efficacite de React.memo des cartes.
+    protected readonly handleStartEdit = (task: LoggingTaskDto): void => this.startEdit(task);
+    protected readonly handleObserve = (task: LoggingTaskDto): Promise<void> => this.observeTask(task);
+    protected readonly handleDelete = (task: LoggingTaskDto): Promise<void> => this.deleteTask(task);
 
     protected readonly onTasksUpdated = (event: Event): void => {
         const detail = (event as CustomEvent).detail as { geocacheId?: number } | undefined;
@@ -416,6 +443,7 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
     setContext(context: EarthCoachContext): void {
         this.context = context;
         this.tasks = [];
+        this.loadError = undefined;
         this.observationOptions = buildObservationOptions(context.observations);
         this.createDraft = createLoggingTaskDraft();
         this.editingTaskId = undefined;
@@ -439,9 +467,14 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
                 return;
             }
             this.tasks = response.logging_tasks || [];
+            this.loadError = undefined;
         } catch (error) {
             console.error('[EarthCoach] Unable to load logging tasks', error);
-            this.messages.error(getErrorMessage(error, 'Impossible de charger les questions du proprietaire'));
+            const message = getErrorMessage(error, 'Impossible de charger les questions du proprietaire');
+            if (requestToken === this.loadRequestToken) {
+                this.loadError = message;
+            }
+            this.messages.error(message);
         } finally {
             if (requestToken === this.loadRequestToken) {
                 this.isLoading = false;
@@ -601,6 +634,7 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
                 editingTaskId={this.editingTaskId}
                 editingDraft={this.editingDraft}
                 isLoading={this.isLoading}
+                loadError={this.loadError}
                 isSaving={this.isSaving}
                 deletingTaskId={this.deletingTaskId}
                 onRefresh={() => this.loadTasks()}
@@ -608,11 +642,11 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
                 onCreateDraftChange={draft => this.setCreateDraft(draft)}
                 onEditingDraftChange={draft => this.setEditingDraft(draft)}
                 onCreate={() => this.createTask()}
-                onStartEdit={task => this.startEdit(task)}
-                onObserve={task => this.observeTask(task)}
+                onStartEdit={this.handleStartEdit}
+                onObserve={this.handleObserve}
                 onCancelEdit={() => this.cancelEdit()}
                 onSaveEdit={() => this.saveEdit()}
-                onDelete={task => this.deleteTask(task)}
+                onDelete={this.handleDelete}
             />
         );
     }

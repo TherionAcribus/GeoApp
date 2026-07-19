@@ -97,7 +97,8 @@ interface ObservationFormProps {
 }
 
 function ObservationForm(props: ObservationFormProps): React.ReactElement {
-    const selectableImages = getSelectableImages(props.images);
+    // Recalcul evite a chaque frappe: la deduplication ne depend que des images.
+    const selectableImages = React.useMemo(() => getSelectableImages(props.images), [props.images]);
     const setDraft = (patch: Partial<EarthCoachObservationDraft>) => {
         props.onDraftChange({ ...props.draft, ...patch });
     };
@@ -296,7 +297,11 @@ interface ObservationCardProps {
     isDeleting: boolean;
 }
 
-function ObservationCard(props: ObservationCardProps): React.ReactElement {
+// Memoise: pendant la saisie dans le formulaire de creation, les cartes
+// existantes (avec leurs vignettes) ne doivent pas se re-rendre. Les callbacks
+// passes par le widget sont des references stables (champs lies), donc la
+// comparaison superficielle des props est efficace.
+const ObservationCard = React.memo(function ObservationCard(props: ObservationCardProps): React.ReactElement {
     const observation = props.observation;
     const images = (observation.images || [])
         .map((image, index) => props.toGeoImage(image, index))
@@ -371,7 +376,7 @@ function ObservationCard(props: ObservationCardProps): React.ReactElement {
             ) : undefined}
         </article>
     );
-}
+});
 
 interface EarthCoachObservationsViewProps {
     context?: EarthCoachContext;
@@ -382,6 +387,7 @@ interface EarthCoachObservationsViewProps {
     editingDraft: EarthCoachObservationDraft;
     pendingLinkTask?: LoggingTaskSeed;
     isLoading: boolean;
+    loadError?: string;
     isSaving: boolean;
     isUploadingImage: boolean;
     deletingObservationId?: number;
@@ -463,6 +469,24 @@ function EarthCoachObservationsView(props: EarthCoachObservationsViewProps): Rea
                 <h3 style={{ margin: 0, fontSize: 14 }}>Observations enregistrees</h3>
                 {props.isLoading ? (
                     <div style={{ opacity: 0.7 }}>Chargement des observations...</div>
+                ) : props.loadError ? (
+                    <div
+                        style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            gap: 10,
+                            flexWrap: 'wrap',
+                            border: '1px solid var(--theia-errorForeground)',
+                            borderRadius: 6,
+                            padding: '8px 12px',
+                        }}
+                    >
+                        <span style={{ color: 'var(--theia-errorForeground)' }}>{props.loadError}</span>
+                        <button className='theia-button secondary' type='button' onClick={() => { void props.onRefresh(); }}>
+                            Reessayer
+                        </button>
+                    </div>
                 ) : props.observations.length ? (
                     props.observations.map(observation => (
                         props.editingObservationId === observation.id ? (
@@ -516,6 +540,7 @@ export class EarthCoachObservationsWidget extends ReactWidget {
     protected editingDraft: EarthCoachObservationDraft = createEarthCoachObservationDraft();
     protected pendingLinkTask: LoggingTaskSeed | undefined;
     protected isLoading = false;
+    protected loadError: string | undefined;
     protected isSaving = false;
     protected isUploadingImage = false;
     protected deletingObservationId: number | undefined;
@@ -529,6 +554,12 @@ export class EarthCoachObservationsWidget extends ReactWidget {
 
     @inject(EarthCoachLoggingTaskService)
     protected readonly loggingTaskService!: EarthCoachLoggingTaskService;
+
+    // Callbacks a reference stable, pour que React.memo des cartes soit efficace:
+    // taper dans le formulaire ne re-rend pas les cartes existantes.
+    protected readonly handleStartEdit = (observation: EarthCoachObservationDto): void => this.startEdit(observation);
+    protected readonly handleDeleteObservation = (observation: EarthCoachObservationDto): Promise<void> => this.deleteObservation(observation);
+    protected readonly handleToGeoImage = (image: EarthCoachObservationImageDto, index: number): GeoImage | undefined => this.toGeoImage(image, index);
 
     @postConstruct()
     protected init(): void {
@@ -545,6 +576,7 @@ export class EarthCoachObservationsWidget extends ReactWidget {
         this.context = context;
         this.images = [...context.images];
         this.observations = [];
+        this.loadError = undefined;
         this.createDraft = createEarthCoachObservationDraft();
         this.editingObservationId = undefined;
         this.editingDraft = createEarthCoachObservationDraft();
@@ -580,9 +612,14 @@ export class EarthCoachObservationsWidget extends ReactWidget {
                 return;
             }
             this.observations = response.observations || [];
+            this.loadError = undefined;
         } catch (error) {
             console.error('[EarthCoach] Unable to load observations', error);
-            this.messages.error(getErrorMessage(error, 'Impossible de charger les observations EarthCoach'));
+            const message = getErrorMessage(error, 'Impossible de charger les observations EarthCoach');
+            if (requestToken === this.loadRequestToken) {
+                this.loadError = message;
+            }
+            this.messages.error(message);
         } finally {
             if (requestToken === this.loadRequestToken) {
                 this.isLoading = false;
@@ -798,6 +835,7 @@ export class EarthCoachObservationsWidget extends ReactWidget {
                 editingDraft={this.editingDraft}
                 pendingLinkTask={this.pendingLinkTask}
                 isLoading={this.isLoading}
+                loadError={this.loadError}
                 isSaving={this.isSaving}
                 isUploadingImage={this.isUploadingImage}
                 deletingObservationId={this.deletingObservationId}
@@ -806,13 +844,13 @@ export class EarthCoachObservationsWidget extends ReactWidget {
                 onCreateDraftChange={draft => this.setCreateDraft(draft)}
                 onEditingDraftChange={draft => this.setEditingDraft(draft)}
                 onCreate={() => this.createObservation()}
-                onStartEdit={observation => this.startEdit(observation)}
+                onStartEdit={this.handleStartEdit}
                 onCancelEdit={() => this.cancelEdit()}
                 onSaveEdit={() => this.saveEdit()}
-                onDelete={observation => this.deleteObservation(observation)}
+                onDelete={this.handleDeleteObservation}
                 onUploadCreateImage={file => this.uploadImage('create', file)}
                 onUploadEditImage={file => this.uploadImage('edit', file)}
-                toGeoImage={(image, index) => this.toGeoImage(image, index)}
+                toGeoImage={this.handleToGeoImage}
             />
         );
     }
