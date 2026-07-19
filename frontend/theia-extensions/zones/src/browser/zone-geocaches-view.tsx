@@ -6,6 +6,7 @@ import { ImportPocketQueryDialog } from './import-pocket-query-dialog';
 import { MoveGeocacheDialog } from './move-geocache-dialog';
 import { ImportAroundDialog, ImportAroundCenter, ImportAroundRequest } from './import-around-dialog';
 import { ImportProgressCallback } from './import-dialog-shell';
+import { EmptyState, LoadingState } from './state-views';
 
 type SelectionDialogState = { geocacheIds: number[] } | null;
 
@@ -133,15 +134,17 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
         </div>
 
         {props.loading ? (
-            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flex: 1 }}>
-                <span>Chargement...</span>
+            <div style={{ display: 'flex', flex: 1 }}>
+                <LoadingState fullHeight />
             </div>
         ) : props.rows.length === 0 ? (
-            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flex: 1, opacity: 0.6 }}>
-                <div style={{ textAlign: 'center' }}>
-                    <p>Aucune géocache dans cette zone</p>
-                    <p style={{ fontSize: '0.9em' }}>Utilisez le formulaire ci-dessus pour importer des geocaches</p>
-                </div>
+            <div style={{ display: 'flex', flex: 1 }}>
+                <EmptyState
+                    fullHeight
+                    icon='fa-map-o'
+                    title='Aucune géocache dans cette zone'
+                    description='Utilisez le formulaire ci-dessus pour importer des géocaches.'
+                />
             </div>
         ) : (
             <GeocachesTable

@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { GeocacheNoteDto, GeocacheNoteType } from './geocache-notes-types';
+import { EmptyState, LoadingState } from './state-views';
 
 export interface GeocacheNotesViewProps {
     geocacheId?: number;
@@ -42,17 +43,6 @@ const containerStyle: React.CSSProperties = {
     gap: 16
 };
 
-const emptyStateStyle: React.CSSProperties = {
-    padding: 16,
-    height: '100%',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    opacity: 0.7
-};
-
-const emptyStateIconStyle: React.CSSProperties = { fontSize: 48, marginBottom: 16 };
 
 const rowBetweenStyle: React.CSSProperties = {
     display: 'flex',
@@ -138,10 +128,6 @@ const primaryButtonBaseStyle: React.CSSProperties = {
 const listScrollStyle: React.CSSProperties = { marginTop: 8, flex: 1, overflow: 'auto' };
 
 const listStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 8 };
-
-const centeredMessageStyle: React.CSSProperties = { textAlign: 'center', padding: 20, opacity: 0.7 };
-
-const iconSpacerStyle: React.CSSProperties = { marginRight: 8 };
 
 const noteCardStyle: React.CSSProperties = {
     border: '1px solid var(--theia-panel-border)',
@@ -232,12 +218,7 @@ function getPersonalNoteTimestamp(
 }
 
 function renderEmptyState(): React.JSX.Element {
-    return (
-        <div style={emptyStateStyle}>
-            <i className='fa fa-sticky-note' style={emptyStateIconStyle} />
-            <p>Selectionnez une geocache pour voir ses notes</p>
-        </div>
-    );
+    return <EmptyState fullHeight icon='fa-sticky-note' title='Sélectionnez une géocache pour voir ses notes' />;
 }
 
 interface NoteItemProps {
@@ -461,15 +442,9 @@ export function GeocacheNotesView(props: GeocacheNotesViewProps): React.JSX.Elem
 
                 <div style={listScrollStyle}>
                     {props.isLoading && props.notes.length === 0 ? (
-                        <div style={centeredMessageStyle}>
-                            <i className='fa fa-spinner fa-spin' style={iconSpacerStyle} aria-hidden='true' />
-                            Chargement des notes...
-                        </div>
+                        <LoadingState message='Chargement des notes…' />
                     ) : props.notes.length === 0 ? (
-                        <div style={centeredMessageStyle}>
-                            <i className='fa fa-sticky-note' style={iconSpacerStyle} aria-hidden='true' />
-                            Aucune note pour cette geocache
-                        </div>
+                        <EmptyState icon='fa-sticky-note' title='Aucune note pour cette géocache' />
                     ) : (
                         <div style={listStyle}>
                             {props.notes.map(note => {

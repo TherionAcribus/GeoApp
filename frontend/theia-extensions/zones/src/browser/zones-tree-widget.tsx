@@ -14,6 +14,7 @@ import { ZonesService, ZoneDto } from './zones-service';
 import { GeocachesService } from './geocaches-service';
 import { GeoAppWidgetEventsService } from './geoapp-widget-events-service';
 import { getErrorMessage } from './backend-api-client';
+import { EmptyState } from './state-views';
 
 import '../../src/browser/style/zones-tree.css';
 
@@ -1349,10 +1350,7 @@ export class ZonesTreeWidget extends ReactWidget {
                 {/* Arbre de navigation */}
                 <div style={{ flex: 1, overflow: 'auto' }}>
                     {this.zones.length === 0 ? (
-                        <div style={{ textAlign: 'center', opacity: 0.6, padding: '20px 10px' }}>
-                            <p style={{ fontSize: '0.9em' }}>Aucune zone</p>
-                            <p style={{ fontSize: '0.85em' }}>Créez une zone pour commencer</p>
-                        </div>
+                        <EmptyState icon='fa-map-signs' title='Aucune zone' description='Créez une zone pour commencer.' />
                     ) : (
                         <div
                             role='tree'

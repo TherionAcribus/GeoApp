@@ -253,7 +253,7 @@ const ArchiveHistoryCard: React.FC<ArchiveHistoryCardProps> = ({
 const ArchiveListPane: React.FC<ArchiveBrowserSectionProps> = props => (
     <div style={{ border: '1px solid var(--theia-panel-border)', borderRadius: 6, overflow: 'hidden', minHeight: 280 }}>
         <div style={{ display: 'grid', gap: 1, background: 'var(--theia-panel-border)' }}>
-            {props.archives.length === 0 ? <div style={{ background: 'var(--theia-editor-background)', padding: 12, fontSize: 12, opacity: 0.7 }}>{props.isLoadingArchives ? 'Chargement des archives...' : 'Aucune archive trouvee pour ce filtre.'}</div> : props.archives.map(entry => {
+            {props.archives.length === 0 ? <div style={{ background: 'var(--theia-editor-background)', padding: 12, fontSize: 12, opacity: 0.7 }}>{props.isLoadingArchives ? 'Chargement des archives…' : 'Aucune archive trouvée pour ce filtre.'}</div> : props.archives.map(entry => {
                 const isSelected = entry.gc_code === props.selectedArchiveGcCode;
                 const historyCount = entry.resolution_diagnostics?.history_state?.length || (entry.resolution_diagnostics?.resume_state ? 1 : 0);
                 const archiveSummary = props.getArchiveListSummary(entry);

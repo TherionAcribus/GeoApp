@@ -4,6 +4,7 @@ import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { ApplicationShell } from '@theia/core/lib/browser';
 import { Disposable } from '@theia/core/lib/common/disposable';
 import { MapWidget, MapContext } from './map-widget';
+import { EmptyState } from '../state-views';
 import '../../../src/browser/map/map-manager-widget.css';
 
 @injectable()
@@ -112,10 +113,11 @@ export class MapManagerWidget extends ReactWidget {
                 </div>
 
                 {this.openMaps.length === 0 ? (
-                    <div className="map-manager-empty">
-                        <p>Aucune carte ouverte</p>
-                        <small>Les cartes s'ouvrent automatiquement quand vous naviguez dans les zones ou geocaches</small>
-                    </div>
+                    <EmptyState
+                        icon='fa-map-o'
+                        title='Aucune carte ouverte'
+                        description="Les cartes s'ouvrent automatiquement quand vous naviguez dans les zones ou géocaches."
+                    />
                 ) : (
                     <div className="map-manager-list" role="list" aria-label="Cartes ouvertes">
                         {this.openMaps.map(map => {

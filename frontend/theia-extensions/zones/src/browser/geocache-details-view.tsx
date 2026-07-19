@@ -11,6 +11,7 @@ import {
 import { GeocacheDto } from './geocache-details-types';
 import { GeocacheImagesPanel } from './geocache-images-panel';
 import { WaypointsEditorWrapper } from './geocache-waypoints-editor';
+import { EmptyState, LoadingState } from './state-views';
 
 type GeocacheDetailsHeaderProps = React.ComponentProps<typeof GeocacheDetailsHeader>;
 type CoordinatesEditorProps = React.ComponentProps<typeof CoordinatesEditor>;
@@ -77,8 +78,10 @@ export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
 }) => (
     <div className='p-2' style={{ position: 'relative' }}>
         {/* Premier chargement uniquement : aucune donnee a afficher encore */}
-        {isLoading && !geocacheData ? <div>Chargement...</div> : undefined}
-        {!isLoading && !geocacheData ? <div style={{ opacity: 0.7 }}>Aucune donnée</div> : undefined}
+        {isLoading && !geocacheData ? <LoadingState /> : undefined}
+        {!isLoading && !geocacheData ? (
+            <EmptyState icon='fa-map-marker' title='Aucune géocache sélectionnée' description='Sélectionnez une géocache pour afficher ses détails.' />
+        ) : undefined}
         {geocacheData ? (
             <div
                 style={{

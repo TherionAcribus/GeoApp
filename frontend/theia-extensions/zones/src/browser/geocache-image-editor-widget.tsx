@@ -7,6 +7,7 @@ import { injectable } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { fabric } from 'fabric';
 import { CurvesEditor, CurveChannel, CurvePoint } from './curves-editor-component';
+import { EmptyState, LoadingState, ErrorState } from './state-views';
 
 type GeocacheImageV2Dto = {
     id: number;
@@ -3996,15 +3997,15 @@ export class GeocacheImageEditorWidget extends ReactWidget {
 
     protected override render(): React.ReactNode {
         if (!this.geocacheId || !this.imageId) {
-            return <div className='p-3 opacity-70'>Aucune image sélectionnée.</div>;
+            return <EmptyState fullHeight icon='fa-image' title='Aucune image sélectionnée' />;
         }
 
         if (this.isLoading) {
-            return <div className='p-3 opacity-70'>Chargement…</div>;
+            return <LoadingState fullHeight message='Chargement de l’image…' />;
         }
 
         if (this.error) {
-            return <div className='p-3 text-[var(--theia-errorForeground)]'>{this.error}</div>;
+            return <ErrorState fullHeight message={this.error} onRetry={() => { void this.load(); }} />;
         }
 
         if (!this.image) {

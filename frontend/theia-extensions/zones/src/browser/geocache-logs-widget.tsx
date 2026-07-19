@@ -12,6 +12,7 @@ import { PreferenceService } from '@theia/core/lib/common/preferences/preference
 import { LanguageModelRegistry, LanguageModelService, UserRequest, getTextOfResponse, getJsonOfResponse, isLanguageModelParsedResponse } from '@theia/ai-core';
 import { GeoAppLogsAnalyzerAgentId } from './geoapp-logs-analyzer-agent';
 import { LogsRecentSummary, LogSummaryEntry, LogsRecentSummaryApiResponse } from './geocache-logs-summary';
+import { EmptyState, LoadingState } from './state-views';
 
 /**
  * Interface représentant un log de géocache
@@ -257,21 +258,11 @@ interface LogsListProps {
  */
 const LogsList: React.FC<LogsListProps> = ({ logs, isLoading, onLoadMore, hasMore }) => {
     if (isLoading && logs.length === 0) {
-        return (
-            <div style={{ textAlign: 'center', padding: 20, opacity: 0.7 }}>
-                <i className="fa fa-spinner fa-spin" style={{ marginRight: 8 }} />
-                Chargement des logs...
-            </div>
-        );
+        return <LoadingState message='Chargement des logs…' />;
     }
     
     if (logs.length === 0) {
-        return (
-            <div style={{ textAlign: 'center', padding: 20, opacity: 0.7 }}>
-                <i className="fa fa-comments" style={{ marginRight: 8 }} />
-                Aucun log disponible
-            </div>
-        );
+        return <EmptyState icon='fa-comments' title='Aucun log disponible' />;
     }
     
     return (
@@ -740,18 +731,8 @@ ${JSON.stringify(logsToAnalyze, null, 2)}`;
                 
                 {/* Message si pas de géocache sélectionnée */}
                 {!this.geocacheId ? (
-                    <div style={{ 
-                        textAlign: 'center', 
-                        padding: 40, 
-                        opacity: 0.7,
-                        flex: 1,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center'
-                    }}>
-                        <i className="fa fa-comments" style={{ fontSize: 48, marginBottom: 16, opacity: 0.5 }} />
-                        <p>Sélectionnez une géocache pour voir ses logs</p>
+                    <div style={{ flex: 1, display: 'flex' }}>
+                        <EmptyState fullHeight icon='fa-comments' title='Sélectionnez une géocache pour voir ses logs' />
                     </div>
                 ) : (
                     <>
