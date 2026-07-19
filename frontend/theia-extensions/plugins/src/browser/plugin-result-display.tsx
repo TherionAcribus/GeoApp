@@ -4,6 +4,7 @@ import { PluginResult } from '../common/plugin-protocol';
 import { PluginsService } from '../common/plugin-protocol';
 import type { PluginExecutorMode, GeocacheContext } from './plugin-executor-widget';
 import { extractDecimalCoordinates, deriveCoordinatesFromItem } from './plugin-executor-coords-utils';
+import { StatusIcon } from './status-icon';
 
 export interface AddWaypointEventDetail {
     gcCoords: string;
@@ -585,7 +586,7 @@ export const PluginResultDisplay: React.FC<{
                                                     disabled={!!detectingCoordinates[itemKey]}
                                                     style={{ position: 'absolute', top: '5px', right: '45px', padding: '4px 8px' }}
                                                 >
-                                                    {detectingCoordinates[itemKey] ? '⏳' : '📍'}
+                                                    {detectingCoordinates[itemKey] ? <StatusIcon status='running' /> : '📍'}
                                                 </button>
                                                 <button
                                                     className='theia-button secondary'
@@ -631,7 +632,7 @@ export const PluginResultDisplay: React.FC<{
                                                     disabled={!!analyzingWithAi[itemKey]}
                                                     style={{ position: 'absolute', top: '5px', right: '88px', padding: '4px 8px' }}
                                                 >
-                                                    {analyzingWithAi[itemKey] ? '⏳' : '🤖'}
+                                                    {analyzingWithAi[itemKey] ? <StatusIcon status='running' /> : '🤖'}
                                                 </button>
                                                 <button
                                                     className='theia-button secondary'
@@ -705,7 +706,7 @@ export const PluginResultDisplay: React.FC<{
                                                         disabled={resolvedCoordinates ? verifyingCoordinates[getCoordsKey(resolvedCoordinates)] === true : false}
                                                     >
                                                         {resolvedCoordinates && verifyingCoordinates[getCoordsKey(resolvedCoordinates)] === true
-                                                            ? '⏳ Vérification...'
+                                                            ? <><StatusIcon status='running' /> Vérification...</>
                                                             : '🔎 Vérifier via Checkeur'}
                                                     </button>
                                                 )}
@@ -800,8 +801,8 @@ export const PluginResultDisplay: React.FC<{
                                                 }
                                                 if (record.status === 'failure') {
                                                     return (
-                                                        <div style={{ marginTop: '6px', fontSize: '12px', opacity: 0.85 }}>
-                                                            ❌ Coordonnées refusées
+                                                        <div style={{ marginTop: '6px', fontSize: '12px', opacity: 0.85, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                            <StatusIcon status='error' /> Coordonnées refusées
                                                         </div>
                                                     );
                                                 }
@@ -809,8 +810,8 @@ export const PluginResultDisplay: React.FC<{
                                                     return null;
                                                 }
                                                 return (
-                                                    <div style={{ marginTop: '6px', fontSize: '12px', opacity: 0.85 }}>
-                                                        ✅ Coordonnées vérifiées
+                                                    <div style={{ marginTop: '6px', fontSize: '12px', opacity: 0.85, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                        <StatusIcon status='done' /> Coordonnées vérifiées
                                                     </div>
                                                 );
                                             })()}

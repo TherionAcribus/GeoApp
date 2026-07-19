@@ -111,10 +111,10 @@ export const ArchiveStatsSection: React.FC<ArchiveStatsSectionProps> = ({ isLoad
         {isLoading ? <div style={{ opacity: 0.7 }}>Chargement...</div> : stats ? (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
                 {[
-                    { label: 'Total archivees', value: stats.total_archived, color: '#60a5fa' },
-                    { label: 'Resolues', value: stats.solved, color: '#10b981' },
-                    { label: 'En cours', value: stats.in_progress, color: '#f59e0b' },
-                    { label: 'Trouvees', value: stats.found, color: '#a78bfa' },
+                    { label: 'Total archivees', value: stats.total_archived, color: 'var(--theia-charts-blue, #60a5fa)' },
+                    { label: 'Resolues', value: stats.solved, color: 'var(--theia-charts-green, #10b981)' },
+                    { label: 'En cours', value: stats.in_progress, color: 'var(--theia-charts-orange, #f59e0b)' },
+                    { label: 'Trouvees', value: stats.found, color: 'var(--theia-charts-purple, #a78bfa)' },
                 ].map(({ label, value, color }) => (
                     <div key={label} style={{ textAlign: 'center', background: 'var(--theia-sideBar-background)', borderRadius: 4, padding: 8 }}>
                         <div style={{ fontSize: 22, fontWeight: 'bold', color }}>{value}</div>
@@ -127,10 +127,18 @@ export const ArchiveStatsSection: React.FC<ArchiveStatsSectionProps> = ({ isLoad
 );
 
 export const ArchiveAutoSyncSection: React.FC<ArchiveAutoSyncSectionProps> = ({ autoSync, isSaving, onToggleAutoSync }) => (
-    <div style={{ ...sectionStyle, border: `1px solid ${autoSync ? 'var(--theia-panel-border)' : '#f59e0b'}` }}>
+    <div style={{ ...sectionStyle, border: `1px solid ${autoSync ? 'var(--theia-panel-border)' : 'var(--theia-inputValidation-warningBorder, var(--theia-warningForeground))'}` }}>
         <h4 style={{ margin: '0 0 8px 0' }}>Archivage automatique</h4>
         {!autoSync ? (
-            <div style={{ background: '#92400e22', border: '1px solid #f59e0b', borderRadius: 4, padding: '8px 12px', marginBottom: 12, fontSize: 12, color: '#fbbf24' }}>
+            <div style={{
+                background: 'var(--theia-inputValidation-warningBackground)',
+                border: '1px solid var(--theia-inputValidation-warningBorder, var(--theia-warningForeground))',
+                borderRadius: 4,
+                padding: '8px 12px',
+                marginBottom: 12,
+                fontSize: 12,
+                color: 'var(--theia-warningForeground)'
+            }}>
                 <strong>Archivage automatique desactive.</strong> Les donnees de resolution ne sont plus sauvegardees automatiquement. Le snapshot avant suppression reste actif.
             </div>
         ) : undefined}
@@ -406,8 +414,8 @@ export const ArchiveBrowserSection: React.FC<ArchiveBrowserSectionProps> = props
 );
 
 export const ArchiveBulkDeleteSection: React.FC<ArchiveBulkDeleteSectionProps> = props => (
-    <div style={{ ...sectionStyle, border: '1px solid #ef444466' }}>
-        <h4 style={{ margin: '0 0 4px 0', color: '#f87171' }}>Suppression en masse</h4>
+    <div style={{ ...sectionStyle, border: '1px solid var(--theia-inputValidation-errorBorder, var(--theia-errorForeground))' }}>
+        <h4 style={{ margin: '0 0 4px 0', color: 'var(--theia-errorForeground)' }}>Suppression en masse</h4>
         <p style={{ fontSize: 11, opacity: 0.7, margin: '0 0 14px 0' }}>
             Operation irreversible. Une double confirmation sera demandee.
             Les donnees supprimees ne pourront pas etre recuperees.
@@ -450,16 +458,32 @@ export const ArchiveBulkDeleteSection: React.FC<ArchiveBulkDeleteSectionProps> =
                     />
                 </div>
             ) : undefined}
-            <div style={{ background: '#ef444411', border: '1px solid #ef444444', borderRadius: 4, padding: '6px 10px', fontSize: 11, color: '#fca5a5' }}>
+            <div style={{
+                background: 'var(--theia-inputValidation-errorBackground)',
+                border: '1px solid var(--theia-inputValidation-errorBorder, var(--theia-errorForeground))',
+                borderRadius: 4,
+                padding: '6px 10px',
+                fontSize: 11,
+                color: 'var(--theia-errorForeground)'
+            }}>
                 Cible selectionnee : <strong>{props.bulkPreviewLabel}</strong>
             </div>
-            {props.lastActionResult ? <div style={{ fontSize: 12, color: '#10b981', padding: '4px 0' }}>{props.lastActionResult}</div> : undefined}
-            {props.lastActionError ? <div style={{ fontSize: 12, color: '#f87171', padding: '4px 0' }}>{props.lastActionError}</div> : undefined}
+            {props.lastActionResult ? <div style={{ fontSize: 12, color: 'var(--theia-charts-green, #10b981)', padding: '4px 0' }}>{props.lastActionResult}</div> : undefined}
+            {props.lastActionError ? <div style={{ fontSize: 12, color: 'var(--theia-errorForeground)', padding: '4px 0' }}>{props.lastActionError}</div> : undefined}
             <div>
                 <button
                     onClick={props.onExecuteBulkDelete}
                     disabled={props.isDeleting || (props.bulkFilter === 'before_date' && !props.bulkBeforeDate)}
-                    style={{ background: '#ef4444', color: 'white', border: 'none', borderRadius: 4, padding: '7px 18px', fontSize: 12, cursor: props.isDeleting ? 'wait' : 'pointer', opacity: props.isDeleting ? 0.6 : 1 }}
+                    style={{
+                        background: 'var(--theia-statusBarItem-errorBackground, var(--theia-errorForeground))',
+                        color: 'var(--theia-button-foreground, white)',
+                        border: 'none',
+                        borderRadius: 4,
+                        padding: '7px 18px',
+                        fontSize: 12,
+                        cursor: props.isDeleting ? 'wait' : 'pointer',
+                        opacity: props.isDeleting ? 0.6 : 1
+                    }}
                 >
                     {props.isDeleting ? 'Suppression...' : 'Supprimer (double confirmation)'}
                 </button>

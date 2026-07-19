@@ -446,9 +446,9 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                 <span style={{ opacity: 0.7 }}>{`Par ${geocacheData.owner || 'Inconnu'}`}</span>
                 {geocacheData.status === 'archived' && (
                     <span style={{
-                        background: 'rgba(127, 29, 29, 0.4)',
-                        color: '#fca5a5',
-                        border: '1px solid #ef4444',
+                        background: 'var(--theia-inputValidation-errorBackground)',
+                        color: 'var(--theia-errorForeground)',
+                        border: '1px solid var(--theia-inputValidation-errorBorder, var(--theia-errorForeground))',
                         borderRadius: 4,
                         padding: '2px 8px',
                         fontSize: 11,
@@ -459,9 +459,9 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                 )}
                 {geocacheData.status === 'disabled' && (
                     <span style={{
-                        background: 'rgba(120, 53, 15, 0.4)',
-                        color: '#fde68a',
-                        border: '1px solid #f59e0b',
+                        background: 'var(--theia-inputValidation-warningBackground)',
+                        color: 'var(--theia-warningForeground)',
+                        border: '1px solid var(--theia-inputValidation-warningBorder, var(--theia-warningForeground))',
                         borderRadius: 4,
                         padding: '2px 8px',
                         fontSize: 11,
@@ -534,19 +534,19 @@ export const GeocacheOverviewSection: React.FC<GeocacheOverviewSectionProps> = (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                 <div>
                     <div style={{ opacity: 0.7, fontSize: 12, marginBottom: 4 }}>Difficulte</div>
-                    <div>{renderStars(geocacheData.difficulty, '#fbbf24')}</div>
+                    <div>{renderStars(geocacheData.difficulty, 'var(--theia-charts-yellow, #fbbf24)')}</div>
                 </div>
                 <div>
                     <div style={{ opacity: 0.7, fontSize: 12, marginBottom: 4 }}>Terrain</div>
-                    <div>{renderStars(geocacheData.terrain, '#10b981')}</div>
+                    <div>{renderStars(geocacheData.terrain, 'var(--theia-charts-green, #10b981)')}</div>
                 </div>
                 <div>
                     <div style={{ opacity: 0.7, fontSize: 12, marginBottom: 4 }}>Taille</div>
-                    <div style={{ color: '#60a5fa' }}>{geocacheData.size || 'N/A'}</div>
+                    <div style={{ color: 'var(--theia-charts-blue, #60a5fa)' }}>{geocacheData.size || 'N/A'}</div>
                 </div>
                 <div>
                     <div style={{ opacity: 0.7, fontSize: 12, marginBottom: 4 }}>Favoris</div>
-                    <div style={{ color: '#a78bfa' }}>{geocacheData.favorites_count || 0}</div>
+                    <div style={{ color: 'var(--theia-charts-purple, #a78bfa)' }}>{geocacheData.favorites_count || 0}</div>
                 </div>
             </div>
 
@@ -849,12 +849,12 @@ function getArchiveTooltip(status: ArchiveStatus, updatedAt?: string): string {
 
 function getArchiveColor(status: ArchiveStatus): string {
     if (status === 'synced') {
-        return '#10b981';
+        return 'var(--theia-charts-green, #10b981)';
     }
     if (status === 'loading') {
-        return '#60a5fa';
+        return 'var(--theia-charts-blue, #60a5fa)';
     }
-    return '#f59e0b';
+    return 'var(--theia-charts-orange, #f59e0b)';
 }
 
 function getArchiveLabel(status: ArchiveStatus): string {

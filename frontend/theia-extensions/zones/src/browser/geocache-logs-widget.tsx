@@ -13,6 +13,7 @@ import { LanguageModelRegistry, LanguageModelService, UserRequest, getTextOfResp
 import { GeoAppLogsAnalyzerAgentId } from './geoapp-logs-analyzer-agent';
 import { LogsRecentSummary, LogSummaryEntry, LogsRecentSummaryApiResponse } from './geocache-logs-summary';
 import { EmptyState, LoadingState } from './state-views';
+import { getLogTypeColor, getLogTypeIcon } from './geocache-log-type-style';
 
 /**
  * Interface représentant un log de géocache
@@ -58,64 +59,6 @@ interface RefreshApiResponse {
  */
 interface LogItemProps {
     log: GeocacheLogDto;
-}
-
-/**
- * Retourne la couleur associée à un type de log
- */
-function getLogTypeColor(logType: string): string {
-    const type = logType.toLowerCase();
-    if (type === 'found' || type.includes('found')) {
-        return '#22c55e'; // Vert
-    }
-    if (type === 'did not find' || type === 'dnf') {
-        return '#ef4444'; // Rouge
-    }
-    if (type === 'note' || type === 'write note') {
-        return '#3b82f6'; // Bleu
-    }
-    if (type.includes('owner') || type.includes('maintenance')) {
-        return '#f59e0b'; // Orange
-    }
-    if (type.includes('reviewer')) {
-        return '#8b5cf6'; // Violet
-    }
-    if (type.includes('disable') || type.includes('archive')) {
-        return '#6b7280'; // Gris
-    }
-    return '#9ca3af'; // Gris clair par défaut
-}
-
-/**
- * Retourne l'icône associée à un type de log
- */
-function getLogTypeIcon(logType: string): string {
-    const type = logType.toLowerCase();
-    if (type === 'found' || type.includes('found')) {
-        return 'fa-check';
-    }
-    if (type === 'did not find' || type === 'dnf') {
-        return 'fa-times';
-    }
-    if (type === 'note' || type === 'write note') {
-        return 'fa-sticky-note';
-    }
-    if (type.includes('owner') || type.includes('maintenance')) {
-        return 'fa-wrench';
-    }
-    if (type.includes('reviewer')) {
-        return 'fa-shield';
-    }
-    if (type.includes('disable')) {
-        return 'fa-pause';
-    }
-    if (type.includes('archive')) {
-        return 'fa-archive';
-    }
-    if (type.includes('enable') || type.includes('publish')) {
-        return 'fa-play';
-    }
-    return 'fa-comment';
 }
 
 /**

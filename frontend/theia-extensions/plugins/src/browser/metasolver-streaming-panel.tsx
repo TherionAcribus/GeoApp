@@ -1,5 +1,6 @@
 import * as React from '@theia/core/shared/react';
 import type { StreamingEvent, StreamingProgress, CoordsDetectionProgress } from './plugin-executor-widget';
+import { StatusIcon } from './status-icon';
 
 export const MetasolverStreamingPanel: React.FC<{
     events: StreamingEvent[];
@@ -71,15 +72,6 @@ export const MetasolverStreamingPanel: React.FC<{
     const elapsed = progress?.elapsed_ms ? (progress.elapsed_ms / 1000).toFixed(1) : '0';
     const phase1Done = pct >= 100;
 
-    const statusIcon = (s: string) => {
-        switch (s) {
-            case 'running': return '⏳';
-            case 'done': return '✅';
-            case 'error': return '❌';
-            default: return '⬜';
-        }
-    };
-
     // Phase 2 progress
     const cdp = coordsDetectionProgress;
     const coordsPct = cdp && cdp.total > 0 ? Math.round((cdp.current / cdp.total) * 100) : 0;
@@ -89,8 +81,8 @@ export const MetasolverStreamingPanel: React.FC<{
             <h4 style={{ margin: '0 0 8px 0' }}>📡 Progression en direct</h4>
 
             {/* Phase 1: Exécution des plugins */}
-            <div style={{ fontSize: '11px', fontWeight: 'bold', opacity: 0.6, marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                {phase1Done ? '✅' : '⏳'} Phase 1 – Exécution des plugins
+            <div style={{ fontSize: '11px', fontWeight: 'bold', opacity: 0.6, marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <StatusIcon status={phase1Done ? 'done' : 'running'} /> Phase 1 – Exécution des plugins
             </div>
 
             {/* Barre de progression Phase 1 */}
@@ -142,8 +134,9 @@ export const MetasolverStreamingPanel: React.FC<{
                         textTransform: 'uppercase', letterSpacing: '0.5px',
                         borderTop: '1px solid var(--theia-panel-border)',
                         paddingTop: '8px',
+                        display: 'flex', alignItems: 'center', gap: '6px',
                     }}>
-                        {cdp.phase === 'done' ? '✅' : '⏳'} Phase 2 – Détection de coordonnées
+                        <StatusIcon status={cdp.phase === 'done' ? 'done' : 'running'} /> Phase 2 – Détection de coordonnées
                     </div>
 
                     {/* Barre de progression Phase 2 */}
@@ -160,7 +153,7 @@ export const MetasolverStreamingPanel: React.FC<{
                                 height: '100%',
                                 background: cdp.phase === 'done'
                                     ? 'var(--theia-successBackground, #4caf50)'
-                                    : '#e6a817',
+                                    : 'var(--theia-warningBackground, #e6a817)',
                                 borderRadius: '3px',
                                 transition: 'width 0.2s ease',
                             }} />
@@ -216,7 +209,7 @@ export const MetasolverStreamingPanel: React.FC<{
                                     gap: '6px',
                                     opacity: s.status === 'pending' ? 0.4 : 1,
                                 }}>
-                                    <span>{statusIcon(s.status)}</span>
+                                    <StatusIcon status={s.status} />
                                     <span style={{
                                         fontWeight: s.status === 'running' ? 'bold' : 'normal',
                                         minWidth: '130px',

@@ -5,6 +5,7 @@
  * Peut être utilisé dans le widget des logs ET dans la fiche détail de la géocache.
  */
 import * as React from 'react';
+import { getLogTypeColor as getSummaryColor, getLogTypeIcon as getSummaryIcon } from './geocache-log-type-style';
 
 /**
  * Entrée légère d'un résumé de log (pas de texte complet)
@@ -35,43 +36,6 @@ export interface LogsRecentSummaryProps {
     isLoading: boolean;
     /** Si fourni, affiche un lien/bouton pour ouvrir le panneau de logs complet */
     onOpenLogs?: () => void;
-}
-
-/**
- * Retourne la couleur associée à un type de log
- */
-function getSummaryColor(logType: string): string {
-    const type = logType.toLowerCase();
-    if (type === 'found' || type.includes('found')) return '#22c55e';
-    if (type === 'did not find' || type === 'dnf') return '#ef4444';
-    if (type === 'note' || type === 'write note') return '#3b82f6';
-    if (type.includes('owner') || type.includes('maintenance')) return '#f59e0b';
-    if (type.includes('reviewer')) return '#8b5cf6';
-    if (type.includes('disable') || type.includes('archive')) return '#6b7280';
-    if (type === 'needs maintenance') return '#f97316';
-    if (type === 'needs archived') return '#dc2626';
-    if (type === 'attended' || type === 'will attend') return '#06b6d4';
-    return '#9ca3af';
-}
-
-/**
- * Retourne l'icône Font Awesome associée à un type de log
- */
-function getSummaryIcon(logType: string): string {
-    const type = logType.toLowerCase();
-    if (type === 'found' || type.includes('found')) return 'fa-check';
-    if (type === 'did not find' || type === 'dnf') return 'fa-times';
-    if (type === 'note' || type === 'write note') return 'fa-sticky-note';
-    if (type.includes('owner') || type === 'owner maintenance') return 'fa-wrench';
-    if (type === 'needs maintenance') return 'fa-exclamation-triangle';
-    if (type === 'needs archived') return 'fa-exclamation-circle';
-    if (type.includes('reviewer')) return 'fa-shield';
-    if (type === 'temporarily disabled') return 'fa-pause';
-    if (type === 'archived' || type.includes('archive')) return 'fa-archive';
-    if (type === 'enabled' || type === 'published') return 'fa-play';
-    if (type === 'attended' || type === 'will attend') return 'fa-calendar-check';
-    if (type === 'webcam') return 'fa-camera';
-    return 'fa-comment';
 }
 
 /**

@@ -51,6 +51,7 @@ import { AnalysisWebPagePanel, renderDynamicForm, renderInputField } from './plu
 import { MetasolverStreamingPanel } from './metasolver-streaming-panel';
 import { MetasolverPresetPanel } from './metasolver-preset-panel';
 import type { PluginExecutorResumeSnapshot } from './metasolver-preset-panel';
+import { StatusIcon } from './status-icon';
 
 export const FORMULA_SOLVER_SOLVE_FROM_GEOCACHE_COMMAND = 'formula-solver:solve-from-geocache';
 export const GEOAPP_CHAT_DEFAULT_PROFILE_PREF = 'geoApp.chat.defaultProfile';
@@ -444,7 +445,7 @@ export class PluginExecutorWidget extends ReactWidget implements StatefulWidget 
         if (!this.config) {
             return (
                 <div className='plugin-executor-container' style={{ padding: '20px', textAlign: 'center' }}>
-                    <div>⏳ Initialisation...</div>
+                    <div><StatusIcon status='running' /> Initialisation...</div>
                     <div style={{ fontSize: '12px', opacity: 0.7, marginTop: '10px' }}>
                         En attente de configuration
                     </div>
@@ -1939,7 +1940,7 @@ const PluginExecutorComponent: React.FC<{
             {/* Indicateur de chargement (MODE PLUGIN) */}
             {config.mode === 'plugin' && isLoadingInitial && (
                 <div className='plugin-form' style={{ padding: '20px', textAlign: 'center' }}>
-                    <div style={{ marginBottom: '10px' }}>⏳ Chargement du plugin...</div>
+                    <div style={{ marginBottom: '10px' }}><StatusIcon status='running' /> Chargement du plugin...</div>
                     <div style={{ fontSize: '12px', opacity: 0.7, marginTop: '10px' }}>
                         En attente de configuration
                     </div>
@@ -2317,7 +2318,7 @@ const PluginExecutorComponent: React.FC<{
             {/* Affichage des résultats */}
             {state.result && (
                 <div className='plugin-results'>
-                    <h4>✅ Résultats</h4>
+                    <h4><StatusIcon status='done' /> Résultats</h4>
                     <PluginResultDisplay
                         result={state.result}
                         configMode={config.mode}
@@ -2359,7 +2360,7 @@ const PluginExecutorComponent: React.FC<{
             {/* Affichage des erreurs */}
             {state.error && (
                 <div className='plugin-error'>
-                    <h4>❌ Erreur</h4>
+                    <h4><StatusIcon status='error' /> Erreur</h4>
                     <pre>{state.error}</pre>
                 </div>
             )}

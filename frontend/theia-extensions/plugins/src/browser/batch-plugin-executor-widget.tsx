@@ -19,6 +19,7 @@ import { MessageService } from '@theia/core/lib/common/message-service';
 import { ApplicationShell, WidgetManager, ConfirmDialog } from '@theia/core/lib/browser';
 import { Plugin, PluginDetails, PluginResult } from '../common/plugin-protocol';
 import { PluginsServiceImpl } from './services/plugins-service';
+import { StatusIcon } from './status-icon';
 
 /**
  * Fonctions utilitaires pour la gestion des cartes batch
@@ -255,7 +256,7 @@ export class BatchPluginExecutorWidget extends ReactWidget {
         if (!this.config) {
             return (
                 <div className='batch-plugin-executor-container' style={{ padding: '20px', textAlign: 'center' }}>
-                    <div>⏳ Initialisation...</div>
+                    <div><StatusIcon status='running' /> Initialisation...</div>
                     <div style={{ fontSize: '12px', opacity: 0.7, marginTop: '10px' }}>
                         En attente de configuration
                     </div>
@@ -1121,8 +1122,12 @@ const BatchPluginExecutorComponent: React.FC<{
                     🔄 Réinitialiser
                 </button>
 
-                <div style={{ marginLeft: 'auto', fontSize: '13px', opacity: 0.8 }}>
-                    {stats.completed} ✅ • {stats.errors} ❌ • {stats.pending} ⏳
+                <div style={{ marginLeft: 'auto', fontSize: '13px', opacity: 0.8, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <span>{stats.completed}</span><StatusIcon status='done' />
+                    <span>•</span>
+                    <span>{stats.errors}</span><StatusIcon status='error' />
+                    <span>•</span>
+                    <span>{stats.pending}</span><StatusIcon status='pending' />
                     {stats.rateLimited > 0 ? ` • ${stats.rateLimited} ⚠️ limitée(s)` : ''}
                 </div>
             </div>
@@ -1271,10 +1276,10 @@ const BatchPluginExecutorComponent: React.FC<{
                                             </button>
                                             <strong>{result.gcCode}</strong> - {result.name}
                                             <div style={{ fontSize: '16px' }}>
-                                                {result.status === 'pending' && '⏳'}
-                                                {result.status === 'executing' && '🔄'}
-                                                {result.status === 'completed' && '✅'}
-                                                {result.status === 'error' && '❌'}
+                                                {result.status === 'pending' && <StatusIcon status='pending' />}
+                                                {result.status === 'executing' && <StatusIcon status='running' />}
+                                                {result.status === 'completed' && <StatusIcon status='done' />}
+                                                {result.status === 'error' && <StatusIcon status='error' />}
                                             </div>
                                         </div>
 
@@ -1350,8 +1355,8 @@ const BatchPluginExecutorComponent: React.FC<{
                                         )}
 
                                         {result.error && (
-                                            <div style={{ fontSize: '12px', color: 'var(--theia-errorForeground)', marginTop: '4px', padding: '4px 8px', background: 'rgba(231, 76, 60, 0.1)', borderRadius: '3px' }}>
-                                                ❌ <strong>Erreur:</strong> {result.error}
+                                            <div style={{ fontSize: '12px', color: 'var(--theia-errorForeground)', marginTop: '4px', padding: '4px 8px', background: 'rgba(231, 76, 60, 0.1)', borderRadius: '3px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                <StatusIcon status='error' /> <strong>Erreur:</strong> {result.error}
                                             </div>
                                         )}
 

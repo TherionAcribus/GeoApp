@@ -144,7 +144,7 @@ export const GeocacheAssociation: React.FC<GeocacheAssociationProps> = ({
                             fontWeight: 'bold',
                             marginBottom: '8px'
                         }}>
-                            <i className='fa fa-check-circle' aria-hidden='true' style={{ marginRight: '8px', color: '#00ff00' }}></i>
+                            <i className='fa fa-check-circle' aria-hidden='true' style={{ marginRight: '8px', color: 'var(--theia-charts-green, #22c55e)' }}></i>
                             {associatedGeocache.code} - {associatedGeocache.name}
                         </div>
 
