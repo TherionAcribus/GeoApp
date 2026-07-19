@@ -1,4 +1,5 @@
 import { injectable, inject } from '@theia/core/shared/inversify';
+import { MessageService } from '@theia/core';
 import { PreferenceService, PreferenceChange } from '@theia/core/lib/common/preferences/preference-service';
 import { PreferenceScope } from '@theia/core/lib/common/preferences/preference-scope';
 import { FrontendApplicationContribution } from '@theia/core/lib/browser';
@@ -17,10 +18,14 @@ export class PreferenceSyncService implements FrontendApplicationContribution {
     private initializationScheduled = false;
     private readonly backendDefinitions: Map<string, GeoPreferenceDefinition>;
 
+    /** Anti-spam : on n'affiche pas deux fois la même erreur de sync en moins de 5 s. */
+    private lastSyncErrorAt = 0;
+
     constructor(
         @inject(PreferenceService) private readonly preferenceService: PreferenceService,
         @inject(GeoPreferenceStore) private readonly store: GeoPreferenceStore,
-        @inject(PreferencesApiClient) private readonly apiClient: PreferencesApiClient
+        @inject(PreferencesApiClient) private readonly apiClient: PreferencesApiClient,
+        @inject(MessageService) private readonly messageService: MessageService
     ) {
         this.backendDefinitions = new Map(
             this.store.definitions
@@ -161,7 +166,20 @@ export class PreferenceSyncService implements FrontendApplicationContribution {
             await this.apiClient.update(event.preferenceName, currentValue);
         } catch (error) {
             console.error(`[GeoPreferences] Failed to synchronize ${event.preferenceName}`, error);
+            this.notifySyncError(event.preferenceName);
         }
+    }
+
+    private notifySyncError(preferenceName: string): void {
+        const now = Date.now();
+        if (now - this.lastSyncErrorAt < 5000) {
+            return;
+        }
+        this.lastSyncErrorAt = now;
+        this.messageService.error(
+            `Impossible d'enregistrer la préférence « ${preferenceName} » côté backend Flask. `
+            + 'La valeur reste appliquée localement ; vérifiez que le backend est démarré.'
+        );
     }
 
     private getCurrentValue(preferenceName: string): unknown {

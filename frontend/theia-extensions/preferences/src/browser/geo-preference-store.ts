@@ -18,6 +18,10 @@ export class GeoPreferenceStore {
     readonly schema = geoPreferenceSchema;
     private readonly onDidChangeEmitter = new Emitter<GeoPreferenceChange>();
 
+    /** Le schéma est statique : ces structures sont calculées une seule fois. */
+    private cachedDefinitions?: Array<{ key: GeoPreferenceKey; definition: GeoPreferenceDefinition }>;
+    private cachedDefinitionsByCategory?: Map<string, Array<{ key: GeoPreferenceKey; definition: GeoPreferenceDefinition }>>;
+
     constructor(
         @inject(PreferenceService) private readonly preferenceService: PreferenceService,
     ) {
@@ -29,22 +33,28 @@ export class GeoPreferenceStore {
     }
 
     get definitions(): Array<{ key: GeoPreferenceKey; definition: GeoPreferenceDefinition }> {
-        return GEO_PREFERENCE_KEYS.map(key => ({
-            key,
-            definition: this.schema.properties?.[key] as GeoPreferenceDefinition
-        }));
+        if (!this.cachedDefinitions) {
+            this.cachedDefinitions = GEO_PREFERENCE_KEYS.map(key => ({
+                key,
+                definition: this.schema.properties?.[key] as GeoPreferenceDefinition
+            }));
+        }
+        return this.cachedDefinitions;
     }
 
     get definitionsByCategory(): Map<string, Array<{ key: GeoPreferenceKey; definition: GeoPreferenceDefinition }>> {
-        const map = new Map<string, Array<{ key: GeoPreferenceKey; definition: GeoPreferenceDefinition }>>();
-        this.definitions.forEach(entry => {
-            const category = entry.definition['x-category'] || 'generic';
-            if (!map.has(category)) {
-                map.set(category, []);
-            }
-            map.get(category)?.push(entry);
-        });
-        return map;
+        if (!this.cachedDefinitionsByCategory) {
+            const map = new Map<string, Array<{ key: GeoPreferenceKey; definition: GeoPreferenceDefinition }>>();
+            this.definitions.forEach(entry => {
+                const category = entry.definition['x-category'] || 'generic';
+                if (!map.has(category)) {
+                    map.set(category, []);
+                }
+                map.get(category)?.push(entry);
+            });
+            this.cachedDefinitionsByCategory = map;
+        }
+        return this.cachedDefinitionsByCategory;
     }
 
     getSnapshot(): GeoPreferenceSnapshot {

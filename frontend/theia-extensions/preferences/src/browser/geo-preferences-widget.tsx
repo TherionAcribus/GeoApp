@@ -162,7 +162,7 @@ const PREFERENCE_GUIDES: GeoPreferenceGuide[] = [
 ];
 
 const ENUM_VALUE_LABELS: Record<string, string> = {
-    true: 'Active',
+    true: 'Activé',
     false: 'Désactivé',
     local: 'Local',
     fast: 'Rapide',
@@ -192,7 +192,7 @@ const ENUM_VALUE_LABELS: Record<string, string> = {
     'new-group': 'Nouveau groupe',
     'external-window': 'Fenêtre externe',
     'new-tab': 'Nouvel onglet',
-    'new-window': 'Nouvelle fenetre',
+    'new-window': 'Nouvelle fenêtre',
     transparent: 'Transparent',
     hidden: 'Masqué',
     'found-icon': 'Icône trouvée',
@@ -227,6 +227,17 @@ export class GeoPreferencesWidget extends ReactWidget {
     protected complexityFilter: GeoPreferenceComplexityFilter = 'all';
     protected selectedGuideId = 'all';
 
+    /** Version incrémentée à chaque changement de valeur : sert à invalider les caches dérivés. */
+    private snapshotVersion = 0;
+    /** Cache des textes de recherche normalisés par clé (invalidé à chaque changement de valeur). */
+    private readonly haystackCache = new Map<string, string>();
+    /** Cache mémoïsé des compteurs de guides, clé = signature filtres + version. */
+    private guideCountsCache?: { signature: string; counts: Map<string, number> };
+    /** Brouillons des champs texte/nombre en cours d'édition (commit au blur). */
+    private readonly textDrafts = new Map<string, string>();
+    /** Clés dont le dernier JSON saisi était invalide (feedback inline). */
+    private readonly jsonErrors = new Set<string>();
+
     constructor(
         @inject(GeoPreferenceStore) private readonly store: GeoPreferenceStore,
         @inject(CommandService) private readonly commandService: CommandService,
@@ -240,15 +251,33 @@ export class GeoPreferencesWidget extends ReactWidget {
         this.addClass('geo-preferences-widget');
 
         this.snapshot = this.store.getSnapshot();
-        this.store.onDidChange(change => {
+        this.toDispose.push(this.store.onDidChange(change => {
             this.snapshot = {
                 ...this.snapshot,
                 [change.key]: change.value
             };
-            this.update();
-        });
+            this.haystackCache.delete(change.key);
+            this.snapshotVersion++;
+            this.scheduleUpdate();
+        }));
 
         this.update();
+    }
+
+    /**
+     * Regroupe les rafraîchissements rapprochés (ex. pull initial du backend qui
+     * applique les préférences une par une) en un seul render via microtask.
+     */
+    private updateScheduled = false;
+    private scheduleUpdate(): void {
+        if (this.updateScheduled) {
+            return;
+        }
+        this.updateScheduled = true;
+        Promise.resolve().then(() => {
+            this.updateScheduled = false;
+            this.update();
+        });
     }
 
     revealCategory(category?: string): void {
@@ -643,15 +672,19 @@ export class GeoPreferencesWidget extends ReactWidget {
         }
 
         if (definition.type === 'number' || definition.type === 'integer') {
+            const draft = this.textDrafts.get(key);
+            const displayValue = draft !== undefined ? draft : String(value ?? definition.default ?? 0);
             return (
                 <input
                     id={key}
                     type='number'
-                    value={Number(value ?? definition.default ?? 0)}
+                    value={displayValue}
                     min={definition.minimum as number | undefined}
                     max={definition.maximum as number | undefined}
                     step={definition.type === 'integer' ? 1 : 0.1}
-                    onChange={event => this.handleNumericChange(key, event.currentTarget.value, definition)}
+                    onChange={event => this.handleDraftChange(key, event.currentTarget.value)}
+                    onBlur={() => { void this.commitNumericDraft(key, definition); }}
+                    onKeyDown={event => this.handleDraftKeyDown(event)}
                 />
             );
         }
@@ -685,13 +718,17 @@ export class GeoPreferencesWidget extends ReactWidget {
             return this.renderJsonControl(key, value, definition.default, raw => this.handleObjectJsonBlur(key, raw));
         }
 
+        const textDraft = this.textDrafts.get(key);
+        const textValue = textDraft !== undefined ? textDraft : String(value ?? definition.default ?? '');
         return (
             <input
                 id={key}
                 type={definition['x-sensitive'] ? 'password' : 'text'}
-                value={String(value ?? definition.default ?? '')}
+                value={textValue}
                 autoComplete={definition['x-sensitive'] ? 'off' : undefined}
-                onChange={event => this.handleTextChange(key, event.currentTarget.value)}
+                onChange={event => this.handleDraftChange(key, event.currentTarget.value)}
+                onBlur={() => { void this.commitTextDraft(key); }}
+                onKeyDown={event => this.handleDraftKeyDown(event)}
             />
         );
     }
@@ -703,16 +740,25 @@ export class GeoPreferencesWidget extends ReactWidget {
         onBlur: (rawValue: string) => void
     ): React.ReactNode {
         const jsonValue = this.formatJsonValue(value, fallback);
+        const hasError = this.jsonErrors.has(key);
         return (
-            <textarea
-                key={`${key}:${jsonValue}`}
-                id={key}
-                className='geo-preference-json'
-                rows={8}
-                defaultValue={jsonValue}
-                spellCheck={false}
-                onBlur={event => onBlur(event.currentTarget.value)}
-            />
+            <div className='geo-preference-json-wrapper'>
+                <textarea
+                    key={`${key}:${jsonValue}`}
+                    id={key}
+                    className={`geo-preference-json${hasError ? ' invalid' : ''}`}
+                    rows={8}
+                    defaultValue={jsonValue}
+                    spellCheck={false}
+                    aria-invalid={hasError}
+                    onBlur={event => onBlur(event.currentTarget.value)}
+                />
+                {hasError && (
+                    <p className='geo-preference-json-error' role='alert'>
+                        JSON invalide : la valeur n’a pas été enregistrée.
+                    </p>
+                )}
+            </div>
         );
     }
 
@@ -720,8 +766,48 @@ export class GeoPreferencesWidget extends ReactWidget {
         await this.store.setValue(key, value, PreferenceScope.User);
     }
 
-    private async handleTextChange(key: string, value: string): Promise<void> {
-        await this.store.setValue(key, value, PreferenceScope.User);
+    /** Met à jour le brouillon local sans écrire dans les préférences (ni sync réseau). */
+    private handleDraftChange(key: string, value: string): void {
+        this.textDrafts.set(key, value);
+        this.update();
+    }
+
+    /** Enter valide immédiatement (via blur), Échap annule le brouillon. */
+    private handleDraftKeyDown(event: React.KeyboardEvent<HTMLInputElement>): void {
+        if (event.key === 'Enter') {
+            event.currentTarget.blur();
+        } else if (event.key === 'Escape') {
+            const key = event.currentTarget.id;
+            this.textDrafts.delete(key);
+            this.update();
+        }
+    }
+
+    private async commitTextDraft(key: string): Promise<void> {
+        const draft = this.textDrafts.get(key);
+        this.textDrafts.delete(key);
+        if (draft === undefined) {
+            return;
+        }
+        await this.store.setValue(key, draft, PreferenceScope.User);
+    }
+
+    private async commitNumericDraft(key: string, definition: GeoPreferenceDefinition): Promise<void> {
+        const draft = this.textDrafts.get(key);
+        this.textDrafts.delete(key);
+        if (draft === undefined || draft.trim() === '') {
+            this.update();
+            return;
+        }
+        const parsed = definition.type === 'integer'
+            ? parseInt(draft, 10)
+            : parseFloat(draft);
+        if (Number.isNaN(parsed)) {
+            // Saisie invalide (ex. « - ») : on rétablit l'affichage de la valeur courante.
+            this.update();
+            return;
+        }
+        await this.store.setValue(key, parsed, PreferenceScope.User);
     }
 
     private async handleSelectChange(key: string, rawValue: string, definition: GeoPreferenceDefinition): Promise<void> {
@@ -730,16 +816,6 @@ export class GeoPreferencesWidget extends ReactWidget {
             value = definition.type === 'integer' ? parseInt(rawValue, 10) : parseFloat(rawValue);
         }
         await this.store.setValue(key, value, PreferenceScope.User);
-    }
-
-    private async handleNumericChange(key: string, rawValue: string, definition: GeoPreferenceDefinition): Promise<void> {
-        if (rawValue === '') {
-            return;
-        }
-        const parsed = definition.type === 'integer'
-            ? parseInt(rawValue, 10)
-            : parseFloat(rawValue);
-        await this.store.setValue(key, parsed, PreferenceScope.User);
     }
 
     private async handleArrayToggle(
@@ -758,36 +834,60 @@ export class GeoPreferencesWidget extends ReactWidget {
     private async handleObjectJsonBlur(key: string, rawValue: string): Promise<void> {
         const trimmed = rawValue.trim();
         if (!trimmed) {
+            this.clearJsonError(key);
             await this.store.setValue(key, {}, PreferenceScope.User);
             return;
         }
         try {
             const parsed = JSON.parse(trimmed);
             if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                this.clearJsonError(key);
                 await this.store.setValue(key, parsed, PreferenceScope.User);
+            } else {
+                this.setJsonError(key, 'Un objet JSON est attendu');
             }
         } catch (error) {
-            console.warn(`[GeoPreferencesWidget] Invalid JSON preference for ${key}`, error);
+            this.setJsonError(key, error);
         }
     }
 
     private async handleArrayJsonBlur(key: string, rawValue: string): Promise<void> {
         const trimmed = rawValue.trim();
         if (!trimmed) {
+            this.clearJsonError(key);
             await this.store.setValue(key, [], PreferenceScope.User);
             return;
         }
         try {
             const parsed = JSON.parse(trimmed);
             if (Array.isArray(parsed)) {
+                this.clearJsonError(key);
                 await this.store.setValue(key, parsed, PreferenceScope.User);
+            } else {
+                this.setJsonError(key, 'Un tableau JSON est attendu');
             }
         } catch (error) {
-            console.warn(`[GeoPreferencesWidget] Invalid JSON array preference for ${key}`, error);
+            this.setJsonError(key, error);
+        }
+    }
+
+    private setJsonError(key: string, error: unknown): void {
+        console.warn(`[GeoPreferencesWidget] Invalid JSON preference for ${key}`, error);
+        if (!this.jsonErrors.has(key)) {
+            this.jsonErrors.add(key);
+            this.update();
+        }
+    }
+
+    private clearJsonError(key: string): void {
+        if (this.jsonErrors.delete(key)) {
+            this.update();
         }
     }
 
     private async handleResetPreference(key: string, definition: GeoPreferenceDefinition): Promise<void> {
+        this.textDrafts.delete(key);
+        this.jsonErrors.delete(key);
         const defaultValue = 'default' in definition ? this.cloneValue(definition.default) : undefined;
         await this.store.setValue(key, defaultValue, PreferenceScope.User);
     }
@@ -836,6 +936,10 @@ export class GeoPreferencesWidget extends ReactWidget {
     }
 
     private buildGuideCounts(): Map<string, number> {
+        const signature = `${this.snapshotVersion}|${this.valueFilter}|${this.targetFilter}|${this.complexityFilter}`;
+        if (this.guideCountsCache?.signature === signature) {
+            return this.guideCountsCache.counts;
+        }
         const counts = new Map<string, number>();
         for (const guide of PREFERENCE_GUIDES) {
             const count = this.store.definitions.filter(({ key, definition }) =>
@@ -843,6 +947,7 @@ export class GeoPreferencesWidget extends ReactWidget {
             ).length;
             counts.set(guide.id, count);
         }
+        this.guideCountsCache = { signature, counts };
         return counts;
     }
 
@@ -909,9 +1014,17 @@ export class GeoPreferencesWidget extends ReactWidget {
         if (!query) {
             return true;
         }
+        return this.getHaystack(key, definition).includes(query);
+    }
 
+    /** Texte de recherche normalisé pour une préférence, mémoïsé jusqu'au prochain changement de valeur. */
+    private getHaystack(key: GeoPreferenceKey, definition: GeoPreferenceDefinition): string {
+        const cached = this.haystackCache.get(key);
+        if (cached !== undefined) {
+            return cached;
+        }
         const value = this.snapshot[key];
-        const haystack = [
+        const haystack = this.normalizeSearchText([
             key,
             definition.title,
             this.toPreferenceLabel(key),
@@ -928,9 +1041,9 @@ export class GeoPreferencesWidget extends ReactWidget {
             this.stringifyForSearch(value)
         ]
             .filter(Boolean)
-            .join(' ');
-
-        return this.normalizeSearchText(haystack).includes(query);
+            .join(' '));
+        this.haystackCache.set(key, haystack);
+        return haystack;
     }
 
     private getSelectedGuide(): GeoPreferenceGuide | undefined {

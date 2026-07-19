@@ -22,8 +22,8 @@
     align-items: center;
     padding: 8px 12px;
     border-radius: 6px;
-    background: rgba(44, 82, 130, 0.2);
-    border: 1px solid rgba(44, 82, 130, 0.4);
+    background: color-mix(in srgb, var(--theia-charts-blue, #2c5282) 14%, var(--theia-editorWidget-background));
+    border: 1px solid color-mix(in srgb, var(--theia-charts-blue, #2c5282) 32%, transparent);
     font-size: 12px;
 }
 
@@ -100,7 +100,7 @@
     overflow: auto;
     border: 1px solid var(--theia-layout-color3);
     border-radius: 6px;
-    background: rgba(255, 255, 255, 0.02);
+    background: var(--theia-editorWidget-background);
     padding: 6px;
 }
 
@@ -156,7 +156,7 @@
     border: 1px solid var(--theia-layout-color3);
     border-radius: 6px;
     padding: 10px;
-    background: rgba(255, 255, 255, 0.02);
+    background: var(--theia-editorWidget-background);
 }
 
 .geo-preferences-section.highlighted {
@@ -383,23 +383,23 @@
 }
 
 .geo-preference-tag.backend {
-    background: #2f855a;
-    color: #fff;
+    color: var(--theia-charts-green, #2f855a);
+    background: color-mix(in srgb, var(--theia-charts-green, #2f855a) 20%, transparent);
 }
 
 .geo-preference-tag.frontend {
-    background: #2c5282;
-    color: #fff;
+    color: var(--theia-charts-blue, #2c5282);
+    background: color-mix(in srgb, var(--theia-charts-blue, #2c5282) 20%, transparent);
 }
 
 .geo-preference-tag.modified {
-    background: #8a6d1d;
-    color: #fff;
+    color: var(--theia-charts-yellow, #8a6d1d);
+    background: color-mix(in srgb, var(--theia-charts-yellow, #8a6d1d) 22%, transparent);
 }
 
 .geo-preference-tag.advanced {
-    background: #6b46a3;
-    color: #fff;
+    color: var(--theia-charts-purple, #6b46a3);
+    background: color-mix(in srgb, var(--theia-charts-purple, #6b46a3) 20%, transparent);
 }
 
 .geo-preference-tag.default,
@@ -408,8 +408,26 @@
 }
 
 .geo-preference-tag.sensitive {
-    background: #8a2f2f;
-    color: #fff;
+    color: var(--theia-charts-red, #8a2f2f);
+    background: color-mix(in srgb, var(--theia-charts-red, #8a2f2f) 20%, transparent);
+}
+
+.geo-preference-json-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: min(520px, 100%);
+    max-width: 100%;
+}
+
+.geo-preference-json.invalid {
+    border-color: var(--theia-inputValidation-errorBorder, var(--theia-errorForeground));
+}
+
+.geo-preference-json-error {
+    margin: 0;
+    color: var(--theia-errorForeground);
+    font-size: 11px;
 }
 
 @media (max-width: 900px) {
