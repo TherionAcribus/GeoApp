@@ -211,6 +211,263 @@ const ENUM_VALUE_LABELS: Record<string, string> = {
     en: 'Anglais'
 };
 
+// --- Fonctions pures partagées entre le widget et le composant PreferenceItem ---
+
+function humanSegment(value: string): string {
+    return value
+        .replace(/([A-Z])/g, ' $1')
+        .replace(/-/g, ' ')
+        .replace(/_/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .replace(/^\w/, char => char.toUpperCase());
+}
+
+function preferenceLabel(key: string): string {
+    return key
+        .replace(/^geoApp\./, '')
+        .split('.')
+        .map(part => humanSegment(part))
+        .join(' / ');
+}
+
+function categoryLabel(category: string): string {
+    return CATEGORY_LABELS[category] ?? category;
+}
+
+function enumOptionLabel(option: string | number, definition?: GeoPreferenceDefinition): string {
+    const raw = String(option);
+    const contextualLabel = definition?.['x-ui']?.enumLabels?.[raw];
+    if (contextualLabel) {
+        return `${contextualLabel} (${raw})`;
+    }
+    const label = ENUM_VALUE_LABELS[raw] ?? humanSegment(raw);
+    return label === raw ? raw : `${label} (${raw})`;
+}
+
+function arrayValue(value: unknown, fallback: unknown): Array<string | number> {
+    const source = Array.isArray(value) ? value : fallback;
+    if (!Array.isArray(source)) {
+        return [];
+    }
+    return source.filter((entry): entry is string | number => typeof entry === 'string' || typeof entry === 'number');
+}
+
+function formatJson(value: unknown, fallback: unknown): string {
+    const source = value ?? fallback ?? {};
+    try {
+        return JSON.stringify(source, null, 2);
+    } catch {
+        return '{}';
+    }
+}
+
+/**
+ * Callbacks stables (référence constante) fournis à chaque PreferenceItem : indispensables
+ * pour que React.memo puisse ignorer les items inchangés lors d'un re-render.
+ */
+interface PreferenceItemHandlers {
+    onBoolean(key: string, checked: boolean): void;
+    onSelect(key: string, rawValue: string, definition: GeoPreferenceDefinition): void;
+    onDraftChange(key: string, value: string): void;
+    onCommitText(key: string): void;
+    onCommitNumeric(key: string, definition: GeoPreferenceDefinition): void;
+    onDraftKeyDown(event: React.KeyboardEvent<HTMLInputElement>): void;
+    onArrayToggle(key: string, option: string | number, checked: boolean, definition: GeoPreferenceDefinition): void;
+    onArrayJsonBlur(key: string, rawValue: string): void;
+    onObjectJsonBlur(key: string, rawValue: string): void;
+    onReset(key: string, definition: GeoPreferenceDefinition): void;
+    onJsonFocus(key: string, jsonValue: string): void;
+    onJsonBlurClear(key: string): void;
+}
+
+interface PreferenceItemProps {
+    prefKey: string;
+    definition: GeoPreferenceDefinition;
+    value: unknown;
+    draft: string | undefined;
+    hasJsonError: boolean;
+    frozenJson: string | undefined;
+    modified: boolean;
+    highlighted: boolean;
+    advanced: boolean;
+    handlers: PreferenceItemHandlers;
+}
+
+/**
+ * Rend une préférence isolée. Mémoïsé : ne se re-rend que si l'une de ses props change
+ * (valeur, brouillon, erreur JSON, surlignage…), pas à chaque frappe dans un autre champ.
+ */
+const PreferenceItem = React.memo(function PreferenceItem(props: PreferenceItemProps): React.ReactElement {
+    const { prefKey, definition, value, draft, hasJsonError, frozenJson, modified, highlighted, advanced, handlers } = props;
+    const description = definition['x-ui']?.shortDescription ?? definition.description;
+    const label = definition['x-ui']?.label ?? definition.title ?? preferenceLabel(prefKey);
+    const targets = definition['x-targets'] ?? ['frontend'];
+    const backend = targets.includes('backend');
+    const tags = definition['x-tags'] ?? [];
+
+    const renderJson = (kind: 'array' | 'object'): React.ReactNode => {
+        const jsonValue = formatJson(value, definition.default);
+        // La valeur du `key` React est figée pendant l'édition pour ne pas remonter le textarea.
+        const reactKey = `${prefKey}:${frozenJson ?? jsonValue}`;
+        return (
+            <div className='geo-preference-json-wrapper'>
+                <textarea
+                    key={reactKey}
+                    id={prefKey}
+                    className={`geo-preference-json${hasJsonError ? ' invalid' : ''}`}
+                    rows={8}
+                    defaultValue={jsonValue}
+                    spellCheck={false}
+                    aria-invalid={hasJsonError}
+                    onFocus={() => handlers.onJsonFocus(prefKey, jsonValue)}
+                    onBlur={event => {
+                        const raw = event.currentTarget.value;
+                        handlers.onJsonBlurClear(prefKey);
+                        if (kind === 'object') {
+                            handlers.onObjectJsonBlur(prefKey, raw);
+                        } else {
+                            handlers.onArrayJsonBlur(prefKey, raw);
+                        }
+                    }}
+                />
+                {hasJsonError && (
+                    <p className='geo-preference-json-error' role='alert'>
+                        JSON invalide : la valeur n’a pas été enregistrée.
+                    </p>
+                )}
+            </div>
+        );
+    };
+
+    const renderControl = (): React.ReactNode => {
+        if (definition.type === 'boolean') {
+            return (
+                <input
+                    id={prefKey}
+                    type='checkbox'
+                    checked={Boolean(value)}
+                    onChange={event => handlers.onBoolean(prefKey, event.currentTarget.checked)}
+                />
+            );
+        }
+
+        if ((definition.type === 'string' || definition.type === 'number' || definition.type === 'integer') && Array.isArray(definition.enum)) {
+            return (
+                <select
+                    id={prefKey}
+                    value={String(value ?? definition.default ?? '')}
+                    onChange={event => handlers.onSelect(prefKey, event.currentTarget.value, definition)}
+                >
+                    {definition.enum.map((option: string | number) => (
+                        <option key={option} value={option}>
+                            {enumOptionLabel(option, definition)}
+                        </option>
+                    ))}
+                </select>
+            );
+        }
+
+        if (definition.type === 'number' || definition.type === 'integer') {
+            const displayValue = draft !== undefined ? draft : String(value ?? definition.default ?? 0);
+            return (
+                <input
+                    id={prefKey}
+                    type='number'
+                    value={displayValue}
+                    min={definition.minimum as number | undefined}
+                    max={definition.maximum as number | undefined}
+                    step={definition.type === 'integer' ? 1 : 0.1}
+                    onChange={event => handlers.onDraftChange(prefKey, event.currentTarget.value)}
+                    onBlur={() => handlers.onCommitNumeric(prefKey, definition)}
+                    onKeyDown={event => handlers.onDraftKeyDown(event)}
+                />
+            );
+        }
+
+        if (definition.type === 'array') {
+            const options = definition.items?.enum;
+            if (Array.isArray(options)) {
+                const values = arrayValue(value, definition.default);
+                return (
+                    <div id={prefKey} className='geo-preference-array'>
+                        {options.map(option => (
+                            <label key={option} className='geo-preference-array-option'>
+                                <input
+                                    type='checkbox'
+                                    checked={values.includes(option)}
+                                    onChange={event => handlers.onArrayToggle(prefKey, option, event.currentTarget.checked, definition)}
+                                />
+                                <span>{enumOptionLabel(option, definition)}</span>
+                            </label>
+                        ))}
+                    </div>
+                );
+            }
+            return renderJson('array');
+        }
+
+        if (definition.type === 'object') {
+            return renderJson('object');
+        }
+
+        const textValue = draft !== undefined ? draft : String(value ?? definition.default ?? '');
+        return (
+            <input
+                id={prefKey}
+                type={definition['x-sensitive'] ? 'password' : 'text'}
+                value={textValue}
+                autoComplete={definition['x-sensitive'] ? 'off' : undefined}
+                onChange={event => handlers.onDraftChange(prefKey, event.currentTarget.value)}
+                onBlur={() => handlers.onCommitText(prefKey)}
+                onKeyDown={event => handlers.onDraftKeyDown(event)}
+            />
+        );
+    };
+
+    return (
+        <div
+            className={`geo-preference-item${modified ? ' modified' : ''}${highlighted ? ' highlighted' : ''}`}
+            data-geo-preference-key={prefKey}
+        >
+            <div className='geo-preference-main'>
+                <div className='geo-preference-title'>
+                    <label htmlFor={prefKey}>{label}</label>
+                    <code>{prefKey}</code>
+                </div>
+                <div className='geo-preference-control'>
+                    {renderControl()}
+                    <button
+                        className='theia-button secondary geo-preference-reset'
+                        type='button'
+                        disabled={!modified}
+                        onClick={() => handlers.onReset(prefKey, definition)}
+                        title={modified ? 'Revenir à la valeur par défaut' : 'Valeur par défaut déjà active'}
+                    >
+                        Réinitialiser
+                    </button>
+                </div>
+            </div>
+            <div className='geo-preference-meta'>
+                {description && <p>{description}</p>}
+                <div className='geo-preference-tags'>
+                    <span className='geo-preference-tag'>{definition['x-category'] || 'général'}</span>
+                    {modified
+                        ? <span className='geo-preference-tag modified'>Modifiée</span>
+                        : <span className='geo-preference-tag default'>Défaut</span>}
+                    {backend && <span className='geo-preference-tag backend'>Flask</span>}
+                    {targets.includes('frontend') && <span className='geo-preference-tag frontend'>Theia</span>}
+                    {advanced && <span className='geo-preference-tag advanced'>Avancé</span>}
+                    {definition['x-sensitive'] && <span className='geo-preference-tag sensitive'>Sensible</span>}
+                    {tags.slice(0, 4).map(tag => (
+                        <span key={tag} className='geo-preference-tag muted'>{tag}</span>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+});
+
 @injectable()
 export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget {
 
@@ -240,6 +497,22 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
     private readonly jsonErrors = new Set<string>();
     /** Valeur JSON figée pendant l'édition d'un textarea, pour éviter tout remount qui écraserait la saisie. */
     private readonly jsonEditingSnapshot = new Map<string, string>();
+
+    /** Callbacks stables passés à chaque PreferenceItem (référence constante → React.memo efficace). */
+    private readonly itemHandlers: PreferenceItemHandlers = {
+        onBoolean: (key, checked) => { void this.handleBooleanChange(key, checked); },
+        onSelect: (key, rawValue, definition) => { void this.handleSelectChange(key, rawValue, definition); },
+        onDraftChange: (key, value) => this.handleDraftChange(key, value),
+        onCommitText: key => { void this.commitTextDraft(key); },
+        onCommitNumeric: (key, definition) => { void this.commitNumericDraft(key, definition); },
+        onDraftKeyDown: event => this.handleDraftKeyDown(event),
+        onArrayToggle: (key, option, checked, definition) => { void this.handleArrayToggle(key, option, checked, definition); },
+        onArrayJsonBlur: (key, rawValue) => { void this.handleArrayJsonBlur(key, rawValue); },
+        onObjectJsonBlur: (key, rawValue) => { void this.handleObjectJsonBlur(key, rawValue); },
+        onReset: (key, definition) => { void this.handleResetPreference(key, definition); },
+        onJsonFocus: (key, jsonValue) => { this.jsonEditingSnapshot.set(key, jsonValue); },
+        onJsonBlurClear: key => { this.jsonEditingSnapshot.delete(key); }
+    };
 
     constructor(
         @inject(GeoPreferenceStore) private readonly store: GeoPreferenceStore,
@@ -638,184 +911,20 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
     }
 
     private renderPreference(key: GeoPreferenceKey, definition: GeoPreferenceDefinition): React.ReactNode {
-        const currentValue = this.snapshot[key];
-        const description = definition['x-ui']?.shortDescription ?? definition.description;
-        const label = definition['x-ui']?.label ?? definition.title ?? this.toPreferenceLabel(key);
-        const targets = definition['x-targets'] ?? ['frontend'];
-        const backend = targets.includes('backend');
-        const modified = this.isModified(key, definition);
-        const tags = definition['x-tags'] ?? [];
-        const highlighted = this.highlightedPreferenceKey === key;
-        const advanced = this.isAdvancedPreference(key, definition);
-
         return (
-            <div
+            <PreferenceItem
                 key={key}
-                className={`geo-preference-item${modified ? ' modified' : ''}${highlighted ? ' highlighted' : ''}`}
-                data-geo-preference-key={key}
-            >
-                <div className='geo-preference-main'>
-                    <div className='geo-preference-title'>
-                        <label htmlFor={key}>{label}</label>
-                        <code>{key}</code>
-                    </div>
-                    <div className='geo-preference-control'>
-                        {this.renderControl(key, definition, currentValue)}
-                        <button
-                            className='theia-button secondary geo-preference-reset'
-                            type='button'
-                            disabled={!modified}
-                            onClick={() => { void this.handleResetPreference(key, definition); }}
-                            title={modified ? 'Revenir à la valeur par défaut' : 'Valeur par défaut déjà active'}
-                        >
-                            Réinitialiser
-                        </button>
-                    </div>
-                </div>
-                <div className='geo-preference-meta'>
-                    {description && <p>{description}</p>}
-                    <div className='geo-preference-tags'>
-                        <span className='geo-preference-tag'>{definition['x-category'] || 'général'}</span>
-                        {modified
-                            ? <span className='geo-preference-tag modified'>Modifiée</span>
-                            : <span className='geo-preference-tag default'>Défaut</span>}
-                        {backend && <span className='geo-preference-tag backend'>Flask</span>}
-                        {targets.includes('frontend') && <span className='geo-preference-tag frontend'>Theia</span>}
-                        {advanced && <span className='geo-preference-tag advanced'>Avancé</span>}
-                        {definition['x-sensitive'] && <span className='geo-preference-tag sensitive'>Sensible</span>}
-                        {tags.slice(0, 4).map(tag => (
-                            <span key={tag} className='geo-preference-tag muted'>{tag}</span>
-                        ))}
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
-    private renderControl(key: GeoPreferenceKey, definition: GeoPreferenceDefinition, value: unknown): React.ReactNode {
-        if (definition.type === 'boolean') {
-            return (
-                <input
-                    id={key}
-                    type='checkbox'
-                    checked={Boolean(value)}
-                    onChange={event => this.handleBooleanChange(key, event.currentTarget.checked)}
-                />
-            );
-        }
-
-        if ((definition.type === 'string' || definition.type === 'number' || definition.type === 'integer') && Array.isArray(definition.enum)) {
-            return (
-                <select
-                    id={key}
-                    value={String(value ?? definition.default ?? '')}
-                    onChange={event => this.handleSelectChange(key, event.currentTarget.value, definition)}
-                >
-                    {definition.enum.map((option: string | number) => (
-                        <option key={option} value={option}>
-                            {this.toEnumOptionLabel(option, definition)}
-                        </option>
-                    ))}
-                </select>
-            );
-        }
-
-        if (definition.type === 'number' || definition.type === 'integer') {
-            const draft = this.textDrafts.get(key);
-            const displayValue = draft !== undefined ? draft : String(value ?? definition.default ?? 0);
-            return (
-                <input
-                    id={key}
-                    type='number'
-                    value={displayValue}
-                    min={definition.minimum as number | undefined}
-                    max={definition.maximum as number | undefined}
-                    step={definition.type === 'integer' ? 1 : 0.1}
-                    onChange={event => this.handleDraftChange(key, event.currentTarget.value)}
-                    onBlur={() => { void this.commitNumericDraft(key, definition); }}
-                    onKeyDown={event => this.handleDraftKeyDown(event)}
-                />
-            );
-        }
-
-        if (definition.type === 'array') {
-            const options = definition.items?.enum;
-            if (Array.isArray(options)) {
-                const values = this.getArrayValue(value, definition.default);
-                return (
-                    <div id={key} className='geo-preference-array'>
-                        {options.map(option => {
-                            const selected = values.includes(option);
-                            return (
-                                <label key={option} className='geo-preference-array-option'>
-                                    <input
-                                        type='checkbox'
-                                        checked={selected}
-                                        onChange={event => this.handleArrayToggle(key, option, event.currentTarget.checked, definition)}
-                                    />
-                                    <span>{this.toEnumOptionLabel(option, definition)}</span>
-                                </label>
-                            );
-                        })}
-                    </div>
-                );
-            }
-            return this.renderJsonControl(key, value, definition.default, raw => this.handleArrayJsonBlur(key, raw));
-        }
-
-        if (definition.type === 'object') {
-            return this.renderJsonControl(key, value, definition.default, raw => this.handleObjectJsonBlur(key, raw));
-        }
-
-        const textDraft = this.textDrafts.get(key);
-        const textValue = textDraft !== undefined ? textDraft : String(value ?? definition.default ?? '');
-        return (
-            <input
-                id={key}
-                type={definition['x-sensitive'] ? 'password' : 'text'}
-                value={textValue}
-                autoComplete={definition['x-sensitive'] ? 'off' : undefined}
-                onChange={event => this.handleDraftChange(key, event.currentTarget.value)}
-                onBlur={() => { void this.commitTextDraft(key); }}
-                onKeyDown={event => this.handleDraftKeyDown(event)}
+                prefKey={key}
+                definition={definition}
+                value={this.snapshot[key]}
+                draft={this.textDrafts.get(key)}
+                hasJsonError={this.jsonErrors.has(key)}
+                frozenJson={this.jsonEditingSnapshot.get(key)}
+                modified={this.isModified(key, definition)}
+                highlighted={this.highlightedPreferenceKey === key}
+                advanced={this.isAdvancedPreference(key, definition)}
+                handlers={this.itemHandlers}
             />
-        );
-    }
-
-    private renderJsonControl(
-        key: GeoPreferenceKey,
-        value: unknown,
-        fallback: unknown,
-        onBlur: (rawValue: string) => void
-    ): React.ReactNode {
-        const jsonValue = this.formatJsonValue(value, fallback);
-        const hasError = this.jsonErrors.has(key);
-        // Pendant l'édition, on fige la valeur utilisée comme `key` React : une mise à jour
-        // externe (sync backend) ne doit pas remonter le textarea et écraser la saisie en cours.
-        const frozen = this.jsonEditingSnapshot.get(key);
-        const reactKey = `${key}:${frozen ?? jsonValue}`;
-        return (
-            <div className='geo-preference-json-wrapper'>
-                <textarea
-                    key={reactKey}
-                    id={key}
-                    className={`geo-preference-json${hasError ? ' invalid' : ''}`}
-                    rows={8}
-                    defaultValue={jsonValue}
-                    spellCheck={false}
-                    aria-invalid={hasError}
-                    onFocus={() => { this.jsonEditingSnapshot.set(key, jsonValue); }}
-                    onBlur={event => {
-                        this.jsonEditingSnapshot.delete(key);
-                        onBlur(event.currentTarget.value);
-                    }}
-                />
-                {hasError && (
-                    <p className='geo-preference-json-error' role='alert'>
-                        JSON invalide : la valeur n’a pas été enregistrée.
-                    </p>
-                )}
-            </div>
         );
     }
 
@@ -881,7 +990,7 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
         checked: boolean,
         definition: GeoPreferenceDefinition
     ): Promise<void> {
-        const current = this.getArrayValue(this.snapshot[key], definition.default);
+        const current = arrayValue(this.snapshot[key], definition.default);
         const next = checked
             ? [...current.filter(value => value !== option), option]
             : current.filter(value => value !== option);
@@ -984,7 +1093,7 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
                     .sort((left, right) => this.comparePreferences(left.key, left.definition, right.key, right.definition));
                 return {
                     category,
-                    label: this.toCategoryLabel(category),
+                    label: categoryLabel(category),
                     entries,
                     filteredEntries,
                     subsections: this.buildSubsections(category, filteredEntries)
@@ -1084,10 +1193,10 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
         const haystack = this.normalizeSearchText([
             key,
             definition.title,
-            this.toPreferenceLabel(key),
+            preferenceLabel(key),
             definition.description,
             definition['x-category'],
-            this.toCategoryLabel(definition['x-category'] || 'generic'),
+            categoryLabel(definition['x-category'] || 'generic'),
             definition['x-ui']?.label,
             definition['x-ui']?.section,
             definition['x-ui']?.shortDescription,
@@ -1152,23 +1261,6 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
             return JSON.parse(JSON.stringify(value)) as T;
         } catch {
             return value;
-        }
-    }
-
-    private getArrayValue(value: unknown, fallback: unknown): Array<string | number> {
-        const source = Array.isArray(value) ? value : fallback;
-        if (!Array.isArray(source)) {
-            return [];
-        }
-        return source.filter((entry): entry is string | number => typeof entry === 'string' || typeof entry === 'number');
-    }
-
-    private formatJsonValue(value: unknown, fallback: unknown): string {
-        const source = value ?? fallback ?? {};
-        try {
-            return JSON.stringify(source, null, 2);
-        } catch {
-            return '{}';
         }
     }
 
@@ -1366,35 +1458,4 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
         ].some(fragment => keyText.includes(fragment));
     }
 
-    private toCategoryLabel(category: string): string {
-        return CATEGORY_LABELS[category] ?? category;
-    }
-
-    private toPreferenceLabel(key: string): string {
-        return key
-            .replace(/^geoApp\./, '')
-            .split('.')
-            .map(part => this.toHumanSegment(part))
-            .join(' / ');
-    }
-
-    private toHumanSegment(value: string): string {
-        return value
-            .replace(/([A-Z])/g, ' $1')
-            .replace(/-/g, ' ')
-            .replace(/_/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim()
-            .replace(/^\w/, char => char.toUpperCase());
-    }
-
-    private toEnumOptionLabel(option: string | number, definition?: GeoPreferenceDefinition): string {
-        const raw = String(option);
-        const contextualLabel = definition?.['x-ui']?.enumLabels?.[raw];
-        if (contextualLabel) {
-            return `${contextualLabel} (${raw})`;
-        }
-        const label = ENUM_VALUE_LABELS[raw] ?? this.toHumanSegment(raw);
-        return label === raw ? raw : `${label} (${raw})`;
-    }
 }
