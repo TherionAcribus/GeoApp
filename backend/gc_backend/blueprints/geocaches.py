@@ -1826,10 +1826,15 @@ def import_pocket_query():
             try:
                 yield json.dumps({'message': f'Téléchargement de la Pocket Query {pq_code}...', 'progress': 0}) + '\n'
 
-                # Download the pocket query
+                # Download the pocket query : le générateur émet des messages de
+                # progression au fil des tentatives, puis les octets téléchargés.
+                file_bytes = None
                 try:
-                    file_bytes = pq_importer.download_pocket_query_gpx(pq_code)
-                    yield json.dumps({'message': f'Fichier téléchargé ({len(file_bytes)} octets)', 'progress': 5}) + '\n'
+                    for item in pq_importer.iter_download_pocket_query_gpx(pq_code):
+                        if isinstance(item, (bytes, bytearray)):
+                            file_bytes = bytes(item)
+                        else:
+                            yield json.dumps({'message': item, 'progress': 3}) + '\n'
                 except LookupError as e:
                     error_msg = str(e)
                     if 'not_found' in error_msg:
@@ -1842,6 +1847,11 @@ def import_pocket_query():
                 except Exception as e:
                     yield json.dumps({'error': True, 'message': f'Erreur lors du téléchargement: {str(e)}'}) + '\n'
                     return
+
+                if not file_bytes:
+                    yield json.dumps({'error': True, 'message': 'Téléchargement de la Pocket Query échoué'}) + '\n'
+                    return
+                yield json.dumps({'message': f'Fichier téléchargé ({len(file_bytes)} octets)', 'progress': 5}) + '\n'
 
                 # Parse full Groundspeak data (une Pocket Query contient toutes les
                 # données : on importe sans re-télécharger chaque page cache).

@@ -82,187 +82,92 @@ class PocketQueryImporter:
         
         return None
     
-    def download_pocket_query_gpx(self, pq_code: str) -> bytes:
-        """
-        Download a pocket query as GPX/ZIP file.
-        
-        Args:
-            pq_code: The pocket query code (e.g., PQ1234 or GUID)
-            
-        Returns:
-            Raw bytes of the GPX or ZIP file
-            
+    # Timeout d'inactivité (secondes) : requests lève si aucun octet n'est reçu
+    # pendant cette durée. Ne limite PAS un gros téléchargement tant que les
+    # données arrivent — borne seulement les serveurs qui « pendouillent ».
+    _DOWNLOAD_TIMEOUT = 30
+
+    @staticmethod
+    def _looks_like_gpx_or_zip(content: bytes) -> bool:
+        return bool(content) and (content[:2] == b'PK' or content[:5] == b'<?xml')
+
+    def iter_download_pocket_query_gpx(self, pq_code: str):
+        """Télécharge une Pocket Query en streamant des messages de progression.
+
+        Générateur : yield des messages de statut (``str``) au fil des tentatives,
+        puis, en dernier, le contenu téléchargé (``bytes``). Émettre un message
+        avant chaque tentative évite que l'UI reste figée à 0 % pendant les
+        éventuels timeouts.
+
+        Élague l'ancienne cascade heuristique (scraping de la page + « Method
+        1-5 ») au profit d'une courte liste d'URLs de téléchargement direct, avec
+        un unique repli : chercher le lien de téléchargement sur la page des PQ.
+
         Raises:
-            ValueError: If pocket query code is invalid
-            LookupError: If pocket query not found or not accessible
-            RuntimeError: If download fails
+            ValueError: code de PQ invalide.
+            LookupError: ``pocket_query_requires_premium`` (403 rencontré) ou
+                ``pocket_query_not_found`` (aucune tentative concluante).
         """
         code = self.validate_pocket_query_code(pq_code)
         logger.info(f"Downloading pocket query {code}")
-        
-        # For GUID format, we need to find the download link
-        if not code.startswith('PQ'):
-            # First, try to find the download link from the main PQ list page
-            logger.debug(f"Looking for download link on main PQ page for {code}")
-            download_link = self._find_download_link_from_main_page(code)
-            
-            if download_link:
-                logger.debug(f"Found download link from main page: {download_link}")
-                try:
-                    download_resp = self.session.get(download_link, timeout=60, allow_redirects=True)
-                    
-                    if download_resp.status_code == 200:
-                        # Check by magic bytes
-                        if download_resp.content[:2] == b'PK':  # ZIP file
-                            logger.info(f"Successfully downloaded pocket query {code} as ZIP ({len(download_resp.content)} bytes)")
-                            return download_resp.content
-                        
-                        if download_resp.content[:5] == b'<?xml':  # XML/GPX file
-                            logger.info(f"Successfully downloaded pocket query {code} as GPX ({len(download_resp.content)} bytes)")
-                            return download_resp.content
-                except Exception as e:
-                    logger.debug(f"Failed to download from main page link: {e}")
-            
-            # Fallback: Try the PQ details page
-            details_url = f'https://www.geocaching.com/pocket/gcquery.aspx?guid={code}'
-            logger.debug(f"Fetching PQ details from: {details_url}")
-            
-            try:
-                resp = self.session.get(details_url, timeout=30)
-                resp.raise_for_status()
-                
-                from bs4 import BeautifulSoup
-                soup = BeautifulSoup(resp.text, 'html.parser')
-                
-                # Debug: Save the HTML for analysis
-                logger.debug(f"PQ page title: {soup.title.string if soup.title else 'No title'}")
-                
-                # Look for download links in the page
-                download_link = None
-                
-                # Method 1: Look for form submissions (PQ might use POST)
-                for form in soup.find_all('form'):
-                    action = form.get('action', '')
-                    if 'download' in action.lower():
-                        # This is a download form
-                        if action.startswith('http'):
-                            download_link = action
-                        elif action.startswith('/'):
-                            download_link = f'https://www.geocaching.com{action}'
-                        else:
-                            download_link = f'https://www.geocaching.com/pocket/{action}'
-                        logger.debug(f"Found download form action: {download_link}")
-                        break
-                
-                # Method 2: Look for direct download links
-                if not download_link:
-                    for link in soup.find_all('a', href=True):
-                        href = link['href']
-                        link_text = link.get_text(strip=True).lower()
-                        if 'download' in href.lower() or 'download' in link_text:
-                            # Extract the full URL
-                            if href.startswith('http'):
-                                download_link = href
-                            elif href.startswith('/'):
-                                download_link = f'https://www.geocaching.com{href}'
-                            else:
-                                download_link = f'https://www.geocaching.com/pocket/{href}'
-                            logger.debug(f"Found download link: {download_link}")
-                            break
-                
-                # Method 3: Look for buttons with data attributes
-                if not download_link:
-                    for button in soup.find_all(['button', 'a', 'input'], attrs={'data-download-url': True}):
-                        download_link = button['data-download-url']
-                        if not download_link.startswith('http'):
-                            download_link = f'https://www.geocaching.com{download_link}'
-                        logger.debug(f"Found download link in data attribute: {download_link}")
-                        break
-                
-                # Method 4: Look for JavaScript variables or data
-                if not download_link:
-                    for script in soup.find_all('script'):
-                        script_text = script.string or ''
-                        # Look for download URLs in JavaScript
-                        url_match = re.search(r'["\']([^"\']*download[^"\']*)["\']', script_text, re.IGNORECASE)
-                        if url_match:
-                            potential_url = url_match.group(1)
-                            if 'http' in potential_url or potential_url.startswith('/'):
-                                download_link = potential_url if potential_url.startswith('http') else f'https://www.geocaching.com{potential_url}'
-                                logger.debug(f"Found download URL in JavaScript: {download_link}")
-                                break
-                
-                # Method 5: The PQ page might just be a list page, try direct download URL patterns
-                if not download_link:
-                    # Try different known patterns
-                    patterns = [
-                        f'https://www.geocaching.com/pocket/downloadpq.aspx?g={code}',
-                        f'https://www.geocaching.com/pocket/downloadpq.aspx?id={code}',
-                        f'https://www.geocaching.com/api/proxy/web/v1/pocketquery/{code}/download',
-                    ]
-                    for pattern in patterns:
-                        logger.debug(f"Trying pattern: {pattern}")
-                        download_link = pattern
-                        break
-                
-                if download_link:
-                    logger.debug(f"Attempting download from: {download_link}")
-                    download_resp = self.session.get(download_link, timeout=60, allow_redirects=True)
-                    
-                    if download_resp.status_code == 200:
-                        # Check if we got actual file content
-                        content_type = download_resp.headers.get('Content-Type', '').lower()
-                        
-                        # Check by magic bytes
-                        if download_resp.content[:2] == b'PK':  # ZIP file
-                            logger.info(f"Successfully downloaded pocket query {code} as ZIP ({len(download_resp.content)} bytes)")
-                            return download_resp.content
-                        
-                        if download_resp.content[:5] == b'<?xml':  # XML/GPX file
-                            logger.info(f"Successfully downloaded pocket query {code} as GPX ({len(download_resp.content)} bytes)")
-                            return download_resp.content
-                        
-                        # Check by content type
-                        if 'zip' in content_type or 'gpx' in content_type or 'xml' in content_type or 'octet-stream' in content_type:
-                            logger.info(f"Successfully downloaded pocket query {code} ({len(download_resp.content)} bytes)")
-                            return download_resp.content
-                
-            except requests.RequestException as e:
-                logger.error(f"Failed to fetch PQ details: {e}")
-        
-        # Fallback: Try legacy URLs
-        urls_to_try = [
+
+        saw_forbidden = False
+
+        # URLs de téléchargement direct, par ordre de probabilité décroissante.
+        candidates = [
+            f'https://www.geocaching.com/pocket/downloadpq.aspx?g={code}',
             f'https://www.geocaching.com/api/proxy/web/v1/pocketquery/{code}/download',
             f'https://www.geocaching.com/pocket/downloadpq.aspx?guid={code}',
         ]
-        
-        for url in urls_to_try:
+        for i, url in enumerate(candidates, 1):
+            yield f'Téléchargement (tentative {i}/{len(candidates)})…'
             try:
-                logger.debug(f"Trying fallback URL: {url}")
-                resp = self.session.get(url, timeout=60, allow_redirects=True)
-                
-                if resp.status_code == 404:
-                    continue
-                
-                if resp.status_code == 403:
-                    raise LookupError('pocket_query_requires_premium')
-                
-                resp.raise_for_status()
-                
-                # Check by magic bytes
-                if resp.content[:2] == b'PK':  # ZIP file
-                    logger.info(f"Successfully downloaded pocket query {code} as ZIP ({len(resp.content)} bytes)")
-                    return resp.content
-                
-                if resp.content[:5] == b'<?xml':  # XML/GPX file
-                    logger.info(f"Successfully downloaded pocket query {code} as GPX ({len(resp.content)} bytes)")
-                    return resp.content
-                
-            except requests.RequestException:
+                resp = self.session.get(url, timeout=self._DOWNLOAD_TIMEOUT, allow_redirects=True)
+            except requests.RequestException as e:
+                logger.debug(f"PQ download attempt failed for {url}: {e}")
                 continue
-        
+            if resp.status_code == 403:
+                saw_forbidden = True
+                continue
+            if resp.status_code == 200 and self._looks_like_gpx_or_zip(resp.content):
+                logger.info(f"Downloaded pocket query {code} from {url} ({len(resp.content)} bytes)")
+                yield resp.content
+                return
+
+        # Dernier recours : trouver le lien de téléchargement sur la page des PQ.
+        yield 'Recherche du lien de téléchargement…'
+        link = self._find_download_link_from_main_page(code)
+        if link:
+            try:
+                resp = self.session.get(link, timeout=self._DOWNLOAD_TIMEOUT, allow_redirects=True)
+                if resp.status_code == 403:
+                    saw_forbidden = True
+                elif resp.status_code == 200 and self._looks_like_gpx_or_zip(resp.content):
+                    logger.info(f"Downloaded pocket query {code} via page link ({len(resp.content)} bytes)")
+                    yield resp.content
+                    return
+            except requests.RequestException as e:
+                logger.debug(f"PQ page-link download failed: {e}")
+
         logger.error(f"Failed to download pocket query {code} from all attempted methods")
+        if saw_forbidden:
+            raise LookupError('pocket_query_requires_premium')
         raise LookupError('pocket_query_not_found')
+
+    def download_pocket_query_gpx(self, pq_code: str) -> bytes:
+        """Télécharge une Pocket Query et retourne les octets (GPX ou ZIP).
+
+        Enveloppe non-streamée de ``iter_download_pocket_query_gpx`` (mêmes
+        exceptions). À privilégier hors contexte de streaming ; l'endpoint
+        d'import utilise directement le générateur pour afficher la progression.
+        """
+        result: bytes | None = None
+        for item in self.iter_download_pocket_query_gpx(pq_code):
+            if isinstance(item, (bytes, bytearray)):
+                result = bytes(item)
+        if result is None:
+            raise LookupError('pocket_query_not_found')
+        return result
     
     def get_pocket_query_info(self, pq_code: str) -> dict:
         """
