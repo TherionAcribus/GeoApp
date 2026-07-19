@@ -118,6 +118,7 @@
     background: transparent;
     text-align: left;
     cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
 .geo-preferences-sidebar-entry:hover,
@@ -251,6 +252,7 @@
     gap: 5px;
     padding: 10px 0;
     border-top: 1px solid var(--theia-layout-color3);
+    transition: background-color 0.7s ease, box-shadow 0.7s ease;
 }
 
 .geo-preference-item:first-child {
@@ -259,10 +261,9 @@
 }
 
 .geo-preference-item.highlighted {
-    margin: 0 -6px;
-    padding: 10px 6px;
     border-radius: 6px;
-    outline: 1px solid var(--theia-focusBorder);
+    /* box-shadow plutôt qu'outline : n'affecte pas la mise en page et s'estompe en douceur. */
+    box-shadow: 0 0 0 1px var(--theia-focusBorder);
     background: var(--theia-list-hoverBackground);
 }
 

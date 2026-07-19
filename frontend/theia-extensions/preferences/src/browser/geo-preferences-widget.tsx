@@ -2,7 +2,7 @@ import * as React from 'react';
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { CommandService } from '@theia/core';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
-import { StatefulWidget } from '@theia/core/lib/browser';
+import { StatefulWidget, Message } from '@theia/core/lib/browser';
 import { PreferenceScope } from '@theia/core/lib/common/preferences/preference-scope';
 
 import { GeoPreferenceStore, GeoPreferenceSnapshot } from './geo-preference-store';
@@ -477,6 +477,10 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
     protected snapshot: GeoPreferenceSnapshot = {};
     protected highlightedCategory: string | undefined;
     protected highlightedPreferenceKey: string | undefined;
+    /** Catégorie actuellement en tête de la zone de contenu (scroll-spy) : pilote la sidebar. */
+    protected spyCategory: string | undefined;
+    private spyRaf?: number;
+    private highlightClearTimer?: number;
     protected expandedCategories = new Set<string>();
     protected expandedCategoriesInitialized = false;
     protected searchQuery = '';
@@ -556,6 +560,62 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
         });
     }
 
+    protected onAfterAttach(msg: Message): void {
+        super.onAfterAttach(msg);
+        // Écoute en phase de capture : l'événement scroll ne remonte pas depuis le conteneur interne.
+        this.node.addEventListener('scroll', this.handleContentScroll, true);
+        this.handleContentScroll();
+    }
+
+    protected onBeforeDetach(msg: Message): void {
+        this.node.removeEventListener('scroll', this.handleContentScroll, true);
+        if (this.spyRaf !== undefined) {
+            window.cancelAnimationFrame(this.spyRaf);
+            this.spyRaf = undefined;
+        }
+        if (this.highlightClearTimer !== undefined) {
+            window.clearTimeout(this.highlightClearTimer);
+            this.highlightClearTimer = undefined;
+        }
+        super.onBeforeDetach(msg);
+    }
+
+    /** Scroll-spy : throttlé via requestAnimationFrame pour ne pas re-render à chaque pixel. */
+    private handleContentScroll = (): void => {
+        if (this.spyRaf !== undefined) {
+            return;
+        }
+        this.spyRaf = window.requestAnimationFrame(() => {
+            this.spyRaf = undefined;
+            this.updateScrollSpy();
+        });
+    };
+
+    private updateScrollSpy(): void {
+        const content = this.node.querySelector<HTMLElement>('.geo-preferences-content');
+        if (!content) {
+            return;
+        }
+        const contentTop = content.getBoundingClientRect().top;
+        const sections = Array.from(content.querySelectorAll<HTMLElement>('[data-geo-preference-category]'));
+        let current: string | undefined;
+        for (const section of sections) {
+            // La dernière section dont le haut a franchi (ou effleure) le haut du conteneur est active.
+            if (section.getBoundingClientRect().top - contentTop <= 8) {
+                current = section.dataset.geoPreferenceCategory;
+            } else {
+                break;
+            }
+        }
+        if (current === undefined && sections.length > 0) {
+            current = sections[0].dataset.geoPreferenceCategory;
+        }
+        if (current !== this.spyCategory) {
+            this.spyCategory = current;
+            this.update();
+        }
+    }
+
     storeState(): object {
         return {
             searchQuery: this.searchQuery,
@@ -624,12 +684,25 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
         this.expandedCategories.add(category);
         this.highlightedCategory = category;
         this.highlightedPreferenceKey = key;
+        this.scheduleHighlightClear();
         this.update();
         window.setTimeout(() => {
             const preference = Array.from(this.node.querySelectorAll<HTMLElement>('[data-geo-preference-key]'))
                 .find(element => element.dataset.geoPreferenceKey === key);
             preference?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }, 0);
+    }
+
+    /** Le surlignage d'une préférence ciblée s'estompe automatiquement après quelques secondes. */
+    private scheduleHighlightClear(): void {
+        if (this.highlightClearTimer !== undefined) {
+            window.clearTimeout(this.highlightClearTimer);
+        }
+        this.highlightClearTimer = window.setTimeout(() => {
+            this.highlightClearTimer = undefined;
+            this.highlightedPreferenceKey = undefined;
+            this.update();
+        }, 2600);
     }
 
     setSearchQuery(query?: string): void {
@@ -792,12 +865,15 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
     private renderSidebarEntry(section: GeoPreferenceSection): React.ReactNode {
         const total = section.entries.length;
         const visible = section.filteredEntries.length;
-        const active = this.highlightedCategory === section.category;
+        // Une fois qu'un défilement a eu lieu, la sidebar suit la section visible (spy) ;
+        // avant tout scroll, elle reflète la dernière catégorie ciblée explicitement.
+        const active = section.category === (this.spyCategory ?? this.highlightedCategory);
         return (
             <button
                 key={section.category}
                 type='button'
                 className={`geo-preferences-sidebar-entry${active ? ' active' : ''}${visible === 0 ? ' empty' : ''}`}
+                aria-current={active ? 'true' : undefined}
                 onClick={() => this.focusCategory(section.category)}
                 title={section.label}
             >
@@ -1077,6 +1153,8 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
         this.expandedCategories.add(category);
         this.highlightedCategory = category;
         this.highlightedPreferenceKey = undefined;
+        // Reflète immédiatement la sélection dans la sidebar, même sans événement de scroll.
+        this.spyCategory = category;
         this.update();
         window.setTimeout(() => {
             const section = this.node.querySelector<HTMLElement>(`[data-geo-preference-category="${category}"]`);
