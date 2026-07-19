@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { MessageService } from '@theia/core';
+import { ConfirmDialog, Dialog } from '@theia/core/lib/browser';
 import { SaveWaypointInput } from './geocache-details-service';
 import {
     GeocacheDto,
@@ -121,10 +122,18 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
         setShowCalcTools(false);
     }, []);
 
-    const cancelEdit = React.useCallback(() => {
+    const cancelEdit = React.useCallback(async () => {
         const isDirty = JSON.stringify(editForm) !== JSON.stringify(initialEditFormRef.current);
-        if (isDirty && !window.confirm('Des modifications non sauvegardées seront perdues. Continuer ?')) {
-            return;
+        if (isDirty) {
+            const dialog = new ConfirmDialog({
+                title: 'Abandonner les modifications',
+                msg: 'Des modifications non sauvegardées seront perdues. Continuer ?',
+                ok: 'Abandonner',
+                cancel: Dialog.CANCEL
+            });
+            if (!await dialog.open()) {
+                return;
+            }
         }
         setEditingId(null);
         setEditForm({});
@@ -478,7 +487,7 @@ const WaypointsEditorWithRef: React.FC<WaypointsEditorWithRefProps> = ({ onStart
                         <button className='theia-button' onClick={() => { void saveWaypoint(); }} disabled={isSubmitting}>
                             {isSubmitting ? 'Sauvegarde...' : 'Sauvegarder'}
                         </button>
-                        <button className='theia-button secondary' onClick={cancelEdit} disabled={isSubmitting}>Annuler</button>
+                        <button className='theia-button secondary' onClick={() => { void cancelEdit(); }} disabled={isSubmitting}>Annuler</button>
                     </div>
                 </div>
             )}

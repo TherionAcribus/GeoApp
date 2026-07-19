@@ -2375,8 +2375,9 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                                             type='button'
                                             onClick={closeSelectedImage}
                                             title="Fermer l'aperçu"
+                                            aria-label="Fermer l'aperçu"
                                         >
-                                            <span className='codicon codicon-close' />
+                                            <span className='codicon codicon-close' aria-hidden='true' />
                                         </button>
                                     </div>
                                 </div>

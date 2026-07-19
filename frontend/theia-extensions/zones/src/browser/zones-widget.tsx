@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
+import { ConfirmDialog, Dialog } from '@theia/core/lib/browser';
 import { ZoneTabsManager } from './zone-tabs-manager';
 
 type ZoneDto = { id: number; name: string; description?: string; created_at?: string; geocaches_count: number };
@@ -46,6 +47,18 @@ export class ZonesWidget extends ReactWidget {
             this.update();
         } catch (e) {
             console.error('Zones: fetch error', e);
+        }
+    }
+
+    protected async confirmAndDeleteZone(zoneId: number, zoneName: string): Promise<void> {
+        const dialog = new ConfirmDialog({
+            title: 'Supprimer la zone',
+            msg: `Supprimer la zone "${zoneName}" ?`,
+            ok: 'Supprimer',
+            cancel: Dialog.CANCEL
+        });
+        if (await dialog.open()) {
+            await this.deleteZone(zoneId, zoneName);
         }
     }
 
@@ -158,10 +171,9 @@ export class ZonesWidget extends ReactWidget {
                                 <button
                                     onClick={(e) => {
                                         e.stopPropagation(); // Empêcher l'ouverture de l'onglet
-                                        if (window.confirm(`Supprimer la zone "${z.name}" ?`)) {
-                                            this.deleteZone(z.id, z.name);
-                                        }
+                                        void this.confirmAndDeleteZone(z.id, z.name);
                                     }}
+                                    aria-label={`Supprimer la zone ${z.name}`}
                                     style={{
                                         marginLeft: 8,
                                         padding: '2px 6px',

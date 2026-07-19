@@ -110,31 +110,35 @@ export class ServerLogTerminalWidget extends ReactWidget {
                         <button
                             className='theia-button secondary geoapp-server-log-icon-button'
                             title={this.paused ? 'Reprendre le flux' : 'Mettre en pause'}
+                            aria-label={this.paused ? 'Reprendre le flux' : 'Mettre en pause'}
                             onClick={this.togglePause}
                         >
-                            <span className={`codicon ${this.paused ? 'codicon-debug-start' : 'codicon-debug-pause'}`} />
+                            <span className={`codicon ${this.paused ? 'codicon-debug-start' : 'codicon-debug-pause'}`} aria-hidden='true' />
                         </button>
                         <button
                             className='theia-button secondary geoapp-server-log-icon-button'
                             title='Reconnexion'
+                            aria-label='Reconnexion'
                             onClick={this.reconnect}
                             disabled={this.paused}
                         >
-                            <span className='codicon codicon-refresh' />
+                            <span className='codicon codicon-refresh' aria-hidden='true' />
                         </button>
                         <button
                             className='theia-button secondary geoapp-server-log-icon-button'
                             title={this.autoScroll ? 'Desactiver le defilement automatique' : 'Activer le defilement automatique'}
+                            aria-label={this.autoScroll ? 'Desactiver le defilement automatique' : 'Activer le defilement automatique'}
                             onClick={this.toggleAutoScroll}
                         >
-                            <span className={`codicon ${this.autoScroll ? 'codicon-arrow-down' : 'codicon-lock'}`} />
+                            <span className={`codicon ${this.autoScroll ? 'codicon-arrow-down' : 'codicon-lock'}`} aria-hidden='true' />
                         </button>
                         <button
                             className='theia-button secondary geoapp-server-log-icon-button'
                             title='Effacer'
+                            aria-label='Effacer'
                             onClick={this.clear}
                         >
-                            <span className='codicon codicon-clear-all' />
+                            <span className='codicon codicon-clear-all' aria-hidden='true' />
                         </button>
                     </div>
                 </div>

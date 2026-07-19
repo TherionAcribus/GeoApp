@@ -4,6 +4,7 @@ import { CommandService, MessageService } from '@theia/core';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import { PreferenceScope } from '@theia/core/lib/common/preferences/preference-scope';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
+import { ConfirmDialog, Dialog } from '@theia/core/lib/browser';
 import { LanguageModelRegistry } from '@theia/ai-core';
 import { SkillService } from '@theia/ai-core/lib/browser/skill-service';
 import {
@@ -1255,10 +1256,17 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
         this.update();
     }
 
+    protected async confirm(title: string, msg: string, ok: string = 'Continuer'): Promise<boolean> {
+        const dialog = new ConfirmDialog({ title, msg, ok, cancel: Dialog.CANCEL });
+        return Boolean(await dialog.open());
+    }
+
     protected async restoreGeoAppSkill(skill: GeoAppChatSkillMetadata, state: GeoAppChatSkillState): Promise<void> {
         const shouldConfirm = state.status === 'customized';
-        if (shouldConfirm && typeof window !== 'undefined' && !window.confirm(
-            `La skill ${skill.name} semble personnalisée. Restaurer la version GeoApp remplacera le contenu actuel du fichier actif. Continuer ?`
+        if (shouldConfirm && !await this.confirm(
+            'Restaurer la skill GeoApp',
+            `La skill ${skill.name} semble personnalisée. Restaurer la version GeoApp remplacera le contenu actuel du fichier actif. Continuer ?`,
+            'Restaurer'
         )) {
             return;
         }
@@ -1339,8 +1347,10 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
             this.messages.warn('PromptService Theia indisponible.');
             return;
         }
-        if (typeof window !== 'undefined' && !window.confirm(
-            `Réinitialiser ${this.selectedPromptVariantId} supprimera sa personnalisation et reviendra à la version GeoApp. Continuer ?`
+        if (!await this.confirm(
+            'Réinitialiser le prompt pack',
+            `Réinitialiser ${this.selectedPromptVariantId} supprimera sa personnalisation et reviendra à la version GeoApp. Continuer ?`,
+            'Réinitialiser'
         )) {
             return;
         }
@@ -1386,8 +1396,10 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
             this.messages.warn('Contenu de prompt vide.');
             return;
         }
-        if (typeof window !== 'undefined' && !window.confirm(
-            `Importer ce contenu remplacera la personnalisation active de ${this.selectedPromptVariantId}. Continuer ?`
+        if (!await this.confirm(
+            'Importer le prompt pack',
+            `Importer ce contenu remplacera la personnalisation active de ${this.selectedPromptVariantId}. Continuer ?`,
+            'Importer'
         )) {
             return;
         }
@@ -1522,7 +1534,7 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
     protected async importPolicyConfiguration(): Promise<void> {
         try {
             const preview = this.chatConfigurationService.previewConfiguration(this.importText);
-            if (typeof window !== 'undefined' && !window.confirm(this.formatImportPreviewConfirmation(preview))) {
+            if (!await this.confirm('Importer la configuration', this.formatImportPreviewConfirmation(preview), 'Importer')) {
                 return;
             }
             const result = await this.chatConfigurationService.importConfiguration(this.importText, {
@@ -1580,8 +1592,10 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
             this.messages.warn('Service de personnalisation des prompts indisponible; les prompt packs personnalisés n’ont pas été importés.');
             return 0;
         }
-        if (typeof window !== 'undefined' && !window.confirm(
-            `Importer cette configuration restaurera ${customizedPromptPacks.length} prompt pack(s) personnalisé(s). Continuer ?`
+        if (!await this.confirm(
+            'Importer les prompt packs',
+            `Importer cette configuration restaurera ${customizedPromptPacks.length} prompt pack(s) personnalisé(s). Continuer ?`,
+            'Importer'
         )) {
             return 0;
         }
@@ -1629,8 +1643,10 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
         if (!skills.length) {
             return 0;
         }
-        if (typeof window !== 'undefined' && !window.confirm(
-            `Importer cette configuration restaurera ${skills.length} skill(s) personnalisée(s). Continuer ?`
+        if (!await this.confirm(
+            'Importer les skills',
+            `Importer cette configuration restaurera ${skills.length} skill(s) personnalisée(s). Continuer ?`,
+            'Importer'
         )) {
             return 0;
         }
@@ -1639,9 +1655,11 @@ export class GeoAppChatPolicyWidget extends ReactWidget {
         const currentStates = await this.skillStateService.getSkillStates();
         for (const skill of skills) {
             const currentState = this.skillStates.get(skill.name) || currentStates.get(skill.name);
-            const shouldConfirmOverwrite = currentState?.status === 'customized' && typeof window !== 'undefined';
-            if (shouldConfirmOverwrite && !window.confirm(
-                `La skill ${skill.name} est déjà personnalisée localement. Remplacer son contenu par celui de l'import ?`
+            const shouldConfirmOverwrite = currentState?.status === 'customized';
+            if (shouldConfirmOverwrite && !await this.confirm(
+                'Remplacer la skill',
+                `La skill ${skill.name} est déjà personnalisée localement. Remplacer son contenu par celui de l'import ?`,
+                'Remplacer'
             )) {
                 continue;
             }

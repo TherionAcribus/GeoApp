@@ -78,7 +78,7 @@ export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
     <div className='p-2' style={{ position: 'relative' }}>
         {/* Premier chargement uniquement : aucune donnee a afficher encore */}
         {isLoading && !geocacheData ? <div>Chargement...</div> : undefined}
-        {!isLoading && !geocacheData ? <div style={{ opacity: 0.7 }}>Aucune donnee</div> : undefined}
+        {!isLoading && !geocacheData ? <div style={{ opacity: 0.7 }}>Aucune donnée</div> : undefined}
         {geocacheData ? (
             <div
                 style={{

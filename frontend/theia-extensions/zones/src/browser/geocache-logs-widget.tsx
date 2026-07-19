@@ -794,8 +794,9 @@ ${JSON.stringify(logsToAnalyze, null, 2)}`;
                                             opacity: 0.7
                                         }}
                                         title="Fermer l'analyse"
+                                        aria-label="Fermer l'analyse"
                                     >
-                                        <i className="fa fa-times" />
+                                        <i className="fa fa-times" aria-hidden="true" />
                                     </button>
                                 </div>
                                 <div style={{

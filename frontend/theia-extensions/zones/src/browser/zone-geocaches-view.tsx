@@ -139,7 +139,7 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
         ) : props.rows.length === 0 ? (
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flex: 1, opacity: 0.6 }}>
                 <div style={{ textAlign: 'center' }}>
-                    <p>Aucune geocache dans cette zone</p>
+                    <p>Aucune géocache dans cette zone</p>
                     <p style={{ fontSize: '0.9em' }}>Utilisez le formulaire ci-dessus pour importer des geocaches</p>
                 </div>
             </div>
