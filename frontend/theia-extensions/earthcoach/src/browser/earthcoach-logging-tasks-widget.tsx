@@ -255,6 +255,7 @@ interface LoggingTasksViewProps {
     tasks: LoggingTaskDto[];
     observationOptions: ObservationOption[];
     createDraft: LoggingTaskDraft;
+    showCreateForm: boolean;
     editingTaskId?: number;
     editingDraft: LoggingTaskDraft;
     isLoading: boolean;
@@ -262,6 +263,7 @@ interface LoggingTasksViewProps {
     isSaving: boolean;
     deletingTaskId?: number;
     onRefresh: () => void | Promise<void>;
+    onToggleCreateForm: () => void;
     onExtract: () => void | Promise<void>;
     onCreateDraftChange: (draft: LoggingTaskDraft) => void;
     onEditingDraftChange: (draft: LoggingTaskDraft) => void;
@@ -312,15 +314,27 @@ function LoggingTasksView(props: LoggingTasksViewProps): React.ReactElement {
                 mode terrain compact et dans le mode resolver pour structurer la resolution.
             </div>
 
-            <LoggingTaskForm
-                title='Nouvelle question'
-                draft={props.createDraft}
-                observationOptions={props.observationOptions}
-                submitLabel='Ajouter'
-                isSaving={props.isSaving}
-                onDraftChange={props.onCreateDraftChange}
-                onSubmit={props.onCreate}
-            />
+            {props.showCreateForm ? (
+                <LoggingTaskForm
+                    title='Nouvelle question'
+                    draft={props.createDraft}
+                    observationOptions={props.observationOptions}
+                    submitLabel='Ajouter'
+                    isSaving={props.isSaving}
+                    onDraftChange={props.onCreateDraftChange}
+                    onSubmit={props.onCreate}
+                    onCancel={props.onToggleCreateForm}
+                />
+            ) : (
+                <button
+                    className='theia-button'
+                    type='button'
+                    onClick={props.onToggleCreateForm}
+                    style={{ justifySelf: 'start' }}
+                >
+                    + Nouvelle question
+                </button>
+            )}
 
             <section style={{ display: 'grid', gap: 10 }}>
                 <h3 style={{ margin: 0, fontSize: 14 }}>Questions enregistrees</h3>
@@ -390,6 +404,7 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
     protected tasks: LoggingTaskDto[] = [];
     protected observationOptions: ObservationOption[] = [];
     protected createDraft: LoggingTaskDraft = createLoggingTaskDraft();
+    protected showCreateForm = false;
     protected editingTaskId: number | undefined;
     protected editingDraft: LoggingTaskDraft = createLoggingTaskDraft();
     protected isLoading = false;
@@ -444,6 +459,7 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
         this.context = context;
         this.tasks = [];
         this.loadError = undefined;
+        this.showCreateForm = false;
         this.observationOptions = buildObservationOptions(context.observations);
         this.createDraft = createLoggingTaskDraft();
         this.editingTaskId = undefined;
@@ -516,6 +532,11 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
         await this.commandService.executeCommand(EarthCoachObserveTaskCommandId, { geocacheData, task });
     }
 
+    protected toggleCreateForm(): void {
+        this.showCreateForm = !this.showCreateForm;
+        this.update();
+    }
+
     protected setCreateDraft(draft: LoggingTaskDraft): void {
         this.createDraft = draft;
         this.update();
@@ -541,6 +562,7 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
         try {
             await this.loggingTaskService.createLoggingTask(geocacheId, payload);
             this.createDraft = createLoggingTaskDraft();
+            this.showCreateForm = false;
             await this.loadTasks();
             this.messages.info('Question ajoutee');
         } catch (error) {
@@ -631,6 +653,7 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
                 tasks={this.tasks}
                 observationOptions={this.observationOptions}
                 createDraft={this.createDraft}
+                showCreateForm={this.showCreateForm}
                 editingTaskId={this.editingTaskId}
                 editingDraft={this.editingDraft}
                 isLoading={this.isLoading}
@@ -638,6 +661,7 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
                 isSaving={this.isSaving}
                 deletingTaskId={this.deletingTaskId}
                 onRefresh={() => this.loadTasks()}
+                onToggleCreateForm={() => this.toggleCreateForm()}
                 onExtract={() => this.extractViaChat()}
                 onCreateDraftChange={draft => this.setCreateDraft(draft)}
                 onEditingDraftChange={draft => this.setEditingDraft(draft)}

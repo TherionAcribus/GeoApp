@@ -386,12 +386,14 @@ interface EarthCoachObservationsViewProps {
     editingObservationId?: number;
     editingDraft: EarthCoachObservationDraft;
     pendingLinkTask?: LoggingTaskSeed;
+    showCreateForm: boolean;
     isLoading: boolean;
     loadError?: string;
     isSaving: boolean;
     isUploadingImage: boolean;
     deletingObservationId?: number;
     onRefresh: () => void | Promise<void>;
+    onToggleCreateForm: () => void;
     onClearPendingLink: () => void;
     onCreateDraftChange: (draft: EarthCoachObservationDraft) => void;
     onEditingDraftChange: (draft: EarthCoachObservationDraft) => void;
@@ -452,18 +454,30 @@ function EarthCoachObservationsView(props: EarthCoachObservationsViewProps): Rea
                 </div>
             ) : undefined}
 
-            <ObservationForm
-                title={props.pendingLinkTask ? `Nouvelle observation pour Q${props.pendingLinkTask.position}` : 'Nouvelle observation'}
-                draft={props.createDraft}
-                waypoints={waypoints}
-                images={props.images}
-                submitLabel='Ajouter'
-                isSaving={props.isSaving}
-                isUploadingImage={props.isUploadingImage}
-                onDraftChange={props.onCreateDraftChange}
-                onSubmit={props.onCreate}
-                onUploadImage={props.onUploadCreateImage}
-            />
+            {props.showCreateForm || props.pendingLinkTask ? (
+                <ObservationForm
+                    title={props.pendingLinkTask ? `Nouvelle observation pour Q${props.pendingLinkTask.position}` : 'Nouvelle observation'}
+                    draft={props.createDraft}
+                    waypoints={waypoints}
+                    images={props.images}
+                    submitLabel='Ajouter'
+                    isSaving={props.isSaving}
+                    isUploadingImage={props.isUploadingImage}
+                    onDraftChange={props.onCreateDraftChange}
+                    onSubmit={props.onCreate}
+                    onCancel={props.pendingLinkTask ? undefined : props.onToggleCreateForm}
+                    onUploadImage={props.onUploadCreateImage}
+                />
+            ) : (
+                <button
+                    className='theia-button'
+                    type='button'
+                    onClick={props.onToggleCreateForm}
+                    style={{ justifySelf: 'start' }}
+                >
+                    + Nouvelle observation
+                </button>
+            )}
 
             <section style={{ display: 'grid', gap: 10 }}>
                 <h3 style={{ margin: 0, fontSize: 14 }}>Observations enregistrees</h3>
@@ -539,6 +553,7 @@ export class EarthCoachObservationsWidget extends ReactWidget {
     protected editingObservationId: number | undefined;
     protected editingDraft: EarthCoachObservationDraft = createEarthCoachObservationDraft();
     protected pendingLinkTask: LoggingTaskSeed | undefined;
+    protected showCreateForm = false;
     protected isLoading = false;
     protected loadError: string | undefined;
     protected isSaving = false;
@@ -581,6 +596,7 @@ export class EarthCoachObservationsWidget extends ReactWidget {
         this.editingObservationId = undefined;
         this.editingDraft = createEarthCoachObservationDraft();
         this.pendingLinkTask = undefined;
+        this.showCreateForm = false;
         this.title.label = `${EarthCoachObservationsWidget.LABEL} - ${context.geocacheData.gc_code || context.geocacheData.name}`;
         void this.loadObservations();
         this.update();
@@ -588,8 +604,14 @@ export class EarthCoachObservationsWidget extends ReactWidget {
 
     seedFromLoggingTask(seed: LoggingTaskSeed): void {
         this.pendingLinkTask = seed;
+        this.showCreateForm = true;
         this.editingObservationId = undefined;
         this.createDraft = createEarthCoachObservationDraft();
+        this.update();
+    }
+
+    protected toggleCreateForm(): void {
+        this.showCreateForm = !this.showCreateForm;
         this.update();
     }
 
@@ -654,6 +676,7 @@ export class EarthCoachObservationsWidget extends ReactWidget {
         try {
             const created = await this.observationService.createObservation(geocacheId, payload);
             this.createDraft = createEarthCoachObservationDraft();
+            this.showCreateForm = false;
             if (linkTask && created.id != null) {
                 await this.linkObservationToTask(linkTask, created.id, geocacheId);
             }
@@ -834,12 +857,14 @@ export class EarthCoachObservationsWidget extends ReactWidget {
                 editingObservationId={this.editingObservationId}
                 editingDraft={this.editingDraft}
                 pendingLinkTask={this.pendingLinkTask}
+                showCreateForm={this.showCreateForm}
                 isLoading={this.isLoading}
                 loadError={this.loadError}
                 isSaving={this.isSaving}
                 isUploadingImage={this.isUploadingImage}
                 deletingObservationId={this.deletingObservationId}
                 onRefresh={() => this.loadObservations()}
+                onToggleCreateForm={() => this.toggleCreateForm()}
                 onClearPendingLink={() => this.clearPendingLink()}
                 onCreateDraftChange={draft => this.setCreateDraft(draft)}
                 onEditingDraftChange={draft => this.setEditingDraft(draft)}
