@@ -342,6 +342,7 @@ function CalculatorApp({ service }: CalculatorAppProps): React.ReactElement {
                             className="calc-history__clear"
                             onClick={() => setHistory([])}
                             title="Effacer l'historique"
+                            aria-label="Effacer l'historique"
                         >
                             ×
                         </button>

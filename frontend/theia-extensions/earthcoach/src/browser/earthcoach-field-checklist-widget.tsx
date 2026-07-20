@@ -9,6 +9,7 @@ import {
     fieldChecklistItemKey,
     formatEarthCoachFieldChecklistMarkdown,
 } from './earthcoach-field-checklist';
+import { EmptyState } from './state-views';
 
 interface EarthCoachFieldChecklistViewProps {
     checklist?: EarthCoachFieldChecklist;
@@ -21,7 +22,7 @@ interface EarthCoachFieldChecklistViewProps {
 function EarthCoachFieldChecklistView(props: EarthCoachFieldChecklistViewProps): React.ReactElement {
     const checklist = props.checklist;
     if (!checklist) {
-        return <div style={{ padding: 16, opacity: 0.7 }}>Aucune EarthCache chargee.</div>;
+        return <EmptyState icon='fa-globe' title='Aucune EarthCache chargée' fullHeight />;
     }
     return (
         <div style={{ padding: 16, overflow: 'auto' }}>

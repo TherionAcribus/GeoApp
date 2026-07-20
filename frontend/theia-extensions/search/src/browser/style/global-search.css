@@ -306,7 +306,7 @@
 }
 
 .geoapp-gs-snippet-match {
-    background-color: rgba(234, 178, 46, 0.4);
+    background-color: var(--theia-editor-findMatchHighlightBackground, rgba(234, 178, 46, 0.4));
     color: var(--theia-foreground, #cccccc);
     border-radius: 2px;
     padding: 0 1px;

@@ -179,6 +179,7 @@ const GlobalSearchComponent: React.FC<{
                             className='geoapp-gs-clear-btn'
                             onClick={() => { setLocalQuery(''); onClear(); }}
                             title='Effacer'
+                            aria-label='Effacer'
                         >✕</button>
                     )}
                 </div>
@@ -189,16 +190,22 @@ const GlobalSearchComponent: React.FC<{
                         className={`geoapp-gs-toggle ${state.options.caseSensitive ? 'active' : ''}`}
                         onClick={() => onUpdateOptions({ caseSensitive: !state.options.caseSensitive })}
                         title='Sensible à la casse (Alt+C)'
+                        aria-label='Sensible à la casse'
+                        aria-pressed={state.options.caseSensitive}
                     >Aa</button>
                     <button
                         className={`geoapp-gs-toggle ${state.options.useWildcard ? 'active' : ''}`}
                         onClick={() => onUpdateOptions({ useWildcard: !state.options.useWildcard, useRegex: false })}
                         title='Jokers * et ? (Alt+W)'
+                        aria-label='Jokers * et ?'
+                        aria-pressed={state.options.useWildcard}
                     >*?</button>
                     <button
                         className={`geoapp-gs-toggle ${state.options.useRegex ? 'active' : ''}`}
                         onClick={() => onUpdateOptions({ useRegex: !state.options.useRegex, useWildcard: false })}
                         title='Expression régulière (Alt+R)'
+                        aria-label='Expression régulière'
+                        aria-pressed={state.options.useRegex}
                     >.*</button>
 
                     <span className='geoapp-gs-separator' />

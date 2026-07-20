@@ -5,6 +5,7 @@ import { CommandService } from '@theia/core';
 import { EarthCoachContext } from './earthcoach-context-service';
 import { buildEarthCoachImageGallery, EarthCoachImageGallery } from './earthcoach-image-gallery';
 import { GeoImage } from './earthcoach-types';
+import { EmptyState } from './state-views';
 
 interface EarthCoachImageGalleryViewProps {
     title: string;
@@ -55,7 +56,7 @@ function ImageCard(props: { image: GeoImage }): React.ReactElement {
 
 function EarthCoachImageGalleryView(props: EarthCoachImageGalleryViewProps): React.ReactElement {
     if (!props.gallery) {
-        return <div style={{ padding: 16, opacity: 0.7 }}>Aucune EarthCache chargee.</div>;
+        return <EmptyState icon='fa-globe' title='Aucune EarthCache chargée' fullHeight />;
     }
     return (
         <div style={{ padding: 16, overflow: 'auto', display: 'grid', gap: 16 }}>
@@ -106,7 +107,7 @@ function EarthCoachImageGalleryView(props: EarthCoachImageGalleryViewProps): Rea
                         </div>
                     ) : (
                         <div style={{ opacity: 0.65, fontStyle: 'italic' }}>
-                            Aucune image dans cette categorie.
+                            Aucune image dans cette catégorie.
                         </div>
                     )}
                 </section>

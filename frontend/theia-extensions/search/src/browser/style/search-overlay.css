@@ -17,7 +17,7 @@
     border: 1px solid var(--theia-editorWidget-border, #454545);
     border-top: none;
     border-radius: 0 0 4px 4px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+    box-shadow: 0 2px 8px var(--theia-widget-shadow, rgba(0, 0, 0, 0.35));
     font-size: 13px;
     min-width: 300px;
     max-width: 500px;
@@ -164,7 +164,7 @@
 
 /* Surlignage des matches dans le contenu */
 mark.geoapp-search-highlight {
-    background-color: rgba(234, 178, 46, 0.4);
+    background-color: var(--theia-editor-findMatchHighlightBackground, rgba(234, 178, 46, 0.4));
     color: inherit;
     border-radius: 2px;
     padding: 1px 0;
@@ -174,7 +174,7 @@ mark.geoapp-search-highlight {
 
 /* Surlignage du match actif */
 mark.geoapp-search-highlight.geoapp-search-highlight-active {
-    background-color: rgba(246, 185, 77, 0.8);
+    background-color: var(--theia-editor-findMatchBackground, rgba(246, 185, 77, 0.8));
     outline: 2px solid var(--theia-editor-findMatchHighlightBorder, #f0a732);
     color: inherit;
     border-radius: 2px;

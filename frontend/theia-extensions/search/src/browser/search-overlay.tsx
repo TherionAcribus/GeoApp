@@ -166,6 +166,8 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
                 className={`geoapp-search-toggle ${options.caseSensitive ? 'active' : ''}`}
                 onClick={() => toggleOption('caseSensitive')}
                 title='Respecter la casse (Alt+C)'
+                aria-label='Respecter la casse'
+                aria-pressed={options.caseSensitive}
             >
                 Aa
             </button>
@@ -173,6 +175,8 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
                 className={`geoapp-search-toggle ${options.useWildcard ? 'active' : ''}`}
                 onClick={() => toggleOption('useWildcard')}
                 title='Jokers : * = tout, ? = un caractère (Alt+W)'
+                aria-label='Jokers * et ?'
+                aria-pressed={options.useWildcard}
             >
                 *?
             </button>
@@ -180,6 +184,8 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
                 className={`geoapp-search-toggle ${options.useRegex ? 'active' : ''}`}
                 onClick={() => toggleOption('useRegex')}
                 title='Expression régulière (Alt+R)'
+                aria-label='Expression régulière'
+                aria-pressed={options.useRegex}
             >
                 .*
             </button>
@@ -197,6 +203,7 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
                 onClick={onPreviousMatch}
                 disabled={!hasResults}
                 title='Occurrence précédente (Shift+F3)'
+                aria-label='Occurrence précédente'
             >
                 &#9650;
             </button>
@@ -205,6 +212,7 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
                 onClick={onNextMatch}
                 disabled={!hasResults}
                 title='Occurrence suivante (F3)'
+                aria-label='Occurrence suivante'
             >
                 &#9660;
             </button>
@@ -216,6 +224,7 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
                 className='geoapp-search-close'
                 onClick={onClose}
                 title='Fermer (Escape)'
+                aria-label='Fermer la recherche'
             >
                 &#10005;
             </button>
