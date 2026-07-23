@@ -65,17 +65,21 @@ Vous n'avez pas besoin de confirmer verbalement : la boîte de dialogue apparaî
 
 ### Plugins de déchiffrement
 
-`@Aide` peut lister tous les plugins disponibles, donner des informations sur un plugin, et ouvrir directement l'onglet d'exécution avec le plugin pré-sélectionné.
+`@Aide` peut lister tous les plugins disponibles, donner des informations sur un plugin, ouvrir l'onglet d'exécution avec le plugin pré-sélectionné, et **exécuter un plugin directement dans le chat** pour renvoyer le résultat (texte décodé et/ou coordonnées).
 
 | Demande (exemples) | Action |
 |---|---|
 | « Quels plugins sont disponibles ? » | Liste tous les plugins avec leurs catégories et tags |
 | « Quels plugins pour du Morse ? » | Liste, puis identifie les plugins liés au Morse |
+| « Décode ce Morse : ... » | Exécute le plugin Morse et renvoie le texte décodé directement |
+| « Applique un César +3 à "KHOOR" » | Exécute `caesar_cipher` avec `params: { shift: 3 }` et renvoie le résultat |
 | « Ouvre le plugin multitap » | Cherche dans la liste, ouvre l'onglet exécution |
 | « Ouvre un décodeur pour le code Houdini » | Identifie `houdini_cipher` dans la liste, ouvre l'onglet |
 | « Ouvre un plugin pour les téléphones » | Identifie `multitap_code` (ABC des mobiles), ouvre l'onglet |
 | « Que fait le plugin bacon_cipher ? » | Retourne la description, les catégories et les paramètres |
 | « C'est quoi le code César ? » | Répond depuis la documentation ou détaille le plugin `caesar_cipher` |
+
+> **Exécuter vs ouvrir :** pour obtenir directement un résultat, `@Aide` utilise `aide_run_plugin` (le texte va dans `text`, les réglages du plugin dans `params`). Pour laisser l'utilisateur manipuler le plugin dans l'interface, `@Aide` ouvre l'onglet avec `aide_open_plugin_tab`.
 
 > **Recherche sémantique :** vous n'avez pas besoin de connaître le nom exact du plugin. `@Aide` récupère la liste complète (avec les tags) et utilise ses propres connaissances pour identifier le plugin correspondant à votre description. Exemples : « magie » → `houdini_cipher`, « téléphone mobile » → `multitap_code`, « pigpen » → `pig_pen_cipher`.
 

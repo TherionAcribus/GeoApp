@@ -667,6 +667,56 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
             },
+            {
+                id: 'aide_run_plugin',
+                name: 'aide_run_plugin',
+                description: 'Exécute un plugin de déchiffrement sur un texte et retourne le résultat (texte décodé et/ou coordonnées) directement, sans ouvrir d\'onglet. ' +
+                    'À utiliser pour décoder/résoudre en place (ex: « décode ce Morse », « applique César +3 »). ' +
+                    'Identifie d\'abord le plugin via aide_list_plugins, puis passe son nom exact. ' +
+                    'Le texte à traiter va dans "text" ; les paramètres spécifiques au plugin (ex: décalage, clé, alphabet) vont dans "params".',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    plugin_name: { type: 'string', description: 'Nom exact du plugin (tel que retourné par aide_list_plugins).', required: true },
+                    text: { type: 'string', description: 'Texte d\'entrée à traiter par le plugin.', required: true },
+                    params: { type: 'object', description: 'Paramètres additionnels spécifiques au plugin (ex: { "shift": 3 }, { "key": "SECRET" }). Optionnel.', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const pluginName = String(args.plugin_name || '').trim();
+                        if (!pluginName) { return err('Le champ plugin_name est requis.'); }
+                        const text = typeof args.text === 'string' ? args.text : '';
+                        if (!text.trim()) { return err('Le champ text est requis.'); }
+                        const extra = (args.params && typeof args.params === 'object') ? args.params : {};
+                        const inputs = { text, ...extra };
+                        const result = await this.pluginsService.executePlugin(pluginName, inputs);
+                        const items = (Array.isArray(result.results) ? result.results : [])
+                            .slice(0, 10)
+                            .map((item: any) => {
+                                const coords = item?.coordinates;
+                                return {
+                                    text_output: typeof item?.text_output === 'string'
+                                        ? item.text_output.slice(0, 2000)
+                                        : undefined,
+                                    coordinates: coords
+                                        ? (coords.formatted ?? coords.ddm ??
+                                           (coords.ddm_lat && coords.ddm_lon ? `${coords.ddm_lat} ${coords.ddm_lon}` : undefined) ??
+                                           (coords.latitude != null && coords.longitude != null ? `${coords.latitude}, ${coords.longitude}` : undefined))
+                                        : undefined,
+                                    confidence: item?.confidence,
+                                    method: item?.method,
+                                };
+                            });
+                        return ok({
+                            plugin: pluginName,
+                            status: result.status,
+                            summary: result.summary ?? result.error,
+                            text_output: typeof result.text_output === 'string' ? result.text_output.slice(0, 2000) : undefined,
+                            results: items,
+                        });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
         ];
     }
 
