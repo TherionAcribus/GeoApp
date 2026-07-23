@@ -20,7 +20,7 @@ import { AlphabetTabsManager } from '@mysterai/theia-alphabets/lib/browser/alpha
 import { GeoPreferenceStore } from '@mysterai/theia-preferences/lib/browser/geo-preference-store';
 import { GeoPreferenceDefinition } from '@mysterai/theia-preferences/lib/browser/geo-preferences-schema';
 import { GlobalSearchService } from 'theia-ide-search-ext/lib/browser/global-search-service';
-import { DocSearchService } from './doc-search-service';
+import { DocSearchService, resolveDocSearchContent } from './doc-search-service';
 import { DocContentService } from './doc-content-service';
 
 export const AIDE_TOOL_PREFIX = 'aide_';
@@ -1182,16 +1182,10 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                         if (hits.length === 0) {
                             return ok({ query, sections: [], note: 'Aucune section trouvée dans la documentation.' });
                         }
-                        const sections = hits.map(hit => {
-                            const section = this.docContentService
-                                .getSectionsForPage(hit.pageId)
-                                .find(s => s.anchor === hit.sectionAnchor);
-                            return {
-                                page: hit.pageTitle,
-                                section: hit.sectionTitle,
-                                content: section?.text ?? hit.excerpt,
-                            };
-                        });
+                        const sections = resolveDocSearchContent(
+                            hits,
+                            pageId => this.docContentService.getSectionsForPage(pageId),
+                        );
                         return ok({ query, sections });
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },

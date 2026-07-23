@@ -2,6 +2,33 @@ import { injectable, inject } from '@theia/core/shared/inversify';
 import { DocContentService } from './doc-content-service';
 import { DocSearchResult, DocSection } from './doc-types';
 
+export interface DocSearchContentSection {
+    page: string;
+    section: string;
+    content: string;
+}
+
+/**
+ * Reconstruit le contenu complet des sections à partir de résultats de recherche.
+ * Fonction pure (sans dépendance DI) : chaque hit est relié à sa section via son ancre,
+ * et on retombe sur l'extrait si la section n'est pas retrouvée. C'est le contrat que
+ * `aide_search_docs` expose au modèle — il dépend de l'alignement entre les ancres
+ * produites par `DocContentService.extractSections` et celles renvoyées par la recherche.
+ */
+export function resolveDocSearchContent(
+    hits: DocSearchResult[],
+    getSectionsForPage: (pageId: string) => DocSection[]
+): DocSearchContentSection[] {
+    return hits.map(hit => {
+        const section = getSectionsForPage(hit.pageId).find(s => s.anchor === hit.sectionAnchor);
+        return {
+            page: hit.pageTitle,
+            section: hit.sectionTitle,
+            content: section?.text ?? hit.excerpt,
+        };
+    });
+}
+
 @injectable()
 export class DocSearchService {
 

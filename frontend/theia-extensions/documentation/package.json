@@ -43,6 +43,7 @@
     "predocs": "node scripts/generate-docs-manifest.mjs",
     "build": "node scripts/generate-docs-manifest.mjs && tsc -b && yarn run copy:assets",
     "copy:assets": "node -e \"require('fs-extra').copySync('src/browser/style', 'lib/browser/style', { overwrite: true })\"",
+    "test:documentation": "node ../../node_modules/ts-node/dist/bin.js src/browser/tests/doc-search.test.ts",
     "watch": "tsc -b --watch --preserveWatchOutput"
   },
   "theiaExtensions": [
