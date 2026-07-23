@@ -133,8 +133,10 @@ Vous n'avez pas besoin de confirmer verbalement : la boîte de dialogue apparaî
 
 | Demande (exemples) | Action |
 |---|---|
+| « Montre-moi les notes de la cache 42 » | Liste la note perso GC.com et les notes GeoApp |
 | « Ajoute une note "Indice : chercher près du banc" sur la cache 42 » | Crée une note utilisateur |
 | « Modifie la note 12 avec le texte "..." » | Met à jour la note |
+| « Récupère ma note perso Geocaching pour la cache 42 » ⚠ | Synchronise la note personnelle depuis Geocaching.com |
 | « Supprime la note 12 » ⚠ | Demande confirmation, puis supprime |
 
 ### Préférences GeoApp

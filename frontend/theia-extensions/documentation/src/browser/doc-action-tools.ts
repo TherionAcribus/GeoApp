@@ -1287,6 +1287,38 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
     private buildNoteTools(): ToolRequest[] {
         return [
             {
+                id: 'aide_list_notes',
+                name: 'aide_list_notes',
+                description: 'Retourne les notes d\'une géocache : la note personnelle Geocaching.com et les notes GeoApp (utilisateur et système), avec leur id, contenu, type et source.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    geocache_id: { type: 'number', description: 'ID de la géocache.', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const response = await this.notesService.getNotes(args.geocache_id);
+                        const notes = (Array.isArray(response.notes) ? response.notes : []).map(n => ({
+                            id: n.id,
+                            note_type: n.note_type,
+                            source: n.source,
+                            source_plugin: n.source_plugin ?? undefined,
+                            content: typeof n.content === 'string' ? n.content.slice(0, 2000) : n.content,
+                            created_at: n.created_at,
+                            updated_at: n.updated_at,
+                        }));
+                        return ok({
+                            geocache_id: response.geocache_id,
+                            gc_code: response.gc_code,
+                            name: response.name,
+                            gc_personal_note: response.gc_personal_note,
+                            gc_personal_note_synced_at: response.gc_personal_note_synced_at,
+                            notes,
+                        });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
                 id: 'aide_create_note',
                 name: 'aide_create_note',
                 description: 'Crée une note utilisateur sur une géocache.',
@@ -1355,6 +1387,28 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                     try {
                         await this.notesService.deleteNote(args.note_id);
                         return ok(`Note ${args.note_id} supprimée.`);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_sync_notes_from_geocaching',
+                name: 'aide_sync_notes_from_geocaching',
+                description: 'Récupère la note personnelle de la géocache depuis Geocaching.com et la met à jour dans GeoApp. Nécessite une connexion Geocaching.com.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    geocache_id: { type: 'number', description: 'ID de la géocache.', required: true },
+                }),
+                confirmAlwaysAllow: 'Récupérer la note personnelle depuis Geocaching.com ? Une requête réseau sera effectuée.',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const result = await this.notesService.syncFromGeocaching(args.geocache_id);
+                        return ok({
+                            geocache_id: result.geocache_id,
+                            gc_code: result.gc_code,
+                            gc_personal_note: result.gc_personal_note,
+                            gc_personal_note_synced_at: result.gc_personal_note_synced_at,
+                        });
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
             },
