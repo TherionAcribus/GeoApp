@@ -553,12 +553,15 @@ Les tools `aide_*` ne passent jamais dans les autres agents (ils ne sont pas dan
 
 Construit dynamiquement à chaque appel de `getSystemMessageDescription()` :
 
-1. **Rôle et règles générales** : répondre en français, depuis la doc pour les questions
+1. **Rôle et règles générales** : répondre en français ; pour les questions documentaires, appeler `aide_search_docs(query)` puis répondre depuis les sections retournées
 2. **Règles d'action** : appeler les tools immédiatement, reconnaître les formulations d'action
 3. **Catalogue des tools** : liste structurée des tools avec signatures et ⚠ pour les destructifs
-4. **Contexte UI** : widget actif, zone active, onglets ouverts (voir `DocActionContextService`)
-5. **Table des matières** de la documentation
-6. **Documentation complète** (toutes les pages, frontmatter strippé)
+4. **Table des matières** de la documentation (titres + descriptions seulement)
+5. **Contexte UI** : widget actif, zone active, onglets ouverts (voir `DocActionContextService`)
+
+> **RAG au lieu du dump complet.** Le prompt n'inclut plus le contenu intégral des pages : seule la table des matières est fournie, et `@Aide` récupère les sections pertinentes à la demande via le tool `aide_search_docs` (adossé au `DocSearchService` / index FlexSearch). Cela réduit fortement le coût en tokens et évite que le prompt grossisse avec la documentation.
+>
+> **Ordre pensé pour le cache.** Le bloc **Contexte UI** (dynamique, change à chaque requête) est placé en dernier, après le préambule statique (règles + tools + table des matières), afin de ne pas invalider le cache de prompt sur la partie stable.
 
 ### `DocActionContextService`
 
@@ -892,7 +895,7 @@ Cette page est incluse automatiquement dans :
 
 - la navigation du widget **Documentation GeoApp** ;
 - la recherche plein texte ;
-- le prompt système de `@Aide`, car `GeoAppDocAgent` injecte la documentation complète à chaque requête.
+- les résultats de `aide_search_docs`, le tool par lequel `@Aide` récupère les sections pertinentes de la documentation (le contenu n'est plus injecté en entier dans le prompt système).
 
 Après modification de la page, relancer :
 

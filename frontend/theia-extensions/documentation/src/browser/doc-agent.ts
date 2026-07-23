@@ -56,9 +56,9 @@ export class GeoAppDocAgent extends AbstractStreamParsingChatAgent {
         promptVariantId?: string,
         isPromptVariantCustomized?: boolean
     ): Promise<LanguageModelResponse> {
-        const docToolIds = new Set(this.actionToolsManager.buildAllTools().map(t => t.id));
-        const nonDocTools = toolRequests.filter(t => !docToolIds.has(t.id));
         const docTools = this.actionToolsManager.buildAllTools();
+        const docToolIds = new Set(docTools.map(t => t.id));
+        const nonDocTools = toolRequests.filter(t => !docToolIds.has(t.id));
         return super.sendLlmRequest(
             request,
             messages,
@@ -74,16 +74,11 @@ export class GeoAppDocAgent extends AbstractStreamParsingChatAgent {
     ): Promise<SystemMessageDescription | undefined> {
         await this.contentService.initialize();
 
-        const pages = this.contentService.getPages();
         const chapters = this.contentService.getChapters();
 
         const toc = chapters.map(chapter =>
             `**${chapter.title}**\n` +
             chapter.pages.map(p => `  - ${p.title}${p.description ? ` : ${p.description}` : ''}`).join('\n')
-        ).join('\n\n');
-
-        const fullContent = pages.map(page =>
-            `---\n## ${page.title}\n\n${this.stripFrontmatter(page.content)}`
         ).join('\n\n');
 
         let uiContextBlock = '';
@@ -101,8 +96,9 @@ export class GeoAppDocAgent extends AbstractStreamParsingChatAgent {
             '## Règles générales',
             '- Réponds toujours en français.',
             '- Sois concis, pratique et orienté action.',
-            '- Pour les questions (comment, qu\'est-ce que, pourquoi, où, quel), réponds depuis la documentation officielle et cite le chapitre concerné.',
-            '- Si la réponse n\'est pas dans la doc, dis-le clairement.',
+            '- Pour les questions (comment, qu\'est-ce que, pourquoi, où, quel), appelle IMMÉDIATEMENT aide_search_docs(query) pour récupérer les sections pertinentes de la documentation officielle, puis réponds à partir de leur contenu en citant le titre de la page.',
+            '- Utilise des mots-clés ciblés dans query (ex: "ajouter une zone", "configurer OCR"). Si la première recherche est vide ou insuffisante, reformule et relance aide_search_docs.',
+            '- Si aide_search_docs ne retourne rien de pertinent, dis clairement que ce n\'est pas dans la documentation.',
             '- Ne fais pas d\'hypothèses sur des fonctionnalités non documentées.',
             '',
             '## Règles pour les actions applicatives',
@@ -174,9 +170,12 @@ export class GeoAppDocAgent extends AbstractStreamParsingChatAgent {
             '- aide_reset_preference(key) - Reinitialise une preference a sa valeur par defaut.',
             '- aide_open_preferences accepte aussi key et query pour ouvrir directement une preference ou une recherche.',
             '',
+            '**Recherche documentation :**',
+            '- aide_search_docs(query, limit?) — Recherche dans la documentation officielle et retourne les sections pertinentes avec leur contenu complet. À utiliser pour toute question documentaire.',
+            '',
             '**Recherche globale :**',
             '- aide_open_global_search — Ouvre le panneau de recherche globale (sidebar gauche)',
-            '- aide_search(query, scope?) — Recherche dans GeoApp. Scopes : "all", "open_tabs", "database", "geocaches", "logs", "notes", "plugins", "alphabets".',
+            '- aide_search(query, scope?) — Recherche dans les DONNÉES GeoApp (géocaches, logs, notes...). Scopes : "all", "open_tabs", "database", "geocaches", "logs", "notes", "plugins", "alphabets". Ne cherche PAS dans la documentation (utiliser aide_search_docs pour ça).',
             '  ⚡ Pour « trouve toutes les caches qui mentionnent X » ou « cherche X dans mes notes », appelle aide_search directement sans demander confirmation.',
             '',
             '**Calculatrice :**',
@@ -185,22 +184,17 @@ export class GeoAppDocAgent extends AbstractStreamParsingChatAgent {
             '- aide_open_calculator — Ouvre le panneau calculatrice dans la barre latérale.',
             '  ⚡ RÈGLE ABSOLUE : utiliser aide_calculate pour TOUT calcul numérique lors de la résolution d\'énigmes. Ne jamais estimer ni calculer mentalement.',
             '',
-            uiContextBlock,
-            '',
             '## Table des matières de la documentation',
+            'Voici les pages disponibles. Utilise aide_search_docs pour lire le contenu d\'un sujet.',
             '',
             toc,
             '',
-            '## Documentation complète',
-            '',
-            fullContent,
+            // Le contexte UI est dynamique : placé en dernier pour ne pas invalider
+            // le cache du préambule statique (règles + tools + table des matières).
+            uiContextBlock,
         ].join('\n');
 
         return { text: systemPrompt };
-    }
-
-    private stripFrontmatter(content: string): string {
-        return content.replace(/^---\n[\s\S]*?\n---\n?/, '').trim();
     }
 }
 

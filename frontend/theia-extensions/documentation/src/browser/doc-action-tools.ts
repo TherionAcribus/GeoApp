@@ -20,6 +20,8 @@ import { AlphabetTabsManager } from '@mysterai/theia-alphabets/lib/browser/alpha
 import { GeoPreferenceStore } from '@mysterai/theia-preferences/lib/browser/geo-preference-store';
 import { GeoPreferenceDefinition } from '@mysterai/theia-preferences/lib/browser/geo-preferences-schema';
 import { GlobalSearchService } from 'theia-ide-search-ext/lib/browser/global-search-service';
+import { DocSearchService } from './doc-search-service';
+import { DocContentService } from './doc-content-service';
 
 export const AIDE_TOOL_PREFIX = 'aide_';
 
@@ -152,6 +154,12 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
 
     @inject(GlobalSearchService)
     protected readonly globalSearchService!: GlobalSearchService;
+
+    @inject(DocSearchService)
+    protected readonly docSearchService!: DocSearchService;
+
+    @inject(DocContentService)
+    protected readonly docContentService!: DocContentService;
 
     async onStart(): Promise<void> {
         const tools = this.buildAllTools();
@@ -1150,6 +1158,44 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
 
     private buildSearchTools(): ToolRequest[] {
         return [
+            {
+                id: 'aide_search_docs',
+                name: 'aide_search_docs',
+                description: 'Recherche dans la documentation officielle de GeoApp et retourne les sections les plus pertinentes avec leur contenu complet. ' +
+                    'À utiliser pour répondre à toute question documentaire (comment, qu\'est-ce que, pourquoi, où, quel). ' +
+                    'Donne une requête en mots-clés (ex: "ajouter une zone", "configurer OCR", "checker GeoCheck"). ' +
+                    'Réponds ensuite à partir des sections retournées et cite le titre de la page concernée.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    query: { type: 'string', description: 'Termes de recherche (mots-clés du sujet).', required: true },
+                    limit: { type: 'number', description: 'Nombre maximum de sections à retourner (défaut 5).', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const query = String(args.query || '').trim();
+                        if (!query) { return err('Le champ query est requis.'); }
+                        await this.docContentService.initialize();
+                        await this.docSearchService.initialize();
+                        const limit = Math.min(Math.max(Number(args.limit) || 5, 1), 10);
+                        const hits = this.docSearchService.search(query, limit);
+                        if (hits.length === 0) {
+                            return ok({ query, sections: [], note: 'Aucune section trouvée dans la documentation.' });
+                        }
+                        const sections = hits.map(hit => {
+                            const section = this.docContentService
+                                .getSectionsForPage(hit.pageId)
+                                .find(s => s.anchor === hit.sectionAnchor);
+                            return {
+                                page: hit.pageTitle,
+                                section: hit.sectionTitle,
+                                content: section?.text ?? hit.excerpt,
+                            };
+                        });
+                        return ok({ query, sections });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
             {
                 id: 'aide_open_global_search',
                 name: 'aide_open_global_search',

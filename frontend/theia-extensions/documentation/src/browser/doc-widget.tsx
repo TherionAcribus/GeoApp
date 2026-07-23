@@ -138,15 +138,16 @@ export class DocWidget extends ReactWidget {
         this.update();
     }
 
-    private handleAskAI(): void {
+    private async handleAskAI(): Promise<void> {
         const query = this.widgetState.searchQuery.trim();
         const prompt = query
             ? `@Aide ${query}`
             : '@Aide ';
         try {
-            this.commandService.executeCommand('workbench.action.chat.open', { query: prompt });
+            await this.commandService.executeCommand('workbench.action.chat.open', { query: prompt });
         } catch {
-            this.commandService.executeCommand('chat.open').catch(() => {});
+            // Fallback : on repasse le même prompt pour ne pas perdre la question tapée.
+            await this.commandService.executeCommand('chat.open', { query: prompt }).catch(() => {});
         }
     }
 
@@ -208,7 +209,7 @@ export class DocWidget extends ReactWidget {
                         </div>
                         <button
                             className="doc-ask-ai-btn"
-                            onClick={() => this.handleAskAI()}
+                            onClick={() => void this.handleAskAI()}
                             title="Poser une question à l'IA (@Aide)"
                         >
                             <span className="codicon codicon-sparkle" />
@@ -246,7 +247,7 @@ export class DocWidget extends ReactWidget {
                         <div className="doc-search-no-results">
                             <span className="codicon codicon-search-stop" />
                             <span>Aucun résultat pour « {searchQuery} »</span>
-                            <button className="doc-ask-ai-btn doc-ask-ai-btn-inline" onClick={() => this.handleAskAI()}>
+                            <button className="doc-ask-ai-btn doc-ask-ai-btn-inline" onClick={() => void this.handleAskAI()}>
                                 <span className="codicon codicon-sparkle" />
                                 Demander à @Aide
                             </button>
