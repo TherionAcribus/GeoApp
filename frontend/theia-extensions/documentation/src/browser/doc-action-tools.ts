@@ -88,7 +88,7 @@ const PREFERENCE_GUIDES = [
 ];
 
 function buildParams(
-    props: Record<string, { type: string; description: string; required?: boolean; enum?: string[] }>
+    props: Record<string, { type: string; description: string; required?: boolean; enum?: string[]; items?: unknown }>
 ): ToolRequestParameters {
     const properties: Record<string, unknown> = {};
     const required: string[] = [];
@@ -1068,6 +1068,140 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
             },
+            {
+                id: 'aide_update_coordinates',
+                name: 'aide_update_coordinates',
+                description: 'Définit les coordonnées corrigées (solution) d\'une géocache. Écrase les coordonnées corrigées existantes. ' +
+                    'Coordonnées au format DDM (ex: "N 48° 51.500 E 002° 17.600").',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    geocache_id: { type: 'number', description: 'ID de la géocache.', required: true },
+                    coordinates_raw: { type: 'string', description: 'Coordonnées corrigées au format DDM (ex: "N 48° 51.500 E 002° 17.600").', required: true },
+                }),
+                confirmAlwaysAllow: 'Enregistrer ces coordonnées comme solution de la géocache ? Les coordonnées corrigées actuelles seront écrasées.',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const coords = String(args.coordinates_raw || '').trim();
+                        if (!coords) { return err('Le champ coordinates_raw est requis.'); }
+                        const result = await this.geocachesService.updateCoordinates(args.geocache_id, coords);
+                        this.widgetEventsService.notifyGeocacheChanged({
+                            geocacheId: args.geocache_id,
+                            reason: 'corrected-coordinates-updated',
+                            source: 'chat',
+                        });
+                        return ok(result ?? { updated: true, coordinates_raw: coords });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_move_geocache',
+                name: 'aide_move_geocache',
+                description: 'Déplace une géocache vers une autre zone (la retire de la zone source). Différent de la copie.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    geocache_id: { type: 'number', description: 'ID de la géocache à déplacer.', required: true },
+                    target_zone_id: { type: 'number', description: 'ID de la zone cible.', required: true },
+                }),
+                confirmAlwaysAllow: 'Déplacer cette géocache vers la zone cible ? Elle sera retirée de sa zone actuelle.',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const result = await this.geocachesService.move(args.geocache_id, args.target_zone_id);
+                        this.widgetEventsService.requestZonesRefresh();
+                        if (result?.already_exists) {
+                            return ok({ moved: false, already_exists: true, message: 'La géocache existe déjà dans la zone cible.' });
+                        }
+                        return ok(result ?? { moved: true });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_get_nearby_geocaches',
+                name: 'aide_get_nearby_geocaches',
+                description: 'Retourne les géocaches proches d\'une géocache donnée, dans un rayon (km).',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    geocache_id: { type: 'number', description: 'ID de la géocache de référence.', required: true },
+                    radius_km: { type: 'number', description: 'Rayon de recherche en kilomètres (optionnel).', required: false },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const radius = typeof args.radius_km === 'number' ? args.radius_km : undefined;
+                        const result = await this.geocachesService.getNearby<Record<string, unknown>>(args.geocache_id, radius);
+                        const nearby = (Array.isArray(result.nearby_geocaches) ? result.nearby_geocaches : [])
+                            .slice(0, 25)
+                            .map(g => ({
+                                id: g['id'],
+                                gc_code: g['gc_code'],
+                                name: g['name'],
+                                distance_km: g['distance_km'] ?? g['distance'],
+                                latitude: g['latitude'],
+                                longitude: g['longitude'],
+                            }));
+                        return ok({
+                            center_geocache: result.center_geocache,
+                            radius_km: result.radius_km,
+                            count: nearby.length,
+                            nearby_geocaches: nearby,
+                        });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_refresh_geocache',
+                name: 'aide_refresh_geocache',
+                description: 'Recharge les données d\'une géocache depuis Geocaching.com (description, waypoints, statut). Nécessite une connexion Geocaching.com.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    geocache_id: { type: 'number', description: 'ID de la géocache à rafraîchir.', required: true },
+                }),
+                confirmAlwaysAllow: 'Recharger cette géocache depuis Geocaching.com ? Une requête réseau sera effectuée.',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        await this.geocachesService.refresh(args.geocache_id);
+                        this.widgetEventsService.requestZonesRefresh();
+                        return ok(`Géocache ${args.geocache_id} rechargée depuis Geocaching.com.`);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_export_gpx',
+                name: 'aide_export_gpx',
+                description: 'Exporte une ou plusieurs géocaches au format GPX et déclenche le téléchargement du fichier.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    geocache_ids: { type: 'array', description: 'Liste des IDs de géocaches à exporter.', required: true, items: { type: 'number' } },
+                    filename: { type: 'string', description: 'Nom de fichier souhaité (ex: "export.gpx"). Optionnel.', required: false },
+                }),
+                confirmAlwaysAllow: 'Exporter ces géocaches au format GPX et télécharger le fichier ?',
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        const ids = Array.isArray(args.geocache_ids)
+                            ? args.geocache_ids.map((v: unknown) => Number(v)).filter((n: number) => !Number.isNaN(n))
+                            : [];
+                        if (ids.length === 0) { return err('Fournissez au moins un id dans geocache_ids.'); }
+                        const filename = String(args.filename || 'export.gpx').trim() || 'export.gpx';
+                        const res = await this.geocachesService.exportGpx(ids, filename);
+                        const contentDisposition = res.headers.get('Content-Disposition') || '';
+                        const filenameMatch = /filename\s*=\s*"?([^";]+)"?/i.exec(contentDisposition);
+                        const downloadName = (filenameMatch?.[1] || '').trim() || filename;
+                        const blob = await res.blob();
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = downloadName;
+                        document.body.appendChild(a);
+                        a.click();
+                        a.remove();
+                        window.URL.revokeObjectURL(url);
+                        return ok({ exported: true, count: ids.length, filename: downloadName });
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
         ];
     }
 
@@ -1119,6 +1253,29 @@ export class DocActionToolsManager implements FrontendApplicationContribution {
                     try {
                         await this.geocachesService.deleteWaypoint(args.geocache_id, args.waypoint_id);
                         return ok(`Waypoint ${args.waypoint_id} supprimé.`);
+                    } catch (e: any) { return err(e?.message ?? String(e)); }
+                },
+            },
+            {
+                id: 'aide_set_waypoint_as_corrected',
+                name: 'aide_set_waypoint_as_corrected',
+                description: 'Définit les coordonnées d\'un waypoint existant comme coordonnées corrigées (solution) de la géocache. ' +
+                    'Utile après avoir créé un waypoint « Final » : promouvoir ce waypoint en solution de la cache.',
+                providerName: DocActionToolsManager.PROVIDER_NAME,
+                parameters: buildParams({
+                    geocache_id: { type: 'number', description: 'ID de la géocache.', required: true },
+                    waypoint_id: { type: 'number', description: 'ID du waypoint à promouvoir en coordonnées corrigées.', required: true },
+                }),
+                handler: async (argString: string) => {
+                    const args = parseArgs(argString);
+                    try {
+                        await this.geocachesService.setWaypointAsCorrectedCoords(args.geocache_id, args.waypoint_id);
+                        this.widgetEventsService.notifyGeocacheChanged({
+                            geocacheId: args.geocache_id,
+                            reason: 'corrected-coordinates-updated',
+                            source: 'chat',
+                        });
+                        return ok(`Waypoint ${args.waypoint_id} défini comme coordonnées corrigées de la géocache ${args.geocache_id}.`);
                     } catch (e: any) { return err(e?.message ?? String(e)); }
                 },
             },

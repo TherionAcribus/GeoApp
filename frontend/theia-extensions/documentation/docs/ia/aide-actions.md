@@ -114,6 +114,11 @@ Vous n'avez pas besoin de confirmer verbalement : la boîte de dialogue apparaî
 | « Liste les caches de la zone 1 » | Retourne la liste des géocaches |
 | « Ajoute GC12345 à la zone 1 » ⚠ | Ajoute via Geocaching.com |
 | « Copie la cache 42 vers la zone 3 » ⚠ | Copie sans supprimer la source |
+| « Déplace la cache 42 vers la zone 3 » ⚠ | Déplace (retire de la zone source) |
+| « Enregistre N 48° 51.500 E 002° 17.600 comme solution de la cache 42 » ⚠ | Écrit les coordonnées corrigées |
+| « Quelles caches sont proches de la cache 42 ? » | Liste les géocaches dans un rayon |
+| « Rafraîchis la cache 42 » ⚠ | Recharge depuis Geocaching.com |
+| « Exporte les caches 12, 42 et 43 en GPX » ⚠ | Génère et télécharge un fichier GPX |
 | « Supprime la cache 42 » ⚠ | Demande confirmation, puis supprime |
 
 ### Waypoints
@@ -121,6 +126,7 @@ Vous n'avez pas besoin de confirmer verbalement : la boîte de dialogue apparaî
 | Demande (exemples) | Action |
 |---|---|
 | « Crée un waypoint "Final" sur la cache 42 aux coords N 48° 51.500 E 002° 17.600 » | Crée le waypoint |
+| « Utilise le waypoint 7 comme solution de la cache 42 » | Promeut le waypoint en coordonnées corrigées |
 | « Supprime le waypoint 7 de la cache 42 » ⚠ | Demande confirmation, puis supprime |
 
 ### Notes
