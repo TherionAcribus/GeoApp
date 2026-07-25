@@ -82,12 +82,12 @@ def convert_ddm_to_decimal(lat_ddm: str, lon_ddm: str) -> Dict[str, Optional[flo
     try:
         latitude = _ddm_component_to_decimal(lat_ddm)
     except Exception as exc:
-        logger.debug(f"convert_ddm_to_decimal: impossible de convertir la latitude '{lat_ddm}': {exc}")
+        logger.debug("convert_ddm_to_decimal: impossible de convertir la latitude '%s': %s", lat_ddm, exc)
 
     try:
         longitude = _ddm_component_to_decimal(lon_ddm)
     except Exception as exc:
-        logger.debug(f"convert_ddm_to_decimal: impossible de convertir la longitude '{lon_ddm}': {exc}")
+        logger.debug("convert_ddm_to_decimal: impossible de convertir la longitude '%s': %s", lon_ddm, exc)
 
     return {
         "latitude": latitude,
@@ -201,23 +201,23 @@ def calculate_coordinates():
         if not formula:
             return jsonify({"error": "Aucune formule fournie"}), 400
         
-        logger.debug(f"Calcul des coordonnées pour la formule: {formula}")
-        logger.debug(f"Variables fournies: {variables}")
+        logger.debug('Calcul des coordonnées pour la formule: %s', formula)
+        logger.debug('Variables fournies: %s', variables)
         
         # Extraire les parties de latitude et longitude (accepte lettres et chiffres)
         lat_match = re.search(r'([NS])\s*([A-Z0-9]+)°\s*([A-Z0-9]+)\.([A-Z0-9()x*/+-]+)', formula)
         lon_match = re.search(r'([EW])\s*([A-Z0-9]+)°\s*([A-Z0-9]+)\.([A-Z0-9()x*/+-]+)', formula)
         
         if not lat_match or not lon_match:
-            logger.error(f"Format de formule invalide: lat_match={lat_match}, lon_match={lon_match}")
+            logger.error('Format de formule invalide: lat_match=%s, lon_match=%s', lat_match, lon_match)
             return jsonify({"error": "Format de formule invalide"}), 400
         
         # Substitution et calcul pour chaque partie
         lat_dir, lat_deg_raw, lat_min_raw, lat_decimal_raw = lat_match.groups()
         lon_dir, lon_deg_raw, lon_min_raw, lon_decimal_raw = lon_match.groups()
         
-        logger.debug(f"Parties de latitude: dir={lat_dir}, deg={lat_deg_raw}, min={lat_min_raw}, decimal={lat_decimal_raw}")
-        logger.debug(f"Parties de longitude: dir={lon_dir}, deg={lon_deg_raw}, min={lon_min_raw}, decimal={lon_decimal_raw}")
+        logger.debug('Parties de latitude: dir=%s, deg=%s, min=%s, decimal=%s', lat_dir, lat_deg_raw, lat_min_raw, lat_decimal_raw)
+        logger.debug('Parties de longitude: dir=%s, deg=%s, min=%s, decimal=%s', lon_dir, lon_deg_raw, lon_min_raw, lon_decimal_raw)
         
         # Appliquer la substitution sur chaque partie
         lat_deg = _process_formula_part(lat_deg_raw, variables)
@@ -227,8 +227,8 @@ def calculate_coordinates():
         lon_min = _process_formula_part(lon_min_raw, variables)
         lon_decimal = _process_formula_part(lon_decimal_raw, variables)
         
-        logger.debug(f"Valeurs calculées: lat_deg={lat_deg}, lat_min={lat_min}, lat_decimal={lat_decimal}")
-        logger.debug(f"Valeurs calculées: lon_deg={lon_deg}, lon_min={lon_min}, lon_decimal={lon_decimal}")
+        logger.debug('Valeurs calculées: lat_deg=%s, lat_min=%s, lat_decimal=%s', lat_deg, lat_min, lat_decimal)
+        logger.debug('Valeurs calculées: lon_deg=%s, lon_min=%s, lon_decimal=%s', lon_deg, lon_min, lon_decimal)
         
         # Statuts individuels
         def part_status(val, label):
@@ -317,7 +317,7 @@ def calculate_coordinates():
         lat_formatted = f"{lat_dir}{format_part(lat_deg,2)}° {format_part(lat_min,2)}.{format_part(lat_decimal,3)}"
         lon_formatted = f"{lon_dir}{format_part(lon_deg,3)}° {format_part(lon_min,2)}.{format_part(lon_decimal,3)}"
         
-        logger.debug(f"Coordonnées formatées: {lat_formatted} {lon_formatted}")
+        logger.debug('Coordonnées formatées: %s %s', lat_formatted, lon_formatted)
         
         result = {
             "coordinates": f"{lat_formatted} {lon_formatted}",
@@ -334,25 +334,25 @@ def calculate_coordinates():
                 decimal_coords = convert_ddm_to_decimal(lat_formatted, lon_formatted)
                 result["decimal_latitude"] = decimal_coords["latitude"]
                 result["decimal_longitude"] = decimal_coords["longitude"]
-                logger.debug(f"Coordonnées décimales calculées: lat={decimal_coords['latitude']}, lon={decimal_coords['longitude']}")
+                logger.debug('Coordonnées décimales calculées: lat=%s, lon=%s', decimal_coords['latitude'], decimal_coords['longitude'])
             except Exception as e:
-                logger.warning(f"Erreur lors de la conversion en coordonnées décimales: {str(e)}")
+                logger.warning('Erreur lors de la conversion en coordonnées décimales: %s', str(e))
                 # Ne pas faire échouer l'appel si la conversion échoue
         
         # Si nous avons des coordonnées d'origine et que les coordonnées calculées sont complètes, 
         # calculer la distance entre les deux
         logger.debug("Vérification des conditions pour le calcul de distance:")
-        logger.debug(f"- origin_lat: {origin_lat} ({type(origin_lat).__name__ if origin_lat else 'None'})")
-        logger.debug(f"- origin_lon: {origin_lon} ({type(origin_lon).__name__ if origin_lon else 'None'})")
-        logger.debug(f"- global_status: {global_status}")
-        logger.debug(f"- lat_decimal_value: {lat_decimal} ({type(lat_decimal).__name__})")
-        logger.debug(f"- lon_decimal_value: {lon_decimal} ({type(lon_decimal).__name__})")
+        logger.debug('- origin_lat: %s (%s)', origin_lat, type(origin_lat).__name__ if origin_lat else 'None')
+        logger.debug('- origin_lon: %s (%s)', origin_lon, type(origin_lon).__name__ if origin_lon else 'None')
+        logger.debug('- global_status: %s', global_status)
+        logger.debug('- lat_decimal_value: %s (%s)', lat_decimal, type(lat_decimal).__name__)
+        logger.debug('- lon_decimal_value: %s (%s)', lon_decimal, type(lon_decimal).__name__)
         
         if origin_lat and origin_lon and global_status == "complete" and isinstance(lat_decimal, (int, float)) and isinstance(lon_decimal, (int, float)):
             try:
                 logger.debug("Conditions remplies pour calculer la distance entre les coordonnées")
-                logger.debug(f"Origin lat: {origin_lat}, Origin lon: {origin_lon}")
-                logger.debug(f"Destination lat: {lat_formatted}, Destination lon: {lon_formatted}")
+                logger.debug('Origin lat: %s, Origin lon: %s', origin_lat, origin_lon)
+                logger.debug('Destination lat: %s, Destination lon: %s', lat_formatted, lon_formatted)
                 distance_info = calculate_distance_between_coords(
                     origin_lat=origin_lat,
                     origin_lon=origin_lon,
@@ -360,16 +360,16 @@ def calculate_coordinates():
                     dest_lon=lon_formatted
                 )
                 result["distance_from_origin"] = distance_info
-                logger.debug(f"Distance calculée: {distance_info}")
+                logger.debug('Distance calculée: %s', distance_info)
             except Exception as e:
-                logger.error(f"Erreur lors du calcul de la distance: {str(e)}")
+                logger.error('Erreur lors du calcul de la distance: %s', str(e))
                 traceback.print_exc()
         else:
-            logger.debug(f"Calcul de distance impossible: origin_lat={origin_lat}, origin_lon={origin_lon}, global_status={global_status}")
-            logger.debug(f"lat_decimal_value est de type {type(lat_decimal).__name__}: {lat_decimal}")
-            logger.debug(f"lon_decimal_value est de type {type(lon_decimal).__name__}: {lon_decimal}")
+            logger.debug('Calcul de distance impossible: origin_lat=%s, origin_lon=%s, global_status=%s', origin_lat, origin_lon, global_status)
+            logger.debug('lat_decimal_value est de type %s: %s', type(lat_decimal).__name__, lat_decimal)
+            logger.debug('lon_decimal_value est de type %s: %s', type(lon_decimal).__name__, lon_decimal)
         
-        logger.debug(f"Résultat final: {result}")
+        logger.debug('Résultat final: %s', result)
         return jsonify(result)
         
     except Exception as e:
@@ -389,15 +389,15 @@ def calculate_distance_between_coords(origin_lat, origin_lon, dest_lat, dest_lon
         dict: Dictionnaire contenant la distance en mètres, en miles et un statut
     """
     logger.debug("*** DÉBUT CALCUL DISTANCE ***")
-    logger.debug(f"Origine: {origin_lat} {origin_lon}")
-    logger.debug(f"Destination: {dest_lat} {dest_lon}")
+    logger.debug('Origine: %s %s', origin_lat, origin_lon)
+    logger.debug('Destination: %s %s', dest_lat, dest_lon)
     
     # Convertir les coordonnées DDM en format décimal
     origin_coords = convert_ddm_to_decimal(origin_lat, origin_lon)
     dest_coords = convert_ddm_to_decimal(dest_lat, dest_lon)
     
-    logger.debug(f"Origine (décimal): lat={origin_coords['latitude']}, lon={origin_coords['longitude']}")
-    logger.debug(f"Destination (décimal): lat={dest_coords['latitude']}, lon={dest_coords['longitude']}")
+    logger.debug('Origine (décimal): lat=%s, lon=%s', origin_coords['latitude'], origin_coords['longitude'])
+    logger.debug('Destination (décimal): lat=%s, lon=%s', dest_coords['latitude'], dest_coords['longitude'])
     
     if not origin_coords['latitude'] or not origin_coords['longitude'] or not dest_coords['latitude'] or not dest_coords['longitude']:
         logger.error("Conversion des coordonnées en décimal impossible")
@@ -418,7 +418,7 @@ def calculate_distance_between_coords(origin_lat, origin_lon, dest_lat, dest_lon
     # Convertir en miles (1 mile = 1609.344 mètres)
     distance_miles = distance_m / 1609.344
     
-    logger.debug(f"Distance calculée: {distance_m} mètres ({distance_miles} miles)")
+    logger.debug('Distance calculée: %s mètres (%s miles)', distance_m, distance_miles)
     
     # Déterminer le statut selon la règle géocaching des "2 miles"
     # (voir DISTANCE_WARNING_MILES / DISTANCE_FAR_MILES).
@@ -452,7 +452,7 @@ def _process_formula_part(formula_part, variables):
     Returns:
         Le résultat calculé ou l'expression partiellement résolue
     """
-    logger.debug(f"_process_formula_part: Traitement de '{formula_part}' avec variables {variables}")
+    logger.debug("_process_formula_part: Traitement de '%s' avec variables %s", formula_part, variables)
     
     # Si ce n'est pas une expression entre parenthèses initiale, mais peut contenir des sous-expressions
     if not formula_part.startswith('('):
@@ -462,7 +462,7 @@ def _process_formula_part(formula_part, variables):
         
         # Si la formule contient des lettres majuscules, la traiter comme une expression
         if re.search(r'[A-Z]', formula_part):
-            logger.debug(f"Détection de lettres dans '{formula_part}', traitement comme expression")
+            logger.debug("Détection de lettres dans '%s', traitement comme expression", formula_part)
             # Remplacer les lettres par leurs valeurs si disponibles
             expression = formula_part
             has_letters_with_values = False
@@ -474,7 +474,7 @@ def _process_formula_part(formula_part, variables):
             
             # Si aucune lettre n'a été remplacée, retourner l'expression telle quelle
             if not has_letters_with_values:
-                logger.debug(f"Aucune variable disponible pour '{formula_part}', retour tel quel")
+                logger.debug("Aucune variable disponible pour '%s', retour tel quel", formula_part)
                 return formula_part
             
             # Si l'expression contient des parenthèses après le remplacement, essayer de résoudre les sous-expressions
@@ -501,7 +501,7 @@ def _process_formula_part(formula_part, variables):
                         parts = result.split(':')
                         if len(parts) >= 3:
                             return f"({parts[2]})"
-                    logger.debug(f"Résultat final: {result}")
+                    logger.debug('Résultat final: %s', result)
                     return result
         
         # Sinon, retourner tel quel
@@ -630,12 +630,12 @@ def _evaluate_math_expression(expression):
         Le résultat arrondi si c'est un nombre entier ou proche d'un entier
         Sinon, retourne l'expression originale entre parenthèses avec un marqueur d'erreur
     """
-    logger.debug(f"_evaluate_math_expression: Évaluation de '{expression}'")
+    logger.debug("_evaluate_math_expression: Évaluation de '%s'", expression)
 
     try:
         # Évaluer l'expression via un évaluateur AST restreint (pas d'eval())
         result = _safe_eval_arithmetic(expression)
-        logger.debug(f"_evaluate_math_expression: Résultat brut = {result}")
+        logger.debug('_evaluate_math_expression: Résultat brut = %s', result)
         
         # Vérifier si le résultat est un nombre
         if isinstance(result, (int, float)):
@@ -645,11 +645,11 @@ def _evaluate_math_expression(expression):
             else:
                 # Si c'est une valeur décimale significative, signaler l'erreur mais ne pas lever d'exception
                 error_msg = f"L'expression '{expression}' donne un résultat non entier: {result}"
-                logger.error(f"{error_msg}")
+                logger.error('%s', error_msg)
                 # Retourner l'expression originale avec un marqueur spécial pour la gestion des erreurs
                 return f"ERR:NONINTEGER:{expression}"
     except Exception as e:
-        logger.error(f"Impossible d'évaluer l'expression '{expression}': {str(e)}")
+        logger.error("Impossible d'évaluer l'expression '%s': %s", expression, str(e))
         # Retourner l'expression originale avec un marqueur d'erreur
         return f"ERR:SYNTAX:{expression}"
     
@@ -742,10 +742,10 @@ def _format_coordinate(coord_str: str, expected_deg_digits: int) -> str:
     :return: La coordonnée formatée en DDM.
     :raises ValueError: Si la chaîne est trop courte.
     """
-    logger.debug(f"_format_coordinate: Formatage de '{coord_str}' avec {expected_deg_digits} chiffres pour les degrés")
+    logger.debug("_format_coordinate: Formatage de '%s' avec %s chiffres pour les degrés", coord_str, expected_deg_digits)
     
     if len(coord_str) < expected_deg_digits + 2:
-        logger.debug(f"_format_coordinate: Erreur - Chaîne trop courte ({len(coord_str)} < {expected_deg_digits + 2})")
+        logger.debug('_format_coordinate: Erreur - Chaîne trop courte (%s < %s)', len(coord_str), expected_deg_digits + 2)
         raise ValueError("Chaîne de coordonnées trop courte pour le format attendu.")
     
     # Les degrés sont les premiers chiffres
@@ -755,7 +755,7 @@ def _format_coordinate(coord_str: str, expected_deg_digits: int) -> str:
     # Le reste (s'il existe) correspond à la partie décimale des minutes
     decimal_part = coord_str[expected_deg_digits+2:]
     
-    logger.debug(f"_format_coordinate: Décomposition - degrés={deg}, minutes_int={minutes_int}, decimal_part={decimal_part}")
+    logger.debug('_format_coordinate: Décomposition - degrés=%s, minutes_int=%s, decimal_part=%s', deg, minutes_int, decimal_part)
     
     if decimal_part:
         minutes = f"{minutes_int}.{decimal_part}"
@@ -763,7 +763,7 @@ def _format_coordinate(coord_str: str, expected_deg_digits: int) -> str:
         minutes = minutes_int
         
     result = f"{deg}° {minutes}'"
-    logger.debug(f"_format_coordinate: Résultat formaté: {result}")
+    logger.debug('_format_coordinate: Résultat formaté: %s', result)
     return result
 
 # ------------------------------------------------------------------------------
@@ -771,15 +771,15 @@ def _format_coordinate(coord_str: str, expected_deg_digits: int) -> str:
 # ------------------------------------------------------------------------------
 
 def _detect_dmm_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]:
-    logger.debug(f"_detect_dmm_coordinates: Analyse du texte: '{text[:100]}...' (tronqué)")
+    logger.debug("_detect_dmm_coordinates: Analyse du texte: '%s...' (tronqué)", text[:100])
     dmm_regex = (
         r'([NS])\s*(\d{1,2})\s*[°º]\s*(\d{1,2}(?:[.,]\d+)?)[\'"]?\s*'
         r'([EW])\s*(\d{1,3})\s*[°º]\s*(\d{1,2}(?:[.,]\d+)?)[\'"]?'
     )
-    logger.debug(f"_detect_dmm_coordinates: Regex utilisée: {dmm_regex}")
+    logger.debug('_detect_dmm_coordinates: Regex utilisée: %s', dmm_regex)
     match = re.search(dmm_regex, text)
     if match:
-        logger.debug(f"_detect_dmm_coordinates: Match trouvé! Groupes: {match.groups()}")
+        logger.debug('_detect_dmm_coordinates: Match trouvé! Groupes: %s', match.groups())
         lat_dir, lat_deg, lat_min, lon_dir, lon_deg, lon_min = match.groups()
         # Uniformiser la virgule décimale éventuelle avant conversion/formatage
         lat_min = lat_min.replace(',', '.')
@@ -795,7 +795,7 @@ def _detect_dmm_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]:
             return None
         ddm_lat = f"{lat_dir} {lat_deg}° {lat_min}'"
         ddm_lon = f"{lon_dir} {lon_deg}° {lon_min}'"
-        logger.debug(f"_detect_dmm_coordinates: Coordonnées formatées: {ddm_lat} {ddm_lon}")
+        logger.debug('_detect_dmm_coordinates: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
         return {
             "exist": True,
             "ddm_lat": ddm_lat,
@@ -817,7 +817,7 @@ def _detect_tabspace_coordinates(text: str) -> Optional[Dict[str, Optional[str]]
     
     Ce format est plus souple et accepte des variations dans les espaces et la ponctuation.
     """
-    logger.debug(f"_detect_tabspace_coordinates: Analyse du texte: '{text[:100]}...' (tronqué)")
+    logger.debug("_detect_tabspace_coordinates: Analyse du texte: '%s...' (tronqué)", text[:100])
     
     # Pattern plus souple qui accepte des variations dans les espaces et la ponctuation
     tabspace_regex = (
@@ -825,11 +825,11 @@ def _detect_tabspace_coordinates(text: str) -> Optional[Dict[str, Optional[str]]
         r'([EW])\s*(\d{1,3})\s*°\s*(\d{1,2})\s*[.,]\s*(\d{1,3})'
     )
     
-    logger.debug(f"_detect_tabspace_coordinates: Regex utilisée: {tabspace_regex}")
+    logger.debug('_detect_tabspace_coordinates: Regex utilisée: %s', tabspace_regex)
     
     match = re.search(tabspace_regex, text, re.DOTALL)
     if match:
-        logger.debug(f"_detect_tabspace_coordinates: Match trouvé! Groupes: {match.groups()}")
+        logger.debug('_detect_tabspace_coordinates: Match trouvé! Groupes: %s', match.groups())
         lat_dir, lat_deg, lat_min, lat_sec, lon_dir, lon_deg, lon_min, lon_sec = match.groups()
         
         # Formatage des coordonnées
@@ -845,7 +845,7 @@ def _detect_tabspace_coordinates(text: str) -> Optional[Dict[str, Optional[str]]
         ddm_lat = f"{lat_dir} {lat_deg}° {lat_min}.{lat_sec}'"
         ddm_lon = f"{lon_dir} {lon_deg}° {lon_min}.{lon_sec}'"
         
-        logger.debug(f"_detect_tabspace_coordinates: Coordonnées formatées: {ddm_lat} {ddm_lon}")
+        logger.debug('_detect_tabspace_coordinates: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
         
         return {
             "exist": True,
@@ -872,7 +872,7 @@ def _detect_variant_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]
     Pour la latitude, on attend une chaîne de 7 chiffres, et pour la longitude une chaîne de 6 à 8 chiffres.
     Si la longitude comporte moins de 8 chiffres, on la complète avec des zéros à gauche.
     """
-    logger.debug(f"_detect_variant_coordinates: Analyse du texte: '{text[:100]}...' (tronqué)")
+    logger.debug("_detect_variant_coordinates: Analyse du texte: '%s...' (tronqué)", text[:100])
     
     # Construction des patterns pour les directions
     north_pattern = '|'.join(NORTH_VARIANTS)
@@ -881,33 +881,33 @@ def _detect_variant_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]
     # Le pattern autorise espaces, retours à la ligne ou "/" comme séparateurs
     pattern = rf"(?P<lat_dir>{north_pattern})\s*[/\n\s]*\s*(?P<lat>\d{{7}})\s*(?P<lon_dir>{east_pattern})\s*[/\n\s]*\s*(?P<lon>\d{{6,8}})"
     
-    logger.debug(f"_detect_variant_coordinates: Pattern utilisé: {pattern}")
+    logger.debug('_detect_variant_coordinates: Pattern utilisé: %s', pattern)
     
     match = re.search(pattern, text)
     if match:
-        logger.debug(f"_detect_variant_coordinates: Match trouvé! Groupes: {match.groupdict()}")
+        logger.debug('_detect_variant_coordinates: Match trouvé! Groupes: %s', match.groupdict())
         lat_dir_raw = match.group("lat_dir")
         lon_dir_raw = match.group("lon_dir")
         lat_digits  = match.group("lat")
         lon_digits  = match.group("lon")
         
-        logger.debug(f"_detect_variant_coordinates: Directions brutes: lat={lat_dir_raw}, lon={lon_dir_raw}")
-        logger.debug(f"_detect_variant_coordinates: Digits: lat={lat_digits}, lon={lon_digits}")
+        logger.debug('_detect_variant_coordinates: Directions brutes: lat=%s, lon=%s', lat_dir_raw, lon_dir_raw)
+        logger.debug('_detect_variant_coordinates: Digits: lat=%s, lon=%s', lat_digits, lon_digits)
         
         # Normalisation des directions pour obtenir "N" et "E"
         lat_dir = DIRECTION_MAP.get(lat_dir_raw, lat_dir_raw[0].upper())
         lon_dir = DIRECTION_MAP.get(lon_dir_raw, lon_dir_raw[0].upper())
         
-        logger.debug(f"_detect_variant_coordinates: Directions normalisées: lat={lat_dir}, lon={lon_dir}")
+        logger.debug('_detect_variant_coordinates: Directions normalisées: lat=%s, lon=%s', lat_dir, lon_dir)
         
         try:
             # Pour la latitude, si nécessaire, compléter à 7 chiffres
             if len(lat_digits) < 7:
                 lat_digits = lat_digits.zfill(7)
             ddm_lat = f"{lat_dir} " + _format_coordinate(lat_digits, expected_deg_digits=2)
-            logger.debug(f"_detect_variant_coordinates: Latitude formatée: {ddm_lat}")
+            logger.debug('_detect_variant_coordinates: Latitude formatée: %s', ddm_lat)
         except ValueError as e:
-            logger.debug(f"_detect_variant_coordinates: Erreur lors du formatage de la latitude: {e}")
+            logger.debug('_detect_variant_coordinates: Erreur lors du formatage de la latitude: %s', e)
             ddm_lat = None
         
         try:
@@ -915,13 +915,13 @@ def _detect_variant_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]
             if len(lon_digits) < 8:
                 lon_digits = lon_digits.zfill(8)
             ddm_lon = f"{lon_dir} " + _format_coordinate(lon_digits, expected_deg_digits=3)
-            logger.debug(f"_detect_variant_coordinates: Longitude formatée: {ddm_lon}")
+            logger.debug('_detect_variant_coordinates: Longitude formatée: %s', ddm_lon)
         except ValueError as e:
-            logger.debug(f"_detect_variant_coordinates: Erreur lors du formatage de la longitude: {e}")
+            logger.debug('_detect_variant_coordinates: Erreur lors du formatage de la longitude: %s', e)
             ddm_lon = None
         
         if ddm_lat and ddm_lon:
-            logger.debug(f"_detect_variant_coordinates: Coordonnées complètes détectées: {ddm_lat} {ddm_lon}")
+            logger.debug('_detect_variant_coordinates: Coordonnées complètes détectées: %s %s', ddm_lat, ddm_lon)
             return {
                 "exist": True,
                 "ddm_lat": ddm_lat,
@@ -942,16 +942,16 @@ def _detect_specific_tabpoint_coordinates(text: str) -> Optional[Dict[str, Optio
     
     Cette fonction est optimisée pour ce format particulier.
     """
-    logger.debug(f"_detect_specific_tabpoint_coordinates: Analyse du texte: '{text[:100]}...' (tronqué)")
+    logger.debug("_detect_specific_tabpoint_coordinates: Analyse du texte: '%s...' (tronqué)", text[:100])
     
     # Essayons d'abord avec un pattern très spécifique
     specific_regex = r'N\s*(\d{1,2})\s*°\s*(\d{1,2})\s*\.\s*(\d{1,3}).*?E\s*(\d{1,3})\s*°\s*(\d{1,2})\s*\.\s*(\d{1,3})'
     
-    logger.debug(f"_detect_specific_tabpoint_coordinates: Regex utilisée: {specific_regex}")
+    logger.debug('_detect_specific_tabpoint_coordinates: Regex utilisée: %s', specific_regex)
     
     match = re.search(specific_regex, text, re.DOTALL)
     if match:
-        logger.debug(f"_detect_specific_tabpoint_coordinates: Match trouvé! Groupes: {match.groups()}")
+        logger.debug('_detect_specific_tabpoint_coordinates: Match trouvé! Groupes: %s', match.groups())
         lat_deg, lat_min, lat_sec, lon_deg, lon_min, lon_sec = match.groups()
 
         if not _valid_dms_parts(lat_deg, lat_min, lat_sec, lon_deg, lon_min, lon_sec):
@@ -962,7 +962,7 @@ def _detect_specific_tabpoint_coordinates(text: str) -> Optional[Dict[str, Optio
         ddm_lat = f"N {lat_deg}° {lat_min}.{lat_sec}'"
         ddm_lon = f"E {lon_deg}° {lon_min}.{lon_sec}'"
         
-        logger.debug(f"_detect_specific_tabpoint_coordinates: Coordonnées formatées: {ddm_lat} {ddm_lon}")
+        logger.debug('_detect_specific_tabpoint_coordinates: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
         
         return {
             "exist": True,
@@ -983,27 +983,27 @@ def _detect_simplified_coordinates(text: str) -> Optional[Dict[str, Optional[str
     Détection simplifiée pour le format exact de l'exemple.
     Cette fonction utilise une approche plus directe pour détecter les coordonnées.
     """
-    logger.debug(f"_detect_simplified_coordinates: Analyse du texte: '{text}'")
+    logger.debug("_detect_simplified_coordinates: Analyse du texte: '%s'", text)
     
     # Extraction des lignes
     lines = text.strip().split('\n')
-    logger.debug(f"_detect_simplified_coordinates: Lignes extraites: {lines}")
+    logger.debug('_detect_simplified_coordinates: Lignes extraites: %s', lines)
     
     if len(lines) >= 2:
         # Vérifier si la première ligne commence par N et la deuxième par E
         lat_line = lines[0].strip()
         lon_line = lines[1].strip()
         
-        logger.debug(f"_detect_simplified_coordinates: Ligne latitude: '{lat_line}'")
-        logger.debug(f"_detect_simplified_coordinates: Ligne longitude: '{lon_line}'")
+        logger.debug("_detect_simplified_coordinates: Ligne latitude: '%s'", lat_line)
+        logger.debug("_detect_simplified_coordinates: Ligne longitude: '%s'", lon_line)
         
         if lat_line.startswith('N') and lon_line.startswith('E'):
             # Extraction des nombres de la latitude
             lat_parts = re.findall(r'\d+', lat_line)
             lon_parts = re.findall(r'\d+', lon_line)
             
-            logger.debug(f"_detect_simplified_coordinates: Parties latitude: {lat_parts}")
-            logger.debug(f"_detect_simplified_coordinates: Parties longitude: {lon_parts}")
+            logger.debug('_detect_simplified_coordinates: Parties latitude: %s', lat_parts)
+            logger.debug('_detect_simplified_coordinates: Parties longitude: %s', lon_parts)
             
             if len(lat_parts) >= 3 and len(lon_parts) >= 3:
                 lat_deg, lat_min, lat_sec = lat_parts[0], lat_parts[1], lat_parts[2]
@@ -1017,7 +1017,7 @@ def _detect_simplified_coordinates(text: str) -> Optional[Dict[str, Optional[str
                 ddm_lat = f"N {lat_deg}° {lat_min}.{lat_sec}'"
                 ddm_lon = f"E {lon_deg}° {lon_min}.{lon_sec}'"
 
-                logger.debug(f"_detect_simplified_coordinates: Coordonnées formatées: {ddm_lat} {ddm_lon}")
+                logger.debug('_detect_simplified_coordinates: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
                 
                 return {
                     "exist": True,
@@ -1038,15 +1038,15 @@ def _detect_flexible_coordinates(text: str) -> Optional[Dict[str, Optional[str]]
     Détection ultra-flexible pour tout format contenant N/E et des degrés.
     Cette fonction est conçue pour être très tolérante aux variations de format.
     """
-    logger.debug(f"_detect_flexible_coordinates: Analyse du texte: '{text}'")
+    logger.debug("_detect_flexible_coordinates: Analyse du texte: '%s'", text)
     
     # Recherche de N suivi de nombres et de degrés
     lat_match = re.search(r'N\s*(\d{1,2})(?:\s*[°º]|\s+deg|\s+degrees)\s*(\d{1,2})(?:[.,]\s*|\s+)(\d{1,3})', text, re.IGNORECASE)
     # Recherche de E suivi de nombres et de degrés
     lon_match = re.search(r'E\s*(\d{1,3})(?:\s*[°º]|\s+deg|\s+degrees)\s*(\d{1,2})(?:[.,]\s*|\s+)(\d{1,3})', text, re.IGNORECASE)
     
-    logger.debug(f"_detect_flexible_coordinates: Match latitude: {lat_match.groups() if lat_match else None}")
-    logger.debug(f"_detect_flexible_coordinates: Match longitude: {lon_match.groups() if lon_match else None}")
+    logger.debug('_detect_flexible_coordinates: Match latitude: %s', lat_match.groups() if lat_match else None)
+    logger.debug('_detect_flexible_coordinates: Match longitude: %s', lon_match.groups() if lon_match else None)
     
     if lat_match and lon_match:
         lat_deg, lat_min, lat_sec = lat_match.groups()
@@ -1060,7 +1060,7 @@ def _detect_flexible_coordinates(text: str) -> Optional[Dict[str, Optional[str]]
         ddm_lat = f"N {lat_deg}° {lat_min}.{lat_sec}'"
         ddm_lon = f"E {lon_deg}° {lon_min}.{lon_sec}'"
 
-        logger.debug(f"_detect_flexible_coordinates: Coordonnées formatées: {ddm_lat} {ddm_lon}")
+        logger.debug('_detect_flexible_coordinates: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
         
         return {
             "exist": True,
@@ -1084,16 +1084,16 @@ def _detect_nord_est_format(text: str) -> Optional[Dict[str, Optional[str]]]:
     
     Ce format est spécifique aux coordonnées normalisées après décodage.
     """
-    logger.debug(f"_detect_nord_est_format: Analyse du texte: '{text}'")
+    logger.debug("_detect_nord_est_format: Analyse du texte: '%s'", text)
     
     # Pattern pour détecter NORD/EST suivi de chiffres séparés par des espaces
     nord_est_regex = r'(?:NORD|Nord|nord)\s+(\d{1,2})\s+(\d{1,2})\s+(\d{1,3})(?:\s+|\s*[/\n]\s*)(?:EST|Est|est)\s+(\d{1,3})\s+(\d{1,2})\s+(\d{1,3})'
     
-    logger.debug(f"_detect_nord_est_format: Regex utilisée: {nord_est_regex}")
+    logger.debug('_detect_nord_est_format: Regex utilisée: %s', nord_est_regex)
     
     match = re.search(nord_est_regex, text, re.IGNORECASE)
     if match:
-        logger.debug(f"_detect_nord_est_format: Match trouvé! Groupes: {match.groups()}")
+        logger.debug('_detect_nord_est_format: Match trouvé! Groupes: %s', match.groups())
         lat_deg, lat_min, lat_sec, lon_deg, lon_min, lon_sec = match.groups()
 
         if not _valid_dms_parts(lat_deg, lat_min, lat_sec, lon_deg, lon_min, lon_sec):
@@ -1104,7 +1104,7 @@ def _detect_nord_est_format(text: str) -> Optional[Dict[str, Optional[str]]]:
         ddm_lat = f"N {lat_deg}° {lat_min}.{lat_sec}'"
         ddm_lon = f"E {lon_deg}° {lon_min}.{lon_sec}'"
 
-        logger.debug(f"_detect_nord_est_format: Coordonnées formatées: {ddm_lat} {ddm_lon}")
+        logger.debug('_detect_nord_est_format: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
         
         return {
             "exist": True,
@@ -1129,14 +1129,14 @@ def _detect_nord_est_variations(text: str) -> Optional[Dict[str, Optional[str]]]
     
     Cette fonction est très flexible et tolérante aux variations de format.
     """
-    logger.debug(f"_detect_nord_est_variations: Analyse du texte: '{text}'")
+    logger.debug("_detect_nord_est_variations: Analyse du texte: '%s'", text)
     
     # Extraction des nombres après NORD et EST
     nord_match = re.search(r'(?:NORD|Nord|nord)[^\d]*(\d{1,2})[^\d]*(\d{1,2})[^\d]*(\d{1,3})', text, re.IGNORECASE)
     est_match = re.search(r'(?:EST|Est|est)[^\d]*(\d{1,3})[^\d]*(\d{1,2})[^\d]*(\d{1,3})', text, re.IGNORECASE)
     
-    logger.debug(f"_detect_nord_est_variations: Match NORD: {nord_match.groups() if nord_match else None}")
-    logger.debug(f"_detect_nord_est_variations: Match EST: {est_match.groups() if est_match else None}")
+    logger.debug('_detect_nord_est_variations: Match NORD: %s', nord_match.groups() if nord_match else None)
+    logger.debug('_detect_nord_est_variations: Match EST: %s', est_match.groups() if est_match else None)
     
     if nord_match and est_match:
         lat_deg, lat_min, lat_sec = nord_match.groups()
@@ -1150,7 +1150,7 @@ def _detect_nord_est_variations(text: str) -> Optional[Dict[str, Optional[str]]]
         ddm_lat = f"N {lat_deg}° {lat_min}.{lat_sec}'"
         ddm_lon = f"E {lon_deg}° {lon_min}.{lon_sec}'"
 
-        logger.debug(f"_detect_nord_est_variations: Coordonnées formatées: {ddm_lat} {ddm_lon}")
+        logger.debug('_detect_nord_est_variations: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
         
         return {
             "exist": True,
@@ -1173,7 +1173,7 @@ def _detect_dms_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]:
     
     Ce format est couramment utilisé dans le géocaching.
     """
-    logger.debug(f"_detect_dms_coordinates: Analyse du texte: '{text[:100]}...' (tronqué)")
+    logger.debug("_detect_dms_coordinates: Analyse du texte: '%s...' (tronqué)", text[:100])
     
     # Pattern pour détecter le format DMS
     dms_regex = (
@@ -1181,11 +1181,11 @@ def _detect_dms_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]:
         r'([EW])\s*(\d{1,3})\s*[°º]\s*(\d{1,2})\s*[\']\s*(\d{1,2}(?:\.\d+)?)[\"\']*'
     )
     
-    logger.debug(f"_detect_dms_coordinates: Regex utilisée: {dms_regex}")
+    logger.debug('_detect_dms_coordinates: Regex utilisée: %s', dms_regex)
     
     match = re.search(dms_regex, text)
     if match:
-        logger.debug(f"_detect_dms_coordinates: Match trouvé! Groupes: {match.groups()}")
+        logger.debug('_detect_dms_coordinates: Match trouvé! Groupes: %s', match.groups())
         lat_dir, lat_deg, lat_min, lat_sec, lon_dir, lon_deg, lon_min, lon_sec = match.groups()
 
         # Convertir DMS en DDM
@@ -1205,7 +1205,7 @@ def _detect_dms_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]:
         ddm_lat = f"{lat_dir} {lat_deg}° {lat_min_decimal:.3f}'"
         ddm_lon = f"{lon_dir} {lon_deg}° {lon_min_decimal:.3f}'"
         
-        logger.debug(f"_detect_dms_coordinates: Coordonnées formatées: {ddm_lat} {ddm_lon}")
+        logger.debug('_detect_dms_coordinates: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
         
         return {
             "exist": True,
@@ -1229,7 +1229,7 @@ def _detect_roman_numerals_coordinates(text: str) -> Optional[Dict[str, Optional
     
     Cette fonction convertit d'abord les chiffres romains en chiffres arabes.
     """
-    logger.debug(f"_detect_roman_numerals_coordinates: Analyse du texte: '{text[:100]}...' (tronqué)")
+    logger.debug("_detect_roman_numerals_coordinates: Analyse du texte: '%s...' (tronqué)", text[:100])
     
     # Dictionnaire de conversion des chiffres romains
     roman_to_arabic = {
@@ -1255,11 +1255,11 @@ def _detect_roman_numerals_coordinates(text: str) -> Optional[Dict[str, Optional
     # Rechercher les motifs de chiffres romains
     roman_pattern = r'(NORD|Nord|nord|N)\s+((?:[IVXLCDM]+)\s+(?:[IVXLCDM]+)\s+(?:[IVXLCDM]+))\s+(EST|Est|est|E)\s+((?:[IVXLCDM]+)\s+(?:[IVXLCDM]+)\s+(?:[IVXLCDM]+))'
     
-    logger.debug(f"_detect_roman_numerals_coordinates: Pattern utilisé: {roman_pattern}")
+    logger.debug('_detect_roman_numerals_coordinates: Pattern utilisé: %s', roman_pattern)
     
     match = re.search(roman_pattern, text, re.IGNORECASE)
     if match:
-        logger.debug(f"_detect_roman_numerals_coordinates: Match trouvé! Groupes: {match.groups()}")
+        logger.debug('_detect_roman_numerals_coordinates: Match trouvé! Groupes: %s', match.groups())
         lat_dir, lat_romans, lon_dir, lon_romans = match.groups()
         
         # Extraire les chiffres romains individuels
@@ -1277,7 +1277,7 @@ def _detect_roman_numerals_coordinates(text: str) -> Optional[Dict[str, Optional
                 lon_min = roman_to_int(lon_parts[1])
                 lon_sec = roman_to_int(lon_parts[2])
 
-                logger.debug(f"_detect_roman_numerals_coordinates: Conversion - lat: {lat_deg} {lat_min} {lat_sec}, lon: {lon_deg} {lon_min} {lon_sec}")
+                logger.debug('_detect_roman_numerals_coordinates: Conversion - lat: %s %s %s, lon: %s %s %s', lat_deg, lat_min, lat_sec, lon_deg, lon_min, lon_sec)
 
                 if not _valid_dms_parts(lat_deg, lat_min, lat_sec, lon_deg, lon_min, lon_sec):
                     logger.debug("_detect_roman_numerals_coordinates: Bornes invalides, rejet")
@@ -1287,7 +1287,7 @@ def _detect_roman_numerals_coordinates(text: str) -> Optional[Dict[str, Optional
                 ddm_lat = f"N {lat_deg}° {lat_min}.{lat_sec}'"
                 ddm_lon = f"E {lon_deg}° {lon_min}.{lon_sec}'"
                 
-                logger.debug(f"_detect_roman_numerals_coordinates: Coordonnées formatées: {ddm_lat} {ddm_lon}")
+                logger.debug('_detect_roman_numerals_coordinates: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
                 
                 return {
                     "exist": True,
@@ -1296,7 +1296,7 @@ def _detect_roman_numerals_coordinates(text: str) -> Optional[Dict[str, Optional
                     "ddm": f"{ddm_lat} {ddm_lon}"
                 }
             except Exception as e:
-                logger.debug(f"_detect_roman_numerals_coordinates: Erreur lors de la conversion: {e}")
+                logger.debug('_detect_roman_numerals_coordinates: Erreur lors de la conversion: %s', e)
     
     logger.debug("_detect_roman_numerals_coordinates: Aucun match trouvé ou erreur de conversion")
     return None
@@ -1317,23 +1317,23 @@ def _detect_numeric_only_coordinates(text: str, origin_coords: Optional[Dict[str
     Si origin_coords est fourni, utilise les directions cardinales de ces coordonnées (N/S, E/W)
     plutôt que de supposer N et E par défaut.
     """
-    logger.debug(f"_detect_numeric_only_coordinates: Analyse du texte: '{text[:100]}...' (tronqué)")
-    logger.debug(f"_detect_numeric_only_coordinates: Coordonnées d'origine: {origin_coords}")
+    logger.debug("_detect_numeric_only_coordinates: Analyse du texte: '%s...' (tronqué)", text[:100])
+    logger.debug("_detect_numeric_only_coordinates: Coordonnées d'origine: %s", origin_coords)
     
     # Pattern pour capturer deux groupes de chiffres séparés par un espace
     # Premier groupe: exactement 7 chiffres (latitude)
     # Deuxième groupe: 6 à 8 chiffres (longitude)
     numeric_pattern = r'(\d{7})\s+(\d{6,8})'
     
-    logger.debug(f"_detect_numeric_only_coordinates: Pattern utilisé: {numeric_pattern}")
+    logger.debug('_detect_numeric_only_coordinates: Pattern utilisé: %s', numeric_pattern)
     
     match = re.search(numeric_pattern, text)
     if match:
-        logger.debug(f"_detect_numeric_only_coordinates: Match trouvé! Groupes: {match.groups()}")
+        logger.debug('_detect_numeric_only_coordinates: Match trouvé! Groupes: %s', match.groups())
         lat_digits = match.group(1)
         lon_digits = match.group(2)
         
-        logger.debug(f"_detect_numeric_only_coordinates: Latitude digits: {lat_digits}, Longitude digits: {lon_digits}")
+        logger.debug('_detect_numeric_only_coordinates: Latitude digits: %s, Longitude digits: %s', lat_digits, lon_digits)
         # Anti-faux-positifs: rejeter les groupes purement binaires (0/1)
         try:
             has_lat_nonbinary = any(ch in '23456789' for ch in lat_digits)
@@ -1355,14 +1355,14 @@ def _detect_numeric_only_coordinates(text: str, origin_coords: Optional[Dict[str
             
             # Compléter la longitude avec des zéros en tête si nécessaire pour avoir 8 chiffres
             padded_lon_digits = lon_digits.zfill(8)
-            logger.debug(f"_detect_numeric_only_coordinates: Longitude avec padding: {padded_lon_digits}")
+            logger.debug('_detect_numeric_only_coordinates: Longitude avec padding: %s', padded_lon_digits)
             
             # Maintenant nous pouvons découper correctement
             lon_deg = padded_lon_digits[0:3]
             lon_min = padded_lon_digits[3:5]
             lon_dec = padded_lon_digits[5:8]
             
-            logger.debug(f"_detect_numeric_only_coordinates: Découpage - lon_deg={lon_deg}, lon_min={lon_min}, lon_dec={lon_dec}")
+            logger.debug('_detect_numeric_only_coordinates: Découpage - lon_deg=%s, lon_min=%s, lon_dec=%s', lon_deg, lon_min, lon_dec)
             
             # Déterminer les directions cardinales (N/S, E/W) en fonction des coordonnées d'origine
             lat_dir = "N"  # Direction par défaut
@@ -1376,13 +1376,13 @@ def _detect_numeric_only_coordinates(text: str, origin_coords: Optional[Dict[str
                     
                     if origin_lat_match:
                         lat_dir = origin_lat_match.group(1)
-                        logger.debug(f"Direction latitude depuis origine: {lat_dir}")
+                        logger.debug('Direction latitude depuis origine: %s', lat_dir)
                     
                     if origin_lon_match:
                         lon_dir = origin_lon_match.group(1)
-                        logger.debug(f"Direction longitude depuis origine: {lon_dir}")
+                        logger.debug('Direction longitude depuis origine: %s', lon_dir)
                 except Exception as e:
-                    logger.warning(f"Erreur lors de l'extraction des directions depuis les coordonnées d'origine: {e}")
+                    logger.warning("Erreur lors de l'extraction des directions depuis les coordonnées d'origine: %s", e)
                     # En cas d'erreur, on garde les directions par défaut
             
             # Validation bornes
@@ -1397,7 +1397,7 @@ def _detect_numeric_only_coordinates(text: str, origin_coords: Optional[Dict[str
             ddm_lat = f"{lat_dir} {lat_deg}° {lat_min}.{lat_dec}'"
             ddm_lon = f"{lon_dir} {lon_deg}° {lon_min}.{lon_dec}'"
             
-            logger.debug(f"_detect_numeric_only_coordinates: Coordonnées formatées: {ddm_lat} {ddm_lon}")
+            logger.debug('_detect_numeric_only_coordinates: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
             
             return {
                 "exist": True,
@@ -1406,7 +1406,7 @@ def _detect_numeric_only_coordinates(text: str, origin_coords: Optional[Dict[str
                 "ddm": f"{ddm_lat} {ddm_lon}"
             }
         except Exception as e:
-            logger.error(f"_detect_numeric_only_coordinates: Erreur lors du formatage: {e}")
+            logger.error('_detect_numeric_only_coordinates: Erreur lors du formatage: %s', e)
             traceback.print_exc()
     
     logger.debug("_detect_numeric_only_coordinates: Aucun match trouvé ou erreur de conversion")
@@ -1426,21 +1426,21 @@ def _detect_compact_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]
     
     Ce format est très compact et ne contient pas de symboles de degrés ni de minutes.
     """
-    logger.debug(f"_detect_compact_coordinates: Analyse du texte: '{text[:100]}...' (tronqué)")
+    logger.debug("_detect_compact_coordinates: Analyse du texte: '%s...' (tronqué)", text[:100])
     
     # Pattern pour détecter le format compact
     # Capture: direction latitude, 7 chiffres, direction longitude, 6-8 chiffres
     # Accepte des espaces optionnels entre les composants
     compact_regex = r'([NS])\s*(\d{7})\s*([EW])\s*(\d{6,8})'
     
-    logger.debug(f"_detect_compact_coordinates: Regex utilisée: {compact_regex}")
+    logger.debug('_detect_compact_coordinates: Regex utilisée: %s', compact_regex)
     
     match = re.search(compact_regex, text, re.IGNORECASE)
     if match:
-        logger.debug(f"_detect_compact_coordinates: Match trouvé! Groupes: {match.groups()}")
+        logger.debug('_detect_compact_coordinates: Match trouvé! Groupes: %s', match.groups())
         lat_dir, lat_digits, lon_dir, lon_digits = match.groups()
         
-        logger.debug(f"_detect_compact_coordinates: Latitude: {lat_dir}{lat_digits}, Longitude: {lon_dir}{lon_digits}")
+        logger.debug('_detect_compact_coordinates: Latitude: %s%s, Longitude: %s%s', lat_dir, lat_digits, lon_dir, lon_digits)
         # Anti-faux-positifs: rejeter les groupes purement binaires (0/1)
         try:
             has_lat_nonbinary = any(ch in '23456789' for ch in lat_digits)
@@ -1475,7 +1475,7 @@ def _detect_compact_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]
             ddm_lat = f"{lat_dir} {lat_deg}° {lat_min}.{lat_dec}'"
             ddm_lon = f"{lon_dir} {lon_deg}° {lon_min}.{lon_dec}'"
             
-            logger.debug(f"_detect_compact_coordinates: Coordonnées formatées: {ddm_lat} {ddm_lon}")
+            logger.debug('_detect_compact_coordinates: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
             
             return {
                 "exist": True,
@@ -1484,7 +1484,7 @@ def _detect_compact_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]
                 "ddm": f"{ddm_lat} {ddm_lon}"
             }
         except Exception as e:
-            logger.error(f"_detect_compact_coordinates: Erreur lors du formatage: {e}")
+            logger.error('_detect_compact_coordinates: Erreur lors du formatage: %s', e)
             traceback.print_exc()
     
     logger.debug("_detect_compact_coordinates: Aucun match trouvé ou erreur de conversion")
@@ -1501,17 +1501,17 @@ def _detect_dmm_dot_separator(text: str) -> Optional[Dict[str, Optional[str]]]:
       - N50.02.117 e004.52.677
     Les lettres cardinales peuvent être en majuscule ou minuscule.
     """
-    logger.debug(f"_detect_dmm_dot_separator: Analyse du texte: '{text[:100]}...' (tronqué)")
+    logger.debug("_detect_dmm_dot_separator: Analyse du texte: '%s...' (tronqué)", text[:100])
 
     pattern = (
         r'([ns])\s*(\d{1,2})\.(\d{2})\.(\d{3})\s*'  # Latitude : dir, deg, minutes, décimales
         r'([ew])\s*(\d{1,3})\.(\d{2})\.(\d{3})'     # Longitude : dir, deg, minutes, décimales
     )
 
-    logger.debug(f"_detect_dmm_dot_separator: Regex utilisée: {pattern}")
+    logger.debug('_detect_dmm_dot_separator: Regex utilisée: %s', pattern)
     match = re.search(pattern, text, re.IGNORECASE)
     if match:
-        logger.debug(f"_detect_dmm_dot_separator: Match trouvé! Groupes: {match.groups()}")
+        logger.debug('_detect_dmm_dot_separator: Match trouvé! Groupes: %s', match.groups())
         lat_dir, lat_deg, lat_min, lat_dec, lon_dir, lon_deg, lon_min, lon_dec = match.groups()
 
         # Normaliser les directions
@@ -1530,7 +1530,7 @@ def _detect_dmm_dot_separator(text: str) -> Optional[Dict[str, Optional[str]]]:
         ddm_lat = f"{lat_dir} {lat_deg.zfill(2)}° {lat_min}.{lat_dec}'"
         ddm_lon = f"{lon_dir} {lon_deg.zfill(3)}° {lon_min}.{lon_dec}'"
 
-        logger.debug(f"_detect_dmm_dot_separator: Coordonnées formatées: {ddm_lat} {ddm_lon}")
+        logger.debug('_detect_dmm_dot_separator: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
         return {
             "exist": True,
             "ddm_lat": ddm_lat,
@@ -1738,9 +1738,9 @@ def detect_gps_coordinates(text: str, include_numeric_only: bool = False, origin
       - 'ddm_lon': Longitude formatée en DDM.
       - 'ddm': Latitude et longitude combinées.
     """
-    logger.debug(f"detect_gps_coordinates: Début de la détection sur texte de {len(text)} caractères")
-    logger.debug(f"detect_gps_coordinates: Extrait du texte: '{text[:100]}...' (tronqué)")
-    logger.debug(f"detect_gps_coordinates: include_numeric_only={include_numeric_only}, origin_coords={origin_coords}, include_written={include_written}")
+    logger.debug('detect_gps_coordinates: Début de la détection sur texte de %s caractères', len(text))
+    logger.debug("detect_gps_coordinates: Extrait du texte: '%s...' (tronqué)", text[:100])
+    logger.debug('detect_gps_coordinates: include_numeric_only=%s, origin_coords=%s, include_written=%s', include_numeric_only, origin_coords, include_written)
 
     # Accepte un dict {ddm_lat, ddm_lon} ou une chaîne DDM combinée (coordinatesRaw)
     origin_coords = _normalize_origin_coords(origin_coords)
@@ -2060,7 +2060,7 @@ def _detect_dmm_no_degree_symbol(text: str) -> Optional[Dict[str, Optional[str]]
       - "N38 32.460 W075 43.659"
     Le séparateur entre degrés et minutes est simplement un ou plusieurs espaces.
     """
-    logger.debug(f"_detect_dmm_no_degree_symbol: Analyse du texte: '{text[:100]}...' (tronqué)")
+    logger.debug("_detect_dmm_no_degree_symbol: Analyse du texte: '%s...' (tronqué)", text[:100])
 
     # Regex tolérante aux espaces optionnels après la direction et au formatage varié.
     # Latitude : N/S, 1-2 chiffres degrés, espace(s), minutes avec/sans décimales
@@ -2070,10 +2070,10 @@ def _detect_dmm_no_degree_symbol(text: str) -> Optional[Dict[str, Optional[str]]
         r'([EW])\s*(\d{1,3})\s+(\d{1,2}(?:[.,]\d+)?)'       # Longitude
     )
 
-    logger.debug(f"_detect_dmm_no_degree_symbol: Regex utilisée: {dmm_nodg_regex}")
+    logger.debug('_detect_dmm_no_degree_symbol: Regex utilisée: %s', dmm_nodg_regex)
     match = re.search(dmm_nodg_regex, text)
     if match:
-        logger.debug(f"_detect_dmm_no_degree_symbol: Match trouvé! Groupes: {match.groups()}")
+        logger.debug('_detect_dmm_no_degree_symbol: Match trouvé! Groupes: %s', match.groups())
         lat_dir, lat_deg, lat_min, lon_dir, lon_deg, lon_min = match.groups()
 
         # Remplacer la virgule éventuelle par un point pour les décimales
@@ -2097,7 +2097,7 @@ def _detect_dmm_no_degree_symbol(text: str) -> Optional[Dict[str, Optional[str]]
         ddm_lat = f"{lat_dir} {lat_deg.zfill(2)}° {lat_min_fmt}'"
         ddm_lon = f"{lon_dir} {lon_deg.zfill(3)}° {lon_min_fmt}'"
 
-        logger.debug(f"_detect_dmm_no_degree_symbol: Coordonnées formatées: {ddm_lat} {ddm_lon}")
+        logger.debug('_detect_dmm_no_degree_symbol: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
         return {
             "exist": True,
             "ddm_lat": ddm_lat,
@@ -2120,17 +2120,17 @@ def _detect_dmm_no_symbol_no_dot(text: str) -> Optional[Dict[str, Optional[str]]
       N/S  deg  min  dec   E/W  deg   min  dec
     avec espaces comme séparateurs.
     """
-    logger.debug(f"_detect_dmm_no_symbol_no_dot: Analyse du texte: '{text[:100]}...' (tronqué)")
+    logger.debug("_detect_dmm_no_symbol_no_dot: Analyse du texte: '%s...' (tronqué)", text[:100])
 
     pattern = (
         r'([NS])\s*(\d{1,2})\s+(\d{1,2})\s+(\d{1,3})\s*'  # Latitude
         r'([EW])\s*(\d{1,3})\s+(\d{1,2})\s+(\d{1,3})'      # Longitude
     )
 
-    logger.debug(f"_detect_dmm_no_symbol_no_dot: Regex utilisée: {pattern}")
+    logger.debug('_detect_dmm_no_symbol_no_dot: Regex utilisée: %s', pattern)
     match = re.search(pattern, text)
     if match:
-        logger.debug(f"_detect_dmm_no_symbol_no_dot: Match trouvé! Groupes: {match.groups()}")
+        logger.debug('_detect_dmm_no_symbol_no_dot: Match trouvé! Groupes: %s', match.groups())
         lat_dir, lat_deg, lat_min, lat_dec, lon_dir, lon_deg, lon_min, lon_dec = match.groups()
 
         # Mise en forme des composantes minutes + décimales
@@ -2152,7 +2152,7 @@ def _detect_dmm_no_symbol_no_dot(text: str) -> Optional[Dict[str, Optional[str]]
         ddm_lat = f"{lat_dir} {lat_deg.zfill(2)}° {lat_min_fmt}.{lat_dec_fmt}'"
         ddm_lon = f"{lon_dir} {lon_deg.zfill(3)}° {lon_min_fmt}.{lon_dec_fmt}'"
 
-        logger.debug(f"_detect_dmm_no_symbol_no_dot: Coordonnées formatées: {ddm_lat} {ddm_lon}")
+        logger.debug('_detect_dmm_no_symbol_no_dot: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
         return {
             "exist": True,
             "ddm_lat": ddm_lat,
@@ -2174,16 +2174,16 @@ def _detect_geocaching_standard_format(text: str) -> Optional[Dict[str, Optional
       - "N48 33.787 E006 38.803"
     Format : Direction + Degrés + Espace + Minutes.Décimales + Espace + Direction + Degrés + Espace + Minutes.Décimales
     """
-    logger.debug(f"_detect_geocaching_standard_format: Analyse du texte: '{text[:100]}...' (tronqué)")
+    logger.debug("_detect_geocaching_standard_format: Analyse du texte: '%s...' (tronqué)", text[:100])
     
     # Regex spécialement conçue pour le format géocaching standard
     # Accepte : N/S + 1-2 chiffres + espace + minutes.décimales + espace + E/W + 1-3 chiffres + espace + minutes.décimales
     geocaching_regex = r'([NS])(\d{1,2})\s+(\d{1,2}\.\d{1,3})\s+([EW])(\d{1,3})\s+(\d{1,2}\.\d{1,3})'
     
-    logger.debug(f"_detect_geocaching_standard_format: Regex utilisée: {geocaching_regex}")
+    logger.debug('_detect_geocaching_standard_format: Regex utilisée: %s', geocaching_regex)
     match = re.search(geocaching_regex, text)
     if match:
-        logger.debug(f"_detect_geocaching_standard_format: Match trouvé! Groupes: {match.groups()}")
+        logger.debug('_detect_geocaching_standard_format: Match trouvé! Groupes: %s', match.groups())
         lat_dir, lat_deg, lat_min, lon_dir, lon_deg, lon_min = match.groups()
         
         # Formatage des coordonnées (s'assurer que les minutes ont 3 décimales)
@@ -2203,7 +2203,7 @@ def _detect_geocaching_standard_format(text: str) -> Optional[Dict[str, Optional
         ddm_lat = f"{lat_dir} {lat_deg.zfill(2)}° {lat_min_fmt}'"
         ddm_lon = f"{lon_dir} {lon_deg.zfill(3)}° {lon_min_fmt}'"
         
-        logger.debug(f"_detect_geocaching_standard_format: Coordonnées formatées: {ddm_lat} {ddm_lon}")
+        logger.debug('_detect_geocaching_standard_format: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
         
         return {
             "exist": True,
