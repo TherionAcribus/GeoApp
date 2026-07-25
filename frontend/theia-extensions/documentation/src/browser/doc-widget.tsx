@@ -97,20 +97,18 @@ export class DocWidget extends ReactWidget {
     }
 
     private handleSearchChange(query: string): void {
-        this.widgetState = { ...this.widgetState, searchQuery: query };
-        this.update();
-
         if (this.searchDebounceTimer !== null) {
             clearTimeout(this.searchDebounceTimer);
         }
 
         if (!query.trim()) {
-            this.widgetState = { ...this.widgetState, searchResults: [], isSearching: false };
+            this.widgetState = { ...this.widgetState, searchQuery: query, searchResults: [], isSearching: false };
             this.update();
             return;
         }
 
-        this.widgetState = { ...this.widgetState, isSearching: true };
+        // Un seul update() synchrone : on affiche le texte tapé et le spinner en même temps.
+        this.widgetState = { ...this.widgetState, searchQuery: query, isSearching: true };
         this.update();
 
         this.searchDebounceTimer = setTimeout(() => {

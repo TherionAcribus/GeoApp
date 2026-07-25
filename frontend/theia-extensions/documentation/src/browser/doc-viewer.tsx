@@ -44,6 +44,23 @@ export class DocViewer extends React.Component<DocViewerProps, DocViewerState> {
         }
     }
 
+    /**
+     * Le rendu Markdown est coûteux (react-markdown re-parse tout le contenu à
+     * chaque render). Le viewer ne dépend en réalité que de la page affichée, de
+     * l'ancre à cibler et de l'état de chargement des libs : on saute donc les
+     * re-renders déclenchés par la frappe dans la recherche (searchQuery/results),
+     * qui ne changent rien à l'affichage de la page.
+     */
+    shouldComponentUpdate(nextProps: DocViewerProps, nextState: DocViewerState): boolean {
+        return (
+            nextProps.page?.id !== this.props.page?.id ||
+            nextProps.highlightAnchor !== this.props.highlightAnchor ||
+            nextState.ReactMarkdown !== this.state.ReactMarkdown ||
+            nextState.remarkGfm !== this.state.remarkGfm ||
+            nextState.loadError !== this.state.loadError
+        );
+    }
+
     componentDidUpdate(prevProps: DocViewerProps): void {
         if (prevProps.page?.id !== this.props.page?.id) {
             this.contentRef.current?.scrollTo({ top: 0, behavior: 'auto' });
