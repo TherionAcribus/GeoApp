@@ -1,0 +1,87 @@
+{
+  "name": "clock_code",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Clock Code (CacheSleuth) : chaque lettre A-Z est encodée en une valeur d'horloge (A=AM, B-Y=1-24, Z=PM), les lettres séparées par ':' et les mots par '00'.",
+  "author": "MysterAI",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": [
+    "AlphabetsDecryption"
+  ],
+  "kinds": [
+    "code"
+  ],
+  "brute_force": false,
+  "enable_scoring": true,
+  "accept_accents": false,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "text": {
+      "type": "string",
+      "label": "Texte à traiter",
+      "placeholder": "Lettres à encoder, ou suite de valeurs d'horloge (ex: 19:7:4) à décoder...",
+      "required": true
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": [
+        "decode",
+        "encode"
+      ],
+      "default": "decode",
+      "required": true
+    },
+    "separator": {
+      "type": "string",
+      "label": "Séparateur (encodage)",
+      "placeholder": ":",
+      "default": ":",
+      "description": "Caractère(s) inséré(s) entre chaque valeur d'horloge en encodage. Le décodage détecte les valeurs quel que soit le séparateur."
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Texte transformé"
+    }
+  },
+  "text_handling": {
+    "fields": [
+      "text"
+    ],
+    "allowed_ranges": [
+      "0030-0039",
+      "0041-005A"
+    ],
+    "allowed_characters": " \t\r\n:",
+    "unknown_char_policy": "keep",
+    "normalize": {
+      "remove_diacritics": true,
+      "case": "upper",
+      "map_characters": {}
+    }
+  },
+  "metasolver": {
+    "eligible": true,
+    "input_charset": "mixed",
+    "tags": ["substitution", "no_key"],
+    "priority": 40,
+    "family": "substitution",
+    "preferred_when": []
+  }
+}
