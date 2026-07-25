@@ -1,0 +1,93 @@
+{
+  "name": "dvorak_code",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Clavier Dvorak : convertit un texte entre les dispositions Dvorak, QWERTY et AZERTY d'après la position physique des touches (un même emplacement produisant une lettre différente selon la disposition).",
+  "author": "MysterAI",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": [
+    "AlphabetsDecryption"
+  ],
+  "kinds": [
+    "code"
+  ],
+  "brute_force": false,
+  "enable_scoring": true,
+  "accept_accents": false,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "text": {
+      "type": "string",
+      "label": "Texte à convertir",
+      "placeholder": "Texte saisi sur une disposition, à relire sur une autre",
+      "required": true
+    },
+    "from_layout": {
+      "type": "select",
+      "label": "Disposition source",
+      "options": [
+        {"value": "dvorak", "label": "Dvorak"},
+        {"value": "qwerty", "label": "QWERTY"},
+        {"value": "azerty", "label": "AZERTY"}
+      ],
+      "default": "dvorak",
+      "required": true,
+      "description": "Disposition sur laquelle le texte a été saisi."
+    },
+    "to_layout": {
+      "type": "select",
+      "label": "Disposition cible",
+      "options": [
+        {"value": "qwerty", "label": "QWERTY"},
+        {"value": "azerty", "label": "AZERTY"},
+        {"value": "dvorak", "label": "Dvorak"}
+      ],
+      "default": "qwerty",
+      "required": true,
+      "description": "Disposition dans laquelle relire le texte (même emplacement de touches)."
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Texte converti"
+    }
+  },
+  "text_handling": {
+    "fields": [
+      "text"
+    ],
+    "allowed_ranges": [
+      "0020-007E"
+    ],
+    "unknown_char_policy": "keep",
+    "normalize": {
+      "remove_diacritics": true,
+      "case": "preserve",
+      "map_characters": {}
+    }
+  },
+  "metasolver": {
+    "eligible": true,
+    "input_charset": "letters",
+    "tags": ["substitution", "no_key", "keyboard", "letters"],
+    "priority": 30,
+    "family": "substitution",
+    "preferred_when": ["letters_only"],
+    "requires_key": false
+  }
+}
