@@ -13,7 +13,7 @@ import { GeocachesService } from '../geocaches-service';
 import { GeoAppWidgetEventsService } from '../geoapp-widget-events-service';
 
 export interface MapContext {
-    type: 'zone' | 'geocache' | 'general';
+    type: 'zone' | 'geocache' | 'general' | 'custom';
     id?: number;
     label: string;
 }
@@ -100,6 +100,8 @@ export class MapWidget extends ReactWidget {
                 return `geoapp-map-zone-${this.context.id}`;
             case 'geocache':
                 return `geoapp-map-geocache-${this.context.id}`;
+            case 'custom':
+                return `geoapp-map-custom-${this.context.id}`;
             default:
                 return MapWidget.ID;
         }
@@ -214,7 +216,7 @@ export class MapWidget extends ReactWidget {
         const onDeleteWaypoint = isGeocacheMap ? this.handleDeleteWaypoint : undefined;
         const onSetWaypointAsCorrectedCoords = isGeocacheMap ? this.handleSetWaypointAsCorrectedCoords : undefined;
 
-        const isBatchOrGeneralMap = this.context.type === 'general';
+        const isBatchOrGeneralMap = this.context.type === 'general' || this.context.type === 'custom';
         const onSetDetectedAsCorrectedCoords = isBatchOrGeneralMap ? this.handleSetDetectedAsCorrectedCoords : undefined;
         const onAddWaypointFromDetected = isBatchOrGeneralMap ? this.handleAddWaypointFromDetected : undefined;
 

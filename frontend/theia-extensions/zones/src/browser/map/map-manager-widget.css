@@ -16,6 +16,10 @@
 
 /* Header */
 .map-manager-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
     padding: 10px 15px;
     border-bottom: 1px solid var(--theia-panel-border);
     flex-shrink: 0;
@@ -28,6 +32,40 @@
     color: var(--theia-foreground);
     text-transform: uppercase;
     letter-spacing: 0.5px;
+}
+
+/* Bouton « Ajouter une carte » (header + état vide) */
+.map-manager-add,
+.map-manager-add-empty {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    background-color: var(--theia-button-background);
+    color: var(--theia-button-foreground);
+    border: none;
+    border-radius: 3px;
+    font-size: 12px;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: background-color 0.15s ease;
+}
+
+.map-manager-add:hover,
+.map-manager-add-empty:hover {
+    background-color: var(--theia-button-hoverBackground);
+}
+
+.map-manager-add:focus-visible,
+.map-manager-add-empty:focus-visible {
+    outline: 1px solid var(--theia-focusBorder);
+    outline-offset: 1px;
+}
+
+.map-manager-add i,
+.map-manager-add-empty i {
+    font-size: 11px;
 }
 
 /* État vide */

@@ -4,6 +4,7 @@ import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { ApplicationShell } from '@theia/core/lib/browser';
 import { Disposable } from '@theia/core/lib/common/disposable';
 import { MapWidget, MapContext } from './map-widget';
+import { MapWidgetFactory } from './map-widget-factory';
 import { EmptyState } from '../state-views';
 import '../../../src/browser/map/map-manager-widget.css';
 
@@ -21,6 +22,9 @@ export class MapManagerWidget extends ReactWidget {
 
     @inject(ApplicationShell)
     protected readonly shell!: ApplicationShell;
+
+    @inject(MapWidgetFactory)
+    protected readonly mapWidgetFactory!: MapWidgetFactory;
 
     @postConstruct()
     protected init(): void {
@@ -110,13 +114,26 @@ export class MapManagerWidget extends ReactWidget {
             <div className="map-manager-container">
                 <div className="map-manager-header">
                     <h3>Cartes ouvertes ({this.openMaps.length})</h3>
+                    <button
+                        className="map-manager-add"
+                        onClick={() => this.addMap()}
+                        title="Ajouter une nouvelle carte libre"
+                        aria-label="Ajouter une nouvelle carte"
+                    >
+                        <i className="fa fa-plus" aria-hidden="true"></i> Ajouter
+                    </button>
                 </div>
 
                 {this.openMaps.length === 0 ? (
                     <EmptyState
                         icon='fa-map-o'
                         title='Aucune carte ouverte'
-                        description="Les cartes s'ouvrent automatiquement quand vous naviguez dans les zones ou géocaches."
+                        description="Ajoutez une carte libre, ou naviguez dans les zones et géocaches pour ouvrir une carte automatiquement."
+                        action={
+                            <button className="map-manager-add-empty" onClick={() => this.addMap()}>
+                                <i className="fa fa-plus" aria-hidden="true"></i> Ajouter une carte
+                            </button>
+                        }
                     />
                 ) : (
                     <div className="map-manager-list" role="list" aria-label="Cartes ouvertes">
@@ -174,7 +191,7 @@ export class MapManagerWidget extends ReactWidget {
         );
     }
 
-    private getMapIcon(type: 'zone' | 'geocache' | 'general'): string {
+    private getMapIcon(type: MapContext['type']): string {
         switch (type) {
             case 'zone':
                 return '\u{1F5FA}\uFE0F';
@@ -185,12 +202,14 @@ export class MapManagerWidget extends ReactWidget {
         }
     }
 
-    private getMapTypeLabel(type: 'zone' | 'geocache' | 'general'): string {
+    private getMapTypeLabel(type: MapContext['type']): string {
         switch (type) {
             case 'zone':
                 return 'Zone';
             case 'geocache':
                 return 'Géocache';
+            case 'custom':
+                return 'Carte libre';
             default:
                 return 'Générale';
         }
@@ -205,6 +224,15 @@ export class MapManagerWidget extends ReactWidget {
 
     private activateMap(mapId: string): void {
         this.shell.activateWidget(mapId);
+    }
+
+    /** Crée et ouvre une nouvelle carte libre. La liste se met à jour via les événements du shell. */
+    private async addMap(): Promise<void> {
+        try {
+            await this.mapWidgetFactory.openCustomMap();
+        } catch (error) {
+            console.error('[MapManagerWidget] Failed to open a new map', error);
+        }
     }
 
     private closeMap(mapId: string): void {

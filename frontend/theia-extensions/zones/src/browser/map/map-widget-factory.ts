@@ -112,6 +112,33 @@ export class MapWidgetFactory {
     }
 
     /**
+     * Crée et ouvre une nouvelle carte libre (vierge), indépendante des zones et
+     * géocaches. Chaque appel crée une carte distincte, nommée automatiquement
+     * (« Carte 1 », « Carte 2 », …) selon les cartes libres déjà ouvertes.
+     */
+    async openCustomMap(geocaches?: any[]): Promise<MapWidget> {
+        const number = this.nextCustomMapNumber();
+        return this.openMapForContext({
+            type: 'custom',
+            id: number,
+            label: `Carte ${number}`
+        }, geocaches);
+    }
+
+    /**
+     * Détermine le prochain numéro de carte libre disponible, en s'appuyant sur les
+     * identifiants des cartes libres actuellement ouvertes (max + 1, ou 1).
+     */
+    private nextCustomMapNumber(): number {
+        const prefix = 'geoapp-map-custom-';
+        const numbers = this.shell.getWidgets('bottom')
+            .filter(w => w.id.startsWith(prefix))
+            .map(w => parseInt(w.id.substring(prefix.length), 10))
+            .filter(n => Number.isFinite(n));
+        return numbers.length > 0 ? Math.max(...numbers) + 1 : 1;
+    }
+
+    /**
      * Génère un ID de widget unique basé sur le contexte
      */
     private generateWidgetId(context: MapContext): string {
@@ -120,6 +147,8 @@ export class MapWidgetFactory {
                 return `geoapp-map-zone-${context.id}`;
             case 'geocache':
                 return `geoapp-map-geocache-${context.id}`;
+            case 'custom':
+                return `geoapp-map-custom-${context.id}`;
             default:
                 return MapWidget.ID;
         }
