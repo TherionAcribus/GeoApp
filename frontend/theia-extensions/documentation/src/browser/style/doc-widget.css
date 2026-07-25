@@ -492,8 +492,18 @@
 
 .doc-internal-link {
     color: var(--theia-textLink-foreground);
-    cursor: default;
+    cursor: pointer;
+    text-decoration: none;
     border-bottom: 1px dashed var(--theia-textLink-foreground);
+}
+
+.doc-internal-link:hover {
+    border-bottom-style: solid;
+}
+
+/* Fallback : lien interne non résolvable (rendu en <span>) */
+span.doc-internal-link {
+    cursor: default;
 }
 
 .doc-image {

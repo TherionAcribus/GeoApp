@@ -6,6 +6,7 @@ interface DocViewerProps {
     searchResults: DocSearchResult[];
     searchQuery: string;
     highlightAnchor: string | null;
+    onNavigate?: (href: string) => void;
 }
 
 interface DocViewerState {
@@ -128,11 +129,27 @@ export class DocViewer extends React.Component<DocViewerProps, DocViewerState> {
                     {...rest}
                 />
             ),
-            a: ({ href, children, ...rest }: any) => {
+            a: ({ href, children, node, ...rest }: any) => {
                 const isExternal = href?.startsWith('http://') || href?.startsWith('https://');
                 if (isExternal) {
                     return (
                         <a href={href} target="_blank" rel="noopener noreferrer" {...rest}>
+                            {children}
+                        </a>
+                    );
+                }
+                if (href && this.props.onNavigate) {
+                    return (
+                        <a
+                            href={href}
+                            className="doc-internal-link"
+                            title={href}
+                            onClick={e => {
+                                e.preventDefault();
+                                this.props.onNavigate!(href);
+                            }}
+                            {...rest}
+                        >
                             {children}
                         </a>
                     );

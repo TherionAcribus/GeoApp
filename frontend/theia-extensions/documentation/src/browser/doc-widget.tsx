@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
-import { ReactWidget } from '@theia/core/lib/browser';
+import { ReactWidget, WidgetManager } from '@theia/core/lib/browser';
 import { CommandService } from '@theia/core/lib/common';
 import { DocContentService } from './doc-content-service';
 import { DocSearchService } from './doc-search-service';
@@ -37,6 +37,9 @@ export class DocWidget extends ReactWidget {
 
     @inject(CommandService)
     protected readonly commandService: CommandService;
+
+    @inject(WidgetManager)
+    protected readonly widgetManager: WidgetManager;
 
     private widgetState: DocWidgetState = {
         chapters: [],
@@ -138,17 +141,114 @@ export class DocWidget extends ReactWidget {
         this.update();
     }
 
+    // Identifiants Theia (et non VS Code) du widget de chat IA et de sa commande d'ouverture.
+    private static readonly CHAT_VIEW_WIDGET_ID = 'chat-view-widget';
+    private static readonly CHAT_TOGGLE_COMMAND_ID = 'aiChat:toggle';
+
     private async handleAskAI(): Promise<void> {
         const query = this.widgetState.searchQuery.trim();
-        const prompt = query
-            ? `@Aide ${query}`
-            : '@Aide ';
-        try {
-            await this.commandService.executeCommand('workbench.action.chat.open', { query: prompt });
-        } catch {
-            // Fallback : on repasse le même prompt pour ne pas perdre la question tapée.
-            await this.commandService.executeCommand('chat.open', { query: prompt }).catch(() => {});
+        const prompt = query ? `@Aide ${query}` : '@Aide ';
+
+        // N'ouvrir le chat que s'il n'est pas déjà visible : `aiChat:toggle` le
+        // refermerait s'il l'était déjà.
+        const existing = this.widgetManager.tryGetWidget(DocWidget.CHAT_VIEW_WIDGET_ID);
+        if (!existing || !existing.isVisible) {
+            try {
+                await this.commandService.executeCommand(DocWidget.CHAT_TOGGLE_COMMAND_ID);
+            } catch (e) {
+                console.error('[DocWidget] Impossible d\'ouvrir le chat IA:', e);
+                return;
+            }
         }
+
+        this.prefillChatInput(prompt);
+    }
+
+    /**
+     * Préremplit l'éditeur Monaco de l'input du chat avec `prompt`, sans envoyer.
+     * L'éditeur est créé de façon asynchrone après l'ouverture du widget : on
+     * réessaie brièvement tant qu'il n'est pas disponible.
+     */
+    private prefillChatInput(prompt: string, attempt: number = 0): void {
+        const chatWidget = this.widgetManager.tryGetWidget<any>(DocWidget.CHAT_VIEW_WIDGET_ID);
+        const editor = chatWidget?.inputWidget?.editor;
+        const control = editor?.getControl?.();
+
+        if (control) {
+            control.setValue(prompt);
+            const model = control.getModel?.();
+            if (model) {
+                const lastLine = model.getLineCount();
+                control.setPosition({ lineNumber: lastLine, column: model.getLineMaxColumn(lastLine) });
+            }
+            chatWidget.inputWidget.activate?.();
+            return;
+        }
+
+        if (attempt < 20) {
+            setTimeout(() => this.prefillChatInput(prompt, attempt + 1), 100);
+        }
+    }
+
+    private handleNavigateInternal(href: string): void {
+        const target = this.resolveInternalLink(href);
+        if (!target) {
+            return;
+        }
+        const page = this.contentService.getPage(target.pageId);
+        this.widgetState = {
+            ...this.widgetState,
+            activePage: page || this.widgetState.activePage,
+            highlightAnchor: target.anchor,
+            searchQuery: '',
+            searchResults: [],
+        };
+        this.update();
+    }
+
+    /**
+     * Résout un lien Markdown interne (relatif au fichier courant) vers un id de
+     * page et une éventuelle ancre. Les ids de page suivent la convention
+     * dossier/fichier → « dossier.fichier » (cf. generate-docs-manifest.mjs).
+     */
+    private resolveInternalLink(href: string): { pageId: string; anchor: string | null } | null {
+        if (!href) {
+            return null;
+        }
+        const hashIndex = href.indexOf('#');
+        const rawPath = hashIndex === -1 ? href : href.slice(0, hashIndex);
+        const rawHash = hashIndex === -1 ? '' : href.slice(hashIndex + 1);
+        const anchor = rawHash ? decodeURIComponent(rawHash) : null;
+
+        const current = this.widgetState.activePage;
+        if (!current) {
+            return null;
+        }
+
+        // Lien purement ancre (#section) : rester sur la page courante.
+        if (!rawPath.trim()) {
+            return { pageId: current.id, anchor };
+        }
+
+        // Résolution du chemin relatif par rapport au dossier de la page courante.
+        const currentDir = current.id.split('.').slice(0, -1);
+        const stack = [...currentDir];
+        const cleanPath = rawPath.replace(/\.md$/i, '');
+        for (const part of cleanPath.split('/')) {
+            if (part === '' || part === '.') {
+                continue;
+            }
+            if (part === '..') {
+                stack.pop();
+            } else {
+                stack.push(part);
+            }
+        }
+        const targetId = stack.join('.');
+        if (!this.contentService.getPage(targetId)) {
+            return null;
+        }
+        return { pageId: targetId, anchor };
     }
 
     protected render(): React.ReactNode {
@@ -259,6 +359,7 @@ export class DocWidget extends ReactWidget {
                         searchResults={searchResults}
                         searchQuery={searchQuery}
                         highlightAnchor={highlightAnchor}
+                        onNavigate={href => this.handleNavigateInternal(href)}
                     />
                 </div>
             </div>
