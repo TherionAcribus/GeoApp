@@ -1,0 +1,103 @@
+{
+  "name": "decabit_code",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Code Decabit (Zellweger) : chaque caractère ASCII (0-126) est encodé par une trame de 10 symboles + / - utilisée en télécommande centralisée (ripple control).",
+  "author": "MysterAI",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": [
+    "AlphabetsDecryption"
+  ],
+  "kinds": [
+    "code"
+  ],
+  "brute_force": false,
+  "enable_scoring": true,
+  "accept_accents": false,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "text": {
+      "type": "string",
+      "label": "Texte à traiter",
+      "placeholder": "Texte à encoder, ou suite de + et - à décoder...",
+      "required": true
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": [
+        "decode",
+        "encode"
+      ],
+      "default": "decode",
+      "required": true
+    },
+    "symbols": {
+      "type": "string",
+      "label": "Symboles personnalisés (ordre : + puis -)",
+      "placeholder": "+-",
+      "default": "+-",
+      "description": "Deux caractères distincts remplaçant + (impulsion positive) et - (impulsion négative). Par exemple « 10 ». Laisser vide pour les symboles standards."
+    },
+    "separator": {
+      "type": "string",
+      "label": "Séparateur de groupes (encodage)",
+      "placeholder": "Espace",
+      "default": " ",
+      "description": "Chaîne insérée entre chaque trame de 10 symboles lors de l'encodage (par défaut une espace). Sans effet au décodage."
+    },
+    "output": {
+      "type": "select",
+      "label": "Sortie du décodage",
+      "options": [
+        {"value": "ascii", "label": "Caractères ASCII"},
+        {"value": "numbers", "label": "Valeurs numériques (0-126)"}
+      ],
+      "default": "ascii",
+      "description": "Décoder chaque trame en caractère ASCII ou en valeur numérique."
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Texte transformé"
+    }
+  },
+  "text_handling": {
+    "fields": [
+      "text"
+    ],
+    "allowed_ranges": [
+      "0020-007E"
+    ],
+    "unknown_char_policy": "keep",
+    "normalize": {
+      "remove_diacritics": true,
+      "case": "preserve",
+      "map_characters": {}
+    }
+  },
+  "metasolver": {
+    "eligible": true,
+    "input_charset": "symbols",
+    "tags": ["substitution", "no_key", "ascii"],
+    "priority": 40,
+    "family": "substitution",
+    "preferred_when": ["symbols_only"],
+    "requires_key": false
+  }
+}
