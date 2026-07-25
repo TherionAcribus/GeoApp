@@ -32,10 +32,18 @@ Toutes les détections convergent vers un dictionnaire uniforme :
   "confidence": 0.95,                     # fiabilité du format [0..1]
   "decimal_latitude": 48.56311667,
   "decimal_longitude": 6.64671667,
-  "matched_text": "...",
+  "matched_text": "N 48° 33.787' E 006° 38.803'",  # fragment matché, PAS le texte entier
+  "span": [15, 43],                                # [start, end] du fragment dans le texte
   "extract": {"plugin": "_detect_dmm_coordinates", "version": "1.0"}
 }
 ```
+
+`matched_text` contient le **fragment réellement matché** (utile p.ex. pour surligner
+la coordonnée dans une description), et `span` ses bornes `[start, end]` dans le texte
+d'entrée (`text[start:end] == matched_text`). Pour les rares détecteurs multi-lignes
+sans objet `re.Match` unique (`_detect_simplified_coordinates`), `span` vaut `None` et
+`matched_text` retombe sur le texte entier. En l'absence de détection, les deux valent
+`None`.
 
 Le champ `confidence` alimente aussi le **scorer** (`gps_conf`, voir
 [scoring-technique.md](scoring-technique.md)) : une coordonnée détectée prime sur
@@ -95,21 +103,27 @@ texte
   │
   ├─ Normalisation de origin_coords  (_normalize_origin_coords)
   │
-  ├─ Collecte de TOUS les candidats :
+  ├─ Détecteurs triés une fois par (confiance décroissante, ordre de déclaration) :
   │     - _detect_numeric_only_coordinates (si include_numeric_only)
-  │     - chaque détecteur de confidence_map  → (confiance, ordre, source, result)
-  │     (chaque détecteur valide lui-même les bornes deg/min)
+  │     - chaque détecteur de confidence_map
+  │     (chaque détecteur valide lui-même les bornes deg/min, et expose son span)
   │
-  ├─ Sélection : meilleure confiance ; à égalité, l'ordre de priorité tranche
+  ├─ Sélection : ARRÊT au premier détecteur qui matche (= meilleure confiance)
   │
-  └─ _finalize_detection : conversion décimale, matched_text, extract
+  └─ _finalize_detection : conversion décimale, matched_text/span, extract
 ```
 
-> **Changement clé (Lot 4)** : on ne renvoie plus « le premier détecteur qui
-> matche » mais **le candidat de meilleure confiance**. Un format laxiste ne peut
-> plus masquer un format fiable présent dans le texte, et la validation
-> systématique des bornes (désormais dans **tous** les détecteurs) élimine les
-> faux positifs en amont.
+> **Changement clé (Lot 4)** : on ne renvoie plus « le premier détecteur *dans
+> l'ordre du code* qui matche » mais **le candidat de meilleure confiance**. Un
+> format laxiste ne peut plus masquer un format fiable présent dans le texte, et la
+> validation systématique des bornes (désormais dans **tous** les détecteurs)
+> élimine les faux positifs en amont.
+>
+> **Optimisation** : plutôt que d'exécuter les 18 détecteurs puis prendre le max,
+> on les trie une fois par confiance décroissante et on **s'arrête au premier
+> match** — résultat identique (le premier match dans l'ordre trié *est* le max),
+> mais on évite d'exécuter tous les détecteurs à chaque appel (chemin chaud : le
+> scorer appelle cette fonction pour chaque candidat bruteforce).
 
 ### 3.2 Formats supportés
 

@@ -797,6 +797,7 @@ def _detect_dmm_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]:
         ddm_lon = f"{lon_dir} {lon_deg}° {lon_min}'"
         logger.debug('_detect_dmm_coordinates: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
         return {
+            "span": [match.start(), match.end()],
             "exist": True,
             "ddm_lat": ddm_lat,
             "ddm_lon": ddm_lon,
@@ -848,6 +849,7 @@ def _detect_tabspace_coordinates(text: str) -> Optional[Dict[str, Optional[str]]
         logger.debug('_detect_tabspace_coordinates: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
         
         return {
+            "span": [match.start(), match.end()],
             "exist": True,
             "ddm_lat": ddm_lat,
             "ddm_lon": ddm_lon,
@@ -923,6 +925,7 @@ def _detect_variant_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]
         if ddm_lat and ddm_lon:
             logger.debug('_detect_variant_coordinates: Coordonnées complètes détectées: %s %s', ddm_lat, ddm_lon)
             return {
+                "span": [match.start(), match.end()],
                 "exist": True,
                 "ddm_lat": ddm_lat,
                 "ddm_lon": ddm_lon,
@@ -965,6 +968,7 @@ def _detect_specific_tabpoint_coordinates(text: str) -> Optional[Dict[str, Optio
         logger.debug('_detect_specific_tabpoint_coordinates: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
         
         return {
+            "span": [match.start(), match.end()],
             "exist": True,
             "ddm_lat": ddm_lat,
             "ddm_lon": ddm_lon,
@@ -1063,6 +1067,7 @@ def _detect_flexible_coordinates(text: str) -> Optional[Dict[str, Optional[str]]
         logger.debug('_detect_flexible_coordinates: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
         
         return {
+            "span": [min(lat_match.start(), lon_match.start()), max(lat_match.end(), lon_match.end())],
             "exist": True,
             "ddm_lat": ddm_lat,
             "ddm_lon": ddm_lon,
@@ -1107,6 +1112,7 @@ def _detect_nord_est_format(text: str) -> Optional[Dict[str, Optional[str]]]:
         logger.debug('_detect_nord_est_format: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
         
         return {
+            "span": [match.start(), match.end()],
             "exist": True,
             "ddm_lat": ddm_lat,
             "ddm_lon": ddm_lon,
@@ -1153,6 +1159,7 @@ def _detect_nord_est_variations(text: str) -> Optional[Dict[str, Optional[str]]]
         logger.debug('_detect_nord_est_variations: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
         
         return {
+            "span": [min(nord_match.start(), est_match.start()), max(nord_match.end(), est_match.end())],
             "exist": True,
             "ddm_lat": ddm_lat,
             "ddm_lon": ddm_lon,
@@ -1208,6 +1215,7 @@ def _detect_dms_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]:
         logger.debug('_detect_dms_coordinates: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
         
         return {
+            "span": [match.start(), match.end()],
             "exist": True,
             "ddm_lat": ddm_lat,
             "ddm_lon": ddm_lon,
@@ -1290,6 +1298,7 @@ def _detect_roman_numerals_coordinates(text: str) -> Optional[Dict[str, Optional
                 logger.debug('_detect_roman_numerals_coordinates: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
                 
                 return {
+                    "span": [match.start(), match.end()],
                     "exist": True,
                     "ddm_lat": ddm_lat,
                     "ddm_lon": ddm_lon,
@@ -1400,6 +1409,7 @@ def _detect_numeric_only_coordinates(text: str, origin_coords: Optional[Dict[str
             logger.debug('_detect_numeric_only_coordinates: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
             
             return {
+                "span": [match.start(), match.end()],
                 "exist": True,
                 "ddm_lat": ddm_lat,
                 "ddm_lon": ddm_lon,
@@ -1478,6 +1488,7 @@ def _detect_compact_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]
             logger.debug('_detect_compact_coordinates: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
             
             return {
+                "span": [match.start(), match.end()],
                 "exist": True,
                 "ddm_lat": ddm_lat,
                 "ddm_lon": ddm_lon,
@@ -1532,6 +1543,7 @@ def _detect_dmm_dot_separator(text: str) -> Optional[Dict[str, Optional[str]]]:
 
         logger.debug('_detect_dmm_dot_separator: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
         return {
+            "span": [match.start(), match.end()],
             "exist": True,
             "ddm_lat": ddm_lat,
             "ddm_lon": ddm_lon,
@@ -1595,6 +1607,7 @@ def _detect_decimal_pair(text: str) -> Optional[Dict[str, Optional[str]]]:
     ddm_lon = f"{lon_dir} {lon_deg:03d}° {lon_min:06.3f}'"
 
     return {
+        "span": [match.start(), match.end()],
         "exist": True,
         "ddm_lat": ddm_lat,
         "ddm_lon": ddm_lon,
@@ -1640,6 +1653,7 @@ def _detect_dmm_suffix_direction(text: str) -> Optional[Dict[str, Optional[str]]
     ddm_lat = f"{lat_dir} {lat_deg.zfill(2)}° {_format_ddm_minutes(lat_min_raw)}'"
     ddm_lon = f"{lon_dir} {lon_deg.zfill(3)}° {_format_ddm_minutes(lon_min_raw)}'"
     return {
+        "span": [match.start(), match.end()],
         "exist": True,
         "ddm_lat": ddm_lat,
         "ddm_lon": ddm_lon,
@@ -1676,6 +1690,7 @@ def _detect_dms_suffix_direction(text: str) -> Optional[Dict[str, Optional[str]]
     ddm_lat = f"{lat_dir} {int(lat_deg):02d}° {lat_min_dec:06.3f}'"
     ddm_lon = f"{lon_dir} {int(lon_deg):03d}° {lon_min_dec:06.3f}'"
     return {
+        "span": [match.start(), match.end()],
         "exist": True,
         "ddm_lat": ddm_lat,
         "ddm_lon": ddm_lon,
@@ -1715,7 +1730,23 @@ def _finalize_detection(result: Dict, source: str, confidence: float, text: str)
                 result.setdefault('decimal_latitude', decimal_coords['latitude'])
                 result.setdefault('decimal_longitude', decimal_coords['longitude'])
 
-    result["matched_text"] = text
+    # matched_text = fragment réellement matché dans le texte (via le span fourni par
+    # le détecteur), et non plus le texte entier. Rétro-compat : si aucun span valide
+    # n'est fourni (détecteurs multi-lignes sans objet match), on retombe sur le texte
+    # complet et span reste None.
+    span = result.get("span")
+    if (
+        isinstance(span, (list, tuple)) and len(span) == 2
+        and isinstance(span[0], int) and isinstance(span[1], int)
+        and 0 <= span[0] <= span[1] <= len(text)
+    ):
+        start, end = int(span[0]), int(span[1])
+        result["span"] = [start, end]
+        result["matched_text"] = text[start:end]
+    else:
+        result["span"] = None
+        result["matched_text"] = text
+
     result["extract"] = {"plugin": source, "version": "1.0"}
     return result
 
@@ -1815,6 +1846,7 @@ def detect_gps_coordinates(text: str, include_numeric_only: bool = False, origin
         "source": None,
         "confidence": 0.0,
         "matched_text": None,
+        "span": None,
         "extract": None
     }
 
@@ -2099,6 +2131,7 @@ def _detect_dmm_no_degree_symbol(text: str) -> Optional[Dict[str, Optional[str]]
 
         logger.debug('_detect_dmm_no_degree_symbol: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
         return {
+            "span": [match.start(), match.end()],
             "exist": True,
             "ddm_lat": ddm_lat,
             "ddm_lon": ddm_lon,
@@ -2154,6 +2187,7 @@ def _detect_dmm_no_symbol_no_dot(text: str) -> Optional[Dict[str, Optional[str]]
 
         logger.debug('_detect_dmm_no_symbol_no_dot: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
         return {
+            "span": [match.start(), match.end()],
             "exist": True,
             "ddm_lat": ddm_lat,
             "ddm_lon": ddm_lon,
@@ -2206,6 +2240,7 @@ def _detect_geocaching_standard_format(text: str) -> Optional[Dict[str, Optional
         logger.debug('_detect_geocaching_standard_format: Coordonnées formatées: %s %s', ddm_lat, ddm_lon)
         
         return {
+            "span": [match.start(), match.end()],
             "exist": True,
             "ddm_lat": ddm_lat,
             "ddm_lon": ddm_lon,

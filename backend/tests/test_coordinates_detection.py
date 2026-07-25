@@ -168,3 +168,36 @@ class TestTargetBehaviour:
         assert r["exist"] is True
         deg = int(r["ddm_lon"].split("°")[0].split()[-1])
         assert deg <= 180, f"longitude hors bornes: {r['ddm_lon']!r}"
+
+
+class TestMatchedSpan:
+    """matched_text = fragment réellement matché (span), pas le texte entier."""
+
+    def test_span_slices_fragment_in_prose(self):
+        text = "la reponse est N 48 33.787 E 006 38.803 bravo"
+        r = d(text)
+        assert r["exist"] is True
+        span = r["span"]
+        assert isinstance(span, list) and len(span) == 2
+        # Le span pointe sur le fragment, pas sur tout le texte
+        assert text[span[0]:span[1]] == r["matched_text"]
+        assert r["matched_text"] == "N 48 33.787 E 006 38.803"
+        assert r["matched_text"] != text
+
+    def test_span_decimal_pair(self):
+        text = "coords: 48.8566, 2.3522 fin"
+        r = d(text)
+        assert r["matched_text"] == "48.8566, 2.3522"
+        assert text[r["span"][0]:r["span"][1]] == r["matched_text"]
+
+    def test_span_bounds_within_text(self):
+        text = "avant 4912123 00612123 apres"
+        r = d(text, include_numeric_only=True)
+        s, e = r["span"]
+        assert 0 <= s <= e <= len(text)
+
+    def test_not_found_span_is_none(self):
+        r = d("rien du tout ici")
+        assert r["exist"] is False
+        assert r["span"] is None
+        assert r["matched_text"] is None
