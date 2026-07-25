@@ -1,0 +1,86 @@
+{
+  "name": "backslash_code",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Code Backslash (Tegenschrap) : chaque lettre A-Z est encodée en un groupe de trois symboles | / \\ (encodage en base 3).",
+  "author": "MysterAI",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": [
+    "AlphabetsDecryption"
+  ],
+  "kinds": [
+    "code"
+  ],
+  "brute_force": false,
+  "enable_scoring": true,
+  "accept_accents": false,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "text": {
+      "type": "string",
+      "label": "Texte à traiter",
+      "placeholder": "Lettres à encoder, ou suite de | / \\ à décoder...",
+      "required": true
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": [
+        "decode",
+        "encode"
+      ],
+      "default": "decode",
+      "required": true
+    },
+    "symbols": {
+      "type": "string",
+      "label": "Symboles personnalisés (ordre : valeur 0, 1, 2)",
+      "placeholder": "|/\\",
+      "default": "|/\\",
+      "description": "Trois caractères distincts remplaçant | (0), / (1) et \\ (2). Laisser vide pour les symboles standards."
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Texte transformé"
+    }
+  },
+  "text_handling": {
+    "fields": [
+      "text"
+    ],
+    "allowed_ranges": [
+      "0041-005A"
+    ],
+    "allowed_characters": " \t\r\n|/\\",
+    "unknown_char_policy": "keep",
+    "normalize": {
+      "remove_diacritics": true,
+      "case": "upper",
+      "map_characters": {}
+    }
+  },
+  "metasolver": {
+    "eligible": true,
+    "input_charset": "symbols",
+    "tags": ["substitution", "no_key"],
+    "priority": 45,
+    "family": "substitution",
+    "preferred_when": ["symbols_only"]
+  }
+}
