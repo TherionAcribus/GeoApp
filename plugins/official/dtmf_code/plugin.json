@@ -1,0 +1,102 @@
+{
+  "name": "dtmf_code",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Code DTMF (fréquences vocales du clavier téléphonique) : chaque touche (0-9, A-D, *, #) correspond à un couple de fréquences basse+haute.",
+  "author": "MysterAI",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": [
+    "AlphabetsDecryption"
+  ],
+  "kinds": [
+    "code"
+  ],
+  "brute_force": false,
+  "enable_scoring": true,
+  "accept_accents": false,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "text": {
+      "type": "string",
+      "label": "Texte à traiter",
+      "placeholder": "Touches à encoder (ex. 12*A), ou fréquences à décoder (ex. 697 1209 ...)",
+      "required": true
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": [
+        "decode",
+        "encode"
+      ],
+      "default": "decode",
+      "required": true
+    },
+    "pair_separator": {
+      "type": "string",
+      "label": "Séparateur intra-couple (encodage)",
+      "placeholder": "+",
+      "default": "+",
+      "description": "Chaîne insérée entre les deux fréquences d'une même touche (par défaut « + »). Sans effet au décodage."
+    },
+    "separator": {
+      "type": "string",
+      "label": "Séparateur de couples (encodage)",
+      "placeholder": "Espace",
+      "default": " ",
+      "description": "Chaîne insérée entre les couples de fréquences lors de l'encodage (par défaut une espace). Sans effet au décodage."
+    },
+    "tolerance": {
+      "type": "number",
+      "label": "Tolérance de fréquence (Hz)",
+      "placeholder": "20",
+      "default": 20,
+      "min": 0,
+      "max": 60,
+      "description": "Écart maximal, en hertz, toléré au décodage pour reconnaître une fréquence standard. Sans effet à l'encodage."
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Texte transformé"
+    }
+  },
+  "text_handling": {
+    "fields": [
+      "text"
+    ],
+    "allowed_ranges": [
+      "0020-007E"
+    ],
+    "unknown_char_policy": "keep",
+    "normalize": {
+      "remove_diacritics": true,
+      "case": "preserve",
+      "map_characters": {}
+    }
+  },
+  "metasolver": {
+    "eligible": true,
+    "input_charset": "digits",
+    "tags": ["substitution", "no_key", "digits", "frequencies"],
+    "priority": 35,
+    "family": "substitution",
+    "preferred_when": ["digits_only"],
+    "requires_key": false
+  }
+}
