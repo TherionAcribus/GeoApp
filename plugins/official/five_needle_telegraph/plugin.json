@@ -1,0 +1,75 @@
+{
+  "name": "five_needle_telegraph",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Télégraphe à cinq aiguilles de Cooke et Wheatstone (1837). Encode/décode via des symboles d'aiguilles \\ | / (20 lettres, C J Q V X Z omises).",
+  "author": "MysterAI",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": ["SymbolsDecryption", "AlphabetsDecryption"],
+  "kinds": ["code"],
+  "brute_force": false,
+  "enable_scoring": true,
+  "accept_accents": false,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "text": {
+      "type": "textarea",
+      "label": "Texte à traiter",
+      "placeholder": "Texte en clair, ou code d'aiguilles (ex: /|||\\ /|\\|| |||/\\ ...)",
+      "required": true
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": ["decode", "encode"],
+      "default": "decode",
+      "required": true
+    },
+    "auto_detect": {
+      "type": "boolean",
+      "label": "Auto-détecter les 3 symboles (décodage)",
+      "description": "Si le code utilise 3 caractères non standard, teste toutes les affectations aux positions d'aiguilles et laisse le scoring choisir la meilleure.",
+      "default": false
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Résultat"
+    }
+  },
+  "text_handling": {
+    "fields": ["text"],
+    "allowed_ranges": ["0041-005A"],
+    "allowed_characters": "\\|/ \t\r\n",
+    "unknown_char_policy": "keep",
+    "normalize": {
+      "remove_diacritics": true,
+      "case": "upper",
+      "map_characters": {}
+    }
+  },
+  "metasolver": {
+    "eligible": true,
+    "input_charset": "symbols",
+    "tags": ["substitution", "no_key", "historic"],
+    "priority": 40,
+    "family": "symbol_code",
+    "preferred_when": ["symbols_only", "grouped_input"],
+    "supports_grouped_input": true
+  }
+}
