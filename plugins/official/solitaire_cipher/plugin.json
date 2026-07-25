@@ -1,0 +1,91 @@
+{
+  "name": "solitaire_cipher",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Chiffre Solitaire (Pontifex) de Bruce Schneier : flux de cle genere par un jeu de 54 cartes, avec phrase secrete optionnelle. Encode/decode.",
+  "author": "MysterAI",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": [
+    "AlphabetsDecryption"
+  ],
+  "kinds": [
+    "code"
+  ],
+  "brute_force": false,
+  "enable_scoring": true,
+  "accept_accents": false,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": false,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": false,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "text": {
+      "type": "string",
+      "label": "Texte a traiter",
+      "placeholder": "Entrez le texte a chiffrer ou dechiffrer...",
+      "required": true
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": [
+        {"value": "decode", "label": "Dechiffrer"},
+        {"value": "encode", "label": "Chiffrer"}
+      ],
+      "default": "decode",
+      "required": true
+    },
+    "key": {
+      "type": "string",
+      "label": "Phrase secrete (cle)",
+      "placeholder": "Laisser vide pour un jeu non clef",
+      "default": "",
+      "description": "Phrase secrete servant a ordonner le jeu de cartes. Seules les lettres A-Z sont prises en compte. Vide = jeu ordonne 1..54."
+    },
+    "group": {
+      "type": "boolean",
+      "label": "Grouper la sortie par 5 lettres",
+      "default": false,
+      "description": "Presentation traditionnelle en blocs de 5 caracteres."
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Texte transforme"
+    }
+  },
+  "text_handling": {
+    "fields": [
+      "text"
+    ],
+    "allowed_ranges": [
+      "0041-005A"
+    ],
+    "allowed_characters": " \t\r\n.:;,_-",
+    "unknown_char_policy": "warn_keep",
+    "normalize": {
+      "remove_diacritics": true,
+      "case": "upper",
+      "map_characters": {}
+    }
+  },
+  "metasolver": {
+    "eligible": false,
+    "input_charset": "letters",
+    "tags": ["classic", "stream", "manual"],
+    "family": "stream",
+    "requires_key": true
+  }
+}
