@@ -24,6 +24,22 @@ DISTANCE_WARNING_MILES = 2.0
 DISTANCE_FAR_MILES = 2.5
 
 
+def _error_response(log_message: str, exception: Exception, status: int = 500):
+    """
+    Journalise le détail complet de l'exception côté serveur mais ne renvoie
+    qu'un message générique au client.
+
+    Renvoyer ``str(exception)`` brut peut faire fuiter des détails internes
+    (chemins, messages de driver, etc.), potentiellement exposés sur le réseau
+    local (le backend écoute sur ``0.0.0.0`` en développement). On conserve la
+    clé ``error`` attendue par le frontend de ce blueprint.
+    """
+    logger.exception("%s: %s", log_message, exception)
+    return jsonify({
+        "error": f"{log_message}. Consultez les logs backend pour plus de détails."
+    }), status
+
+
 DDM_COMPONENT_REGEX = re.compile(
     r'([NSWE])\s*(\d{1,3})\s*(?:[°º]|deg|degrees)?\s*([0-5]?\d(?:[.,]\d+)?)\s*[\'\'’′]?'
 )
@@ -357,9 +373,7 @@ def calculate_coordinates():
         return jsonify(result)
         
     except Exception as e:
-        logger.error(f"Erreur lors du calcul des coordonnées: {str(e)}")
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
+        return _error_response("Erreur lors du calcul des coordonnées", e)
 
 def calculate_distance_between_coords(origin_lat, origin_lon, dest_lat, dest_lon):
     """
@@ -696,6 +710,21 @@ def _valid_dms_parts(lat_deg, lat_min, lat_sec, lon_deg, lon_min, lon_sec) -> bo
     except (TypeError, ValueError):
         return False
 
+
+def _format_ddm_minutes(min_str: str) -> str:
+    """Normalise une chaîne de minutes en ``MM.ddd`` (format géocaching).
+
+    - complète la partie entière à 2 chiffres (zfill) ;
+    - complète/tronque la partie décimale à exactement 3 chiffres ;
+    - ``"5"`` -> ``"05.000"``, ``"32.46"`` -> ``"32.460"``, ``"32.4636"`` -> ``"32.463"``.
+
+    La virgule décimale éventuelle doit avoir été remplacée par un point en amont.
+    """
+    if '.' in min_str:
+        whole, dec = min_str.split('.', 1)
+        return f"{whole.zfill(2)}.{dec.ljust(3, '0')[:3]}"
+    return f"{min_str.zfill(2)}.000"
+
 # ------------------------------------------------------------------------------
 # Fonction utilitaire pour formater une chaîne de chiffres en DDM
 # ------------------------------------------------------------------------------
@@ -744,14 +773,17 @@ def _format_coordinate(coord_str: str, expected_deg_digits: int) -> str:
 def _detect_dmm_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]:
     logger.debug(f"_detect_dmm_coordinates: Analyse du texte: '{text[:100]}...' (tronqué)")
     dmm_regex = (
-        r'([NS])\s*(\d{1,2})\s*[°º]\s*(\d{1,2}(?:\.\d+)?)[\'"]?\s*'
-        r'([EW])\s*(\d{1,3})\s*[°º]\s*(\d{1,2}(?:\.\d+)?)[\'"]?'
+        r'([NS])\s*(\d{1,2})\s*[°º]\s*(\d{1,2}(?:[.,]\d+)?)[\'"]?\s*'
+        r'([EW])\s*(\d{1,3})\s*[°º]\s*(\d{1,2}(?:[.,]\d+)?)[\'"]?'
     )
     logger.debug(f"_detect_dmm_coordinates: Regex utilisée: {dmm_regex}")
     match = re.search(dmm_regex, text)
     if match:
         logger.debug(f"_detect_dmm_coordinates: Match trouvé! Groupes: {match.groups()}")
         lat_dir, lat_deg, lat_min, lon_dir, lon_deg, lon_min = match.groups()
+        # Uniformiser la virgule décimale éventuelle avant conversion/formatage
+        lat_min = lat_min.replace(',', '.')
+        lon_min = lon_min.replace(',', '.')
         # Normaliser minutes en float pour validation bornes
         try:
             lat_min_f = float(lat_min)
@@ -1155,11 +1187,20 @@ def _detect_dms_coordinates(text: str) -> Optional[Dict[str, Optional[str]]]:
     if match:
         logger.debug(f"_detect_dms_coordinates: Match trouvé! Groupes: {match.groups()}")
         lat_dir, lat_deg, lat_min, lat_sec, lon_dir, lon_deg, lon_min, lon_sec = match.groups()
-        
+
         # Convertir DMS en DDM
-        lat_min_decimal = float(lat_min) + float(lat_sec) / 60
-        lon_min_decimal = float(lon_min) + float(lon_sec) / 60
-        
+        try:
+            lat_min_decimal = int(lat_min) + float(lat_sec) / 60
+            lon_min_decimal = int(lon_min) + float(lon_sec) / 60
+            # Valider les bornes (degrés + minutes reconstituées), comme les autres
+            # détecteurs. Rejette p.ex. secondes >= 60 (=> minutes >= 60) ou degrés
+            # hors plage.
+            if not _is_valid_degrees_minutes(int(lat_deg), lat_min_decimal, int(lon_deg), lon_min_decimal):
+                logger.debug("_detect_dms_coordinates: Bornes invalides, rejet")
+                return None
+        except (TypeError, ValueError):
+            return None
+
         # Formatage des coordonnées
         ddm_lat = f"{lat_dir} {lat_deg}° {lat_min_decimal:.3f}'"
         ddm_lon = f"{lon_dir} {lon_deg}° {lon_min_decimal:.3f}'"
@@ -1503,8 +1544,12 @@ def _detect_dmm_dot_separator(text: str) -> Optional[Dict[str, Optional[str]]]:
 # Détection de paire décimale (ex: "48.8566, 2.3522" ou "-33.8688 151.2093")
 # ------------------------------------------------------------------------------
 
-def _decimal_to_ddm(value: float, deg_digits: int) -> tuple:
-    """Convertit une valeur décimale signée en (direction, chaîne DDM, minutes float)."""
+def _decimal_to_ddm(value: float) -> tuple:
+    """Convertit une valeur décimale (signée) en couple ``(degrés, minutes)``.
+
+    Travaille sur la valeur absolue : l'hémisphère (signe) est géré par l'appelant.
+    Ex : ``48.8566`` -> ``(48, 51.396)``.
+    """
     magnitude = abs(value)
     deg = int(magnitude)
     minutes = (magnitude - deg) * 60.0
@@ -1543,8 +1588,8 @@ def _detect_decimal_pair(text: str) -> Optional[Dict[str, Optional[str]]]:
 
     lat_dir = 'N' if lat >= 0 else 'S'
     lon_dir = 'E' if lon >= 0 else 'W'
-    lat_deg, lat_min = _decimal_to_ddm(lat, 2)
-    lon_deg, lon_min = _decimal_to_ddm(lon, 3)
+    lat_deg, lat_min = _decimal_to_ddm(lat)
+    lon_deg, lon_min = _decimal_to_ddm(lon)
 
     ddm_lat = f"{lat_dir} {lat_deg:02d}° {lat_min:06.3f}'"
     ddm_lon = f"{lon_dir} {lon_deg:03d}° {lon_min:06.3f}'"
@@ -1592,14 +1637,8 @@ def _detect_dmm_suffix_direction(text: str) -> Optional[Dict[str, Optional[str]]
     except (TypeError, ValueError):
         return None
 
-    def _fmt(min_str: str) -> str:
-        if '.' in min_str:
-            whole, dec = min_str.split('.')
-            return f"{whole.zfill(2)}.{dec.ljust(3, '0')[:3]}"
-        return f"{min_str.zfill(2)}.000"
-
-    ddm_lat = f"{lat_dir} {lat_deg.zfill(2)}° {_fmt(lat_min_raw)}'"
-    ddm_lon = f"{lon_dir} {lon_deg.zfill(3)}° {_fmt(lon_min_raw)}'"
+    ddm_lat = f"{lat_dir} {lat_deg.zfill(2)}° {_format_ddm_minutes(lat_min_raw)}'"
+    ddm_lon = f"{lon_dir} {lon_deg.zfill(3)}° {_format_ddm_minutes(lon_min_raw)}'"
     return {
         "exist": True,
         "ddm_lat": ddm_lat,
@@ -1733,34 +1772,35 @@ def detect_gps_coordinates(text: str, include_numeric_only: bool = False, origin
         _detect_variant_coordinates:         0.70,
     }
 
-    detection_functions = list(confidence_map.keys())
-
-    # Collecte de TOUS les candidats, puis sélection par meilleure confiance (et non
-    # « premier détecteur qui matche ») : un format laxiste ne peut plus masquer un
-    # format fiable présent dans le texte. La validation des bornes (désormais dans
-    # tous les détecteurs) élimine en amont les faux positifs.
-    candidates = []  # (confidence, order, source, result)
+    # Détecteurs ordonnés une fois par confiance décroissante (puis ordre de
+    # déclaration en cas d'égalité). On peut alors s'ARRÊTER au premier détecteur
+    # qui matche : c'est nécessairement le candidat de plus haute confiance — donc
+    # exactement le résultat de l'ancienne collecte-puis-max, mais sans exécuter les
+    # 18 regex à chaque appel (chemin chaud : le scorer appelle cette fonction pour
+    # chaque candidat bruteforce). Un format laxiste ne peut donc toujours pas
+    # masquer un format fiable présent dans le texte.
+    detectors = [
+        (conf, order, func, func.__name__)
+        for order, (func, conf) in enumerate(confidence_map.items())
+    ]
 
     if include_numeric_only:
         logger.debug("detect_gps_coordinates: Détection de coordonnées numériques pures activée")
-        num_result = _detect_numeric_only_coordinates(text, origin_coords)
-        if num_result and num_result.get("exist"):
-            # -1 : à confiance égale, prioritaire sur les détecteurs à lettres cardinales
-            candidates.append((0.90, -1, _detect_numeric_only_coordinates.__name__, num_result))
+        # Confiance 0.90 mais prioritaire (order -1) sur les détecteurs à lettres
+        # cardinales de même confiance.
+        detectors.append((
+            0.90, -1,
+            lambda t: _detect_numeric_only_coordinates(t, origin_coords),
+            _detect_numeric_only_coordinates.__name__,
+        ))
 
-    for order, detect_func in enumerate(detection_functions):
+    detectors.sort(key=lambda d: (-d[0], d[1]))
+
+    for confidence, _order, detect_func, source in detectors:
         result = detect_func(text)
         if result and result.get("exist"):
-            candidates.append(
-                (confidence_map.get(detect_func, 0.75), order, detect_func.__name__, result)
-            )
-
-    if candidates:
-        # Meilleure confiance ; à confiance égale, l'ordre de priorité (index) tranche.
-        candidates.sort(key=lambda c: (-c[0], c[1]))
-        confidence, _order, source, result = candidates[0]
-        logger.debug("detect_gps_coordinates: %d candidat(s), retenu: %s (%.2f)", len(candidates), source, confidence)
-        return _finalize_detection(result, source, confidence, text)
+            logger.debug("detect_gps_coordinates: retenu %s (%.2f)", source, confidence)
+            return _finalize_detection(result, source, confidence, text)
 
     # NB : la détection en toutes lettres (written) n'est plus faite ici. Elle est
     # entièrement pilotée par l'endpoint via WrittenCoordinatesService, qui respecte
@@ -1858,11 +1898,7 @@ def detect_coordinates_in_text():
                 raise RuntimeError("PluginManager non initialisé")
             service = WrittenCoordinatesService(plugin_manager)
 
-            langs = written_languages
-            if isinstance(langs, str):
-                langs = [p.strip() for p in langs.split(',') if p.strip()]
-            if not isinstance(langs, list) or not langs:
-                langs = ['fr']
+            langs = _normalize_written_languages(written_languages)
 
             try:
                 max_cand = int(written_max_candidates)
@@ -1871,7 +1907,7 @@ def detect_coordinates_in_text():
 
             wr = service.find(
                 text,
-                languages=[str(x).strip().lower() for x in langs if str(x).strip()],
+                languages=langs,
                 max_candidates=max_cand,
                 include_deconcat=bool(written_include_deconcat),
                 origin_coords=origin_coords,
@@ -1893,8 +1929,7 @@ def detect_coordinates_in_text():
             return jsonify(enriched)
         
     except Exception as e:
-        logger.exception("Erreur lors de la detection des coordonnees: %s", e)
-        return jsonify({"error": str(e)}), 500
+        return _error_response("Erreur lors de la detection des coordonnees", e)
 
 
 # Limites de sécurité du batch (évite les payloads abusifs).
@@ -2015,8 +2050,7 @@ def detect_coordinates_batch():
         })
 
     except Exception as e:
-        logger.exception("Erreur detect_coordinates_batch: %s", e)
-        return jsonify({"error": str(e)}), 500
+        return _error_response("Erreur detect_coordinates_batch", e)
 
 
 def _detect_dmm_no_degree_symbol(text: str) -> Optional[Dict[str, Optional[str]]]:
@@ -2047,16 +2081,8 @@ def _detect_dmm_no_degree_symbol(text: str) -> Optional[Dict[str, Optional[str]]
         lon_min = lon_min.replace(',', '.')
 
         # S'assurer que les valeurs minutes ont bien 3 décimales (format géocaching)
-        def _format_minutes(min_val_str: str) -> str:
-            if '.' in min_val_str:
-                whole, dec = min_val_str.split('.')
-                return f"{whole.zfill(2)}.{dec.ljust(3, '0')[:3]}"
-            else:
-                # Pas de décimales – on complète
-                return f"{min_val_str.zfill(2)}.000"
-
-        lat_min_fmt = _format_minutes(lat_min)
-        lon_min_fmt = _format_minutes(lon_min)
+        lat_min_fmt = _format_ddm_minutes(lat_min)
+        lon_min_fmt = _format_ddm_minutes(lon_min)
 
         # Validation des bornes
         try:
@@ -2161,14 +2187,8 @@ def _detect_geocaching_standard_format(text: str) -> Optional[Dict[str, Optional
         lat_dir, lat_deg, lat_min, lon_dir, lon_deg, lon_min = match.groups()
         
         # Formatage des coordonnées (s'assurer que les minutes ont 3 décimales)
-        def format_minutes(min_str):
-            if '.' in min_str:
-                whole, dec = min_str.split('.')
-                return f"{whole.zfill(2)}.{dec.ljust(3, '0')[:3]}"
-            return f"{min_str.zfill(2)}.000"
-        
-        lat_min_fmt = format_minutes(lat_min)
-        lon_min_fmt = format_minutes(lon_min)
+        lat_min_fmt = _format_ddm_minutes(lat_min)
+        lon_min_fmt = _format_ddm_minutes(lon_min)
 
         # Validation des bornes
         try:
@@ -2201,5 +2221,4 @@ def handle_coordinates_error(error):
     """Capture toutes les erreurs non gérées dans ce blueprint."""
     if isinstance(error, HTTPException):
         return error
-    logger.exception("Erreur non geree dans le blueprint coordinates: %s", error)
-    return jsonify({"error": str(error), "type": type(error).__name__}), 500
+    return _error_response("Erreur non geree dans le blueprint coordinates", error)
