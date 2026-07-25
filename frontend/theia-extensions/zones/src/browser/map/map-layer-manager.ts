@@ -4,7 +4,7 @@ import Feature from 'ol/Feature';
 import Map from 'ol/Map';
 import { Point, Circle, LineString, Polygon } from 'ol/geom';
 import Geometry from 'ol/geom/Geometry';
-import { Style, Fill, Stroke, Circle as CircleStyle } from 'ol/style';
+import { Style, Fill, Stroke, Circle as CircleStyle, Text } from 'ol/style';
 import { createClusterSource } from './map-clustering';
 import { createGeocacheStyleFromSprite, createClusterStyleFromSprite, createWaypointStyleFromSprite, createDetectedCoordinateStyle, FoundGeocacheDisplayMode, GeocacheFeatureProperties, GeocacheStyleOptions } from './map-geocache-style-sprite';
 import { lonLatToMapCoordinate } from './map-utils';
@@ -69,6 +69,8 @@ export class MapLayerManager {
     private exclusionZoneLayer: any;
     private formulaSolverPreviewVectorSource: VectorSource<Feature<Geometry>>;
     private formulaSolverPreviewLayer: any;
+    private searchResultSource: VectorSource<Feature<Point>>;
+    private searchResultLayer: any;
     private currentTileProviderId: string;
     private labelMode: MapLabelMode = 'none';
     private geocacheIconScale = 0.75;
@@ -180,6 +182,18 @@ export class MapLayerManager {
             zIndex: 25
         });
         this.map.addLayer(this.formulaSolverPreviewLayer);
+
+        // Couche pour le résultat de recherche d'adresse (marqueur temporaire)
+        this.searchResultSource = new VectorSource<Feature<Point>>();
+        this.searchResultLayer = new VectorLayer({
+            source: this.searchResultSource,
+            style: this.createSearchResultStyle.bind(this),
+            properties: {
+                name: 'search-result'
+            },
+            zIndex: 40 // Au-dessus de tout le reste
+        });
+        this.map.addLayer(this.searchResultLayer);
     }
 
     /**
@@ -830,6 +844,59 @@ export class MapLayerManager {
     }
 
     /**
+     * Affiche un marqueur temporaire pour un résultat de recherche d'adresse.
+     * Remplace le marqueur précédent.
+     */
+    showSearchResult(lon: number, lat: number, label?: string): void {
+        this.searchResultSource.clear();
+
+        if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
+            return;
+        }
+
+        const feature = new Feature({
+            geometry: new Point(lonLatToMapCoordinate(lon, lat))
+        });
+        feature.setProperties({
+            isSearchResult: true,
+            searchLabel: label || ''
+        });
+        this.searchResultSource.addFeature(feature);
+    }
+
+    /**
+     * Efface le marqueur de résultat de recherche.
+     */
+    clearSearchResult(): void {
+        this.searchResultSource.clear();
+    }
+
+    /**
+     * Style du marqueur de résultat de recherche (épingle mise en évidence + libellé).
+     */
+    private createSearchResultStyle(feature: Feature<Geometry>): Style {
+        const label = String(feature.get('searchLabel') || '');
+        return new Style({
+            image: new CircleStyle({
+                radius: 8,
+                fill: new Fill({ color: 'rgba(220, 20, 60, 0.85)' }),
+                stroke: new Stroke({ color: '#ffffff', width: 2 })
+            }),
+            text: label
+                ? new Text({
+                    text: label.length > 60 ? `${label.slice(0, 57)}…` : label,
+                    offsetY: -16,
+                    font: '12px sans-serif',
+                    fill: new Fill({ color: '#ffffff' }),
+                    backgroundFill: new Fill({ color: 'rgba(0, 0, 0, 0.7)' }),
+                    padding: [3, 5, 3, 5],
+                    overflow: true
+                })
+                : undefined
+        });
+    }
+
+    /**
      * Récupère la source vectorielle des géocaches (pour interactions avancées)
      */
     getGeocacheVectorSource(): VectorSource<Feature<Point>> {
@@ -1103,6 +1170,7 @@ export class MapLayerManager {
         this.clearDetectedCoordinate();
         this.clearNearbyGeocaches();
         this.clearExclusionZones();
+        this.clearSearchResult();
     }
 }
 

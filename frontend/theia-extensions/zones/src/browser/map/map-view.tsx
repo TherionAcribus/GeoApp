@@ -16,6 +16,13 @@ import { fromLonLat } from 'ol/proj';
 import { GeocacheFeatureProperties } from './map-geocache-style-sprite';
 import { FoundGeocacheDisplayMode } from './map-geocache-style-sprite';
 import { ContextMenu, ContextMenuItem } from '../context-menu';
+import {
+    geocodeAddress,
+    GeocodingConfig,
+    GeocodingProviderId,
+    GeocodingResult,
+    GEOCODING_PROVIDER_LABELS
+} from './map-geocoding';
 
 export interface MapViewPreferences {
     defaultProvider: string;
@@ -26,7 +33,12 @@ export interface MapViewPreferences {
     showNearbyGeocaches: boolean;
     clusteringMode: ClusteringMode;
     clusteringThreshold: number;
+    geocodingProvider: GeocodingProviderId;
+    geoapifyApiKey: string;
+    geocodingAutoFallback: boolean;
 }
+
+export type MapNotifyKind = 'info' | 'warn' | 'error';
 
 export interface MapViewProps {
     mapId?: string;
@@ -42,6 +54,7 @@ export interface MapViewProps {
     onOpenGeocacheDetails?: (geocacheId: number, geocacheName: string) => void;  // ✅ Callback pour ouvrir les détails d'une géocache
     preferences?: MapViewPreferences;
     onPreferenceChange?: (key: string, value: unknown) => void;
+    onNotify?: (kind: MapNotifyKind, message: string) => void;
 }
 
 /**
@@ -60,7 +73,8 @@ export const MapView: React.FC<MapViewProps> = ({
     onSetDetectedAsCorrectedCoords,
     onOpenGeocacheDetails,
     preferences,
-    onPreferenceChange
+    onPreferenceChange,
+    onNotify
 }) => {
     const mapRef = React.useRef<HTMLDivElement>(null);
     const popupRef = React.useRef<HTMLDivElement>(null);
@@ -84,6 +98,137 @@ export const MapView: React.FC<MapViewProps> = ({
     const [selectedGeocacheId, setSelectedGeocacheId] = React.useState<number | null>(null);
     const [nearbyGeocaches, setNearbyGeocaches] = React.useState<MapGeocache[]>([]);
     const [nearbyLoading, setNearbyLoading] = React.useState(false);
+
+    // Recherche textuelle d'adresse / lieu
+    const [searchQuery, setSearchQuery] = React.useState('');
+    const [searchResults, setSearchResults] = React.useState<GeocodingResult[]>([]);
+    const [searchLoading, setSearchLoading] = React.useState(false);
+    const [showSearchResults, setShowSearchResults] = React.useState(false);
+    const searchBoxRef = React.useRef<HTMLDivElement>(null);
+    const searchRequestIdRef = React.useRef(0);
+
+    const notify = React.useCallback((kind: MapNotifyKind, message: string): void => {
+        if (onNotify) {
+            onNotify(kind, message);
+        } else {
+            // Repli minimal si aucun canal de notification n'est fourni.
+            console[kind === 'error' ? 'error' : 'warn'](`[MapView] ${message}`);
+        }
+    }, [onNotify]);
+
+    const geocodingConfig = React.useMemo<GeocodingConfig>(() => ({
+        provider: preferences?.geocodingProvider ?? 'photon',
+        geoapifyApiKey: preferences?.geoapifyApiKey ?? '',
+        autoFallback: preferences?.geocodingAutoFallback ?? true,
+        lang: typeof navigator !== 'undefined' ? navigator.language : 'fr'
+    }), [preferences?.geocodingProvider, preferences?.geoapifyApiKey, preferences?.geocodingAutoFallback]);
+
+    const goToSearchResult = React.useCallback((result: GeocodingResult): void => {
+        const view = mapInstanceRef.current?.getView();
+        if (!view) {
+            return;
+        }
+
+        layerManagerRef.current?.showSearchResult(result.longitude, result.latitude, result.label);
+
+        if (result.bbox) {
+            const [minLon, minLat, maxLon, maxLat] = result.bbox;
+            const extent = calculateExtent([
+                lonLatToMapCoordinate(minLon, minLat),
+                lonLatToMapCoordinate(maxLon, maxLat)
+            ]);
+            if (extent) {
+                view.fit(extent, { padding: [80, 80, 80, 80], maxZoom: 17, duration: 400 });
+                return;
+            }
+        }
+
+        view.animate({
+            center: lonLatToMapCoordinate(result.longitude, result.latitude),
+            zoom: Math.max(view.getZoom() ?? 12, 15),
+            duration: 400
+        });
+    }, []);
+
+    const handleSearchSubmit = React.useCallback(async (event?: React.FormEvent): Promise<void> => {
+        event?.preventDefault();
+
+        const query = searchQuery.trim();
+        if (!query) {
+            return;
+        }
+
+        const requestId = ++searchRequestIdRef.current;
+        setSearchLoading(true);
+        setShowSearchResults(false);
+
+        try {
+            const outcome = await geocodeAddress(query, geocodingConfig);
+            if (requestId !== searchRequestIdRef.current) {
+                return; // Une recherche plus récente a pris le relais.
+            }
+
+            if (outcome.fellBack) {
+                notify('warn', `Recherche via ${GEOCODING_PROVIDER_LABELS[outcome.usedProvider]} (le fournisseur principal a échoué${outcome.primaryError ? ` : ${outcome.primaryError}` : ''}).`);
+            }
+
+            if (outcome.results.length === 0) {
+                setSearchResults([]);
+                setShowSearchResults(false);
+                notify('info', `Aucun résultat pour « ${query} ».`);
+                return;
+            }
+
+            setSearchResults(outcome.results);
+
+            if (outcome.results.length === 1) {
+                setShowSearchResults(false);
+                goToSearchResult(outcome.results[0]);
+            } else {
+                setShowSearchResults(true);
+            }
+        } catch (error) {
+            if (requestId !== searchRequestIdRef.current) {
+                return;
+            }
+            const message = error instanceof Error ? error.message : String(error);
+            setSearchResults([]);
+            setShowSearchResults(false);
+            notify('error', `Échec de la recherche d'adresse : ${message}`);
+        } finally {
+            if (requestId === searchRequestIdRef.current) {
+                setSearchLoading(false);
+            }
+        }
+    }, [searchQuery, geocodingConfig, notify, goToSearchResult]);
+
+    const handleSelectSearchResult = React.useCallback((result: GeocodingResult): void => {
+        setShowSearchResults(false);
+        goToSearchResult(result);
+    }, [goToSearchResult]);
+
+    const handleClearSearch = React.useCallback((): void => {
+        searchRequestIdRef.current++;
+        setSearchQuery('');
+        setSearchResults([]);
+        setShowSearchResults(false);
+        setSearchLoading(false);
+        layerManagerRef.current?.clearSearchResult();
+    }, []);
+
+    // Ferme la liste de résultats lors d'un clic en dehors de la zone de recherche.
+    React.useEffect(() => {
+        if (!showSearchResults) {
+            return;
+        }
+        const handleClickOutside = (event: MouseEvent) => {
+            if (searchBoxRef.current && !searchBoxRef.current.contains(event.target as Node)) {
+                setShowSearchResults(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [showSearchResults]);
 
     const openGeocacheDetails = React.useCallback((geocacheId: number, geocacheName?: string, gcCode?: string): void => {
         if (!onOpenGeocacheDetails) {
@@ -1088,6 +1233,68 @@ export const MapView: React.FC<MapViewProps> = ({
         <div className="geoapp-map-view">
             {/* Barre d'outils */}
             <div className="geoapp-map-toolbar">
+                {/* Recherche textuelle d'adresse / lieu */}
+                <div className="geoapp-map-search" ref={searchBoxRef}>
+                    <form className="geoapp-map-search__form" onSubmit={handleSearchSubmit}>
+                        <input
+                            type="text"
+                            className="geoapp-map-search__input"
+                            value={searchQuery}
+                            placeholder="Rechercher une adresse, un lieu…"
+                            onChange={e => setSearchQuery(e.target.value)}
+                            onFocus={() => {
+                                if (searchResults.length > 1) {
+                                    setShowSearchResults(true);
+                                }
+                            }}
+                            aria-label="Rechercher une adresse ou un lieu"
+                        />
+                        {searchQuery && (
+                            <button
+                                type="button"
+                                className="geoapp-map-search__clear"
+                                onClick={handleClearSearch}
+                                title="Effacer la recherche"
+                                aria-label="Effacer la recherche"
+                            >
+                                ×
+                            </button>
+                        )}
+                        <button
+                            type="submit"
+                            className="geoapp-map-search__button"
+                            disabled={searchLoading || !searchQuery.trim()}
+                            title="Rechercher"
+                        >
+                            {searchLoading ? (
+                                <span
+                                    className="geoapp-map-toolbar__spinner"
+                                    role="status"
+                                    aria-label="Recherche en cours"
+                                />
+                            ) : (
+                                '🔍'
+                            )}
+                        </button>
+                    </form>
+
+                    {showSearchResults && searchResults.length > 0 && (
+                        <ul className="geoapp-map-search__results">
+                            {searchResults.map((result, index) => (
+                                <li key={`${result.provider}-${index}-${result.latitude}-${result.longitude}`}>
+                                    <button
+                                        type="button"
+                                        className="geoapp-map-search__result"
+                                        onClick={() => handleSelectSearchResult(result)}
+                                    >
+                                        {result.label}
+                                    </button>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </div>
+
                 <label>
                     Fond de cartes:
                     <select value={currentProvider} onChange={handleProviderChange}>

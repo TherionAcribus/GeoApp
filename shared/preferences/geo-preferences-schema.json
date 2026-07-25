@@ -1839,6 +1839,98 @@
         "backend"
       ]
     },
+    "geoApp.map.geocoding.provider": {
+      "type": "string",
+      "enum": [
+        "photon",
+        "geoapify"
+      ],
+      "default": "photon",
+      "title": "Fournisseur de recherche d'adresse",
+      "description": "Service utilisé pour la recherche textuelle d'adresses et de lieux sur la carte. Photon est gratuit et ne nécessite aucune clé. Geoapify est plus performant mais requiert une clé API (voir ci-dessous). Si « Geoapify » est choisi sans clé valide, GeoApp bascule automatiquement sur Photon.",
+      "x-ui": {
+        "section": "Recherche d'adresse",
+        "label": "Fournisseur de recherche",
+        "order": 90,
+        "enumLabels": {
+          "photon": "Photon (gratuit, sans clé)",
+          "geoapify": "Geoapify (clé API requise)"
+        },
+        "keywords": [
+          "recherche",
+          "adresse",
+          "geocodage",
+          "geocoding",
+          "photon",
+          "geoapify",
+          "lieu"
+        ]
+      },
+      "x-category": "map",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "map",
+        "geocoding"
+      ]
+    },
+    "geoApp.map.geocoding.geoapifyApiKey": {
+      "type": "string",
+      "default": "",
+      "title": "Geoapify - Clé API",
+      "description": "Clé API Geoapify utilisée pour la recherche d'adresses. Créez une clé gratuite sur geoapify.com (offre gratuite : 3000 requêtes/jour). Laissez vide pour utiliser uniquement Photon. La clé est stockée dans les préférences GeoApp; garde cette installation locale et privée.",
+      "x-ui": {
+        "section": "Recherche d'adresse",
+        "label": "Clé API Geoapify",
+        "order": 91,
+        "keywords": [
+          "geoapify",
+          "cle",
+          "api",
+          "secret",
+          "token",
+          "recherche",
+          "adresse"
+        ]
+      },
+      "x-category": "map",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "map",
+        "geocoding",
+        "secret"
+      ],
+      "x-sensitive": true
+    },
+    "geoApp.map.geocoding.autoFallback": {
+      "type": "boolean",
+      "default": true,
+      "title": "Bascule automatique de fournisseur",
+      "description": "Si la recherche échoue avec le fournisseur choisi, essaie automatiquement l'autre fournisseur disponible (Geoapify n'est utilisé comme secours que si une clé API valide est renseignée).",
+      "x-ui": {
+        "section": "Recherche d'adresse",
+        "label": "Basculer sur l'autre fournisseur en cas d'échec",
+        "order": 92,
+        "keywords": [
+          "fallback",
+          "secours",
+          "bascule",
+          "recherche",
+          "adresse"
+        ]
+      },
+      "x-category": "map",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "map",
+        "geocoding"
+      ]
+    },
     "geoApp.updates.autoCheck": {
       "type": "boolean",
       "default": true,

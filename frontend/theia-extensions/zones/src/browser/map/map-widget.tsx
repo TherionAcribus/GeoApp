@@ -56,7 +56,10 @@ export class MapWidget extends ReactWidget {
         'geoApp.map.showExclusionZones',
         'geoApp.map.showNearbyGeocaches',
         'geoApp.map.clusteringMode',
-        'geoApp.map.clusteringThreshold'
+        'geoApp.map.clusteringThreshold',
+        'geoApp.map.geocoding.provider',
+        'geoApp.map.geocoding.geoapifyApiKey',
+        'geoApp.map.geocoding.autoFallback'
     ];
 
     constructor(
@@ -230,9 +233,23 @@ export class MapWidget extends ReactWidget {
                 onOpenGeocacheDetails={this.handleOpenGeocacheDetails}
                 preferences={this.mapPreferences}
                 onPreferenceChange={this.handlePreferenceUpdate}
+                onNotify={this.handleNotify}
             />
         );
     }
+
+    private handleNotify = (kind: 'info' | 'warn' | 'error', message: string): void => {
+        switch (kind) {
+            case 'error':
+                this.messageService.error(message);
+                break;
+            case 'warn':
+                this.messageService.warn(message);
+                break;
+            default:
+                this.messageService.info(message);
+        }
+    };
 
     private sanitizeCoordinates(gcCoords: string): string {
         return gcCoords.replace(/'/g, '');
@@ -413,7 +430,10 @@ export class MapWidget extends ReactWidget {
             showExclusionZones: this.preferenceService.get('geoApp.map.showExclusionZones', true),
             showNearbyGeocaches: this.preferenceService.get('geoApp.map.showNearbyGeocaches', false),
             clusteringMode: this.preferenceService.get('geoApp.map.clusteringMode', 'auto'),
-            clusteringThreshold: this.preferenceService.get('geoApp.map.clusteringThreshold', 200)
+            clusteringThreshold: this.preferenceService.get('geoApp.map.clusteringThreshold', 200),
+            geocodingProvider: this.preferenceService.get('geoApp.map.geocoding.provider', 'photon'),
+            geoapifyApiKey: this.preferenceService.get('geoApp.map.geocoding.geoapifyApiKey', ''),
+            geocodingAutoFallback: this.preferenceService.get('geoApp.map.geocoding.autoFallback', true)
         };
     }
 

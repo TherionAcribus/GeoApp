@@ -67,6 +67,105 @@
     cursor: not-allowed;
 }
 
+/* Recherche textuelle d'adresse / lieu */
+.geoapp-map-search {
+    position: relative;
+    flex: 1 1 220px;
+    min-width: 180px;
+    max-width: 360px;
+}
+
+.geoapp-map-search__form {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.geoapp-map-search__input {
+    flex: 1;
+    min-width: 0;
+    padding: 4px 8px;
+    font-size: 12px;
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: 1px solid var(--theia-input-border);
+    border-radius: 2px;
+}
+
+.geoapp-map-search__input::placeholder {
+    color: var(--theia-input-placeholderForeground);
+}
+
+.geoapp-map-search__button,
+.geoapp-map-search__clear {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 26px;
+    height: 26px;
+    padding: 0 6px;
+    font-size: 13px;
+    background: var(--theia-button-secondaryBackground, var(--theia-input-background));
+    color: var(--theia-button-secondaryForeground, var(--theia-input-foreground));
+    border: 1px solid var(--theia-input-border);
+    border-radius: 2px;
+    cursor: pointer;
+}
+
+.geoapp-map-search__button:hover:not(:disabled),
+.geoapp-map-search__clear:hover {
+    background: var(--theia-button-secondaryHoverBackground, var(--theia-button-hoverBackground));
+}
+
+.geoapp-map-search__button:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.geoapp-map-search__clear {
+    border: none;
+    background: transparent;
+    color: var(--theia-descriptionForeground);
+    font-size: 16px;
+    line-height: 1;
+}
+
+.geoapp-map-search__results {
+    position: absolute;
+    top: calc(100% + 2px);
+    left: 0;
+    right: 0;
+    z-index: 1200;
+    margin: 0;
+    padding: 4px 0;
+    list-style: none;
+    background: var(--theia-editor-background);
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    box-shadow: 0 3px 14px rgba(0, 0, 0, 0.4);
+    max-height: 260px;
+    overflow-y: auto;
+}
+
+.geoapp-map-search__result {
+    display: block;
+    width: 100%;
+    padding: 6px 10px;
+    text-align: left;
+    font-size: 12px;
+    background: transparent;
+    color: var(--theia-foreground);
+    border: none;
+    cursor: pointer;
+    white-space: normal;
+}
+
+.geoapp-map-search__result:hover,
+.geoapp-map-search__result:focus {
+    background: var(--theia-list-hoverBackground);
+    outline: none;
+}
+
 /* Petit indicateur de chargement (ex. géocaches voisines) */
 .geoapp-map-toolbar__spinner {
     display: inline-block;
