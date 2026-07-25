@@ -62,9 +62,10 @@ export class DocNavigationTree extends React.Component<DocNavigationTreeProps, D
                             onClick={() => this.toggleChapter(chapter.id)}
                             aria-expanded={this.state.expandedChapters.has(chapter.id)}
                         >
-                            <span className={`doc-nav-arrow ${this.state.expandedChapters.has(chapter.id) ? 'expanded' : ''}`}>
-                                ▶
-                            </span>
+                            <span
+                                className={`codicon codicon-chevron-right doc-nav-arrow ${this.state.expandedChapters.has(chapter.id) ? 'expanded' : ''}`}
+                                aria-hidden="true"
+                            />
                             <span className="doc-nav-chapter-title">{chapter.title}</span>
                         </button>
 

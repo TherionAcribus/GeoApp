@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
-import { ReactWidget, WidgetManager } from '@theia/core/lib/browser';
+import { ReactWidget, WidgetManager, StorageService } from '@theia/core/lib/browser';
 import { CommandService } from '@theia/core/lib/common';
 import { DocContentService } from './doc-content-service';
 import { DocSearchService } from './doc-search-service';
@@ -18,6 +18,7 @@ interface DocWidgetState {
     activePage: DocPageMeta | null;
     searchQuery: string;
     searchResults: DocSearchResult[];
+    activeResultIndex: number;
     highlightAnchor: string | null;
     isSearching: boolean;
     initialized: boolean;
@@ -41,17 +42,24 @@ export class DocWidget extends ReactWidget {
     @inject(WidgetManager)
     protected readonly widgetManager: WidgetManager;
 
+    @inject(StorageService)
+    protected readonly storageService: StorageService;
+
+    private static readonly LAST_PAGE_STORAGE_KEY = 'geoapp.documentation.lastPageId';
+
     private widgetState: DocWidgetState = {
         chapters: [],
         activePage: null,
         searchQuery: '',
         searchResults: [],
+        activeResultIndex: 0,
         highlightAnchor: null,
         isSearching: false,
         initialized: false,
     };
 
     private searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+    private resultsRef = React.createRef<HTMLDivElement>();
 
     @postConstruct()
     protected init(): void {
@@ -71,7 +79,12 @@ export class DocWidget extends ReactWidget {
         const chapters = this.contentService.getChapters();
         let activePage: DocPageMeta | null = null;
 
-        if (chapters.length > 0 && chapters[0].pages.length > 0) {
+        // Restaure la dernière page consultée si elle existe toujours.
+        const lastPageId = await this.storageService.getData<string>(DocWidget.LAST_PAGE_STORAGE_KEY);
+        if (lastPageId) {
+            activePage = this.contentService.getPage(lastPageId) || null;
+        }
+        if (!activePage && chapters.length > 0 && chapters[0].pages.length > 0) {
             activePage = chapters[0].pages[0];
         }
 
@@ -84,6 +97,10 @@ export class DocWidget extends ReactWidget {
         this.update();
     }
 
+    private saveLastPage(pageId: string): void {
+        void this.storageService.setData(DocWidget.LAST_PAGE_STORAGE_KEY, pageId);
+    }
+
     private handleSelectPage(pageId: string): void {
         const page = this.contentService.getPage(pageId);
         this.widgetState = {
@@ -93,6 +110,9 @@ export class DocWidget extends ReactWidget {
             searchResults: [],
             highlightAnchor: null,
         };
+        if (page) {
+            this.saveLastPage(page.id);
+        }
         this.update();
     }
 
@@ -102,7 +122,7 @@ export class DocWidget extends ReactWidget {
         }
 
         if (!query.trim()) {
-            this.widgetState = { ...this.widgetState, searchQuery: query, searchResults: [], isSearching: false };
+            this.widgetState = { ...this.widgetState, searchQuery: query, searchResults: [], activeResultIndex: 0, isSearching: false };
             this.update();
             return;
         }
@@ -116,15 +136,37 @@ export class DocWidget extends ReactWidget {
             // On affiche seulement les résultats : la page active ne change qu'au
             // clic sur un résultat ou sur Entrée, pour ne pas faire sauter la page
             // sous les yeux de l'utilisateur pendant qu'il tape.
-            this.widgetState = { ...this.widgetState, searchResults: results, isSearching: false };
+            this.widgetState = { ...this.widgetState, searchResults: results, activeResultIndex: 0, isSearching: false };
             this.update();
         }, 280);
     }
 
+    /**
+     * Déplace la sélection dans la liste de résultats (flèches haut/bas) et fait
+     * défiler l'élément actif dans la vue.
+     */
+    private moveResultSelection(delta: number): void {
+        const count = this.widgetState.searchResults.length;
+        if (count === 0) {
+            return;
+        }
+        const next = Math.min(count - 1, Math.max(0, this.widgetState.activeResultIndex + delta));
+        if (next === this.widgetState.activeResultIndex) {
+            return;
+        }
+        this.widgetState = { ...this.widgetState, activeResultIndex: next };
+        this.update();
+        requestAnimationFrame(() => {
+            const el = this.resultsRef.current?.querySelector(`[data-result-idx="${next}"]`);
+            el?.scrollIntoView({ block: 'nearest' });
+        });
+    }
+
     private handleSearchSubmit(): void {
         const results = this.widgetState.searchResults;
+        const idx = this.widgetState.activeResultIndex;
         if (results.length > 0) {
-            this.handleSearchResultClick(results[0]);
+            this.handleSearchResultClick(results[Math.min(idx, results.length - 1)] || results[0]);
         }
     }
 
@@ -137,6 +179,9 @@ export class DocWidget extends ReactWidget {
             searchQuery: '',
             searchResults: [],
         };
+        if (page) {
+            this.saveLastPage(page.id);
+        }
         this.update();
     }
 
@@ -202,6 +247,9 @@ export class DocWidget extends ReactWidget {
             searchQuery: '',
             searchResults: [],
         };
+        if (page) {
+            this.saveLastPage(page.id);
+        }
         this.update();
     }
 
@@ -250,8 +298,38 @@ export class DocWidget extends ReactWidget {
         return { pageId: targetId, anchor };
     }
 
+    /** Liste des pages à plat, dans l'ordre d'affichage des chapitres. */
+    private getFlatPages(): DocPageMeta[] {
+        const flat: DocPageMeta[] = [];
+        for (const chapter of this.widgetState.chapters) {
+            flat.push(...chapter.pages);
+        }
+        return flat;
+    }
+
+    private getAdjacentPages(): { prev: DocPageMeta | null; next: DocPageMeta | null } {
+        const active = this.widgetState.activePage;
+        if (!active) {
+            return { prev: null, next: null };
+        }
+        const flat = this.getFlatPages();
+        const idx = flat.findIndex(p => p.id === active.id);
+        if (idx === -1) {
+            return { prev: null, next: null };
+        }
+        return {
+            prev: idx > 0 ? flat[idx - 1] : null,
+            next: idx < flat.length - 1 ? flat[idx + 1] : null,
+        };
+    }
+
+    private handleTocClick(anchor: string): void {
+        this.widgetState = { ...this.widgetState, highlightAnchor: anchor };
+        this.update();
+    }
+
     protected render(): React.ReactNode {
-        const { chapters, activePage, searchQuery, searchResults, highlightAnchor, isSearching, initialized } = this.widgetState;
+        const { chapters, activePage, searchQuery, searchResults, activeResultIndex, highlightAnchor, isSearching, initialized } = this.widgetState;
 
         if (!initialized) {
             return (
@@ -261,6 +339,12 @@ export class DocWidget extends ReactWidget {
                 </div>
             );
         }
+
+        const { prev, next } = this.getAdjacentPages();
+        // Sommaire : sections de niveau 2/3 de la page courante (on exclut le titre h1).
+        const tocSections = activePage
+            ? this.contentService.getSectionsForPage(activePage.id).filter(s => s.level >= 2)
+            : [];
 
         return (
             <div className="doc-widget-root">
@@ -292,6 +376,12 @@ export class DocWidget extends ReactWidget {
                                     } else if (e.key === 'Enter') {
                                         e.preventDefault();
                                         this.handleSearchSubmit();
+                                    } else if (e.key === 'ArrowDown') {
+                                        e.preventDefault();
+                                        this.moveResultSelection(1);
+                                    } else if (e.key === 'ArrowUp') {
+                                        e.preventDefault();
+                                        this.moveResultSelection(-1);
                                     }
                                 }}
                             />
@@ -320,14 +410,15 @@ export class DocWidget extends ReactWidget {
                     </div>
 
                     {searchQuery && searchResults.length > 0 && (
-                        <div className="doc-search-results">
-                            <div className="doc-search-results-header">
+                        <div className="doc-search-results" ref={this.resultsRef}>
+                            <div className="doc-search-results-header" aria-live="polite">
                                 {searchResults.length} résultat{searchResults.length > 1 ? 's' : ''} pour « {searchQuery} »
                             </div>
                             {searchResults.map((result, i) => (
                                 <button
                                     key={i}
-                                    className="doc-search-result-item"
+                                    data-result-idx={i}
+                                    className={`doc-search-result-item ${i === activeResultIndex ? 'active' : ''}`}
                                     onClick={() => this.handleSearchResultClick(result)}
                                 >
                                     <div className="doc-search-result-path">
@@ -356,13 +447,38 @@ export class DocWidget extends ReactWidget {
                         </div>
                     )}
 
-                    <DocViewer
-                        page={activePage}
-                        searchResults={searchResults}
-                        searchQuery={searchQuery}
-                        highlightAnchor={highlightAnchor}
-                        onNavigate={href => this.handleNavigateInternal(href)}
-                    />
+                    <div className="doc-main-body">
+                        <DocViewer
+                            page={activePage}
+                            searchResults={searchResults}
+                            searchQuery={searchQuery}
+                            highlightAnchor={highlightAnchor}
+                            prevPage={prev}
+                            nextPage={next}
+                            onNavigate={href => this.handleNavigateInternal(href)}
+                            onNavigatePage={id => this.handleSelectPage(id)}
+                        />
+                        {tocSections.length > 1 && (
+                            <nav className="doc-toc" aria-label="Sommaire de la page">
+                                <div className="doc-toc-title">Sur cette page</div>
+                                <ul className="doc-toc-list">
+                                    {tocSections.map(section => (
+                                        <li
+                                            key={section.id}
+                                            className={`doc-toc-item doc-toc-level-${section.level}`}
+                                        >
+                                            <button
+                                                className={`doc-toc-link ${highlightAnchor === section.anchor ? 'active' : ''}`}
+                                                onClick={() => this.handleTocClick(section.anchor)}
+                                            >
+                                                {section.title}
+                                            </button>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </nav>
+                        )}
+                    </div>
                 </div>
             </div>
         );

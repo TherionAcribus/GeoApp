@@ -6,7 +6,10 @@ interface DocViewerProps {
     searchResults: DocSearchResult[];
     searchQuery: string;
     highlightAnchor: string | null;
+    prevPage?: DocPageMeta | null;
+    nextPage?: DocPageMeta | null;
     onNavigate?: (href: string) => void;
+    onNavigatePage?: (pageId: string) => void;
 }
 
 interface DocViewerState {
@@ -76,6 +79,11 @@ export class DocViewer extends React.Component<DocViewerProps, DocViewerState> {
             const el = this.contentRef.current?.querySelector(`[id="${anchor}"]`);
             if (el) {
                 el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                // Flash de fond pour repérer où l'on vient d'atterrir.
+                el.classList.remove('doc-section-flash');
+                // Force un reflow pour pouvoir rejouer l'animation si on revient sur la même section.
+                void (el as HTMLElement).offsetWidth;
+                el.classList.add('doc-section-flash');
             }
         }, 100);
     }
@@ -187,6 +195,9 @@ export class DocViewer extends React.Component<DocViewerProps, DocViewerState> {
             },
         };
 
+        const { prevPage, nextPage, onNavigatePage } = this.props;
+        const showPageNav = onNavigatePage && (prevPage || nextPage);
+
         return (
             <div className="doc-viewer" ref={this.contentRef}>
                 <div className="doc-content">
@@ -197,6 +208,36 @@ export class DocViewer extends React.Component<DocViewerProps, DocViewerState> {
                         {content}
                     </ReactMarkdown>
                 </div>
+                {showPageNav && (
+                    <nav className="doc-page-nav" aria-label="Navigation entre les pages">
+                        {prevPage ? (
+                            <button
+                                className="doc-page-nav-btn doc-page-nav-prev"
+                                onClick={() => onNavigatePage!(prevPage.id)}
+                                title={prevPage.title}
+                            >
+                                <span className="codicon codicon-arrow-left" aria-hidden="true" />
+                                <span className="doc-page-nav-labels">
+                                    <span className="doc-page-nav-dir">Précédent</span>
+                                    <span className="doc-page-nav-title">{prevPage.title}</span>
+                                </span>
+                            </button>
+                        ) : <span />}
+                        {nextPage ? (
+                            <button
+                                className="doc-page-nav-btn doc-page-nav-next"
+                                onClick={() => onNavigatePage!(nextPage.id)}
+                                title={nextPage.title}
+                            >
+                                <span className="doc-page-nav-labels">
+                                    <span className="doc-page-nav-dir">Suivant</span>
+                                    <span className="doc-page-nav-title">{nextPage.title}</span>
+                                </span>
+                                <span className="codicon codicon-arrow-right" aria-hidden="true" />
+                            </button>
+                        ) : <span />}
+                    </nav>
+                )}
             </div>
         );
     }
