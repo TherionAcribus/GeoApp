@@ -79,7 +79,7 @@ export class DocViewer extends React.Component<DocViewerProps, DocViewerState> {
     }
 
     render(): React.ReactNode {
-        const { page, searchQuery } = this.props;
+        const { page } = this.props;
         const { ReactMarkdown, remarkGfm, loadError } = this.state;
 
         if (!page) {
@@ -156,31 +156,22 @@ export class DocViewer extends React.Component<DocViewerProps, DocViewerState> {
                 }
                 return <span className="doc-internal-link" title={href} {...rest}>{children}</span>;
             },
-            h1: ({ children, ...rest }: any) => {
-                const id = this.toAnchor(String(children));
+            h1: ({ children, node, ...rest }: any) => {
+                const id = this.toAnchor(this.extractText(children));
                 return <h1 id={id} {...rest}>{children}</h1>;
             },
-            h2: ({ children, ...rest }: any) => {
-                const id = this.toAnchor(String(children));
+            h2: ({ children, node, ...rest }: any) => {
+                const id = this.toAnchor(this.extractText(children));
                 return <h2 id={id} {...rest}>{children}</h2>;
             },
-            h3: ({ children, ...rest }: any) => {
-                const id = this.toAnchor(String(children));
+            h3: ({ children, node, ...rest }: any) => {
+                const id = this.toAnchor(this.extractText(children));
                 return <h3 id={id} {...rest}>{children}</h3>;
             },
         };
 
         return (
             <div className="doc-viewer" ref={this.contentRef}>
-                {searchQuery && (
-                    <div className="doc-search-notice">
-                        <span className="codicon codicon-search" />
-                        Résultats pour : <strong>{searchQuery}</strong>
-                        <span style={{ marginLeft: 8, opacity: 0.6, fontSize: 11 }}>
-                            (les sections correspondantes sont surlignées dans la navigation)
-                        </span>
-                    </div>
-                )}
                 <div className="doc-content">
                     <ReactMarkdown
                         remarkPlugins={remarkGfm ? [remarkGfm] : []}
@@ -191,6 +182,27 @@ export class DocViewer extends React.Component<DocViewerProps, DocViewerState> {
                 </div>
             </div>
         );
+    }
+
+    /**
+     * Extrait le texte brut d'un arbre de children React. Un titre format\u00e9
+     * (ex. `## Utiliser \`@Aide\``) arrive sous forme de tableau d'\u00e9l\u00e9ments React :
+     * `String(children)` produirait \u00ab [object Object] \u00bb et casserait l'ancre.
+     */
+    private extractText(children: React.ReactNode): string {
+        if (children === null || children === undefined || typeof children === 'boolean') {
+            return '';
+        }
+        if (typeof children === 'string' || typeof children === 'number') {
+            return String(children);
+        }
+        if (Array.isArray(children)) {
+            return children.map(child => this.extractText(child)).join('');
+        }
+        if (React.isValidElement(children)) {
+            return this.extractText((children.props as any)?.children);
+        }
+        return '';
     }
 
     private toAnchor(title: string): string {

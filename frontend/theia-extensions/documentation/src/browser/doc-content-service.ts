@@ -127,14 +127,14 @@ export class DocContentService {
                         text: introLines.join('\n').trim(),
                     });
                 }
-                currentSection = { level: 1, title: h1Match[1], lines: [], anchor: this.toAnchor(h1Match[1]) };
+                currentSection = { level: 1, title: h1Match[1], lines: [], anchor: this.headingAnchor(h1Match[1]) };
             } else if (h2Match) {
                 flushSection();
-                currentSection = { level: 2, title: h2Match[1], lines: [], anchor: this.toAnchor(h2Match[1]) };
+                currentSection = { level: 2, title: h2Match[1], lines: [], anchor: this.headingAnchor(h2Match[1]) };
             } else if (h3Match) {
                 if (currentSection?.level === 2) {
                     flushSection();
-                    currentSection = { level: 3, title: h3Match[1], lines: [], anchor: this.toAnchor(h3Match[1]) };
+                    currentSection = { level: 3, title: h3Match[1], lines: [], anchor: this.headingAnchor(h3Match[1]) };
                 } else if (currentSection) {
                     currentSection.lines.push(line);
                 }
@@ -161,6 +161,22 @@ export class DocContentService {
         }
 
         return sections;
+    }
+
+    /**
+     * Calcule l'ancre d'un titre \u00e0 partir de son texte *visible*, en retirant
+     * d'abord le formatage inline Markdown (code, gras, italique, liens). Cela
+     * garantit que l'ancre correspond \u00e0 celle g\u00e9n\u00e9r\u00e9e c\u00f4t\u00e9 rendu (DocViewer),
+     * qui part du texte affich\u00e9 \u2014 sinon le scroll vers la section \u00e9choue.
+     */
+    private headingAnchor(rawTitle: string): string {
+        const visible = rawTitle
+            .replace(/`([^`]+)`/g, '$1')
+            .replace(/\*\*([^*]+)\*\*/g, '$1')
+            .replace(/\*([^*]+)\*/g, '$1')
+            .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+            .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
+        return this.toAnchor(visible);
     }
 
     private toAnchor(title: string): string {

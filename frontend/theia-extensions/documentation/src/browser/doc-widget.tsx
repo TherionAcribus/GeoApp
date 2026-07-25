@@ -115,18 +115,19 @@ export class DocWidget extends ReactWidget {
 
         this.searchDebounceTimer = setTimeout(() => {
             const results = this.searchService.search(query);
+            // On affiche seulement les résultats : la page active ne change qu'au
+            // clic sur un résultat ou sur Entrée, pour ne pas faire sauter la page
+            // sous les yeux de l'utilisateur pendant qu'il tape.
             this.widgetState = { ...this.widgetState, searchResults: results, isSearching: false };
-            if (results.length > 0) {
-                const first = results[0];
-                const page = this.contentService.getPage(first.pageId);
-                this.widgetState = {
-                    ...this.widgetState,
-                    activePage: page || this.widgetState.activePage,
-                    highlightAnchor: first.sectionAnchor,
-                };
-            }
             this.update();
         }, 280);
+    }
+
+    private handleSearchSubmit(): void {
+        const results = this.widgetState.searchResults;
+        if (results.length > 0) {
+            this.handleSearchResultClick(results[0]);
+        }
     }
 
     private handleSearchResultClick(result: DocSearchResult): void {
@@ -290,6 +291,9 @@ export class DocWidget extends ReactWidget {
                                 onKeyDown={e => {
                                     if (e.key === 'Escape') {
                                         this.handleSearchChange('');
+                                    } else if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        this.handleSearchSubmit();
                                     }
                                 }}
                             />
