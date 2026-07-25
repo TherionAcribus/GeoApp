@@ -1,0 +1,79 @@
+{
+  "name": "unix_timestamp",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Convertit une date en timestamp Unix (et inversement). Utile quand une coordonnee se cache derriere une date : les chiffres du timestamp forment les minutes.",
+  "author": "MysterAI",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": [
+    "Conversion",
+    "Date",
+    "Time"
+  ],
+  "kinds": [
+    "code",
+    "calculator"
+  ],
+  "brute_force": false,
+  "enable_scoring": false,
+  "accept_accents": true,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 15,
+  "capabilities": {
+    "analyze": false,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": false,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "text": {
+      "type": "string",
+      "label": "Date ou timestamp",
+      "placeholder": "27/02/1970 04:03:34  ou  4939414",
+      "required": true,
+      "description": "En mode 'to_timestamp' : une date (formats varies acceptes). En mode 'to_date' : un timestamp Unix."
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": [
+        {"value": "to_timestamp", "label": "Date -> Timestamp"},
+        {"value": "to_date", "label": "Timestamp -> Date"}
+      ],
+      "default": "to_timestamp",
+      "required": true
+    },
+    "unit": {
+      "type": "select",
+      "label": "Unite",
+      "options": [
+        {"value": "seconds", "label": "Secondes"},
+        {"value": "milliseconds", "label": "Millisecondes"}
+      ],
+      "default": "seconds",
+      "description": "Unite du timestamp (produite en to_timestamp, interpretee en to_date)."
+    },
+    "day_first": {
+      "type": "boolean",
+      "label": "Jour en premier (JJ/MM/AAAA)",
+      "default": true,
+      "description": "Leve l'ambiguite entre JJ/MM et MM/JJ pour les dates numeriques."
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Resultat"
+    }
+  },
+  "metasolver": {
+    "eligible": false
+  }
+}
