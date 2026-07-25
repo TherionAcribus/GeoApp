@@ -1,0 +1,102 @@
+{
+  "name": "baudot_code",
+  "version": "1.1.0",
+  "plugin_api_version": "2.0",
+  "description": "Code Baudot télégraphique à 5 bits, versions ITA2 (Baudot-Murray) et ITA1 (Baudot original), avec bascules lettres/chiffres.",
+  "author": "MysterAI",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": [
+    "AlphabetsDecryption"
+  ],
+  "kinds": [
+    "code"
+  ],
+  "brute_force": false,
+  "enable_scoring": true,
+  "accept_accents": false,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "text": {
+      "type": "string",
+      "label": "Texte à traiter",
+      "placeholder": "Lettres/chiffres à encoder, ou suite de bits (groupes de 5) à décoder...",
+      "required": true
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": [
+        "decode",
+        "encode"
+      ],
+      "default": "decode",
+      "required": true
+    },
+    "variant": {
+      "type": "select",
+      "label": "Version",
+      "options": [
+        {"value": "ita2", "label": "ITA2 (Baudot-Murray, la plus courante)"},
+        {"value": "ita1", "label": "ITA1 (Baudot original)"}
+      ],
+      "default": "ita2",
+      "description": "Jeu de codes à 5 bits. ITA2 est le plus répandu ; ITA1 est le code d'origine d'Émile Baudot."
+    },
+    "bit_order": {
+      "type": "select",
+      "label": "Ordre des bits",
+      "options": [
+        {"value": "msb_first", "label": "Poids fort en premier (MSB)"},
+        {"value": "lsb_first", "label": "Poids faible en premier (LSB)"}
+      ],
+      "default": "msb_first",
+      "description": "Sens de lecture des 5 bits de chaque groupe. Essayez l'autre ordre si le décodage semble incohérent."
+    },
+    "symbols": {
+      "type": "string",
+      "label": "Symboles personnalisés (bit 0 puis bit 1)",
+      "placeholder": "01",
+      "default": "01",
+      "description": "Deux caractères distincts remplaçant le bit 0 puis le bit 1 (ex. .x ou +-). Laisser vide pour 0 et 1."
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Texte transformé"
+    }
+  },
+  "text_handling": {
+    "fields": [
+      "text"
+    ],
+    "unknown_char_policy": "keep",
+    "normalize": {
+      "remove_diacritics": true,
+      "case": "upper",
+      "map_characters": {}
+    }
+  },
+  "metasolver": {
+    "eligible": true,
+    "input_charset": "digits",
+    "tags": ["numeral", "binary", "no_key"],
+    "priority": 35,
+    "family": "numeral",
+    "preferred_when": ["binary_like", "grouped_input"]
+  }
+}
