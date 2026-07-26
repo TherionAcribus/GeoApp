@@ -117,7 +117,34 @@ Le rendu est mutualisé entre l'aperçu de l'éditeur et l'affichage des logs r�
 L'aperçu applique la même règle que le site, afin de ne pas promettre une mise en forme
 qui n'apparaîtra pas dans le log publié.
 
+Quand une ligne contient des astérisques qui ne seront pas interprétées, l'aperçu affiche
+un avertissement listant les lignes concernées (`findUnrenderedEmphasis()`), afin de
+distinguer « l'aperçu ne fait rien » de « ton Markdown est invalide ».
+
+Les boutons de la barre d'outils (B, I, code, lien) sont des **bascules** :
+`unwrapMarkdownSelection()` retire les délimiteurs si la sélection est déjà formatée,
+que ceux-ci soient inclus dans la sélection ou juste à l'extérieur.
+
 Tests : `src/browser/tests/log-markdown.test.ts` (`npm run test:geoapp` dans l'extension `zones`).
+
+### 3.4 Champ texte à couche de surlignage
+
+`renderTextareaWithOverlay()` superpose un `<textarea>` au texte transparent et une couche
+qui affiche le même texte avec les `@patterns` colorés. Les deux couches doivent produire
+**exactement le même découpage de lignes**, sans quoi le surlignage se décale d'autant plus
+que le texte est long. Les contraintes, réunies dans `sharedMetrics` :
+
+- police, taille et interlignage déclarés **en inline sur les deux couches** — `.theia-input`
+  impose ses propres valeurs au `<textarea>` mais ne s'applique pas à la couche, et un
+  `<textarea>` n'hérite pas de la police de son parent
+- padding identique — `.theia-input` utilise `padding: 3px 0 3px 8px`, dont le
+  `padding-right: 0` modifie la largeur de retour à la ligne
+- `box-sizing: border-box` et `scrollbar-gutter: stable` sur les deux couches
+- défilement synchronisé (`syncOverlayScroll`), sinon la couche reste figée dès que le
+  texte dépasse la hauteur visible
+
+Le redimensionnement vertical du `<textarea>` ne nécessite rien de particulier : le
+conteneur suit sa hauteur, et la couche est positionnée en `inset: 0` sur ce conteneur.
 
 ## 4. Historique global (persistance)
 

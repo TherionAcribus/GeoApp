@@ -16,7 +16,7 @@ import {
 } from '@tanstack/react-table';
 import { GeocacheIcon } from './geocache-icon';
 import { renderInlineLogMarkdown, renderLogMarkdown } from './log-markdown-renderer';
-import { sanitizeLogUrl } from './log-markdown';
+import { findUnrenderedEmphasis, sanitizeLogUrl, unwrapMarkdownSelection } from './log-markdown';
 
 type LogTypeValue = 'found' | 'dnf' | 'note';
 
@@ -474,6 +474,9 @@ export class GeocacheLogEditorWidget extends ReactWidget {
 
     protected globalTextArea: HTMLTextAreaElement | null = null;
     protected perCacheTextAreas: Record<number, HTMLTextAreaElement | null> = {};
+    /** Couches de surlignage des @patterns, indexées par `overlayKey` (cf. syncOverlayScroll). */
+    protected overlayElements: Record<string, HTMLDivElement | null> = {};
+    protected overlayTextareas: Record<string, HTMLTextAreaElement | null> = {};
     protected activeEditor: { type: 'global' } | { type: 'per-cache'; geocacheId: number } | undefined;
 
     protected pendingSelection:
@@ -742,26 +745,38 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         const end = ta ? ta.selectionEnd : value.length;
         const hasSelection = start !== end;
         const selected = value.slice(start, end);
+
+        // Bouton bascule : si la sélection est déjà entourée des délimiteurs, on les retire.
+        const unwrapped = hasSelection ? unwrapMarkdownSelection(value, start, end, before, after) : undefined;
+        if (unwrapped) {
+            this.applyEditorValue(editor, unwrapped.value);
+            this.update();
+            this.scheduleSelection(editor, unwrapped.selectionStart, unwrapped.selectionEnd);
+            return;
+        }
+
         const insert = hasSelection ? selected : placeholder;
         const nextValue = value.slice(0, start) + before + insert + after + value.slice(end);
 
         this.applyEditorValue(editor, nextValue);
         this.update();
 
+        const selStart = start + before.length;
+        this.scheduleSelection(editor, selStart, selStart + insert.length);
+    }
+
+    protected scheduleSelection(
+        editor: { type: 'global' } | { type: 'per-cache'; geocacheId: number },
+        selectionStart: number,
+        selectionEnd: number
+    ): void {
         setTimeout(() => {
             const nextTa = this.getEditorTextArea(editor);
             if (!nextTa) {
                 return;
             }
             nextTa.focus();
-            if (!hasSelection) {
-                const selStart = start + before.length;
-                nextTa.setSelectionRange(selStart, selStart + insert.length);
-            } else {
-                const selStart = start + before.length;
-                const selEnd = selStart + insert.length;
-                nextTa.setSelectionRange(selStart, selEnd);
-            }
+            nextTa.setSelectionRange(selectionStart, selectionEnd);
         }, 0);
     }
 
@@ -1575,10 +1590,39 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             parts.push(<span key={`${overlayKey}-text-${partIndex++}`}>{value.slice(lastIndex)}</span>);
         }
 
-        const { onFocus, onBlur, style: textareaStyle, ...restTextareaProps } = textareaProps;
+        const { onFocus, onBlur, onScroll, style: textareaStyle, ...restTextareaProps } = textareaProps;
+
+        // Le texte du <textarea> est rendu transparent et c'est la couche ci-dessous qui
+        // l'affiche (avec les @patterns colorés). Les deux couches doivent donc produire
+        // exactement le même découpage de lignes : toute différence de police, de padding
+        // ou de box-sizing décale le surlignage, d'autant plus que le texte est long.
+        // Ces valeurs sont volontairement explicites (et non `inherit`) car le <textarea>
+        // porte la classe `theia-input`, dont le CSS ne s'applique pas à la couche : elle
+        // impose `font-size: var(--theia-ui-font-size1)`, `line-height: var(--theia-content-line-height)`
+        // et surtout `padding: 3px 0 3px 8px`, dont le `padding-right: 0` change la largeur
+        // de retour à la ligne. En les redéclarant inline, les deux couches sont identiques
+        // (le style inline l'emporte sur la classe).
+        const sharedMetrics = {
+            boxSizing: 'border-box',
+            padding: textareaStyle?.padding ?? '6px 8px',
+            fontFamily: 'var(--theia-ui-font-family)',
+            fontSize: 'var(--theia-ui-font-size1)',
+            lineHeight: 'var(--theia-content-line-height)',
+            letterSpacing: 'normal',
+            whiteSpace: 'pre-wrap',
+            wordWrap: 'break-word',
+            overflowWrap: 'break-word',
+            tabSize: 4,
+            // Réserve la gouttière de barre de défilement sur les deux couches : sans elle,
+            // l'apparition de la barre rétrécit la largeur de texte du seul <textarea>
+            // et les retours à la ligne des deux couches divergent à nouveau.
+            scrollbarGutter: 'stable',
+        } as React.CSSProperties;
 
         const mergedTextareaStyle: React.CSSProperties = {
             ...textareaStyle,
+            ...sharedMetrics,
+            display: 'block',
             position: 'relative',
             backgroundColor: 'transparent',
             zIndex: 2,
@@ -1598,6 +1642,12 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             onBlur: e => {
                 onBlur?.(e);
             },
+            // Le <textarea> défile, pas la couche : sans cette synchronisation le
+            // surlignage reste figé dès que le texte dépasse la hauteur visible.
+            onScroll: e => {
+                this.syncOverlayScroll(overlayKey, e.currentTarget);
+                onScroll?.(e);
+            },
         };
 
         return (
@@ -1611,22 +1661,29 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             >
                 <textarea
                     {...textareaMergedProps}
-                    ref={textareaRef}
+                    ref={el => {
+                        textareaRef(el);
+                        this.overlayTextareas[overlayKey] = el;
+                        if (el) {
+                            this.syncOverlayScroll(overlayKey, el);
+                        }
+                    }}
                 />
                 <div
+                    ref={el => {
+                        this.overlayElements[overlayKey] = el;
+                        const ta = this.overlayTextareas[overlayKey];
+                        if (el && ta) {
+                            this.syncOverlayScroll(overlayKey, ta);
+                        }
+                    }}
                     style={{
+                        ...sharedMetrics,
                         position: 'absolute',
                         top: 0,
                         left: 0,
                         right: 0,
                         bottom: 0,
-                        padding: textareaStyle?.padding || '6px 8px',
-                        font: 'inherit',
-                        fontSize: 'inherit',
-                        fontFamily: 'inherit',
-                        lineHeight: 'inherit',
-                        whiteSpace: 'pre-wrap',
-                        wordWrap: 'break-word',
                         overflow: 'hidden',
                         pointerEvents: 'none',
                         zIndex: 1,
@@ -1637,6 +1694,73 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 </div>
             </div>
         );
+    }
+
+    /**
+     * Bloc « Aperçu Markdown » : rendu du texte final, précédé d'un avertissement
+     * quand des astérisques ne seront pas interprétées par Geocaching.com.
+     */
+    protected renderMarkdownPreview(text: string, keyPrefix: string): React.ReactNode {
+        const unrendered = findUnrenderedEmphasis(text);
+
+        return (
+            <details style={{ marginTop: 8 }}>
+                <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
+                    Aperçu Markdown (texte final)
+                    {unrendered.length > 0 && (
+                        <span style={{ marginLeft: 6, fontWeight: 400, color: 'var(--theia-editorWarning-foreground, #d29922)' }}>
+                            ⚠️ {unrendered.length} ligne{unrendered.length > 1 ? 's' : ''} avec des astérisques non interprétées
+                        </span>
+                    )}
+                </summary>
+                {unrendered.length > 0 && (
+                    <div
+                        style={{
+                            marginTop: 8,
+                            padding: 8,
+                            borderRadius: 6,
+                            border: '1px solid var(--theia-editorWarning-foreground, #d29922)',
+                            fontSize: 12,
+                        }}
+                    >
+                        <div style={{ marginBottom: 4 }}>
+                            Geocaching.com exige que les astérisques soient collées au texte :{' '}
+                            <code>**gras**</code> fonctionne, <code>**gras **</code> non.
+                        </div>
+                        <ul style={{ margin: '4px 0 0 18px' }}>
+                            {unrendered.map((line, index) => (
+                                <li key={`${keyPrefix}-warn-${index}`}>
+                                    <code>{line}</code>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
+                <div
+                    style={{
+                        marginTop: 8,
+                        background: 'var(--theia-editor-background)',
+                        border: '1px solid var(--theia-panel-border)',
+                        borderRadius: 6,
+                        padding: 10,
+                        fontSize: 13,
+                        overflow: 'auto',
+                    }}
+                >
+                    {this.renderMarkdown(text, keyPrefix)}
+                </div>
+            </details>
+        );
+    }
+
+    /** Aligne la couche de surlignage sur le défilement du <textarea>. */
+    protected syncOverlayScroll(overlayKey: string, textArea: HTMLTextAreaElement): void {
+        const overlay = this.overlayElements[overlayKey];
+        if (!overlay) {
+            return;
+        }
+        overlay.scrollTop = textArea.scrollTop;
+        overlay.scrollLeft = textArea.scrollLeft;
     }
 
     protected refreshPatternAutocomplete(value: string, textArea: HTMLTextAreaElement, geocacheId: number | null): void {
@@ -2700,12 +2824,10 @@ ${geocacheContext}`;
                             {this.renderImagesSection('global', this.isLoading || this.isSubmitting || allSubmitted)}
                         </div>
 
-                        <details style={{ marginTop: 8 }}>
-                            <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Aperçu Markdown (texte final)</summary>
-                            <div style={{ marginTop: 8, background: 'var(--theia-editor-background)', border: '1px solid var(--theia-panel-border)', borderRadius: 6, padding: 10, fontSize: 13, overflow: 'auto' }}>
-                                {this.renderMarkdown(this.resolveAllPatterns(this.globalText, this.geocaches[0]?.id ?? null), 'global-preview')}
-                            </div>
-                        </details>
+                        {this.renderMarkdownPreview(
+                            this.resolveAllPatterns(this.globalText, this.geocaches[0]?.id ?? null),
+                            'global-preview'
+                        )}
                     </div>
                 )}
 
@@ -2896,12 +3018,10 @@ ${geocacheContext}`;
                                     )}
                                 </div>
 
-                                <details style={{ marginTop: 8 }}>
-                                    <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Aperçu Markdown (texte final)</summary>
-                                    <div style={{ marginTop: 8, background: 'var(--theia-editor-background)', border: '1px solid var(--theia-panel-border)', borderRadius: 6, padding: 10, fontSize: 13, overflow: 'auto' }}>
-                                        {this.renderMarkdown(this.resolveAllPatterns(this.perCacheText[gc.id] ?? '', gc.id), `per-preview-${gc.id}`)}
-                                    </div>
-                                </details>
+                                {this.renderMarkdownPreview(
+                                    this.resolveAllPatterns(this.perCacheText[gc.id] ?? '', gc.id),
+                                    `per-preview-${gc.id}`
+                                )}
                             </div>
                         ))}
                     </div>

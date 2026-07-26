@@ -143,6 +143,87 @@ export function tokenizeInlineMarkdown(text: string): InlineToken[] {
     return tokens;
 }
 
+/**
+ * Repère les lignes où des astérisques ressemblent à une emphase ratée.
+ *
+ * Sert à expliquer à l'utilisateur pourquoi son `**gras **` n'apparaît pas en gras,
+ * plutôt que de lui afficher un aperçu identique à sa saisie sans explication.
+ *
+ * Heuristique : on ne signale une ligne que s'il reste au moins deux groupes
+ * d'astérisques non interprétés, pour ne pas alerter sur une multiplication
+ * isolée (`3 * 4 = 12`).
+ */
+export function findUnrenderedEmphasis(text: string): string[] {
+    const lines = (text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+    const flagged: string[] = [];
+
+    for (const line of lines) {
+        const leftover = tokenizeInlineMarkdown(line)
+            .filter(token => token.kind === 'text')
+            .map(token => (token as { content: string }).content)
+            .join('');
+        const runs = leftover.match(/\*+/g);
+        if (runs && runs.length >= 2) {
+            flagged.push(line.trim());
+        }
+    }
+
+    return flagged;
+}
+
+export interface MarkdownSelectionEdit {
+    value: string;
+    selectionStart: number;
+    selectionEnd: number;
+}
+
+/**
+ * Retire les délimiteurs Markdown autour de la sélection, qu'ils soient inclus dedans
+ * (`**texte**` sélectionné) ou juste à l'extérieur (`texte` sélectionné entre les `**`).
+ * Retourne undefined si la sélection n'est pas déjà formatée ainsi — l'appelant peut
+ * alors envelopper. C'est ce qui donne aux boutons de la barre d'outils un comportement
+ * de bascule au lieu d'empiler `****texte****`.
+ */
+export function unwrapMarkdownSelection(
+    value: string,
+    start: number,
+    end: number,
+    before: string,
+    after: string
+): MarkdownSelectionEdit | undefined {
+    const selected = value.slice(start, end);
+
+    if (
+        selected.length > before.length + after.length &&
+        selected.startsWith(before) &&
+        selected.endsWith(after)
+    ) {
+        const inner = selected.slice(before.length, selected.length - after.length);
+        return {
+            value: value.slice(0, start) + inner + value.slice(end),
+            selectionStart: start,
+            selectionEnd: start + inner.length,
+        };
+    }
+
+    const hasBefore = start >= before.length && value.slice(start - before.length, start) === before;
+    const hasAfter = value.slice(end, end + after.length) === after;
+    // Pour un délimiteur d'un seul caractère (italique), ne pas grignoter un `**` :
+    // sur `**gras**`, le bouton Italique ne doit pas produire `*gras*`.
+    const isPartOfLongerRun =
+        before.length === 1 && (value[start - before.length - 1] === before || value[end + after.length] === after);
+
+    if (hasBefore && hasAfter && !isPartOfLongerRun) {
+        return {
+            value: value.slice(0, start - before.length) + selected + value.slice(end + after.length),
+            selectionStart: start - before.length,
+            selectionEnd: start - before.length + selected.length,
+        };
+    }
+
+    return undefined;
+}
+
 const HEADING_RE = /^(#{1,3})\s+(.*)$/;
 const QUOTE_RE = /^>\s+/;
 const LIST_ITEM_RE = /^\s*[-*]\s+/;

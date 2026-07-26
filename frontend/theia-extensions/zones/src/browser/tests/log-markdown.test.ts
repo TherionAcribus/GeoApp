@@ -1,9 +1,11 @@
 import * as assert from 'assert/strict';
 import {
+    findUnrenderedEmphasis,
     InlineToken,
     parseMarkdownBlocks,
     sanitizeLogUrl,
     tokenizeInlineMarkdown,
+    unwrapMarkdownSelection,
 } from '../log-markdown';
 
 function kinds(tokens: InlineToken[]): string[] {
@@ -98,6 +100,50 @@ function testFencedCodeBlock(): void {
     assert.equal((blocks[0] as any).content, 'N 47 12.345\nE 006 12.345');
 }
 
+function testFindUnrenderedEmphasis(): void {
+    const log = [
+        'Petite balade autour de Château-Rouge.',
+        'La première partie sera stoppée net par des travaux forestiers.',
+        '**Merci pour la balade et pour les caches ! **',
+    ].join('\n');
+    assert.deepEqual(findUnrenderedEmphasis(log), ['**Merci pour la balade et pour les caches ! **']);
+
+    // Emphase valide : rien à signaler.
+    assert.deepEqual(findUnrenderedEmphasis('**Merci pour la balade !**'), []);
+
+    // Une astérisque isolée n'est pas une emphase ratée (multiplication).
+    assert.deepEqual(findUnrenderedEmphasis('3 * 4 = 12'), []);
+
+    assert.deepEqual(findUnrenderedEmphasis(''), []);
+}
+
+function testUnwrapMarkdownSelection(): void {
+    // Sélection du texte intérieur (`beaucoup`) : les `**` autour sont retirés.
+    const inner = unwrapMarkdownSelection('Merci **beaucoup** !', 8, 16, '**', '**');
+    assert.equal(inner?.value, 'Merci beaucoup !');
+    assert.equal(inner?.selectionStart, 6);
+    assert.equal(inner?.selectionEnd, 14);
+
+    // Sélection incluant les délimiteurs.
+    const outer = unwrapMarkdownSelection('Merci **beaucoup** !', 6, 18, '**', '**');
+    assert.equal(outer?.value, 'Merci beaucoup !');
+    assert.equal(outer?.selectionStart, 6);
+    assert.equal(outer?.selectionEnd, 14);
+
+    // Texte non formaté : pas de retrait, l'appelant enveloppera.
+    assert.equal(unwrapMarkdownSelection('Merci beaucoup !', 6, 14, '**', '**'), undefined);
+
+    // Le bouton Italique ne doit pas grignoter un gras : `**gras**` ne devient pas `*gras*`.
+    assert.equal(unwrapMarkdownSelection('**gras**', 2, 6, '*', '*'), undefined);
+
+    // Italique réel : retrait correct.
+    const italic = unwrapMarkdownSelection('une *belle* cache', 5, 10, '*', '*');
+    assert.equal(italic?.value, 'une belle cache');
+
+    // Sélection en début de texte : pas d'index négatif.
+    assert.equal(unwrapMarkdownSelection('gras', 0, 4, '**', '**'), undefined);
+}
+
 function testEmptyText(): void {
     assert.deepEqual(tokenizeInlineMarkdown(''), []);
     assert.deepEqual(parseMarkdownBlocks(''), []);
@@ -110,6 +156,8 @@ testCodeAndLinks();
 testSanitizeLogUrl();
 testBlocks();
 testFencedCodeBlock();
+testFindUnrenderedEmphasis();
+testUnwrapMarkdownSelection();
 testEmptyText();
 
 console.log('log-markdown.test.ts OK');
