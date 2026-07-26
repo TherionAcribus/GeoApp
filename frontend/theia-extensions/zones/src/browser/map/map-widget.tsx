@@ -23,6 +23,12 @@ export interface MapContext {
     type: 'zone' | 'geocache' | 'general' | 'custom';
     id?: number;
     label: string;
+    /**
+     * Zone dont la carte affiche les géocaches. Toujours renseigné pour une carte
+     * de zone ; renseigné sur une carte libre après un import qui l'a rattachée à
+     * une zone (le type reste `custom` : la carte garde ses fonctions libres).
+     */
+    zoneId?: number;
 }
 
 interface MapGeocacheDto {
@@ -63,6 +69,7 @@ export class MapWidget extends ReactWidget {
     private resizeTimeout: ReturnType<typeof setTimeout> | undefined;
     private readonly geocacheChangeDisposable: { dispose: () => void };
     private readonly preferenceChangeDisposable: { dispose: () => void };
+    private readonly zoneListChangeDisposable: { dispose: () => void };
     private readonly mapPreferenceKeys = [
         'geoApp.map.defaultProvider',
         'geoApp.map.defaultZoom',
@@ -101,6 +108,42 @@ export class MapWidget extends ReactWidget {
                 void this.reloadGeocache(event.geocacheId);
             }
         });
+        // Renommage d'une zone : les cartes qui l'affichent suivent son nouveau nom.
+        this.zoneListChangeDisposable = this.widgetEventsService.onDidChangeZoneList(() => {
+            void this.syncZoneLabel();
+        });
+    }
+
+    /**
+     * Réaligne le libellé de la carte sur le nom courant de la zone qu'elle affiche.
+     * Sans effet pour les cartes non rattachées à une zone.
+     */
+    private async syncZoneLabel(): Promise<void> {
+        const zoneId = this.context.zoneId;
+        if (zoneId === undefined) {
+            return;
+        }
+
+        try {
+            const zones = await this.zonesService.list();
+            const zone = zones.find(candidate => candidate.id === zoneId);
+            if (!zone) {
+                // Zone supprimée : on conserve le libellé actuel.
+                return;
+            }
+
+            const label = this.context.type === 'zone' ? `Zone: ${zone.name}` : zone.name;
+            if (label === this.context.label) {
+                return;
+            }
+
+            this.context = { ...this.context, label };
+            this.title.label = label;
+            this.title.caption = `Carte - ${label}`;
+            this.mapService.notifyMapContextChanged(this.id);
+        } catch (error) {
+            console.error('[MapWidget] Unable to refresh the zone label', error);
+        }
     }
 
     setContext(context: MapContext): void {
@@ -314,7 +357,11 @@ export class MapWidget extends ReactWidget {
         this.importAround = {
             center,
             zones,
-            defaultZoneId: needsTargetChoice ? await this.findCenterZoneId(center) : undefined,
+            // Une carte déjà rattachée à une zone (import précédent) la propose par
+            // défaut ; sinon on propose la zone de la cache servant de centre.
+            defaultZoneId: needsTargetChoice
+                ? (this.context.zoneId ?? await this.findCenterZoneId(center))
+                : undefined,
             defaultNewZoneName: needsTargetChoice ? this.suggestNewZoneName(center) : undefined
         };
         this.isImporting = false;
@@ -371,6 +418,8 @@ export class MapWidget extends ReactWidget {
                 this.messageService.info(`Zone « ${zone.name} » créée`);
             }
 
+            const zoneName = zone.name ?? this.importAround?.zones.find(z => z.id === zone.zoneId)?.name;
+
             const summary = await this.importAroundService.run(zone.zoneId, request, {
                 onProgress,
                 onError: message => this.messageService.error(message)
@@ -380,8 +429,14 @@ export class MapWidget extends ReactWidget {
             this.widgetEventsService.requestZonesRefresh();
 
             await this.showZoneGeocachesOnMap(zone.zoneId);
+            this.attachToZone(zone.zoneId, zoneName);
 
             this.importAround = undefined;
+
+            // La table de la zone de destination donne accès aux géocaches importées.
+            if (this.zoneIdOfContext() === undefined) {
+                this.widgetEventsService.requestOpenZone({ zoneId: zone.zoneId, zoneName });
+            }
         } catch (error) {
             console.error('[MapWidget] Import around failed', error);
             this.messageService.error('Erreur lors de l\'import autour');
@@ -390,6 +445,28 @@ export class MapWidget extends ReactWidget {
             this.update();
         }
     };
+
+    /**
+     * Rattache une carte libre à la zone dans laquelle l'import a été fait : la
+     * carte prend le nom de la zone dans son onglet et dans le gestionnaire de
+     * cartes. Le type reste `custom`, la carte conserve donc ses fonctions de carte
+     * libre (coordonnées détectées, waypoints…) et son identifiant de widget.
+     */
+    private attachToZone(zoneId: number, zoneName?: string): void {
+        if (this.context.type !== 'custom') {
+            return;
+        }
+
+        const label = zoneName || this.context.label;
+        if (this.context.zoneId === zoneId && this.context.label === label) {
+            return;
+        }
+
+        this.context = { ...this.context, zoneId, label };
+        this.title.label = label;
+        this.title.caption = `Carte - ${label}`;
+        this.mapService.notifyMapContextChanged(this.id);
+    }
 
     /**
      * Affiche sur la carte les géocaches de la zone de destination, pour que les
@@ -713,6 +790,7 @@ export class MapWidget extends ReactWidget {
         this.clearResizeTimeout();
         this.geocacheChangeDisposable.dispose();
         this.preferenceChangeDisposable.dispose();
+        this.zoneListChangeDisposable.dispose();
         if (this.mapInstance) {
             this.mapInstance.setTarget(undefined);
             this.mapInstance = null;

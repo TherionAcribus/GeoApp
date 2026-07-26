@@ -168,6 +168,10 @@ export class MapService {
     private readonly onDidUpdateFormulaSolverPreviewOverlayEmitter = new Emitter<FormulaSolverPreviewOverlay | undefined>();
     readonly onDidUpdateFormulaSolverPreviewOverlay: TheiaEvent<FormulaSolverPreviewOverlay | undefined> = this.onDidUpdateFormulaSolverPreviewOverlayEmitter.event;
 
+    // Événement émis quand le contexte d'une carte change (renommage, rattachement à une zone)
+    private readonly onDidChangeMapContextEmitter = new Emitter<string>();
+    readonly onDidChangeMapContext: TheiaEvent<string> = this.onDidChangeMapContextEmitter.event;
+
     // État interne
     private selectedGeocache: SelectedGeocache | null = null;
     private currentView: MapViewState | null = null;
@@ -502,6 +506,14 @@ export class MapService {
     }
 
     /**
+     * Signale qu'une carte a changé de contexte (libellé, zone associée) afin que le
+     * gestionnaire de cartes rafraîchisse sa liste.
+     */
+    notifyMapContextChanged(mapId: string): void {
+        this.onDidChangeMapContextEmitter.fire(mapId);
+    }
+
+    /**
      * Nettoie les ressources
      */
     dispose(): void {
@@ -513,6 +525,7 @@ export class MapService {
         this.onDidHighlightCoordinateEmitter.dispose();
         this.onDidHighlightCoordinatesEmitter.dispose();
         this.onDidUpdateFormulaSolverPreviewOverlayEmitter.dispose();
+        this.onDidChangeMapContextEmitter.dispose();
 
         if (typeof window !== 'undefined') {
             window.removeEventListener('geoapp-map-highlight-coordinate', this.handleHighlightCoordinateEvent as EventListener);

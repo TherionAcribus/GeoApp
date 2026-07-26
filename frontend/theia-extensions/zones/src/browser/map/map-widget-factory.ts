@@ -79,6 +79,7 @@ export class MapWidgetFactory {
         return this.openMapForContext({
             type: 'zone',
             id: zoneId,
+            zoneId,
             label: `Zone: ${zoneName}`
         }, geocaches);
     }

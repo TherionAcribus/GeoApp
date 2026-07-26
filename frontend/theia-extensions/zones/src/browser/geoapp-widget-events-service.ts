@@ -12,10 +12,23 @@ export interface GeocacheChangedEvent {
     source: 'map' | 'details' | 'zones' | 'chat';
 }
 
+export interface OpenZoneRequest {
+    zoneId: number;
+    zoneName?: string;
+}
+
 @injectable()
 export class GeoAppWidgetEventsService {
     protected readonly onDidRequestZonesRefreshEmitter = new Emitter<void>();
     readonly onDidRequestZonesRefresh: TheiaEvent<void> = this.onDidRequestZonesRefreshEmitter.event;
+
+    /**
+     * Demande l'ouverture de la table des géocaches d'une zone. Passe par ce service
+     * afin que les widgets (carte…) n'aient pas à dépendre de ZoneTabsManager, qui
+     * dépend lui-même de la fabrique de cartes.
+     */
+    protected readonly onDidRequestOpenZoneEmitter = new Emitter<OpenZoneRequest>();
+    readonly onDidRequestOpenZone: TheiaEvent<OpenZoneRequest> = this.onDidRequestOpenZoneEmitter.event;
 
     protected readonly onDidChangeGeocacheEmitter = new Emitter<GeocacheChangedEvent>();
     readonly onDidChangeGeocache: TheiaEvent<GeocacheChangedEvent> = this.onDidChangeGeocacheEmitter.event;
@@ -28,6 +41,10 @@ export class GeoAppWidgetEventsService {
         this.onDidRequestZonesRefreshEmitter.fire();
     }
 
+    requestOpenZone(request: OpenZoneRequest): void {
+        this.onDidRequestOpenZoneEmitter.fire(request);
+    }
+
     notifyGeocacheChanged(event: GeocacheChangedEvent): void {
         this.onDidChangeGeocacheEmitter.fire(event);
     }
@@ -38,6 +55,7 @@ export class GeoAppWidgetEventsService {
 
     dispose(): void {
         this.onDidRequestZonesRefreshEmitter.dispose();
+        this.onDidRequestOpenZoneEmitter.dispose();
         this.onDidChangeGeocacheEmitter.dispose();
         this.onDidChangeZoneListEmitter.dispose();
     }

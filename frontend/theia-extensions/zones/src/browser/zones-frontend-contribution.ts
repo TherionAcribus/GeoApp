@@ -5,6 +5,8 @@ import { GeocacheLogsWidget } from './geocache-logs-widget';
 import { GeocacheNotesWidget } from './geocache-notes-widget';
 import { GeocacheLogEditorTabsManager } from './geocache-log-editor-tabs-manager';
 import { GeocacheTabsManager } from './geocache-tabs-manager';
+import { ZoneTabsManager } from './zone-tabs-manager';
+import { GeoAppWidgetEventsService } from './geoapp-widget-events-service';
 import { MapWidgetFactory } from './map/map-widget-factory';
 
 @injectable()
@@ -22,7 +24,21 @@ export class ZonesFrontendContribution implements FrontendApplicationContributio
     @inject(GeocacheTabsManager)
     protected readonly geocacheTabsManager: GeocacheTabsManager;
 
+    @inject(ZoneTabsManager)
+    protected readonly zoneTabsManager: ZoneTabsManager;
+
+    @inject(GeoAppWidgetEventsService)
+    protected readonly widgetEventsService: GeoAppWidgetEventsService;
+
     async onStart(app: FrontendApplication): Promise<void> {
+        // Ouverture de la table d'une zone demandée par un widget qui ne peut pas
+        // dépendre de ZoneTabsManager (la carte : cycle via MapWidgetFactory).
+        this.widgetEventsService.onDidRequestOpenZone(request => {
+            void this.zoneTabsManager.openZone(request).catch(error => {
+                console.error('[ZonesFrontendContribution] Failed to open zone tab', error);
+            });
+        });
+
         window.addEventListener('open-zone-geocaches', async (event: any) => {
             try {
                 const detail = event?.detail || {};

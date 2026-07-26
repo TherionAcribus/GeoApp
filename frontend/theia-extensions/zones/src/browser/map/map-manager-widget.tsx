@@ -5,6 +5,7 @@ import { ApplicationShell } from '@theia/core/lib/browser';
 import { Disposable } from '@theia/core/lib/common/disposable';
 import { MapWidget, MapContext } from './map-widget';
 import { MapWidgetFactory } from './map-widget-factory';
+import { MapService } from './map-service';
 import { EmptyState } from '../state-views';
 import '../../../src/browser/map/map-manager-widget.css';
 
@@ -26,6 +27,9 @@ export class MapManagerWidget extends ReactWidget {
     @inject(MapWidgetFactory)
     protected readonly mapWidgetFactory!: MapWidgetFactory;
 
+    @inject(MapService)
+    protected readonly mapService!: MapService;
+
     @postConstruct()
     protected init(): void {
         this.id = MapManagerWidget.ID;
@@ -42,6 +46,10 @@ export class MapManagerWidget extends ReactWidget {
         this.toDispose.push(this.shell.onDidAddWidget(() => this.scheduleRefresh()));
         this.toDispose.push(this.shell.onDidRemoveWidget(() => this.scheduleRefresh()));
         this.toDispose.push(Disposable.create(() => this.clearRefreshTimeout()));
+
+        // Une carte peut être renommée en cours de route (carte libre rattachée à une
+        // zone après un import) : le shell n'émet rien dans ce cas.
+        this.toDispose.push(this.mapService.onDidChangeMapContext(() => this.scheduleRefresh()));
 
         // Mise en évidence de la carte active. Handler O(1) (lecture du widget actif
         // + mise à jour conditionnelle), sans recalcul de la liste.
@@ -99,9 +107,11 @@ export class MapManagerWidget extends ReactWidget {
             this.activeMapId = undefined;
         }
 
-        // Comparaison légère par id + label + type (évite un JSON.stringify fragile
-        // à l'ordre des clés des objets context).
-        const signature = newMaps.map(map => `${map.id}|${map.label}|${map.context.type}`).join('::');
+        // Comparaison légère par id + label + type + zone (évite un JSON.stringify
+        // fragile à l'ordre des clés des objets context).
+        const signature = newMaps
+            .map(map => `${map.id}|${map.label}|${map.context.type}|${map.context.zoneId ?? ''}`)
+            .join('::');
         if (signature !== this.mapsSignature) {
             this.mapsSignature = signature;
             this.openMaps = newMaps;
@@ -152,11 +162,11 @@ export class MapManagerWidget extends ReactWidget {
                                 title={map.label}
                             >
                                 <div className="map-item-icon" aria-hidden="true">
-                                    {this.getMapIcon(map.context.type)}
+                                    {this.getMapIcon(map.context)}
                                 </div>
                                 <div className="map-item-content">
                                     <div className="map-item-label">{map.label}</div>
-                                    <div className="map-item-type">{this.getMapTypeLabel(map.context.type)}</div>
+                                    <div className="map-item-type">{this.getMapTypeLabel(map.context)}</div>
                                 </div>
                                 <div className="map-item-actions">
                                     <button
@@ -191,10 +201,11 @@ export class MapManagerWidget extends ReactWidget {
         );
     }
 
-    private getMapIcon(type: MapContext['type']): string {
-        switch (type) {
-            case 'zone':
-                return '\u{1F5FA}\uFE0F';
+    private getMapIcon(context: MapContext): string {
+        if (this.isZoneMap(context)) {
+            return '\u{1F5FA}\uFE0F';
+        }
+        switch (context.type) {
             case 'geocache':
                 return '\u{1F4CD}';
             default:
@@ -202,10 +213,19 @@ export class MapManagerWidget extends ReactWidget {
         }
     }
 
-    private getMapTypeLabel(type: MapContext['type']): string {
-        switch (type) {
-            case 'zone':
-                return 'Zone';
+    /**
+     * Une carte libre rattachée à une zone après un import est présentée comme une
+     * carte de zone : elle porte désormais le nom de cette zone.
+     */
+    private isZoneMap(context: MapContext): boolean {
+        return context.type === 'zone' || context.zoneId !== undefined;
+    }
+
+    private getMapTypeLabel(context: MapContext): string {
+        if (this.isZoneMap(context)) {
+            return 'Zone';
+        }
+        switch (context.type) {
             case 'geocache':
                 return 'Géocache';
             case 'custom':
