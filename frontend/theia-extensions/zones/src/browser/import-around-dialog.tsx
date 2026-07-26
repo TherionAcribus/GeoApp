@@ -501,9 +501,9 @@ export const ImportAroundDialog: React.FC<ImportAroundDialogProps> = ({
                                 <span style={{ fontSize: 13, color: 'var(--theia-foreground)' }}>Progression</span>
                                 <span style={{ fontSize: 13, color: 'var(--theia-descriptionForeground)' }}>{progressPercentage}%</span>
                             </div>
-                            <div style={{ height: 6, width: '100%', overflow: 'hidden', borderRadius: 3, background: 'var(--theia-progressBar-background)' }}>
+                            <div style={{ height: 6, width: '100%', overflow: 'hidden', borderRadius: 3, background: 'var(--theia-panel-border)' }}>
                                 <div
-                                    style={{ height: '100%', width: `${progressPercentage}%`, background: 'var(--theia-progressBar-foreground)', transition: 'width 0.3s' }}
+                                    style={{ height: '100%', width: `${progressPercentage}%`, background: 'var(--theia-progressBar-background, #0078d4)', transition: 'width 0.3s' }}
                                 />
                             </div>
                             {progressMessage && (

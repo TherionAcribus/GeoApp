@@ -150,7 +150,7 @@ export const ImportDialogShell: React.FC<ImportDialogShellProps> = ({
                                 style={{
                                     width: '100%',
                                     height: '8px',
-                                    backgroundColor: 'var(--theia-progressBar-background)',
+                                    backgroundColor: 'var(--theia-panel-border)',
                                     borderRadius: '4px',
                                     overflow: 'hidden'
                                 }}
@@ -159,7 +159,7 @@ export const ImportDialogShell: React.FC<ImportDialogShellProps> = ({
                                     style={{
                                         width: `${progressPercentage}%`,
                                         height: '100%',
-                                        backgroundColor: 'var(--theia-progressBar-foreground)',
+                                        backgroundColor: 'var(--theia-progressBar-background, #0078d4)',
                                         transition: 'width 0.3s ease'
                                     }}
                                 />
