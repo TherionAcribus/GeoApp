@@ -194,16 +194,36 @@ Si `logTypeId` est fourni (int), il est prioritaire.
 
 ### 6.3 Appel Geocaching.com
 
-Le backend appelle :
-- `POST https://www.geocaching.com/api/live/v1/logs/{GC_CODE}/geocacheLog`
+Le backend appelle l'endpoint tRPC « batch » :
+- `POST https://www.geocaching.com/api/live/v1/trpc/web.logs.createGeocacheLog?batch=1`
+
+> Changement site (juin 2026) : l'ancien endpoint REST
+> `POST /api/live/v1/logs/{GC_CODE}/geocacheLog` a été retiré et renvoyait des réponses
+> sans `logReferenceCode`. Aligné sur c:geo 2026.06.19 (commit `a7e42d3`).
+> Il reste utilisé en repli automatique si le tRPC répond 404/405.
 
 Payload envoyé :
+```json
+{"0": {"referenceCode": "GC_CODE", "body": { ... }}}
+```
+
+Contenu de `body` :
 - `images`: [guid...]
-- `logDate`: ISO UTC (midday) format `...Z`
+- `logDate`: timestamp local sans fuseau, ex. `2026-07-26T12:00:00`
 - `logText`
 - `logType`: int
 - `trackables`: []
+- `geocacheReferenceCode`: `""` (vide pour un log de cache)
 - `usedFavoritePoint`: bool (si applicable)
+
+Réponse attendue :
+```json
+[{"result": {"data": {"logReferenceCode": "GLxxx", ...}}}]
+```
+
+Le déballage est fait par `GeocachingSubmitLogsClient.unwrap_trpc_payload()` ; les erreurs
+métier (`[{"error": {"json": {"message": ...}}}]`) sont extraites par `extract_trpc_error()`
+et remontées dans `error_message`.
 
 ### 6.4 Authentification / cookies
 

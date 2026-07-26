@@ -459,6 +459,9 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     protected globalImages: SelectedLogImage[] = [];
     protected perCacheImages: Record<number, SelectedLogImage[]> = {};
 
+    /** Clé de la zone de dépôt actuellement survolée ('global' ou 'cache-<id>'), pour le retour visuel du drag & drop. */
+    protected dragOverDropZone: string | undefined;
+
     protected isSubmitting = false;
     protected lastSubmitSummary: { ok: number; failed: number } | undefined;
     protected perCacheSubmitStatus: Record<number, SubmissionStatus> = {};
@@ -1226,8 +1229,24 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         const images = target === 'global' ? this.globalImages : (this.perCacheImages[target.geocacheId] ?? []);
         const title = target === 'global' ? 'Photos (appliquées à toutes les géocaches)' : 'Photos';
 
+        const dropZoneKey = target === 'global' ? 'global' : `cache-${target.geocacheId}`;
+        const isDragOver = this.dragOverDropZone === dropZoneKey;
+
+        const carriesFiles = (e: React.DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files');
+
+        const setDragOver = (active: boolean) => {
+            const next = active ? dropZoneKey : undefined;
+            if (this.dragOverDropZone === next) {
+                return;
+            }
+            this.dragOverDropZone = next;
+            this.update();
+        };
+
         const onDrop = (e: React.DragEvent) => {
             e.preventDefault();
+            e.stopPropagation();
+            setDragOver(false);
             if (disabled) {
                 return;
             }
@@ -1239,6 +1258,30 @@ export class GeocacheLogEditorWidget extends ReactWidget {
 
         const onDragOver = (e: React.DragEvent) => {
             e.preventDefault();
+            e.stopPropagation();
+            if (e.dataTransfer) {
+                e.dataTransfer.dropEffect = disabled ? 'none' : 'copy';
+            }
+            if (!disabled && carriesFiles(e)) {
+                setDragOver(true);
+            }
+        };
+
+        const onDragEnter = (e: React.DragEvent) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!disabled && carriesFiles(e)) {
+                setDragOver(true);
+            }
+        };
+
+        const onDragLeave = (e: React.DragEvent) => {
+            // Ignore les passages sur un enfant de la zone : le survol reste actif.
+            const related = e.relatedTarget as Node | null;
+            if (related && e.currentTarget.contains(related)) {
+                return;
+            }
+            setDragOver(false);
         };
 
         return (
@@ -1267,16 +1310,22 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 <div
                     onDrop={onDrop}
                     onDragOver={onDragOver}
+                    onDragEnter={onDragEnter}
+                    onDragLeave={onDragLeave}
                     style={{
-                        border: '1px dashed var(--theia-panel-border)',
+                        border: isDragOver ? '2px dashed var(--theia-focusBorder)' : '1px dashed var(--theia-panel-border)',
                         borderRadius: 6,
-                        padding: 10,
+                        padding: isDragOver ? 9 : 10,
                         fontSize: 12,
+                        textAlign: 'center',
                         opacity: disabled ? 0.6 : 0.9,
-                        background: 'var(--theia-editor-background)',
+                        color: isDragOver ? 'var(--theia-focusBorder)' : undefined,
+                        fontWeight: isDragOver ? 600 : undefined,
+                        background: isDragOver ? 'var(--theia-list-dropBackground, var(--theia-list-hoverBackground))' : 'var(--theia-editor-background)',
+                        transition: 'background 0.12s ease, border-color 0.12s ease',
                     }}
                 >
-                    Glisse-dépose tes images ici
+                    {isDragOver ? 'Dépose ici pour ajouter les images' : 'Glisse-dépose tes images ici'}
                 </div>
 
                 {images.length === 0 ? (
