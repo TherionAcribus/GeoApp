@@ -452,6 +452,10 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     protected logDate = new Date().toISOString().slice(0, 10);
     protected logType: LogTypeValue = 'found';
 
+    protected readonly pinnedLogDateStorageKey = 'geoApp.logs.pinnedDate.v1';
+    /** Quand la date est épinglée, elle est mémorisée et réappliquée à l'ouverture des logs suivants. */
+    protected isLogDatePinned = false;
+
     protected useSameTextForAll = true;
     protected globalText = '';
     protected perCacheText: Record<number, string> = {};
@@ -626,7 +630,10 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             ? entry.perCacheFavorite as Record<number, boolean>
             : {};
 
-        this.logDate = entry.logDate;
+        // Une date épinglée reste prioritaire sur celle de l'entrée d'historique restaurée.
+        if (!this.isLogDatePinned) {
+            this.logDate = entry.logDate;
+        }
         this.useSameTextForAll = entry.useSameTextForAll ?? false;
         this.globalText = entry.globalText ?? '';
         this.perCacheText = perCacheValues;
@@ -668,6 +675,63 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         nextCursor = Math.max(0, Math.min(this.logHistory.length - 1, nextCursor));
         this.logHistoryCursor = nextCursor;
         this.applyHistoryEntry(this.logHistory[nextCursor]);
+    }
+
+    protected getTodayIsoDate(): string {
+        return new Date().toISOString().slice(0, 10);
+    }
+
+    protected isValidIsoDate(value: unknown): value is string {
+        return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
+    }
+
+    /**
+     * Restaure la date épinglée si elle existe, sinon repart sur la date du jour.
+     * La présence d'une entrée en stockage vaut « épinglé ».
+     */
+    protected async loadPinnedLogDate(): Promise<void> {
+        let pinnedDate: string | undefined;
+        try {
+            const stored = await this.storageService.getData<{ date?: string } | undefined>(this.pinnedLogDateStorageKey, undefined);
+            if (stored && typeof stored === 'object' && this.isValidIsoDate(stored.date)) {
+                pinnedDate = stored.date;
+            }
+        } catch (e) {
+            console.error('[GeocacheLogEditorWidget] loadPinnedLogDate error', e);
+        }
+
+        this.isLogDatePinned = pinnedDate !== undefined;
+        this.logDate = pinnedDate ?? this.getTodayIsoDate();
+        this.update();
+    }
+
+    protected async persistPinnedLogDate(): Promise<void> {
+        try {
+            if (this.isLogDatePinned && this.isValidIsoDate(this.logDate)) {
+                await this.storageService.setData(this.pinnedLogDateStorageKey, { date: this.logDate });
+            } else {
+                await this.storageService.setData(this.pinnedLogDateStorageKey, undefined);
+            }
+        } catch (e) {
+            console.error('[GeocacheLogEditorWidget] persistPinnedLogDate error', e);
+        }
+    }
+
+    protected setLogDate(value: string): void {
+        this.logDate = value;
+        this.update();
+        if (this.isLogDatePinned) {
+            void this.persistPinnedLogDate();
+        }
+    }
+
+    protected toggleLogDatePin(): void {
+        this.isLogDatePinned = !this.isLogDatePinned;
+        if (!this.isLogDatePinned) {
+            this.logDate = this.getTodayIsoDate();
+        }
+        this.update();
+        void this.persistPinnedLogDate();
     }
 
     protected escapeHtml(value: string): string {
@@ -849,6 +913,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         void this.refreshLogHistory();
         void this.fetchFavoritePoints();
         void this.loadPatterns();
+        void this.loadPinnedLogDate();
         this.update();
     }
 
@@ -2633,16 +2698,35 @@ ${geocacheContext}`;
                         ✅ Tous les logs ont été envoyés.
                     </div>
                 )}
-                <div style={{ display: 'grid', gridTemplateColumns: '160px 220px 1fr', gap: 12, alignItems: 'end' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '190px 220px 1fr', gap: 12, alignItems: 'end' }}>
                     <div>
                         <label style={{ display: 'block', fontSize: 12, opacity: 0.8, marginBottom: 4 }}>Date</label>
-                        <input
-                            type='date'
-                            className='theia-input'
-                            value={this.logDate}
-                            onChange={e => { this.logDate = e.target.value; this.update(); }}
-                            style={{ width: '100%' }}
-                        />
+                        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                            <input
+                                type='date'
+                                className='theia-input'
+                                value={this.logDate}
+                                onChange={e => { this.setLogDate(e.target.value); }}
+                                style={{ flex: 1, minWidth: 0 }}
+                            />
+                            <button
+                                className='theia-button secondary'
+                                onClick={() => { this.toggleLogDatePin(); }}
+                                title={this.isLogDatePinned
+                                    ? 'Date épinglée : elle sera réutilisée pour les prochains logs. Cliquer pour revenir à la date du jour.'
+                                    : 'Épingler la date pour la réutiliser lors des prochains logs'}
+                                aria-pressed={this.isLogDatePinned}
+                                style={{
+                                    padding: '2px 6px',
+                                    minWidth: 26,
+                                    fontSize: 13,
+                                    opacity: this.isLogDatePinned ? 1 : 0.6,
+                                    color: this.isLogDatePinned ? 'var(--theia-focusBorder)' : undefined,
+                                }}
+                            >
+                                <i className={this.isLogDatePinned ? 'fa fa-thumb-tack' : 'fa fa-thumb-tack fa-rotate-90'} />
+                            </button>
+                        </div>
                     </div>
                     <div>
                         <label style={{ display: 'block', fontSize: 12, opacity: 0.8, marginBottom: 4 }}>Type</label>
