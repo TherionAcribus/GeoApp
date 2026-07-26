@@ -229,6 +229,7 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
         {props.showImportAroundDialog && props.zoneId && (
             <ImportAroundDialog
                 zoneId={props.zoneId}
+                zoneName={props.zones.find(z => z.id === props.zoneId)?.name}
                 initialCenter={props.importAroundDialogInitialCenter}
                 onImport={props.onImportAroundDialogImport}
                 onCancel={props.onCancelImportAroundDialog}

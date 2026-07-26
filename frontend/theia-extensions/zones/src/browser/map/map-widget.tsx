@@ -10,7 +10,14 @@ import { PreferenceService, PreferenceChange } from '@theia/core/lib/common/pref
 import { GeocacheTabsManager } from '../geocache-tabs-manager';
 import { PreferenceScope } from '@theia/core/lib/common/preferences/preference-scope';
 import { GeocachesService } from '../geocaches-service';
+import { ZonesService } from '../zones-service';
 import { GeoAppWidgetEventsService } from '../geoapp-widget-events-service';
+import { ImportAroundService } from '../import-around-service';
+import {
+    ImportAroundCenter,
+    ImportAroundDialog,
+    ImportAroundRequest
+} from '../import-around-dialog';
 
 export interface MapContext {
     type: 'zone' | 'geocache' | 'general' | 'custom';
@@ -44,6 +51,14 @@ export class MapWidget extends ReactWidget {
     private context: MapContext;
     private geocaches: MapGeocache[] = [];
     private mapPreferences: MapViewPreferences;
+    /** Etat du dialog « Importer autour… » ouvert depuis le menu contextuel de la carte. */
+    private importAround: {
+        center?: ImportAroundCenter;
+        zones: Array<{ id: number; name: string }>;
+        defaultZoneId?: number;
+        defaultNewZoneName?: string;
+    } | undefined;
+    private isImporting = false;
     private autoSelectTimeout: ReturnType<typeof setTimeout> | undefined;
     private resizeTimeout: ReturnType<typeof setTimeout> | undefined;
     private readonly geocacheChangeDisposable: { dispose: () => void };
@@ -68,6 +83,8 @@ export class MapWidget extends ReactWidget {
         @inject(GeocacheTabsManager) protected readonly geocacheTabsManager: GeocacheTabsManager,
         @inject(PreferenceService) private readonly preferenceService: PreferenceService,
         @inject(GeocachesService) protected readonly geocachesService: GeocachesService,
+        @inject(ZonesService) protected readonly zonesService: ZonesService,
+        @inject(ImportAroundService) protected readonly importAroundService: ImportAroundService,
         @inject(GeoAppWidgetEventsService) protected readonly widgetEventsService: GeoAppWidgetEventsService,
     ) {
         super();
@@ -221,23 +238,188 @@ export class MapWidget extends ReactWidget {
         const onAddWaypointFromDetected = isBatchOrGeneralMap ? this.handleAddWaypointFromDetected : undefined;
 
         return (
-            <MapView
-                mapId={this.id}
-                mapService={this.mapService}
-                geocaches={this.geocaches}
-                onMapReady={this.handleMapReady}
-                onLoadNearbyGeocaches={this.handleLoadNearbyGeocaches}
-                onAddWaypoint={onAddWaypoint}
-                onAddWaypointFromDetected={onAddWaypointFromDetected}
-                onDeleteWaypoint={onDeleteWaypoint}
-                onSetWaypointAsCorrectedCoords={onSetWaypointAsCorrectedCoords}
-                onSetDetectedAsCorrectedCoords={onSetDetectedAsCorrectedCoords}
-                onOpenGeocacheDetails={this.handleOpenGeocacheDetails}
-                preferences={this.mapPreferences}
-                onPreferenceChange={this.handlePreferenceUpdate}
-                onNotify={this.handleNotify}
-            />
+            <React.Fragment>
+                <MapView
+                    mapId={this.id}
+                    mapService={this.mapService}
+                    geocaches={this.geocaches}
+                    onMapReady={this.handleMapReady}
+                    onLoadNearbyGeocaches={this.handleLoadNearbyGeocaches}
+                    onAddWaypoint={onAddWaypoint}
+                    onAddWaypointFromDetected={onAddWaypointFromDetected}
+                    onDeleteWaypoint={onDeleteWaypoint}
+                    onSetWaypointAsCorrectedCoords={onSetWaypointAsCorrectedCoords}
+                    onSetDetectedAsCorrectedCoords={onSetDetectedAsCorrectedCoords}
+                    onOpenGeocacheDetails={this.handleOpenGeocacheDetails}
+                    onImportAround={this.handleImportAround}
+                    preferences={this.mapPreferences}
+                    onPreferenceChange={this.handlePreferenceUpdate}
+                    onNotify={this.handleNotify}
+                />
+                {this.importAround && (
+                    <ImportAroundDialog
+                        zoneId={this.zoneIdOfContext()}
+                        zoneName={this.zoneNameOfContext()}
+                        zones={this.importAround.zones}
+                        defaultZoneId={this.importAround.defaultZoneId}
+                        defaultNewZoneName={this.importAround.defaultNewZoneName}
+                        initialCenter={this.importAround.center}
+                        onImport={this.handleImportAroundConfirmed}
+                        onCancel={this.closeImportAroundDialog}
+                        isImporting={this.isImporting}
+                    />
+                )}
+            </React.Fragment>
         );
+    }
+
+    /** Zone imposée par le contexte de la carte, ou `undefined` (carte libre, générale, géocache). */
+    private zoneIdOfContext(): number | undefined {
+        return this.context.type === 'zone' ? this.context.id : undefined;
+    }
+
+    /** Nom de la zone du contexte, sans le préfixe du libellé de l'onglet. */
+    private zoneNameOfContext(): string | undefined {
+        if (this.zoneIdOfContext() === undefined) {
+            return undefined;
+        }
+        return this.context.label.replace(/^Zone\s*:\s*/, '');
+    }
+
+    /**
+     * Ouvre le dialog d'import. Sur une carte de zone, la zone cible est imposée ;
+     * sur une carte libre ou générale, l'utilisateur choisit une zone existante ou
+     * en crée une nouvelle.
+     */
+    private handleImportAround = (center: ImportAroundCenter): void => {
+        void this.openImportAroundDialog(center);
+    };
+
+    private async openImportAroundDialog(center: ImportAroundCenter): Promise<void> {
+        const needsTargetChoice = this.zoneIdOfContext() === undefined;
+
+        // Les zones existantes ne sont chargées que si l'utilisateur doit choisir
+        // la destination (carte libre, carte générale, carte de géocache).
+        let zones: Array<{ id: number; name: string }> = [];
+        if (needsTargetChoice) {
+            try {
+                const loaded = await this.zonesService.list();
+                zones = loaded.map(zone => ({ id: zone.id, name: zone.name }));
+            } catch (error) {
+                console.error('[MapWidget] Unable to load zones', error);
+                this.messageService.warn('Impossible de charger la liste des zones : créez une nouvelle zone');
+            }
+        }
+
+        this.importAround = {
+            center,
+            zones,
+            defaultZoneId: needsTargetChoice ? await this.findCenterZoneId(center) : undefined,
+            defaultNewZoneName: needsTargetChoice ? this.suggestNewZoneName(center) : undefined
+        };
+        this.isImporting = false;
+        this.update();
+    }
+
+    /**
+     * Zone de la géocache servant de centre, quand l'import part d'une cache déjà
+     * en base : c'est la destination la plus probable.
+     */
+    private async findCenterZoneId(center: ImportAroundCenter): Promise<number | undefined> {
+        if (center.type !== 'geocache_id') {
+            return undefined;
+        }
+        try {
+            const geocache = await this.geocachesService.get<{ zone_id?: number }>(center.geocache_id);
+            return typeof geocache.zone_id === 'number' ? geocache.zone_id : undefined;
+        } catch (error) {
+            console.error('[MapWidget] Unable to resolve the zone of the center geocache', error);
+            return undefined;
+        }
+    }
+
+    /** Nom proposé pour une nouvelle zone, dérivé du centre de l'import. */
+    private suggestNewZoneName(center: ImportAroundCenter): string {
+        switch (center.type) {
+            case 'geocache_id':
+                return center.gc_code ? `Autour de ${center.gc_code}` : this.context.label;
+            case 'gc_code':
+                return `Autour de ${center.gc_code}`;
+            default:
+                return `Autour de ${center.lat.toFixed(4)}, ${center.lon.toFixed(4)}`;
+        }
+    }
+
+    private closeImportAroundDialog = (): void => {
+        if (this.isImporting) {
+            return;
+        }
+        this.importAround = undefined;
+        this.update();
+    };
+
+    private handleImportAroundConfirmed = async (
+        request: ImportAroundRequest,
+        onProgress?: (percentage: number, message: string) => void
+    ): Promise<void> => {
+        this.isImporting = true;
+        this.update();
+
+        try {
+            const zone = await this.importAroundService.resolveTargetZone(request.target);
+            if (zone.created) {
+                this.messageService.info(`Zone « ${zone.name} » créée`);
+            }
+
+            const summary = await this.importAroundService.run(zone.zoneId, request, {
+                onProgress,
+                onError: message => this.messageService.error(message)
+            });
+
+            this.messageService.info(summary || 'Import terminé');
+            this.widgetEventsService.requestZonesRefresh();
+
+            await this.showZoneGeocachesOnMap(zone.zoneId);
+
+            this.importAround = undefined;
+        } catch (error) {
+            console.error('[MapWidget] Import around failed', error);
+            this.messageService.error('Erreur lors de l\'import autour');
+        } finally {
+            this.isImporting = false;
+            this.update();
+        }
+    };
+
+    /**
+     * Affiche sur la carte les géocaches de la zone de destination, pour que les
+     * caches importées soient visibles immédiatement (les caches déjà affichées
+     * sont conservées : une carte libre peut agréger plusieurs zones).
+     *
+     * Les cartes de géocache sont volontairement laissées inchangées : elles sont
+     * centrées sur une seule cache et ses waypoints.
+     */
+    private async showZoneGeocachesOnMap(zoneId: number): Promise<void> {
+        if (this.context.type === 'geocache') {
+            return;
+        }
+
+        try {
+            const zoneGeocaches = await this.zonesService.listGeocaches<MapGeocacheDto>(zoneId);
+            const merged = new Map<number, MapGeocache>();
+            for (const geocache of this.geocaches) {
+                merged.set(geocache.id, geocache);
+            }
+            for (const dto of zoneGeocaches) {
+                const mapped = this.toMapGeocache(dto);
+                if (mapped) {
+                    merged.set(mapped.id, mapped);
+                }
+            }
+            this.loadGeocaches([...merged.values()]);
+        } catch (error) {
+            console.error('[MapWidget] Unable to refresh geocaches after import', error);
+        }
     }
 
     private handleNotify = (kind: 'info' | 'warn' | 'error', message: string): void => {

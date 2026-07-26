@@ -16,6 +16,7 @@ import { fromLonLat } from 'ol/proj';
 import { GeocacheFeatureProperties } from './map-geocache-style-sprite';
 import { FoundGeocacheDisplayMode } from './map-geocache-style-sprite';
 import { ContextMenu, ContextMenuItem } from '../context-menu';
+import type { ImportAroundCenter } from '../import-around-dialog';
 import {
     geocodeAddress,
     GeocodingConfig,
@@ -52,6 +53,7 @@ export interface MapViewProps {
     onSetWaypointAsCorrectedCoords?: (waypointId: number) => void;  // ✅ Callback pour définir comme coordonnées corrigées
     onSetDetectedAsCorrectedCoords?: (geocacheId: number, gcCoords: string) => void;  // ✅ Callback pour corriger les coordonnées d'une géocache depuis une coordonnée détectée
     onOpenGeocacheDetails?: (geocacheId: number, geocacheName: string) => void;  // ✅ Callback pour ouvrir les détails d'une géocache
+    onImportAround?: (center: ImportAroundCenter) => void;  // ✅ Callback pour importer des géocaches autour d'un point/d'une cache
     preferences?: MapViewPreferences;
     onPreferenceChange?: (key: string, value: unknown) => void;
     onNotify?: (kind: MapNotifyKind, message: string) => void;
@@ -72,6 +74,7 @@ export const MapView: React.FC<MapViewProps> = ({
     onSetWaypointAsCorrectedCoords,
     onSetDetectedAsCorrectedCoords,
     onOpenGeocacheDetails,
+    onImportAround,
     preferences,
     onPreferenceChange,
     onNotify
@@ -82,6 +85,7 @@ export const MapView: React.FC<MapViewProps> = ({
     const layerManagerRef = React.useRef<MapLayerManager | null>(null);
     const overlayRef = React.useRef<Overlay | null>(null);
     const geocachesRef = React.useRef<MapGeocache[]>(geocaches);
+    const onImportAroundRef = React.useRef<MapViewProps['onImportAround']>(onImportAround);
     const fittedGeocacheKeyRef = React.useRef<string | null>(null);
     const [isInitialized, setIsInitialized] = React.useState(false);
     const initialZoomRef = React.useRef(preferences?.defaultZoom ?? 6);
@@ -241,6 +245,12 @@ export const MapView: React.FC<MapViewProps> = ({
     React.useEffect(() => {
         geocachesRef.current = geocaches;
     }, [geocaches]);
+
+    // Le menu contextuel est construit dans un effet monté une seule fois : on lit
+    // le callback d'import via une ref pour toujours utiliser la version courante.
+    React.useEffect(() => {
+        onImportAroundRef.current = onImportAround;
+    }, [onImportAround]);
 
     React.useEffect(() => {
         if (layerManagerRef.current) {
@@ -747,23 +757,23 @@ export const MapView: React.FC<MapViewProps> = ({
                                 }
                             }
                         },
-                        {
+                    ];
+
+                    if (onImportAroundRef.current && props.id !== undefined) {
+                        const geocacheId = props.id;
+                        items.push({
                             label: 'Importer autour…',
                             icon: '📍',
                             action: () => {
-                                window.dispatchEvent(new CustomEvent('geoapp-import-around', {
-                                    detail: {
-                                        center: {
-                                            type: 'geocache_id',
-                                            geocache_id: props.id,
-                                            gc_code: props.gc_code,
-                                            name: props.name
-                                        }
-                                    }
-                                }));
+                                onImportAroundRef.current?.({
+                                    type: 'geocache_id',
+                                    geocache_id: geocacheId,
+                                    gc_code: props.gc_code,
+                                    name: props.name
+                                });
                             }
-                        }
-                    ];
+                        });
+                    }
 
                     setContextMenu({
                         items,
@@ -800,24 +810,19 @@ export const MapView: React.FC<MapViewProps> = ({
                             navigator.clipboard.writeText(`${lat.toFixed(6)}, ${lon.toFixed(6)}`);
                         }
                     },
-                    { separator: true },
-                    {
+                ];
+
+                if (onImportAroundRef.current) {
+                    items.push({ separator: true });
+                    items.push({
                         label: 'Importer autour de ce point…',
                         icon: '📍',
                         action: () => {
-                            window.dispatchEvent(new CustomEvent('geoapp-import-around', {
-                                detail: {
-                                    center: {
-                                        type: 'point',
-                                        lat,
-                                        lon
-                                    }
-                                }
-                            }));
+                            onImportAroundRef.current?.({ type: 'point', lat, lon });
                         }
-                    }
-                ];
-                
+                    });
+                }
+
                 // Ajouter l'option "Ajouter un waypoint" si le callback est disponible
                 if (onAddWaypoint) {
                     items.push({ separator: true });

@@ -29,6 +29,7 @@ import { GeoAppWidgetEventsService } from './geoapp-widget-events-service';
 import { getErrorMessage } from './backend-api-client';
 import { ZoneGeocachesView } from './zone-geocaches-view';
 import { ImportAroundCenter, ImportAroundRequest } from './import-around-dialog';
+import { ImportAroundService } from './import-around-service';
 
 interface SerializedZoneGeocachesState {
     zoneId: number;
@@ -122,6 +123,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         @inject(QuickInputService) protected readonly quickInputService: QuickInputService,
         @inject(ProgressService) protected readonly progressService: ProgressService,
         @inject(GeocachesService) protected readonly geocachesService: GeocachesService,
+        @inject(ImportAroundService) protected readonly importAroundService: ImportAroundService,
         @inject(ZonesService) protected readonly zonesService: ZonesService,
         @inject(GeoAppWidgetEventsService) protected readonly widgetEventsService: GeoAppWidgetEventsService,
     ) {
@@ -568,15 +570,9 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         // désormais gérée globalement dans ZonesFrontendContribution (listener
         // actif même si ce widget n'est pas monté).
 
-        // Écouter les événements "importer autour" depuis la carte
-        window.addEventListener('geoapp-import-around', ((event: any) => {
-            const detail = event?.detail;
-            const center = detail?.center as ImportAroundCenter | undefined;
-            if (!center) {
-                return;
-            }
-            this.startImportAroundWizard(center);
-        }) as any);
+        // Note : l'import « autour de… » déclenché depuis le menu contextuel d'une
+        // carte est géré par MapWidget lui-même, qui connaît la zone cible (ou
+        // demande à l'utilisateur de la choisir pour une carte libre).
     }
 
     private async pickCenterType(): Promise<'point' | 'geocache' | 'gc_code' | undefined> {
@@ -806,72 +802,13 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
 
         const controller = new AbortController();
         try {
-            onProgress?.(0, 'Démarrage…');
-            const payload = {
-                zone_id: this.zoneId,
-                center: request.center,
-                limit: request.limit,
-                ...(request.radius_km !== undefined ? { radius_km: request.radius_km } : {}),
-                ...(request.min_km !== undefined ? { min_km: request.min_km } : {}),
-                ...(request.filters && request.filters.length > 0 ? { filters: request.filters } : {}),
-            };
-            const response = await this.geocachesService.importAround(payload, controller.signal);
+            const summary = await this.importAroundService.run(this.zoneId, request, {
+                onProgress,
+                onError: message => this.messages.error(message),
+                signal: controller.signal,
+            });
 
-            if (!response.body) {
-                throw new Error('Réponse streaming non supportée');
-            }
-
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-
-            let buffer = '';
-            let lastMessage = '';
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) {
-                    break;
-                }
-                buffer += decoder.decode(value, { stream: true });
-
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
-
-                for (const line of lines) {
-                    const trimmed = (line || '').trim();
-                    if (!trimmed) {
-                        continue;
-                    }
-                    try {
-                        const data = JSON.parse(trimmed);
-                        if (data.error) {
-                            const msg = data.message || 'Erreur lors de l\'import';
-                            onProgress?.(0, msg);
-                            this.messages.error(msg);
-                            continue;
-                        }
-
-                        const pct = typeof data.progress === 'number' ? data.progress : undefined;
-                        const msg = data.message || '';
-
-                        if (pct !== undefined) {
-                            onProgress?.(pct, msg);
-                        }
-
-                        if (data.final_summary) {
-                            lastMessage = msg;
-                        }
-                    } catch (e) {
-                        console.error('Error parsing import-around progress data:', e);
-                    }
-                }
-            }
-
-            if (lastMessage) {
-                this.messages.info(lastMessage);
-            } else {
-                this.messages.info('Import terminé');
-            }
+            this.messages.info(summary || 'Import terminé');
 
             await this.refreshZoneData();
         } catch (e) {

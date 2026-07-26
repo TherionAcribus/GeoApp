@@ -1,0 +1,80 @@
+{
+  "name": "leet_code",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Leet speak (1337) : encode un texte en substituant les lettres par des chiffres/symboles et décode du leet vers du texte. Le chiffre 1 étant ambigu (L ou I), le décodage propose les variantes possibles, classées par vraisemblance.",
+  "author": "MysterAI",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": [
+    "AlphabetsDecryption"
+  ],
+  "kinds": [
+    "code"
+  ],
+  "brute_force": false,
+  "enable_scoring": true,
+  "accept_accents": false,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "text": {
+      "type": "string",
+      "label": "Texte à traiter",
+      "placeholder": "Ex. : 1337 5p34k  ou  LEET SPEAK",
+      "required": true
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": [
+        {"value": "decode", "label": "Décoder (leet → texte)"},
+        {"value": "encode", "label": "Encoder (texte → leet)"}
+      ],
+      "default": "decode",
+      "required": true
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Texte transformé"
+    }
+  },
+  "text_handling": {
+    "fields": [
+      "text"
+    ],
+    "allowed_ranges": [
+      "0020-007E"
+    ],
+    "allowed_characters": "€øµ¢",
+    "unknown_char_policy": "keep",
+    "normalize": {
+      "remove_diacritics": false,
+      "case": "upper",
+      "map_characters": {}
+    }
+  },
+  "metasolver": {
+    "eligible": true,
+    "input_charset": "mixed",
+    "tags": ["substitution", "leet", "no_key", "digits"],
+    "priority": 35,
+    "family": "substitution",
+    "preferred_when": ["digits_and_letters"],
+    "requires_key": false
+  }
+}

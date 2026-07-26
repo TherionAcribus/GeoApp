@@ -18,8 +18,17 @@ export type ImportAroundCenter =
     | { type: 'geocache_id'; geocache_id: number; gc_code?: string; name?: string }
     | { type: 'gc_code'; gc_code: string };
 
+/**
+ * Zone de destination des géocaches importées : une zone déjà existante, ou une
+ * nouvelle zone à créer (cas des cartes libres, qui ne dépendent d'aucune zone).
+ */
+export type ImportAroundTarget =
+    | { type: 'existing_zone'; zone_id: number }
+    | { type: 'new_zone'; name: string };
+
 export interface ImportAroundRequest {
     center: ImportAroundCenter;
+    target: ImportAroundTarget;
     limit: number;
     radius_km?: number;
     min_km?: number;
@@ -27,7 +36,19 @@ export interface ImportAroundRequest {
 }
 
 export interface ImportAroundDialogProps {
-    zoneId: number;
+    /**
+     * Zone cible imposée (onglet ou carte de zone). Si absent, l'utilisateur
+     * choisit lui-même la destination : zone existante ou nouvelle zone.
+     */
+    zoneId?: number;
+    /** Nom de la zone cible, affiché quand `zoneId` est imposé. */
+    zoneName?: string;
+    /** Zones disponibles pour le choix de la destination (ignoré si `zoneId` est fourni). */
+    zones?: Array<{ id: number; name: string }>;
+    /** Zone présélectionnée parmi `zones` (ex. zone de la géocache servant de centre). */
+    defaultZoneId?: number;
+    /** Nom proposé par défaut pour une nouvelle zone. */
+    defaultNewZoneName?: string;
     initialCenter?: ImportAroundCenter;
     onImport: (
         request: ImportAroundRequest,
@@ -39,6 +60,10 @@ export interface ImportAroundDialogProps {
 
 export const ImportAroundDialog: React.FC<ImportAroundDialogProps> = ({
     zoneId,
+    zoneName,
+    zones = [],
+    defaultZoneId,
+    defaultNewZoneName,
     initialCenter,
     onImport,
     onCancel,
@@ -78,6 +103,33 @@ export const ImportAroundDialog: React.FC<ImportAroundDialogProps> = ({
         return '';
     });
 
+    /** Vrai quand la carte/onglet source n'impose pas de zone (carte libre, carte générale…). */
+    const needsTargetChoice = zoneId === undefined;
+
+    const [targetMode, setTargetMode] = React.useState<'existing' | 'new'>(
+        () => (zones.length > 0 ? 'existing' : 'new')
+    );
+    const [targetZoneId, setTargetZoneId] = React.useState<number | undefined>(() => (
+        defaultZoneId !== undefined && zones.some(zone => zone.id === defaultZoneId)
+            ? defaultZoneId
+            : zones[0]?.id
+    ));
+    const [newZoneName, setNewZoneName] = React.useState<string>(defaultNewZoneName ?? '');
+
+    // Garde la zone sélectionnée cohérente avec la liste reçue (liste vide, zone
+    // supprimée entre-temps…).
+    const zonesSignature = zones.map(zone => zone.id).join(',');
+    React.useEffect(() => {
+        if (zones.length === 0) {
+            setTargetMode('new');
+            return;
+        }
+        setTargetZoneId(current => (
+            current !== undefined && zones.some(zone => zone.id === current) ? current : zones[0].id
+        ));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [zonesSignature]);
+
     const [limit, setLimit] = React.useState<string>('50');
     const [filterQuery, setFilterQuery] = React.useState<string>('');
     const [filterClauses, setFilterClauses] = React.useState<AdvancedFilterClause[]>([]);
@@ -112,9 +164,31 @@ export const ImportAroundDialog: React.FC<ImportAroundDialogProps> = ({
         setProgressMessage('');
     }, []);
 
+    const buildTarget = React.useCallback((): ImportAroundTarget | null => {
+        if (zoneId !== undefined) {
+            return { type: 'existing_zone', zone_id: zoneId };
+        }
+        if (targetMode === 'existing') {
+            if (targetZoneId === undefined) {
+                return null;
+            }
+            return { type: 'existing_zone', zone_id: targetZoneId };
+        }
+        const name = newZoneName.trim();
+        if (!name) {
+            return null;
+        }
+        return { type: 'new_zone', name };
+    }, [newZoneName, targetMode, targetZoneId, zoneId]);
+
     const buildRequest = React.useCallback((): ImportAroundRequest | null => {
         const parsedLimit = parseInt(limit, 10);
         if (!Number.isFinite(parsedLimit) || parsedLimit <= 0) {
+            return null;
+        }
+
+        const target = buildTarget();
+        if (!target) {
             return null;
         }
 
@@ -157,6 +231,14 @@ export const ImportAroundDialog: React.FC<ImportAroundDialogProps> = ({
             }
         }
 
+        const common = {
+            target,
+            limit: parsedLimit,
+            ...(radius_km !== undefined ? { radius_km } : {}),
+            ...(min_km !== undefined ? { min_km } : {}),
+            ...(geocacheFilters.length > 0 ? { filters: geocacheFilters } : {}),
+        };
+
         if (mode === 'point') {
             const latValue = Number(lat);
             const lonValue = Number(lon);
@@ -165,10 +247,7 @@ export const ImportAroundDialog: React.FC<ImportAroundDialogProps> = ({
             }
             return {
                 center: { type: 'point', lat: latValue, lon: lonValue },
-                limit: parsedLimit,
-                ...(radius_km !== undefined ? { radius_km } : {}),
-                ...(min_km !== undefined ? { min_km } : {}),
-                ...(geocacheFilters.length > 0 ? { filters: geocacheFilters } : {}),
+                ...common,
             };
         }
 
@@ -178,12 +257,9 @@ export const ImportAroundDialog: React.FC<ImportAroundDialogProps> = ({
         }
         return {
             center: { type: 'gc_code', gc_code: code },
-            limit: parsedLimit,
-            ...(radius_km !== undefined ? { radius_km } : {}),
-            ...(min_km !== undefined ? { min_km } : {}),
-            ...(geocacheFilters.length > 0 ? { filters: geocacheFilters } : {}),
+            ...common,
         };
-    }, [gcCode, lat, limit, lon, mode, filterQuery, filterClauses]);
+    }, [buildTarget, gcCode, lat, limit, lon, mode, filterQuery, filterClauses]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -254,9 +330,76 @@ export const ImportAroundDialog: React.FC<ImportAroundDialogProps> = ({
                     </button>
                 </div>
 
-                <p style={{ marginBottom: 12, fontSize: 12, color: 'var(--theia-descriptionForeground)' }}>Zone cible: {zoneId}</p>
+                {!needsTargetChoice && (
+                    <p style={{ marginBottom: 12, fontSize: 12, color: 'var(--theia-descriptionForeground)' }}>
+                        Zone cible: {zoneName || zoneId}
+                    </p>
+                )}
 
                 <form onSubmit={handleSubmit}>
+                    {needsTargetChoice && (
+                        <div
+                            style={{
+                                marginBottom: 16,
+                                padding: 12,
+                                borderRadius: 4,
+                                border: '1px solid var(--theia-panel-border)',
+                                background: 'var(--theia-editorWidget-background)',
+                            }}
+                        >
+                            <label style={{ ...labelStyle, marginBottom: 8, fontWeight: 600 }}>Zone de destination</label>
+                            <p style={{ marginBottom: 8, fontSize: 11, color: 'var(--theia-descriptionForeground)' }}>
+                                Cette carte n'est rattachée à aucune zone : choisissez où enregistrer les géocaches importées.
+                            </p>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                                    <input
+                                        type="radio"
+                                        checked={targetMode === 'existing'}
+                                        onChange={() => setTargetMode('existing')}
+                                        disabled={isImporting || zones.length === 0}
+                                    />
+                                    <span style={{ color: 'var(--theia-foreground)' }}>Zone existante</span>
+                                </label>
+
+                                {targetMode === 'existing' && (
+                                    <select
+                                        value={targetZoneId !== undefined ? String(targetZoneId) : ''}
+                                        onChange={(e) => setTargetZoneId(e.target.value ? Number(e.target.value) : undefined)}
+                                        disabled={isImporting || zones.length === 0}
+                                        style={inputStyle}
+                                    >
+                                        {zones.length === 0 && <option value="">Aucune zone disponible</option>}
+                                        {zones.map((zone) => (
+                                            <option key={zone.id} value={zone.id}>{zone.name}</option>
+                                        ))}
+                                    </select>
+                                )}
+
+                                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                                    <input
+                                        type="radio"
+                                        checked={targetMode === 'new'}
+                                        onChange={() => setTargetMode('new')}
+                                        disabled={isImporting}
+                                    />
+                                    <span style={{ color: 'var(--theia-foreground)' }}>Nouvelle zone</span>
+                                </label>
+
+                                {targetMode === 'new' && (
+                                    <input
+                                        value={newZoneName}
+                                        onChange={(e) => setNewZoneName(e.target.value)}
+                                        disabled={isImporting}
+                                        placeholder="Nom de la nouvelle zone"
+                                        style={inputStyle}
+                                    />
+                                )}
+                            </div>
+                        </div>
+                    )}
+
                     <div style={{ marginBottom: 12, display: 'flex', flexWrap: 'wrap', gap: 12 }}>
                         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
                             <input
