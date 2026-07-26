@@ -44,6 +44,9 @@ Cette documentation couvre :
 - `LogTypeValue` : `'found' | 'dnf' | 'note'`
 - `SubmissionStatus` : `'ok' | 'failed' | 'skipped'`
 - `ImageUploadStatus` : `'pending' | 'uploading' | 'ok' | 'failed'`
+  - Libellés affichés : `pending` → « 📎 Prête — sera envoyée avec le log » (+ taille du fichier), `uploading` → « ⬆️ Envoi en cours… », `ok` → « ✅ Envoyée à Geocaching.com » (le `imageGuid` est en infobulle), `failed` → « ⚠️ <erreur> ».
+  - L'upload étant différé au moment de la soumission, `pending` signifie « chargée dans l'app, pas encore transmise » : le libellé doit rester non anxiogène.
+  - Chaque image sélectionnée est affichée avec une miniature (`URL.createObjectURL`), mutualisée par `File` dans `previewUrlByFile` et libérée par `releaseUnusedPreviewUrls()` (suppression d'une image, changement de contexte).
 
 #### 3.1.1 Image sélectionnée
 

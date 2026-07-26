@@ -462,6 +462,9 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     /** Clé de la zone de dépôt actuellement survolée ('global' ou 'cache-<id>'), pour le retour visuel du drag & drop. */
     protected dragOverDropZone: string | undefined;
 
+    /** Object URLs des miniatures, mutualisées par fichier (le même File peut être référencé par plusieurs entrées). */
+    protected previewUrlByFile = new Map<File, string>();
+
     protected isSubmitting = false;
     protected lastSubmitSummary: { ok: number; failed: number } | undefined;
     protected perCacheSubmitStatus: Record<number, SubmissionStatus> = {};
@@ -1049,6 +1052,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         this.perCacheSubmitReference = {};
         this.globalImages = [];
         this.perCacheImages = {};
+        this.releaseUnusedPreviewUrls();
 
         if (params.title) {
             this.title.label = params.title;
@@ -1104,6 +1108,57 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         this.update();
     }
 
+    /** Renvoie (en la créant au besoin) l'object URL de prévisualisation d'un fichier image. */
+    protected getPreviewUrl(file: File): string | undefined {
+        const existing = this.previewUrlByFile.get(file);
+        if (existing) {
+            return existing;
+        }
+        try {
+            const url = URL.createObjectURL(file);
+            this.previewUrlByFile.set(file, url);
+            return url;
+        } catch (e) {
+            console.warn('[GeocacheLogEditorWidget] createObjectURL failed', e);
+            return undefined;
+        }
+    }
+
+    /** Libère les object URLs des fichiers qui ne sont plus référencés par aucune sélection. */
+    protected releaseUnusedPreviewUrls(): void {
+        const inUse = new Set<File>();
+        for (const img of this.globalImages) {
+            inUse.add(img.file);
+        }
+        for (const list of Object.values(this.perCacheImages)) {
+            for (const img of list) {
+                inUse.add(img.file);
+            }
+        }
+        for (const [file, url] of Array.from(this.previewUrlByFile.entries())) {
+            if (!inUse.has(file)) {
+                try {
+                    URL.revokeObjectURL(url);
+                } catch {
+                }
+                this.previewUrlByFile.delete(file);
+            }
+        }
+    }
+
+    protected formatFileSize(bytes: number): string {
+        if (!Number.isFinite(bytes) || bytes < 0) {
+            return '';
+        }
+        if (bytes < 1024) {
+            return `${bytes} o`;
+        }
+        if (bytes < 1024 * 1024) {
+            return `${(bytes / 1024).toFixed(0)} Ko`;
+        }
+        return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
+    }
+
     protected generateId(): string {
         try {
             const w: any = window as any;
@@ -1143,6 +1198,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             const current = this.perCacheImages[target.geocacheId] ?? [];
             this.perCacheImages = { ...this.perCacheImages, [target.geocacheId]: current.filter(img => img.id !== imageId) };
         }
+        this.releaseUnusedPreviewUrls();
         this.update();
     }
 
@@ -1332,17 +1388,46 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                     <div style={{ marginTop: 8, fontSize: 12, opacity: 0.7 }}>Aucune photo</div>
                 ) : (
                     <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>
-                        {images.map(img => (
+                        {images.map(img => {
+                            const previewUrl = this.getPreviewUrl(img.file);
+                            const size = this.formatFileSize(img.file.size);
+                            return (
                             <div key={img.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', fontSize: 12 }}>
-                                <div style={{ minWidth: 0 }}>
-                                    <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={img.file.name}>
-                                        {img.file.name}
+                                <div style={{ display: 'flex', gap: 8, alignItems: 'center', minWidth: 0 }}>
+                                    <div
+                                        style={{
+                                            width: 44,
+                                            height: 44,
+                                            flex: '0 0 auto',
+                                            borderRadius: 4,
+                                            border: '1px solid var(--theia-panel-border)',
+                                            background: 'var(--theia-editorWidget-background)',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            overflow: 'hidden',
+                                        }}
+                                    >
+                                        {previewUrl ? (
+                                            <img
+                                                src={previewUrl}
+                                                alt={img.file.name}
+                                                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                                            />
+                                        ) : (
+                                            <span style={{ opacity: 0.6 }}>🖼️</span>
+                                        )}
                                     </div>
-                                    <div style={{ opacity: 0.8 }}>
-                                        {img.status === 'pending' && '⏳ en attente'}
-                                        {img.status === 'uploading' && '⬆️ upload…'}
-                                        {img.status === 'ok' && `✅ ${img.imageGuid ?? 'ok'}`}
-                                        {img.status === 'failed' && `⚠️ ${img.error ?? 'échec'}`}
+                                    <div style={{ minWidth: 0 }}>
+                                        <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={img.file.name}>
+                                            {img.file.name}
+                                        </div>
+                                        <div style={{ opacity: 0.8 }} title={img.status === 'ok' ? img.imageGuid : undefined}>
+                                            {img.status === 'pending' && `📎 Prête — sera envoyée avec le log${size ? ` · ${size}` : ''}`}
+                                            {img.status === 'uploading' && '⬆️ Envoi en cours…'}
+                                            {img.status === 'ok' && '✅ Envoyée à Geocaching.com'}
+                                            {img.status === 'failed' && `⚠️ ${img.error ?? 'échec'}`}
+                                        </div>
                                     </div>
                                 </div>
                                 <button
@@ -1355,7 +1440,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                                     Supprimer
                                 </button>
                             </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 )}
             </div>
