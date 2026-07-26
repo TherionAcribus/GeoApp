@@ -52,9 +52,12 @@ export class MapWidgetFactory {
 
         const targetWidgetId = widget.id;
         
-        // Charger les géocaches si fournies
-        if (geocaches && geocaches.length > 0) {
-            
+        // Charger les géocaches si fournies. Une liste vide est significative (zone
+        // vide, ou dont les caches viennent d'être supprimées) : elle vide la carte.
+        // Ne pas passer de liste du tout (carte libre, carte générale) laisse en
+        // revanche le contenu existant intact.
+        if (geocaches) {
+
             // Si le widget existe déjà, charger immédiatement
             if (widget.isAttached) {
                 widget.loadGeocaches(geocaches);

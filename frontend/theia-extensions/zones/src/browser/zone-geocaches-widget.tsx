@@ -1017,24 +1017,20 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             // l'événement onDidChangeZoneList — inutile de la refetch à chaque action.
 
             // Charger les géocaches sur la carte (avec waypoints)
-            const geocachesWithCoords = this.rows.filter(gc => 
-                gc.latitude !== null && 
-                gc.latitude !== undefined && 
-                gc.longitude !== null && 
+            const geocachesWithCoords = this.rows.filter(gc =>
+                gc.latitude !== null &&
+                gc.latitude !== undefined &&
+                gc.longitude !== null &&
                 gc.longitude !== undefined
             );
-            
-            
-            if (geocachesWithCoords.length > 0 && this.zoneId && this.zoneName) {
-                // Préparer les données pour la carte
+
+            // La carte est ouverte même pour une zone vide : elle sert aussi à
+            // remplir la zone (menu contextuel « Importer autour… »).
+            if (this.zoneId && this.zoneName) {
                 const mapGeocaches = geocachesWithCoords.map(gc => this.toMapGeocache(gc));
-                
-                
-                // Ouvrir une carte spécifique à cette zone
                 this.mapWidgetFactory.openMapForZone(this.zoneId, this.zoneName, mapGeocaches);
-            } else {
             }
-            
+
         } catch (e) {
             console.error('ZoneGeocachesWidget: load error', e);
             this.messages.warn('Impossible de charger les géocaches de la zone');
