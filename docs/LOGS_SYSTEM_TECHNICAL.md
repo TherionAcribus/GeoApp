@@ -100,6 +100,25 @@ Note : l’historique est **global** (pas lié à une cache ni à une liste de c
   - `totalFavoritePoints: number` - Nombre total de PF disponibles (récupéré depuis l'API auth)
   - `isFetchingFavoritePoints: boolean` - Indicateur de chargement des PF
 
+## 3.3 Rendu Markdown
+
+Geocaching.com interprète les logs en Markdown (cf. [guide officiel](https://www.geocaching.com/guide/markdown.aspx)).
+Le rendu est mutualisé entre l'aperçu de l'éditeur et l'affichage des logs récupérés :
+
+- `log-markdown.ts` : analyse pure (sans React), donc testable
+  - `tokenizeInlineMarkdown()` : gras, italique, code inline, liens
+  - `parseMarkdownBlocks()` : paragraphes, titres, listes, citations, blocs de code
+  - `sanitizeLogUrl()` : n'autorise que `http(s)` dans les liens (logs d'autres joueurs)
+- `log-markdown-renderer.tsx` : rendu React (`renderLogMarkdown`, `renderInlineLogMarkdown`)
+- Consommateurs : `geocache-log-editor-widget.tsx` (aperçu) et `geocache-logs-widget.tsx` (liste des logs)
+
+**Règle des emphases** : comme sur Geocaching.com, les délimiteurs doivent être collés au texte.
+`**gras**` fonctionne, `**pas gras **` (espace avant la fermeture) reste affiché littéralement.
+L'aperçu applique la même règle que le site, afin de ne pas promettre une mise en forme
+qui n'apparaîtra pas dans le log publié.
+
+Tests : `src/browser/tests/log-markdown.test.ts` (`npm run test:geoapp` dans l'extension `zones`).
+
 ## 4. Historique global (persistance)
 
 ### 4.1 Stockage

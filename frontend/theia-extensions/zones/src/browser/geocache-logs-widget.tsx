@@ -14,6 +14,7 @@ import { GeoAppLogsAnalyzerAgentId } from './geoapp-logs-analyzer-agent';
 import { LogsRecentSummary, LogSummaryEntry, LogsRecentSummaryApiResponse } from './geocache-logs-summary';
 import { EmptyState, LoadingState } from './state-views';
 import { getLogTypeColor, getLogTypeIcon } from './geocache-log-type-style';
+import { renderLogMarkdown } from './log-markdown-renderer';
 
 /**
  * Interface représentant un log de géocache
@@ -163,7 +164,7 @@ const LogItem: React.FC<LogItemProps> = ({ log }) => {
                     fontSize: 13,
                     lineHeight: 1.5
                 }}>
-                    {displayText}
+                    {renderLogMarkdown(displayText, `log-${log.id}`)}
                     {isLong && (
                         <button
                             onClick={() => setExpanded(!expanded)}

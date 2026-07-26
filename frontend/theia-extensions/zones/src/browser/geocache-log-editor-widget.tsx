@@ -1,4 +1,4 @@
-import * as React from '@theia/core/shared/react';
+﻿import * as React from '@theia/core/shared/react';
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core';
@@ -15,6 +15,8 @@ import {
     SortingState,
 } from '@tanstack/react-table';
 import { GeocacheIcon } from './geocache-icon';
+import { renderInlineLogMarkdown, renderLogMarkdown } from './log-markdown-renderer';
+import { sanitizeLogUrl } from './log-markdown';
 
 type LogTypeValue = 'found' | 'dnf' | 'note';
 
@@ -675,14 +677,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     }
 
     protected sanitizeUrl(url: string): string | undefined {
-        const trimmed = (url || '').trim();
-        if (!trimmed) {
-            return undefined;
-        }
-        if (/^https?:\/\//i.test(trimmed)) {
-            return trimmed;
-        }
-        return undefined;
+        return sanitizeLogUrl(url);
     }
 
     protected scheduleRestoreSelection(
@@ -711,238 +706,11 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     }
 
     protected renderInlineMarkdown(text: string, keyPrefix: string): React.ReactNode[] {
-        const nodes: React.ReactNode[] = [];
-        let remaining = text || '';
-        let idx = 0;
-
-        const pushText = (t: string) => {
-            if (t) {
-                nodes.push(<React.Fragment key={`${keyPrefix}-t-${idx++}`}>{t}</React.Fragment>);
-            }
-        };
-
-        while (remaining.length > 0) {
-            const candidates: Array<{ kind: 'code' | 'bold' | 'italic' | 'link'; pos: number }> = [];
-            const codePos = remaining.indexOf('`');
-            if (codePos >= 0) candidates.push({ kind: 'code', pos: codePos });
-            const boldPos = remaining.indexOf('**');
-            if (boldPos >= 0) candidates.push({ kind: 'bold', pos: boldPos });
-            const italicPos = remaining.indexOf('*');
-            if (italicPos >= 0) candidates.push({ kind: 'italic', pos: italicPos });
-            const linkPos = remaining.indexOf('[');
-            if (linkPos >= 0) candidates.push({ kind: 'link', pos: linkPos });
-
-            if (candidates.length === 0) {
-                pushText(remaining);
-                break;
-            }
-
-            candidates.sort((a, b) => a.pos - b.pos);
-            const next = candidates[0];
-            if (next.pos > 0) {
-                pushText(remaining.slice(0, next.pos));
-                remaining = remaining.slice(next.pos);
-            }
-
-            if (next.kind === 'code' && remaining.startsWith('`')) {
-                const end = remaining.indexOf('`', 1);
-                if (end > 0) {
-                    const content = remaining.slice(1, end);
-                    nodes.push(<code key={`${keyPrefix}-c-${idx++}`}>{content}</code>);
-                    remaining = remaining.slice(end + 1);
-                    continue;
-                }
-            }
-
-            if (next.kind === 'bold' && remaining.startsWith('**')) {
-                const end = remaining.indexOf('**', 2);
-                if (end > 1) {
-                    const content = remaining.slice(2, end);
-                    nodes.push(<strong key={`${keyPrefix}-b-${idx++}`}>{content}</strong>);
-                    remaining = remaining.slice(end + 2);
-                    continue;
-                }
-            }
-
-            if (next.kind === 'italic' && remaining.startsWith('*') && !remaining.startsWith('**')) {
-                const end = remaining.indexOf('*', 1);
-                if (end > 0) {
-                    const content = remaining.slice(1, end);
-                    nodes.push(<em key={`${keyPrefix}-i-${idx++}`}>{content}</em>);
-                    remaining = remaining.slice(end + 1);
-                    continue;
-                }
-            }
-
-            if (next.kind === 'link' && remaining.startsWith('[')) {
-                const closeBracket = remaining.indexOf(']');
-                if (closeBracket > 0 && remaining[closeBracket + 1] === '(') {
-                    const closeParen = remaining.indexOf(')', closeBracket + 2);
-                    if (closeParen > closeBracket + 2) {
-                        const label = remaining.slice(1, closeBracket);
-                        const url = remaining.slice(closeBracket + 2, closeParen);
-                        const safeUrl = this.sanitizeUrl(url);
-                        if (safeUrl) {
-                            nodes.push(
-                                <a
-                                    key={`${keyPrefix}-l-${idx++}`}
-                                    href={safeUrl}
-                                    target='_blank'
-                                    rel='noreferrer'
-                                    style={{ color: 'var(--theia-textLink-foreground)' }}
-                                >
-                                    {label}
-                                </a>
-                            );
-                        } else {
-                            nodes.push(<React.Fragment key={`${keyPrefix}-l-${idx++}`}>{label} ({url})</React.Fragment>);
-                        }
-                        remaining = remaining.slice(closeParen + 1);
-                        continue;
-                    }
-                }
-            }
-
-            pushText(remaining.slice(0, 1));
-            remaining = remaining.slice(1);
-        }
-
-        return nodes;
+        return renderInlineLogMarkdown(text, keyPrefix);
     }
 
     protected renderMarkdown(text: string, keyPrefix: string): React.ReactNode {
-        const lines = (text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
-        const blocks: React.ReactNode[] = [];
-        let i = 0;
-
-        const pushParagraph = (paragraphLines: string[], key: string) => {
-            const joined = paragraphLines.join('\n');
-            const parts = joined.split('\n');
-            blocks.push(
-                <p key={key} style={{ margin: '6px 0', whiteSpace: 'pre-wrap' }}>
-                    {parts.map((p, pi) => (
-                        <React.Fragment key={`${key}-p-${pi}`}>
-                            {this.renderInlineMarkdown(p, `${key}-in-${pi}`)}
-                            {pi < parts.length - 1 ? <br /> : null}
-                        </React.Fragment>
-                    ))}
-                </p>
-            );
-        };
-
-        while (i < lines.length) {
-            const raw = lines[i];
-            const line = raw ?? '';
-
-            if (/^```/.test(line.trim())) {
-                const start = i;
-                i += 1;
-                const codeLines: string[] = [];
-                while (i < lines.length && !/^```/.test((lines[i] ?? '').trim())) {
-                    codeLines.push(lines[i] ?? '');
-                    i += 1;
-                }
-                if (i < lines.length) {
-                    i += 1;
-                }
-                const code = codeLines.join('\n');
-                blocks.push(
-                    <pre
-                        key={`${keyPrefix}-code-${start}`}
-                        style={{
-                            margin: '8px 0',
-                            padding: 10,
-                            borderRadius: 6,
-                            border: '1px solid var(--theia-panel-border)',
-                            background: 'var(--theia-editor-background)',
-                            overflow: 'auto',
-                            fontSize: 12,
-                        }}
-                    >
-                        <code>{code}</code>
-                    </pre>
-                );
-                continue;
-            }
-
-            const hMatch = /^(#{1,3})\s+(.*)$/.exec(line);
-            if (hMatch) {
-                const level = hMatch[1].length;
-                const content = hMatch[2] || '';
-                const Tag = (level === 1 ? 'h1' : level === 2 ? 'h2' : 'h3') as any;
-                blocks.push(
-                    <Tag key={`${keyPrefix}-h-${i}`} style={{ margin: '10px 0 6px 0' }}>
-                        {this.renderInlineMarkdown(content, `${keyPrefix}-h-in-${i}`)}
-                    </Tag>
-                );
-                i += 1;
-                continue;
-            }
-
-            if (/^>\s+/.test(line)) {
-                const quoteLines: string[] = [];
-                const start = i;
-                while (i < lines.length && /^>\s+/.test(lines[i] ?? '')) {
-                    quoteLines.push((lines[i] ?? '').replace(/^>\s+/, ''));
-                    i += 1;
-                }
-                blocks.push(
-                    <blockquote
-                        key={`${keyPrefix}-q-${start}`}
-                        style={{
-                            margin: '8px 0',
-                            paddingLeft: 10,
-                            borderLeft: '3px solid var(--theia-panel-border)',
-                            opacity: 0.9,
-                        }}
-                    >
-                        {this.renderMarkdown(quoteLines.join('\n'), `${keyPrefix}-q-inner-${start}`)}
-                    </blockquote>
-                );
-                continue;
-            }
-
-            if (/^\s*[-*]\s+/.test(line)) {
-                const items: string[] = [];
-                const start = i;
-                while (i < lines.length && /^\s*[-*]\s+/.test(lines[i] ?? '')) {
-                    items.push((lines[i] ?? '').replace(/^\s*[-*]\s+/, ''));
-                    i += 1;
-                }
-                blocks.push(
-                    <ul key={`${keyPrefix}-ul-${start}`} style={{ margin: '6px 0 6px 20px' }}>
-                        {items.map((it, ii) => (
-                            <li key={`${keyPrefix}-ul-${start}-${ii}`}>
-                                {this.renderInlineMarkdown(it, `${keyPrefix}-ul-in-${start}-${ii}`)}
-                            </li>
-                        ))}
-                    </ul>
-                );
-                continue;
-            }
-
-            if (!line.trim()) {
-                i += 1;
-                continue;
-            }
-
-            const paragraphLines: string[] = [];
-            const start = i;
-            while (
-                i < lines.length &&
-                (lines[i] ?? '').trim() &&
-                !/^(#{1,3})\s+/.test(lines[i] ?? '') &&
-                !/^```/.test((lines[i] ?? '').trim()) &&
-                !/^>\s+/.test(lines[i] ?? '') &&
-                !/^\s*[-*]\s+/.test(lines[i] ?? '')
-            ) {
-                paragraphLines.push(lines[i] ?? '');
-                i += 1;
-            }
-            pushParagraph(paragraphLines, `${keyPrefix}-p-${start}`);
-        }
-
-        return <div style={{ display: 'grid', gap: 4 }}>{blocks}</div>;
+        return renderLogMarkdown(text, keyPrefix);
     }
 
     protected applyEditorValue(editor: { type: 'global' } | { type: 'per-cache'; geocacheId: number }, nextValue: string): void {
