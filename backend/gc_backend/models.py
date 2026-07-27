@@ -40,6 +40,41 @@ class AppConfig(db.Model):
             entry.value = value
 
 
+class FriendFind(db.Model):
+    """
+    « Cet ami a trouvé cette cache », sans limite de date.
+
+    Deux sources alimentent cette table (cf. documentation/amis-geocaching-technique.md) :
+    - le **complément du filtre `nfb`** de la recherche web, qui donne d'un coup
+      toutes les trouvailles d'un ami sur une zone, quel que soit leur âge ;
+    - les **logs d'amis** relevés au rafraîchissement des logs d'une cache.
+
+    On stocke le code GC plutôt qu'une clé étrangère : une cache trouvée par un
+    ami n'est pas forcément (encore) importée dans GeoApp.
+    """
+    __tablename__ = 'friend_find'
+
+    id = db.Column(db.Integer, primary_key=True)
+    friend_username = db.Column(db.String(150), nullable=False, index=True)
+    gc_code = db.Column(db.String(30), nullable=False, index=True)
+    source = db.Column(db.String(20), nullable=False, default='zone_search')
+    first_seen_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    last_seen_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        db.UniqueConstraint('friend_username', 'gc_code', name='unique_find_per_friend'),
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            'id': self.id,
+            'friend_username': self.friend_username,
+            'gc_code': self.gc_code,
+            'source': self.source,
+            'first_seen_at': self.first_seen_at.isoformat() if self.first_seen_at else None,
+        }
+
+
 class FriendActivity(db.Model):
     """
     Un log d'un ami, capturé depuis le flux d'activité de geocaching.com.

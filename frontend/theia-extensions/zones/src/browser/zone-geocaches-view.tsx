@@ -55,6 +55,11 @@ export interface ZoneGeocachesViewProps {
     onCancelCopySelected: () => void;
     onConfirmMoveSelected: (targetZoneId: number) => void | Promise<void>;
     onCancelMoveSelected: () => void;
+    /** « Qui a trouvé quoi » : code GC -> pseudos d'amis. */
+    friendFinds?: Record<string, string[]>;
+    /** Progression de l'analyse des amis (null = inactive). */
+    friendFindsProgress?: { done: number; total: number; friend?: string } | null;
+    onAnalyzeFriendFinds?: () => void | Promise<void>;
     showImportAroundDialog: boolean;
     importAroundDialogInitialCenter?: ImportAroundCenter;
     onImportAroundDialogImport: (request: ImportAroundRequest, onProgress?: (percentage: number, message: string) => void) => Promise<void>;
@@ -130,6 +135,18 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
                 >
                     📍 Importer autour…
                 </button>
+                {props.onAnalyzeFriendFinds && (
+                    <button
+                        className='theia-button secondary'
+                        onClick={props.onAnalyzeFriendFinds}
+                        disabled={!!props.friendFindsProgress}
+                        title="Déterminer, pour chaque cache de la zone, lesquels de vos amis l'ont trouvée (sur tout leur historique)"
+                    >
+                        {props.friendFindsProgress
+                            ? `👥 ${props.friendFindsProgress.done}/${props.friendFindsProgress.total}…`
+                            : '👥 Amis'}
+                    </button>
+                )}
             </div>
         </div>
 
@@ -167,6 +184,7 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
                 visibleColumnIds={props.tableVisibleColumnIds}
                 onVisibleColumnIdsChange={props.onTableVisibleColumnIdsChange}
                 onFilteredDataChange={props.onFilteredDataChange}
+                friendFinds={props.friendFinds}
             />
         )}
 

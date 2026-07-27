@@ -23,6 +23,7 @@ import { MapWidgetFactory } from './map/map-widget-factory';
 import type { MapWidget } from './map/map-widget';
 import type { MapGeocache } from './map/map-layer-manager';
 import { GeocacheTabsManager } from './geocache-tabs-manager';
+import { BackendApiClient } from './backend-api-client';
 import { GeocachesService } from './geocaches-service';
 import { ZonesService } from './zones-service';
 import { GeoAppWidgetEventsService } from './geoapp-widget-events-service';
@@ -66,6 +67,9 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     protected importAroundDialogOpen = false;
     protected importAroundDialogInitialCenter?: ImportAroundCenter;
     protected tableVisibleColumnIds: GeocachesTableColumnId[] = [...DEFAULT_GEOCACHES_TABLE_VISIBLE_COLUMNS];
+    /** « Qui a trouvé quoi » dans cette zone : code GC -> pseudos d'amis. */
+    protected friendFinds: Record<string, string[]> = {};
+    protected friendFindsProgress: { done: number; total: number; friend?: string } | null = null;
 
     protected interactionTimerId: number | undefined;
     private lastAccessTimestamp: number = Date.now();
@@ -123,6 +127,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         @inject(QuickInputService) protected readonly quickInputService: QuickInputService,
         @inject(ProgressService) protected readonly progressService: ProgressService,
         @inject(GeocachesService) protected readonly geocachesService: GeocachesService,
+        @inject(BackendApiClient) protected readonly apiClient: BackendApiClient,
         @inject(ImportAroundService) protected readonly importAroundService: ImportAroundService,
         @inject(ZonesService) protected readonly zonesService: ZonesService,
         @inject(GeoAppWidgetEventsService) protected readonly widgetEventsService: GeoAppWidgetEventsService,
@@ -1004,6 +1009,124 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         }
     }
 
+    /**
+     * Charge « qui a trouvé quoi » depuis la base locale (aucun appel à
+     * geocaching.com : la collecte se fait via analyzeFriendFinds).
+     */
+    protected async loadFriendFinds(): Promise<void> {
+        if (!this.zoneId) {
+            return;
+        }
+        try {
+            const data = await this.apiClient.requestJson<{ success: boolean; finds: Record<string, string[]> }>(
+                `/api/friends/finds/zone/${this.zoneId}`
+            );
+            if (data?.success) {
+                // Nouvelle référence d'objet : la colonne « Amis » du tableau en dépend.
+                this.friendFinds = { ...data.finds };
+                this.update();
+            }
+        } catch (error) {
+            // Fonctionnalité optionnelle : son absence ne doit pas gêner la zone.
+            console.debug('[ZoneGeocaches] friend finds indisponibles:', error);
+        }
+    }
+
+    /**
+     * Détermine, ami par ami, quelles caches de la zone il a trouvées.
+     *
+     * Séquentiel et volontairement lent : la recherche geocaching.com est
+     * fortement limitée en débit (429). On s'arrête net au premier signal de
+     * throttling plutôt que d'insister, en gardant ce qui a déjà été collecté.
+     */
+    protected analyzeFriendFinds = async (): Promise<void> => {
+        if (!this.zoneId || this.friendFindsProgress) {
+            return;
+        }
+
+        // Estimation préalable (1 requête) : une zone dispersée produit une boîte
+        // englobante démesurée, et l'analyse peut alors durer des dizaines de minutes.
+        try {
+            const estimate = await this.apiClient.requestJson<{
+                success: boolean; zone_caches: number; searched_caches: number; seconds_per_friend: number;
+            }>(`/api/friends/finds/zone/${this.zoneId}/estimate`);
+
+            if (estimate?.success && estimate.searched_caches > 10 * Math.max(estimate.zone_caches, 1)) {
+                const minutes = Math.ceil((estimate.seconds_per_friend * 16) / 60);
+                const confirmed = await new ConfirmDialog({
+                    title: 'Analyse longue',
+                    msg: `Les caches de cette zone sont dispersées : il faut balayer ${estimate.searched_caches} `
+                        + `caches pour ${estimate.zone_caches} dans la zone, soit environ ${minutes} min `
+                        + 'pour tous vos amis (geocaching.com limite fortement les recherches). Continuer ?',
+                    ok: 'Lancer', cancel: 'Annuler'
+                }).open();
+                if (!confirmed) {
+                    return;
+                }
+            }
+        } catch (error) {
+            console.debug('[ZoneGeocaches] estimation indisponible:', error);
+        }
+
+        let friends: Array<{ username: string }> = [];
+        try {
+            const data = await this.apiClient.requestJson<{ success: boolean; friends: Array<{ username: string }> }>(
+                '/api/friends'
+            );
+            friends = data?.friends ?? [];
+        } catch (error) {
+            this.messages.error("Impossible de récupérer la liste d'amis : " + error);
+            return;
+        }
+
+        if (friends.length === 0) {
+            this.messages.info("Aucun ami Geocaching.com à analyser.");
+            return;
+        }
+
+        this.friendFindsProgress = { done: 0, total: friends.length };
+        this.update();
+
+        let analyzed = 0;
+        try {
+            for (const friend of friends) {
+                this.friendFindsProgress = { done: analyzed, total: friends.length, friend: friend.username };
+                this.update();
+
+                const response = await this.apiClient.request('/api/friends/finds/sync-zone', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ zone_id: this.zoneId, friend: friend.username })
+                });
+
+                if (response.status === 429) {
+                    this.messages.warn(
+                        `Geocaching.com limite les recherches : analyse interrompue après ${analyzed} ami(s). `
+                        + 'Relancez dans quelques minutes pour continuer.'
+                    );
+                    break;
+                }
+                if (!response.ok) {
+                    const payload = await response.json().catch(() => ({}));
+                    this.messages.error(payload.error_message || `Échec de l'analyse (HTTP ${response.status})`);
+                    break;
+                }
+                analyzed += 1;
+            }
+        } finally {
+            this.friendFindsProgress = null;
+            await this.loadFriendFinds();
+            this.update();
+        }
+
+        if (analyzed > 0) {
+            const withFriends = Object.keys(this.friendFinds).length;
+            this.messages.info(
+                `${analyzed} ami(s) analysé(s) : ${withFriends} cache(s) de la zone trouvée(s) par au moins un ami.`
+            );
+        }
+    };
+
     protected async load(): Promise<void> {
         if (!this.zoneId) { return; }
         this.loading = true;
@@ -1011,6 +1134,9 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         try {
             // Charger les géocaches
             this.rows = await this.zonesService.listGeocaches<Geocache>(this.zoneId);
+
+            // « Qui a trouvé quoi » : lecture locale, sans réseau geocaching.com.
+            void this.loadFriendFinds();
 
             // NB : la liste des zones (cibles copy/move) n'est PAS rechargée ici.
             // Elle est chargée une fois dans setZone() puis tenue à jour via
@@ -1551,6 +1677,9 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 onOpenBookmarkListDialog={() => this.openBookmarkListDialog()}
                 onOpenPocketQueryDialog={() => this.openPocketQueryDialog()}
                 onStartImportAround={() => this.startImportAroundWizard()}
+                friendFinds={this.friendFinds}
+                friendFindsProgress={this.friendFindsProgress}
+                onAnalyzeFriendFinds={this.analyzeFriendFinds}
                 showImportAroundDialog={this.importAroundDialogOpen}
                 importAroundDialogInitialCenter={this.importAroundDialogInitialCenter}
                 onImportAroundDialogImport={(req, onProgress) => this.handleImportAroundDialogImport(req, onProgress)}

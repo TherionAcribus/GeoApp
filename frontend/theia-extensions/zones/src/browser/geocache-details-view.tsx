@@ -9,6 +9,7 @@ import {
     GeocacheOverviewSection
 } from './geocache-details-sections';
 import { GeocacheDto } from './geocache-details-types';
+import { GeocacheFriendFindsBanner } from './geocache-friend-finds-banner';
 import { GeocacheImagesPanel } from './geocache-images-panel';
 import { WaypointsEditorWrapper } from './geocache-waypoints-editor';
 import { EmptyState, LoadingState } from './state-views';
@@ -52,6 +53,8 @@ interface GeocacheDetailsViewProps {
     checkerContextMenu?: { x: number; y: number; url: string } | null;
     onShowCheckerContextMenu?: (x: number, y: number, url: string) => void;
     onCloseCheckerContextMenu?: () => void;
+    /** URL du backend, pour le bandeau « amis ayant trouvé » (masqué si absente). */
+    apiBaseUrl?: string;
 }
 
 export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
@@ -74,7 +77,8 @@ export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
     onOpenCheckerUrl,
     checkerContextMenu,
     onShowCheckerContextMenu,
-    onCloseCheckerContextMenu
+    onCloseCheckerContextMenu,
+    apiBaseUrl
 }) => (
     <div className='p-2' style={{ position: 'relative' }}>
         {/* Premier chargement uniquement : aucune donnee a afficher encore */}
@@ -96,6 +100,10 @@ export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
                 aria-busy={isLoading}
             >
                 <GeocacheDetailsHeader {...headerProps} onRefresh={onRefresh} />
+
+                {apiBaseUrl && geocacheData.id ? (
+                    <GeocacheFriendFindsBanner geocacheId={geocacheData.id} apiBaseUrl={apiBaseUrl} />
+                ) : undefined}
 
                 <GeocacheOverviewSection
                     geocacheData={geocacheData}

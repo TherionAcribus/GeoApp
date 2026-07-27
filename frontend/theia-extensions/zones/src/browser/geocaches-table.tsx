@@ -90,6 +90,8 @@ interface GeocachesTableProps {
     visibleColumnIds?: GeocachesTableColumnId[];
     onVisibleColumnIdsChange?: (columnIds: GeocachesTableColumnId[]) => void;
     onFilteredDataChange?: (geocaches: Geocache[]) => void;
+    /** « Qui a trouvé quoi » : code GC -> pseudos d'amis (colonne `friends_found`). */
+    friendFinds?: Record<string, string[]>;
 }
 
 export type GeocachesTableColumnId =
@@ -111,6 +113,7 @@ export type GeocachesTableColumnId =
     | 'favorites_count'
     | 'owner'
     | 'logs_count'
+    | 'friends_found'
     | 'status'
     | 'need_maintenance';
 
@@ -152,6 +155,7 @@ const GEOCACHES_TABLE_COLUMN_DEFINITIONS: GeocachesTableColumnDefinition[] = [
     { id: 'favorites_count', label: 'Favoris', description: 'Nombre de points favoris.' },
     { id: 'owner', label: 'Propriétaire', description: 'Propriétaire de la cache.' },
     { id: 'logs_count', label: 'Logs', description: 'Nombre de logs connus.' },
+    { id: 'friends_found', label: 'Amis', description: "Nombre d'amis Geocaching.com ayant trouvé la cache." },
     { id: 'status', label: 'Statut', description: 'Statut de la cache sur Geocaching.com (active, désactivée, archivée).' },
     { id: 'need_maintenance', label: 'Maintenance', description: 'Indique si le propriétaire a demandé une attention particulière (Need Maintenance).' },
 ];
@@ -385,7 +389,8 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
     currentZoneId,
     visibleColumnIds,
     onVisibleColumnIdsChange,
-    onFilteredDataChange
+    onFilteredDataChange,
+    friendFinds
 }) => {
     const [sorting, setSorting] = React.useState<SortingState>([]);
     const [rowSelection, setRowSelection] = React.useState({});
@@ -616,6 +621,26 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                 size: 70,
             },
             {
+                id: 'friends_found',
+                accessorFn: row => (friendFinds?.[(row as Geocache).gc_code] ?? []).length,
+                header: '👥',
+                cell: ({ row }) => {
+                    const names = friendFinds?.[(row.original as Geocache).gc_code] ?? [];
+                    if (names.length === 0) {
+                        return <span style={{ opacity: 0.35 }}>—</span>;
+                    }
+                    return (
+                        <span
+                            title={`Trouvée par : ${names.join(', ')}`}
+                            style={{ cursor: 'help' }}
+                        >
+                            {names.length}
+                        </span>
+                    );
+                },
+                size: 60,
+            },
+            {
                 id: 'status',
                 accessorFn: row => (row as Geocache).status ?? 'active',
                 header: 'Statut',
@@ -682,7 +707,9 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                 size: 100,
             },
         ],
-        []
+        // `friendFinds` est capturé par la colonne « Amis » : sans cette
+        // dépendance, la colonne resterait figée sur la valeur initiale.
+        [friendFinds]
     );
 
     const cacheTypes = React.useMemo(() => {

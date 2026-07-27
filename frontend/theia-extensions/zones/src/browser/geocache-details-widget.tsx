@@ -1327,6 +1327,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             <GeocacheDetailsView
                 isLoading={this.isLoading}
                 geocacheData={d}
+                apiBaseUrl={this.apiClient.getBaseUrl()}
                 headerProps={{
                     geocacheData: d!,
                     notesCount: this.notesCount,

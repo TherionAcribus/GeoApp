@@ -17,6 +17,7 @@ from ..database import db
 from ..geocaches.models import Geocache, GeocacheLog
 from ..geocaches.archive_service import ArchiveService
 from ..services.geocaching_auth import get_auth_service
+from ..services.geocaching_friend_finds import store_finds
 from ..services.geocaching_logs import GeocachingLogsClient
 from ..services.geocaching_submit_logs import GeocachingSubmitLogsClient
 
@@ -385,8 +386,20 @@ def refresh_geocache_logs(geocache_id: int):
         
         # Mettre à jour le compteur de logs
         geocache.logs_count = GeocacheLog.query.filter_by(geocache_id=geocache_id).count()
-        
+
         db.session.commit()
+
+        # Les « Found » d'amis relevés ici alimentent la même table que la
+        # déduction par zone : les deux sources convergent vers FriendFind.
+        friend_finders = {
+            log_data.author
+            for log_data in fetched_logs
+            if log_data.external_id in friend_external_ids
+            and GeocacheLog.normalize_log_type(log_data.log_type) == 'Found'
+            and log_data.author
+        }
+        for author in friend_finders:
+            store_finds(author, [gc_code], source='cache_logs')
         
         logger.info(
             f"Refreshed logs for {gc_code}: {added_count} added, {updated_count} updated, "

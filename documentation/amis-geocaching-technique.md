@@ -1,12 +1,14 @@
 # Amis Geocaching.com — Documentation technique
 
-> Trois fonctionnalités autour des amis Geocaching.com :
+> Quatre fonctionnalités autour des amis Geocaching.com :
 > **(1) la liste d'amis** (scraping de `/my/myfriends.aspx`, cache mémoire,
 > `GET /api/friends`, widget « Amis Geocaching »), **(2) le flux d'activité**
 > (API interne du site, stockage incrémental en base, `GET/POST
-> /api/friends/activity`, widget « Activité des amis ») et **(3) les logs d'amis
+> /api/friends/activity`, widget « Activité des amis »), **(3) les logs d'amis
 > sur une cache** (méthode c:geo, drapeau `is_friend_log`, filtre dans le widget
-> Logs).
+> Logs) et **(4) « qui a trouvé quoi » sur une zone** (complément du filtre `nfb`
+> de la recherche, sans limite de date, colonne dans le tableau et bandeau dans
+> la fiche cache).
 > Dernière mise à jour : juillet 2026.
 
 ---
@@ -69,25 +71,31 @@ backend/gc_backend/services/
 ├── geocaching_friends.py           # Liste d'amis : client + parsing + cache mémoire
 ├── geocaching_friend_activity.py   # Flux d'activité : client HTTP + parsing (sans base)
 ├── friend_activity_store.py        # Flux d'activité : persistance incrémentale (sans réseau)
-└── geocaching_logs.py              # get_logs_with_friends() : logs d'amis par cache (§10)
+├── geocaching_logs.py              # get_logs_with_friends() : logs d'amis par cache (§10)
+└── geocaching_friend_finds.py      # Déduction « trouvées par un ami » sur une zone (§11)
 
 backend/gc_backend/
-├── models.py                       # Modèle FriendActivity
+├── models.py                       # Modèles FriendActivity et FriendFind
 └── blueprints/friends.py           # Routes REST /api/friends[...]
 
 backend/migrations/versions/
 ├── add_friend_activity_table.py           # Création de la table friend_activity
-└── add_geocache_log_is_friend_log.py      # Drapeau is_friend_log sur les logs
+├── add_geocache_log_is_friend_log.py      # Drapeau is_friend_log sur les logs
+└── add_friend_find_table.py               # Création de la table friend_find
 
 backend/tests/
 ├── test_geocaching_friends.py      # Parser de la liste d'amis (fixture synthétique)
 ├── test_friend_activity.py         # Parser du flux + stockage + routes
-└── test_geocache_friend_logs.py    # Logs d'amis par cache + routes
+├── test_geocache_friend_logs.py    # Logs d'amis par cache + routes
+└── test_friend_finds.py            # Déduction par zone, rate limit, stockage
 
 frontend/theia-extensions/zones/src/browser/
 ├── geocaching-friends-widget.tsx           # Widget « Amis Geocaching »
 ├── geocaching-friend-activity-widget.tsx   # Widget « Activité des amis »
 ├── geocache-logs-widget.tsx                # Badge « ami » + filtre dans les logs d'une cache
+├── geocache-friend-finds-banner.tsx        # Bandeau « N amis ont trouvé » + Message Center
+├── geocaches-table.tsx                     # Colonne « Amis » du tableau de zone
+├── zone-geocaches-widget.tsx               # Analyse d'une zone (progression, estimation)
 ├── zones-command-contribution.ts           # Commandes geoapp.friends[.activity].open
 ├── zones-menu-contribution.ts              # Entrées View > Views
 ├── geoapp-sidebar-contribution.ts          # Entrées du menu compte
@@ -457,7 +465,117 @@ Dans le widget Logs de la fiche cache
 
 ---
 
-## 11. Tests
+## 11. « Qui a trouvé quoi » sur une zone — sans limite de date
+
+Le flux d'activité (§9) plafonne à ~2 mois, et le logbook (§10) demande d'ouvrir
+les caches une par une. Pour savoir d'un coup, sur toute une zone, quelles caches
+chacun de mes amis a trouvées — y compris il y a dix ans — il existe un
+troisième chemin.
+
+### 11.1 `fb` ne marche pas, `nfb` oui
+
+La recherche web `https://www.geocaching.com/api/proxy/web/search/v2` accepte
+deux filtres joueur : `fb` (found by) et `nfb` (not found by). Vérifié en
+conditions réelles :
+
+- **`fb` est silencieusement ignoré** par le serveur — il renvoie l'index mondial
+  entier (3 474 749 caches), exactement comme une requête sans filtre. c:geo
+  l'envoie pourtant toujours (`GCWebAPI.WebApiSearch.addFoundBy`) : ce code ne
+  filtre plus rien.
+- **`nfb` fonctionne**. Les trouvailles d'un ami s'obtiennent donc **par
+  complément**, sur une zone bornée :
+
+```
+trouvées_par(ami) = caches_de_la_boîte - caches_non_trouvées_par(ami)
+```
+
+Autres paramètres utiles : `box=latMax,lonMin,latMin,lonMax`, `origin=lat,lon`,
+`take`/`skip` (100 max par page ; le serveur refuse `skip+take` au-delà de
+~10 000), `hb` (hidden by, qui fonctionne aussi).
+
+### 11.2 Ce que la déduction ne voit pas
+
+- **Les caches archivées** sont absentes de l'index de recherche : elles
+  n'apparaissent ni dans la référence ni dans le complément. Écart mesuré sur un
+  ami affichant 53 860 trouvailles : le filtre n'en voit que ~28 700.
+- **« Trouvée » ≠ « loguée »** : un DNF d'ami ne ressort pas ici. Seul le
+  logbook par cache (§10) le donne.
+- Plusieurs filtres de cette API sont réservés aux membres **Premium** (le
+  comportement en compte Basic n'a pas été vérifié).
+
+### 11.3 Le débit est la vraie contrainte
+
+Cette API renvoie **429 « Too many requests »** très vite, **sans en-tête
+`Retry-After`** : impossible de savoir quand réessayer. c:geo ne retente rien et
+se contente d'avertir l'utilisateur.
+
+Le client s'auto-limite donc à ~10 requêtes/minute (`MIN_INTERVAL_SECONDS = 6`)
+et retente sur 429 avec des paliers croissants (15 s, 30 s, 60 s) avant de lever
+`RateLimitedError` → **HTTP 429** côté API, que l'interface traduit par un arrêt
+propre de l'analyse en conservant ce qui a déjà été collecté.
+
+La référence de zone (la recherche sans filtre) est mise en cache 10 minutes :
+elle est identique pour tous les amis d'une même passe. Coût réel mesuré :
+
+| Zone | Caches | Boîte balayée | 1er ami | Amis suivants |
+|------|--------|---------------|---------|---------------|
+| Rudemont (dense) | 43 | 166 | 13 s | 6 s |
+| Dordogne/Gironde (dispersée) | 5 | **1 408** | 171 s | 90 s |
+
+> ⚠️ **La géométrie de la zone fait tout.** Cinq caches éparpillées sur deux
+> départements produisent une boîte englobante de 1 400 caches — et 25 minutes
+> d'analyse pour un résultat quasi nul. D'où la route `…/estimate`, qui mesure la
+> boîte en **une** requête ; l'interface demande confirmation quand la boîte
+> dépasse 10× la taille de la zone.
+
+Pour une zone dispersée, rafraîchir les logs des caches une à une (§10) revient
+moins cher, et donne en prime les DNF et tous les amis d'un coup.
+
+### 11.4 Stockage : `friend_find`
+
+Table volontairement simple : `(friend_username, gc_code, source)`, contrainte
+d'unicité sur le couple ami/cache. On stocke le **code GC** et non une clé
+étrangère : une cache trouvée par un ami n'est pas forcément importée dans
+GeoApp — le jour où on l'importe, l'information est déjà là.
+
+Deux sources convergent vers cette table :
+
+| `source` | Origine | Portée |
+|----------|---------|--------|
+| `zone_search` | complément `nfb` (§11.1) | toute la boîte, tout l'historique |
+| `cache_logs` | logs d'amis au rafraîchissement (§10) | une cache, y compris archivée |
+
+`store_finds(..., replace_scope=…)` permet à une resynchronisation de corriger
+une donnée devenue fausse, **sans toucher aux lignes d'une autre source** : la
+déduction de zone est aveugle aux caches archivées, elle ne doit pas effacer un
+log d'ami avéré.
+
+### 11.5 API et interface
+
+| Route | Rôle |
+|-------|------|
+| `GET /api/friends/finds/zone/<id>/estimate` | Coût prévisible (1 requête) |
+| `POST /api/friends/finds/sync-zone` | Analyse **un** ami sur une zone |
+| `GET /api/friends/finds/zone/<id>` | `{ gc_code: [pseudos] }`, purement local |
+| `GET /api/friends/finds/geocache/<id>` | Amis ayant trouvé une cache + lien Message Center |
+
+Un seul ami par appel de synchronisation : la référence étant en cache, boucler
+ami par ami ne coûte presque rien de plus qu'une passe globale, tout en donnant
+une **progression réelle** à l'interface et un point d'arrêt net en cas de 429.
+
+Côté UI :
+- bouton **👥 Amis** dans la barre d'outils de la zone, affichant `3/16…`
+  pendant l'analyse ;
+- colonne **👥** dans le tableau (nombre d'amis, pseudos en infobulle),
+  activable via le sélecteur de colonnes ;
+- **bandeau dans la fiche cache** : « 3 de vos amis ont trouvé cette
+  géocache », chaque pseudo doublé d'un lien vers le **Message Center**
+  (`/account/messagecenter?recipientId=<guid>`, GUID pris dans la liste d'amis).
+  C'est le chaînon entre « je sèche sur cette mystery » et « je demande ».
+
+---
+
+## 12. Tests
 
 Aucun test ne touche le réseau : le parsing est exposé en méthodes de classe
 pures, et la synchronisation accepte un client injecté.
@@ -489,9 +607,20 @@ pures, et la synchronisation accepte un client injecté.
 - absence de logs d'amis, `userToken` introuvable → dégradation propre ;
 - routes : exposition de `is_friend_log`, `friends_count` et `friends_only`.
 
+`test_friend_finds.py` (15 tests) — « qui a trouvé quoi » :
+
+- boîte englobante (marge, coordonnées manquantes, zone vide) ;
+- déduction par complément de `nfb`, référence récupérée **une seule fois** pour
+  plusieurs amis, pagination complète et garde-fou de zone démesurée ;
+- 429 retenté puis remonté, throttle entre requêtes (aucun test n'attend
+  réellement : `min_interval`, `retry_delays` et `sleep` sont injectés) ;
+- `store_finds` idempotent, normalisation des codes, suppression des lignes
+  périmées **limitée à la même source** ;
+- routes de lecture et rejet des paramètres invalides.
+
 ---
 
-## 12. Références croisées
+## 13. Références croisées
 
 - Authentification et session partagée —
   [connexion-geocaching-technique.md](connexion-geocaching-technique.md).
