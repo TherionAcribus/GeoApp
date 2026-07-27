@@ -25,7 +25,14 @@ import {
 } from './log-markdown';
 import '../../src/browser/style/log-editor-textarea.css';
 
-type LogTypeValue = 'found' | 'dnf' | 'note';
+/** `skip` n'est pas un type de log Geocaching.com : c'est un marqueur local "cette cache ne sera pas envoyée". */
+type LogTypeValue = 'found' | 'dnf' | 'note' | 'skip';
+
+const LOG_TYPE_VALUES: readonly LogTypeValue[] = ['found', 'dnf', 'note', 'skip'];
+
+function isLogTypeValue(value: unknown): value is LogTypeValue {
+    return typeof value === 'string' && (LOG_TYPE_VALUES as readonly string[]).includes(value);
+}
 
 type SubmissionStatus = 'ok' | 'failed' | 'skipped';
 
@@ -53,10 +60,10 @@ interface GeocacheListItem {
     found_date?: string | null;
 }
 
-/** Une cache déjà trouvée ne peut plus recevoir de "Found it" : on retombe sur "Write note". */
+/** Une cache déjà trouvée ne peut plus recevoir de "Found it" : par défaut on ne la logue pas du tout. */
 function sanitizeLogTypeForGeocache(value: LogTypeValue, geocache: GeocacheListItem | undefined): LogTypeValue {
     if (value === 'found' && geocache?.already_found === true) {
-        return 'note';
+        return 'skip';
     }
     return value;
 }
@@ -252,6 +259,9 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
             if (value === 'dnf') {
                 return "Didn't find it";
             }
+            if (value === 'skip') {
+                return 'Ne pas loguer';
+            }
             return 'Write note';
         };
 
@@ -336,6 +346,24 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
                         title='Dernière tentative en échec'
                     >
                         ⚠️
+                    </span>
+                );
+            }
+            if (sanitizeLogTypeForGeocache(perCacheLogType[gc.id] ?? logType, gc) === 'skip') {
+                return (
+                    <span
+                        style={{
+                            padding: '2px 6px',
+                            borderRadius: 3,
+                            fontSize: 12,
+                            background: 'var(--theia-charts-lines, #6b7280)',
+                            color: '#fff',
+                            fontWeight: 700,
+                            whiteSpace: 'nowrap'
+                        }}
+                        title="Ne pas loguer : cette géocache sera ignorée à l'envoi"
+                    >
+                        🚫
                     </span>
                 );
             }
@@ -490,6 +518,7 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
                             <option value='found' disabled={previouslyFound}>{typeLabel('found')}</option>
                             <option value='dnf'>{typeLabel('dnf')}</option>
                             <option value='note'>{typeLabel('note')}</option>
+                            <option value='skip'>{typeLabel('skip')}</option>
                         </select>
                     );
                 },
@@ -637,7 +666,7 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
                             border: `1px solid ${ALREADY_FOUND_ACCENT}`,
                             whiteSpace: 'nowrap'
                         }}
-                        title={'Une géocache ne peut être loguée "Found it" qu\'une seule fois : ces lignes sont passées en "Write note".'}
+                        title={'Une géocache ne peut être loguée "Found it" qu\'une seule fois : ces lignes sont passées en "Ne pas loguer".'}
                     >
                         🏆 {alreadyFoundCount} déjà trouvée{alreadyFoundCount > 1 ? 's' : ''} — "Found it" indisponible
                     </span>
@@ -708,6 +737,9 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
                                 : isPreviouslyFound(gc, perCacheSubmitStatus)
                                     ? ALREADY_FOUND_ROW_BACKGROUND
                                     : undefined;
+                            // "Ne pas loguer" : la ligne reste lisible mais se démarque de celles qui partiront.
+                            const isSkipped = sanitizeLogTypeForGeocache(perCacheLogType[gc.id] ?? logType, gc) === 'skip'
+                                && !isJustLogged(gc, perCacheSubmitStatus);
                             return (
                                 <tr
                                     key={row.id}
@@ -735,12 +767,14 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
                                         const position = e.clientY - rect.top < rect.height / 2 ? 'before' : 'after';
                                         moveRelativeTo(draggedId, gc.id, position);
                                     }}
-                                    style={{ background, opacity: isDragged ? 0.4 : undefined }}
+                                    style={{ background, opacity: isDragged ? 0.4 : isSkipped ? 0.65 : undefined }}
                                     title={isJustLogged(gc, perCacheSubmitStatus)
                                         ? 'Log envoyé — cette géocache ne peut plus être loguée ici'
                                         : isPreviouslyFound(gc, perCacheSubmitStatus)
                                             ? alreadyFoundTooltip(gc)
-                                            : undefined}
+                                            : isSkipped
+                                                ? 'Ne pas loguer : cette géocache sera ignorée à l\'envoi'
+                                                : undefined}
                                 >
                                     {row.getVisibleCells().map(cell => (
                                         <td
@@ -903,7 +937,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                     useSameTextForAll: x.useSameTextForAll === true,
                     globalText: typeof x.globalText === 'string' ? x.globalText : '',
                     perCacheText: (x.perCacheText && typeof x.perCacheText === 'object') ? x.perCacheText as Record<number, string> : {},
-                    logType: x.logType === 'found' || x.logType === 'dnf' || x.logType === 'note' ? x.logType : 'found',
+                    logType: isLogTypeValue(x.logType) ? x.logType : 'found',
                     perCacheLogType: (x.perCacheLogType && typeof x.perCacheLogType === 'object') ? x.perCacheLogType as Record<number, LogTypeValue> : {},
                     perCacheFavorite: (x.perCacheFavorite && typeof x.perCacheFavorite === 'object') ? x.perCacheFavorite as Record<number, boolean> : {},
                 }));
@@ -957,7 +991,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     }
 
     protected applyHistoryEntry(entry: LogHistoryEntry): void {
-        const safeLogType = entry.logType === 'found' || entry.logType === 'dnf' || entry.logType === 'note' ? entry.logType : this.logType;
+        const safeLogType = isLogTypeValue(entry.logType) ? entry.logType : this.logType;
 
         const perCacheValues = entry.perCacheText && typeof entry.perCacheText === 'object'
             ? entry.perCacheText as Record<number, string>
@@ -1845,7 +1879,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             const nextTypes: Record<number, LogTypeValue> = { ...this.perCacheLogType };
             for (const gc of results) {
                 const existing = nextTypes[gc.id];
-                const candidate = existing === 'found' || existing === 'dnf' || existing === 'note' ? existing : this.logType;
+                const candidate = isLogTypeValue(existing) ? existing : this.logType;
                 nextTypes[gc.id] = sanitizeLogTypeForGeocache(candidate, gc);
             }
             this.perCacheLogType = nextTypes;
@@ -1855,8 +1889,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 const codes = alreadyFound.map(gc => gc.gc_code).join(', ');
                 this.messages.warn(
                     alreadyFound.length === 1
-                        ? `${codes} est déjà loguée "Found it" : le type a été basculé sur "Write note".`
-                        : `${alreadyFound.length} géocaches sont déjà loguées "Found it" (${codes}) : leur type a été basculé sur "Write note".`
+                        ? `${codes} est déjà loguée "Found it" : elle est passée sur "Ne pas loguer".`
+                        : `${alreadyFound.length} géocaches sont déjà loguées "Found it" (${codes}) : elles sont passées sur "Ne pas loguer".`
                 );
             }
 
@@ -2586,7 +2620,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         const skipped = this.getPendingAlreadyFoundGeocaches();
         if (nextValue === 'found' && skipped.length > 0) {
             this.messages.warn(
-                `${skipped.length} géocache(s) déjà trouvée(s) restent en "Write note" : ${skipped.map(gc => gc.gc_code).join(', ')}`
+                `${skipped.length} géocache(s) déjà trouvée(s) restent en "Ne pas loguer" : ${skipped.map(gc => gc.gc_code).join(', ')}`
             );
         }
         this.update();
@@ -2620,6 +2654,16 @@ export class GeocacheLogEditorWidget extends ReactWidget {
 
     protected isGeocacheSubmittedOk(geocacheId: number): boolean {
         return this.perCacheSubmitStatus[geocacheId] === 'ok';
+    }
+
+    /** Marquée "Ne pas loguer" : elle reste dans la liste et dans les textes, mais ne part pas à l'envoi. */
+    protected isGeocacheSkipped(geocacheId: number): boolean {
+        return this.getLogTypeForGeocacheId(geocacheId) === 'skip';
+    }
+
+    /** Les seules géocaches qui partiront : ni déjà envoyées, ni marquées "Ne pas loguer". */
+    protected getGeocachesToSubmit(): GeocacheListItem[] {
+        return this.geocaches.filter(gc => !this.isGeocacheSubmittedOk(gc.id) && !this.isGeocacheSkipped(gc.id));
     }
 
     protected renderSubmitBadge(geocacheId: number): React.ReactNode {
@@ -2709,8 +2753,13 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             return;
         }
 
-        const missingText = this.geocaches
-            .filter(gc => !this.isGeocacheSubmittedOk(gc.id))
+        const toSubmit = this.getGeocachesToSubmit();
+        if (toSubmit.length === 0) {
+            this.messages.warn('Aucune géocache à envoyer : les géocaches restantes sont en "Ne pas loguer".');
+            return;
+        }
+
+        const missingText = toSubmit
             .map(gc => ({ gc, text: (this.getTextForGeocacheId(gc.id) || '').trim() }))
             .filter(x => !x.text);
 
@@ -2739,7 +2788,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
 
         try {
             for (const gc of this.geocaches) {
-                if (this.isGeocacheSubmittedOk(gc.id)) {
+                if (this.isGeocacheSubmittedOk(gc.id) || this.isGeocacheSkipped(gc.id)) {
                     continue;
                 }
                 const logTypeForGc = this.getLogTypeForGeocacheId(gc.id);
@@ -2792,11 +2841,11 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                         const errorCode = typeof responseBody?.error_code === 'string' ? responseBody.error_code : undefined;
                         if (res.status === 409 && errorCode === 'ALREADY_LOGGED') {
                             this.perCacheSubmitStatus = { ...this.perCacheSubmitStatus, [gc.id]: 'skipped' };
-                            // Le backend confirme le "Found it" existant : on bascule la ligne en "Write note".
+                            // Le backend confirme le "Found it" existant : on sort la ligne du lot d'envoi.
                             this.geocaches = this.geocaches.map(item => item.id === gc.id
                                 ? { ...item, already_found: true, found_date: typeof responseBody?.found_date === 'string' ? responseBody.found_date : item.found_date }
                                 : item);
-                            this.perCacheLogType = { ...this.perCacheLogType, [gc.id]: 'note' };
+                            this.perCacheLogType = { ...this.perCacheLogType, [gc.id]: 'skip' };
                             this.messages.warn(`${gc.gc_code} - déjà loguée (ignorée)`);
                         } else {
                             failed += 1;
@@ -2819,10 +2868,12 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             if (ok > 0) {
                 await this.saveCurrentStateToHistory();
             }
+            const notLogged = this.geocaches.filter(gc => this.isGeocacheSkipped(gc.id)).length;
+            const notLoggedSuffix = notLogged > 0 ? `, ${notLogged} non loguée(s)` : '';
             if (failed === 0) {
-                this.messages.info(`Logs envoyés sur Geocaching.com: ${ok}/${ok}`);
+                this.messages.info(`Logs envoyés sur Geocaching.com: ${ok}/${ok}${notLoggedSuffix}`);
             } else {
-                this.messages.warn(`Logs envoyés sur Geocaching.com: ${ok} ok, ${failed} échec(s)`);
+                this.messages.warn(`Logs envoyés sur Geocaching.com: ${ok} ok, ${failed} échec(s)${notLoggedSuffix}`);
             }
         } finally {
             this.isSubmitting = false;
@@ -2845,6 +2896,9 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         if (value === 'dnf') {
             return "Didn't find it";
         }
+        if (value === 'skip') {
+            return 'Ne pas loguer';
+        }
         return 'Write note';
     }
 
@@ -2854,13 +2908,15 @@ export class GeocacheLogEditorWidget extends ReactWidget {
 
     protected buildFieldNotes(): string {
         const visited = this.formatVisitedIso(this.logDate);
-        const logType = this.getLogTypeLabel(this.logType);
 
-        const lines = this.geocaches.map(gc => {
-            const rawText = this.useSameTextForAll ? this.globalText : (this.perCacheText[gc.id] ?? '');
-            const escaped = this.escapeFieldNotesText(rawText);
-            return `${gc.gc_code},${visited},${logType},"${escaped}"`;
-        });
+        // "Ne pas loguer" n'existe pas dans le format field notes : ces géocaches sont simplement absentes.
+        const lines = this.geocaches
+            .filter(gc => !this.isGeocacheSkipped(gc.id))
+            .map(gc => {
+                const rawText = this.useSameTextForAll ? this.globalText : (this.perCacheText[gc.id] ?? '');
+                const escaped = this.escapeFieldNotesText(rawText);
+                return `${gc.gc_code},${visited},${this.getLogTypeLabel(this.getLogTypeForGeocacheId(gc.id))},"${escaped}"`;
+            });
 
         return lines.join('\n');
     }
@@ -2868,6 +2924,10 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     protected async copyFieldNotes(): Promise<void> {
         try {
             const content = this.buildFieldNotes();
+            if (!content) {
+                this.messages.warn('Aucune field note : toutes les géocaches sont en "Ne pas loguer".');
+                return;
+            }
             await navigator.clipboard.writeText(content);
             this.messages.info('Field notes copiées dans le presse-papiers.');
         } catch (e) {
@@ -3152,10 +3212,11 @@ ${geocacheContext}`;
                             disabled={
                                 this.isLoading ||
                                 this.isSubmitting ||
-                                this.geocaches.length === 0 ||
-                                this.geocaches.every(gc => this.isGeocacheSubmittedOk(gc.id))
+                                this.getGeocachesToSubmit().length === 0
                             }
-                            title='Envoyer le(s) log(s) sur Geocaching.com via le backend'
+                            title={this.geocaches.length > 0 && this.getGeocachesToSubmit().length === 0
+                                ? 'Aucune géocache à envoyer (déjà envoyées ou en "Ne pas loguer")'
+                                : 'Envoyer le(s) log(s) sur Geocaching.com via le backend'}
                             style={{ fontSize: 12, padding: '4px 12px' }}
                         >
                             ✅ Envoyer sur GC
@@ -3406,13 +3467,14 @@ ${geocacheContext}`;
                             <option value='found'>Found it</option>
                             <option value='dnf'>Didn't find it</option>
                             <option value='note'>Write note</option>
+                            <option value='skip'>Ne pas loguer</option>
                         </select>
                         {this.logType === 'found' && this.getPendingAlreadyFoundGeocaches().length > 0 && (
                             <div
                                 style={{ fontSize: 11, marginTop: 4, color: ALREADY_FOUND_ACCENT }}
                                 title={this.getPendingAlreadyFoundGeocaches().map(gc => gc.gc_code).join(', ')}
                             >
-                                🏆 {this.getPendingAlreadyFoundGeocaches().length} déjà trouvée(s) → "Write note"
+                                🏆 {this.getPendingAlreadyFoundGeocaches().length} déjà trouvée(s) → "Ne pas loguer"
                             </div>
                         )}
                     </div>
@@ -3687,6 +3749,7 @@ ${geocacheContext}`;
                                                 <option value='found' disabled={this.isPendingAlreadyFound(gc.id)}>{this.getLogTypeLabel('found')}</option>
                                                 <option value='dnf'>{this.getLogTypeLabel('dnf')}</option>
                                                 <option value='note'>{this.getLogTypeLabel('note')}</option>
+                                                <option value='skip'>{this.getLogTypeLabel('skip')}</option>
                                             </select>
                                         </label>
 
