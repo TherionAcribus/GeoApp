@@ -26,6 +26,12 @@ export class ZonesMenuContribution implements MenuContribution {
         });
 
         menus.registerMenuAction(CommonMenus.VIEW_VIEWS, {
+            commandId: ZonesCommands.OPEN_FRIENDS.id,
+            label: 'Amis Geocaching.com',
+            order: '1.5'
+        });
+
+        menus.registerMenuAction(CommonMenus.VIEW_VIEWS, {
             commandId: ZonesCommands.OPEN_ARCHIVE_MANAGER.id,
             label: 'Gestionnaire d\'Archive',
             order: '2'

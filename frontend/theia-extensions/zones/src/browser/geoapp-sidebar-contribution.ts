@@ -60,6 +60,12 @@ export class GeoAppSidebarContribution implements FrontendApplicationContributio
             label: 'Gerer la connexion',
             order: '0'
         });
+
+        menus.registerMenuAction(GEOAPP_AUTH_MENU, {
+            commandId: 'geoapp.friends.open',
+            label: 'Mes amis',
+            order: '1'
+        });
     }
 
     onStart(): void {
