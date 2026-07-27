@@ -48,7 +48,40 @@ interface GeocacheListItem {
     logs_count?: number;
     placed_at?: string | null;
     cache_type?: string;
+    /** La géocache est déjà marquée comme trouvée : un second "Found it" est refusé par Geocaching.com. */
+    already_found?: boolean;
+    found_date?: string | null;
 }
+
+/** Une cache déjà trouvée ne peut plus recevoir de "Found it" : on retombe sur "Write note". */
+function sanitizeLogTypeForGeocache(value: LogTypeValue, geocache: GeocacheListItem | undefined): LogTypeValue {
+    if (value === 'found' && geocache?.already_found === true) {
+        return 'note';
+    }
+    return value;
+}
+
+function formatFoundDate(iso: string | null | undefined): string | undefined {
+    if (!iso) {
+        return undefined;
+    }
+    const ts = Date.parse(iso);
+    if (!isFinite(ts)) {
+        return undefined;
+    }
+    return new Date(ts).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+function alreadyFoundTooltip(geocache: GeocacheListItem): string {
+    const date = formatFoundDate(geocache.found_date);
+    return date
+        ? `Déjà trouvée le ${date} — "Found it" impossible une seconde fois`
+        : 'Déjà trouvée — "Found it" impossible une seconde fois';
+}
+
+/** Violet : lisible en thème clair comme sombre, et déjà distinct du vert/orange/rouge des statuts d'envoi. */
+const ALREADY_FOUND_ACCENT = '#8b5cf6';
+const ALREADY_FOUND_ROW_BACKGROUND = 'rgba(139, 92, 246, 0.13)';
 
 interface LogHistoryEntry {
     id: string;
@@ -287,7 +320,19 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
             {
                 accessorKey: 'gc_code',
                 header: 'GC',
-                cell: info => <strong>{info.getValue() as string}</strong>,
+                cell: ({ row }) => (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+                        <strong>{row.original.gc_code}</strong>
+                        {row.original.already_found === true && (
+                            <span
+                                style={{ fontSize: 12, color: ALREADY_FOUND_ACCENT }}
+                                title={alreadyFoundTooltip(row.original)}
+                            >
+                                🏆
+                            </span>
+                        )}
+                    </div>
+                ),
             },
             {
                 id: 'log_type',
@@ -295,16 +340,18 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
                 cell: ({ row }) => {
                     const gc = row.original;
                     const disabled = perCacheSubmitStatus[gc.id] === 'ok';
-                    const current = perCacheLogType[gc.id] ?? logType;
+                    const alreadyFound = gc.already_found === true;
+                    const current = sanitizeLogTypeForGeocache(perCacheLogType[gc.id] ?? logType, gc);
                     return (
                         <select
                             className='theia-select'
                             value={current}
                             onChange={e => onToggleLogType(gc.id, e.target.value as LogTypeValue)}
                             disabled={disabled}
+                            title={alreadyFound ? alreadyFoundTooltip(gc) : undefined}
                             style={{ fontSize: 12 }}
                         >
-                            <option value='found'>{typeLabel('found')}</option>
+                            <option value='found' disabled={alreadyFound}>{typeLabel('found')}</option>
                             <option value='dnf'>{typeLabel('dnf')}</option>
                             <option value='note'>{typeLabel('note')}</option>
                         </select>
@@ -363,7 +410,7 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
                 header: 'Donner PF',
                 cell: ({ row }) => {
                     const gc = row.original;
-                    const currentLogType = perCacheLogType[gc.id] ?? logType;
+                    const currentLogType = sanitizeLogTypeForGeocache(perCacheLogType[gc.id] ?? logType, gc);
                     const isChecked = perCacheFavorite[gc.id] === true;
                     const disabled = currentLogType !== 'found' || perCacheSubmitStatus[gc.id] === 'ok' || (!isChecked && remainingFavoritePoints <= 0);
                     return (
@@ -390,10 +437,40 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
         getSortedRowModel: getSortedRowModel(),
     });
 
+    const alreadyFoundCount = data.filter(gc => gc.already_found === true).length;
+
     return (
         <div style={{ border: '1px solid var(--theia-panel-border)', borderRadius: 6, overflow: 'hidden' }}>
-            <div style={{ padding: '6px 10px', fontSize: 12, fontWeight: 700, background: 'var(--theia-editor-background)' }}>
-                Géocaches
+            <div
+                style={{
+                    padding: '6px 10px',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    background: 'var(--theia-editor-background)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    flexWrap: 'wrap'
+                }}
+            >
+                <span>Géocaches</span>
+                {alreadyFoundCount > 0 && (
+                    <span
+                        style={{
+                            padding: '2px 8px',
+                            borderRadius: 10,
+                            fontSize: 11,
+                            fontWeight: 600,
+                            background: ALREADY_FOUND_ROW_BACKGROUND,
+                            color: ALREADY_FOUND_ACCENT,
+                            border: `1px solid ${ALREADY_FOUND_ACCENT}`,
+                            whiteSpace: 'nowrap'
+                        }}
+                        title={'Une géocache ne peut être loguée "Found it" qu\'une seule fois : ces lignes sont passées en "Write note".'}
+                    >
+                        🏆 {alreadyFoundCount} déjà trouvée{alreadyFoundCount > 1 ? 's' : ''} — "Found it" indisponible
+                    </span>
+                )}
             </div>
             <div style={{ overflow: 'auto', maxHeight }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -427,7 +504,11 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
                     </thead>
                     <tbody>
                         {table.getRowModel().rows.map(row => (
-                            <tr key={row.id}>
+                            <tr
+                                key={row.id}
+                                style={row.original.already_found === true ? { background: ALREADY_FOUND_ROW_BACKGROUND } : undefined}
+                                title={row.original.already_found === true ? alreadyFoundTooltip(row.original) : undefined}
+                            >
                                 {row.getVisibleCells().map(cell => (
                                     <td key={cell.id} style={{ padding: '6px 8px', borderBottom: '1px solid var(--theia-panel-border)', verticalAlign: 'middle' }}>
                                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -1377,6 +1458,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                     logs_count: typeof data.logs_count === 'number' ? (data.logs_count as number) : undefined,
                     placed_at: (data.placed_at ?? null) as string | null,
                     cache_type: (data.type || '').toString(),
+                    already_found: data.found === true,
+                    found_date: (data.found_date ?? null) as string | null,
                 } as GeocacheListItem;
             }));
 
@@ -1385,11 +1468,20 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             const nextTypes: Record<number, LogTypeValue> = { ...this.perCacheLogType };
             for (const gc of results) {
                 const existing = nextTypes[gc.id];
-                if (existing !== 'found' && existing !== 'dnf' && existing !== 'note') {
-                    nextTypes[gc.id] = this.logType;
-                }
+                const candidate = existing === 'found' || existing === 'dnf' || existing === 'note' ? existing : this.logType;
+                nextTypes[gc.id] = sanitizeLogTypeForGeocache(candidate, gc);
             }
             this.perCacheLogType = nextTypes;
+
+            const alreadyFound = results.filter(gc => gc.already_found === true);
+            if (alreadyFound.length > 0 && this.logType === 'found') {
+                const codes = alreadyFound.map(gc => gc.gc_code).join(', ');
+                this.messages.warn(
+                    alreadyFound.length === 1
+                        ? `${codes} est déjà loguée "Found it" : le type a été basculé sur "Write note".`
+                        : `${alreadyFound.length} géocaches sont déjà loguées "Found it" (${codes}) : leur type a été basculé sur "Write note".`
+                );
+            }
 
             const nextFav: Record<number, boolean> = { ...this.perCacheFavorite };
             for (const gc of results) {
@@ -1526,10 +1618,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     }
 
     protected getCacheCountForIndex(geocacheIndex: number): number {
-        const foundCountBefore = this.geocaches.slice(0, geocacheIndex).filter(gc => {
-            const logType = this.perCacheLogType[gc.id] ?? this.logType;
-            return logType === 'found';
-        }).length;
+        const foundCountBefore = this.geocaches.slice(0, geocacheIndex)
+            .filter(gc => this.getLogTypeForGeocacheId(gc.id) === 'found').length;
         return this.userFindsCount + foundCountBefore + 1;
     }
 
@@ -2058,21 +2148,50 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         }, 150);
     }
 
+    protected getGeocacheById(geocacheId: number): GeocacheListItem | undefined {
+        return this.geocaches.find(gc => gc.id === geocacheId);
+    }
+
+    protected isGeocacheAlreadyFound(geocacheId: number): boolean {
+        return this.getGeocacheById(geocacheId)?.already_found === true;
+    }
+
+    protected getAlreadyFoundGeocaches(): GeocacheListItem[] {
+        return this.geocaches.filter(gc => gc.already_found === true);
+    }
+
     protected setGlobalLogType(nextValue: LogTypeValue): void {
         this.logType = nextValue;
         const nextTypes: Record<number, LogTypeValue> = { ...this.perCacheLogType };
         for (const gc of this.geocaches) {
-            nextTypes[gc.id] = nextValue;
+            nextTypes[gc.id] = sanitizeLogTypeForGeocache(nextValue, gc);
         }
         this.perCacheLogType = nextTypes;
+
+        const skipped = this.getAlreadyFoundGeocaches();
+        if (nextValue === 'found' && skipped.length > 0) {
+            this.messages.warn(
+                `${skipped.length} géocache(s) déjà trouvée(s) restent en "Write note" : ${skipped.map(gc => gc.gc_code).join(', ')}`
+            );
+        }
         this.update();
     }
 
     protected setLogTypeForGeocacheId(geocacheId: number, nextValue: LogTypeValue): void {
+        if (nextValue === 'found' && this.isGeocacheAlreadyFound(geocacheId)) {
+            const gc = this.getGeocacheById(geocacheId);
+            this.messages.warn(`${gc?.gc_code ?? 'Cette géocache'} est déjà loguée "Found it" : impossible de la loguer une seconde fois.`);
+            this.update();
+            return;
+        }
+
         const nextTypes: Record<number, LogTypeValue> = { ...this.perCacheLogType, [geocacheId]: nextValue };
         this.perCacheLogType = nextTypes;
 
-        const values = this.geocaches.map(gc => nextTypes[gc.id] ?? this.logType);
+        // Les caches déjà trouvées ne peuvent pas suivre un "Found it" global : on les exclut de l'alignement.
+        const values = this.geocaches
+            .filter(gc => gc.already_found !== true)
+            .map(gc => nextTypes[gc.id] ?? this.logType);
         if (values.length > 0 && values.every(v => v === values[0])) {
             this.logType = values[0];
         }
@@ -2080,7 +2199,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     }
 
     protected getLogTypeForGeocacheId(geocacheId: number): LogTypeValue {
-        return this.perCacheLogType[geocacheId] ?? this.logType;
+        const value = this.perCacheLogType[geocacheId] ?? this.logType;
+        return sanitizeLogTypeForGeocache(value, this.getGeocacheById(geocacheId));
     }
 
     protected isGeocacheSubmittedOk(geocacheId: number): boolean {
@@ -2232,6 +2352,12 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                         const ref = typeof responseBody?.log_reference_code === 'string' ? responseBody.log_reference_code : undefined;
                         this.perCacheSubmitReference = { ...this.perCacheSubmitReference, [gc.id]: ref };
 
+                        if (responseBody?.found === true) {
+                            this.geocaches = this.geocaches.map(item => item.id === gc.id
+                                ? { ...item, already_found: true, found_date: typeof responseBody?.found_date === 'string' ? responseBody.found_date : item.found_date }
+                                : item);
+                        }
+
                         if (typeof window !== 'undefined') {
                             window.dispatchEvent(new CustomEvent('geoapp-geocache-log-submitted', {
                                 detail: {
@@ -2248,6 +2374,11 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                         const errorCode = typeof responseBody?.error_code === 'string' ? responseBody.error_code : undefined;
                         if (res.status === 409 && errorCode === 'ALREADY_LOGGED') {
                             this.perCacheSubmitStatus = { ...this.perCacheSubmitStatus, [gc.id]: 'skipped' };
+                            // Le backend confirme le "Found it" existant : on bascule la ligne en "Write note".
+                            this.geocaches = this.geocaches.map(item => item.id === gc.id
+                                ? { ...item, already_found: true, found_date: typeof responseBody?.found_date === 'string' ? responseBody.found_date : item.found_date }
+                                : item);
+                            this.perCacheLogType = { ...this.perCacheLogType, [gc.id]: 'note' };
                             this.messages.warn(`${gc.gc_code} - déjà loguée (ignorée)`);
                         } else {
                             failed += 1;
@@ -2847,6 +2978,14 @@ ${geocacheContext}`;
                             <option value='dnf'>Didn't find it</option>
                             <option value='note'>Write note</option>
                         </select>
+                        {this.logType === 'found' && this.getAlreadyFoundGeocaches().length > 0 && (
+                            <div
+                                style={{ fontSize: 11, marginTop: 4, color: ALREADY_FOUND_ACCENT }}
+                                title={this.getAlreadyFoundGeocaches().map(gc => gc.gc_code).join(', ')}
+                            >
+                                🏆 {this.getAlreadyFoundGeocaches().length} déjà trouvée(s) → "Write note"
+                            </div>
+                        )}
                     </div>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         <input
@@ -3013,10 +3152,36 @@ ${geocacheContext}`;
                 {!this.isLoading && this.geocaches.length > 0 && !this.useSameTextForAll && (
                     <div style={{ display: 'grid', gap: 10 }}>
                         {this.geocaches.map(gc => (
-                            <div key={gc.id} style={{ border: '1px solid var(--theia-panel-border)', borderRadius: 6, padding: 10, background: 'var(--theia-editor-background)' }}>
+                            <div
+                                key={gc.id}
+                                style={{
+                                    border: gc.already_found === true
+                                        ? `1px solid ${ALREADY_FOUND_ACCENT}`
+                                        : '1px solid var(--theia-panel-border)',
+                                    borderRadius: 6,
+                                    padding: 10,
+                                    background: gc.already_found === true ? ALREADY_FOUND_ROW_BACKGROUND : 'var(--theia-editor-background)'
+                                }}
+                            >
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
                                     <div style={{ fontWeight: 700 }}>{gc.gc_code}</div>
                                     <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                                        {gc.already_found === true && (
+                                            <span
+                                                style={{
+                                                    padding: '2px 6px',
+                                                    borderRadius: 3,
+                                                    fontSize: 12,
+                                                    background: ALREADY_FOUND_ACCENT,
+                                                    color: '#fff',
+                                                    fontWeight: 700,
+                                                    whiteSpace: 'nowrap'
+                                                }}
+                                                title={alreadyFoundTooltip(gc)}
+                                            >
+                                                🏆 Déjà trouvée
+                                            </span>
+                                        )}
                                         {this.perCacheSubmitStatus[gc.id] === 'ok' && (
                                             <span
                                                 style={{
@@ -3068,9 +3233,10 @@ ${geocacheContext}`;
                                                 value={this.getLogTypeForGeocacheId(gc.id)}
                                                 onChange={e => this.setLogTypeForGeocacheId(gc.id, e.target.value as LogTypeValue)}
                                                 disabled={this.isGeocacheSubmittedOk(gc.id)}
+                                                title={gc.already_found === true ? alreadyFoundTooltip(gc) : undefined}
                                                 style={{ fontSize: 12 }}
                                             >
-                                                <option value='found'>{this.getLogTypeLabel('found')}</option>
+                                                <option value='found' disabled={gc.already_found === true}>{this.getLogTypeLabel('found')}</option>
                                                 <option value='dnf'>{this.getLogTypeLabel('dnf')}</option>
                                                 <option value='note'>{this.getLogTypeLabel('note')}</option>
                                             </select>
