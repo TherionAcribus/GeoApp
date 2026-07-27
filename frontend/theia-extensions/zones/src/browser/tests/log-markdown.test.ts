@@ -7,6 +7,7 @@ import {
     sanitizeLogUrl,
     toggleMarkdownFormat,
     tokenizeInlineMarkdown,
+    trimSelectionRange,
     unwrapMarkdownSelection,
 } from '../log-markdown';
 
@@ -207,6 +208,46 @@ function testToggleMarkdownFormatAtCaret(): void {
     assert.ok(toggleMarkdownFormat(link, 10, 10, 'link', 'lien').value.includes('[lien]'));
 }
 
+function testDoubleClickSelectionIncludingSpace(): void {
+    //             0123456789...
+    const value = 'un mot suite';
+
+    // Double-clic sur « mot » : Chromium sélectionne souvent « mot » + l'espace suivant.
+    // Les délimiteurs doivent se poser sur le mot, pas sur l'espace.
+    const bold = toggleMarkdownFormat(value, 3, 7, 'bold', 'texte');
+    assert.equal(bold.value, 'un **mot** suite');
+    assert.equal(bold.value.slice(bold.selectionStart, bold.selectionEnd), 'mot');
+
+    // Même chose avec un espace en tête.
+    const leading = toggleMarkdownFormat(value, 2, 6, 'bold', 'texte');
+    assert.equal(leading.value, 'un **mot** suite');
+
+    // Et en italique, pour vérifier que ce n'est pas propre au gras.
+    assert.equal(toggleMarkdownFormat(value, 3, 7, 'italic', 'texte').value, 'un *mot* suite');
+
+    // Le résultat doit être réellement interprété comme du gras.
+    assert.deepEqual(findUnrenderedEmphasis(bold.value), []);
+    assert.equal(findFormatAtCaret(bold.value, 6)?.kind, 'bold');
+
+    // Sélection entièrement blanche → traitée comme un simple curseur.
+    const blank = toggleMarkdownFormat(value, 2, 3, 'bold', 'texte');
+    assert.equal(blank.value, 'un **texte**mot suite');
+
+    // Une sélection déjà formatée, débordant d'un espace, se retire quand même.
+    const unwrap = toggleMarkdownFormat('**mot** suite', 0, 8, 'bold', 'texte');
+    assert.equal(unwrap.value, 'mot suite');
+}
+
+function testTrimSelectionRange(): void {
+    assert.deepEqual(trimSelectionRange('un mot suite', 3, 7), { start: 3, end: 6 });
+    assert.deepEqual(trimSelectionRange('un mot suite', 2, 7), { start: 3, end: 6 });
+    assert.deepEqual(trimSelectionRange('un mot suite', 3, 6), { start: 3, end: 6 });
+    // Sélection entièrement blanche : ramenée à un curseur en fin de sélection.
+    assert.deepEqual(trimSelectionRange('un   mot', 2, 5), { start: 5, end: 5 });
+    // Les sauts de ligne comptent comme des blancs.
+    assert.deepEqual(trimSelectionRange('mot\nsuite', 0, 4), { start: 0, end: 3 });
+}
+
 function testTokenRanges(): void {
     const tokens = tokenizeInlineMarkdown('Merci **beaucoup** !');
     assert.deepEqual(tokens.map(t => [t.kind, t.start, t.end]), [
@@ -237,6 +278,8 @@ testFindUnrenderedEmphasis();
 testUnwrapMarkdownSelection();
 testFindFormatAtCaret();
 testToggleMarkdownFormatAtCaret();
+testDoubleClickSelectionIncludingSpace();
+testTrimSelectionRange();
 testTokenRanges();
 testEmptyText();
 

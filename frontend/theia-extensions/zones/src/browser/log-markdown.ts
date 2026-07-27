@@ -296,15 +296,20 @@ export function toggleMarkdownFormat(
     placeholder: string
 ): MarkdownSelectionEdit {
     const { before, after } = MARKDOWN_DELIMITERS[kind];
-    const hasSelection = selectionStart !== selectionEnd;
+
+    // Un double-clic sélectionne souvent le mot *et* l'espace qui suit. Envelopper tel quel
+    // produirait `**mot **`, que Geocaching.com n'interprète pas : on resserre donc la
+    // sélection sur le texte, en laissant les espaces à l'extérieur des délimiteurs.
+    const { start, end } = trimSelectionRange(value, selectionStart, selectionEnd);
+    const hasSelection = start !== end;
 
     if (hasSelection) {
-        const unwrapped = unwrapMarkdownSelection(value, selectionStart, selectionEnd, before, after);
+        const unwrapped = unwrapMarkdownSelection(value, start, end, before, after);
         if (unwrapped) {
             return unwrapped;
         }
     } else {
-        const format = findFormatAtCaret(value, selectionStart);
+        const format = findFormatAtCaret(value, start);
         // Le lien est exclu : son délimiteur fermant contient l'URL, de longueur variable,
         // donc on ne peut pas le retirer en se fiant à `after`.
         if (format && format.kind === kind && kind !== 'link') {
@@ -317,15 +322,32 @@ export function toggleMarkdownFormat(
         }
     }
 
-    const selected = value.slice(selectionStart, selectionEnd);
-    const insert = hasSelection ? selected : placeholder;
-    const contentStart = selectionStart + before.length;
+    const insert = hasSelection ? value.slice(start, end) : placeholder;
+    const contentStart = start + before.length;
 
     return {
-        value: value.slice(0, selectionStart) + before + insert + after + value.slice(selectionEnd),
+        value: value.slice(0, start) + before + insert + after + value.slice(end),
         selectionStart: contentStart,
         selectionEnd: contentStart + insert.length,
     };
+}
+
+/**
+ * Resserre une sélection sur son contenu non blanc.
+ * Une sélection entièrement blanche est ramenée à un simple curseur, placé à sa fin.
+ */
+export function trimSelectionRange(value: string, selectionStart: number, selectionEnd: number): TokenRange {
+    let start = selectionStart;
+    let end = selectionEnd;
+
+    while (start < end && /\s/.test(value[start])) {
+        start += 1;
+    }
+    while (end > start && /\s/.test(value[end - 1])) {
+        end -= 1;
+    }
+
+    return { start, end };
 }
 
 const HEADING_RE = /^(#{1,3})\s+(.*)$/;

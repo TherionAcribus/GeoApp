@@ -124,9 +124,15 @@ distinguer « l'aperçu ne fait rien » de « ton Markdown est invalide ».
 Les boutons de la barre d'outils (B, I, code, lien) sont des **bascules**, pilotées par
 `toggleMarkdownFormat()` qui traite trois cas dans l'ordre :
 
+0. la sélection est d'abord resserrée sur son contenu non blanc (`trimSelectionRange()`) ;
 1. sélection déjà formatée → retrait des délimiteurs (`unwrapMarkdownSelection()`) ;
 2. curseur seul posé dans une zone formatée → retrait des délimiteurs de cette zone ;
 3. sinon → enveloppement de la sélection, ou du texte indicatif s'il n'y en a pas.
+
+L'étape 0 est indispensable : un double-clic sélectionne le mot **et** l'espace qui suit,
+et envelopper tel quel produirait `**mot **`, que Geocaching.com n'interprète pas. Les
+espaces restent donc à l'extérieur des délimiteurs (`un **mot** suite`), et la sélection
+restituée après l'action porte sur le seul mot.
 
 Le bouton correspondant s'**allume** quand le curseur est dans une zone formatée
 (`findFormatAtCaret()`, alimenté par les bornes `start`/`end` que le tokenizer attache à
