@@ -363,11 +363,10 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
                 header: () => <span title="Ordre d'envoi des logs">#</span>,
                 cell: ({ row }) => {
                     const gc = row.original;
-                    const sendIndex = data.findIndex(item => item.id === gc.id);
                     return (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
                             <span style={{ fontSize: 11, opacity: 0.7, minWidth: 14, textAlign: 'right' }}>
-                                {sendIndex >= 0 ? sendIndex + 1 : '—'}
+                                {row.index + 1}
                             </span>
                             <span
                                 draggable={canReorder}
@@ -577,6 +576,18 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
     const displayedRows = table.getRowModel().rows;
     displayedIdsRef.current = displayedRows.map(row => row.original.id);
 
+    // L'ordre affiché est l'ordre d'envoi : un tri par colonne est donc reporté sur la liste
+    // du parent, pour que les blocs de texte par cache et l'envoi suivent ce que l'on voit.
+    const displayedIdsKey = displayedIdsRef.current.join(',');
+    const dataIdsKey = data.map(gc => gc.id).join(',');
+    React.useEffect(() => {
+        if (displayedIdsKey !== dataIdsKey) {
+            onReorder([...displayedIdsRef.current]);
+        }
+        // `onReorder` est recréé à chaque rendu du parent : le comparer relancerait l'effet pour rien.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [displayedIdsKey, dataIdsKey]);
+
     const alreadyFoundCount = data.filter(gc => isPreviouslyFound(gc, perCacheSubmitStatus)).length;
     const justLoggedCount = data.filter(gc => isJustLogged(gc, perCacheSubmitStatus)).length;
 
@@ -629,18 +640,12 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
                         ✅ {justLoggedCount} loguée{justLoggedCount > 1 ? 's' : ''}
                     </span>
                 )}
-                {sorting.length > 0 ? (
-                    <button
-                        className='theia-button secondary'
-                        onClick={() => setSorting([])}
-                        title="Le tri par colonne ne change pas l'ordre d'envoi (colonne #). Revenir à l'ordre manuel."
-                        style={{ fontSize: 11, padding: '1px 6px', fontWeight: 600 }}
+                {canReorder && (
+                    <span
+                        style={{ fontSize: 11, fontWeight: 400, opacity: 0.7 }}
+                        title="L'ordre du tableau est l'ordre d'envoi des logs, celui des blocs de texte par cache et celui de la numérotation @cache_count."
                     >
-                        Tri actif — revenir à l'ordre d'envoi
-                    </button>
-                ) : canReorder && (
-                    <span style={{ fontSize: 11, fontWeight: 400, opacity: 0.7 }}>
-                        Glisser ⠿ pour changer l'ordre d'envoi
+                        Glisser ⠿ (ou trier une colonne) pour changer l'ordre d'envoi
                     </span>
                 )}
             </div>
