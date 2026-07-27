@@ -93,6 +93,10 @@ const ALREADY_FOUND_ROW_BACKGROUND = 'rgba(139, 92, 246, 0.13)';
 const JUST_LOGGED_ACCENT = 'var(--theia-charts-green, #22c55e)';
 const JUST_LOGGED_ROW_BACKGROUND = 'rgba(34, 197, 94, 0.13)';
 
+/** Bleu : la couleur du "Didn't find it" chez Geocaching.com. */
+const DNF_ACCENT = '#3b82f6';
+const DNF_ROW_BACKGROUND = 'rgba(59, 130, 246, 0.14)';
+
 /** Loguée à l'instant, pendant cette session : ce n'est pas une "déjà trouvée", c'est un envoi réussi. */
 function isJustLogged(geocache: GeocacheListItem, perCacheSubmitStatus: Record<number, SubmissionStatus>): boolean {
     return perCacheSubmitStatus[geocache.id] === 'ok';
@@ -102,6 +106,43 @@ function isJustLogged(geocache: GeocacheListItem, perCacheSubmitStatus: Record<n
 function isPreviouslyFound(geocache: GeocacheListItem, perCacheSubmitStatus: Record<number, SubmissionStatus>): boolean {
     return geocache.already_found === true && !isJustLogged(geocache, perCacheSubmitStatus);
 }
+
+/** Sera loguée "Didn't find it" : signalée en bleu tant que le log n'est pas parti. */
+function isPendingDnf(
+    geocache: GeocacheListItem,
+    logTypeForGeocache: LogTypeValue,
+    perCacheSubmitStatus: Record<number, SubmissionStatus>
+): boolean {
+    return logTypeForGeocache === 'dnf' && !isJustLogged(geocache, perCacheSubmitStatus);
+}
+
+/** Badge "DNF" : le texte double la couleur, pour rester lisible sans distinguer le bleu. */
+const DnfBadge: React.FC<{ compact?: boolean }> = ({ compact = false }) => (
+    <span
+        style={compact
+            ? {
+                fontSize: 10,
+                fontWeight: 700,
+                color: DNF_ACCENT,
+                border: `1px solid ${DNF_ACCENT}`,
+                borderRadius: 3,
+                padding: '0 3px',
+                whiteSpace: 'nowrap'
+            }
+            : {
+                padding: '2px 6px',
+                borderRadius: 3,
+                fontSize: 12,
+                background: DNF_ACCENT,
+                color: '#fff',
+                fontWeight: 700,
+                whiteSpace: 'nowrap'
+            }}
+        title="Didn't find it — cache non trouvée"
+    >
+        DNF
+    </span>
+);
 
 interface LogHistoryEntry {
     id: string;
@@ -493,6 +534,11 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
                                 🏆
                             </span>
                         )}
+                        {isPendingDnf(
+                            row.original,
+                            sanitizeLogTypeForGeocache(perCacheLogType[row.original.id] ?? logType, row.original),
+                            perCacheSubmitStatus
+                        ) && <DnfBadge compact />}
                     </div>
                 ),
             },
@@ -513,7 +559,9 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
                             title={justLogged
                                 ? 'Log déjà envoyé pour cette géocache'
                                 : previouslyFound ? alreadyFoundTooltip(gc) : undefined}
-                            style={{ fontSize: 12 }}
+                            style={isPendingDnf(gc, current, perCacheSubmitStatus)
+                                ? { fontSize: 12, color: DNF_ACCENT, borderColor: DNF_ACCENT, fontWeight: 600 }
+                                : { fontSize: 12 }}
                         >
                             <option value='found' disabled={previouslyFound}>{typeLabel('found')}</option>
                             <option value='dnf'>{typeLabel('dnf')}</option>
@@ -638,6 +686,11 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
 
     const alreadyFoundCount = data.filter(gc => isPreviouslyFound(gc, perCacheSubmitStatus)).length;
     const justLoggedCount = data.filter(gc => isJustLogged(gc, perCacheSubmitStatus)).length;
+    const dnfCount = data.filter(gc => isPendingDnf(
+        gc,
+        sanitizeLogTypeForGeocache(perCacheLogType[gc.id] ?? logType, gc),
+        perCacheSubmitStatus
+    )).length;
 
     return (
         <div style={{ border: '1px solid var(--theia-panel-border)', borderRadius: 6, overflow: 'hidden' }}>
@@ -688,6 +741,23 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
                         ✅ {justLoggedCount} loguée{justLoggedCount > 1 ? 's' : ''}
                     </span>
                 )}
+                {dnfCount > 0 && (
+                    <span
+                        style={{
+                            padding: '2px 8px',
+                            borderRadius: 10,
+                            fontSize: 11,
+                            fontWeight: 600,
+                            background: DNF_ROW_BACKGROUND,
+                            color: DNF_ACCENT,
+                            border: `1px solid ${DNF_ACCENT}`,
+                            whiteSpace: 'nowrap'
+                        }}
+                        title={'Ces géocaches partiront en "Didn\'t find it".'}
+                    >
+                        {dnfCount} DNF
+                    </span>
+                )}
                 {canReorder && (
                     <span
                         style={{ fontSize: 11, fontWeight: 400, opacity: 0.7 }}
@@ -732,13 +802,17 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
                             const gc = row.original;
                             const isDragged = draggedId === gc.id;
                             const indicator = dropIndicator?.id === gc.id ? dropIndicator.position : undefined;
+                            const currentLogType = sanitizeLogTypeForGeocache(perCacheLogType[gc.id] ?? logType, gc);
+                            // Le DNF choisi passe devant l'info "déjà trouvée" : c'est ce qui va réellement être envoyé.
                             const background = isJustLogged(gc, perCacheSubmitStatus)
                                 ? JUST_LOGGED_ROW_BACKGROUND
-                                : isPreviouslyFound(gc, perCacheSubmitStatus)
-                                    ? ALREADY_FOUND_ROW_BACKGROUND
-                                    : undefined;
+                                : isPendingDnf(gc, currentLogType, perCacheSubmitStatus)
+                                    ? DNF_ROW_BACKGROUND
+                                    : isPreviouslyFound(gc, perCacheSubmitStatus)
+                                        ? ALREADY_FOUND_ROW_BACKGROUND
+                                        : undefined;
                             // "Ne pas loguer" : la ligne reste lisible mais se démarque de celles qui partiront.
-                            const isSkipped = sanitizeLogTypeForGeocache(perCacheLogType[gc.id] ?? logType, gc) === 'skip'
+                            const isSkipped = currentLogType === 'skip'
                                 && !isJustLogged(gc, perCacheSubmitStatus);
                             return (
                                 <tr
@@ -2604,6 +2678,11 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         return this.isGeocacheAlreadyFound(geocacheId) && !this.isGeocacheSubmittedOk(geocacheId);
     }
 
+    /** Sera loguée "Didn't find it" : c'est l'état signalé en bleu dans le tableau et dans les blocs. */
+    protected isPendingDnf(geocacheId: number): boolean {
+        return this.getLogTypeForGeocacheId(geocacheId) === 'dnf' && !this.isGeocacheSubmittedOk(geocacheId);
+    }
+
     /** Caches trouvées avant cette session et pas encore soumises : les seules à signaler comme "déjà trouvées". */
     protected getPendingAlreadyFoundGeocaches(): GeocacheListItem[] {
         return this.geocaches.filter(gc => gc.already_found === true && !this.isGeocacheSubmittedOk(gc.id));
@@ -3657,23 +3736,29 @@ ${geocacheContext}`;
                             <div
                                 key={gc.id}
                                 style={{
+                                    // Même cascade que dans le tableau : envoyé, puis DNF, puis déjà trouvée.
                                     border: this.isGeocacheSubmittedOk(gc.id)
                                         ? `1px solid ${JUST_LOGGED_ACCENT}`
-                                        : this.isPendingAlreadyFound(gc.id)
-                                            ? `1px solid ${ALREADY_FOUND_ACCENT}`
-                                            : '1px solid var(--theia-panel-border)',
+                                        : this.isPendingDnf(gc.id)
+                                            ? `1px solid ${DNF_ACCENT}`
+                                            : this.isPendingAlreadyFound(gc.id)
+                                                ? `1px solid ${ALREADY_FOUND_ACCENT}`
+                                                : '1px solid var(--theia-panel-border)',
                                     borderRadius: 6,
                                     padding: 10,
                                     background: this.isGeocacheSubmittedOk(gc.id)
                                         ? JUST_LOGGED_ROW_BACKGROUND
-                                        : this.isPendingAlreadyFound(gc.id)
-                                            ? ALREADY_FOUND_ROW_BACKGROUND
-                                            : 'var(--theia-editor-background)'
+                                        : this.isPendingDnf(gc.id)
+                                            ? DNF_ROW_BACKGROUND
+                                            : this.isPendingAlreadyFound(gc.id)
+                                                ? ALREADY_FOUND_ROW_BACKGROUND
+                                                : 'var(--theia-editor-background)'
                                 }}
                             >
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
                                     <div style={{ fontWeight: 700 }}>{gc.gc_code}</div>
                                     <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                                        {this.isPendingDnf(gc.id) && <DnfBadge />}
                                         {this.isPendingAlreadyFound(gc.id) && (
                                             <span
                                                 style={{
@@ -3744,7 +3829,9 @@ ${geocacheContext}`;
                                                 title={this.isGeocacheSubmittedOk(gc.id)
                                                     ? 'Log déjà envoyé pour cette géocache'
                                                     : this.isPendingAlreadyFound(gc.id) ? alreadyFoundTooltip(gc) : undefined}
-                                                style={{ fontSize: 12 }}
+                                                style={this.isPendingDnf(gc.id)
+                                                    ? { fontSize: 12, color: DNF_ACCENT, borderColor: DNF_ACCENT, fontWeight: 600 }
+                                                    : { fontSize: 12 }}
                                             >
                                                 <option value='found' disabled={this.isPendingAlreadyFound(gc.id)}>{this.getLogTypeLabel('found')}</option>
                                                 <option value='dnf'>{this.getLogTypeLabel('dnf')}</option>
