@@ -505,6 +505,25 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
                 ),
             },
             {
+                accessorKey: 'owner',
+                header: 'Owner',
+                cell: info => {
+                    const owner = (info.getValue() as string | undefined) || '';
+                    if (!owner) {
+                        return <span style={{ opacity: 0.7 }}>—</span>;
+                    }
+                    return (
+                        <div
+                            style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, opacity: 0.85 }}
+                            title={owner}
+                        >
+                            {owner}
+                        </div>
+                    );
+                },
+                sortingFn: 'alphanumeric',
+            },
+            {
                 accessorKey: 'cache_type',
                 header: 'Type',
                 cell: info => {
