@@ -38,7 +38,7 @@ export const GeocacheFilterBar: React.FC<GeocacheFilterBarProps> = ({
     onAdvancedClausesChange,
     fieldDefinitions = STANDARD_GEOCACHE_FIELD_DEFINITIONS,
     enumOptionsByField = new Map(),
-    placeholder = 'Rechercher... (@champ:valeur)',
+    placeholder = 'Rechercher... (@champ:valeur, joker *)',
     resultCount,
     disabled = false,
 }) => {
@@ -265,6 +265,7 @@ export const GeocacheFilterBar: React.FC<GeocacheFilterBarProps> = ({
                             window.setTimeout(() => setAutocompleteOpen(false), 150);
                         }}
                         placeholder={placeholder}
+                        title={'Recherche insensible à la casse et aux accents.\nJoker * : remplace zéro, une ou plusieurs lettres (ex. gr*tte).\nFiltres ciblés : @champ:valeur (ex. @diff:>=3).'}
                         style={{ ...INPUT_STYLE, width: 280 }}
                     />
 

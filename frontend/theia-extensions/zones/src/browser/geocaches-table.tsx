@@ -18,6 +18,8 @@ import {
     TokenFilter,
     STANDARD_GEOCACHE_FIELD_DEFINITIONS,
     parseSearchQuery,
+    matchesSearchPattern,
+    normalizeSearchText,
 } from './geocache-filter-shared';
 
 import '../../src/browser/style/geocaches-table.css';
@@ -235,35 +237,31 @@ function matchesClause(geocache: Geocache, clause: TokenFilter): boolean {
         return true;
     }
 
-    const actualStr = (rawValue ?? '').toString();
-    const actualNorm = actualStr.toLowerCase();
-
     if (op === 'in' || op === 'not_in') {
-        const values = (clause.values ?? []).map(v => v.toLowerCase());
+        const values = clause.values ?? [];
         if (values.length === 0) {
             return true;
         }
-        const ok = values.includes(actualNorm);
+        const ok = values.some(v => matchesSearchPattern(rawValue, v, 'equals'));
         return op === 'in' ? ok : !ok;
     }
 
     const wanted = (clause.value ?? '').toString();
-    const wantedNorm = wanted.toLowerCase();
-    if (!wantedNorm && (op === 'contains' || op === 'not_contains' || op === 'eq' || op === 'neq')) {
+    if (!normalizeSearchText(wanted) && (op === 'contains' || op === 'not_contains' || op === 'eq' || op === 'neq')) {
         return true;
     }
 
     if (op === 'contains') {
-        return actualNorm.includes(wantedNorm);
+        return matchesSearchPattern(rawValue, wanted, 'contains');
     }
     if (op === 'not_contains') {
-        return !actualNorm.includes(wantedNorm);
+        return !matchesSearchPattern(rawValue, wanted, 'contains');
     }
     if (op === 'eq') {
-        return actualNorm === wantedNorm;
+        return matchesSearchPattern(rawValue, wanted, 'equals');
     }
     if (op === 'neq') {
-        return actualNorm !== wantedNorm;
+        return !matchesSearchPattern(rawValue, wanted, 'equals');
     }
     return true;
 }
@@ -720,7 +718,8 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
 
     const filteredData = React.useMemo(() => {
         const { freeText, tokenFilters } = parseSearchQuery(globalFilter);
-        const normalizedFreeText = freeText.trim().toLowerCase();
+        const searchPattern = freeText.trim();
+        const hasFreeText = normalizeSearchText(searchPattern).length > 0;
 
         const clauses: TokenFilter[] = [];
         for (const c of advancedClauses) {
@@ -737,17 +736,16 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
         }
 
         return data.filter(geocache => {
-            if (normalizedFreeText) {
-                const haystack = [
+            if (hasFreeText) {
+                // Chaque champ est testé séparément pour qu'un joker `*` ne
+                // puisse pas déborder d'un champ sur le suivant.
+                const fields = [
                     geocache.gc_code,
                     geocache.name,
                     geocache.cache_type,
                     geocache.owner ?? ''
-                ]
-                    .filter(Boolean)
-                    .join(' ')
-                    .toLowerCase();
-                if (!haystack.includes(normalizedFreeText)) {
+                ];
+                if (!fields.some(value => matchesSearchPattern(value, searchPattern, 'contains'))) {
                     return false;
                 }
             }
