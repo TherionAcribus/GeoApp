@@ -625,6 +625,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     protected totalFavoritePoints: number = 0;
     protected isFetchingFavoritePoints = false;
     protected userFindsCount: number = 0;
+    protected isRefreshingFindsCount = false;
 
     protected readonly logPatternsStorageKey = 'geoApp.logs.patterns.v1';
     protected customPatterns: LogTextPattern[] = [];
@@ -1475,6 +1476,61 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         }
     }
 
+    /** Vrai si un des textes à envoyer utilise `@cache_count`. */
+    protected usesCacheCountPattern(): boolean {
+        const regex = /@cache_count(?![a-zA-Z0-9_])/;
+        if (this.useSameTextForAll) {
+            return regex.test(this.globalText);
+        }
+        return this.geocaches.some(gc => regex.test(this.perCacheText[gc.id] ?? ''));
+    }
+
+    /**
+     * Resynchronise le nombre de trouvailles depuis Geocaching.com (scraping du
+     * profil), pour que `@cache_count` reparte de la vraie valeur et pas de celle
+     * mémorisée au login.
+     *
+     * Ne fait rien si une cache de cet onglet a déjà été envoyée : le compteur
+     * distant inclurait alors ce log, que `getCacheCountForIndex` recompte déjà
+     * via la position dans le lot — on numéroterait une trouvaille en trop.
+     */
+    protected async refreshUserFindsCount(): Promise<void> {
+        if (this.isRefreshingFindsCount) {
+            return;
+        }
+        if (Object.values(this.perCacheSubmitStatus).some(status => status === 'ok')) {
+            return;
+        }
+
+        this.isRefreshingFindsCount = true;
+        this.update();
+
+        try {
+            const res = await fetch(`${this.backendBaseUrl}/api/auth/profile/refresh`, {
+                method: 'POST',
+                credentials: 'include',
+            });
+            if (!res.ok) {
+                console.warn('[GeocacheLogEditorWidget] Failed to refresh profile stats', res.status);
+                return;
+            }
+            const body = await res.json();
+            const finds = body?.stats?.finds_count;
+            if (typeof finds === 'number') {
+                this.userFindsCount = finds;
+            }
+            const awardedPoints = body?.stats?.awarded_favorite_points;
+            if (typeof awardedPoints === 'number') {
+                this.totalFavoritePoints = awardedPoints;
+            }
+        } catch (e) {
+            console.error('[GeocacheLogEditorWidget] refreshUserFindsCount error', e);
+        } finally {
+            this.isRefreshingFindsCount = false;
+            this.update();
+        }
+    }
+
     protected async loadGeocaches(): Promise<void> {
         if (!this.geocacheIds.length || this.isLoading) {
             return;
@@ -2123,6 +2179,12 @@ export class GeocacheLogEditorWidget extends ReactWidget {
 
         const geocacheId = this.patternAutocompleteTargetGeocacheId;
 
+        // Dès l'insertion de @cache_count : on va chercher le vrai nombre de
+        // trouvailles pour que l'aperçu affiche le numéro qui sera réellement envoyé.
+        if (suggestion.insertText === '@cache_count') {
+            void this.refreshUserFindsCount();
+        }
+
         if (geocacheId === null) {
             const current = this.globalText;
             const next = current.slice(0, range.start) + suggestion.insertText + current.slice(range.end);
@@ -2358,6 +2420,13 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         this.isSubmitting = true;
         this.lastSubmitSummary = undefined;
         this.update();
+
+        // `@cache_count` numérote à partir du nombre de trouvailles du profil :
+        // on le resynchronise juste avant l'envoi pour ne pas partir d'une valeur
+        // périmée (logs faits ailleurs, onglet ouvert depuis longtemps…).
+        if (this.usesCacheCountPattern()) {
+            await this.refreshUserFindsCount();
+        }
 
         let ok = 0;
         let failed = 0;
@@ -2819,8 +2888,17 @@ ${geocacheContext}`;
                         <div style={{ opacity: 0.85 }}>
                             <strong>PF restants:</strong> <span style={{ color: this.getRemainingFavoritePoints() === 0 ? 'var(--theia-errorForeground)' : 'inherit' }}>{this.getRemainingFavoritePoints()}</span>
                         </div>
-                        <div style={{ opacity: 0.85 }}>
+                        <div style={{ opacity: 0.85, display: 'flex', gap: 4, alignItems: 'center' }}>
                             <strong>Trouvailles:</strong> {this.userFindsCount}
+                            <button
+                                className='theia-button secondary'
+                                style={{ fontSize: 11, padding: '0 6px', minWidth: 0 }}
+                                onClick={() => { void this.refreshUserFindsCount(); }}
+                                disabled={this.isRefreshingFindsCount || this.isSubmitting}
+                                title='Resynchroniser le nombre de trouvailles depuis Geocaching.com (base de @cache_count)'
+                            >
+                                {this.isRefreshingFindsCount ? '⏳' : '⟳'}
+                            </button>
                         </div>
                     </div>
                 </div>

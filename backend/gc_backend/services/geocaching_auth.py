@@ -138,6 +138,9 @@ class GeocachingAuthService:
         # Verrou dédié aux lectures/écritures de _auth_state (dataclass mutable
         # partagée entre threads Flask). Le réseau est fait hors de ce verrou.
         self._state_lock = threading.RLock()
+        # Nombre de trouvailles ajoutées localement (logs envoyés depuis GeoApp) et
+        # pas encore confirmées par les stats distantes. Cf. _reconcile_finds_count.
+        self._pending_finds_increments = 0
         self._initialized = True
 
         logger.info("GeocachingAuthService initialized")
@@ -897,7 +900,7 @@ class GeocachingAuthService:
             
             # Extraire les stats
             if self._auth_state.user_info:
-                self._auth_state.user_info.finds_count = data.get('findCount', 0)
+                self._auth_state.user_info.finds_count = self._reconcile_finds_count(data.get('findCount', 0))
                 self._auth_state.user_info.hides_count = data.get('hideCount', 0)
                 self._auth_state.user_info.favorite_points = data.get('favoritePoints', 0)
                 self._auth_state.user_info.awarded_favorite_points = data.get('awardedFavoritePoints', 0)
@@ -942,7 +945,7 @@ class GeocachingAuthService:
                         
                         if self._auth_state.user_info:
                             if finds_match:
-                                self._auth_state.user_info.finds_count = int(finds_match.group(1))
+                                self._auth_state.user_info.finds_count = self._reconcile_finds_count(int(finds_match.group(1)))
                             if hides_match:
                                 self._auth_state.user_info.hides_count = int(hides_match.group(1))
                             if fp_match:
@@ -1032,7 +1035,7 @@ class GeocachingAuthService:
             
             if self._auth_state.user_info:
                 if finds_match:
-                    self._auth_state.user_info.finds_count = int(finds_match.group(1))
+                    self._auth_state.user_info.finds_count = self._reconcile_finds_count(int(finds_match.group(1)))
                 if hides_match:
                     self._auth_state.user_info.hides_count = int(hides_match.group(1))
                 if fp_match:
@@ -1151,6 +1154,30 @@ class GeocachingAuthService:
                 if self._auth_state.user_info.stats_last_updated else None
         }
 
+    def _reconcile_finds_count(self, remote_value: Optional[int]) -> Optional[int]:
+        """Arbitre entre le compteur distant et la valeur locale.
+
+        Geocaching.com met parfois plusieurs secondes à comptabiliser un log qui
+        vient d'être envoyé. Tant que nos incréments locaux ne sont pas reflétés
+        côté serveur, on conserve la valeur la plus haute : sinon un
+        rafraîchissement forcé ferait reculer le compteur et `@cache_count`
+        réutiliserait un numéro déjà attribué.
+        """
+        with self._state_lock:
+            user_info = self._auth_state.user_info
+            current = user_info.finds_count if user_info else None
+
+            if not isinstance(remote_value, int):
+                return current
+
+            if self._pending_finds_increments > 0 and isinstance(current, int) and remote_value < current:
+                logger.debug('Profile stats lag behind local logs (remote=%s, local=%s): keeping local value',
+                             remote_value, current)
+                return current
+
+            self._pending_finds_increments = 0
+            return remote_value
+
     def apply_submitted_log(self, *, found: bool = False, used_favorite_point: bool = False) -> Optional[dict]:
         """Répercute sur les stats en cache un log qui vient d'être envoyé.
 
@@ -1172,6 +1199,7 @@ class GeocachingAuthService:
 
             if found and isinstance(user_info.finds_count, int):
                 user_info.finds_count = max(0, user_info.finds_count + 1)
+                self._pending_finds_increments += 1
 
             if used_favorite_point and isinstance(user_info.awarded_favorite_points, int):
                 user_info.awarded_favorite_points = max(0, user_info.awarded_favorite_points - 1)

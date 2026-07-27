@@ -386,9 +386,19 @@ cache_count = finds_count (depuis auth) + position_dans_le_batch + 1
 - `finds_count` : nombre de caches trouvées récupéré depuis `/api/auth/status`
 - `position_dans_le_batch` : index de la cache dans la liste (en comptant uniquement les "Found it")
 
-`finds_count` est lu une seule fois, à l'ouverture de l'onglet de log (`setContext` →
-`fetchFavoritePoints`), et reste figé pour toute la durée de vie de l'onglet : la position
-dans le batch fait le reste de l'incrémentation.
+`finds_count` est lu à l'ouverture de l'onglet de log (`setContext` → `fetchFavoritePoints`),
+puis reste figé pour la durée de vie de l'onglet : la position dans le batch fait le reste
+de l'incrémentation.
+
+Quand le texte utilise `@cache_count`, la valeur est **resynchronisée depuis
+Geocaching.com** (`POST /api/auth/profile/refresh`) via `refreshUserFindsCount()` :
+
+- à l'insertion du pattern par l'autocomplétion (l'aperçu montre le vrai numéro) ;
+- juste avant l'envoi du lot, dans `submitLogsToGeocaching` ;
+- à la demande, via le bouton `⟳` à côté de « Trouvailles ».
+
+Le rafraîchissement est ignoré si une cache de l'onglet a déjà été envoyée : le compteur
+distant inclurait ce log, que la position dans le batch recompte déjà (double comptage).
 
 Pour que le numéro reparte de la bonne base à l'envoi **suivant**, le backend répercute
 chaque log envoyé sur les stats en cache (`GeocachingAuthService.apply_submitted_log`,
