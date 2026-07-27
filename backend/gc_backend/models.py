@@ -40,3 +40,88 @@ class AppConfig(db.Model):
             entry.value = value
 
 
+class FriendActivity(db.Model):
+    """
+    Un log d'un ami, capturé depuis le flux d'activité de geocaching.com.
+
+    Le flux distant est plafonné (~100 entrées, ~2 mois) : cette table accumule
+    localement les synchronisations successives pour constituer un historique
+    plus profond. `log_reference_code` (GLxxxxx) est la clé de déduplication.
+    """
+    __tablename__ = 'friend_activity'
+
+    id = db.Column(db.Integer, primary_key=True)
+    log_reference_code = db.Column(db.String(30), nullable=False, unique=True, index=True)
+    activity_type = db.Column(db.Integer, nullable=False, default=2, index=True)
+
+    author_username = db.Column(db.String(150), nullable=False, index=True)
+    author_reference_code = db.Column(db.String(30))
+    author_avatar_url = db.Column(db.String(500))
+    # Le flux « communauté » de geocaching.com mélange mes logs et ceux de mes
+    # amis : on marque les miens à la synchro pour pouvoir les masquer sans
+    # avoir à connaître l'utilisateur connecté au moment de la lecture.
+    is_self = db.Column(db.Boolean, default=False, index=True)
+
+    log_type_id = db.Column(db.Integer, index=True)
+    log_date = db.Column(db.DateTime, index=True)
+    created_date = db.Column(db.DateTime)
+    note = db.Column(db.Text)
+
+    cache_name = db.Column(db.String(255))
+    cache_reference_code = db.Column(db.String(30), index=True)
+    cache_type_id = db.Column(db.Integer)
+    container_type_id = db.Column(db.Integer)
+    difficulty = db.Column(db.Float)
+    terrain = db.Column(db.Float)
+
+    favorite_points = db.Column(db.Integer)
+    image_count = db.Column(db.Integer)
+    is_premium = db.Column(db.Boolean, default=False)
+    is_archived = db.Column(db.Boolean, default=False)
+    is_favorited = db.Column(db.Boolean, default=False)
+
+    latitude = db.Column(db.Float)
+    longitude = db.Column(db.Float)
+    location_name = db.Column(db.String(255))
+
+    is_condensed = db.Column(db.Boolean, default=False)
+    condensed_count = db.Column(db.Integer, default=0)
+    action_url = db.Column(db.String(500))
+
+    first_seen_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    last_seen_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self) -> dict:
+        return {
+            'id': self.id,
+            'log_reference_code': self.log_reference_code,
+            'activity_type': self.activity_type,
+            'author_username': self.author_username,
+            'author_reference_code': self.author_reference_code,
+            'author_avatar_url': self.author_avatar_url,
+            'is_self': bool(self.is_self),
+            'log_type_id': self.log_type_id,
+            'log_date': self.log_date.isoformat() if self.log_date else None,
+            'created_date': self.created_date.isoformat() if self.created_date else None,
+            'note': self.note,
+            'cache_name': self.cache_name,
+            'cache_reference_code': self.cache_reference_code,
+            'cache_type_id': self.cache_type_id,
+            'container_type_id': self.container_type_id,
+            'difficulty': self.difficulty,
+            'terrain': self.terrain,
+            'favorite_points': self.favorite_points,
+            'image_count': self.image_count,
+            'is_premium': self.is_premium,
+            'is_archived': self.is_archived,
+            'is_favorited': self.is_favorited,
+            'latitude': self.latitude,
+            'longitude': self.longitude,
+            'location_name': self.location_name,
+            'is_condensed': self.is_condensed,
+            'condensed_count': self.condensed_count,
+            'action_url': self.action_url,
+            'first_seen_at': self.first_seen_at.isoformat() if self.first_seen_at else None,
+        }
+
+

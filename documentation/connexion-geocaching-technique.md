@@ -434,5 +434,6 @@ gracieusement** si absents.
 - Imports de géocaches (GPX / Pocket Query / bookmark / autour) — voir la doc des
   imports et `blueprints/geocaches.py`.
 - Détails de géocache et scraping — [geocache-details-technique.md](geocache-details-technique.md).
+- Amis Geocaching.com (liste, flux d'activité) — [amis-geocaching-technique.md](amis-geocaching-technique.md).
 - Backend général — [backend-technique.md](backend-technique.md).
 - Frontend général — [frontend-technique.md](frontend-technique.md).

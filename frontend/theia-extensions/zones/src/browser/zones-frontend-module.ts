@@ -50,6 +50,7 @@ import { GeoAppChatConfigurationService } from './geoapp-chat-configuration-serv
 import { ChatAgent } from '@theia/ai-chat/lib/common/chat-agents';
 import { GeocachingAuthWidget } from './geocaching-auth-widget';
 import { GeocachingFriendsWidget } from './geocaching-friends-widget';
+import { GeocachingFriendActivityWidget } from './geocaching-friend-activity-widget';
 import { ArchiveManagerWidget } from './archive-manager-widget';
 import { ZonesMenuContribution } from './zones-menu-contribution';
 import { GeoAppSidebarContribution } from './geoapp-sidebar-contribution';
@@ -327,6 +328,13 @@ export default new ContainerModule(bind => {
     bind(WidgetFactory).toDynamicValue(ctx => ({
         id: GeocachingFriendsWidget.ID,
         createWidget: () => ctx.container.get(GeocachingFriendsWidget)
+    })).inSingletonScope();
+
+    // Widget du flux d'activité des amis Geocaching.com
+    bind(GeocachingFriendActivityWidget).toSelf().inSingletonScope();
+    bind(WidgetFactory).toDynamicValue(ctx => ({
+        id: GeocachingFriendActivityWidget.ID,
+        createWidget: () => ctx.container.get(GeocachingFriendActivityWidget)
     })).inSingletonScope();
 
     // Widget de gestion de l'archive de résolution

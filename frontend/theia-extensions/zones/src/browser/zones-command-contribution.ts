@@ -6,6 +6,7 @@ import { ZoneGeocachesWidget } from './zone-geocaches-widget';
 import { MapWidget } from './map/map-widget';
 import { GeocachingAuthWidget } from './geocaching-auth-widget';
 import { GeocachingFriendsWidget } from './geocaching-friends-widget';
+import { GeocachingFriendActivityWidget } from './geocaching-friend-activity-widget';
 import { ArchiveManagerWidget } from './archive-manager-widget';
 import { GeoAppChatPolicyCommandId, GeoAppChatPolicyWidget } from './geoapp-chat-policy-widget';
 import { ServerLogTerminalWidget } from './server-log-terminal-widget';
@@ -16,6 +17,7 @@ export const ZonesCommands = {
     OPEN_MAP: <Command>{ id: 'geoapp.map.toggle', label: 'GeoApp: Afficher la carte' },
     OPEN_AUTH: <Command>{ id: 'geoapp.auth.open', label: 'GeoApp: Connexion Geocaching.com' },
     OPEN_FRIENDS: <Command>{ id: 'geoapp.friends.open', label: 'GeoApp: Amis Geocaching.com' },
+    OPEN_FRIEND_ACTIVITY: <Command>{ id: 'geoapp.friends.activity.open', label: 'GeoApp: Activité des amis' },
     OPEN_ARCHIVE_MANAGER: <Command>{ id: 'geoapp.archive.manager.open', label: 'GeoApp: Gestionnaire d\'archive' },
     OPEN_CHAT_POLICY: <Command>{ id: GeoAppChatPolicyCommandId, label: 'GeoApp: Policy Chat IA' },
     OPEN_SERVER_LOG_TERMINAL: <Command>{ id: 'geoapp.serverLogs.open', label: 'GeoApp: Terminal serveur' }
@@ -80,6 +82,17 @@ export class ZonesCommandContribution implements CommandContribution {
         commands.registerCommand(ZonesCommands.OPEN_FRIENDS, {
             execute: async () => {
                 const widget = await this.widgetManager.getOrCreateWidget(GeocachingFriendsWidget.ID);
+                if (!widget.isAttached) {
+                    this.shell.addWidget(widget, { area: 'main' });
+                }
+                this.shell.activateWidget(widget.id);
+            }
+        });
+
+        // Ouvre le flux d'activité des amis Geocaching.com
+        commands.registerCommand(ZonesCommands.OPEN_FRIEND_ACTIVITY, {
+            execute: async () => {
+                const widget = await this.widgetManager.getOrCreateWidget(GeocachingFriendActivityWidget.ID);
                 if (!widget.isAttached) {
                     this.shell.addWidget(widget, { area: 'main' });
                 }

@@ -14,7 +14,7 @@ def init_db(app):
     db.init_app(app)
 
     with app.app_context():
-        from .models import Zone, AppConfig  # noqa
+        from .models import Zone, AppConfig, FriendActivity  # noqa
         from .geocaches.models import (  # noqa: F401
             Geocache,
             GeocacheImage,
@@ -116,6 +116,29 @@ def init_db(app):
             db.session.commit()
         except Exception as error:
             logger.error('SQLite migration error (solved_geocache_archive): %s', error)
+            db.session.rollback()
+
+        try:
+            logger.info('Running lightweight SQLite migrations for friend_activity columns...')
+            existing_cols = set()
+            res = db.session.execute(text("PRAGMA table_info('friend_activity')"))
+            for row in res:
+                existing_cols.add(row[1])
+
+            # Ne rien faire si la table n'existe pas encore : create_all() vient
+            # de la créer avec le schéma complet.
+            if existing_cols:
+                to_add: dict[str, str] = {
+                    'is_self': 'BOOLEAN',
+                }
+
+                for col, col_type in to_add.items():
+                    if col not in existing_cols:
+                        logger.info('Adding missing column friend_activity.%s (%s)', col, col_type)
+                        db.session.execute(text(f'ALTER TABLE friend_activity ADD COLUMN {col} {col_type}'))
+                db.session.commit()
+        except Exception as error:
+            logger.error('SQLite migration error (friend_activity): %s', error)
             db.session.rollback()
 
         try:

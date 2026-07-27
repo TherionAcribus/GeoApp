@@ -32,6 +32,12 @@ export class ZonesMenuContribution implements MenuContribution {
         });
 
         menus.registerMenuAction(CommonMenus.VIEW_VIEWS, {
+            commandId: ZonesCommands.OPEN_FRIEND_ACTIVITY.id,
+            label: 'Activité des amis',
+            order: '1.6'
+        });
+
+        menus.registerMenuAction(CommonMenus.VIEW_VIEWS, {
             commandId: ZonesCommands.OPEN_ARCHIVE_MANAGER.id,
             label: 'Gestionnaire d\'Archive',
             order: '2'
