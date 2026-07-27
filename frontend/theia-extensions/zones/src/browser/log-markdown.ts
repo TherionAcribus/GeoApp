@@ -12,12 +12,31 @@
  * Voir https://www.geocaching.com/guide/markdown.aspx
  */
 
+/**
+ * Bornes du token dans le texte source, délimiteurs compris.
+ * Permet de savoir quel format se trouve sous le curseur (cf. findFormatAtCaret).
+ */
+export interface TokenRange {
+    start: number;
+    end: number;
+}
+
 export type InlineToken =
-    | { kind: 'text'; content: string }
-    | { kind: 'code'; content: string }
-    | { kind: 'bold'; content: string }
-    | { kind: 'italic'; content: string }
-    | { kind: 'link'; label: string; url: string; safeUrl?: string };
+    | ({ kind: 'text'; content: string } & TokenRange)
+    | ({ kind: 'code'; content: string } & TokenRange)
+    | ({ kind: 'bold'; content: string } & TokenRange)
+    | ({ kind: 'italic'; content: string } & TokenRange)
+    | ({ kind: 'link'; label: string; url: string; safeUrl?: string } & TokenRange);
+
+/** Formats applicables par la barre d'outils, avec leurs délimiteurs. */
+export type MarkdownFormatKind = 'bold' | 'italic' | 'code' | 'link';
+
+export const MARKDOWN_DELIMITERS: Record<MarkdownFormatKind, { before: string; after: string }> = {
+    bold: { before: '**', after: '**' },
+    italic: { before: '*', after: '*' },
+    code: { before: '`', after: '`' },
+    link: { before: '[', after: '](https://example.com)' },
+};
 
 export type MarkdownBlock =
     | { kind: 'code'; content: string }
@@ -72,11 +91,12 @@ export function tokenizeInlineMarkdown(text: string): InlineToken[] {
     const source = text || '';
     const tokens: InlineToken[] = [];
     let buffer = '';
+    let bufferStart = 0;
     let i = 0;
 
     const flush = () => {
         if (buffer) {
-            tokens.push({ kind: 'text', content: buffer });
+            tokens.push({ kind: 'text', content: buffer, start: bufferStart, end: bufferStart + buffer.length });
             buffer = '';
         }
     };
@@ -88,7 +108,7 @@ export function tokenizeInlineMarkdown(text: string): InlineToken[] {
             const end = rest.indexOf('`', 1);
             if (end > 1) {
                 flush();
-                tokens.push({ kind: 'code', content: rest.slice(1, end) });
+                tokens.push({ kind: 'code', content: rest.slice(1, end), start: i, end: i + end + 1 });
                 i += end + 1;
                 continue;
             }
@@ -98,7 +118,7 @@ export function tokenizeInlineMarkdown(text: string): InlineToken[] {
             const end = findEmphasisEnd(rest, '**');
             if (end > 0) {
                 flush();
-                tokens.push({ kind: 'bold', content: rest.slice(2, end) });
+                tokens.push({ kind: 'bold', content: rest.slice(2, end), start: i, end: i + end + 2 });
                 i += end + 2;
                 continue;
             }
@@ -110,7 +130,7 @@ export function tokenizeInlineMarkdown(text: string): InlineToken[] {
             const end = findEmphasisEnd(rest, '*');
             if (end > 0) {
                 flush();
-                tokens.push({ kind: 'italic', content: rest.slice(1, end) });
+                tokens.push({ kind: 'italic', content: rest.slice(1, end), start: i, end: i + end + 1 });
                 i += end + 1;
                 continue;
             }
@@ -128,6 +148,8 @@ export function tokenizeInlineMarkdown(text: string): InlineToken[] {
                         label: rest.slice(1, closeBracket),
                         url,
                         safeUrl: sanitizeLogUrl(url),
+                        start: i,
+                        end: i + closeParen + 1,
                     });
                     i += closeParen + 1;
                     continue;
@@ -135,6 +157,9 @@ export function tokenizeInlineMarkdown(text: string): InlineToken[] {
             }
         }
 
+        if (!buffer) {
+            bufferStart = i;
+        }
         buffer += source[i];
         i += 1;
     }
@@ -169,6 +194,35 @@ export function findUnrenderedEmphasis(text: string): string[] {
     }
 
     return flagged;
+}
+
+export interface CaretFormat extends TokenRange {
+    kind: Exclude<InlineToken['kind'], 'text'>;
+}
+
+/**
+ * Détermine le format effectivement appliqué à la position `caret`.
+ *
+ * S'appuie sur le tokenizer, donc ne renvoie un format que si Geocaching.com
+ * l'interprétera vraiment : le curseur dans `**gras **` ne renvoie rien.
+ * L'analyse est faite ligne par ligne, comme le rendu.
+ */
+export function findFormatAtCaret(value: string, caret: number): CaretFormat | undefined {
+    const source = value || '';
+    const lineStart = source.lastIndexOf('\n', caret - 1) + 1;
+    const nextBreak = source.indexOf('\n', caret);
+    const lineEnd = nextBreak === -1 ? source.length : nextBreak;
+    const relative = caret - lineStart;
+
+    for (const token of tokenizeInlineMarkdown(source.slice(lineStart, lineEnd))) {
+        // Strictement à l'intérieur : un curseur collé après le `**` fermant appartient
+        // au texte qui suit, pas à l'emphase.
+        if (token.kind !== 'text' && relative > token.start && relative < token.end) {
+            return { kind: token.kind, start: lineStart + token.start, end: lineStart + token.end };
+        }
+    }
+
+    return undefined;
 }
 
 export interface MarkdownSelectionEdit {
@@ -222,6 +276,56 @@ export function unwrapMarkdownSelection(
     }
 
     return undefined;
+}
+
+/**
+ * Calcule l'édition à appliquer quand on clique sur un bouton de la barre d'outils.
+ *
+ * Trois cas, dans cet ordre :
+ * 1. sélection déjà formatée → on retire les délimiteurs ;
+ * 2. curseur seul posé dans une zone déjà formatée → on retire les délimiteurs de
+ *    cette zone (le bouton se comporte comme un interrupteur, au lieu d'insérer
+ *    une nouvelle zone formatée à l'intérieur de la première) ;
+ * 3. sinon → on enveloppe la sélection, ou le texte indicatif s'il n'y en a pas.
+ */
+export function toggleMarkdownFormat(
+    value: string,
+    selectionStart: number,
+    selectionEnd: number,
+    kind: MarkdownFormatKind,
+    placeholder: string
+): MarkdownSelectionEdit {
+    const { before, after } = MARKDOWN_DELIMITERS[kind];
+    const hasSelection = selectionStart !== selectionEnd;
+
+    if (hasSelection) {
+        const unwrapped = unwrapMarkdownSelection(value, selectionStart, selectionEnd, before, after);
+        if (unwrapped) {
+            return unwrapped;
+        }
+    } else {
+        const format = findFormatAtCaret(value, selectionStart);
+        // Le lien est exclu : son délimiteur fermant contient l'URL, de longueur variable,
+        // donc on ne peut pas le retirer en se fiant à `after`.
+        if (format && format.kind === kind && kind !== 'link') {
+            const inner = value.slice(format.start + before.length, format.end - after.length);
+            return {
+                value: value.slice(0, format.start) + inner + value.slice(format.end),
+                selectionStart: format.start,
+                selectionEnd: format.start + inner.length,
+            };
+        }
+    }
+
+    const selected = value.slice(selectionStart, selectionEnd);
+    const insert = hasSelection ? selected : placeholder;
+    const contentStart = selectionStart + before.length;
+
+    return {
+        value: value.slice(0, selectionStart) + before + insert + after + value.slice(selectionEnd),
+        selectionStart: contentStart,
+        selectionEnd: contentStart + insert.length,
+    };
 }
 
 const HEADING_RE = /^(#{1,3})\s+(.*)$/;

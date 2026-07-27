@@ -16,7 +16,13 @@ import {
 } from '@tanstack/react-table';
 import { GeocacheIcon } from './geocache-icon';
 import { renderInlineLogMarkdown, renderLogMarkdown } from './log-markdown-renderer';
-import { findUnrenderedEmphasis, sanitizeLogUrl, unwrapMarkdownSelection } from './log-markdown';
+import {
+    findFormatAtCaret,
+    findUnrenderedEmphasis,
+    MarkdownFormatKind,
+    sanitizeLogUrl,
+    toggleMarkdownFormat,
+} from './log-markdown';
 
 type LogTypeValue = 'found' | 'dnf' | 'note';
 
@@ -482,6 +488,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     protected overlayElements: Record<string, HTMLDivElement | null> = {};
     protected overlayTextareas: Record<string, HTMLTextAreaElement | null> = {};
     protected activeEditor: { type: 'global' } | { type: 'per-cache'; geocacheId: number } | undefined;
+    /** Format Markdown sous le curseur, pour allumer le bouton correspondant. */
+    protected activeCaretFormat: MarkdownFormatKind | undefined;
 
     protected pendingSelection:
         | { editor: { type: 'global' } | { type: 'per-cache'; geocacheId: number }; start: number; end: number }
@@ -796,7 +804,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         return editor.type === 'global' ? this.globalTextArea : (this.perCacheTextAreas[editor.geocacheId] ?? null);
     }
 
-    protected applyMarkdownWrap(before: string, after: string, placeholder: string): void {
+    protected applyMarkdownFormat(kind: MarkdownFormatKind, placeholder: string): void {
         const editor = this.activeEditor;
         if (!editor) {
             this.messages.warn('Clique dans une zone de texte pour appliquer le Markdown.');
@@ -807,26 +815,33 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         const value = this.getEditorValue(editor);
         const start = ta ? ta.selectionStart : value.length;
         const end = ta ? ta.selectionEnd : value.length;
-        const hasSelection = start !== end;
-        const selected = value.slice(start, end);
 
-        // Bouton bascule : si la sélection est déjà entourée des délimiteurs, on les retire.
-        const unwrapped = hasSelection ? unwrapMarkdownSelection(value, start, end, before, after) : undefined;
-        if (unwrapped) {
-            this.applyEditorValue(editor, unwrapped.value);
-            this.update();
-            this.scheduleSelection(editor, unwrapped.selectionStart, unwrapped.selectionEnd);
-            return;
-        }
+        const edit = toggleMarkdownFormat(value, start, end, kind, placeholder);
 
-        const insert = hasSelection ? selected : placeholder;
-        const nextValue = value.slice(0, start) + before + insert + after + value.slice(end);
-
-        this.applyEditorValue(editor, nextValue);
+        this.applyEditorValue(editor, edit.value);
+        this.activeCaretFormat = findFormatAtCaret(edit.value, edit.selectionStart)?.kind;
         this.update();
+        this.scheduleSelection(editor, edit.selectionStart, edit.selectionEnd);
+    }
 
-        const selStart = start + before.length;
-        this.scheduleSelection(editor, selStart, selStart + insert.length);
+    /**
+     * Recalcule le format sous le curseur pour allumer le bouton correspondant.
+     * Ne redessine que si l'état change, pour ne pas re-rendre à chaque frappe.
+     */
+    protected refreshCaretFormat(textArea: HTMLTextAreaElement): void {
+        const next = findFormatAtCaret(textArea.value, textArea.selectionStart ?? 0)?.kind;
+        if (next !== this.activeCaretFormat) {
+            this.activeCaretFormat = next;
+            this.update();
+        }
+    }
+
+    protected isEditorActive(section: { type: 'global' } | { type: 'per-cache'; geocacheId: number }): boolean {
+        const editor = this.activeEditor;
+        if (!editor || editor.type !== section.type) {
+            return false;
+        }
+        return editor.type === 'global' || editor.geocacheId === (section as { geocacheId: number }).geocacheId;
     }
 
     protected scheduleSelection(
@@ -1655,7 +1670,16 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             parts.push(<span key={`${overlayKey}-text-${partIndex++}`}>{value.slice(lastIndex)}</span>);
         }
 
-        const { onFocus, onBlur, onScroll, style: textareaStyle, ...restTextareaProps } = textareaProps;
+        const {
+            onFocus,
+            onBlur,
+            onScroll,
+            onSelect,
+            onKeyUp,
+            onMouseUp,
+            style: textareaStyle,
+            ...restTextareaProps
+        } = textareaProps;
 
         // Le texte du <textarea> est rendu transparent et c'est la couche ci-dessous qui
         // l'affiche (avec les @patterns colorés). Les deux couches doivent donc produire
@@ -1701,8 +1725,24 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         const textareaMergedProps: React.TextareaHTMLAttributes<HTMLTextAreaElement> = {
             ...restTextareaProps,
             style: mergedTextareaStyle as React.CSSProperties & { [key: string]: string | number | undefined },
+            // Le format sous le curseur pilote l'état allumé/éteint des boutons de la
+            // barre d'outils. `select` ne couvre pas les simples déplacements de curseur,
+            // d'où le trio select/keyUp/mouseUp.
             onFocus: e => {
                 onFocus?.(e);
+                this.refreshCaretFormat(e.currentTarget);
+            },
+            onSelect: e => {
+                onSelect?.(e);
+                this.refreshCaretFormat(e.currentTarget);
+            },
+            onKeyUp: e => {
+                onKeyUp?.(e);
+                this.refreshCaretFormat(e.currentTarget);
+            },
+            onMouseUp: e => {
+                onMouseUp?.(e);
+                this.refreshCaretFormat(e.currentTarget);
             },
             onBlur: e => {
                 onBlur?.(e);
@@ -1758,6 +1798,68 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                     {parts.length > 0 ? parts : value}
                 </div>
             </div>
+        );
+    }
+
+    /**
+     * Barre d'outils Markdown, commune à l'éditeur global et aux éditeurs par cache.
+     *
+     * Les boutons d'emphase s'allument quand le curseur se trouve dans une zone déjà
+     * formatée, et un second clic retire alors le formatage (cf. toggleMarkdownFormat).
+     */
+    protected renderMarkdownToolbar(
+        section: { type: 'global' } | { type: 'per-cache'; geocacheId: number },
+        disabled: boolean
+    ): React.ReactNode {
+        const buttonStyle: React.CSSProperties = { fontSize: 12, padding: '2px 10px' };
+        const activeStyle: React.CSSProperties = {
+            ...buttonStyle,
+            background: 'var(--theia-button-background)',
+            color: 'var(--theia-button-foreground)',
+        };
+        const isActive = (kind: MarkdownFormatKind) =>
+            this.isEditorActive(section) && this.activeCaretFormat === kind;
+
+        const formatButton = (kind: MarkdownFormatKind, placeholder: string, title: string, label: React.ReactNode) => {
+            const active = isActive(kind);
+            return (
+                <button
+                    className='theia-button secondary'
+                    style={active ? activeStyle : buttonStyle}
+                    onClick={() => this.applyMarkdownFormat(kind, placeholder)}
+                    disabled={disabled}
+                    title={active ? `${title} — cliquer pour retirer` : title}
+                    aria-pressed={active}
+                >
+                    {label}
+                </button>
+            );
+        };
+
+        const prefixButton = (prefix: string, placeholder: string, title: string, label: React.ReactNode) => (
+            <button
+                className='theia-button secondary'
+                style={buttonStyle}
+                onClick={() => this.applyMarkdownPrefix(prefix, placeholder)}
+                disabled={disabled}
+                title={title}
+            >
+                {label}
+            </button>
+        );
+
+        return (
+            <>
+                <span style={{ fontSize: 12, opacity: 0.75, marginRight: 6 }}>Markdown</span>
+                {formatButton('bold', 'texte', 'Gras', <strong>B</strong>)}
+                {formatButton('italic', 'texte', 'Italique', <em>I</em>)}
+                {formatButton('code', 'code', 'Code inline', '</>')}
+                {formatButton('link', 'lien', 'Lien', '🔗')}
+                {prefixButton('# ', 'Titre', 'Titre', 'H1')}
+                {prefixButton('## ', 'Sous-titre', 'Sous-titre', 'H2')}
+                {prefixButton('- ', 'item', 'Liste', '-')}
+                {prefixButton('> ', 'Citation', 'Citation', '>')}
+            </>
         );
     }
 
@@ -2815,31 +2917,7 @@ ${geocacheContext}`;
                                     </div>
                                 )}
                             </div>
-                            <span style={{ fontSize: 12, opacity: 0.75, marginRight: 6 }}>Markdown</span>
-                            <button className='theia-button secondary' style={{ fontSize: 12, padding: '2px 10px' }} onClick={() => this.applyMarkdownWrap('**', '**', 'texte')} disabled={this.isLoading || this.isSubmitting || allSubmitted} title='Gras'>
-                                <strong>B</strong>
-                            </button>
-                            <button className='theia-button secondary' style={{ fontSize: 12, padding: '2px 10px' }} onClick={() => this.applyMarkdownWrap('*', '*', 'texte')} disabled={this.isLoading || this.isSubmitting || allSubmitted} title='Italique'>
-                                <em>I</em>
-                            </button>
-                            <button className='theia-button secondary' style={{ fontSize: 12, padding: '2px 10px' }} onClick={() => this.applyMarkdownWrap('`', '`', 'code')} disabled={this.isLoading || this.isSubmitting || allSubmitted} title='Code inline'>
-                                {'</>'}
-                            </button>
-                            <button className='theia-button secondary' style={{ fontSize: 12, padding: '2px 10px' }} onClick={() => this.applyMarkdownWrap('[', '](https://example.com)', 'lien')} disabled={this.isLoading || this.isSubmitting || allSubmitted} title='Lien'>
-                                🔗
-                            </button>
-                            <button className='theia-button secondary' style={{ fontSize: 12, padding: '2px 10px' }} onClick={() => this.applyMarkdownPrefix('# ', 'Titre')} disabled={this.isLoading || this.isSubmitting || allSubmitted} title='Titre'>
-                                H1
-                            </button>
-                            <button className='theia-button secondary' style={{ fontSize: 12, padding: '2px 10px' }} onClick={() => this.applyMarkdownPrefix('## ', 'Sous-titre')} disabled={this.isLoading || this.isSubmitting || allSubmitted} title='Sous-titre'>
-                                H2
-                            </button>
-                            <button className='theia-button secondary' style={{ fontSize: 12, padding: '2px 10px' }} onClick={() => this.applyMarkdownPrefix('- ', 'item')} disabled={this.isLoading || this.isSubmitting || allSubmitted} title='Liste'>
-                                -
-                            </button>
-                            <button className='theia-button secondary' style={{ fontSize: 12, padding: '2px 10px' }} onClick={() => this.applyMarkdownPrefix('> ', 'Citation')} disabled={this.isLoading || this.isSubmitting || allSubmitted} title='Citation'>
-                                &gt;
-                            </button>
+                            {this.renderMarkdownToolbar({ type: 'global' }, this.isLoading || this.isSubmitting || allSubmitted)}
                         </div>
                         <div style={{ position: 'relative' }}>
                             {this.renderTextareaWithOverlay(
@@ -3011,31 +3089,7 @@ ${geocacheContext}`;
                                 </div>
 
                                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 8, marginBottom: 6 }}>
-                                    <span style={{ fontSize: 12, opacity: 0.75, marginRight: 6 }}>Markdown</span>
-                                    <button className='theia-button secondary' style={{ fontSize: 12, padding: '2px 10px' }} onClick={() => this.applyMarkdownWrap('**', '**', 'texte')} disabled={this.isLoading || this.isSubmitting} title='Gras'>
-                                        <strong>B</strong>
-                                    </button>
-                                    <button className='theia-button secondary' style={{ fontSize: 12, padding: '2px 10px' }} onClick={() => this.applyMarkdownWrap('*', '*', 'texte')} disabled={this.isLoading || this.isSubmitting} title='Italique'>
-                                        <em>I</em>
-                                    </button>
-                                    <button className='theia-button secondary' style={{ fontSize: 12, padding: '2px 10px' }} onClick={() => this.applyMarkdownWrap('`', '`', 'code')} disabled={this.isLoading || this.isSubmitting} title='Code inline'>
-                                        {'</>'}
-                                    </button>
-                                    <button className='theia-button secondary' style={{ fontSize: 12, padding: '2px 10px' }} onClick={() => this.applyMarkdownWrap('[', '](https://example.com)', 'lien')} disabled={this.isLoading || this.isSubmitting} title='Lien'>
-                                        🔗
-                                    </button>
-                                    <button className='theia-button secondary' style={{ fontSize: 12, padding: '2px 10px' }} onClick={() => this.applyMarkdownPrefix('# ', 'Titre')} disabled={this.isLoading || this.isSubmitting} title='Titre'>
-                                        H1
-                                    </button>
-                                    <button className='theia-button secondary' style={{ fontSize: 12, padding: '2px 10px' }} onClick={() => this.applyMarkdownPrefix('## ', 'Sous-titre')} disabled={this.isLoading || this.isSubmitting} title='Sous-titre'>
-                                        H2
-                                    </button>
-                                    <button className='theia-button secondary' style={{ fontSize: 12, padding: '2px 10px' }} onClick={() => this.applyMarkdownPrefix('- ', 'item')} disabled={this.isLoading || this.isSubmitting} title='Liste'>
-                                        -
-                                    </button>
-                                    <button className='theia-button secondary' style={{ fontSize: 12, padding: '2px 10px' }} onClick={() => this.applyMarkdownPrefix('> ', 'Citation')} disabled={this.isLoading || this.isSubmitting} title='Citation'>
-                                        &gt;
-                                    </button>
+                                    {this.renderMarkdownToolbar({ type: 'per-cache', geocacheId: gc.id }, this.isLoading || this.isSubmitting)}
                                 </div>
                                 <div style={{ position: 'relative', marginTop: 8 }}>
                                     {this.renderTextareaWithOverlay(

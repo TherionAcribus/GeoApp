@@ -1,9 +1,11 @@
 import * as assert from 'assert/strict';
 import {
+    findFormatAtCaret,
     findUnrenderedEmphasis,
     InlineToken,
     parseMarkdownBlocks,
     sanitizeLogUrl,
+    toggleMarkdownFormat,
     tokenizeInlineMarkdown,
     unwrapMarkdownSelection,
 } from '../log-markdown';
@@ -144,6 +146,81 @@ function testUnwrapMarkdownSelection(): void {
     assert.equal(unwrapMarkdownSelection('gras', 0, 4, '**', '**'), undefined);
 }
 
+function testFindFormatAtCaret(): void {
+    //          0123456789...
+    const value = 'Merci **beaucoup** !';
+
+    // Curseur au milieu du gras.
+    const inside = findFormatAtCaret(value, 12);
+    assert.equal(inside?.kind, 'bold');
+    assert.equal(inside?.start, 6);
+    assert.equal(inside?.end, 18);
+
+    // Curseur au tout début du contenu, juste après les `**`.
+    assert.equal(findFormatAtCaret(value, 8)?.kind, 'bold');
+
+    // Curseur après le `**` fermant : on est sorti de l'emphase.
+    assert.equal(findFormatAtCaret(value, 18), undefined);
+    // Curseur avant le `**` ouvrant.
+    assert.equal(findFormatAtCaret(value, 6), undefined);
+
+    // Emphase invalide : aucun format, puisque le site ne la rendra pas non plus.
+    assert.equal(findFormatAtCaret('**gras raté ** suite', 5), undefined);
+
+    // Les lignes sont analysées séparément.
+    const multiline = 'ligne normale\nvoici du *italique* ici';
+    assert.equal(findFormatAtCaret(multiline, 27)?.kind, 'italic');
+    assert.equal(findFormatAtCaret(multiline, 5), undefined);
+}
+
+function testToggleMarkdownFormatAtCaret(): void {
+    const value = 'Merci **beaucoup** !';
+
+    // Le cas signalé : curseur posé dans le gras, clic sur B → le gras est retiré,
+    // au lieu d'insérer une nouvelle zone grasse à l'intérieur.
+    const removed = toggleMarkdownFormat(value, 12, 12, 'bold', 'texte');
+    assert.equal(removed.value, 'Merci beaucoup !');
+    assert.equal(removed.selectionStart, 6);
+    assert.equal(removed.selectionEnd, 14);
+
+    // Curseur dans du gras, clic sur Italique → on n'enlève pas le gras, on insère.
+    const other = toggleMarkdownFormat(value, 12, 12, 'italic', 'texte');
+    assert.equal(other.value, 'Merci **beau*texte*coup** !');
+
+    // Curseur hors de tout format → insertion du texte indicatif, sélectionné.
+    const inserted = toggleMarkdownFormat('Merci !', 6, 6, 'bold', 'texte');
+    assert.equal(inserted.value, 'Merci **texte**!');
+    assert.equal(inserted.value.slice(inserted.selectionStart, inserted.selectionEnd), 'texte');
+
+    // Sélection formatée → retrait (comportement déjà en place).
+    const unwrapped = toggleMarkdownFormat(value, 8, 16, 'bold', 'texte');
+    assert.equal(unwrapped.value, 'Merci beaucoup !');
+
+    // Sélection non formatée → enveloppement, sélection conservée sur le contenu.
+    const wrapped = toggleMarkdownFormat('Merci beaucoup !', 6, 14, 'bold', 'texte');
+    assert.equal(wrapped.value, 'Merci **beaucoup** !');
+    assert.equal(wrapped.value.slice(wrapped.selectionStart, wrapped.selectionEnd), 'beaucoup');
+
+    // Un lien ne se retire pas au curseur (délimiteur fermant de longueur variable).
+    const link = 'voir [le site](https://www.geocaching.com) ici';
+    assert.equal(findFormatAtCaret(link, 10)?.kind, 'link');
+    assert.ok(toggleMarkdownFormat(link, 10, 10, 'link', 'lien').value.includes('[lien]'));
+}
+
+function testTokenRanges(): void {
+    const tokens = tokenizeInlineMarkdown('Merci **beaucoup** !');
+    assert.deepEqual(tokens.map(t => [t.kind, t.start, t.end]), [
+        ['text', 0, 6],
+        ['bold', 6, 18],
+        ['text', 18, 20],
+    ]);
+
+    // Les bornes couvrent bien les délimiteurs.
+    const value = 'a `code` b';
+    const code = tokenizeInlineMarkdown(value)[1];
+    assert.equal(value.slice(code.start, code.end), '`code`');
+}
+
 function testEmptyText(): void {
     assert.deepEqual(tokenizeInlineMarkdown(''), []);
     assert.deepEqual(parseMarkdownBlocks(''), []);
@@ -158,6 +235,9 @@ testBlocks();
 testFencedCodeBlock();
 testFindUnrenderedEmphasis();
 testUnwrapMarkdownSelection();
+testFindFormatAtCaret();
+testToggleMarkdownFormatAtCaret();
+testTokenRanges();
 testEmptyText();
 
 console.log('log-markdown.test.ts OK');

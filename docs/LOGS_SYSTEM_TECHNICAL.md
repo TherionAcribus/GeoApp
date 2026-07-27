@@ -121,9 +121,25 @@ Quand une ligne contient des astérisques qui ne seront pas interprétées, l'ap
 un avertissement listant les lignes concernées (`findUnrenderedEmphasis()`), afin de
 distinguer « l'aperçu ne fait rien » de « ton Markdown est invalide ».
 
-Les boutons de la barre d'outils (B, I, code, lien) sont des **bascules** :
-`unwrapMarkdownSelection()` retire les délimiteurs si la sélection est déjà formatée,
-que ceux-ci soient inclus dans la sélection ou juste à l'extérieur.
+Les boutons de la barre d'outils (B, I, code, lien) sont des **bascules**, pilotées par
+`toggleMarkdownFormat()` qui traite trois cas dans l'ordre :
+
+1. sélection déjà formatée → retrait des délimiteurs (`unwrapMarkdownSelection()`) ;
+2. curseur seul posé dans une zone formatée → retrait des délimiteurs de cette zone ;
+3. sinon → enveloppement de la sélection, ou du texte indicatif s'il n'y en a pas.
+
+Le bouton correspondant s'**allume** quand le curseur est dans une zone formatée
+(`findFormatAtCaret()`, alimenté par les bornes `start`/`end` que le tokenizer attache à
+chaque token). Comme la détection passe par le tokenizer, un bouton allumé signifie
+« Geocaching.com rendra bien ce formatage » : sur `**gras **`, le bouton reste éteint,
+ce que l'avertissement de l'aperçu vient expliquer.
+
+Le lien fait exception au cas 2 : son délimiteur fermant contient l'URL, de longueur
+variable, donc il ne peut pas être retiré au curseur.
+
+La barre est rendue une seule fois par `renderMarkdownToolbar(section, disabled)`, partagée
+entre l'éditeur global et les éditeurs par cache ; `isEditorActive(section)` évite d'allumer
+les boutons des deux barres simultanément.
 
 Tests : `src/browser/tests/log-markdown.test.ts` (`npm run test:geoapp` dans l'extension `zones`).
 
