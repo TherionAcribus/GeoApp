@@ -424,7 +424,12 @@ class GeocacheLog(db.Model):
     
     # Log marqué comme favori par l'auteur
     is_favorite = db.Column(db.Boolean, default=False)
-    
+
+    # Log écrit par un de mes amis Geocaching.com. Renseigné au rafraîchissement
+    # via le paramètre `sf=true` du logbook : c'est geocaching.com qui filtre
+    # selon ma liste d'amis (même mécanisme que c:geo).
+    is_friend_log = db.Column(db.Boolean, default=False, index=True)
+
     # Métadonnées
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
@@ -445,6 +450,7 @@ class GeocacheLog(db.Model):
             'date': self.date.isoformat() if self.date else None,
             'log_type': self.log_type,
             'is_favorite': self.is_favorite,
+            'is_friend_log': bool(self.is_friend_log),
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 

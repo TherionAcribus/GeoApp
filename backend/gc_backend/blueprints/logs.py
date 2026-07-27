@@ -96,7 +96,8 @@ def get_geocache_logs(geocache_id: int):
         - limit: Nombre maximum de logs à retourner (défaut: 50)
         - offset: Offset pour la pagination (défaut: 0)
         - type: Filtrer par type de log (ex: Found, Note, Did Not Find)
-    
+        - friends_only: 'true' pour ne garder que les logs de mes amis
+
     Returns:
         JSON avec la liste des logs et métadonnées de pagination
     """
@@ -110,15 +111,26 @@ def get_geocache_logs(geocache_id: int):
         offset = request.args.get('offset', 0, type=int)
         log_type_filter = request.args.get('type', None)
         
+        friends_only = request.args.get('friends_only', 'false').lower() in ('true', '1', 'yes')
+
         # Construire la requête
         query = GeocacheLog.query.filter_by(geocache_id=geocache_id)
-        
+
         # Filtrer par type si spécifié
         if log_type_filter:
             query = query.filter(GeocacheLog.log_type == log_type_filter)
-        
+
+        if friends_only:
+            query = query.filter(GeocacheLog.is_friend_log.is_(True))
+
         # Compter le total avant pagination
         total_count = query.count()
+
+        # Nombre de logs d'amis, indépendant des filtres courants : c'est ce qui
+        # permet à l'UI d'afficher/activer le filtre « Amis » à bon escient.
+        friends_count = GeocacheLog.query.filter_by(
+            geocache_id=geocache_id, is_friend_log=True
+        ).count()
         
         # Appliquer tri et pagination
         logs = query.order_by(GeocacheLog.date.desc()) \
@@ -132,6 +144,7 @@ def get_geocache_logs(geocache_id: int):
             'geocache_id': geocache_id,
             'gc_code': geocache.gc_code,
             'total_count': total_count,
+            'friends_count': friends_count,
             'offset': offset,
             'limit': limit,
             'logs': [log.to_dict() for log in logs]
@@ -318,10 +331,11 @@ def refresh_geocache_logs(geocache_id: int):
         
         logger.info(f"Refreshing logs for {gc_code} (count={count})")
         
-        # Récupérer les logs depuis Geocaching.com
+        # Récupérer les logs depuis Geocaching.com, en identifiant au passage
+        # ceux écrits par mes amis (filtrage côté serveur, cf. get_logs_with_friends).
         client = GeocachingLogsClient()
-        fetched_logs = client.get_logs(gc_code, count=count)
-        
+        fetched_logs, friend_external_ids = client.get_logs_with_friends(gc_code, count=count)
+
         if not fetched_logs:
             logger.warning(f"No logs found for {gc_code}")
             return jsonify({
@@ -343,12 +357,15 @@ def refresh_geocache_logs(geocache_id: int):
         updated_count = 0
         
         for log_data in fetched_logs:
+            is_friend_log = log_data.external_id in friend_external_ids
+
             if log_data.external_id in existing_logs:
                 # Mettre à jour le log existant
                 existing_log = existing_logs[log_data.external_id]
                 existing_log.text = log_data.text
                 existing_log.log_type = GeocacheLog.normalize_log_type(log_data.log_type)
                 existing_log.is_favorite = log_data.is_favorite
+                existing_log.is_friend_log = is_friend_log
                 updated_count += 1
             else:
                 # Créer un nouveau log
@@ -361,6 +378,7 @@ def refresh_geocache_logs(geocache_id: int):
                     date=log_data.date,
                     log_type=GeocacheLog.normalize_log_type(log_data.log_type),
                     is_favorite=log_data.is_favorite,
+                    is_friend_log=is_friend_log,
                 )
                 db.session.add(new_log)
                 added_count += 1
@@ -370,14 +388,18 @@ def refresh_geocache_logs(geocache_id: int):
         
         db.session.commit()
         
-        logger.info(f"Refreshed logs for {gc_code}: {added_count} added, {updated_count} updated")
-        
+        logger.info(
+            f"Refreshed logs for {gc_code}: {added_count} added, {updated_count} updated, "
+            f"{len(friend_external_ids)} from friends"
+        )
+
         return jsonify({
             'geocache_id': geocache_id,
             'gc_code': gc_code,
             'message': 'Logs refreshed successfully',
             'added': added_count,
             'updated': updated_count,
+            'friends': len(friend_external_ids),
             'total': geocache.logs_count
         })
         

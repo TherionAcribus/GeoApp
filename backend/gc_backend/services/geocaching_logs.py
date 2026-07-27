@@ -100,7 +100,50 @@ class GeocachingLogsClient:
         
         # Étape 2: Appeler l'API des logs avec le token
         return self._fetch_logs_with_token(user_token, count, log_type)
-    
+
+    def get_logs_with_friends(
+        self,
+        gc_code: str,
+        count: int = 25,
+    ) -> tuple[list[GeocacheLogData], set[str]]:
+        """
+        Récupère les logs d'une géocache **et** ceux écrits par mes amis.
+
+        Le paramètre `sf=true` du logbook fait filtrer geocaching.com selon la
+        liste d'amis du compte connecté (c'est la méthode de c:geo). Comme ce
+        filtre s'applique à *tous* les logs de la cache et pas seulement aux
+        plus récents, un log d'ami peut sortir de la fenêtre `count` : il est
+        alors retourné en plus dans la première liste.
+
+        Le `userToken` n'est extrait qu'une fois pour les deux requêtes.
+
+        Returns:
+            (logs, external_ids des logs d'amis)
+        """
+        gc_code = gc_code.strip().upper()
+        logger.info(f"Fetching logs + friend logs for {gc_code} (count={count})")
+
+        user_token = self._get_user_token(gc_code)
+        if not user_token:
+            logger.error(f"Could not get userToken for {gc_code}")
+            return [], set()
+
+        logs = self._fetch_logs_with_token(user_token, count, 'all')
+        friend_logs = self._fetch_logs_with_token(user_token, count, 'friends')
+
+        friend_ids = {log.external_id for log in friend_logs if log.external_id}
+
+        # Un log d'ami plus ancien que la fenêtre demandée n'est pas dans `logs` :
+        # on l'ajoute, c'est justement l'intérêt du filtre côté serveur.
+        known_ids = {log.external_id for log in logs if log.external_id}
+        extra = [log for log in friend_logs if log.external_id and log.external_id not in known_ids]
+        if extra:
+            logger.info(f"{len(extra)} friend log(s) outside the {count} most recent logs of {gc_code}")
+            logs = logs + extra
+
+        return logs, friend_ids
+
+
     def _get_user_token(self, gc_code: str) -> str | None:
         """
         Récupère le userToken depuis la page HTML de la géocache.

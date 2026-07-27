@@ -28,6 +28,7 @@ interface GeocacheLogDto {
     date: string | null;
     log_type: string;
     is_favorite: boolean;
+    is_friend_log?: boolean;
     created_at: string | null;
 }
 
@@ -38,6 +39,7 @@ interface LogsApiResponse {
     geocache_id: number;
     gc_code: string;
     total_count: number;
+    friends_count?: number;
     offset: number;
     limit: number;
     logs: GeocacheLogDto[];
@@ -52,6 +54,7 @@ interface RefreshApiResponse {
     message: string;
     added: number;
     updated: number;
+    friends: number;
     total: number;
 }
 
@@ -144,6 +147,22 @@ const LogItem: React.FC<LogItemProps> = ({ log }) => {
                         </div>
                         <div style={{ fontSize: 12, opacity: 0.8 }}>
                             par <strong>{log.author}</strong>
+                            {log.is_friend_log && (
+                                <span
+                                    title="Log écrit par un de vos amis Geocaching.com"
+                                    style={{
+                                        marginLeft: 6,
+                                        padding: '1px 6px',
+                                        borderRadius: 8,
+                                        fontSize: 11,
+                                        background: 'var(--theia-badge-background)',
+                                        color: 'var(--theia-badge-foreground)'
+                                    }}
+                                >
+                                    <i className="fa fa-user-friends" style={{ marginRight: 4 }} />
+                                    ami
+                                </span>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -260,6 +279,8 @@ export class GeocacheLogsWidget extends ReactWidget {
     protected geocacheName?: string;
     protected logs: GeocacheLogDto[] = [];
     protected totalCount = 0;
+    protected friendsCount = 0;
+    protected friendsOnly = false;
     protected isLoading = false;
     protected isRefreshing = false;
     protected isAnalyzing = false;
@@ -329,6 +350,8 @@ export class GeocacheLogsWidget extends ReactWidget {
         this.logs = [];
         this.offset = 0;
         this.totalCount = 0;
+        this.friendsCount = 0;
+        this.friendsOnly = false;
         this.analysisResult = undefined;
         this.summaryEntries = [];
         this.summaryTotalCount = 0;
@@ -382,22 +405,25 @@ export class GeocacheLogsWidget extends ReactWidget {
         this.update();
 
         try {
-            const url = `${this.backendBaseUrl}/api/geocaches/${this.geocacheId}/logs?limit=${this.limit}&offset=${this.offset}`;
+            const friendsParam = this.friendsOnly ? '&friends_only=true' : '';
+            const url = `${this.backendBaseUrl}/api/geocaches/${this.geocacheId}/logs`
+                + `?limit=${this.limit}&offset=${this.offset}${friendsParam}`;
             const response = await fetch(url);
-            
+
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}`);
             }
 
             const data: LogsApiResponse = await response.json();
-            
+
             if (this.offset === 0) {
                 this.logs = data.logs;
             } else {
                 this.logs = [...this.logs, ...data.logs];
             }
-            
+
             this.totalCount = data.total_count;
+            this.friendsCount = data.friends_count ?? 0;
             this.geocacheCode = data.gc_code;
             
         } catch (error) {
@@ -408,6 +434,17 @@ export class GeocacheLogsWidget extends ReactWidget {
             this.update();
         }
     }
+
+    /**
+     * Bascule entre « tous les logs » et « seulement ceux de mes amis ».
+     * Le filtre est appliqué côté serveur pour rester cohérent avec la pagination.
+     */
+    protected toggleFriendsOnly = (): void => {
+        this.friendsOnly = !this.friendsOnly;
+        this.offset = 0;
+        this.logs = [];
+        this.loadLogs();
+    };
 
     /**
      * Charge plus de logs (pagination)
@@ -439,7 +476,10 @@ export class GeocacheLogsWidget extends ReactWidget {
 
             const data: RefreshApiResponse = await response.json();
             
-            this.messages.info(`Logs rafraîchis : ${data.added} ajoutés, ${data.updated} mis à jour`);
+            const friendsInfo = data.friends > 0 ? `, ${data.friends} d'ami(s)` : '';
+            this.messages.info(
+                `Logs rafraîchis : ${data.added} ajoutés, ${data.updated} mis à jour${friendsInfo}`
+            );
             
             // Recharger les logs et le résumé depuis le début
             this.offset = 0;
@@ -622,7 +662,8 @@ ${JSON.stringify(logsToAnalyze, null, 2)}`;
                         )}
                         {this.totalCount > 0 && (
                             <div style={{ fontSize: 12, opacity: 0.7, marginTop: 2 }}>
-                                {this.totalCount} log{this.totalCount > 1 ? 's' : ''} au total
+                                {this.totalCount} log{this.totalCount > 1 ? 's' : ''}
+                                {this.friendsOnly ? ' de vos amis' : ' au total'}
                             </div>
                         )}
                     </div>
@@ -630,6 +671,32 @@ ${JSON.stringify(logsToAnalyze, null, 2)}`;
                     {/* Boutons d'action */}
                     {this.geocacheId && (
                         <div style={{ display: 'flex', gap: 8 }}>
+                            <button
+                                onClick={() => this.toggleFriendsOnly()}
+                                disabled={this.isLoading || (this.friendsCount === 0 && !this.friendsOnly)}
+                                style={{
+                                    padding: '8px 16px',
+                                    background: this.friendsOnly
+                                        ? 'var(--theia-button-background)'
+                                        : 'var(--theia-editor-background)',
+                                    color: this.friendsOnly
+                                        ? 'var(--theia-button-foreground)'
+                                        : 'var(--theia-foreground)',
+                                    border: '1px solid var(--theia-panel-border)',
+                                    borderRadius: 4,
+                                    cursor: this.friendsCount === 0 && !this.friendsOnly ? 'not-allowed' : 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 8,
+                                    opacity: this.friendsCount === 0 && !this.friendsOnly ? 0.5 : 1
+                                }}
+                                title={this.friendsCount === 0
+                                    ? "Aucun log d'ami détecté sur cette géocache (rafraîchissez les logs pour vérifier)"
+                                    : "N'afficher que les logs de vos amis Geocaching.com"}
+                            >
+                                <i className="fa fa-user-friends" />
+                                {`Amis${this.friendsCount > 0 ? ` (${this.friendsCount})` : ''}`}
+                            </button>
                             <button
                                 onClick={() => this.analyzeLogs()}
                                 disabled={this.isAnalyzing || this.logs.length === 0}

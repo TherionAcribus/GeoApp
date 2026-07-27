@@ -1,10 +1,12 @@
 # Amis Geocaching.com — Documentation technique
 
-> Deux fonctionnalités autour des amis Geocaching.com :
+> Trois fonctionnalités autour des amis Geocaching.com :
 > **(1) la liste d'amis** (scraping de `/my/myfriends.aspx`, cache mémoire,
-> `GET /api/friends`, widget « Amis Geocaching ») et **(2) le flux d'activité**
+> `GET /api/friends`, widget « Amis Geocaching »), **(2) le flux d'activité**
 > (API interne du site, stockage incrémental en base, `GET/POST
-> /api/friends/activity`, widget « Activité des amis »).
+> /api/friends/activity`, widget « Activité des amis ») et **(3) les logs d'amis
+> sur une cache** (méthode c:geo, drapeau `is_friend_log`, filtre dans le widget
+> Logs).
 > Dernière mise à jour : juillet 2026.
 
 ---
@@ -66,22 +68,26 @@ C'est complémentaire, pas équivalent : ça ne donne pas la liste des amis.
 backend/gc_backend/services/
 ├── geocaching_friends.py           # Liste d'amis : client + parsing + cache mémoire
 ├── geocaching_friend_activity.py   # Flux d'activité : client HTTP + parsing (sans base)
-└── friend_activity_store.py        # Flux d'activité : persistance incrémentale (sans réseau)
+├── friend_activity_store.py        # Flux d'activité : persistance incrémentale (sans réseau)
+└── geocaching_logs.py              # get_logs_with_friends() : logs d'amis par cache (§10)
 
 backend/gc_backend/
 ├── models.py                       # Modèle FriendActivity
 └── blueprints/friends.py           # Routes REST /api/friends[...]
 
 backend/migrations/versions/
-└── add_friend_activity_table.py    # Création de la table friend_activity
+├── add_friend_activity_table.py           # Création de la table friend_activity
+└── add_geocache_log_is_friend_log.py      # Drapeau is_friend_log sur les logs
 
 backend/tests/
 ├── test_geocaching_friends.py      # Parser de la liste d'amis (fixture synthétique)
-└── test_friend_activity.py         # Parser du flux + stockage + routes
+├── test_friend_activity.py         # Parser du flux + stockage + routes
+└── test_geocache_friend_logs.py    # Logs d'amis par cache + routes
 
 frontend/theia-extensions/zones/src/browser/
 ├── geocaching-friends-widget.tsx           # Widget « Amis Geocaching »
 ├── geocaching-friend-activity-widget.tsx   # Widget « Activité des amis »
+├── geocache-logs-widget.tsx                # Badge « ami » + filtre dans les logs d'une cache
 ├── zones-command-contribution.ts           # Commandes geoapp.friends[.activity].open
 ├── zones-menu-contribution.ts              # Entrées View > Views
 ├── geoapp-sidebar-contribution.ts          # Entrées du menu compte
@@ -394,18 +400,60 @@ accessible depuis le menu du compte, *View → Views* et la commande
 
 ---
 
-## 10. Logs d'amis sur une cache donnée (méthode c:geo) — pas encore implémenté
+## 10. Logs d'amis sur une cache donnée (méthode c:geo)
+
+C'est la fonctionnalité qui a lancé toute cette exploration : voir, sur la fiche
+d'une cache, ce que mes amis en ont dit.
+
+### 10.1 Le mécanisme
 
 ```
 GET https://www.geocaching.com/seek/geocache.logbook
-    ?tkn=<userToken>&idx=1&num=35&decrypt=false&sf=true
+    ?tkn=<userToken>&idx=1&num=25&decrypt=false&sf=true
 ```
 
 - `sf=true` → logs des amis · `sp=true` → mes logs · `showOwnerOnly=true` → logs
-  de l'owner. C'est le serveur qui filtre.
-- Le `userToken` s'extrait de la page de la cache
-  (`userToken\s*=\s*'([^']+)'`) — exactement ce que fait déjà
-  `services/geocaching_logs.py`, qui serait donc le point d'accroche naturel.
+  de l'owner. **C'est le serveur qui filtre**, selon la liste d'amis du compte
+  connecté : rien à croiser côté client.
+- Le `userToken` s'extrait de la page de la cache (`userToken\s*=\s*'([^']+)'`).
+
+### 10.2 `get_logs_with_friends()`
+
+Ajoutée à `GeocachingLogsClient` (`services/geocaching_logs.py`), elle retourne
+`(logs, external_ids des logs d'amis)` et **n'extrait le `userToken` qu'une
+fois** pour ses deux appels au logbook — soit 3 requêtes au lieu de 4.
+
+Subtilité qui fait tout l'intérêt du filtre serveur : `sf=true` s'applique à
+**tous** les logs de la cache, pas seulement aux `num` plus récents. Un ami ayant
+logué la cache il y a cinq ans ressort donc même si l'on ne télécharge que les 25
+derniers logs — ces entrées hors fenêtre sont ajoutées au résultat.
+
+### 10.3 Stockage et API
+
+- `GeocacheLog.is_friend_log` (booléen indexé), renseigné à chaque
+  `POST /api/geocaches/<id>/logs/refresh`, qui retourne aussi `friends` dans son
+  bilan.
+- `GET /api/geocaches/<id>/logs` accepte `friends_only=true` et retourne
+  systématiquement `friends_count` — un compteur **indépendant des filtres
+  courants**, pour que l'UI sache s'il y a quelque chose à filtrer sans avoir à
+  faire une seconde requête.
+- Colonne ajoutée sur une table existante : gérée par les micro-migrations
+  SQLite de `database.py` **et** par une migration Alembic
+  (`add_geocache_log_is_friend_log.py`).
+
+### 10.4 Frontend
+
+Dans le widget Logs de la fiche cache
+([geocache-logs-widget.tsx](../frontend/theia-extensions/zones/src/browser/geocache-logs-widget.tsx)) :
+
+- badge « ami » sous l'auteur des logs concernés ;
+- bouton bascule **Amis (n)** dans l'en-tête, filtrage **côté serveur** (donc
+  cohérent avec la pagination), désactivé tant qu'aucun log d'ami n'est connu ;
+- le bilan de rafraîchissement mentionne le nombre de logs d'amis.
+
+> Le drapeau n'est renseigné qu'au rafraîchissement des logs : sur une cache dont
+> les logs ont été importés avant cette fonctionnalité, le bouton reste inactif
+> jusqu'au prochain « Rafraîchir ».
 
 ---
 
@@ -432,6 +480,14 @@ pures, et la synchronisation accepte un client injecté.
 - marquage `is_self` et son backfill ;
 - filtres, tri, pagination, `list_authors()` ;
 - routes REST : lecture du flux stocké et rejet des paramètres invalides.
+
+`test_geocache_friend_logs.py` (5 tests) — logs d'amis par cache :
+
+- identification des logs d'amis avec **un seul** fetch du `userToken` (la
+  session simulée vérifie l'ordre et les paramètres des appels) ;
+- log d'ami hors fenêtre ajouté au résultat ;
+- absence de logs d'amis, `userToken` introuvable → dégradation propre ;
+- routes : exposition de `is_friend_log`, `friends_count` et `friends_only`.
 
 ---
 

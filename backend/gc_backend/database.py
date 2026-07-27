@@ -119,6 +119,26 @@ def init_db(app):
             db.session.rollback()
 
         try:
+            logger.info('Running lightweight SQLite migrations for geocache_log columns...')
+            existing_cols = set()
+            res = db.session.execute(text("PRAGMA table_info('geocache_log')"))
+            for row in res:
+                existing_cols.add(row[1])
+
+            to_add: dict[str, str] = {
+                'is_friend_log': 'BOOLEAN',
+            }
+
+            for col, col_type in to_add.items():
+                if col not in existing_cols:
+                    logger.info('Adding missing column geocache_log.%s (%s)', col, col_type)
+                    db.session.execute(text(f'ALTER TABLE geocache_log ADD COLUMN {col} {col_type}'))
+            db.session.commit()
+        except Exception as error:
+            logger.error('SQLite migration error (geocache_log): %s', error)
+            db.session.rollback()
+
+        try:
             logger.info('Running lightweight SQLite migrations for friend_activity columns...')
             existing_cols = set()
             res = db.session.execute(text("PRAGMA table_info('friend_activity')"))
