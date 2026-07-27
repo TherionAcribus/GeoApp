@@ -158,6 +158,9 @@ que le texte est long. Les contraintes, réunies dans `sharedMetrics` :
 - `box-sizing: border-box` et `scrollbar-gutter: stable` sur les deux couches
 - défilement synchronisé (`syncOverlayScroll`), sinon la couche reste figée dès que le
   texte dépasse la hauteur visible
+- fond de sélection translucide (`style/log-editor-textarea.css`, classe
+  `geoapp-log-textarea`) : le fond de sélection est peint par le `<textarea>`, donc
+  au-dessus de la couche ; opaque, il masquerait entièrement le texte sélectionné
 
 Le redimensionnement vertical du `<textarea>` ne nécessite rien de particulier : le
 conteneur suit sa hauteur, et la couche est positionnée en `inset: 0` sur ce conteneur.

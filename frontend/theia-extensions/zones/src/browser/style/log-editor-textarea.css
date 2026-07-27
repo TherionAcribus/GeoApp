@@ -1,0 +1,18 @@
+/*
+ * Champ texte de l'éditeur de logs (cf. renderTextareaWithOverlay).
+ *
+ * Le <textarea> a son texte en `transparent` : c'est la couche placée en dessous qui
+ * affiche réellement le texte, avec les @patterns colorés. Or le fond de sélection est
+ * peint par le <textarea>, donc au-dessus de cette couche : avec un fond opaque, la
+ * sélection masque entièrement le texte et on ne voit plus qu'un bloc bleu.
+ *
+ * On rend donc ce fond translucide pour laisser voir le texte en dessous, et on garde
+ * le texte sélectionné transparent (sinon il se superposerait à celui de la couche,
+ * en léger décalage d'anticrénelage).
+ */
+.geoapp-log-textarea::selection {
+    /* Repli pour les moteurs sans color-mix() */
+    background-color: rgba(88, 142, 214, 0.4);
+    background-color: color-mix(in srgb, var(--theia-editor-selectionBackground, #add6ff) 55%, transparent);
+    color: transparent;
+}

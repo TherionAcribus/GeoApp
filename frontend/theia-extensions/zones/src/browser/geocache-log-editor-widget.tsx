@@ -23,6 +23,7 @@ import {
     sanitizeLogUrl,
     toggleMarkdownFormat,
 } from './log-markdown';
+import '../../src/browser/style/log-editor-textarea.css';
 
 type LogTypeValue = 'found' | 'dnf' | 'note';
 
@@ -1677,6 +1678,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             onSelect,
             onKeyUp,
             onMouseUp,
+            className,
             style: textareaStyle,
             ...restTextareaProps
         } = textareaProps;
@@ -1724,6 +1726,9 @@ export class GeocacheLogEditorWidget extends ReactWidget {
 
         const textareaMergedProps: React.TextareaHTMLAttributes<HTMLTextAreaElement> = {
             ...restTextareaProps,
+            // `geoapp-log-textarea` porte la règle ::selection translucide, sans laquelle
+            // la sélection masque le texte affiché par la couche de surlignage.
+            className: className ? `${className} geoapp-log-textarea` : 'geoapp-log-textarea',
             style: mergedTextareaStyle as React.CSSProperties & { [key: string]: string | number | undefined },
             // Le format sous le curseur pilote l'état allumé/éteint des boutons de la
             // barre d'outils. `select` ne couvre pas les simples déplacements de curseur,
