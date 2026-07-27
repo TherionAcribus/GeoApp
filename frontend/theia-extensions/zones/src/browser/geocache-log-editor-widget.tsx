@@ -772,6 +772,12 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     protected useSameTextForAll = true;
     protected globalText = '';
     protected perCacheText: Record<number, string> = {};
+    /**
+     * Texte commun tel que recopié dans les zones par cache lors du dernier décochage de
+     * « Texte identique ». Sert à distinguer une zone non retouchée (à resynchroniser) d'une
+     * zone personnalisée (à conserver). `undefined` = aucune distribution connue.
+     */
+    protected lastDistributedGlobalText: string | undefined;
     protected perCacheLogType: Record<number, LogTypeValue> = {};
     protected perCacheFavorite: Record<number, boolean> = {};
 
@@ -953,6 +959,9 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         this.useSameTextForAll = entry.useSameTextForAll ?? false;
         this.globalText = entry.globalText ?? '';
         this.perCacheText = perCacheValues;
+        // Les textes viennent de l'historique : on ne sait pas lesquels ont été personnalisés,
+        // donc on repart sans marqueur de distribution (ils seront tous conservés).
+        this.lastDistributedGlobalText = undefined;
         this.logType = safeLogType;
         this.perCacheLogType = perCacheLogTypeValues;
         this.perCacheFavorite = perCacheFavoriteValues;
@@ -968,6 +977,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 ? entry.perCacheText as Record<number, string>
                 : {};
             this.perCacheText = perCacheValues;
+            this.lastDistributedGlobalText = undefined;
         }
         this.historyDropdownOpen = false;
         this.update();
@@ -1216,6 +1226,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         this.geocacheIds = Array.from(new Set(ids));
         this.geocaches = [];
         this.perCacheText = {};
+        this.lastDistributedGlobalText = undefined;
         this.perCacheLogType = {};
         this.perCacheFavorite = {};
         this.perCacheSubmitStatus = {};
@@ -1247,11 +1258,19 @@ export class GeocacheLogEditorWidget extends ReactWidget {
 
             const globalText = this.globalText;
             const globalImages = this.globalImages;
+            const previouslyDistributed = this.lastDistributedGlobalText;
+            let customizedKept = 0;
 
             for (const gc of this.geocaches) {
                 const existingText = nextPerCacheText[gc.id] ?? '';
-                if (!existingText && globalText) {
+                // Une zone vide, ou restée telle que distribuée au décochage précédent, reçoit le texte commun
+                // à jour. Une zone retouchée à la main est conservée : la correction du texte commun ne l'écrase pas.
+                const isUntouched = !existingText
+                    || (previouslyDistributed !== undefined && existingText === previouslyDistributed);
+                if (isUntouched) {
                     nextPerCacheText[gc.id] = globalText;
+                } else if (existingText !== globalText) {
+                    customizedKept += 1;
                 }
 
                 const existingImages = nextPerCacheImages[gc.id] ?? [];
@@ -1273,9 +1292,67 @@ export class GeocacheLogEditorWidget extends ReactWidget {
 
             this.perCacheText = nextPerCacheText;
             this.perCacheImages = nextPerCacheImages;
+            this.lastDistributedGlobalText = globalText;
+
+            if (customizedKept > 0) {
+                this.messages.info(customizedKept === 1
+                    ? '1 texte personnalisé a été conservé (non remplacé par le texte commun).'
+                    : `${customizedKept} textes personnalisés ont été conservés (non remplacés par le texte commun).`);
+            }
         }
 
         this.useSameTextForAll = checked;
+        this.update();
+    }
+
+    /** Aperçu du texte commun sur une ligne, pour les infobulles des boutons de réapplication. */
+    protected getGlobalTextExcerpt(maxLength = 200): string {
+        const text = this.globalText.replace(/\s+/g, ' ').trim();
+        return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text;
+    }
+
+    /** Réapplique le texte commun à une seule géocache, en écrasant sa version personnalisée. */
+    protected applyGlobalTextToGeocache(geocacheId: number): void {
+        this.perCacheText = { ...this.perCacheText, [geocacheId]: this.globalText };
+        this.update();
+    }
+
+    /**
+     * Réapplique le texte commun à toutes les géocaches pas encore loguées.
+     * Demande confirmation quand des textes personnalisés seraient perdus.
+     */
+    protected async applyGlobalTextToAllGeocaches(): Promise<void> {
+        const targets = this.geocaches.filter(gc => !this.isGeocacheSubmittedOk(gc.id));
+        if (targets.length === 0) {
+            this.messages.info('Aucune géocache à mettre à jour : tous les logs ont été envoyés.');
+            return;
+        }
+
+        const overwritten = targets.filter(gc => {
+            const current = this.perCacheText[gc.id] ?? '';
+            return current !== '' && current !== this.globalText;
+        }).length;
+
+        if (overwritten > 0) {
+            const answer = await this.messages.warn(
+                overwritten === 1
+                    ? '1 texte personnalisé sera remplacé par le texte commun. Continuer ?'
+                    : `${overwritten} textes personnalisés seront remplacés par le texte commun. Continuer ?`,
+                'Annuler',
+                'Remplacer',
+            );
+            if (answer !== 'Remplacer') {
+                return;
+            }
+        }
+
+        const next: Record<number, string> = { ...this.perCacheText };
+        for (const gc of targets) {
+            next[gc.id] = this.globalText;
+        }
+        this.perCacheText = next;
+        // Les zones repartent du texte commun : elles redeviennent « non retouchées ».
+        this.lastDistributedGlobalText = this.globalText;
         this.update();
     }
 
@@ -3320,13 +3397,24 @@ ${geocacheContext}`;
                             </div>
                         )}
                     </div>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                         <input
                             type='checkbox'
                             checked={this.useSameTextForAll}
                             onChange={e => { this.toggleUseSameTextForAll(e.target.checked); }}
                         />
                         <span style={{ fontSize: 12, opacity: 0.85 }}>Texte identique pour toutes les géocaches</span>
+                        {!this.useSameTextForAll && this.globalText.trim() !== '' && (
+                            <button
+                                className='theia-button secondary'
+                                onClick={() => { void this.applyGlobalTextToAllGeocaches(); }}
+                                disabled={this.isLoading || this.isSubmitting}
+                                title={`Remplacer le texte de chaque géocache par le texte commun :\n\n${this.getGlobalTextExcerpt()}`}
+                                style={{ fontSize: 11, padding: '2px 6px' }}
+                            >
+                                ↺ Réappliquer le texte commun
+                            </button>
+                        )}
                     </div>
                 </div>
 
@@ -3602,6 +3690,22 @@ ${geocacheContext}`;
 
                                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 8, marginBottom: 6 }}>
                                     {this.renderMarkdownToolbar({ type: 'per-cache', geocacheId: gc.id }, this.isLoading || this.isSubmitting)}
+                                    {this.globalText.trim() !== '' && (
+                                        <button
+                                            className='theia-button secondary'
+                                            onClick={() => this.applyGlobalTextToGeocache(gc.id)}
+                                            disabled={this.isLoading
+                                                || this.isSubmitting
+                                                || this.isGeocacheSubmittedOk(gc.id)
+                                                || (this.perCacheText[gc.id] ?? '') === this.globalText}
+                                            title={(this.perCacheText[gc.id] ?? '') === this.globalText
+                                                ? 'Ce texte est déjà identique au texte commun'
+                                                : `Remplacer ce texte par le texte commun :\n\n${this.getGlobalTextExcerpt()}`}
+                                            style={{ fontSize: 11, padding: '2px 6px', marginLeft: 'auto' }}
+                                        >
+                                            ↺ Texte commun
+                                        </button>
+                                    )}
                                 </div>
                                 <div style={{ position: 'relative', marginTop: 8 }}>
                                     {this.renderTextareaWithOverlay(
