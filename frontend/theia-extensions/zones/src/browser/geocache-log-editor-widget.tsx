@@ -191,10 +191,58 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
     perCacheSubmitReference: Record<number, string | undefined>;
     onToggleFavorite: (geocacheId: number, nextValue: boolean) => void;
     onToggleLogType: (geocacheId: number, nextValue: LogTypeValue) => void;
+    /** Ordre d'envoi manuel : la liste complète des identifiants, dans le nouvel ordre. */
+    onReorder: (orderedGeocacheIds: number[]) => void;
+    reorderDisabled?: boolean;
     remainingFavoritePoints: number;
     maxHeight?: number;
-}> = ({ data, logType, perCacheLogType, perCacheFavorite, perCacheSubmitStatus, perCacheSubmitReference, onToggleFavorite, onToggleLogType, remainingFavoritePoints, maxHeight = 220 }) => {
+}> = ({ data, logType, perCacheLogType, perCacheFavorite, perCacheSubmitStatus, perCacheSubmitReference, onToggleFavorite, onToggleLogType, onReorder, reorderDisabled = false, remainingFavoritePoints, maxHeight = 220 }) => {
     const [sorting, setSorting] = React.useState<SortingState>([]);
+    const [draggedId, setDraggedId] = React.useState<number | null>(null);
+    const [dropIndicator, setDropIndicator] = React.useState<{ id: number; position: 'before' | 'after' } | null>(null);
+
+    const canReorder = !reorderDisabled && data.length > 1;
+
+    const rowRefs = React.useRef<Record<number, HTMLTableRowElement | null>>({});
+    /** Ordre actuellement affiché (donc éventuellement trié) : c'est lui que le glisser-déposer manipule. */
+    const displayedIdsRef = React.useRef<number[]>([]);
+
+    /** Un déplacement fige l'ordre affiché comme ordre d'envoi : le tri éventuel est abandonné. */
+    const commitOrder = (orderedIds: number[]): void => {
+        setSorting([]);
+        setDraggedId(null);
+        setDropIndicator(null);
+        onReorder(orderedIds);
+    };
+
+    const moveRelativeTo = (sourceId: number, targetId: number, position: 'before' | 'after'): void => {
+        if (sourceId === targetId) {
+            setDropIndicator(null);
+            setDraggedId(null);
+            return;
+        }
+        const order = displayedIdsRef.current.filter(id => id !== sourceId);
+        const targetIndex = order.indexOf(targetId);
+        if (targetIndex === -1) {
+            setDropIndicator(null);
+            setDraggedId(null);
+            return;
+        }
+        order.splice(position === 'after' ? targetIndex + 1 : targetIndex, 0, sourceId);
+        commitOrder(order);
+    };
+
+    const moveByOffset = (geocacheId: number, delta: number): void => {
+        const order = [...displayedIdsRef.current];
+        const from = order.indexOf(geocacheId);
+        const to = from + delta;
+        if (from === -1 || to < 0 || to >= order.length) {
+            return;
+        }
+        order.splice(from, 1);
+        order.splice(to, 0, geocacheId);
+        commitOrder(order);
+    };
 
     const columns = React.useMemo<ColumnDef<GeocacheListItem>[]>(() => {
         const typeLabel = (value: LogTypeValue): string => {
@@ -310,6 +358,80 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
         };
 
         return [
+            {
+                id: 'order',
+                header: () => <span title="Ordre d'envoi des logs">#</span>,
+                cell: ({ row }) => {
+                    const gc = row.original;
+                    const sendIndex = data.findIndex(item => item.id === gc.id);
+                    return (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
+                            <span style={{ fontSize: 11, opacity: 0.7, minWidth: 14, textAlign: 'right' }}>
+                                {sendIndex >= 0 ? sendIndex + 1 : '—'}
+                            </span>
+                            <span
+                                draggable={canReorder}
+                                onDragStart={e => {
+                                    if (!canReorder) {
+                                        e.preventDefault();
+                                        return;
+                                    }
+                                    if (e.dataTransfer) {
+                                        e.dataTransfer.effectAllowed = 'move';
+                                        try {
+                                            e.dataTransfer.setData('text/plain', String(gc.id));
+                                        } catch {
+                                            // certains navigateurs refusent setData hors dragstart utilisateur
+                                        }
+                                        const rowEl = rowRefs.current[gc.id];
+                                        if (rowEl) {
+                                            try {
+                                                e.dataTransfer.setDragImage(rowEl, 16, 12);
+                                            } catch {
+                                                // image de drag par défaut
+                                            }
+                                        }
+                                    }
+                                    setDraggedId(gc.id);
+                                }}
+                                onDragEnd={() => {
+                                    setDraggedId(null);
+                                    setDropIndicator(null);
+                                }}
+                                onKeyDown={e => {
+                                    if (!canReorder || !e.altKey) {
+                                        return;
+                                    }
+                                    if (e.key === 'ArrowUp') {
+                                        e.preventDefault();
+                                        moveByOffset(gc.id, -1);
+                                    } else if (e.key === 'ArrowDown') {
+                                        e.preventDefault();
+                                        moveByOffset(gc.id, 1);
+                                    }
+                                }}
+                                role='button'
+                                tabIndex={canReorder ? 0 : -1}
+                                aria-label={`Déplacer ${gc.gc_code} dans l'ordre d'envoi`}
+                                title={canReorder
+                                    ? "Glisser pour changer l'ordre d'envoi (Alt + ↑/↓ au clavier)"
+                                    : "Réordonnancement indisponible"}
+                                style={{
+                                    cursor: canReorder ? 'grab' : 'default',
+                                    opacity: canReorder ? 0.75 : 0.3,
+                                    fontSize: 14,
+                                    lineHeight: 1,
+                                    padding: '0 2px',
+                                    userSelect: 'none'
+                                }}
+                            >
+                                ⠿
+                            </span>
+                        </div>
+                    );
+                },
+                enableSorting: false,
+            },
             {
                 id: 'status',
                 header: 'Statut',
@@ -441,7 +563,7 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
                 enableSorting: false,
             },
         ];
-    }, [logType, perCacheLogType, perCacheFavorite, perCacheSubmitStatus, perCacheSubmitReference, onToggleFavorite, onToggleLogType]);
+    }, [data, canReorder, logType, perCacheLogType, perCacheFavorite, perCacheSubmitStatus, perCacheSubmitReference, onToggleFavorite, onToggleLogType]);
 
     const table = useReactTable({
         data,
@@ -451,6 +573,9 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
         getCoreRowModel: getCoreRowModel(),
         getSortedRowModel: getSortedRowModel(),
     });
+
+    const displayedRows = table.getRowModel().rows;
+    displayedIdsRef.current = displayedRows.map(row => row.original.id);
 
     const alreadyFoundCount = data.filter(gc => isPreviouslyFound(gc, perCacheSubmitStatus)).length;
     const justLoggedCount = data.filter(gc => isJustLogged(gc, perCacheSubmitStatus)).length;
@@ -504,6 +629,20 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
                         ✅ {justLoggedCount} loguée{justLoggedCount > 1 ? 's' : ''}
                     </span>
                 )}
+                {sorting.length > 0 ? (
+                    <button
+                        className='theia-button secondary'
+                        onClick={() => setSorting([])}
+                        title="Le tri par colonne ne change pas l'ordre d'envoi (colonne #). Revenir à l'ordre manuel."
+                        style={{ fontSize: 11, padding: '1px 6px', fontWeight: 600 }}
+                    >
+                        Tri actif — revenir à l'ordre d'envoi
+                    </button>
+                ) : canReorder && (
+                    <span style={{ fontSize: 11, fontWeight: 400, opacity: 0.7 }}>
+                        Glisser ⠿ pour changer l'ordre d'envoi
+                    </span>
+                )}
             </div>
             <div style={{ overflow: 'auto', maxHeight }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -536,27 +675,67 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
                         ))}
                     </thead>
                     <tbody>
-                        {table.getRowModel().rows.map(row => (
-                            <tr
-                                key={row.id}
-                                style={isJustLogged(row.original, perCacheSubmitStatus)
-                                    ? { background: JUST_LOGGED_ROW_BACKGROUND }
-                                    : isPreviouslyFound(row.original, perCacheSubmitStatus)
-                                        ? { background: ALREADY_FOUND_ROW_BACKGROUND }
-                                        : undefined}
-                                title={isJustLogged(row.original, perCacheSubmitStatus)
-                                    ? 'Log envoyé — cette géocache ne peut plus être loguée ici'
-                                    : isPreviouslyFound(row.original, perCacheSubmitStatus)
-                                        ? alreadyFoundTooltip(row.original)
-                                        : undefined}
-                            >
-                                {row.getVisibleCells().map(cell => (
-                                    <td key={cell.id} style={{ padding: '6px 8px', borderBottom: '1px solid var(--theia-panel-border)', verticalAlign: 'middle' }}>
-                                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                                    </td>
-                                ))}
-                            </tr>
-                        ))}
+                        {displayedRows.map(row => {
+                            const gc = row.original;
+                            const isDragged = draggedId === gc.id;
+                            const indicator = dropIndicator?.id === gc.id ? dropIndicator.position : undefined;
+                            const background = isJustLogged(gc, perCacheSubmitStatus)
+                                ? JUST_LOGGED_ROW_BACKGROUND
+                                : isPreviouslyFound(gc, perCacheSubmitStatus)
+                                    ? ALREADY_FOUND_ROW_BACKGROUND
+                                    : undefined;
+                            return (
+                                <tr
+                                    key={row.id}
+                                    ref={el => { rowRefs.current[gc.id] = el; }}
+                                    onDragOver={e => {
+                                        if (draggedId === null) {
+                                            return;
+                                        }
+                                        e.preventDefault();
+                                        if (e.dataTransfer) {
+                                            e.dataTransfer.dropEffect = 'move';
+                                        }
+                                        const rect = e.currentTarget.getBoundingClientRect();
+                                        const position = e.clientY - rect.top < rect.height / 2 ? 'before' : 'after';
+                                        if (dropIndicator?.id !== gc.id || dropIndicator.position !== position) {
+                                            setDropIndicator({ id: gc.id, position });
+                                        }
+                                    }}
+                                    onDrop={e => {
+                                        if (draggedId === null) {
+                                            return;
+                                        }
+                                        e.preventDefault();
+                                        const rect = e.currentTarget.getBoundingClientRect();
+                                        const position = e.clientY - rect.top < rect.height / 2 ? 'before' : 'after';
+                                        moveRelativeTo(draggedId, gc.id, position);
+                                    }}
+                                    style={{ background, opacity: isDragged ? 0.4 : undefined }}
+                                    title={isJustLogged(gc, perCacheSubmitStatus)
+                                        ? 'Log envoyé — cette géocache ne peut plus être loguée ici'
+                                        : isPreviouslyFound(gc, perCacheSubmitStatus)
+                                            ? alreadyFoundTooltip(gc)
+                                            : undefined}
+                                >
+                                    {row.getVisibleCells().map(cell => (
+                                        <td
+                                            key={cell.id}
+                                            style={{
+                                                padding: '6px 8px',
+                                                borderBottom: indicator === 'after'
+                                                    ? '2px solid var(--theia-focusBorder)'
+                                                    : '1px solid var(--theia-panel-border)',
+                                                borderTop: indicator === 'before' ? '2px solid var(--theia-focusBorder)' : undefined,
+                                                verticalAlign: 'middle'
+                                            }}
+                                        >
+                                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                                        </td>
+                                    ))}
+                                </tr>
+                            );
+                        })}
                     </tbody>
                 </table>
             </div>
@@ -1594,6 +1773,32 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             this.isLoading = false;
             this.update();
         }
+    }
+
+    /**
+     * Réordonne la liste des géocaches selon l'ordre transmis par le tableau.
+     * Cet ordre est l'ordre d'envoi des logs, et celui de la numérotation `@cache_count`.
+     */
+    protected reorderGeocaches(orderedIds: number[]): void {
+        const remaining = new Map(this.geocaches.map(gc => [gc.id, gc]));
+        const next: GeocacheListItem[] = [];
+        for (const id of orderedIds) {
+            const gc = remaining.get(id);
+            if (gc) {
+                next.push(gc);
+                remaining.delete(id);
+            }
+        }
+        // Filet de sécurité : une géocache absente de l'ordre transmis garde sa place relative.
+        for (const gc of this.geocaches) {
+            if (remaining.has(gc.id)) {
+                next.push(gc);
+            }
+        }
+
+        this.geocaches = next;
+        this.geocacheIds = next.map(gc => gc.id);
+        this.update();
     }
 
     protected formatFavoritePercent(favoritesCount: number | undefined, logsCount: number | undefined): string {
@@ -3037,6 +3242,8 @@ ${geocacheContext}`;
                             perCacheSubmitReference={this.perCacheSubmitReference}
                             onToggleFavorite={(geocacheId, nextValue) => this.toggleFavoriteForGeocacheId(geocacheId, nextValue)}
                             onToggleLogType={(geocacheId, nextValue) => this.setLogTypeForGeocacheId(geocacheId, nextValue)}
+                            onReorder={orderedIds => this.reorderGeocaches(orderedIds)}
+                            reorderDisabled={this.isSubmitting}
                             remainingFavoritePoints={this.getRemainingFavoritePoints()}
                             maxHeight={220}
                         />
