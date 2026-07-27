@@ -16,6 +16,7 @@ from flask import Blueprint, jsonify, request
 from ..database import db
 from ..geocaches.models import Geocache, GeocacheLog
 from ..geocaches.archive_service import ArchiveService
+from ..services.geocaching_auth import get_auth_service
 from ..services.geocaching_logs import GeocachingLogsClient
 from ..services.geocaching_submit_logs import GeocachingSubmitLogsClient
 
@@ -264,6 +265,17 @@ def submit_geocache_log(geocache_id: int):
             geocache.found_date = datetime.now(timezone.utc)
             db.session.commit()
             ArchiveService.sync_from_geocache(geocache)
+
+        # Le log vient de modifier les compteurs côté Geocaching.com : on les
+        # répercute sur les stats en cache, sinon le prochain log repartirait du
+        # même `finds_count` (numéro de cache figé dans le pattern @cache_count).
+        try:
+            get_auth_service().apply_submitted_log(
+                found=(resolved_log_type_id == 2),
+                used_favorite_point=bool(used_favorite_point),
+            )
+        except Exception as e:  # pragma: no cover - mise à jour best-effort
+            logger.warning('Could not update cached profile stats after log for %s: %s', gc_code, e)
 
         return jsonify({
             'geocache_id': geocache_id,

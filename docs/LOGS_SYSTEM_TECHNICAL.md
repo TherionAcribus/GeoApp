@@ -386,6 +386,20 @@ cache_count = finds_count (depuis auth) + position_dans_le_batch + 1
 - `finds_count` : nombre de caches trouvées récupéré depuis `/api/auth/status`
 - `position_dans_le_batch` : index de la cache dans la liste (en comptant uniquement les "Found it")
 
+`finds_count` est lu une seule fois, à l'ouverture de l'onglet de log (`setContext` →
+`fetchFavoritePoints`), et reste figé pour toute la durée de vie de l'onglet : la position
+dans le batch fait le reste de l'incrémentation.
+
+Pour que le numéro reparte de la bonne base à l'envoi **suivant**, le backend répercute
+chaque log envoyé sur les stats en cache (`GeocachingAuthService.apply_submitted_log`,
+appelé depuis `/api/geocaches/<id>/logs/submit`) :
+
+- un "Found it" envoyé → `finds_count + 1`
+- un PF attribué → `awarded_favorite_points - 1`
+
+Sans cela, deux envois successifs (deux onglets, ou une cache loguée à la fois) repartaient
+du `finds_count` mémorisé au login et donnaient le même numéro à tous les logs.
+
 ### 9.4 Patterns personnalisés
 
 Les utilisateurs peuvent créer leurs propres patterns :

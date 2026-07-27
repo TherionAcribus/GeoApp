@@ -1147,10 +1147,37 @@ class GeocachingAuthService:
             "hides_count": self._auth_state.user_info.hides_count,
             "favorite_points": self._auth_state.user_info.favorite_points,
             "awarded_favorite_points": self._auth_state.user_info.awarded_favorite_points,
-            "stats_last_updated": self._auth_state.user_info.stats_last_updated.isoformat() 
+            "stats_last_updated": self._auth_state.user_info.stats_last_updated.isoformat()
                 if self._auth_state.user_info.stats_last_updated else None
         }
-    
+
+    def apply_submitted_log(self, *, found: bool = False, used_favorite_point: bool = False) -> Optional[dict]:
+        """Répercute sur les stats en cache un log qui vient d'être envoyé.
+
+        Geocaching.com incrémente le compteur de trouvailles (et débite un PF) au
+        moment du log. Sans cette mise à jour, `finds_count` resterait figé sur la
+        valeur lue au login : le pattern `@cache_count` renverrait alors le même
+        numéro pour tous les logs envoyés ensuite.
+
+        Returns:
+            Les stats mises à jour, ou None si rien n'a pu être ajusté.
+        """
+        if not found and not used_favorite_point:
+            return None
+
+        with self._state_lock:
+            user_info = self._auth_state.user_info
+            if not user_info:
+                return None
+
+            if found and isinstance(user_info.finds_count, int):
+                user_info.finds_count = max(0, user_info.finds_count + 1)
+
+            if used_favorite_point and isinstance(user_info.awarded_favorite_points, int):
+                user_info.awarded_favorite_points = max(0, user_info.awarded_favorite_points - 1)
+
+            return self._get_current_stats()
+
     # ==================== LOGOUT & STATUS ====================
     
     def logout(self, forget: bool = False) -> AuthState:
