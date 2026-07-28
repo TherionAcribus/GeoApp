@@ -230,6 +230,8 @@ export class MapManagerWidget extends ReactWidget {
                 return 'Géocache';
             case 'custom':
                 return 'Carte libre';
+            case 'friends':
+                return 'Amis';
             default:
                 return 'Générale';
         }

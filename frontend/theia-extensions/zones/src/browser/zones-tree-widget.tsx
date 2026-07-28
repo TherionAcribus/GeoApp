@@ -38,6 +38,8 @@ interface GeocacheSortPreference {
 
 const GEOCACHE_SORT_KEY_PREFERENCE = 'geoApp.zones.geocacheSortKey';
 const GEOCACHE_SORT_DIRECTION_PREFERENCE = 'geoApp.zones.geocacheSortDirection';
+/** Affiche ou non la zone technique « Amis » dans l'arbre. */
+const FRIENDS_ZONE_VISIBLE_PREFERENCE = 'geoApp.friends.zone.visible';
 const DEFAULT_GEOCACHE_SORT: GeocacheSortPreference = { key: 'gc_code', direction: 'asc' };
 const GEOCACHE_SORT_OPTIONS: Array<{ key: GeocacheSortKey; label: string }> = [
     { key: 'gc_code', label: 'Code GC' },
@@ -318,6 +320,12 @@ export class ZonesTreeWidget extends ReactWidget {
             || event.preferenceName === GEOCACHE_SORT_DIRECTION_PREFERENCE) {
             this.geocacheSort = this.readGeocacheSortPreference();
             this.update();
+            return;
+        }
+        // Afficher ou masquer la zone « Amis » change la liste elle-même : il
+        // faut la redemander au backend, pas seulement redessiner.
+        if (event.preferenceName === FRIENDS_ZONE_VISIBLE_PREFERENCE) {
+            void this.refresh();
         }
     }
 
@@ -371,8 +379,12 @@ export class ZonesTreeWidget extends ReactWidget {
 
     public async refresh(): Promise<void> {
         try {
+            // La zone technique « Amis » n'apparaît que si l'utilisateur l'a
+            // demandée : elle peut contenir des centaines de caches importées
+            // pour la carte, qui ne sont pas un projet à afficher dans l'arbre.
+            const includeHidden = this.preferenceService.get<boolean>('geoApp.friends.zone.visible', false);
             const [zones, activeZone] = await Promise.all([
-                this.zonesService.list<ZoneDto>(),
+                this.zonesService.list<ZoneDto>(includeHidden),
                 this.zonesService.getActiveZone()
             ]);
             this.zones = zones;

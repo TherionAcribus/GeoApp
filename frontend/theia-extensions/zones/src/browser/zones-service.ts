@@ -9,6 +9,8 @@ export type ZoneDto = {
     geocaches_count?: number;
     latest_geocache_created_at?: string | null;
     latest_resolution_updated_at?: string | null;
+    /** Zone technique (« Amis ») : absente de la liste sauf `includeHidden`. */
+    is_hidden?: boolean;
 };
 
 export interface ActiveZoneDto {
@@ -21,9 +23,14 @@ export class ZonesService {
         @inject(BackendApiClient) protected readonly apiClient: BackendApiClient
     ) {}
 
-    async list<T extends ZoneDto = ZoneDto>(): Promise<T[]> {
+    /**
+     * Zones triées par nom. Les zones techniques (la zone « Amis ») sont exclues
+     * par défaut : seul l'arbre les demande, et seulement si la préférence
+     * `geoApp.friends.zone.visible` est activée.
+     */
+    async list<T extends ZoneDto = ZoneDto>(includeHidden: boolean = false): Promise<T[]> {
         return this.apiClient.requestJson<T[]>(
-            '/api/zones',
+            includeHidden ? '/api/zones?include_hidden=true' : '/api/zones',
             {},
             'Erreur lors du chargement des zones'
         );

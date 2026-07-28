@@ -81,19 +81,23 @@ backend/gc_backend/
 backend/migrations/versions/
 ├── add_friend_activity_table.py           # Création de la table friend_activity
 ├── add_geocache_log_is_friend_log.py      # Drapeau is_friend_log sur les logs
-└── add_friend_find_table.py               # Création de la table friend_find
+├── add_friend_find_table.py               # Création de la table friend_find
+└── add_friend_map_columns.py              # Coordonnées friend_find + zone.is_hidden (§13)
 
 backend/tests/
 ├── test_geocaching_friends.py      # Parser de la liste d'amis (fixture synthétique)
 ├── test_friend_activity.py         # Parser du flux + stockage + routes
 ├── test_geocache_friend_logs.py    # Logs d'amis par cache + routes
-└── test_friend_finds.py            # Déduction par zone, rate limit, stockage
+├── test_friend_finds.py            # Déduction par zone, rate limit, stockage
+├── test_friend_activity_map.py     # Agrégation cartographique du flux (§12)
+└── test_friend_finds_map.py        # Coordonnées déduites, zone « Amis », import (§13)
 
 frontend/theia-extensions/zones/src/browser/
 ├── geocaching-friends-widget.tsx           # Widget « Amis Geocaching »
 ├── geocaching-friend-activity-widget.tsx   # Widget « Activité des amis »
 ├── geocache-logs-widget.tsx                # Badge « ami » + filtre dans les logs d'une cache
 ├── geocache-friend-finds-banner.tsx        # Bandeau « N amis ont trouvé » + Message Center
+├── map/map-widget-factory.ts               # openFriendsMap() : carte des amis à id fixe (§12)
 ├── geocaches-table.tsx                     # Colonne « Amis » du tableau de zone
 ├── zone-geocaches-widget.tsx               # Analyse d'une zone (progression, estimation)
 ├── zones-command-contribution.ts           # Commandes geoapp.friends[.activity].open
@@ -575,7 +579,183 @@ Côté UI :
 
 ---
 
-## 12. Tests
+## 12. La carte des amis
+
+Les découvertes du flux d'activité (§9) sur une carte GeoApp. **Aucune requête
+vers geocaching.com** : `friend_activity` stocke déjà `latitude`, `longitude`,
+`cache_reference_code`, `cache_type_id` et les D/T. La carte lit la base, rien
+d'autre.
+
+### 12.1 `GET /api/friends/activity/map`
+
+Sœur de `GET /api/friends/activity`, mais taillée pour la carte : **pas de
+pagination** (une carte tronquée serait trompeuse), pas de `note` ni
+d'`action_url`, et **un point par cache** au lieu d'un par log. Mêmes filtres
+`author` / `log_types` / `include_self` que la timeline — c'est
+`_filtered_query()` qui les factorise, précisément pour que les deux vues ne
+puissent pas diverger — plus une fenêtre `days` optionnelle.
+
+Trois traitements côté serveur (`friend_activity_store.query_map_points()`) :
+
+1. **Dédoublonnage par `cache_reference_code`** : plusieurs amis sur la même
+   cache donnent un seul point, les auteurs agrégés dans `friends`. Les logs
+   sans code GC ne sont pas regroupés entre eux (le code du log sert de clé).
+2. **Jointure avec `Geocache`** sur le code GC : `geocache_id` réel et `found`
+   quand la cache est importée, `0` sinon. C'est ce qui permet à la popup
+   d'ouvrir la fiche d'un clic.
+3. **Traduction du `cache_type_id`** par `_cache_type_label()`, qui interroge
+   d'abord `GEOCACHING_CACHE_TYPE_ID_MAP` (vocabulaire du scraper) puis, en
+   repli, `GEOCACHE_TYPE_MAP` (vocabulaire de la recherche web).
+
+> ⚠️ **Les deux vocabulaires ne coïncident pas.** La recherche web dit
+> `MegaEvent`, le scraper `Mega-Event` ; la table d'icônes du frontend est calée
+> sur le second. Utiliser le mauvais donne une icône générique sur tous les
+> events, sans la moindre erreur visible. D'où l'ordre de priorité.
+
+`limit` (défaut 2000, plafond 5000) n'est qu'un garde-fou, signalé par
+`truncated`. Les entrées sans coordonnées sont exclues et comptées dans
+`without_coordinates` : c'est censé être nul, le compteur sert à repérer une
+évolution du flux distant plutôt qu'à la subir en silence.
+
+### 12.2 Contexte de carte `friends` — identifiant fixe
+
+`openCustomMap()` crée une **nouvelle** carte à chaque appel : inutilisable pour
+une carte pilotée par des filtres, qui doit se recharger en place. D'où un
+contexte dédié `type: 'friends'`, d'identifiant fixe `MapWidget.FRIENDS_ID`
+(`geoapp-map-friends`) : `openFriendsMap()` crée la carte au premier appel et
+recharge les points aux suivants, sans empiler d'onglets.
+
+`isFriendsMapOpen()` permet au widget d'activité de ne recharger la carte que
+si elle est ouverte : un changement de filtre ne doit pas rouvrir un onglet que
+l'utilisateur vient de fermer.
+
+### 12.3 Deux pièges de la couche OpenLayers
+
+**Les features sont indexées par id.** `addGeocache()` fait
+`feature.setId(geocache.id)` et `syncGeocaches()` diffe par id. Donner `0` à
+toutes les caches non importées les ferait entrer en collision : une seule
+survivrait. Le frontend leur attribue donc un **id négatif unique**
+(`--syntheticId`). Le prédicat `id > 0` de la popup reste par ailleurs ce qui
+distingue « cache dans GeoApp, ouvrable » de « cache seulement connue par le
+flux ».
+
+**Les propriétés des features sont une liste blanche.** Le `note` déjà affiché
+par la popup n'est transmis que pour les coordonnées détectées, pas pour les
+géocaches. La ligne « 👥 Trouvée par … » a donc demandé un champ dédié
+`friendsNote`, propagé dans `MapGeocache`, `GeocacheFeatureProperties`,
+`addGeocache()`, `applyGeocacheProperties()` **et** dans
+`computeGeocacheSignature()` — sans ce dernier, un changement de filtre ne
+redessinerait pas les popups.
+
+### 12.4 Interface
+
+Bouton **🌐 Carte** dans la barre d'outils du widget « Activité des amis ».
+La carte suit ensuite les filtres (ami, type de log, « Mes logs ») et les
+synchronisations. Un bandeau annonce le bilan : nombre de caches placées,
+troncature éventuelle, logs sans coordonnées.
+
+Ouverture automatique à l'ouverture du widget, réglable par la préférence
+`geoApp.friends.map.autoLoad` (activée par défaut, section *Amis* de la
+catégorie *Carte*).
+
+> **Pas de fenêtre de dates par défaut.** L'API accepte `days`, mais l'interface
+> ne l'envoie pas : la carte doit montrer exactement ce que la timeline affiche.
+> Le sélecteur « 7 / 14 / 30 jours » de la barre d'outils règle la **profondeur
+> de synchronisation**, pas l'affichage — les confondre ferait diverger les deux
+> vues.
+
+---
+
+## 13. Les trouvailles déduites sur la carte
+
+Le §12 cartographie le flux récent. Cette section-ci cartographie `friend_find`
+(§11), c'est-à-dire **tout l'historique** — et règle son problème d'origine :
+cette table ne stockait qu'un code GC, sans coordonnées.
+
+### 13.1 Les coordonnées étaient déjà là
+
+`trouvées(ami) = référence − complément(nfb)`. La **référence** est une
+recherche web sans filtre, dont chaque enregistrement contient déjà le nom, le
+type et les coordonnées de la cache. Le code n'en gardait que `code`.
+
+`search_summaries()` remplace donc `search_codes()` comme primitive (celle-ci
+délègue désormais) et retourne des `CacheSummary`. Le cache de référence stocke
+ces résumés plutôt que des codes bruts ; `find_codes_found_by()` les reporte
+dans `FriendFindsResult.summaries`, et `store_finds(..., summaries=…)` les écrit
+dans les colonnes `latitude`, `longitude`, `cache_name`, `cache_type` de
+`friend_find`.
+
+L'extraction réutilise `GeocachingSearchClient._extract_lat_lon()` et
+`_extract_extra_fields()` : les formes de la réponse (`postedCoordinates` /
+`coordinates` / champs plats, `geocacheType` dict / int / chaîne) y sont déjà
+toutes gérées.
+
+> **Conséquence :** la carte des trouvailles est instantanée et hors ligne. Elle
+> n'attend aucun import. Une ligne créée avant ces colonnes est **réparée à la
+> resynchronisation suivante**, sans requête supplémentaire (`store_finds` ne
+> remplit que ce qui est vide).
+
+`source='cache_logs'` n'apporte pas de coordonnées : la cache est par
+construction déjà dans GeoApp, la jointure les fournit.
+
+### 13.2 `GET /api/friends/finds/map`
+
+Lecture locale, sans limite de date, filtrable par `friend`. Les coordonnées
+sont prises dans cet ordre : `friend_find` d'abord, la géocache importée ensuite.
+
+Ce qui n'a ni l'une ni l'autre alimente deux compteurs volontairement
+distincts : `without_coordinates` (nombre de **lignes**) et `importable`
+(nombre de **caches**) — c'est ce dernier que l'interface affiche, puisque
+c'est ce qu'un import aurait à télécharger.
+
+### 13.3 La zone « Amis » et l'import de fond
+
+Importer une trouvaille d'ami en fait une **vraie géocache GeoApp** : ouvrable,
+annotable, résoluble. C'est le seul intérêt restant de l'import — la carte, elle,
+n'en a plus besoin (§13.1).
+
+- `Zone.is_hidden` (booléen indexé) marque les zones techniques.
+  `get_or_create_friends_zone()` crée « Amis » à la demande, masquée. Si elle est
+  supprimée, le prochain import la recrée.
+- `GET /api/zones` **exclut** les zones masquées, sauf `?include_hidden=true`.
+  Seul l'arbre passe ce paramètre, selon `geoApp.friends.zone.visible` ; les
+  autres consommateurs (dialogue de déplacement, sélecteur de zone) ne le passent
+  pas — « Amis » n'a pas à être une cible de déplacement.
+- `POST /api/friends/finds/import` importe les codes de `list_codes_to_import()`
+  (trouvailles d'amis absentes de `Geocache`, toutes zones confondues) en
+  **streaming JSON ligne par ligne**, comme `import-around` : le frontend sait
+  déjà consommer ce format. Le `TaskManager` n'est pas réutilisé — il est dédié à
+  l'exécution de plugins.
+
+> ⚠️ **Le volume est la contrainte.** Une requête par cache, plus la respiration
+> du scraper : compter ~1,2 s l'unité. Le nombre à importer est borné par la
+> boîte englobante des zones analysées, pas par le nombre de trouvailles — donc
+> quelques dizaines sur une zone dense, **plus d'un millier** sur une zone
+> dispersée (§11.3). D'où la confirmation au-delà de 500 caches, avec durée
+> annoncée, et un bouton d'arrêt (`AbortController`) qui conserve ce qui a déjà
+> été importé.
+
+### 13.4 Interface
+
+Un sélecteur de source dans la barre d'outils du widget « Activité des amis » :
+**Activité récente** (§12) · **Toutes les trouvailles** (`friend_find`) ·
+**Les deux**.
+
+En mode « Les deux », la fusion se fait par code GC : une cache déjà connue du
+flux garde ses métadonnées (plus riches) et ne gagne que les amis que le flux
+ignorait. Sans cette déduplication, un ami apparaîtrait deux fois dans la popup
+d'une cache trouvée récemment.
+
+Seul le filtre « ami » s'applique aux trouvailles déduites : cette table n'a ni
+type de log ni date, la filtrer par type de log n'aurait aucun sens.
+
+Un bandeau annonce les trouvailles non localisables et propose l'import ; il se
+transforme en indicateur de progression discret (message + bouton *Arrêter*)
+pendant l'opération, sans modale bloquante.
+
+---
+
+## 14. Tests
 
 Aucun test ne touche le réseau : le parsing est exposé en méthodes de classe
 pures, et la synchronisation accepte un client injecté.
@@ -618,9 +798,34 @@ pures, et la synchronisation accepte un client injecté.
   périmées **limitée à la même source** ;
 - routes de lecture et rejet des paramètres invalides.
 
+`test_friend_activity_map.py` (12 tests) — carte des amis :
+
+- dédoublonnage par cache et agrégation des auteurs, date du point = celle du
+  log le plus récent, logs sans code GC non fusionnés entre eux ;
+- jointure GeoApp : `geocache_id`/`found` renseignés pour une cache importée,
+  `0` sinon ;
+- traduction des types, y compris le repli scraper → recherche web (Mega-Event,
+  APE) et l'id inconnu qui n'est pas une erreur ;
+- entrées sans coordonnées comptées et non placées ;
+- filtres identiques à ceux de la timeline, fenêtre `days`, garde-fou `limit`
+  signalé par `truncated` ;
+- routes : lecture des points et rejet des paramètres invalides.
+
+`test_friend_finds_map.py` (13 tests) — trouvailles sur la carte :
+
+- métadonnées de la référence conservées par la déduction, `search_codes()`
+  toujours fonctionnel, enregistrement réduit à son code toléré ;
+- `store_finds` écrit les coordonnées **et** répare une ligne créée avant ces
+  colonnes ;
+- zone « Amis » créée masquée puis réutilisée, exclue de `GET /api/zones` et
+  rétablie par `include_hidden=true` ;
+- `list_codes_to_import()` ne retient que les caches absentes de GeoApp ;
+- route carte : coordonnées de la déduction, repli sur la géocache importée,
+  comptage de ce qu'un import corrigerait, regroupement et filtre par ami.
+
 ---
 
-## 13. Références croisées
+## 15. Références croisées
 
 - Authentification et session partagée —
   [connexion-geocaching-technique.md](connexion-geocaching-technique.md).

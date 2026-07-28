@@ -20,7 +20,13 @@ import {
 } from '../import-around-dialog';
 
 export interface MapContext {
-    type: 'zone' | 'geocache' | 'general' | 'custom';
+    /**
+     * `friends` : carte des découvertes des amis, pilotée par les filtres du widget
+     * « Activité des amis ». Contrairement à `custom`, son identifiant est **fixe**
+     * (une seule carte des amis) : un changement de filtre la recharge en place au
+     * lieu d'ouvrir un nouvel onglet.
+     */
+    type: 'zone' | 'geocache' | 'general' | 'custom' | 'friends';
     id?: number;
     label: string;
     /**
@@ -51,6 +57,8 @@ interface MapGeocacheDto {
 @injectable()
 export class MapWidget extends ReactWidget {
     static readonly ID = 'geoapp-map';
+    /** Identifiant unique de la carte des amis : une seule, rechargée en place. */
+    static readonly FRIENDS_ID = 'geoapp-map-friends';
     static readonly LABEL = 'GeoApp - Carte';
 
     private mapInstance: any = null;
@@ -162,6 +170,8 @@ export class MapWidget extends ReactWidget {
                 return `geoapp-map-geocache-${this.context.id}`;
             case 'custom':
                 return `geoapp-map-custom-${this.context.id}`;
+            case 'friends':
+                return MapWidget.FRIENDS_ID;
             default:
                 return MapWidget.ID;
         }

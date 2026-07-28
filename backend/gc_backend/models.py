@@ -8,6 +8,11 @@ class Zone(db.Model):
     name = db.Column(db.String(100), nullable=False, unique=True)
     description = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    # Zone technique, absente de l'arbre par défaut : aujourd'hui la zone « Amis »,
+    # qui accumule les caches importées pour cartographier les trouvailles des amis
+    # et n'a pas à encombrer la navigation. `GET /api/zones?include_hidden=true`
+    # la fait réapparaître.
+    is_hidden = db.Column(db.Boolean, default=False, index=True)
     # Relation many-to-many avec Geocache (à implémenter plus tard)
     # geocaches = db.relationship('Geocache', secondary='geocache_zone', back_populates='zones')
 
@@ -17,6 +22,7 @@ class Zone(db.Model):
             'name': self.name,
             'description': self.description,
             'created_at': self.created_at.isoformat() if self.created_at else None,
+            'is_hidden': bool(self.is_hidden),
             'geocaches_count': len(self.geocaches) if hasattr(self, 'geocaches') and self.geocaches else 0,
         }
 
@@ -58,6 +64,19 @@ class FriendFind(db.Model):
     friend_username = db.Column(db.String(150), nullable=False, index=True)
     gc_code = db.Column(db.String(30), nullable=False, index=True)
     source = db.Column(db.String(20), nullable=False, default='zone_search')
+
+    # Métadonnées relevées **au moment de la déduction** : la recherche de
+    # référence (`trouvées = référence − complément`) renvoie déjà les
+    # coordonnées, le nom et le type de chaque cache de la boîte. Les stocker ici
+    # rend la carte des trouvailles instantanée et hors ligne, au lieu d'attendre
+    # un import complet (une requête par cache). Nulles pour les lignes créées
+    # avant cette colonne, ou issues des logs d'une cache (`source='cache_logs'`,
+    # dont les coordonnées viennent de la jointure avec `Geocache`).
+    latitude = db.Column(db.Float)
+    longitude = db.Column(db.Float)
+    cache_name = db.Column(db.String(255))
+    cache_type = db.Column(db.String(100))
+
     first_seen_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     last_seen_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
@@ -71,6 +90,10 @@ class FriendFind(db.Model):
             'friend_username': self.friend_username,
             'gc_code': self.gc_code,
             'source': self.source,
+            'latitude': self.latitude,
+            'longitude': self.longitude,
+            'cache_name': self.cache_name,
+            'cache_type': self.cache_type,
             'first_seen_at': self.first_seen_at.isoformat() if self.first_seen_at else None,
         }
 

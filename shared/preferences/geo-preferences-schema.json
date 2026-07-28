@@ -1582,6 +1582,57 @@
         "geocaches"
       ]
     },
+    "geoApp.friends.map.autoLoad": {
+      "type": "boolean",
+      "default": true,
+      "title": "Ouvrir la carte des amis automatiquement",
+      "description": "À l'ouverture du widget « Activité des amis », affiche la carte et y place les découvertes correspondant aux filtres courants. Si désactivé, la carte n'est ouverte que sur clic du bouton « Carte ». Les données sont locales : aucune requête vers geocaching.com.",
+      "x-ui": {
+        "section": "Amis",
+        "label": "Carte des amis automatique",
+        "order": 10,
+        "keywords": [
+          "amis",
+          "carte",
+          "activité",
+          "découvertes"
+        ]
+      },
+      "x-category": "map",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "map",
+        "friends"
+      ]
+    },
+    "geoApp.friends.zone.visible": {
+      "type": "boolean",
+      "default": false,
+      "title": "Afficher la zone « Amis » dans l'arbre",
+      "description": "La zone technique « Amis » regroupe les géocaches importées automatiquement pour cartographier les trouvailles de vos amis. Elle peut contenir des centaines de caches qui ne sont pas un projet de résolution : masquée par défaut pour ne pas encombrer l'arbre des zones.",
+      "x-ui": {
+        "section": "Amis",
+        "label": "Zone « Amis » visible",
+        "order": 20,
+        "advanced": true,
+        "keywords": [
+          "amis",
+          "zone",
+          "masquer",
+          "arbre"
+        ]
+      },
+      "x-category": "ui",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "zones",
+        "friends"
+      ]
+    },
     "geoApp.map.defaultProvider": {
       "type": "string",
       "enum": [

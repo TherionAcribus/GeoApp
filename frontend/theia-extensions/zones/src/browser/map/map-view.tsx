@@ -1465,8 +1465,20 @@ export const MapView: React.FC<MapViewProps> = ({
                                 </div>
                             )}
 
+                            {/* Amis ayant logué cette cache (carte des amis) */}
+                            {popupData.friendsNote && (
+                                <div style={{
+                                    fontSize: '11px',
+                                    color: 'var(--theia-foreground)',
+                                    marginTop: '2px',
+                                    marginBottom: '2px'
+                                }}>
+                                    👥 {popupData.friendsNote}
+                                </div>
+                            )}
+
                             {/* D/T */}
-                            <div style={{ 
+                            <div style={{
                                 fontSize: '12px',
                                 color: 'var(--theia-descriptionForeground)',
                                 marginTop: '4px',

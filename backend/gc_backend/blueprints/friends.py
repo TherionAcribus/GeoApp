@@ -4,18 +4,30 @@ Blueprint pour les amis Geocaching.com.
 Routes API :
 - GET  /api/friends                 → liste des amis (cache mémoire, ?force=true pour rafraîchir)
 - GET  /api/friends/activity        → flux d'activité stocké localement (filtres + pagination)
+- GET  /api/friends/activity/map    → mêmes filtres, agrégés en points pour la carte
 - POST /api/friends/activity/sync   → récupère le flux distant et l'accumule en base
 - POST /api/friends/finds/sync-zone → déduit les trouvailles d'un ami sur une zone
 - GET  /api/friends/finds/zone/<id> → « qui a trouvé quoi » pour une zone
+- GET  /api/friends/finds/map       → toutes les trouvailles cartographiables
+- POST /api/friends/finds/import    → importe les caches manquantes dans la zone « Amis »
 - GET  /api/friends/finds/geocache/<id> → amis ayant trouvé une géocache
 """
 from __future__ import annotations
 
+import json
 import logging
+import time
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, Response, jsonify, request, stream_with_context
 
+from ..blueprints.geocaches import (
+    _bulk_import_summary,
+    _import_item_label,
+    _import_stats,
+    _new_import_counts,
+)
 from ..database import db
+from ..geocaches.importer import GeocacheImporter
 from ..geocaches.models import Geocache
 from ..models import FriendFind
 from ..services import friend_activity_store
@@ -26,10 +38,13 @@ from ..services.geocaching_friend_activity import (
     FriendActivityError,
 )
 from ..services.geocaching_friend_finds import (
+    FRIENDS_ZONE_NAME,
     FriendFindsError,
     RateLimitedError,
     ZoneBox,
     get_friend_finds_client,
+    get_or_create_friends_zone,
+    list_codes_to_import,
     store_finds,
 )
 from ..services.geocaching_friends import (
@@ -138,6 +153,56 @@ def list_activity():
     })
 
 
+@bp.get("/activity/map")
+def activity_map():
+    """
+    Points cartographiables du flux d'activité **stocké localement**.
+
+    Sœur de /activity, taillée pour la carte : pas de pagination (une carte
+    tronquée serait trompeuse), pas de `note` ni d'`action_url`, et un point par
+    cache plutôt qu'un par log.
+
+    Query params:
+        author, log_types, include_self : identiques à /activity
+        days  : fenêtre glissante sur la date du log
+        limit : garde-fou (défaut 2000, plafonné à 5000)
+    """
+    try:
+        limit = int(request.args.get("limit", 2000))
+        raw_days = (request.args.get("days") or "").strip()
+        days = int(raw_days) if raw_days else None
+    except ValueError:
+        return jsonify({"success": False, "error": "invalid_params",
+                        "error_message": "days et limit doivent être des entiers."}), 400
+
+    if days is not None and days < 0:
+        return jsonify({"success": False, "error": "invalid_params",
+                        "error_message": "days doit être positif."}), 400
+
+    raw_types = (request.args.get("log_types") or "").strip()
+    try:
+        log_type_ids = [int(part) for part in raw_types.split(",") if part.strip()]
+    except ValueError:
+        return jsonify({"success": False, "error": "invalid_params",
+                        "error_message": "log_types doit être une liste d'entiers séparés par des virgules."}), 400
+
+    include_self = request.args.get("include_self", "false").lower() in ("true", "1", "yes")
+
+    result = friend_activity_store.query_map_points(
+        author=(request.args.get("author") or "").strip() or None,
+        log_type_ids=log_type_ids,
+        include_self=include_self,
+        days=days,
+        limit=limit,
+    )
+
+    return jsonify({
+        "success": True,
+        **result,
+        "log_type_labels": {str(key): value for key, value in LOG_TYPE_LABELS.items()},
+    })
+
+
 @bp.post("/activity/sync")
 def sync_activity():
     """
@@ -221,7 +286,12 @@ def sync_zone_finds():
     try:
         result = get_friend_finds_client().find_codes_found_by(friend, box)
         baseline, _ = get_friend_finds_client().get_zone_baseline(box)
-        created, known = store_finds(friend, result.found_codes, replace_scope=baseline)
+        created, known = store_finds(
+            friend,
+            result.found_codes,
+            replace_scope=baseline,
+            summaries=result.summaries,
+        )
     except NotAuthenticatedError as exc:
         return jsonify({"success": False, "error": "not_authenticated", "error_message": str(exc)}), 401
     except RateLimitedError as exc:
@@ -322,6 +392,155 @@ def zone_finds(zone_id: int):
         "finds": finds,
         "caches_with_friend_finds": len(finds),
     })
+
+
+@bp.get("/finds/map")
+def finds_map():
+    """
+    Trouvailles d'amis cartographiables, toutes zones confondues.
+
+    Lecture **purement locale**, sans limite de date : contrairement au flux
+    d'activité (§9), cette table remonte à la première trouvaille de l'ami.
+
+    Les coordonnées viennent de deux endroits, dans cet ordre : celles relevées
+    à la déduction (`friend_find.latitude`), sinon la géocache importée. Ce qui
+    n'a ni l'une ni l'autre est compté dans `without_coordinates` : ce sont les
+    caches qu'un import rendrait plaçables.
+
+    Query params:
+        friend : filtre sur le pseudo exact d'un ami
+    """
+    friend = (request.args.get("friend") or "").strip() or None
+
+    query = db.session.query(FriendFind, Geocache).outerjoin(
+        Geocache, Geocache.gc_code == FriendFind.gc_code
+    )
+    if friend:
+        query = query.filter(FriendFind.friend_username == friend)
+
+    points: dict[str, dict] = {}
+    without_coordinates = 0
+    missing_codes: set[str] = set()
+
+    for find, geocache in query.all():
+        latitude = find.latitude if find.latitude is not None else (
+            geocache.latitude if geocache else None
+        )
+        longitude = find.longitude if find.longitude is not None else (
+            geocache.longitude if geocache else None
+        )
+
+        if latitude is None or longitude is None:
+            without_coordinates += 1
+            missing_codes.add(find.gc_code)
+            continue
+
+        point = points.get(find.gc_code)
+        if point is None:
+            point = {
+                'gc_code': find.gc_code,
+                'name': (geocache.name if geocache else None) or find.cache_name,
+                'cache_type': (geocache.type if geocache else None) or find.cache_type,
+                'latitude': latitude,
+                'longitude': longitude,
+                'difficulty': geocache.difficulty if geocache else None,
+                'terrain': geocache.terrain if geocache else None,
+                'geocache_id': geocache.id if geocache else 0,
+                'found': bool(geocache.found) if geocache else False,
+                'friends': [],
+            }
+            points[find.gc_code] = point
+        point['friends'].append({'username': find.friend_username, 'source': find.source})
+
+    for point in points.values():
+        point['friends'].sort(key=lambda friend_entry: friend_entry['username'].casefold())
+
+    return jsonify({
+        "success": True,
+        "points": list(points.values()),
+        "total": len(points),
+        "without_coordinates": without_coordinates,
+        # Le nombre de **caches** non plaçables, pas de lignes : c'est ce qu'un
+        # import aurait à télécharger.
+        "importable": len(missing_codes),
+    })
+
+
+@bp.post("/finds/import")
+def import_finds():
+    """
+    Importe dans la zone « Amis » les caches trouvées par vos amis mais absentes
+    de GeoApp — celles que la déduction n'a pas su géolocaliser.
+
+    Réponse en **streaming JSON** (une ligne = un objet), comme `import-around` :
+    le frontend sait déjà consommer ce format, et l'opération peut durer
+    plusieurs minutes (une requête par cache, au débit du scraper).
+    """
+    if not get_auth_service().is_logged_in():
+        return jsonify({
+            "success": False,
+            "error": "not_authenticated",
+            "error_message": "Vous devez être connecté à Geocaching.com pour importer des géocaches.",
+        }), 401
+
+    codes = list_codes_to_import()
+    zone = get_or_create_friends_zone()
+    zone_id = zone.id
+
+    def generate():
+        try:
+            total = len(codes)
+            if total == 0:
+                yield json.dumps({
+                    'progress': 100,
+                    'message': 'Toutes les trouvailles de vos amis sont déjà dans GeoApp.',
+                    'final_summary': True,
+                    'stats': _import_stats(_new_import_counts(), 0),
+                    'zone_id': zone_id,
+                }) + '\n'
+                return
+
+            yield json.dumps({
+                'message': f'{total} géocache(s) à importer dans « {FRIENDS_ZONE_NAME} »',
+                'progress': 2,
+            }) + '\n'
+
+            importer = GeocacheImporter()
+            counts = _new_import_counts()
+
+            for index, code in enumerate(codes, start=1):
+                try:
+                    _, outcome = importer.import_by_code(zone_id, code, return_outcome=True)
+                    counts[outcome] += 1
+                    message = f'{_import_item_label(outcome)}: {code} ({index}/{total})'
+                except Exception as exc:
+                    counts['errors'] += 1
+                    message = f'Erreur {code}: {exc}'
+
+                yield json.dumps({
+                    'message': message,
+                    'progress': 2 + int(index / total * 98),
+                    'imported': index,
+                    'total': total,
+                }) + '\n'
+
+                # Même respiration que l'import autour : le scraper interroge
+                # geocaching.com une fois par cache.
+                time.sleep(0.2)
+
+            yield json.dumps({
+                'progress': 100,
+                'message': _bulk_import_summary(counts),
+                'final_summary': True,
+                'stats': _import_stats(counts, total),
+                'zone_id': zone_id,
+            }) + '\n'
+
+        except Exception as exc:  # pragma: no cover - garde-fou du streaming
+            logger.error("Friend finds import failed: %s", exc, exc_info=True)
+            yield json.dumps({'error': True, 'message': f'Erreur: {exc}'}) + '\n'
+
+    return Response(stream_with_context(generate()), content_type='application/json')
 
 
 @bp.get("/finds/geocache/<int:geocache_id>")

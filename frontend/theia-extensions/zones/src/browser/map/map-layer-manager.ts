@@ -47,6 +47,11 @@ export interface MapGeocache {
     original_latitude?: number;
     original_longitude?: number;
     waypoints?: MapWaypoint[];
+    /**
+     * Ligne libre affichée dans la popup, sous le titre. Utilisée par la carte des
+     * amis (« Trouvée par Pseudo1, Pseudo2 — 26/07 ») ; vide ailleurs.
+     */
+    friendsNote?: string;
 }
 
 /**
@@ -430,6 +435,7 @@ export class MapLayerManager {
             difficulty: geocache.difficulty,
             terrain: geocache.terrain,
             found: geocache.found,
+            friendsNote: geocache.friendsNote,
             selected: false
         } as GeocacheFeatureProperties);
 
@@ -516,6 +522,7 @@ export class MapLayerManager {
             geocache.is_corrected ? 1 : 0,
             geocache.original_latitude,
             geocache.original_longitude,
+            geocache.friendsNote,
             waypoints
         ].join('|');
     }
@@ -532,6 +539,7 @@ export class MapLayerManager {
             difficulty: geocache.difficulty,
             terrain: geocache.terrain,
             found: geocache.found,
+            friendsNote: geocache.friendsNote,
             selected: feature.get('selected') === true
         } as GeocacheFeatureProperties);
     }

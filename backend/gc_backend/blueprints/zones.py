@@ -86,6 +86,7 @@ def _build_zone_list_payload(zones: list[Zone]) -> list[dict]:
             'name': zone.name,
             'description': zone.description,
             'created_at': _isoformat(zone.created_at),
+            'is_hidden': bool(zone.is_hidden),
             'geocaches_count': int(count or 0),
             'latest_geocache_created_at': _isoformat(latest_geocache_created_at),
             'latest_resolution_updated_at': _isoformat(resolution_stats.get(zone.id)),
@@ -95,7 +96,22 @@ def _build_zone_list_payload(zones: list[Zone]) -> list[dict]:
 
 @bp.get('/api/zones')
 def list_zones():
-    zones = Zone.query.order_by(func.lower(Zone.name).asc()).all()
+    """
+    Zones triées par nom.
+
+    Les zones techniques (`is_hidden`, aujourd'hui la seule zone « Amis ») sont
+    **exclues par défaut** : elles encombreraient l'arbre et ne sont pas des
+    cibles de déplacement. `?include_hidden=true` les rétablit — c'est ce que
+    fait l'arbre des zones quand la préférence `geoApp.friends.zone.visible`
+    est activée.
+    """
+    include_hidden = request.args.get('include_hidden', 'false').lower() in ('true', '1', 'yes')
+
+    query = Zone.query
+    if not include_hidden:
+        query = query.filter(or_(Zone.is_hidden.is_(False), Zone.is_hidden.is_(None)))
+
+    zones = query.order_by(func.lower(Zone.name).asc()).all()
     return jsonify(_build_zone_list_payload(zones))
 
 

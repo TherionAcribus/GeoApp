@@ -130,6 +130,29 @@ export class MapWidgetFactory {
     }
 
     /**
+     * Ouvre — ou recharge — la carte des découvertes des amis.
+     *
+     * Son identifiant est fixe : rappeler cette méthode après un changement de
+     * filtre recharge les points dans le **même** onglet, au lieu d'empiler les
+     * cartes comme le ferait `openCustomMap()`.
+     */
+    async openFriendsMap(points: any[]): Promise<MapWidget> {
+        return this.openMapForContext({
+            type: 'friends',
+            label: 'Carte des amis'
+        }, points);
+    }
+
+    /**
+     * Indique si la carte des amis est actuellement ouverte. Permet au widget
+     * d'activité de ne recharger les points que si quelqu'un les regarde, sans
+     * rouvrir un onglet que l'utilisateur vient de fermer.
+     */
+    isFriendsMapOpen(): boolean {
+        return this.shell.getWidgets('bottom').some(w => w.id === MapWidget.FRIENDS_ID);
+    }
+
+    /**
      * Détermine le prochain numéro de carte libre disponible, en s'appuyant sur les
      * identifiants des cartes libres actuellement ouvertes (max + 1, ou 1).
      */
@@ -153,6 +176,8 @@ export class MapWidgetFactory {
                 return `geoapp-map-geocache-${context.id}`;
             case 'custom':
                 return `geoapp-map-custom-${context.id}`;
+            case 'friends':
+                return MapWidget.FRIENDS_ID;
             default:
                 return MapWidget.ID;
         }

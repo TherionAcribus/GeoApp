@@ -23,6 +23,7 @@ export interface GeocacheFeatureProperties {
     parentCacheType?: string;
     geocacheLabel?: string;
     showLabel?: boolean;
+    friendsNote?: string;   // Ligne « Trouvée par … » de la carte des amis
     bruteForceId?: string; // ✅ ID pour les points brute force (suppression)
 }
 

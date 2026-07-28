@@ -101,7 +101,7 @@ const PREFERENCE_GUIDES: GeoPreferenceGuide[] = [
         label: 'Carte et coordonnées',
         description: 'Fond de carte, affichage, waypoints, coordonnées détectées et overlay Formula Solver.',
         categories: ['map'],
-        sections: ['Carte', 'Affichage', 'Fournisseurs', 'Coordonnées trouvées', 'Formula Solver'],
+        sections: ['Carte', 'Affichage', 'Fournisseurs', 'Coordonnées trouvées', 'Formula Solver', 'Amis'],
         keyPrefixes: ['geoApp.map.'],
         keyIncludes: ['formulaSolver.preview.mapOverlayEnabled', 'ai.mapHints'],
         tags: ['map']
@@ -120,7 +120,7 @@ const PREFERENCE_GUIDES: GeoPreferenceGuide[] = [
         label: 'Interface et onglets',
         description: 'Page de démarrage, stratégie d’onglets, fiches géocaches, liens et tableaux.',
         categories: ['ui', 'alphabets', 'logs'],
-        sections: ['Général', 'Onglets', 'Tableaux', 'Navigation', 'Fiche géocache', 'Affichage'],
+        sections: ['Général', 'Onglets', 'Tableaux', 'Navigation', 'Fiche géocache', 'Affichage', 'Amis'],
         keyPrefixes: ['geoApp.ui.', 'geoApp.geocache.', 'geoApp.geocaches.table.', 'geoApp.logs.', 'geoApp.alphabets.'],
         tags: ['ui', 'navigation', 'table']
     },
