@@ -161,6 +161,18 @@ def test_store_finds_backfills_rows_created_before_the_columns(app):
 
 # ------------------------------------------------------------ Zone « Amis »
 
+def test_friends_zone_exists_from_startup(app):
+    """
+    Elle est créée à l'initialisation, comme la zone « default ».
+
+    Sans ça, activer la préférence « Zone « Amis » visible » ne montrait rien
+    tant qu'aucun import n'avait été lancé — l'utilisateur croyait la préférence
+    cassée.
+    """
+    zone = Zone.query.filter_by(name='Amis').one()
+    assert zone.is_hidden is True
+
+
 def test_friends_zone_is_created_hidden_and_reused(app):
     zone = get_or_create_friends_zone()
 

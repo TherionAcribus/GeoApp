@@ -715,8 +715,15 @@ annotable, résoluble. C'est le seul intérêt restant de l'import — la carte,
 n'en a plus besoin (§13.1).
 
 - `Zone.is_hidden` (booléen indexé) marque les zones techniques.
-  `get_or_create_friends_zone()` crée « Amis » à la demande, masquée. Si elle est
-  supprimée, le prochain import la recrée.
+  `get_or_create_friends_zone()` crée « Amis » masquée. Elle est appelée **au
+  démarrage** (`database.py`, à côté de la zone « default ») *et* par l'import,
+  qui la recrée donc si elle a été supprimée.
+
+  > ⚠️ Piège corrigé après coup : créée uniquement à l'import, la zone n'existait
+  > pas tant qu'on n'en avait pas lancé un. Activer la préférence « Zone « Amis »
+  > visible » ne montrait alors **rien** — la préférence semblait cassée alors
+  > qu'elle demandait bien les zones masquées. Une zone technique doit exister
+  > dès qu'on peut demander à la voir, même vide.
 - `GET /api/zones` **exclut** les zones masquées, sauf `?include_hidden=true`.
   Seul l'arbre passe ce paramètre, selon `geoApp.friends.zone.visible` ; les
   autres consommateurs (dialogue de déplacement, sélecteur de zone) ne le passent
@@ -749,9 +756,18 @@ d'une cache trouvée récemment.
 Seul le filtre « ami » s'applique aux trouvailles déduites : cette table n'a ni
 type de log ni date, la filtrer par type de log n'aurait aucun sens.
 
-Un bandeau annonce les trouvailles non localisables et propose l'import ; il se
+Un bandeau annonce les géocaches manquantes et propose l'import ; il se
 transforme en indicateur de progression discret (message + bouton *Arrêter*)
 pendant l'opération, sans modale bloquante.
+
+Le compteur est rafraîchi par `refreshImportableCount()` **à l'ouverture du
+widget**, indépendamment de la carte.
+
+> ⚠️ Deuxième piège corrigé après coup : ce compteur n'était d'abord alimenté que
+> par le chargement de la carte en mode « Toutes les trouvailles ». La seule
+> porte d'entrée de l'import se trouvait donc cachée derrière un réglage
+> d'affichage — la zone « Amis » restait vide sans que rien n'indique comment la
+> remplir.
 
 ---
 

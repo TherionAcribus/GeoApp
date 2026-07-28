@@ -215,6 +215,17 @@ def init_db(app):
             logger.error('Error creating default zone: %s', error)
             db.session.rollback()
 
+        try:
+            # La zone technique « Amis » est créée au démarrage, comme la zone
+            # « default » : masquée, elle ne coûte rien, et l'utilisateur qui
+            # active la préférence « Zone « Amis » visible » doit la voir
+            # apparaître — même vide, et même s'il n'a jamais lancé d'import.
+            from .services.geocaching_friend_finds import get_or_create_friends_zone
+            get_or_create_friends_zone()
+        except Exception as error:
+            logger.error('Error creating the friends zone: %s', error)
+            db.session.rollback()
+
         # Index de recherche plein-texte (FTS5) : création, amorçage et
         # enregistrement des événements ORM de synchronisation.
         from .search_index import ensure_search_index

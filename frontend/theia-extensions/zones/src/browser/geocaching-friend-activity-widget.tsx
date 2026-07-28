@@ -203,7 +203,8 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
 
         this.loadActivities()
             .then(() => this.autoSyncIfStale())
-            .then(() => this.autoOpenMapIfEnabled());
+            .then(() => this.autoOpenMapIfEnabled())
+            .then(() => this.refreshImportableCount());
     }
 
     /** Ouverture automatique de la carte, réglable par préférence (activée par défaut). */
@@ -348,8 +349,6 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
                 }
                 this.mergeFindPoints(aggregated, result.points || []);
                 this.importableCount = result.importable || 0;
-            } else {
-                this.importableCount = 0;
             }
 
             await this.mapWidgetFactory.openFriendsMap(this.toMapGeocaches([...aggregated.values()]));
@@ -386,35 +385,68 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
      * Trouvailles déduites par zone. Seul le filtre « ami » s'y applique : cette
      * table n'a ni type de log ni date, la filtrer par type n'aurait aucun sens.
      */
-    protected async fetchFindPoints(): Promise<FriendFindsMapResponse | undefined> {
+    protected async fetchFindPoints(silent: boolean = false): Promise<FriendFindsMapResponse | undefined> {
         const params = new URLSearchParams();
         if (this.authorFilter) {
             params.set('friend', this.authorFilter);
         }
 
-        return this.fetchMapJson<FriendFindsMapResponse>(`/api/friends/finds/map?${params.toString()}`);
+        return this.fetchMapJson<FriendFindsMapResponse>(
+            `/api/friends/finds/map?${params.toString()}`,
+            silent
+        );
     }
 
-    /** Appel JSON commun aux deux sources, avec le garde-fou « route absente ». */
+    /**
+     * Appel JSON commun aux deux sources, avec le garde-fou « route absente ».
+     *
+     * `silent` : ne rien afficher en cas d'échec — utilisé par le simple comptage
+     * des trouvailles à importer, qui ne doit pas polluer l'interface.
+     */
     protected async fetchMapJson<T extends { success: boolean; error_message?: string }>(
-        path: string
+        path: string,
+        silent: boolean = false
     ): Promise<T | undefined> {
         const response = await fetch(`${this.getApiBaseUrl()}${path}`);
 
         const contentType = response.headers.get('content-type') || '';
         if (!contentType.includes('application/json')) {
-            this.mapMessage = response.status === 404
-                ? `Route ${path.split('?')[0]} introuvable : le backend GeoApp doit être redémarré.`
-                : `Réponse inattendue du backend GeoApp (HTTP ${response.status}).`;
+            if (!silent) {
+                this.mapMessage = response.status === 404
+                    ? `Route ${path.split('?')[0]} introuvable : le backend GeoApp doit être redémarré.`
+                    : `Réponse inattendue du backend GeoApp (HTTP ${response.status}).`;
+            }
             return undefined;
         }
 
         const result = await response.json() as T;
         if (!result.success) {
-            this.mapMessage = result.error_message || 'Impossible de charger la carte des amis.';
+            if (!silent) {
+                this.mapMessage = result.error_message || 'Impossible de charger la carte des amis.';
+            }
             return undefined;
         }
         return result;
+    }
+
+    /**
+     * Met à jour le nombre de trouvailles non localisables, indépendamment de la
+     * carte.
+     *
+     * Sans ça, le bouton d'import n'apparaissait qu'après avoir basculé le
+     * sélecteur sur « Toutes les trouvailles » : la seule porte d'entrée de
+     * l'import était cachée derrière un réglage d'affichage.
+     */
+    protected async refreshImportableCount(): Promise<void> {
+        try {
+            const result = await this.fetchFindPoints(true);
+            if (result) {
+                this.importableCount = result.importable || 0;
+                this.update();
+            }
+        } catch (err) {
+            console.error('[FriendActivity] Unable to count importable finds:', err);
+        }
     }
 
     protected mergeActivityPoints(target: Map<string, AggregatedPoint>, points: FriendMapPoint[]): void {
@@ -555,6 +587,7 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
             // les placer, et l'arbre doit voir la zone « Amis » si elle est visible.
             this.widgetEventsService.notifyZoneListChanged();
             await this.showOnMap();
+            await this.refreshImportableCount();
         } catch (err) {
             if ((err as Error)?.name === 'AbortError') {
                 this.importProgress = 'Import interrompu. Les caches déjà importées sont conservées.';
@@ -890,8 +923,8 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
                         <React.Fragment>
                             <span className="codicon codicon-location"></span>
                             <span style={{ flex: 1, minWidth: '200px' }}>
-                                {`${this.importableCount} trouvaille(s) non localisable(s) : `}
-                                {'les géocaches ne sont pas dans GeoApp.'}
+                                {`${this.importableCount} géocache(s) trouvée(s) par vos amis ne sont pas dans GeoApp `}
+                                {'— sans elles, ces trouvailles ne peuvent pas être placées sur la carte.'}
                             </span>
                             <button className="theia-button" onClick={() => this.importMissingFinds()}>
                                 Importer dans « Amis »
