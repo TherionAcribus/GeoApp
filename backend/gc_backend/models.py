@@ -63,7 +63,10 @@ class FriendFind(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     friend_username = db.Column(db.String(150), nullable=False, index=True)
     gc_code = db.Column(db.String(30), nullable=False, index=True)
-    source = db.Column(db.String(20), nullable=False, default='zone_search')
+    # Une ou plusieurs preuves, séparées par des virgules (ex. "activity,zone_search").
+    # `store_finds()` n'ajoute que sa propre preuve à l'ensemble existant, et ne
+    # supprime la ligne que si plus aucune source ne la confirme (services/geocaching_friend_finds.py).
+    source = db.Column(db.String(60), nullable=False, default='zone_search')
 
     # Métadonnées relevées **au moment de la déduction** : la recherche de
     # référence (`trouvées = référence − complément`) renvoie déjà les

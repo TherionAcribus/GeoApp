@@ -10,7 +10,10 @@ from gc_backend import create_app
 from gc_backend.database import db
 from gc_backend.geocaches.models import Geocache, GeocacheLog
 from gc_backend.models import Zone
-from gc_backend.services.geocaching_logs import GeocachingLogsClient
+from gc_backend.services.geocaching_logs import (
+    FriendLogsCheckFailedError,
+    GeocachingLogsClient,
+)
 
 
 CACHE_PAGE = "<html><script>var userToken = 'TOKEN123';</script></html>"
@@ -119,6 +122,39 @@ def test_missing_user_token_degrades_gracefully():
     assert logs == [] and friend_ids == set()
 
 
+class _FriendsCheckFailsSession(_FakeSession):
+    """Le logbook répond normalement pour 'all', mais échoue pour `sf=true`."""
+
+    def get(self, url: str, params=None, headers=None, timeout=None):
+        if 'geocache/' in url:
+            self.page_calls += 1
+            return _FakeResponse(text=CACHE_PAGE)
+
+        self.logbook_calls.append(params or {})
+        if (params or {}).get('sf') == 'true':
+            return _FakeResponse(payload={'status': 'error', 'msg': 'boom'})
+        return _FakeResponse(payload={'status': 'success', 'data': self.all_logs})
+
+
+def test_friend_check_failure_is_not_mistaken_for_no_friends():
+    """
+    Une panne sur l'appel sf=true ne doit jamais se traduire par un ensemble
+    vide de pseudos amis : c'est justement ce qui, côté route, effaçait
+    silencieusement des badges `is_friend_log` corrects (voir refresh_geocache_logs).
+    """
+    session = _FriendsCheckFailsSession(
+        all_logs=[_log_entry(1, 'inconnu'), _log_entry(2, 'mon_ami')],
+        friend_logs=[],
+    )
+
+    with pytest.raises(FriendLogsCheckFailedError) as exc_info:
+        GeocachingLogsClient(session=session).get_logs_with_friends('GC12345')
+
+    # Les logs 'all' ont bien été récupérés malgré l'échec du filtre amis :
+    # l'appelant peut les enregistrer sans toucher aux badges existants.
+    assert [log.author for log in exc_info.value.logs] == ['inconnu', 'mon_ami']
+
+
 # ----------------------------------------------------------------------- API
 
 @pytest.fixture
@@ -162,3 +198,35 @@ def test_logs_endpoint_exposes_and_filters_friend_logs(app):
     assert filtered['total_count'] == 1
     assert filtered['friends_count'] == 1        # compteur indépendant du filtre courant
     assert [log['author'] for log in filtered['logs']] == ['mon_ami']
+
+
+def test_refresh_route_preserves_friend_flags_when_friend_check_fails(app, monkeypatch):
+    """
+    Reproduit le bug corrigé : si l'appel sf=true échoue alors que les logs
+    « tous » sont récupérés, la route ne doit pas réécrire is_friend_log à
+    False sur les logs déjà correctement marqués par un rafraîchissement
+    précédent (le badge de `mon_ami`, posé par la fixture `app`).
+    """
+    import gc_backend.blueprints.logs as logs_blueprint
+
+    session = _FriendsCheckFailsSession(
+        all_logs=[_log_entry(1, 'inconnu'), _log_entry(2, 'mon_ami')],
+        friend_logs=[],
+    )
+    monkeypatch.setattr(
+        logs_blueprint, 'GeocachingLogsClient',
+        lambda: GeocachingLogsClient(session=session)
+    )
+
+    response = app.test_client().post(f'/api/geocaches/{app.geocache_id}/logs/refresh')
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload['friends_check_failed'] is True
+    assert payload['friends'] == 1  # le badge de mon_ami a survécu
+
+    stored = {
+        log.author: log.is_friend_log
+        for log in GeocacheLog.query.filter_by(geocache_id=app.geocache_id).all()
+    }
+    assert stored == {'inconnu': False, 'mon_ami': True}

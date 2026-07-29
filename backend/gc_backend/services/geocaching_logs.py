@@ -19,6 +19,30 @@ from .geocaching_auth import get_auth_service
 logger = logging.getLogger(__name__)
 
 
+class GeocachingLogsError(Exception):
+    """Erreur réseau, JSON invalide ou réponse applicative en échec (`status: error`)."""
+
+
+class FriendLogsCheckFailedError(GeocachingLogsError):
+    """
+    L'appel `sf=true` (logs d'amis) a échoué alors que les logs « tous » ont pu
+    être récupérés.
+
+    Distinct de « aucun log d'ami » : sans cette distinction, une panne
+    transitoire sur ce seul appel se traduirait par un ensemble vide de
+    pseudos amis, et le rafraîchissement des logs (blueprints/logs.py)
+    réinitialiserait `is_friend_log` à `False` sur tous les logs existants —
+    y compris ceux correctement marqués par un rafraîchissement précédent.
+
+    `logs` porte les logs « tous » déjà récupérés, pour qu'un appelant puisse
+    quand même les enregistrer sans toucher aux badges « ami ».
+    """
+
+    def __init__(self, message: str, logs: list["GeocacheLogData"]) -> None:
+        super().__init__(message)
+        self.logs = logs
+
+
 @dataclass
 class GeocacheLogData:
     """Représente un log récupéré depuis Geocaching.com."""
@@ -87,7 +111,7 @@ class GeocachingLogsClient:
             
         Raises:
             LookupError: Si la géocache n'est pas trouvée
-            requests.RequestException: En cas d'erreur réseau
+            GeocachingLogsError: erreur réseau, JSON invalide ou réponse en échec
         """
         gc_code = gc_code.strip().upper()
         logger.info(f"Fetching logs for {gc_code} (count={count}, type={log_type})")
@@ -119,6 +143,16 @@ class GeocachingLogsClient:
 
         Returns:
             (logs, external_ids des logs d'amis)
+
+        Raises:
+            GeocachingLogsError: la récupération des logs « tous » a échoué —
+                impossible de faire quoi que ce soit sans eux.
+            FriendLogsCheckFailedError: les logs « tous » ont été récupérés,
+                mais l'appel `sf=true` a échoué. Ne surtout pas interpréter ça
+                comme « aucun ami n'a loggué cette cache » (voir la docstring
+                de l'exception) : l'exception porte les logs déjà récupérés
+                dans son attribut `logs`, pour que l'appelant puisse les
+                enregistrer sans toucher aux badges « ami ».
         """
         gc_code = gc_code.strip().upper()
         logger.info(f"Fetching logs + friend logs for {gc_code} (count={count})")
@@ -129,7 +163,11 @@ class GeocachingLogsClient:
             return [], set()
 
         logs = self._fetch_logs_with_token(user_token, count, 'all')
-        friend_logs = self._fetch_logs_with_token(user_token, count, 'friends')
+
+        try:
+            friend_logs = self._fetch_logs_with_token(user_token, count, 'friends')
+        except GeocachingLogsError as e:
+            raise FriendLogsCheckFailedError(str(e), logs) from e
 
         friend_ids = {log.external_id for log in friend_logs if log.external_id}
 
@@ -190,21 +228,29 @@ class GeocachingLogsClient:
             raise
     
     def _fetch_logs_with_token(
-        self, 
-        user_token: str, 
-        count: int, 
+        self,
+        user_token: str,
+        count: int,
         log_type: str
     ) -> list[GeocacheLogData]:
         """
         Récupère les logs via l'API en utilisant le userToken.
-        
+
         Args:
             user_token: Token chiffré extrait de la page
             count: Nombre de logs à récupérer
             log_type: Type de logs ('all', 'friends', 'own')
-            
+
         Returns:
-            Liste des logs récupérés
+            Liste des logs récupérés (peut être vide : c'est une réponse
+            valide, pas une erreur).
+
+        Raises:
+            GeocachingLogsError: erreur réseau, JSON invalide, ou réponse
+                applicative en échec. Ne **jamais** dégrader ça en liste vide :
+                l'appelant ne pourrait plus distinguer « pas de logs de ce
+                type » de « la récupération a échoué » (voir
+                `FriendLogsCheckFailedError`).
         """
         params = {
             'tkn': user_token,
@@ -212,50 +258,44 @@ class GeocachingLogsClient:
             'num': count,
             'decrypt': 'false',
         }
-        
+
         # Ajouter le filtre de type si nécessaire
         if log_type.lower() == 'friends':
             params['sf'] = 'true'
         elif log_type.lower() == 'own':
             params['sp'] = 'true'
-        
+
+        headers = {
+            'Accept': 'application/json, text/javascript, */*; q=0.01',
+            'X-Requested-With': 'XMLHttpRequest',
+        }
+
         try:
-            # Headers pour une requête AJAX
-            headers = {
-                'Accept': 'application/json, text/javascript, */*; q=0.01',
-                'X-Requested-With': 'XMLHttpRequest',
-            }
-            
             logger.debug(f"Requesting logs API with token: {user_token[:30]}...")
             resp = self.session.get(self.LOGS_API_URL, params=params, headers=headers, timeout=30)
-            
             resp.raise_for_status()
-            
-            # Parser la réponse JSON
             data = resp.json()
-            
-            # Vérifier le statut de la réponse
-            if isinstance(data, dict):
-                status = data.get('status', '')
-                if status == 'error':
-                    error_msg = data.get('msg', 'Unknown error')
-                    logger.error(f"Logs API returned error: {error_msg}")
-                    return []
-                
-                if status == 'success' and 'data' in data:
-                    logs = self._parse_legacy_logs(data['data'])
-                    logger.info(f"Retrieved {len(logs)} logs")
-                    return logs
-            
-            logger.warning(f"Unexpected response format from logs API")
-            return []
-            
         except requests.exceptions.JSONDecodeError as e:
             logger.error(f"Failed to parse logs JSON: {e}")
-            return []
+            raise GeocachingLogsError(f"Invalid JSON from logs API: {e}") from e
         except requests.RequestException as e:
             logger.error(f"Failed to fetch logs: {e}")
-            return []
+            raise GeocachingLogsError(f"Network error fetching logs: {e}") from e
+
+        if isinstance(data, dict):
+            status = data.get('status', '')
+            if status == 'error':
+                error_msg = data.get('msg', 'Unknown error')
+                logger.error(f"Logs API returned error: {error_msg}")
+                raise GeocachingLogsError(f"Logs API returned an error: {error_msg}")
+
+            if status == 'success' and 'data' in data:
+                logs = self._parse_legacy_logs(data['data'])
+                logger.info(f"Retrieved {len(logs)} logs")
+                return logs
+
+        logger.warning("Unexpected response format from logs API")
+        raise GeocachingLogsError("Unexpected response format from logs API")
     
     def _parse_legacy_logs(self, logs_data: list) -> list[GeocacheLogData]:
         """

@@ -38,7 +38,11 @@ def create_app() -> Flask:
         app,
         supports_credentials=True,
         expose_headers=['Content-Disposition'],
-        resources={r"/*": {"origins": ["http://127.0.0.1:3000", "http://localhost:3000", "*"]}},
+        # Pas de "*" : avec supports_credentials=True, un wildcard laisserait
+        # n'importe quel site du navigateur de l'utilisateur appeler ce
+        # backend local avec ses cookies de session. Seul le frontend Theia
+        # (servi sur ce port en dev) a besoin d'accéder à l'API.
+        resources={r"/*": {"origins": ["http://127.0.0.1:3000", "http://localhost:3000"]}},
     )
 
     @app.before_request

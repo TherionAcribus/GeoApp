@@ -251,11 +251,13 @@ def test_projection_is_idempotent(app):
     assert FriendFind.query.count() == 1
 
 
-def test_projection_never_overrides_a_zone_search_row(app):
+def test_projection_adds_its_proof_without_erasing_the_zone_search_one(app):
     """
-    La source d'origine est conservée : une resynchronisation de zone ne doit pas
-    pouvoir effacer une trouvaille avérée par le flux, et réciproquement.
-    Les coordonnées manquantes, elles, sont complétées.
+    La projection du flux ajoute sa preuve à celle de la déduction de zone
+    (`source` devient l'ensemble des deux) plutôt que de l'écraser : une
+    resynchronisation de zone qui perdrait ensuite GC11111 (faux-négatif,
+    panne...) ne doit donc pas pouvoir effacer une trouvaille par ailleurs
+    confirmée par le flux. Les coordonnées manquantes, elles, sont complétées.
     """
     store_finds('ami1', ['GC11111'], source='zone_search')
     _log('GL1', username='ami1', gc_code='GC11111', latitude=48.1, longitude=4.1)
@@ -264,8 +266,14 @@ def test_projection_never_overrides_a_zone_search_row(app):
     friend_activity_store.project_finds()
 
     row = FriendFind.query.one()
-    assert row.source == 'zone_search'
+    assert set(row.source.split(',')) == {'zone_search', 'activity'}
     assert (row.latitude, row.longitude) == (48.1, 4.1)
+
+    # Une resynchro de zone qui ne retrouve plus GC11111 ne doit pas effacer
+    # la trouvaille : le flux la confirme toujours.
+    store_finds('ami1', [], source='zone_search', replace_scope=['GC11111'])
+    row = FriendFind.query.one()
+    assert row.source == 'activity'
 
 
 def test_projection_keeps_existing_coordinates(app):

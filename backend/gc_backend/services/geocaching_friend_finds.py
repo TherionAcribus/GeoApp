@@ -159,7 +159,7 @@ class GeocachingFriendFindsClient:
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._explicit_session = session
-        self._baseline_cache: dict[str, tuple[float, list[CacheSummary]]] = {}
+        self._baseline_cache: dict[str, tuple[float, list[CacheSummary], bool]] = {}
         self._lock = threading.Lock()
         self._request_lock = threading.Lock()
         self._last_request_at = 0.0
@@ -394,12 +394,12 @@ class GeocachingFriendFindsClient:
             cached = self._baseline_cache.get(key)
             if cached and not force and (time.time() - cached[0]) < self.BASELINE_TTL:
                 logger.debug("Zone baseline served from cache (%d caches)", len(cached[1]))
-                return cached[1], False
+                return cached[1], cached[2]
 
         summaries, truncated = self.search_summaries(box)
 
         with self._lock:
-            self._baseline_cache[key] = (time.time(), summaries)
+            self._baseline_cache[key] = (time.time(), summaries, truncated)
         return summaries, truncated
 
     def get_zone_baseline(self, box: ZoneBox, force: bool = False) -> tuple[list[str], bool]:
@@ -498,6 +498,18 @@ def list_codes_to_import() -> list[str]:
 
 # --------------------------------------------------------------- Persistance
 
+_SOURCE_SEPARATOR = ','
+
+
+def _parse_sources(source_field: str) -> set[str]:
+    """Décode `FriendFind.source` en l'ensemble des sources qui l'ont confirmée."""
+    return {part for part in source_field.split(_SOURCE_SEPARATOR) if part}
+
+
+def _format_sources(sources: set[str]) -> str:
+    return _SOURCE_SEPARATOR.join(sorted(sources))
+
+
 def store_finds(
     friend_username: str,
     gc_codes: Iterable[str],
@@ -508,9 +520,20 @@ def store_finds(
     """
     Enregistre les trouvailles d'un ami. Retourne (créées, déjà connues).
 
+    `source` est la preuve apportée par **cet appel**. Une même trouvaille peut
+    être confirmée par plusieurs sources au fil des synchronisations (le flux
+    d'activité *et* la déduction de zone, par exemple) : `FriendFind.source`
+    stocke alors l'ensemble sous forme de chaîne séparée par des virgules
+    (`"activity,zone_search"`, voir `_parse_sources`/`_format_sources`). Une
+    valeur simple reste un ensemble à un élément, donc aucune migration n'est
+    nécessaire pour les lignes existantes.
+
     `replace_scope` : si fourni, les trouvailles de cet ami sur ces codes qui ne
-    sont plus dans `gc_codes` sont supprimées — c'est ce qui permet à une
-    resynchronisation de zone de corriger une donnée devenue fausse.
+    sont plus dans `gc_codes` perdent la preuve `source` — la ligne n'est
+    supprimée que s'il ne lui en reste plus aucune. C'est ce qui empêche une
+    resynchronisation de zone (aveugle aux caches archivées, sujette aux
+    faux-négatifs de `nfb`) d'effacer une trouvaille par ailleurs confirmée par
+    le flux d'activité ou les logs d'une cache.
 
     `summaries` : métadonnées relevées à la déduction (coordonnées, nom, type).
     Elles sont écrites à la création **et** rafraîchies sur une ligne existante
@@ -550,6 +573,10 @@ def store_finds(
             created += 1
         else:
             row.last_seen_at = now
+            sources = _parse_sources(row.source)
+            if source not in sources:
+                sources.add(source)
+                row.source = _format_sources(sources)
             if summary and row.latitude is None and summary.latitude is not None:
                 row.latitude = summary.latitude
                 row.longitude = summary.longitude
@@ -563,7 +590,15 @@ def store_finds(
     if replace_scope is not None:
         scope = {code.upper() for code in replace_scope}
         for code, row in existing.items():
-            if code in scope and code not in gc_codes and row.source == source:
+            if code not in scope or code in gc_codes:
+                continue
+            sources = _parse_sources(row.source)
+            if source not in sources:
+                continue  # cette synchro n'a aucune preuve à retirer ici
+            sources.discard(source)
+            if sources:
+                row.source = _format_sources(sources)
+            else:
                 db.session.delete(row)
                 removed += 1
 

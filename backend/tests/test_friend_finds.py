@@ -138,6 +138,27 @@ def test_pagination_guard_flags_oversized_zones():
     assert len(codes) == 30
 
 
+def test_truncated_baseline_stays_truncated_when_served_from_cache():
+    """
+    Un hit du cache mémoire de la référence de zone ne doit pas faire
+    disparaître le drapeau `truncated` : sinon une zone démesurée redevient
+    silencieusement « complète » pendant les 10 minutes du TTL.
+    """
+    session = _FakeSearchSession({'*': [f'GC{i}' for i in range(1000)]})
+    client = _client(session)
+    client.PAGE_SIZE = 10
+    client.MAX_PAGES = 3
+
+    _, truncated_first = client.get_zone_baseline_summaries(BOX)
+    assert truncated_first is True
+
+    calls_before = len(session.calls)
+    _, truncated_cached = client.get_zone_baseline_summaries(BOX)
+
+    assert len(session.calls) == calls_before  # servi depuis le cache
+    assert truncated_cached is True
+
+
 # --------------------------------------------------------------- Rate limit
 
 def test_rate_limit_is_retried_then_surfaced():
@@ -224,6 +245,32 @@ def test_stale_removal_only_touches_the_same_source(app):
     # GC2 vient des logs (donc d'un log d'ami avéré) : la déduction de zone,
     # aveugle aux caches archivées, ne doit pas l'effacer.
     assert {row.gc_code for row in FriendFind.query.all()} == {'GC1', 'GC2'}
+
+
+def test_a_find_confirmed_by_two_sources_survives_a_single_source_resync(app):
+    """
+    Une trouvaille créée par zone_search puis reconfirmée par le flux
+    d'activité doit survivre à une resynchronisation de zone qui ne la
+    retrouve plus (faux-négatif de `nfb`, cache momentanément hors boîte...) :
+    seule la preuve `zone_search` doit disparaître, pas la trouvaille.
+    """
+    store_finds('ami', ['GC1'], source='zone_search')
+    store_finds('ami', ['GC1'], source='activity')
+
+    row = FriendFind.query.filter_by(friend_username='ami', gc_code='GC1').one()
+    assert set(row.source.split(',')) == {'zone_search', 'activity'}
+
+    store_finds('ami', [], source='zone_search', replace_scope=['GC1'])
+
+    row = FriendFind.query.filter_by(friend_username='ami', gc_code='GC1').one()
+    assert row.source == 'activity'
+    assert FriendFind.query.count() == 1
+
+
+def test_find_is_deleted_once_no_source_confirms_it_anymore(app):
+    store_finds('ami', ['GC1'], source='zone_search')
+    store_finds('ami', [], source='zone_search', replace_scope=['GC1'])
+    assert FriendFind.query.count() == 0
 
 
 # ----------------------------------------------------------------------- API
