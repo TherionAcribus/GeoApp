@@ -124,6 +124,8 @@ interface ActivityResponse {
     authors?: { username: string; count: number }[];
     log_type_labels?: Record<string, string>;
     last_sync_at?: string | null;
+    /** Trouvailles regroupées par geocaching.com sans être détaillées. */
+    condensed_hidden?: number;
     error?: string;
     error_message?: string;
 }
@@ -166,6 +168,8 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
     protected authors: { username: string; count: number }[] = [];
     protected logTypeLabels: Record<string, string> = {};
     protected total: number = 0;
+    /** Trouvailles regroupées par geocaching.com sans être détaillées (§13.2). */
+    protected condensedHidden: number = 0;
     protected lastSyncAt: string | null = null;
 
     protected loading: boolean = false;
@@ -190,6 +194,8 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
     protected importing: boolean = false;
     protected importProgress: string | null = null;
     protected importAbort: AbortController | undefined;
+
+    protected profileSyncing: boolean = false;
 
     @postConstruct()
     protected init(): void {
@@ -294,6 +300,7 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
             this.authors = result.authors || [];
             this.logTypeLabels = result.log_type_labels || {};
             this.total = result.total || 0;
+            this.condensedHidden = result.condensed_hidden || 0;
             this.lastSyncAt = result.last_sync_at ?? null;
             this.loaded = true;
         } catch (err) {
@@ -549,6 +556,84 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
             ? new Date(point.lastLogDate).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
             : null;
         return date ? `${parts.join(' · ')} — ${date}` : parts.join(' · ');
+    }
+
+    /**
+     * Récupère les trouvailles d'un ami depuis son profil geocaching.com.
+     *
+     * C'est la réponse à la condensation du flux : celui-ci regroupe les
+     * trouvailles d'affilée sans les nommer, cette recherche les donne une par
+     * une, de la plus récente à la plus ancienne — donc en commençant par celles
+     * que le flux a justement masquées.
+     */
+    protected async fetchProfileFinds(): Promise<void> {
+        const friend = this.authorFilter;
+        if (!friend || this.profileSyncing) {
+            return;
+        }
+
+        this.profileSyncing = true;
+        this.syncMessage = null;
+        this.error = null;
+        this.update();
+
+        try {
+            const estimate = await this.fetchMapJson<{
+                success: boolean; total?: number; reachable?: number; seconds?: number;
+            }>(`/api/friends/finds/friend/${encodeURIComponent(friend)}/estimate`, true);
+
+            if (estimate?.total !== undefined) {
+                const minutes = Math.ceil((estimate.seconds || 0) / 60);
+                const capped = (estimate.reachable || 0) < estimate.total;
+                const confirmed = await new ConfirmDialog({
+                    title: `Trouvailles de ${friend}`,
+                    msg: `${estimate.total} trouvaille(s) annoncée(s)`
+                        + (capped
+                            ? `, dont les ${estimate.reachable} plus récentes accessibles `
+                              + `(geocaching.com limite la pagination). `
+                            : '. ')
+                        + `Durée estimée : ${minutes} minute(s).`,
+                    ok: 'Récupérer',
+                    cancel: Dialog.CANCEL
+                }).open();
+                if (!confirmed) {
+                    return;
+                }
+            }
+
+            const response = await fetch(`${this.getApiBaseUrl()}/api/friends/finds/sync-friend`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ friend })
+            });
+
+            const contentType = response.headers.get('content-type') || '';
+            if (!contentType.includes('application/json')) {
+                this.error = response.status === 404
+                    ? 'Route /api/friends/finds/sync-friend introuvable : le backend GeoApp doit être redémarré.'
+                    : `Réponse inattendue du backend GeoApp (HTTP ${response.status}).`;
+                return;
+            }
+
+            const result = await response.json();
+            if (!result.success) {
+                this.notAuthenticated = result.error === 'not_authenticated';
+                this.error = result.error_message || 'Échec de la récupération des trouvailles.';
+                return;
+            }
+
+            this.syncMessage = `${result.fetched} trouvaille(s) de ${friend} récupérée(s)`
+                + ` (${result.created} nouvelle(s))`
+                + (result.truncated ? ', liste partielle.' : '.');
+            await this.showOnMap();
+            await this.refreshImportableCount();
+        } catch (err) {
+            this.error = 'Erreur de connexion au serveur GeoApp';
+            console.error('[FriendActivity] Profile finds fetch failed:', err);
+        } finally {
+            this.profileSyncing = false;
+            this.update();
+        }
     }
 
     /**
@@ -898,6 +983,43 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
                 }}>
                     <span className="codicon codicon-globe"></span>
                     {` ${this.mapMessage}`}
+                </div>
+            );
+        }
+
+        // Le flux n'est pas exhaustif, et rien dans son contenu ne le dit :
+        // geocaching.com regroupe les trouvailles d'affilée en une seule entrée
+        // dont il ne nomme qu'une cache. Les DNF, presque toujours isolés,
+        // apparaissent tous — d'où l'impression que les trouvailles manquent.
+        if (this.condensedHidden > 0) {
+            notices.push(
+                <div key="condensed" style={{
+                    padding: '8px 12px',
+                    marginBottom: '12px',
+                    backgroundColor: 'var(--theia-inputValidation-warningBackground)',
+                    borderRadius: '4px',
+                    fontSize: '0.9em'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <span className="codicon codicon-fold"></span>
+                        <span style={{ flex: 1, minWidth: '240px' }}>
+                            {`${this.condensedHidden} trouvaille(s) regroupée(s) par geocaching.com : `}
+                            {'seule une cache par groupe est nommée dans le flux. '}
+                            {this.authorFilter
+                                ? `Récupérez la liste complète de ${this.authorFilter} depuis son profil.`
+                                : 'Choisissez un ami ci-dessus pour récupérer sa liste complète depuis son profil.'}
+                        </span>
+                        {this.authorFilter && (
+                            <button
+                                className="theia-button"
+                                onClick={() => this.fetchProfileFinds()}
+                                disabled={this.profileSyncing}
+                                title={`Récupérer les trouvailles de ${this.authorFilter} depuis son profil geocaching.com`}
+                            >
+                                {this.profileSyncing ? 'Récupération…' : 'Compléter depuis le profil'}
+                            </button>
+                        )}
+                    </div>
                 </div>
             );
         }

@@ -2,22 +2,32 @@
 « Qui, parmi mes amis, a trouvé quoi » — sur toute l'histoire, pas seulement
 sur les dernières semaines.
 
-Le filtre `fb` (found by) de la recherche web de geocaching.com est **ignoré par
-le serveur** : il renvoie l'index entier, comme une requête sans filtre. En
-revanche `nfb` (not found by) fonctionne. On obtient donc les trouvailles d'un
-ami **par complément** sur une zone bornée :
+Deux chemins, selon la forme donnée à la requête de recherche web
+(`/api/proxy/web/search/v2`) :
 
-    trouvées_par(ami) = caches_de_la_zone - caches_non_trouvées_par(ami)
+1. **Par complément, sur une zone bornée** (`find_codes_found_by`). Le filtre
+   `fb` (found by) envoyé **avec une boîte englobante** est silencieusement
+   ignoré : le serveur renvoie l'index mondial. En revanche `nfb` (not found by)
+   fonctionne, d'où la soustraction :
 
-Contrairement au flux d'activité (plafonné à ~2 mois), cette déduction n'a
-aucune limite de date : une trouvaille de 2013 en ressort aussi bien qu'une
-d'hier.
+       trouvées_par(ami) = caches_de_la_zone - caches_non_trouvées_par(ami)
 
-Limites connues :
-- les caches **archivées** ne sont pas dans l'index de recherche : elles
-  n'apparaissent ni dans la référence, ni dans le complément ;
+   Aucune limite de date : une trouvaille de 2013 en ressort comme une d'hier.
+
+2. **Par profil, sans borne géographique** (`search_finds_by`). Le même `fb`,
+   envoyé **sans boîte et avec `sort=founddate`**, fonctionne — c'est l'appel de
+   la page « Geocaches found » d'un profil. Il donne les trouvailles une par
+   une, de la plus récente à la plus ancienne, ce qui compense la condensation
+   du flux d'activité.
+
+   > Le mode d'échec de `fb` étant silencieux (aucune erreur, juste l'index
+   > mondial), `FilterIgnoredError` est levée dès que le total est aberrant.
+
+Limites connues, communes aux deux chemins :
+- les caches **archivées** ne sont pas dans l'index de recherche ;
 - « trouvée » ≠ « loguée » : un DNF d'ami ne ressort pas ici (seul le logbook
   par cache, `sf=true`, le donne) ;
+- le serveur refuse `skip + take` au-delà de ~10 000 ;
 - plusieurs filtres de cette API sont réservés aux membres Premium.
 """
 from __future__ import annotations
@@ -42,6 +52,16 @@ class FriendFindsError(RuntimeError):
 
 class RateLimitedError(FriendFindsError):
     """geocaching.com a répondu 429 (trop de recherches) malgré les temporisations."""
+
+
+class FilterIgnoredError(FriendFindsError):
+    """
+    Le serveur a ignoré le filtre joueur et renvoie l'index mondial.
+
+    C'est le mode d'échec **silencieux** documenté au §11.1 : aucune erreur HTTP,
+    juste des millions de résultats sans rapport. Sans cette détection, on
+    importerait l'index entier comme « trouvailles de l'ami ».
+    """
 
 
 @dataclass
@@ -116,6 +136,12 @@ class GeocachingFriendFindsClient:
     PAGE_SIZE = 100
     # Le serveur refuse skip+take au-delà de ~10 000 : on s'arrête avant.
     MAX_PAGES = 50
+    MAX_SKIP = 10000
+
+    # Aucun joueur n'approche ce volume (le record mondial est de l'ordre de
+    # 200 000 trouvailles) : au-delà, c'est que le filtre `fb` a été ignoré et
+    # que le serveur renvoie l'index entier (~3,5 M).
+    MAX_PLAUSIBLE_FINDS = 500000
     BASELINE_TTL = 10 * 60
 
     # Cette API est fortement limitée en débit (429 « Too many requests », sans
@@ -254,6 +280,88 @@ class GeocachingFriendFindsClient:
             latitude=latitude,
             longitude=longitude,
         )
+
+    def search_finds_by(
+        self,
+        username: str,
+        max_results: Optional[int] = None,
+    ) -> tuple[list[CacheSummary], int, bool]:
+        """
+        Trouvailles d'un joueur, **sans borne géographique**, de la plus récente
+        à la plus ancienne. Retourne (résumés, total annoncé, tronqué).
+
+        C'est l'appel que fait la page « Geocaches found » d'un profil
+        (`/play/results?sort=founddate&asc=false&fb=<pseudo>`). Il complète les
+        deux autres sources :
+
+        - le **flux d'activité** (§9) condense les trouvailles et n'en nomme
+          qu'une par groupe : c'est la raison d'être de cette méthode ;
+        - la **déduction par zone** (§11) est exhaustive mais bornée à une boîte.
+
+        > ⚠️ Le §11.1 avait conclu que `fb` était ignoré par le serveur. Ce test
+        > portait sur un appel **avec boîte et tri par défaut**. Ici on
+        > reproduit l'appel de la page profil : `sort=founddate` (qui n'a de sens
+        > que si le filtre joueur s'applique) et pas de boîte. Le garde-fou
+        > ci-dessous vérifie que le filtre a bien été pris en compte.
+
+        Deux limites structurelles, héritées de l'API :
+
+        - le serveur refuse `skip + take` au-delà de ~10 000 : au-delà, seules
+          les trouvailles les plus récentes sont accessibles. Le tri décroissant
+          est donc essentiel — ce sont précisément celles que le flux condense ;
+        - les caches **archivées** restent absentes de l'index (§11.3).
+        """
+        base = {'fb': username, 'sort': 'founddate', 'asc': 'false'}
+
+        probe = self._request({**base, 'take': 1, 'skip': 0})
+        total = int(probe.get('total') or 0)
+
+        # Le mode d'échec de `fb` est silencieux : pas d'erreur, juste l'index
+        # mondial. Aucun joueur n'approche ce volume (le record est ~200 000).
+        if total > self.MAX_PLAUSIBLE_FINDS:
+            raise FilterIgnoredError(
+                f"geocaching.com a ignoré le filtre joueur : {total} résultats pour "
+                f"« {username} », c'est l'index mondial. Cette recherche n'est pas exploitable."
+            )
+
+        limit = min(total, max_results) if max_results else total
+        summaries: list[CacheSummary] = []
+        skip = 0
+        truncated = False
+
+        while skip < limit:
+            take = min(self.PAGE_SIZE, limit - skip)
+            if skip + take > self.MAX_SKIP:
+                # Palier dur du serveur : on s'arrête proprement plutôt que de
+                # récolter une erreur HTTP en fin de pagination.
+                truncated = True
+                break
+
+            payload = self._request({**base, 'take': take, 'skip': skip})
+            results = payload.get('results') or []
+            summaries.extend(self._to_summary(item) for item in results if item.get('code'))
+
+            if len(results) < take:
+                break
+            skip += len(results)
+
+        logger.info(
+            "%s : %d trouvailles récupérées sur %d annoncées%s",
+            username, len(summaries), total, ' (tronqué)' if truncated else ''
+        )
+        return summaries, total, truncated or len(summaries) < total
+
+    def estimate_finds_count(self, username: str) -> int:
+        """Nombre de trouvailles annoncées pour ce joueur, en **une** requête."""
+        payload = self._request({
+            'fb': username, 'sort': 'founddate', 'asc': 'false', 'take': 1, 'skip': 0,
+        })
+        total = int(payload.get('total') or 0)
+        if total > self.MAX_PLAUSIBLE_FINDS:
+            raise FilterIgnoredError(
+                f"geocaching.com a ignoré le filtre joueur : {total} résultats pour « {username} »."
+            )
+        return total
 
     def estimate_box_size(self, box: ZoneBox) -> int:
         """

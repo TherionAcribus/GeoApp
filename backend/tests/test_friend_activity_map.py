@@ -295,6 +295,48 @@ def test_sync_reports_projected_finds(app):
     assert report.to_dict()['finds_projected'] == 1
 
 
+# ------------------------------------------------- Entrées condensées
+
+def _condensed(log_code: str, username: str, count: int) -> FriendActivity:
+    row = _log(log_code, username=username)
+    row.is_condensed = True
+    row.condensed_count = count
+    return row
+
+
+def test_condensed_finds_are_counted_as_missing(app):
+    """
+    geocaching.com regroupe les trouvailles d'affilée : une seule cache est
+    nommée, les autres ne sont transmises nulle part. Ne pas le compter laissait
+    croire que le flux était exhaustif.
+    """
+    _condensed('GL1', 'ami1', 26)
+    _condensed('GL2', 'ami2', 14)
+    _log('GL3', username='ami1', gc_code='GC33333')
+    db.session.commit()
+
+    assert friend_activity_store.count_hidden_condensed() == 40
+
+
+def test_condensed_count_follows_the_filters(app):
+    _condensed('GL1', 'ami1', 26)
+    _condensed('GL2', 'ami2', 14)
+    db.session.commit()
+
+    assert friend_activity_store.count_hidden_condensed(author='ami1') == 26
+    # Les DNF ne sont jamais condensés : filtrer dessus doit donner zéro.
+    assert friend_activity_store.count_hidden_condensed(log_type_ids=[3]) == 0
+
+
+def test_route_exposes_the_condensed_gap(app):
+    _condensed('GL1', 'ami1', 26)
+    db.session.commit()
+
+    payload = app.test_client().get('/api/friends/activity').get_json()
+
+    assert payload['condensed_hidden'] == 26
+
+
 # ---------------------------------------------------------------------- Route
 
 def test_route_returns_points(app):

@@ -7,6 +7,7 @@ Routes API :
 - GET  /api/friends/activity/map    → mêmes filtres, agrégés en points pour la carte
 - POST /api/friends/activity/sync   → récupère le flux distant et l'accumule en base
 - POST /api/friends/finds/sync-zone → déduit les trouvailles d'un ami sur une zone
+- POST /api/friends/finds/sync-friend → trouvailles d'un ami depuis son profil (sans zone)
 - GET  /api/friends/finds/zone/<id> → « qui a trouvé quoi » pour une zone
 - GET  /api/friends/finds/map       → toutes les trouvailles cartographiables
 - POST /api/friends/finds/import    → importe les caches manquantes dans la zone « Amis »
@@ -39,6 +40,7 @@ from ..services.geocaching_friend_activity import (
 )
 from ..services.geocaching_friend_finds import (
     FRIENDS_ZONE_NAME,
+    FilterIgnoredError,
     FriendFindsError,
     RateLimitedError,
     ZoneBox,
@@ -150,6 +152,13 @@ def list_activity():
         "authors": friend_activity_store.list_authors(include_self=include_self),
         "log_type_labels": {str(key): value for key, value in LOG_TYPE_LABELS.items()},
         "last_sync_at": friend_activity_store.get_last_sync_at(),
+        # Trouvailles regroupées par geocaching.com sans être détaillées : elles
+        # n'existent nulle part dans la réponse distante (voir §13.2 de la doc).
+        "condensed_hidden": friend_activity_store.count_hidden_condensed(
+            author=(request.args.get("author") or "").strip() or None,
+            log_type_ids=log_type_ids,
+            include_self=include_self,
+        ),
     })
 
 
@@ -326,6 +335,108 @@ def sync_zone_finds():
         "created": created,
         "known": known,
         "truncated": result.truncated,
+    })
+
+
+@bp.get("/finds/friend/<path:username>/estimate")
+def estimate_friend_finds(username: str):
+    """Nombre de trouvailles annoncées pour cet ami, en une requête."""
+    if not get_auth_service().is_logged_in():
+        return jsonify({"success": False, "error": "not_authenticated",
+                        "error_message": "Vous devez être connecté à Geocaching.com."}), 401
+
+    try:
+        total = get_friend_finds_client().estimate_finds_count(username)
+    except FilterIgnoredError as exc:
+        return jsonify({"success": False, "error": "filter_ignored", "error_message": str(exc)}), 502
+    except RateLimitedError as exc:
+        return jsonify({"success": False, "error": "rate_limited", "error_message": str(exc)}), 429
+    except FriendFindsError as exc:
+        return jsonify({"success": False, "error": "fetch_failed", "error_message": str(exc)}), 502
+
+    reachable = min(total, get_friend_finds_client().MAX_SKIP)
+    pages = max(1, -(-reachable // get_friend_finds_client().PAGE_SIZE))
+
+    return jsonify({
+        "success": True,
+        "friend": username,
+        "total": total,
+        # Le serveur refuse skip+take au-delà de ~10 000 : au-delà, seules les
+        # trouvailles les plus récentes sont atteignables.
+        "reachable": reachable,
+        "seconds": round(pages * get_friend_finds_client().MIN_INTERVAL_SECONDS),
+    })
+
+
+@bp.post("/finds/sync-friend")
+def sync_friend_finds():
+    """
+    Récupère les trouvailles d'un ami depuis son profil, sans borne géographique.
+
+    C'est la réponse à la condensation du flux d'activité (§9.2) : le flux
+    regroupe les trouvailles d'affilée sans les nommer, cette recherche les
+    donne une par une, de la plus récente à la plus ancienne.
+
+    Body JSON : { "friend": "pseudo", "max_results": 1000 }
+    """
+    data = request.get_json(silent=True) or {}
+    friend = (data.get("friend") or "").strip()
+    max_results = data.get("max_results")
+
+    if not friend:
+        return jsonify({"success": False, "error": "invalid_params",
+                        "error_message": "friend (pseudo) est requis."}), 400
+    if max_results is not None:
+        try:
+            max_results = int(max_results)
+        except (TypeError, ValueError):
+            return jsonify({"success": False, "error": "invalid_params",
+                            "error_message": "max_results doit être un entier."}), 400
+
+    if not get_auth_service().is_logged_in():
+        return jsonify({
+            "success": False,
+            "error": "not_authenticated",
+            "error_message": "Vous devez être connecté à Geocaching.com pour cette recherche.",
+        }), 401
+
+    try:
+        summaries, total, truncated = get_friend_finds_client().search_finds_by(
+            friend, max_results=max_results
+        )
+        # Pas de `replace_scope` : cette recherche n'est pas exhaustive (plafond
+        # de pagination, caches archivées absentes). Elle n'a donc aucune
+        # autorité pour supprimer une trouvaille connue par une autre source.
+        created, known = store_finds(
+            friend,
+            [summary.gc_code for summary in summaries],
+            source='profile_search',
+            summaries={summary.gc_code: summary for summary in summaries},
+        )
+    except NotAuthenticatedError as exc:
+        return jsonify({"success": False, "error": "not_authenticated", "error_message": str(exc)}), 401
+    except FilterIgnoredError as exc:
+        logger.error("Player filter ignored by geocaching.com: %s", exc)
+        return jsonify({"success": False, "error": "filter_ignored", "error_message": str(exc)}), 502
+    except RateLimitedError as exc:
+        logger.warning("Friend finds rate limited: %s", exc)
+        return jsonify({"success": False, "error": "rate_limited", "error_message": str(exc)}), 429
+    except FriendFindsError as exc:
+        logger.error("Failed to fetch friend finds: %s", exc)
+        return jsonify({"success": False, "error": "fetch_failed", "error_message": str(exc)}), 502
+    except Exception as exc:  # pragma: no cover - garde-fou
+        logger.exception("Unexpected error while fetching friend finds")
+        db.session.rollback()
+        return jsonify({"success": False, "error": "internal_error", "error_message": str(exc)}), 500
+
+    return jsonify({
+        "success": True,
+        "friend": friend,
+        "announced": total,
+        "fetched": len(summaries),
+        "created": created,
+        "known": known,
+        "truncated": truncated,
     })
 
 

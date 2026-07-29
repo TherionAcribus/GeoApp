@@ -422,6 +422,36 @@ def _filtered_query(
     return query
 
 
+def count_hidden_condensed(
+    author: Optional[str] = None,
+    log_type_ids: Optional[Iterable[int]] = None,
+    activity_type: int = ACTIVITY_TYPE_FRIENDS,
+    include_self: bool = False,
+) -> int:
+    """
+    Nombre de trouvailles que geocaching.com a **regroupées sans les détailler**.
+
+    Quand un ami logue plusieurs caches d'affilée, le flux ne renvoie qu'une
+    entrée portant `isCondensed` et `condensedCount` : une seule cache est
+    nommée, les autres n'existent nulle part dans la réponse. Les DNF, eux, sont
+    presque toujours isolés — d'où l'impression trompeuse d'avoir « tous les DNF
+    mais pas toutes les trouvailles ».
+
+    Ce compteur mesure ce qui manque, pour que l'interface puisse le dire au lieu
+    de laisser croire que le flux est exhaustif. Il n'y a aucun moyen connu de
+    déplier ces entrées : la source complète est la déduction par zone (§11).
+    """
+    query = _filtered_query(
+        author=author,
+        log_type_ids=log_type_ids,
+        activity_type=activity_type,
+        include_self=include_self,
+    ).filter(FriendActivity.is_condensed.is_(True))
+
+    total = query.with_entities(db.func.sum(FriendActivity.condensed_count)).scalar()
+    return int(total or 0)
+
+
 def list_authors(
     activity_type: int = ACTIVITY_TYPE_FRIENDS,
     include_self: bool = False,
