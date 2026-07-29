@@ -698,7 +698,35 @@ toutes gérées.
 `source='cache_logs'` n'apporte pas de coordonnées : la cache est par
 construction déjà dans GeoApp, la jointure les fournit.
 
-### 13.2 `GET /api/friends/finds/map`
+### 13.2 Le pont flux d'activité → `friend_find`
+
+Les deux sources de trouvailles vivaient dans deux tables qui ne se parlaient
+pas. Une cache vue passer dans « Activité des amis » n'apparaissait donc **ni**
+dans la colonne « 👥 » du tableau de zone, **ni** sur la carte des trouvailles,
+**ni** dans l'import vers la zone « Amis ». Mesuré en conditions réelles : 11 des
+12 trouvailles du flux étaient absentes de `friend_find`, dont 10 absentes de
+GeoApp — donc invisibles de l'import.
+
+`friend_activity_store.project_finds()`, appelée à chaque synchronisation,
+reporte les trouvailles du flux dans `friend_find` avec `source='activity'`.
+Elle balaie **toute** la table et pas seulement les entrées qui viennent
+d'arriver : c'est ce qui rattrape l'historique déjà accumulé.
+
+Trois restrictions, chacune pour une raison précise :
+
+| Restriction | Pourquoi |
+|-------------|----------|
+| `log_type_id == 2` seulement | « Trouvée » ≠ « loguée » (§11.2) : verser un DNF fausserait le « qui a trouvé quoi » |
+| `is_self` exclu | Le flux « communauté » mélange mes propres logs (§9.3) |
+| `source='activity'` | Une resynchronisation de zone ne doit pas effacer une trouvaille avérée par le flux (`replace_scope`, §11.4) |
+
+Bénéfice secondaire : le flux **porte les coordonnées**. Une trouvaille projetée
+est donc plaçable immédiatement, sans déduction de zone ni import.
+
+La troisième source (`cache_logs`, §10) alimente déjà cette table. Les trois
+convergent désormais.
+
+### 13.3 `GET /api/friends/finds/map`
 
 Lecture locale, sans limite de date, filtrable par `friend`. Les coordonnées
 sont prises dans cet ordre : `friend_find` d'abord, la géocache importée ensuite.
@@ -708,7 +736,7 @@ distincts : `without_coordinates` (nombre de **lignes**) et `importable`
 (nombre de **caches**) — c'est ce dernier que l'interface affiche, puisque
 c'est ce qu'un import aurait à télécharger.
 
-### 13.3 La zone « Amis » et l'import de fond
+### 13.4 La zone « Amis » et l'import de fond
 
 Importer une trouvaille d'ami en fait une **vraie géocache GeoApp** : ouvrable,
 annotable, résoluble. C'est le seul intérêt restant de l'import — la carte, elle,
@@ -742,7 +770,7 @@ n'en a plus besoin (§13.1).
 > annoncée, et un bouton d'arrêt (`AbortController`) qui conserve ce qui a déjà
 > été importé.
 
-### 13.4 Interface
+### 13.5 Interface
 
 Un sélecteur de source dans la barre d'outils du widget « Activité des amis » :
 **Activité récente** (§12) · **Toutes les trouvailles** (`friend_find`) ·
@@ -814,7 +842,7 @@ pures, et la synchronisation accepte un client injecté.
   périmées **limitée à la même source** ;
 - routes de lecture et rejet des paramètres invalides.
 
-`test_friend_activity_map.py` (12 tests) — carte des amis :
+`test_friend_activity_map.py` (18 tests) — carte des amis :
 
 - dédoublonnage par cache et agrégation des auteurs, date du point = celle du
   log le plus récent, logs sans code GC non fusionnés entre eux ;
@@ -825,9 +853,13 @@ pures, et la synchronisation accepte un client injecté.
 - entrées sans coordonnées comptées et non placées ;
 - filtres identiques à ceux de la timeline, fenêtre `days`, garde-fou `limit`
   signalé par `truncated` ;
-- routes : lecture des points et rejet des paramètres invalides.
+- routes : lecture des points et rejet des paramètres invalides ;
+- **pont vers `friend_find`** (§13.2) : projection d'une trouvaille avec ses
+  coordonnées, exclusion des DNF / notes / logs personnels / entrées sans code
+  GC, idempotence, source d'origine préservée mais coordonnées complétées,
+  coordonnées existantes non écrasées, bilan de synchro.
 
-`test_friend_finds_map.py` (13 tests) — trouvailles sur la carte :
+`test_friend_finds_map.py` (14 tests) — trouvailles sur la carte :
 
 - métadonnées de la référence conservées par la déduction, `search_codes()`
   toujours fonctionnel, enregistrement réduit à son code toléré ;

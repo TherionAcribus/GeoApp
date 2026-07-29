@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 
 LAST_SYNC_KEY = 'friends.activity.last_sync_at'
 
+# « a trouvé » dans window.logFormats. Seul ce type alimente `friend_find`.
+FOUND_LOG_TYPE_ID = 2
+
 # Garde-fou de lecture pour la carte : le flux accumulé reste modeste (quelques
 # milliers de lignes), mais on refuse de charger la table entière en mémoire si
 # elle venait à grossir.
@@ -52,6 +55,8 @@ class SyncReport:
     updated: int
     since_days: int
     synced_at: datetime
+    #  Trouvailles du flux reportées dans `friend_find` (voir project_finds()).
+    finds_projected: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -60,6 +65,7 @@ class SyncReport:
             'updated': self.updated,
             'since_days': self.since_days,
             'synced_at': self.synced_at.isoformat(),
+            'finds_projected': self.finds_projected,
         }
 
 
@@ -133,6 +139,7 @@ def sync(
         self_username=self_username,
     )
     _backfill_self_flags(self_username)
+    finds_projected = project_finds()
 
     synced_at = datetime.now(timezone.utc)
     AppConfig.set_value(LAST_SYNC_KEY, synced_at.isoformat())
@@ -144,7 +151,69 @@ def sync(
         updated=updated,
         since_days=since_days,
         synced_at=synced_at,
+        finds_projected=finds_projected,
     )
+
+
+def project_finds() -> int:
+    """
+    Reporte les trouvailles du flux dans `friend_find`. Retourne le nombre créé.
+
+    Une trouvaille reste une trouvaille, qu'elle vienne de la déduction par zone
+    (§11) ou du flux d'activité (§9) : sans ce pont, une cache vue passer dans
+    « Activité des amis » n'apparaissait ni dans la colonne « 👥 » du tableau, ni
+    sur la carte des trouvailles, ni dans l'import vers la zone « Amis ». Les deux
+    tables ne se parlaient tout simplement pas.
+
+    Trois restrictions :
+
+    - **`log_type_id == 2` uniquement.** « Trouvée » ≠ « loguée » : un DNF ou une
+      note d'ami n'est pas une trouvaille, et l'y verser fausserait le « qui a
+      trouvé quoi » du tableau de zone.
+    - **`is_self` exclu.** Le flux « communauté » mélange mes propres logs.
+    - **`source='activity'`**, donc jamais effacé par une resynchronisation de
+      zone : la déduction `nfb` est aveugle aux caches archivées, elle ne doit
+      pas supprimer une trouvaille avérée (cf. `replace_scope`).
+
+    Le balayage porte sur toute la table, pas seulement sur les entrées qui
+    viennent d'arriver : c'est ce qui rattrape l'historique déjà accumulé.
+    """
+    from .geocaching_friend_finds import CacheSummary, store_finds
+
+    rows = (
+        FriendActivity.query
+        .filter(FriendActivity.log_type_id == FOUND_LOG_TYPE_ID)
+        .filter(db.or_(FriendActivity.is_self.is_(False), FriendActivity.is_self.is_(None)))
+        .filter(FriendActivity.cache_reference_code.isnot(None))
+        .all()
+    )
+
+    by_friend: dict[str, dict[str, CacheSummary]] = {}
+    for row in rows:
+        code = row.cache_reference_code.upper()
+        by_friend.setdefault(row.author_username, {})[code] = CacheSummary(
+            gc_code=code,
+            name=row.cache_name,
+            cache_type=_cache_type_label(row.cache_type_id),
+            latitude=row.latitude,
+            longitude=row.longitude,
+        )
+
+    created = 0
+    for friend, summaries in by_friend.items():
+        # Pas de `replace_scope` : le flux est un flux, pas la vue exhaustive
+        # d'une zone. Il n'a aucune autorité pour supprimer quoi que ce soit.
+        friend_created, _ = store_finds(
+            friend,
+            summaries.keys(),
+            source='activity',
+            summaries=summaries,
+        )
+        created += friend_created
+
+    if created:
+        logger.info("Projected %d friend finds from the activity feed", created)
+    return created
 
 
 def query_activities(

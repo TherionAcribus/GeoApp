@@ -677,12 +677,19 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
 
             const result = await response.json();
             if (result.success) {
-                this.syncMessage = result.created > 0
-                    ? `${result.created} nouvelle(s) activité(s) récupérée(s).`
-                    : 'Aucune nouvelle activité.';
+                const bits = [
+                    result.created > 0
+                        ? `${result.created} nouvelle(s) activité(s) récupérée(s).`
+                        : 'Aucune nouvelle activité.'
+                ];
+                if (result.finds_projected > 0) {
+                    bits.push(`${result.finds_projected} trouvaille(s) ajoutée(s) à vos amis.`);
+                }
+                this.syncMessage = bits.join(' ');
                 await this.loadActivities(0);
                 // Une synchro peut apporter de nouvelles caches : la carte suit.
                 await this.showOnMap();
+                await this.refreshImportableCount();
             } else {
                 this.notAuthenticated = result.error === 'not_authenticated';
                 this.error = result.error_message || 'Échec de la synchronisation';

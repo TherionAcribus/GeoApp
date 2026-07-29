@@ -13,8 +13,9 @@ import pytest
 from gc_backend import create_app
 from gc_backend.database import db
 from gc_backend.geocaches.models import Geocache
-from gc_backend.models import FriendActivity
+from gc_backend.models import FriendActivity, FriendFind
 from gc_backend.services import friend_activity_store
+from gc_backend.services.geocaching_friend_finds import CacheSummary, store_finds
 
 
 @pytest.fixture
@@ -206,6 +207,92 @@ def test_limit_is_a_guard_and_is_signalled(app):
     assert result['truncated'] is True
 
     assert friend_activity_store.query_map_points()['truncated'] is False
+
+
+# ------------------------------------- Pont flux d'activité → friend_find
+
+def test_finds_are_projected_from_the_activity_feed(app):
+    """
+    Une trouvaille vue dans le flux doit atteindre `friend_find` : sinon elle
+    n'apparaît ni dans la colonne « 👥 », ni sur la carte des trouvailles, ni
+    dans l'import vers la zone « Amis ».
+    """
+    _log('GL1', username='ami1', gc_code='GC11111', latitude=48.1, longitude=4.1)
+    db.session.commit()
+
+    assert friend_activity_store.project_finds() == 1
+
+    row = FriendFind.query.one()
+    assert (row.friend_username, row.gc_code, row.source) == ('ami1', 'GC11111', 'activity')
+    # Le flux porte les coordonnées : la trouvaille est plaçable immédiatement.
+    assert (row.latitude, row.longitude) == (48.1, 4.1)
+    assert row.cache_type == 'Traditional'
+
+
+def test_projection_ignores_dnf_and_my_own_logs(app):
+    """« Trouvée » ≠ « loguée » : un DNF fausserait le « qui a trouvé quoi »."""
+    _log('GL1', username='ami1', gc_code='GC11111', log_type_id=3)
+    _log('GL2', username='ami1', gc_code='GC22222', log_type_id=4)
+    _log('GL3', username='moi', gc_code='GC33333', is_self=True)
+    # Sans code GC, il n'y a rien à rattacher.
+    _log('GL4', username='ami2', gc_code=None)
+    db.session.commit()
+
+    assert friend_activity_store.project_finds() == 0
+    assert FriendFind.query.count() == 0
+
+
+def test_projection_is_idempotent(app):
+    _log('GL1', username='ami1', gc_code='GC11111')
+    db.session.commit()
+
+    assert friend_activity_store.project_finds() == 1
+    assert friend_activity_store.project_finds() == 0
+    assert FriendFind.query.count() == 1
+
+
+def test_projection_never_overrides_a_zone_search_row(app):
+    """
+    La source d'origine est conservée : une resynchronisation de zone ne doit pas
+    pouvoir effacer une trouvaille avérée par le flux, et réciproquement.
+    Les coordonnées manquantes, elles, sont complétées.
+    """
+    store_finds('ami1', ['GC11111'], source='zone_search')
+    _log('GL1', username='ami1', gc_code='GC11111', latitude=48.1, longitude=4.1)
+    db.session.commit()
+
+    friend_activity_store.project_finds()
+
+    row = FriendFind.query.one()
+    assert row.source == 'zone_search'
+    assert (row.latitude, row.longitude) == (48.1, 4.1)
+
+
+def test_projection_keeps_existing_coordinates(app):
+    """Les coordonnées de la déduction font foi : le flux ne les écrase pas."""
+    store_finds('ami1', ['GC11111'], summaries={
+        'GC11111': CacheSummary('GC11111', latitude=45.0, longitude=1.0)
+    })
+    _log('GL1', username='ami1', gc_code='GC11111', latitude=48.1, longitude=4.1)
+    db.session.commit()
+
+    friend_activity_store.project_finds()
+
+    assert FriendFind.query.one().latitude == 45.0
+
+
+def test_sync_reports_projected_finds(app):
+    class _FakeClient:
+        def fetch(self, since_days, activity_type):
+            return []
+
+    _log('GL1', username='ami1', gc_code='GC11111')
+    db.session.commit()
+
+    report = friend_activity_store.sync(client=_FakeClient())
+
+    assert report.finds_projected == 1
+    assert report.to_dict()['finds_projected'] == 1
 
 
 # ---------------------------------------------------------------------- Route
