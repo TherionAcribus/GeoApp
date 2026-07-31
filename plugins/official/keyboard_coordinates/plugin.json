@@ -1,0 +1,77 @@
+{
+  "name": "keyboard_coordinates",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Encode/décode un texte selon la position (ligne, colonne) de ses caractères sur un clavier physique QWERTY ou AZERTY.",
+  "author": "MysteryAI Team",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": ["AlphabetsDecryption", "Substitution"],
+  "kinds": ["code"],
+  "brute_force": true,
+  "enable_scoring": true,
+  "accept_accents": false,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": false,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "text": {
+      "type": "string",
+      "label": "Texte à encoder / coordonnées à décoder",
+      "placeholder": "Ex: HELLO  ou  27 14 210 210 110",
+      "required": true
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": ["encode", "decode"],
+      "default": "decode",
+      "required": true
+    },
+    "layout": {
+      "type": "select",
+      "label": "Disposition clavier",
+      "options": ["qwerty", "azerty"],
+      "default": "qwerty"
+    },
+    "start_row": {
+      "type": "select",
+      "label": "Départ de la numérotation des lignes",
+      "options": ["letters", "numbers", "functions"],
+      "default": "letters",
+      "description": "letters: A=22 (défaut) · numbers: A=32 (ajoute la ligne des chiffres) · functions: A=42 (ajoute aussi la ligne des touches de fonction)"
+    },
+    "bruteforce": {
+      "type": "boolean",
+      "label": "Bruteforce (teste QWERTY et AZERTY sur les 3 départs de ligne)",
+      "default": false
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Résultat"
+    }
+  },
+  "metasolver": {
+    "eligible": true,
+    "input_charset": "mixed",
+    "tags": ["substitution", "positional", "no_key"],
+    "priority": 40,
+    "family": "keyboard_position",
+    "preferred_when": ["digit_pairs", "grouped_numbers"],
+    "requires_key": false,
+    "supports_grouped_input": true
+  }
+}
