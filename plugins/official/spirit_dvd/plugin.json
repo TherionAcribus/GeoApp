@@ -1,0 +1,129 @@
+{
+  "name": "spirit_dvd",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Code Spirit DVD (Mars rover) : alphabet de longueur variable en tirets et barres verticales, gravé sur le DVD de la Planetary Society embarqué par le rover Spirit.",
+  "author": "MysterAI",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": [
+    "AlphabetsDecryption"
+  ],
+  "kinds": [
+    "code"
+  ],
+  "brute_force": true,
+  "enable_scoring": true,
+  "accept_accents": false,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "text": {
+      "type": "string",
+      "label": "Texte à traiter",
+      "placeholder": "Texte à encoder, ou suite de - et | à décoder...",
+      "required": true
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": [
+        "decode",
+        "encode"
+      ],
+      "default": "decode",
+      "required": true
+    },
+    "line_char": {
+      "type": "select",
+      "label": "Caractère « barre » produit à l'encodage",
+      "options": [
+        {
+          "value": "|",
+          "label": "Barre verticale : |"
+        },
+        {
+          "value": "l",
+          "label": "L minuscule : l"
+        },
+        {
+          "value": "1",
+          "label": "Chiffre un : 1"
+        }
+      ],
+      "default": "|",
+      "description": "Au décodage, |, l, I et 1 sont toujours acceptés comme barre : ce choix ne concerne que la sortie de l'encodage."
+    },
+    "swap": {
+      "type": "checkbox",
+      "label": "Inverser tirets et barres",
+      "default": false,
+      "description": "Applique l'échange - ↔ | (au décodage avant lecture, à l'encodage sur le résultat). Utile quand la géocache présente le code en négatif."
+    },
+    "auto_detect": {
+      "type": "checkbox",
+      "label": "Auto-détection des deux symboles (décodage)",
+      "default": true,
+      "description": "Si le texte chiffré n'utilise ni - ni |/l/I/1 mais exactement deux caractères distincts (ex. AB, ○●), ils sont ramenés à - et | et les deux lectures possibles sont proposées à confiance égale — le scoring linguistique tranche."
+    },
+    "ignore_whitespace": {
+      "type": "checkbox",
+      "label": "Ignorer les espaces (décodage)",
+      "default": true,
+      "description": "Supprime espaces, tabulations et retours à la ligne avant lecture, pour accepter un code présenté en groupes. Décochez pour reproduire à l'identique l'outil de référence, qui recopie les espaces dans la sortie."
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Texte transformé"
+    }
+  },
+  "text_handling": {
+    "fields": [
+      "text"
+    ],
+    "allowed_ranges": [
+      "0030-0039",
+      "0041-005A",
+      "0061-007A"
+    ],
+    "allowed_characters": " \t\r\n-|",
+    "unknown_char_policy": "keep",
+    "normalize": {
+      "remove_diacritics": true,
+      "case": "preserve",
+      "map_characters": {}
+    }
+  },
+  "metasolver": {
+    "eligible": true,
+    "input_charset": "symbols",
+    "tags": [
+      "substitution",
+      "no_key",
+      "variable_length",
+      "binary"
+    ],
+    "priority": 40,
+    "family": "substitution",
+    "preferred_when": [
+      "symbols_only",
+      "two_symbols"
+    ],
+    "requires_key": false,
+    "supports_grouped_input": true
+  }
+}
