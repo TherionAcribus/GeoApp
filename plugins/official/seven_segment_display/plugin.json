@@ -1,0 +1,98 @@
+{
+  "name": "seven_segment_display",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Encode/décode l'afficheur 7 segments : notation par lettres de segments (ABCEFG ADEF DEG), binaire 7 bits, décimal 0-127, hexadécimal ou dessin ASCII.",
+  "author": "MysteryAI Team",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": ["SymbolsDecryption", "AlphabetsDecryption"],
+  "kinds": ["code"],
+  "brute_force": true,
+  "enable_scoring": true,
+  "accept_accents": false,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": false,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "text": {
+      "type": "string",
+      "label": "Texte/Code à traiter",
+      "placeholder": "Ex: ABCEFG ADEF DEG  ou  1011100  ou  HELLO",
+      "required": true
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": ["encode", "decode"],
+      "default": "decode",
+      "required": true
+    },
+    "notation": {
+      "type": "select",
+      "label": "Notation",
+      "options": ["auto", "letters", "binary", "decimal", "hex", "ascii_art"],
+      "default": "auto",
+      "description": "letters: segments allumés (ABCEFG) · binary: 7 bits · decimal: 0-127 · hex: 00-7F · ascii_art: dessin (encodage uniquement). 'auto' détecte la notation en décodage et vaut 'letters' en encodage."
+    },
+    "bit_order": {
+      "type": "select",
+      "label": "Ordre des bits (binaire/décimal/hex)",
+      "options": ["gfedcba", "abcdefg"],
+      "default": "gfedcba",
+      "description": "gfedcba: le segment a est le bit de poids faible (convention dCode) · abcdefg: le segment a est le bit de poids fort"
+    },
+    "common": {
+      "type": "select",
+      "label": "Type d'afficheur",
+      "options": ["cathode", "anode"],
+      "default": "cathode",
+      "description": "cathode commune: 1 = segment allumé · anode commune: 0 et 1 sont inversés"
+    },
+    "letter_bias": {
+      "type": "select",
+      "label": "Lecture des motifs ambigus",
+      "options": ["auto", "digits", "letters"],
+      "default": "auto",
+      "description": "Un même motif peut se lire 5 ou S, 0 ou O, 2 ou Z... auto: lecture de référence · digits: privilégie les chiffres · letters: privilégie les lettres"
+    },
+    "separator": {
+      "type": "select",
+      "label": "Séparateur de groupes (encodage)",
+      "options": ["space", "comma", "newline"],
+      "default": "space"
+    },
+    "bruteforce": {
+      "type": "boolean",
+      "label": "Bruteforce (teste notations, ordres de bits, cathode/anode et lectures ambiguës)",
+      "default": false
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Résultat"
+    }
+  },
+  "metasolver": {
+    "eligible": true,
+    "input_charset": "letters",
+    "tags": ["substitution", "no_key", "numeral"],
+    "priority": 45,
+    "family": "segment_display",
+    "preferred_when": ["binary_like", "grouped_input", "letters_only"],
+    "requires_key": false,
+    "supports_grouped_input": true
+  }
+}
