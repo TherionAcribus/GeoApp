@@ -1,0 +1,90 @@
+{
+  "name": "keyboard_shift",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Décale chaque caractère de N positions le long de la séquence physique des touches d'un clavier QWERTY ou AZERTY (façon Qwerty Shifter de CacheSleuth).",
+  "author": "MysteryAI Team",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": ["AlphabetsDecryption", "Substitution"],
+  "kinds": ["code"],
+  "brute_force": true,
+  "enable_scoring": true,
+  "accept_accents": false,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": false,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "text": {
+      "type": "string",
+      "label": "Texte à traiter",
+      "placeholder": "Ex: HELLO",
+      "required": true
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": ["encode", "decode"],
+      "default": "decode",
+      "required": true
+    },
+    "layout": {
+      "type": "select",
+      "label": "Disposition clavier",
+      "options": ["qwerty", "azerty"],
+      "default": "qwerty"
+    },
+    "charset_scope": {
+      "type": "select",
+      "label": "Étendue de la séquence de touches",
+      "options": ["letters", "letters_numbers", "full"],
+      "default": "letters_numbers",
+      "description": "letters: 26 lettres · letters_numbers: 26 lettres + 10 chiffres (36) · full: + symboles (47)"
+    },
+    "direction": {
+      "type": "select",
+      "label": "Direction du décalage",
+      "options": ["right", "left"],
+      "default": "right"
+    },
+    "amount": {
+      "type": "number",
+      "label": "Nombre de positions",
+      "default": 1,
+      "min": 1,
+      "step": 1
+    },
+    "bruteforce": {
+      "type": "boolean",
+      "label": "Bruteforce (teste tous les décalages sur QWERTY et AZERTY)",
+      "default": false
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Résultat"
+    }
+  },
+  "metasolver": {
+    "eligible": true,
+    "input_charset": "letters",
+    "tags": ["substitution", "shift", "no_key"],
+    "priority": 45,
+    "family": "keyboard_shift",
+    "preferred_when": ["letters_only", "short_input"],
+    "requires_key": false,
+    "supports_grouped_input": false
+  }
+}
