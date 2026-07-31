@@ -1,0 +1,99 @@
+{
+  "name": "slash_and_pipe",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Code Slash and Pipe : chaque lettre A-Z est encodée en un groupe de 1 à 4 symboles / | \\, les groupes étant séparés par une espace.",
+  "author": "MysterAI",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": [
+    "AlphabetsDecryption"
+  ],
+  "kinds": [
+    "code"
+  ],
+  "brute_force": true,
+  "enable_scoring": true,
+  "accept_accents": false,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "text": {
+      "type": "string",
+      "label": "Texte à traiter",
+      "placeholder": "Lettres à encoder, ou groupes de / | \\ séparés par des espaces à décoder...",
+      "required": true
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": [
+        "decode",
+        "encode"
+      ],
+      "default": "decode",
+      "required": true
+    },
+    "symbols": {
+      "type": "string",
+      "label": "Symboles personnalisés (ordre : / puis | puis \\)",
+      "placeholder": "/|\\",
+      "description": "Trois caractères distincts remplaçant respectivement / , | et \\. Laisser vide pour les symboles standards (ou pour laisser l'auto-détection travailler en décodage)."
+    },
+    "auto_detect": {
+      "type": "checkbox",
+      "label": "Auto-détection des symboles (décodage)",
+      "default": true,
+      "description": "Si le texte chiffré n'utilise que 3 caractères distincts, teste les 6 permutations possibles et laisse le scoring linguistique classer les résultats. Ignoré si des symboles personnalisés sont fournis."
+    },
+    "strip_unknown": {
+      "type": "checkbox",
+      "label": "Supprimer les caractères non reconnus (encodage)",
+      "default": false,
+      "description": "À l'encodage, ignore les caractères hors A-Z au lieu de les recopier tels quels."
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Texte transformé"
+    }
+  },
+  "text_handling": {
+    "fields": [
+      "text"
+    ],
+    "allowed_ranges": [
+      "0041-005A"
+    ],
+    "allowed_characters": " \t\r\n|/\\",
+    "unknown_char_policy": "keep",
+    "normalize": {
+      "remove_diacritics": true,
+      "case": "upper",
+      "map_characters": {}
+    }
+  },
+  "metasolver": {
+    "eligible": true,
+    "input_charset": "symbols",
+    "tags": ["substitution", "no_key", "variable_length"],
+    "priority": 45,
+    "family": "substitution",
+    "preferred_when": ["symbols_only"],
+    "requires_key": false,
+    "supports_grouped_input": true
+  }
+}

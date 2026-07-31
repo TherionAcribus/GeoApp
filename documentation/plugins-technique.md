@@ -18,7 +18,7 @@ Principes de conception :
 4. **Sortie standardisée** : tous les plugins retournent le même format JSON (`status` / `results` / `plugin_info`), ce qui permet un scoring, un classement et un affichage uniformes.
 5. **Orchestration** : par-dessus les plugins individuels, le **Metasolver** recommande et exécute automatiquement des chaînes de plugins, et un moteur de **workflow** classe un listing et planifie sa résolution.
 
-À ce jour le dépôt contient **102 plugins officiels** (`plugins/official/`) et un répertoire `plugins/custom/` pour les plugins utilisateur.
+À ce jour le dépôt contient **103 plugins officiels** (`plugins/official/`) et un répertoire `plugins/custom/` pour les plugins utilisateur.
 
 ---
 
@@ -30,7 +30,7 @@ Principes de conception :
 GeoApp/
 ├── plugins/
 │   ├── README.md                       # Doc d'auteur de plugins
-│   ├── official/                       # 102 plugins fournis (lecture seule)
+│   ├── official/                       # 103 plugins fournis (lecture seule)
 │   │   └── affine_code/
 │   │       ├── plugin.json             # Métadonnées + schéma d'entrée
 │   │       ├── main.py                 # Implémentation (classe ...Plugin)
