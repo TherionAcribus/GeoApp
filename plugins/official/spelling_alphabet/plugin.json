@@ -1,0 +1,151 @@
+{
+  "name": "spelling_alphabet",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Alphabets d'épellation : chaque lettre est remplacée par un mot-code (NATO/ICAO, ITU 1932, Western Union, Able Baker, RAF 1924, police APCO, néerlandais, allemand, suédois, russe).",
+  "author": "MysterAI",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": [
+    "WordsSubstitution",
+    "AlphabetsDecryption"
+  ],
+  "kinds": [
+    "code"
+  ],
+  "brute_force": true,
+  "enable_scoring": true,
+  "accept_accents": true,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "text": {
+      "type": "string",
+      "label": "Texte à traiter",
+      "placeholder": "Texte à encoder, ou mots-codes séparés par des espaces (ex. Golf Echo Oscar)...",
+      "required": true
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": [
+        "decode",
+        "encode"
+      ],
+      "default": "decode",
+      "required": true
+    },
+    "alphabet": {
+      "type": "select",
+      "label": "Alphabet d'épellation",
+      "options": [
+        {
+          "value": "auto",
+          "label": "Auto (décodage : teste les 11 alphabets ; encodage : NATO)"
+        },
+        {
+          "value": "nato",
+          "label": "NATO / ICAO (Alfa, Bravo, Charlie)"
+        },
+        {
+          "value": "itu1932",
+          "label": "ITU 1932 (Amsterdam, Baltimore)"
+        },
+        {
+          "value": "western-union",
+          "label": "Western Union (Adams, Boston)"
+        },
+        {
+          "value": "us-jan",
+          "label": "US Joint Army/Navy (Able, Baker)"
+        },
+        {
+          "value": "raf1924",
+          "label": "RAF 1924 (Ace, Beer, Charlie)"
+        },
+        {
+          "value": "apco",
+          "label": "APCO / Police (Adam, Boy, Charles)"
+        },
+        {
+          "value": "dutch",
+          "label": "Néerlandais (Anton, Bernhard)"
+        },
+        {
+          "value": "german",
+          "label": "Allemand (Anton, Berta, Cäsar)"
+        },
+        {
+          "value": "swedish",
+          "label": "Suédois (Adam, Bertil, Caesar)"
+        },
+        {
+          "value": "russian",
+          "label": "Russe officiel (Анна, Борис)"
+        },
+        {
+          "value": "russian-unofficial",
+          "label": "Russe usuel (Антон, Борис)"
+        }
+      ],
+      "default": "auto",
+      "description": "En décodage, « Auto » essaie les 11 alphabets et ne retient que ceux qui reconnaissent au moins la moitié des mots ; le scoring linguistique classe ensuite les propositions."
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Texte transformé"
+    }
+  },
+  "text_handling": {
+    "fields": [
+      "text"
+    ],
+    "allowed_ranges": [
+      "0030-0039",
+      "0041-005A",
+      "0061-007A",
+      "00C0-00FF",
+      "0400-04FF"
+    ],
+    "allowed_characters": " \t\r\n-().,",
+    "unknown_char_policy": "keep",
+    "normalize": {
+      "remove_diacritics": false,
+      "case": "preserve",
+      "map_characters": {}
+    }
+  },
+  "metasolver": {
+    "eligible": true,
+    "input_charset": "words",
+    "tags": [
+      "substitution",
+      "no_key",
+      "classic",
+      "historical"
+    ],
+    "priority": 60,
+    "family": "word_code",
+    "preferred_when": [
+      "nato_like",
+      "words_only",
+      "grouped_input"
+    ],
+    "requires_key": false,
+    "supports_grouped_input": true
+  }
+}
