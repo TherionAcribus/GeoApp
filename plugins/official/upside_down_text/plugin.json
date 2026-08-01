@@ -1,0 +1,134 @@
+{
+  "name": "upside_down_text",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Texte retourné à 180° (upside down) : chaque caractère est remplacé par son homologue Unicode renversé et l'ordre de lecture est inversé. Alphabets CacheSleuth et GC Wizard.",
+  "author": "MysterAI",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": [
+    "AlphabetsDecryption",
+    "SymbolsDecryption",
+    "Transposition",
+    "Substitution"
+  ],
+  "kinds": [
+    "code",
+    "text"
+  ],
+  "brute_force": false,
+  "enable_scoring": true,
+  "accept_accents": true,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "text": {
+      "type": "textarea",
+      "label": "Texte à traiter",
+      "placeholder": "Ex : ¡ɹǝɥɔɐɔoǝƃ ollǝH",
+      "required": true,
+      "description": "Texte renversé à décoder, ou texte normal à retourner."
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": [
+        "decode",
+        "encode",
+        "detect"
+      ],
+      "default": "decode",
+      "required": true,
+      "description": "detect estime seulement si le texte contient des caractères renversés."
+    },
+    "alphabet": {
+      "type": "select",
+      "label": "Alphabet renversé",
+      "options": [
+        {
+          "value": "cachesleuth",
+          "label": "CacheSleuth (classique)"
+        },
+        {
+          "value": "gcwizard",
+          "label": "GC Wizard"
+        }
+      ],
+      "default": "cachesleuth",
+      "description": "Les deux outils de référence utilisent des glyphes différents pour certains caractères (majuscules, chiffres, i, j, g). Au décodage, les glyphes de l'autre alphabet sont malgré tout reconnus."
+    },
+    "character_order": {
+      "type": "select",
+      "label": "Ordre des caractères",
+      "options": [
+        {
+          "value": "reverse",
+          "label": "Inversé (rotation 180° complète)"
+        },
+        {
+          "value": "keep",
+          "label": "Conservé (caractères retournés sur place)"
+        },
+        {
+          "value": "both",
+          "label": "Les deux (deux résultats)"
+        }
+      ],
+      "default": "reverse",
+      "description": "Une vraie rotation à 180° inverse aussi l'ordre de lecture. Certains générateurs se contentent de retourner les caractères sur place."
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Texte transformé"
+    }
+  },
+  "text_handling": {
+    "fields": [
+      "text"
+    ],
+    "allowed_ranges": [
+      "0009-000D",
+      "0020-10FFFF"
+    ],
+    "allowed_characters": "",
+    "unknown_char_policy": "keep",
+    "normalize": {
+      "remove_diacritics": false,
+      "case": "preserve",
+      "map_characters": {}
+    }
+  },
+  "metasolver": {
+    "eligible": true,
+    "input_charset": "mixed",
+    "tags": [
+      "frequent",
+      "transposition",
+      "substitution",
+      "no_key"
+    ],
+    "priority": 58,
+    "family": "upside_down",
+    "preferred_when": [
+      "letters_only",
+      "words_only",
+      "symbols_only"
+    ],
+    "requires_key": false,
+    "supports_grouped_input": false
+  }
+}
