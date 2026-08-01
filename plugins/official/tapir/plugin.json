@@ -1,0 +1,117 @@
+{
+  "name": "tapir",
+  "version": "1.0.0",
+  "plugin_api_version": "2.0",
+  "description": "Substitution TAPIR : table de la NVA et du Ministère de la Sécurité d'État de la RDA, à codes de longueur variable (1 ou 2 chiffres), avec bascule lettres/chiffres et masque jetable (one-time pad) optionnel.",
+  "author": "MysterAI",
+  "plugin_type": "python",
+  "entry_point": "main.py",
+  "dependencies": [],
+  "categories": [
+    "ClassicCiphers",
+    "Substitution",
+    "Numeral",
+    "Military"
+  ],
+  "kinds": [
+    "code"
+  ],
+  "brute_force": false,
+  "enable_scoring": true,
+  "accept_accents": true,
+  "heavy_cpu": false,
+  "needs_network": false,
+  "needs_filesystem": false,
+  "timeout_seconds": 30,
+  "capabilities": {
+    "analyze": true,
+    "decode": true,
+    "encode": true
+  },
+  "defaults": {
+    "include_in_analysis": true,
+    "include_in_decode": true
+  },
+  "input_types": {
+    "text": {
+      "type": "string",
+      "label": "Texte à traiter",
+      "placeholder": "Texte à encoder, ou groupes de 5 chiffres à décoder...",
+      "required": true
+    },
+    "mode": {
+      "type": "select",
+      "label": "Mode",
+      "options": [
+        "decode",
+        "encode"
+      ],
+      "default": "decode",
+      "required": true
+    },
+    "key": {
+      "type": "string",
+      "label": "Masque jetable (one-time pad)",
+      "placeholder": "Groupes de 5 chiffres, ex. 12345 67891...",
+      "description": "Facultatif. Additionné chiffre à chiffre modulo 10 à l'encodage, soustrait au décodage. Les caractères non numériques sont ignorés. Si le masque est plus court que le message, seul le début est masqué (comportement de GC Wizard)."
+    },
+    "pad": {
+      "type": "checkbox",
+      "label": "Compléter au multiple de 5 (encodage)",
+      "default": true,
+      "description": "Ajoute des 8 et 3 alternés jusqu'à obtenir des groupes de 5 chiffres complets, comme GC Wizard. Le remplissage se relit en espaces, sans altérer le message."
+    },
+    "group_size": {
+      "type": "number",
+      "label": "Taille des groupes de sortie (encodage)",
+      "default": 5,
+      "min": 0,
+      "max": 20,
+      "step": 1,
+      "description": "Nombre de chiffres par groupe dans le texte chiffré. 0 pour une suite continue sans espaces."
+    }
+  },
+  "output_types": {
+    "text_output": {
+      "type": "string",
+      "label": "Texte transformé"
+    }
+  },
+  "text_handling": {
+    "fields": [
+      "text"
+    ],
+    "allowed_ranges": [
+      "0030-0039",
+      "0041-005A",
+      "0061-007A",
+      "00C0-00FF"
+    ],
+    "allowed_characters": " \t\r\n.:,-/()+=\"",
+    "unknown_char_policy": "keep",
+    "normalize": {
+      "remove_diacritics": false,
+      "case": "preserve",
+      "map_characters": {}
+    }
+  },
+  "metasolver": {
+    "eligible": true,
+    "input_charset": "digits",
+    "tags": [
+      "classic",
+      "substitution",
+      "numeral",
+      "historical",
+      "no_key"
+    ],
+    "priority": 40,
+    "family": "straddling_checkerboard",
+    "preferred_when": [
+      "digits_only",
+      "grouped_input"
+    ],
+    "requires_key": false,
+    "supports_grouped_input": true
+  }
+}
