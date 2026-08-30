@@ -314,14 +314,7 @@ const NoteItem = React.memo(function NoteItem(props: NoteItemProps): React.JSX.E
                         style={textareaStyle}
                     />
                     <div style={rowBetweenStyle}>
-                        <select
-                            value={props.editingType}
-                            onChange={event => props.onEditingTypeChange(event.target.value === 'system' ? 'system' : 'user')}
-                            style={selectStyle}
-                        >
-                            <option value='user'>Note utilisateur</option>
-                            <option value='system'>Note systeme</option>
-                        </select>
+                        <span style={metaTextStyle}>Note utilisateur</span>
                         <div style={editButtonsRowStyle}>
                             <button
                                 onClick={props.onCancelEdit}
@@ -416,14 +409,7 @@ export function GeocacheNotesView(props: GeocacheNotesViewProps): React.JSX.Elem
                         style={textareaStyle}
                     />
                     <div style={newNoteControlsRowStyle}>
-                        <select
-                            value={props.newNoteType}
-                            onChange={event => props.onNewNoteTypeChange(event.target.value === 'system' ? 'system' : 'user')}
-                            style={selectStyle}
-                        >
-                            <option value='user'>Note utilisateur</option>
-                            <option value='system'>Note systeme</option>
-                        </select>
+                        <span style={metaTextStyle}>Note utilisateur</span>
                         <button
                             onClick={props.onCreateNote}
                             disabled={isAddDisabled}
