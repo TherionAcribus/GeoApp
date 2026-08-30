@@ -213,10 +213,14 @@ export class GeocacheNotesWidget extends ReactWidget {
 
     protected async loadNotes(): Promise<void> {
         const geocacheId = this.geocacheId;
-        if (!geocacheId || this.isLoading) {
+        if (!geocacheId) {
             return;
         }
 
+        // Pas de garde sur isLoading : le token ci-dessous invalide tout load en vol
+        // (le dernier appel gagne). Un garde isLoading ferait que le refresh déclenché
+        // par createNote/updateNote/deleteNote serait silencieusement ignoré si un load
+        // initial était encore en vol, et la nouvelle note n'apparaîtrait pas.
         const requestToken = ++this.loadRequestToken;
         this.isLoading = true;
         this.update();
