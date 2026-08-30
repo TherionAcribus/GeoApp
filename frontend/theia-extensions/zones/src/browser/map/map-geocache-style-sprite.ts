@@ -17,6 +17,8 @@ export interface GeocacheFeatureProperties {
     terrain?: number;
     found?: boolean;
     selected?: boolean;
+    /** Cochée dans la liste des géocaches (anneau noir sur la carte). */
+    listSelected?: boolean;
     isWaypoint?: boolean;  // ✅ Indique si c'est un waypoint
     waypointId?: number;   // ✅ ID du waypoint (si isWaypoint = true)
     waypointLabel?: string;
@@ -58,6 +60,8 @@ const clusterBubbleCache = new Map<string, Style>();
 const fallbackStyleCache = new Map<string, Style>();
 /** Cache des styles de waypoint sans label, par couleur + sélection. */
 const waypointStyleCache = new Map<string, Style>();
+/** Cache des anneaux « cochée dans la liste », par échelle d'icône. */
+const listSelectionRingCache = new Map<string, Style>();
 
 /** Sérialise un nombre en clé de cache stable (évite les flottants verbeux). */
 function numKey(value: number): string {
@@ -99,11 +103,48 @@ function getSelectionHighlightStyle(): Style {
 }
 
 /**
+ * Anneau noir entourant une géocache cochée dans la liste.
+ * Le rayon suit l'échelle de l'icône pour rester collé au sprite (50x50 px).
+ */
+function getListSelectionRingStyle(scale: number): Style {
+    const key = numKey(scale);
+    let style = listSelectionRingCache.get(key);
+    if (!style) {
+        style = new Style({
+            image: new Circle({
+                radius: Math.max(10, 25 * scale + 4),
+                stroke: new Stroke({ color: 'rgba(17, 17, 17, 0.95)', width: 3 })
+            }),
+            zIndex: 998
+        });
+        listSelectionRingCache.set(key, style);
+    }
+    return style;
+}
+
+/** Empile les décorations (sélection carte, cochée dans la liste) sous le style principal. */
+function composeGeocacheStyles(main: Style, isSelected: boolean, isListSelected: boolean, scale: number): Style | Style[] {
+    if (!isSelected && !isListSelected) {
+        return main;
+    }
+    const styles: Style[] = [];
+    if (isSelected) {
+        styles.push(getSelectionHighlightStyle());
+    }
+    if (isListSelected) {
+        styles.push(getListSelectionRingStyle(scale));
+    }
+    styles.push(main);
+    return styles;
+}
+
+/**
  * Crée le style pour une feature géocache individuelle en utilisant le sprite sheet
  */
 export function createGeocacheStyleFromSprite(feature: Feature<Geometry>, resolution: number, options?: GeocacheStyleOptions): Style | Style[] {
     const properties = feature.getProperties() as GeocacheFeatureProperties;
     const isSelected = properties.selected === true;
+    const isListSelected = properties.listSelected === true;
     const foundDisplayMode = options?.foundDisplayMode || 'transparent';
 
     if (properties.found && foundDisplayMode === 'hidden') {
@@ -116,15 +157,16 @@ export function createGeocacheStyleFromSprite(feature: Feature<Geometry>, resolu
         ? getIconByKey('found')
         : getIconByCacheType(properties.cache_type || 'Unknown Cache');
 
-    if (!iconDef) {
-        // Fallback vers un style par défaut si le type n'est pas trouvé
-        return createFallbackStyle(isSelected, properties.found, options, label);
-    }
-
     const baseScale = isSelected ? 1.0 : 0.8;
     const scale = options?.scale ? baseScale * options.scale : baseScale;
     const baseOpacity = properties.found && foundDisplayMode === 'transparent' ? 0.6 : 1.0;
     const opacity = options?.opacity !== undefined ? baseOpacity * options.opacity : baseOpacity;
+
+    if (!iconDef) {
+        // Fallback vers un style par défaut si le type n'est pas trouvé
+        const fallback = createFallbackStyle(isSelected, properties.found, options, label);
+        return isListSelected ? [getListSelectionRingStyle(scale), fallback] : fallback;
+    }
 
     // Chemin avec label : le texte est propre à chaque feature. On réutilise l'Icon
     // (coûteuse) mais on crée un Text léger (dont les sous-objets sont partagés).
@@ -134,19 +176,19 @@ export function createGeocacheStyleFromSprite(feature: Feature<Geometry>, resolu
             text: createLabelStyle(label, -30),
             zIndex: isSelected ? 1000 : 1
         });
-        return isSelected ? [getSelectionHighlightStyle(), labeledStyle] : labeledStyle;
+        return composeGeocacheStyles(labeledStyle, isSelected, isListSelected, scale);
     }
 
     // Chemin sans label (cas par défaut) : style entièrement mis en cache et
     // réutilisé tel quel entre toutes les features et tous les frames.
-    const cacheKey = `${iconDef.key}|${numKey(scale)}|${numKey(opacity)}|${isSelected ? 1 : 0}`;
+    const cacheKey = `${iconDef.key}|${numKey(scale)}|${numKey(opacity)}|${isSelected ? 1 : 0}|${isListSelected ? 1 : 0}`;
     let cached = geocacheStyleCache.get(cacheKey);
     if (!cached) {
         const iconStyle = new Style({
             image: getCachedIcon(iconDef, scale, opacity),
             zIndex: isSelected ? 1000 : 1
         });
-        cached = isSelected ? [getSelectionHighlightStyle(), iconStyle] : iconStyle;
+        cached = composeGeocacheStyles(iconStyle, isSelected, isListSelected, scale);
         geocacheStyleCache.set(cacheKey, cached);
     }
     return cached;
@@ -173,8 +215,11 @@ export function createClusterStyleFromSprite(feature: Feature<Geometry>, resolut
     }
 
     // Bulle de cluster : rayon qui croît avec le nombre de caches (échelle d'icônes incluse).
+    // Un cluster contenant au moins une cache cochée dans la liste est cerclé de noir,
+    // sans quoi cocher une cache d'une zone dense n'aurait aucun effet visible.
     const scale = options?.scale ?? 1;
-    const cacheKey = `${size}|${numKey(scale)}`;
+    const containsListSelected = innerFeatures!.some(inner => inner.get('listSelected') === true);
+    const cacheKey = `${size}|${numKey(scale)}|${containsListSelected ? 1 : 0}`;
     let bubble = clusterBubbleCache.get(cacheKey);
     if (!bubble) {
         const radius = Math.min(14 + Math.log(size) * 5, 28) * Math.max(0.6, scale);
@@ -185,8 +230,8 @@ export function createClusterStyleFromSprite(feature: Feature<Geometry>, resolut
                     color: 'rgba(0, 122, 204, 0.85)'
                 }),
                 stroke: new Stroke({
-                    color: 'rgba(255, 255, 255, 0.95)',
-                    width: 2
+                    color: containsListSelected ? 'rgba(17, 17, 17, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+                    width: containsListSelected ? 4 : 2
                 })
             }),
             text: new Text({

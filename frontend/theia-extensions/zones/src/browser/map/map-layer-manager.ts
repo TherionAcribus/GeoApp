@@ -5,6 +5,10 @@ import Map from 'ol/Map';
 import { Point, Circle, LineString, Polygon } from 'ol/geom';
 import Geometry from 'ol/geom/Geometry';
 import { Style, Fill, Stroke, Circle as CircleStyle, Text } from 'ol/style';
+import { getVectorContext } from 'ol/render';
+import { unByKey } from 'ol/Observable';
+import { EventsKey } from 'ol/events';
+import { Coordinate } from 'ol/coordinate';
 import { createClusterSource } from './map-clustering';
 import { createGeocacheStyleFromSprite, createClusterStyleFromSprite, createWaypointStyleFromSprite, createDetectedCoordinateStyle, FoundGeocacheDisplayMode, GeocacheFeatureProperties, GeocacheStyleOptions } from './map-geocache-style-sprite';
 import { lonLatToMapCoordinate } from './map-utils';
@@ -93,6 +97,15 @@ export class MapLayerManager {
     private geocacheSignatures = new globalThis.Map<number, string>();
     /** Identifiants des features waypoint rattachées à chaque géocache (id → feature ids). */
     private geocacheWaypointFeatureIds = new globalThis.Map<number, Array<number | string>>();
+    /**
+     * Géocaches cochées dans la liste (source de vérité : la propriété `listSelected`
+     * des features en est dérivée, y compris pour celles créées plus tard).
+     */
+    private listSelectedIds = new globalThis.Set<number>();
+    /** Pulsations en cours (anneau qui s'élargit sur une cache qu'on vient de cocher). */
+    private selectionPulses: Array<{ coordinate: Coordinate; start: number }> = [];
+    /** Abonnement `postrender` actif tant qu'une pulsation est en cours. */
+    private selectionPulseListener: EventsKey | undefined;
 
     constructor(map: Map) {
         this.map = map;
@@ -540,7 +553,8 @@ export class MapLayerManager {
             terrain: geocache.terrain,
             found: geocache.found,
             friendsNote: geocache.friendsNote,
-            selected: feature.get('selected') === true
+            selected: feature.get('selected') === true,
+            listSelected: this.listSelectedIds.has(geocache.id)
         } as GeocacheFeatureProperties);
     }
 
@@ -697,6 +711,103 @@ export class MapLayerManager {
             console.warn(`[MapLayerManager] Aucune feature trouvée pour geocacheId ${geocacheId}. Features disponibles:`,
                 this.geocacheVectorSource.getFeatures().map(f => f.getId()));
         }
+    }
+
+    /**
+     * Reflète la sélection par cases à cocher de la liste des géocaches : un anneau
+     * noir entoure chaque cache cochée, et celles qui viennent de l'être signalent
+     * leur apparition par une brève pulsation.
+     */
+    setListSelection(geocacheIds: number[]): void {
+        const next = new globalThis.Set(geocacheIds);
+        const previous = this.listSelectedIds;
+        if (next.size === previous.size && [...next].every(id => previous.has(id))) {
+            return;
+        }
+        this.listSelectedIds = next;
+
+        const pulseCoordinates: Coordinate[] = [];
+        for (const feature of this.geocacheVectorSource.getFeatures()) {
+            const id = feature.getId();
+            if (typeof id !== 'number') {
+                continue;
+            }
+            const isSelected = next.has(id);
+            if (feature.get('listSelected') === isSelected) {
+                continue;
+            }
+            feature.set('listSelected', isSelected);
+            feature.changed();
+            if (isSelected) {
+                const coordinate = feature.getGeometry()?.getCoordinates();
+                if (coordinate) {
+                    pulseCoordinates.push(coordinate);
+                }
+            }
+        }
+
+        if (this.clusteringEnabled) {
+            this.geocacheClusterSource.changed();
+        }
+        this.startSelectionPulse(pulseCoordinates);
+    }
+
+    /** Durée d'une pulsation de sélection, en millisecondes. */
+    private static readonly SELECTION_PULSE_DURATION = 550;
+
+    /**
+     * Démarre une pulsation sur les points donnés. Le dessin se fait dans le
+     * contexte vectoriel du `postrender` de la couche géocaches : rien n'est ajouté
+     * à la source, donc ni le clustering ni les clics ne sont perturbés.
+     */
+    private startSelectionPulse(coordinates: Coordinate[]): void {
+        if (coordinates.length === 0) {
+            return;
+        }
+        const start = Date.now();
+        for (const coordinate of coordinates) {
+            this.selectionPulses.push({ coordinate, start });
+        }
+        if (!this.selectionPulseListener) {
+            this.selectionPulseListener = this.geocacheLayer.on('postrender', this.renderSelectionPulse);
+        }
+        this.map.render();
+    }
+
+    private readonly renderSelectionPulse = (event: any): void => {
+        const now = Date.now();
+        const duration = MapLayerManager.SELECTION_PULSE_DURATION;
+        this.selectionPulses = this.selectionPulses.filter(pulse => now - pulse.start < duration);
+
+        if (this.selectionPulses.length === 0) {
+            this.stopSelectionPulse();
+            return;
+        }
+
+        const vectorContext = getVectorContext(event);
+        for (const pulse of this.selectionPulses) {
+            const progress = (now - pulse.start) / duration;
+            vectorContext.setStyle(new Style({
+                image: new CircleStyle({
+                    radius: 12 + progress * 26,
+                    stroke: new Stroke({
+                        color: `rgba(17, 17, 17, ${1 - progress})`,
+                        width: 3
+                    })
+                })
+            }));
+            vectorContext.drawGeometry(new Point(pulse.coordinate));
+        }
+        this.map.render();
+    };
+
+    /** Coupe l'abonnement `postrender` une fois toutes les pulsations terminées. */
+    private stopSelectionPulse(): void {
+        if (this.selectionPulseListener) {
+            unByKey(this.selectionPulseListener);
+            this.selectionPulseListener = undefined;
+        }
+        this.selectionPulses = [];
     }
 
     /**
@@ -1173,6 +1284,7 @@ export class MapLayerManager {
      * Nettoie toutes les couches
      */
     dispose(): void {
+        this.stopSelectionPulse();
         this.clearGeocaches();
         this.clearWaypoints();
         this.clearDetectedCoordinate();

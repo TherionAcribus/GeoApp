@@ -45,6 +45,8 @@ export interface MapViewProps {
     mapId?: string;
     mapService: MapService;
     geocaches: MapGeocache[];  // ✅ Données propres à cette carte
+    /** Géocaches cochées dans la liste : anneau noir + pulsation à la sélection. */
+    selectedGeocacheIds?: number[];
     onMapReady?: (map: Map) => void;
     onLoadNearbyGeocaches?: (geocacheId: number, radiusKm: number) => Promise<MapGeocache[]>;
     onAddWaypoint?: (options: { gcCoords: string; title?: string; note?: string; autoSave?: boolean }) => void;  // ✅ Callback pour ajouter un waypoint (carte géocache)
@@ -66,6 +68,7 @@ export const MapView: React.FC<MapViewProps> = ({
     mapId,
     mapService,
     geocaches,
+    selectedGeocacheIds,
     onMapReady,
     onLoadNearbyGeocaches,
     onAddWaypoint,
@@ -1097,6 +1100,15 @@ export const MapView: React.FC<MapViewProps> = ({
             fittedGeocacheKeyRef.current = geocacheKey;
         }
     }, [geocaches, isInitialized]);
+
+    // Sélection par cases à cocher dans la liste des géocaches.
+    // Déclaré après l'effet de synchronisation pour que les features existent déjà.
+    React.useEffect(() => {
+        if (!layerManagerRef.current) {
+            return;
+        }
+        layerManagerRef.current.setListSelection(selectedGeocacheIds ?? []);
+    }, [selectedGeocacheIds, geocaches, isInitialized]);
 
     // Gestion de l'affichage des géocaches voisines
     React.useEffect(() => {

@@ -44,6 +44,7 @@ export interface ZoneGeocachesViewProps {
     onImportAround: (geocache: Geocache) => void | Promise<void>;
     onTableVisibleColumnIdsChange: (columnIds: GeocachesTableColumnId[]) => void;
     onFilteredDataChange?: (geocaches: Geocache[]) => void;
+    onSelectionChange?: (geocacheIds: number[]) => void;
     onImportGpx: (file: File, updateExisting: boolean, onProgress?: ImportProgressCallback) => Promise<void>;
     onImportBookmarkList: (bookmarkCode: string, updateExisting: boolean, onProgress?: ImportProgressCallback) => Promise<void>;
     onImportPocketQuery: (pqCode: string, updateExisting: boolean, onProgress?: ImportProgressCallback) => Promise<void>;
@@ -184,6 +185,7 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
                 visibleColumnIds={props.tableVisibleColumnIds}
                 onVisibleColumnIdsChange={props.onTableVisibleColumnIdsChange}
                 onFilteredDataChange={props.onFilteredDataChange}
+                onSelectionChange={props.onSelectionChange}
                 friendFinds={props.friendFinds}
             />
         )}

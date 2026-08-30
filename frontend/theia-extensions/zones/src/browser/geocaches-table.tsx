@@ -90,6 +90,8 @@ interface GeocachesTableProps {
     visibleColumnIds?: GeocachesTableColumnId[];
     onVisibleColumnIdsChange?: (columnIds: GeocachesTableColumnId[]) => void;
     onFilteredDataChange?: (geocaches: Geocache[]) => void;
+    /** Identifiants des géocaches cochées (pour les mettre en évidence sur la carte). */
+    onSelectionChange?: (geocacheIds: number[]) => void;
     /** « Qui a trouvé quoi » : code GC -> pseudos d'amis (colonne `friends_found`). */
     friendFinds?: Record<string, string[]>;
 }
@@ -390,6 +392,7 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
     visibleColumnIds,
     onVisibleColumnIdsChange,
     onFilteredDataChange,
+    onSelectionChange,
     friendFinds
 }) => {
     const [sorting, setSorting] = React.useState<SortingState>([]);
@@ -812,6 +815,13 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
 
     const selectedRows = table.getSelectedRowModel().rows;
     const selectedIds = selectedRows.map(row => row.original.id);
+
+    // Remonte la sélection (carte associée). `filteredData` fait partie des
+    // dépendances : une ligne cochée puis filtrée sort de la sélection visible.
+    React.useEffect(() => {
+        onSelectionChange?.(selectedIds);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [rowSelection, filteredData]);
 
     const tableScrollRef = React.useRef<HTMLDivElement>(null);
 

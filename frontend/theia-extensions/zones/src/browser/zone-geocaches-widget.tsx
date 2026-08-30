@@ -971,14 +971,27 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     }
 
     protected handleFilteredDataChange(geocaches: Geocache[]): void {
-        if (!this.zoneId) { return; }
-        const widgetId = `geoapp-map-zone-${this.zoneId}`;
-        const mapWidget = this.shell.getWidgets('bottom').find(w => w.id === widgetId) as MapWidget | undefined;
+        const mapWidget = this.findZoneMapWidget();
         if (!mapWidget) { return; }
         const mapGeocaches = geocaches
             .filter(gc => gc.latitude != null && gc.longitude != null)
             .map(gc => this.toMapGeocache(gc));
         mapWidget.loadGeocaches(mapGeocaches);
+    }
+
+    /**
+     * Répercute sur la carte les géocaches cochées dans le tableau (anneau noir
+     * et pulsation à la sélection).
+     */
+    protected handleSelectionChange(geocacheIds: number[]): void {
+        this.findZoneMapWidget()?.setSelectedGeocaches(geocacheIds);
+    }
+
+    /** Carte associée à la zone courante, si elle est ouverte. */
+    private findZoneMapWidget(): MapWidget | undefined {
+        if (!this.zoneId) { return undefined; }
+        const widgetId = `geoapp-map-zone-${this.zoneId}`;
+        return this.shell.getWidgets('bottom').find(w => w.id === widgetId) as MapWidget | undefined;
     }
 
     private async reloadZonesList(): Promise<void> {
@@ -1705,6 +1718,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
 
                 onTableVisibleColumnIdsChange={this.handleTableVisibleColumnIdsChange}
                 onFilteredDataChange={geocaches => this.handleFilteredDataChange(geocaches)}
+                onSelectionChange={geocacheIds => this.handleSelectionChange(geocacheIds)}
                 onImportGpx={(file, updateExisting, onProgress) => this.handleImportGpx(file, updateExisting, onProgress)}
                 onImportBookmarkList={(bookmarkCode, updateExisting, onProgress) => this.handleImportBookmarkList(bookmarkCode, updateExisting, onProgress)}
                 onImportPocketQuery={(pqCode, updateExisting, onProgress) => this.handleImportPocketQuery(pqCode, updateExisting, onProgress)}

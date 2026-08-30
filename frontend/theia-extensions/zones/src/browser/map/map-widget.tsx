@@ -64,6 +64,8 @@ export class MapWidget extends ReactWidget {
     private mapInstance: any = null;
     private context: MapContext;
     private geocaches: MapGeocache[] = [];
+    /** Géocaches cochées dans la liste associée (anneau noir sur la carte). */
+    private selectedGeocacheIds: number[] = [];
     private mapPreferences: MapViewPreferences;
     /** Etat du dialog « Importer autour… » ouvert depuis le menu contextuel de la carte. */
     private importAround: {
@@ -212,6 +214,21 @@ export class MapWidget extends ReactWidget {
         return this.geocaches;
     }
 
+    /**
+     * Met en évidence sur la carte les géocaches cochées dans la liste.
+     * Nouvelle référence de tableau à chaque appel : `MapView` en dépend pour
+     * détecter le changement.
+     */
+    setSelectedGeocaches(geocacheIds: number[]): void {
+        const unchanged = geocacheIds.length === this.selectedGeocacheIds.length
+            && geocacheIds.every((id, index) => id === this.selectedGeocacheIds[index]);
+        if (unchanged) {
+            return;
+        }
+        this.selectedGeocacheIds = [...geocacheIds];
+        this.update();
+    }
+
     private shouldReloadGeocache(geocacheId: number): boolean {
         if (this.context.type === 'geocache' && this.context.id === geocacheId) {
             return true;
@@ -296,6 +313,7 @@ export class MapWidget extends ReactWidget {
                     mapId={this.id}
                     mapService={this.mapService}
                     geocaches={this.geocaches}
+                    selectedGeocacheIds={this.selectedGeocacheIds}
                     onMapReady={this.handleMapReady}
                     onLoadNearbyGeocaches={this.handleLoadNearbyGeocaches}
                     onAddWaypoint={onAddWaypoint}
