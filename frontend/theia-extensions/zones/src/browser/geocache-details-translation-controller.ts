@@ -143,7 +143,7 @@ export class GeocacheDetailsTranslationController {
             }))
             : Promise.resolve<DescriptionStepResult>({ kind: 'skipped' });
         const metaTask = hasMetaWork
-            ? this.runMetaTranslation(languageModel, input.geocacheId, sourceHints, sourceWaypoints, cancellationToken, (hintsStatus, waypointStatus => {
+            ? this.runMetaTranslation(languageModel, input.geocacheId, sourceHints, sourceWaypoints, cancellationToken, ((hintsStatus, waypointStatus) => {
                 if (hintsStatus) {
                     progress.hints = hintsStatus;
                 }
@@ -171,12 +171,12 @@ export class GeocacheDetailsTranslationController {
         } else {
             // Une annulation utilisateur n'est pas une erreur: on la remonte immediatement
             // pour que l'appelant puisse l'ignorer sans afficher de message d'erreur.
-            if (isCancelled(result.reason as Error | undefined)) {
-                throw result.reason;
+            if (isCancelled(descriptionOutcome.reason as Error | undefined)) {
+                throw descriptionOutcome.reason;
             }
             failed.push('description');
-            firstError ??= result.reason;
-            console.error('[GeocacheDetailsTranslationController] echec traduction description', result.reason);
+            firstError ??= descriptionOutcome.reason;
+            console.error('[GeocacheDetailsTranslationController] echec traduction description', descriptionOutcome.reason);
         }
 
         if (metaOutcome.status === 'fulfilled') {
