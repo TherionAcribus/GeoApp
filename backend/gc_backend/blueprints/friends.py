@@ -245,7 +245,7 @@ def sync_activity():
         return jsonify({"success": False, "error": "fetch_failed", "error_message": str(exc)}), 502
     except Exception as exc:  # pragma: no cover - garde-fou
         logger.exception("Unexpected error while syncing friend activity")
-        return jsonify({"success": False, "error": "internal_error", "error_message": str(exc)}), 500
+        raise
 
     return jsonify({"success": True, **report.to_dict()})
 
@@ -313,7 +313,7 @@ def sync_zone_finds():
     except Exception as exc:  # pragma: no cover - garde-fou
         logger.exception("Unexpected error while computing friend finds")
         db.session.rollback()
-        return jsonify({"success": False, "error": "internal_error", "error_message": str(exc)}), 500
+        raise
 
     # La boîte englobante déborde largement la zone quand ses caches sont
     # dispersées : on distingue ce qui a été balayé de ce qui concerne vraiment
@@ -427,7 +427,7 @@ def sync_friend_finds():
     except Exception as exc:  # pragma: no cover - garde-fou
         logger.exception("Unexpected error while fetching friend finds")
         db.session.rollback()
-        return jsonify({"success": False, "error": "internal_error", "error_message": str(exc)}), 500
+        raise
 
     return jsonify({
         "success": True,

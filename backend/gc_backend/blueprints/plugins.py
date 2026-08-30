@@ -6210,7 +6210,7 @@ def ai_score_endpoint():
         }), 200
     except Exception as exc:
         logger.error('Erreur ai-score: %s', exc, exc_info=True)
-        return jsonify({'error': 'Erreur AI scorer', 'message': str(exc)}), 500
+        raise
 
 
 # =============================================================================
@@ -6505,7 +6505,7 @@ def preview_workflow():
         return jsonify({"error": "Geocache introuvable", "message": str(lookup_error)}), 404
     except Exception as e:
         logger.error(f"Erreur apercu workflow: {e}", exc_info=True)
-        return jsonify({"error": "Erreur apercu workflow", "message": str(e)}), 500
+        raise
 
 
 @bp.route('/workflow/resolve', methods=['POST'])
@@ -7518,7 +7518,7 @@ def batch_execute_plugins():
         
     except Exception as e:
         current_app.logger.error(f"Error in batch_execute_plugins: {str(e)}")
-        return jsonify({"error": f"Internal server error: {str(e)}"}), 500
+        raise
 
 @bp.route('/batch-status/<task_id>', methods=['GET'])
 def get_batch_status(task_id):

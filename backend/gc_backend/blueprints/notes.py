@@ -41,7 +41,7 @@ def get_geocache_notes(geocache_id: int):
         )
     except Exception as e:  # pragma: no cover
         logger.error("Error fetching notes for geocache %s: %s", geocache_id, e)
-        return jsonify({"error": str(e)}), 500
+        raise
 
 
 @bp.post("/api/geocaches/<int:geocache_id>/notes")
@@ -74,7 +74,7 @@ def create_geocache_note(geocache_id: int):
     except Exception as e:  # pragma: no cover
         logger.error("Error creating note for geocache %s: %s", geocache_id, e)
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+        raise
 
 
 @bp.put("/api/notes/<int:note_id>")
@@ -112,7 +112,7 @@ def update_note(note_id: int):
     except Exception as e:  # pragma: no cover
         logger.error("Error updating note %s: %s", note_id, e)
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+        raise
 
 
 @bp.delete("/api/notes/<int:note_id>")
@@ -130,7 +130,7 @@ def delete_note(note_id: int):
     except Exception as e:  # pragma: no cover
         logger.error("Error deleting note %s: %s", note_id, e)
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+        raise
 
 
 @bp.post("/api/geocaches/<int:geocache_id>/notes/sync-from-geocaching")
@@ -163,7 +163,7 @@ def sync_notes_from_geocaching(geocache_id: int):
     except Exception as e:  # pragma: no cover
         logger.error("Error syncing personal note from Geocaching.com for geocache %s: %s", geocache_id, e)
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+        raise
 
 
 @bp.post("/api/notes/<int:note_id>/sync-to-geocaching")
@@ -220,4 +220,4 @@ def sync_note_to_geocaching(note_id: int):
     except Exception as e:  # pragma: no cover
         logger.error("Error syncing note %s to Geocaching.com: %s", note_id, e)
         db.session.rollback()
-        return jsonify({"error": str(e)}), 500
+        raise

@@ -156,7 +156,7 @@ def get_geocache_logs(geocache_id: int):
         
     except Exception as e:
         logger.error(f"Error fetching logs for geocache {geocache_id}: {e}")
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 # Le logbook de Geocaching.com identifie chaque log par son `LogID` numérique,
@@ -434,7 +434,7 @@ def submit_geocache_log(geocache_id: int):
     except Exception as e:  # pragma: no cover
         logger.error('Error submitting log for geocache %s: %s', geocache_id, e)
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.post('/api/geocaches/<int:geocache_id>/logs/refresh')
@@ -607,7 +607,7 @@ def refresh_geocache_logs(geocache_id: int):
     except Exception as e:
         logger.error(f"Error refreshing logs for geocache {geocache_id}: {e}")
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.get('/api/geocaches/<int:geocache_id>/logs/recent-summary')
@@ -655,7 +655,7 @@ def get_recent_logs_summary(geocache_id: int):
 
     except Exception as e:
         logger.error(f"Error fetching recent logs summary for geocache {geocache_id}: {e}")
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.get('/api/geocaches/<int:geocache_id>/logs/types')
@@ -692,7 +692,7 @@ def get_log_types(geocache_id: int):
         
     except Exception as e:
         logger.error(f"Error fetching log types for geocache {geocache_id}: {e}")
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.delete('/api/geocaches/<int:geocache_id>/logs')
@@ -726,4 +726,4 @@ def delete_geocache_logs(geocache_id: int):
     except Exception as e:
         logger.error(f"Error deleting logs for geocache {geocache_id}: {e}")
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        raise

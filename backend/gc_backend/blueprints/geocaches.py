@@ -628,7 +628,7 @@ def get_geocaches_for_zone(zone_id: int):
         
     except Exception as e:
         logger.error(f"Error fetching geocaches for zone {zone_id}: {e}")
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.get('/api/zones/<int:zone_id>/geocaches/tree')
@@ -1042,7 +1042,7 @@ def get_geocaches_batch():
 
     except Exception as e:
         logger.error(f"Error fetching geocaches batch: {e}")
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.get('/api/geocaches/<int:geocache_id>')
@@ -1061,7 +1061,7 @@ def get_geocache_details(geocache_id: int):
 
     except Exception as e:
         logger.error(f"Error fetching geocache {geocache_id}: {e}")
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.get('/api/geocaches/by-code/<string:gc_code>')
@@ -1094,7 +1094,7 @@ def get_geocache_by_code(gc_code: str):
         return jsonify({'error': 'Invalid zone_id'}), 400
     except Exception as e:
         logger.error(f"Error fetching geocache by gc_code {gc_code}: {e}")
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.get('/api/geocaches/<int:geocache_id>/nearby')
@@ -1178,7 +1178,7 @@ def get_nearby_geocaches(geocache_id: int):
 
     except Exception as e:
         logger.error(f"Error fetching nearby geocaches for geocache {geocache_id}: {e}")
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.post('/api/geocaches/add')
@@ -1676,7 +1676,7 @@ def import_gpx():
 
     except Exception as e:
         logger.error(f"Erreur lors de l'import GPX: {e}")
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.get('/api/geocaches/user-bookmark-lists')
@@ -1691,7 +1691,7 @@ def get_user_bookmark_lists():
         return jsonify({'lists': lists}), 200
     except Exception as e:
         logger.error(f"Erreur lors de la récupération des listes de favoris: {e}")
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.get('/api/geocaches/user-pocket-queries')
@@ -1706,7 +1706,7 @@ def get_user_pocket_queries():
         return jsonify({'queries': queries}), 200
     except Exception as e:
         logger.error(f"Erreur lors de la récupération des Pocket Queries: {e}")
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.post('/api/geocaches/import-bookmark-list')
@@ -1872,7 +1872,7 @@ def import_bookmark_list():
     
     except Exception as e:
         logger.error(f"Erreur lors de l'import de la liste de favoris: {e}")
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.post('/api/geocaches/import-pocket-query')
@@ -2034,7 +2034,7 @@ def import_pocket_query():
     
     except Exception as e:
         logger.error(f"Erreur lors de l'import de la Pocket Query: {e}")
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 # ============================================================================
@@ -2131,7 +2131,7 @@ def create_waypoint(geocache_id: int):
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error creating waypoint: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.put('/api/geocaches/<int:geocache_id>/waypoints/<int:waypoint_id>')
@@ -2227,7 +2227,7 @@ def update_waypoint(geocache_id: int, waypoint_id: int):
     except Exception as e:
         db.session.rollback()
         logger.error(f"Erreur lors de la mise à jour du waypoint: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.put('/api/geocaches/<int:geocache_id>/translated-content')
@@ -2286,7 +2286,7 @@ def update_translated_content(geocache_id: int):
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error updating translated content: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.post('/api/geocaches/<int:geocache_id>/set-corrected-coords/<int:waypoint_id>')
@@ -2342,7 +2342,7 @@ def set_corrected_coords_from_waypoint(geocache_id: int, waypoint_id: int):
     except Exception as e:
         db.session.rollback()
         logger.error(f"Erreur lors de la mise à jour des coordonnées corrigées: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.delete('/api/geocaches/<int:geocache_id>/waypoints/<int:waypoint_id>')
@@ -2368,7 +2368,7 @@ def delete_waypoint(geocache_id: int, waypoint_id: int):
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error deleting waypoint: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.put('/api/geocaches/<int:geocache_id>/coordinates')
@@ -2435,7 +2435,7 @@ def update_coordinates(geocache_id: int):
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error updating coordinates: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.put('/api/geocaches/<int:geocache_id>/description')
@@ -2470,7 +2470,7 @@ def update_description(geocache_id: int):
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error updating description override: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.post('/api/geocaches/<int:geocache_id>/reset-coordinates')
@@ -2502,7 +2502,7 @@ def reset_coordinates(geocache_id: int):
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error resetting coordinates: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.post('/api/geocaches/<int:geocache_id>/reset-description')
@@ -2524,7 +2524,7 @@ def reset_description(geocache_id: int):
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error resetting description override: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.post('/api/geocaches/<int:geocache_id>/push-corrected-coordinates')
@@ -2586,7 +2586,7 @@ def push_corrected_coordinates(geocache_id: int):
 
     except Exception as e:
         logger.error(f"Error pushing corrected coordinates for geocache {geocache_id}: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.post('/api/geocaches/<int:geocache_id>/waypoints/<int:waypoint_id>/push-coordinates')
@@ -2656,7 +2656,7 @@ def push_waypoint_coordinates(geocache_id: int, waypoint_id: int):
 
     except Exception as e:
         logger.error(f"Error pushing waypoint coordinates for geocache {geocache_id} wp={waypoint_id}: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.delete('/api/geocaches/<int:geocache_id>/push-corrected-coordinates')
@@ -2704,7 +2704,7 @@ def delete_corrected_coordinates_on_gc(geocache_id: int):
 
     except Exception as e:
         logger.error(f"Error deleting corrected coordinates for geocache {geocache_id}: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.put('/api/geocaches/<int:geocache_id>/solved-status')
@@ -2734,4 +2734,4 @@ def update_solved_status(geocache_id: int):
     except Exception as e:
         db.session.rollback()
         logger.error(f"Error updating solved status: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        raise

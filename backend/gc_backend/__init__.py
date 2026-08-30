@@ -172,6 +172,6 @@ def create_app() -> Flask:
             request.method,
             request.path,
         )
-        return jsonify({"error": str(error), "type": type(error).__name__}), 500
+        return jsonify({"error": "Erreur interne du serveur"}), 500
 
     return app

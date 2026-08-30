@@ -127,7 +127,7 @@ def upsert_puzzle_state(geocache_id: int):
     except Exception as error:  # pragma: no cover
         logger.error('Error saving puzzle state for geocache %s: %s', geocache_id, error)
         db.session.rollback()
-        return jsonify({'error': str(error)}), 500
+        raise
 
 
 @bp.delete('/api/geocaches/<int:geocache_id>/puzzle-states/current')
@@ -154,4 +154,4 @@ def delete_puzzle_state(geocache_id: int):
     except Exception as error:  # pragma: no cover
         logger.error('Error deleting puzzle state for geocache %s: %s', geocache_id, error)
         db.session.rollback()
-        return jsonify({'error': str(error)}), 500
+        raise

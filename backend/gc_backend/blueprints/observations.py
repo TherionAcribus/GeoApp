@@ -175,7 +175,7 @@ def create_geocache_observation(geocache_id: int):
     except Exception as error:  # pragma: no cover
         logger.error('Error creating observation for geocache %s: %s', geocache_id, error)
         db.session.rollback()
-        return jsonify({'error': str(error)}), 500
+        raise
 
 
 @bp.put('/api/observations/<int:observation_id>')
@@ -222,7 +222,7 @@ def update_observation(observation_id: int):
     except Exception as error:  # pragma: no cover
         logger.error('Error updating observation %s: %s', observation_id, error)
         db.session.rollback()
-        return jsonify({'error': str(error)}), 500
+        raise
 
 
 @bp.delete('/api/observations/<int:observation_id>')
@@ -237,4 +237,4 @@ def delete_observation(observation_id: int):
     except Exception as error:  # pragma: no cover
         logger.error('Error deleting observation %s: %s', observation_id, error)
         db.session.rollback()
-        return jsonify({'error': str(error)}), 500
+        raise

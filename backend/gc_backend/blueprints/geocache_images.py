@@ -935,7 +935,7 @@ def split_animated_gif(image_id: int):
     except Exception as exc:
         logger.error('Failed to split GIF %s: %s', image_id, exc, exc_info=True)
         db.session.rollback()
-        return jsonify({'error': 'Failed to split GIF', 'details': str(exc)}), 500
+        raise
 
 
 @bp.post('/api/geocache-images/<int:image_id>/extract-frames')
@@ -1028,4 +1028,4 @@ def extract_gif_frames(image_id: int):
 
     except Exception as exc:
         logger.error('Failed to extract GIF frames %s: %s', image_id, exc, exc_info=True)
-        return jsonify({'error': 'Failed to extract GIF frames', 'details': str(exc)}), 500
+        raise

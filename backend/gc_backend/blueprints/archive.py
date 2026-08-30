@@ -54,7 +54,7 @@ def list_archives():
         })
     except Exception as e:
         logger.error(f"Error listing archives: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.get('/api/archive/<string:gc_code>')
@@ -67,7 +67,7 @@ def get_archive(gc_code: str):
         return jsonify(archive)
     except Exception as e:
         logger.error(f"Error fetching archive for {gc_code}: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.get('/api/archive/<string:gc_code>/status')
@@ -101,7 +101,7 @@ def get_archive_status(gc_code: str):
         })
     except Exception as e:
         logger.error(f"Error fetching archive status for {gc_code}: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.delete('/api/archive/<string:gc_code>')
@@ -114,7 +114,7 @@ def delete_archive(gc_code: str):
         return jsonify({'deleted': True, 'gc_code': gc_code.strip().upper()})
     except Exception as e:
         logger.error(f"Error deleting archive for {gc_code}: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.get('/api/archive/stats')
@@ -125,7 +125,7 @@ def get_archive_stats():
         return jsonify(stats)
     except Exception as e:
         logger.error(f"Error fetching archive stats: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.post('/api/archive/<string:gc_code>/restore')
@@ -180,7 +180,7 @@ def restore_archive(gc_code: str):
         from ..database import db
         db.session.rollback()
         logger.error(f"Error restoring archive for {gc_code}: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.delete('/api/archive')
@@ -268,7 +268,7 @@ def bulk_delete_archives():
         from ..database import db
         db.session.rollback()
         logger.error(f"Error in bulk_delete_archives: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.get('/api/archive/settings')
@@ -281,7 +281,7 @@ def get_archive_settings():
             'auto_sync_enabled': auto_sync if auto_sync is not None else True,
         })
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.put('/api/archive/settings')
@@ -317,7 +317,7 @@ def update_archive_settings():
         from ..database import db
         db.session.rollback()
         logger.error(f"Error updating archive settings: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.post('/api/archive/<string:gc_code>/sync')
@@ -343,7 +343,7 @@ def force_sync_archive(gc_code: str):
         })
     except Exception as e:
         logger.error(f"Error force-syncing archive for {gc_code}: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.put('/api/archive/<string:gc_code>/formula-data')
@@ -375,7 +375,7 @@ def update_formula_data(gc_code: str):
         return jsonify({'updated': True, 'gc_code': code})
     except Exception as e:
         logger.error(f"Error updating formula data for {gc_code}: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        raise
 
 
 @bp.put('/api/archive/<string:gc_code>/resolution-diagnostics')
@@ -409,4 +409,4 @@ def update_resolution_diagnostics(gc_code: str):
         return jsonify({'updated': True, 'gc_code': code})
     except Exception as e:
         logger.error(f"Error updating resolution diagnostics for {gc_code}: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
+        raise

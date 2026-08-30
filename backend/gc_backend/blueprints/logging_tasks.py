@@ -151,7 +151,7 @@ def create_logging_task(geocache_id: int):
     except Exception as error:  # pragma: no cover
         logger.error('Error creating logging task for geocache %s: %s', geocache_id, error)
         db.session.rollback()
-        return jsonify({'error': str(error)}), 500
+        raise
 
 
 @bp.put('/api/geocaches/<int:geocache_id>/logging-tasks')
@@ -214,7 +214,7 @@ def replace_logging_tasks(geocache_id: int):
     except Exception as error:  # pragma: no cover
         logger.error('Error replacing logging tasks for geocache %s: %s', geocache_id, error)
         db.session.rollback()
-        return jsonify({'error': str(error)}), 500
+        raise
 
 
 @bp.put('/api/logging-tasks/<int:task_id>')
@@ -267,7 +267,7 @@ def update_logging_task(task_id: int):
     except Exception as error:  # pragma: no cover
         logger.error('Error updating logging task %s: %s', task_id, error)
         db.session.rollback()
-        return jsonify({'error': str(error)}), 500
+        raise
 
 
 @bp.delete('/api/logging-tasks/<int:task_id>')
@@ -282,4 +282,4 @@ def delete_logging_task(task_id: int):
     except Exception as error:  # pragma: no cover
         logger.error('Error deleting logging task %s: %s', task_id, error)
         db.session.rollback()
-        return jsonify({'error': str(error)}), 500
+        raise
