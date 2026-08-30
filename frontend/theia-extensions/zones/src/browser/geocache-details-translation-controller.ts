@@ -26,6 +26,15 @@ export interface TranslateAllContentInput {
     waypoints: TranslateAllWaypointInput[];
 }
 
+/**
+ * Bilan d'une traduction globale: quelles parties ont ete effectivement traduites et
+ * enregistrees, et quelles parties non vides en entree n'ont rien produit d'exploitable.
+ */
+export interface TranslateAllContentResult {
+    translated: string[];
+    failed: string[];
+}
+
 @injectable()
 export class GeocacheDetailsTranslationController {
     constructor(
@@ -47,28 +56,68 @@ export class GeocacheDetailsTranslationController {
         });
     }
 
-    async translateAllContent(input: TranslateAllContentInput): Promise<void> {
+    async translateAllContent(input: TranslateAllContentInput): Promise<TranslateAllContentResult> {
         const languageModel = await this.selectTranslationLanguageModel();
+
+        const description = (input.descriptionHtml || '').trim();
+        const sourceHints = (input.hintsDecoded || '').trim();
+        // Une note source vide ne peut produire qu'une traduction vide: l'envoyer au modele
+        // ne servirait qu'a risquer d'ecraser un note_override existant.
+        const sourceWaypoints = (input.waypoints || []).filter(waypoint => (waypoint?.note || '').trim().length > 0);
+
+        if (!description && !sourceHints && sourceWaypoints.length === 0) {
+            throw new Error('Traduction IA: aucun contenu a traduire');
+        }
 
         // Decoupage volontaire: la description (souvent volumineuse) est traduite en HTML brut,
         // separement des hints + waypoints (petit JSON). Un unique appel qui renvoie tout dans un
         // seul JSON depasse frequemment la limite de generation des petits modeles locaux et se
         // retrouve tronque, faisant echouer l'ensemble.
-        const description = (input.descriptionHtml || '').trim();
-        const translatedHtml = description
-            ? await this.translateHtmlFragment(languageModel, description, 'description')
-            : '';
+        const payload: UpdateTranslatedContentInput = {};
+        const translated: string[] = [];
+        const failed: string[] = [];
 
-        const meta = await this.translateHintsAndWaypoints(languageModel, input.hintsDecoded, input.waypoints);
+        if (description) {
+            const translatedHtml = await this.translateHtmlFragment(languageModel, description, 'description');
+            // Sans ce garde-fou, une reponse vide (ou reduite a un bloc de raisonnement) serait
+            // persistee telle quelle et effacerait la description modifiee existante.
+            if (translatedHtml) {
+                payload.description_override_html = translatedHtml;
+                payload.description_override_raw = htmlToRawText(translatedHtml);
+                translated.push('description');
+            } else {
+                failed.push('description');
+            }
+        }
 
-        const payload: UpdateTranslatedContentInput = {
-            description_override_html: translatedHtml,
-            description_override_raw: htmlToRawText(translatedHtml),
-            hints_decoded_override: meta.hintsDecoded,
-            waypoints: meta.waypoints,
-        };
+        const meta = await this.translateHintsAndWaypoints(languageModel, sourceHints, sourceWaypoints);
+
+        if (sourceHints) {
+            if (meta.hintsDecoded) {
+                payload.hints_decoded_override = meta.hintsDecoded;
+                translated.push('indices');
+            } else {
+                failed.push('indices');
+            }
+        }
+
+        if (sourceWaypoints.length > 0) {
+            if (meta.waypoints.length > 0) {
+                payload.waypoints = meta.waypoints;
+                translated.push(`notes de waypoints (${meta.waypoints.length}/${sourceWaypoints.length})`);
+            }
+            if (meta.waypoints.length < sourceWaypoints.length) {
+                const missing = sourceWaypoints.length - meta.waypoints.length;
+                failed.push(`notes de waypoints (${missing}/${sourceWaypoints.length})`);
+            }
+        }
+
+        if (translated.length === 0) {
+            throw new Error(`Traduction IA: reponse vide (${failed.join(', ')})`);
+        }
 
         await this.geocacheDetailsService.updateTranslatedContent(input.geocacheId, payload);
+        return { translated, failed };
     }
 
     private async translateHtmlFragment(languageModel: any, sourceHtml: string, kind: string): Promise<string> {
@@ -133,14 +182,27 @@ export class GeocacheDetailsTranslationController {
         const response = await this.languageModelService.sendRequest(languageModel, request);
         const parsed = await this.parseJsonResponse(response);
 
-        const translatedHints = (parsed?.hints_decoded || '').toString();
+        const translatedHints = this.sanitizeTranslatedHtml((parsed?.hints_decoded ?? '').toString());
         const translatedWaypoints = Array.isArray(parsed?.waypoints) ? parsed.waypoints : [];
-        return {
-            hintsDecoded: translatedHints,
-            waypoints: translatedWaypoints
-                .filter((waypoint: any) => waypoint && typeof waypoint.id === 'number' && waypoint.note !== undefined && waypoint.note !== null)
-                .map((waypoint: any) => ({ id: waypoint.id, note_override: String(waypoint.note) })),
-        };
+
+        // On ne garde que les waypoints demandes (le modele peut en inventer ou en dupliquer)
+        // dont la note traduite est non vide: sinon on ecraserait un note_override existant.
+        const requestedIds = new Set(waypoints.map(waypoint => waypoint.id));
+        const seenIds = new Set<number>();
+        const notes: Array<{ id: number; note_override: string }> = [];
+        for (const waypoint of translatedWaypoints) {
+            if (!waypoint || typeof waypoint.id !== 'number' || !requestedIds.has(waypoint.id) || seenIds.has(waypoint.id)) {
+                continue;
+            }
+            const note = this.sanitizeTranslatedHtml((waypoint.note ?? '').toString());
+            if (!note) {
+                continue;
+            }
+            seenIds.add(waypoint.id);
+            notes.push({ id: waypoint.id, note_override: note });
+        }
+
+        return { hintsDecoded: translatedHints, waypoints: notes };
     }
 
     /**

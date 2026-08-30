@@ -2243,19 +2243,28 @@ def update_translated_content(geocache_id: int):
 
         any_update = False
 
-        override_raw = data.get('description_override_raw')
-        override_html = data.get('description_override_html')
+        # Cet endpoint ne sert qu'a enregistrer une traduction: une valeur vide ne peut venir
+        # que d'une reponse IA vide ou tronquee, et ecraserait un override existant.
+        def _translated_value(key):
+            value = data.get(key)
+            if value is None:
+                return None
+            value = str(value)
+            return value if value.strip() else None
+
+        override_raw = _translated_value('description_override_raw')
+        override_html = _translated_value('description_override_html')
         if override_raw is not None or override_html is not None:
             if override_raw is not None:
-                geocache.description_override_raw = str(override_raw)
+                geocache.description_override_raw = override_raw
             if override_html is not None:
-                geocache.description_override_html = str(override_html)
+                geocache.description_override_html = override_html
             geocache.description_override_updated_at = datetime.now(timezone.utc)
             any_update = True
 
-        hints_decoded_override = data.get('hints_decoded_override')
+        hints_decoded_override = _translated_value('hints_decoded_override')
         if hints_decoded_override is not None:
-            geocache.hints_decoded_override = str(hints_decoded_override)
+            geocache.hints_decoded_override = hints_decoded_override
             geocache.hints_decoded_override_updated_at = datetime.now(timezone.utc)
             any_update = True
 
@@ -2266,7 +2275,7 @@ def update_translated_content(geocache_id: int):
                     continue
                 waypoint_id = item.get('id')
                 note_override = item.get('note_override')
-                if waypoint_id is None or note_override is None:
+                if waypoint_id is None or note_override is None or not str(note_override).strip():
                     continue
 
                 waypoint = GeocacheWaypoint.query.filter_by(id=int(waypoint_id), geocache_id=geocache_id).first()

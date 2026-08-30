@@ -1165,7 +1165,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         this.update();
 
         try {
-            await this.translationController.translateAllContent({
+            const result = await this.translationController.translateAllContent({
                 geocacheId: this.geocacheId,
                 descriptionHtml: sourceHtml,
                 hintsDecoded: sourceHints,
@@ -1174,7 +1174,13 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             this.descriptionVariant = 'modified';
             this.chatController.invalidateRoutingPreview(this.geocacheId);
             await this.load();
-            this.messages.info('Traduction enregistrée (description + indices + waypoints)');
+            if (result.failed.length > 0) {
+                this.messages.warn(
+                    `Traduction partielle : ${result.translated.join(', ')} enregistré(s), non traduit : ${result.failed.join(', ')}`
+                );
+            } else {
+                this.messages.info(`Traduction enregistrée (${result.translated.join(', ')})`);
+            }
         } catch (e) {
             console.error('[GeocacheDetailsWidget] translateAllToFrench error', e);
             this.messages.error(getErrorMessage(e, 'Traduction IA: erreur'));
