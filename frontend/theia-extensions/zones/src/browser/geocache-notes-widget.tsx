@@ -384,14 +384,14 @@ export class GeocacheNotesWidget extends ReactWidget {
     }
 
     protected async resolveSyncConflict(
-        _existingGcNote: string,
-        _newText: string
+        existingGcNote: string,
+        newText: string
     ): Promise<GeocacheNoteSyncConflictDecision> {
         const dialog = new ConfirmSaveDialog({
             title: 'Note Geocaching.com existante',
-            msg: 'Une note personnelle existe deja sur Geocaching.com pour cette geocache. Que souhaitez-vous faire avec la note selectionnee ?',
+            msg: this.buildSyncConflictMessage(existingGcNote, newText),
             cancel: Dialog.CANCEL,
-            dontSave: 'Ajouter a la note existante',
+            dontSave: 'Ajouter à la note existante',
             save: 'Remplacer la note existante'
         });
         const decision = await dialog.open();
@@ -399,6 +399,55 @@ export class GeocacheNotesWidget extends ReactWidget {
             return 'cancel';
         }
         return decision === false ? 'append' : 'replace';
+    }
+
+    protected buildSyncConflictMessage(existingGcNote: string, newText: string): HTMLElement {
+        const container = document.createElement('div');
+        container.style.display = 'flex';
+        container.style.flexDirection = 'column';
+        container.style.gap = '12px';
+
+        const intro = document.createElement('p');
+        intro.textContent = 'Une note personnelle existe déjà sur Geocaching.com. Que souhaitez-vous faire avec la note sélectionnée ?';
+        intro.style.margin = '0';
+        container.appendChild(intro);
+
+        const appendPreview = `${existingGcNote}\n\n${newText}`;
+        container.appendChild(this.buildConflictPreviewBlock('Note existante sur GC.com', existingGcNote));
+        container.appendChild(this.buildConflictPreviewBlock('Votre note à envoyer', newText));
+        container.appendChild(this.buildConflictPreviewBlock('Résultat si « Ajouter »', appendPreview));
+        container.appendChild(this.buildConflictPreviewBlock('Résultat si « Remplacer »', newText));
+
+        return container;
+    }
+
+    protected buildConflictPreviewBlock(label: string, content: string): HTMLElement {
+        const block = document.createElement('div');
+        block.style.display = 'flex';
+        block.style.flexDirection = 'column';
+        block.style.gap = '4px';
+
+        const labelEl = document.createElement('div');
+        labelEl.textContent = label;
+        labelEl.style.fontWeight = 'bold';
+        labelEl.style.fontSize = '12px';
+        block.appendChild(labelEl);
+
+        const contentEl = document.createElement('pre');
+        contentEl.textContent = content || '(vide)';
+        contentEl.style.whiteSpace = 'pre-wrap';
+        contentEl.style.wordBreak = 'break-word';
+        contentEl.style.maxHeight = '120px';
+        contentEl.style.overflow = 'auto';
+        contentEl.style.padding = '8px';
+        contentEl.style.borderRadius = '4px';
+        contentEl.style.border = '1px solid var(--theia-panel-border)';
+        contentEl.style.background = 'var(--theia-sideBar-background)';
+        contentEl.style.fontSize = '12px';
+        contentEl.style.margin = '0';
+        block.appendChild(contentEl);
+
+        return block;
     }
 
     protected async syncNoteToGeocaching(note: GeocacheNoteDto): Promise<void> {
