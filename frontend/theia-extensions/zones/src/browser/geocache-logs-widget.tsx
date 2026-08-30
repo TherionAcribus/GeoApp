@@ -326,11 +326,26 @@ export class GeocacheLogsWidget extends ReactWidget {
         this.setGeocache({ geocacheId, gcCode, name });
     };
 
+    /**
+     * Le log qu'on vient d'envoyer est déjà inséré en base par le backend :
+     * un simple rechargement suffit pour le voir apparaître, sans repasser par
+     * `/logs/refresh` (donc sans appel à Geocaching.com).
+     */
+    private handleGeocacheLogSubmitted = (event: CustomEvent<{ geocacheId: number }>): void => {
+        if (!this.geocacheId || event.detail?.geocacheId !== this.geocacheId) {
+            return;
+        }
+        this.offset = 0;
+        this.loadSummary();
+        this.loadLogs();
+    };
+
     private addGlobalEventListeners(): void {
         if (typeof window === 'undefined') {
             return;
         }
         window.addEventListener('geoapp-geocache-selected', this.handleGeocacheSelected as EventListener);
+        window.addEventListener('geoapp-geocache-log-submitted', this.handleGeocacheLogSubmitted as EventListener);
     }
 
     private removeGlobalEventListeners(): void {
@@ -338,6 +353,7 @@ export class GeocacheLogsWidget extends ReactWidget {
             return;
         }
         window.removeEventListener('geoapp-geocache-selected', this.handleGeocacheSelected as EventListener);
+        window.removeEventListener('geoapp-geocache-log-submitted', this.handleGeocacheLogSubmitted as EventListener);
     }
 
     /**

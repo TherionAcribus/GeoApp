@@ -160,6 +160,86 @@ def get_geocache_logs(geocache_id: int):
         return jsonify({'error': str(e)}), 500
 
 
+# Le logbook de Geocaching.com identifie chaque log par son `LogID` numérique,
+# alors que la soumission ne renvoie que le `logReferenceCode` (« GL... »). Le log
+# qu'on insère localement juste après l'envoi porte donc un external_id d'une autre
+# famille : ce préfixe permet de le reconnaître au rafraîchissement suivant et de
+# le remplacer par la ligne officielle au lieu d'afficher deux fois le même log.
+_LOCAL_LOG_ID_PREFIX = 'GL'
+
+# Libellés Geocaching.com des types de log qu'on sait soumettre, pour repasser par
+# la même normalisation que les logs rafraîchis (`Found`, `Did Not Find`, `Note`).
+_LOG_TYPE_LABELS = {2: 'Found it', 3: "Didn't find it", 4: 'Write note'}
+
+
+def _log_identity(author, log_date, log_type):
+    """Clé de rapprochement entre un log local et le même log vu par le logbook.
+
+    Les deux sources n'ont pas d'identifiant commun : on se rabat sur le triplet
+    (auteur, date de visite, type), qui suffit ici puisqu'on ne compare que des
+    logs d'une même géocache.
+    """
+    return (
+        (author or '').strip().lower(),
+        log_date.date() if log_date else None,
+        GeocacheLog.normalize_log_type(log_type),
+    )
+
+
+def _store_submitted_log(geocache, *, log_reference_code, text, visited_date,
+                         log_type_id, used_favorite_point):
+    """Insère en base le log qui vient d'être envoyé sur Geocaching.com.
+
+    Sans ça, la liste locale des logs reste muette sur sa propre contribution
+    jusqu'au prochain `/logs/refresh` : tout ce qu'il faut pour la ligne est
+    pourtant déjà connu ici (texte, date, type, code du log).
+
+    Returns:
+        Le `GeocacheLog` inséré (ou celui déjà présent), None si l'insertion a
+        échoué — l'envoi, lui, a réussi et ne doit pas être remis en cause.
+    """
+    if not log_reference_code:
+        return None
+
+    try:
+        existing = GeocacheLog.query.filter_by(
+            geocache_id=geocache.id, external_id=log_reference_code
+        ).first()
+        if existing:
+            return existing
+
+        author = None
+        author_guid = None
+        user_info = get_auth_service().get_auth_state().user_info
+        if user_info:
+            author = user_info.username
+            author_guid = user_info.public_guid
+
+        log = GeocacheLog(
+            geocache_id=geocache.id,
+            external_id=log_reference_code,
+            author=author,
+            author_guid=author_guid,
+            text=text,
+            # Date de visite, comme les logs rafraîchis (champ `Visited`) : c'est
+            # elle qui donne sa place au log dans la liste triée par date.
+            date=datetime.combine(visited_date, time_type.min),
+            log_type=GeocacheLog.normalize_log_type(_LOG_TYPE_LABELS.get(log_type_id)),
+            is_favorite=bool(used_favorite_point),
+            is_friend_log=False,
+        )
+        db.session.add(log)
+        if isinstance(geocache.logs_count, int):
+            geocache.logs_count += 1
+        db.session.commit()
+        return log
+    except Exception as e:  # pragma: no cover - insertion best-effort
+        logger.warning('Could not store submitted log %s for %s locally: %s',
+                       log_reference_code, geocache.gc_code, e)
+        db.session.rollback()
+        return None
+
+
 @bp.post('/api/geocaches/<int:geocache_id>/logs/submit')
 def submit_geocache_log(geocache_id: int):
     try:
@@ -288,6 +368,16 @@ def submit_geocache_log(geocache_id: int):
             db.session.commit()
             ArchiveService.sync_from_geocache(geocache)
 
+        log_reference_code = result.get('logReferenceCode')
+        stored_log = _store_submitted_log(
+            geocache,
+            log_reference_code=log_reference_code,
+            text=text,
+            visited_date=visited_date,
+            log_type_id=resolved_log_type_id,
+            used_favorite_point=bool(used_favorite_point),
+        )
+
         # Le log vient de modifier les compteurs côté Geocaching.com : on les
         # répercute sur les stats en cache, sinon le prochain log repartirait du
         # même `finds_count` (numéro de cache figé dans le pattern @cache_count).
@@ -304,7 +394,8 @@ def submit_geocache_log(geocache_id: int):
             'gc_code': gc_code,
             'submitted': True,
             'gc_response': result,
-            'log_reference_code': result.get('logReferenceCode') if isinstance(result, dict) else None,
+            'log_reference_code': log_reference_code,
+            'log': stored_log.to_dict() if stored_log else None,
             'found': bool(geocache.found),
             'found_date': geocache.found_date.isoformat() if geocache.found_date else None,
         })
@@ -374,6 +465,23 @@ def refresh_geocache_logs(geocache_id: int):
             if log.external_id
         }
         
+        # Le log qu'on a inséré soi-même à la soumission n'a pas le même
+        # external_id que celui renvoyé par le logbook : sans ce nettoyage, il
+        # resterait à côté de la version officielle, en double.
+        fetched_identities = {
+            _log_identity(log_data.author, log_data.date, log_data.log_type)
+            for log_data in fetched_logs
+        }
+        replaced_local_count = 0
+        for existing_log in list(existing_logs.values()):
+            if not (existing_log.external_id or '').startswith(_LOCAL_LOG_ID_PREFIX):
+                continue
+            identity = _log_identity(existing_log.author, existing_log.date, existing_log.log_type)
+            if identity in fetched_identities:
+                db.session.delete(existing_log)
+                existing_logs.pop(existing_log.external_id, None)
+                replaced_local_count += 1
+
         added_count = 0
         updated_count = 0
 
@@ -441,6 +549,7 @@ def refresh_geocache_logs(geocache_id: int):
 
         logger.info(
             f"Refreshed logs for {gc_code}: {added_count} added, {updated_count} updated, "
+            f"{replaced_local_count} local replaced, "
             f"{friends_count} from friends" + (" (friend check failed)" if friends_check_failed else "")
         )
 
@@ -450,6 +559,7 @@ def refresh_geocache_logs(geocache_id: int):
             'message': 'Logs refreshed successfully',
             'added': added_count,
             'updated': updated_count,
+            'replaced_local': replaced_local_count,
             'friends': friends_count,
             'friends_check_failed': friends_check_failed,
             'total': geocache.logs_count
