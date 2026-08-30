@@ -15,7 +15,6 @@ import {
     confirmSubmission as confirmSubmissionPure,
     escapeFieldNotesText,
     formatVisitedIso,
-    getLogTypeLabel,
     submitOneLog,
     uploadOneLogImage as uploadOneLogImagePure,
 } from './log-editor/log-submit-service';
@@ -61,6 +60,8 @@ import {
     PATTERN_AUTOCOMPLETE_DELAY_MS,
 } from './log-editor/constants';
 import {
+    getLogTypeLabel as getLogTypeLabelPure,
+    isPendingDnf as isPendingDnfPure,
     sanitizeLogTypeForGeocache,
     todayIsoDate,
 } from './log-editor/helpers';
@@ -1528,7 +1529,11 @@ export class GeocacheLogEditorWidget extends ReactWidget {
 
     /** Sera loguée "Didn't find it" : c'est l'état signalé en bleu dans le tableau et dans les blocs. */
     protected isPendingDnf(geocacheId: number): boolean {
-        return this.getLogTypeForGeocacheId(geocacheId) === 'dnf' && !this.isGeocacheSubmittedOk(geocacheId);
+        return isPendingDnfPure(
+            this.getGeocacheById(geocacheId),
+            this.getLogTypeForGeocacheId(geocacheId),
+            this.perCacheSubmitStatus
+        );
     }
 
     /** Caches trouvées avant cette session et pas encore soumises : les seules à signaler comme "déjà trouvées". */
@@ -1847,7 +1852,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     }
 
     protected getLogTypeLabel(value: LogTypeValue): string {
-        return getLogTypeLabel(value);
+        return getLogTypeLabelPure(value);
     }
 
     protected escapeFieldNotesText(value: string): string {

@@ -7,7 +7,7 @@
  */
 
 import { ConfirmDialog } from '@theia/core/lib/browser';
-import { dayOffsetFromToday, formatIsoDateFr, todayIsoDate } from './helpers';
+import { dayOffsetFromToday, formatIsoDateFr, getLogTypeLabel, todayIsoDate } from './helpers';
 import { GeocacheListItem, LogTypeValue, SelectedLogImage } from './types';
 
 /** URL de base du backend GeoApp. */
@@ -118,19 +118,8 @@ export async function submitOneLog(
     }
 }
 
-/** Libellé affichable d'un type de log. */
-export function getLogTypeLabel(value: LogTypeValue): string {
-    if (value === 'found') {
-        return 'Found it';
-    }
-    if (value === 'dnf') {
-        return "Didn't find it";
-    }
-    if (value === 'skip') {
-        return 'Ne pas loguer';
-    }
-    return 'Write note';
-}
+/** Libellé affichable d'un type de log (ré-exporté depuis helpers pour compat). */
+export { getLogTypeLabel };
 
 /** Formate une date `YYYY-MM-DD` en ISO avec heure fixe pour l'API field notes. */
 export function formatVisitedIso(dateOnly: string): string {

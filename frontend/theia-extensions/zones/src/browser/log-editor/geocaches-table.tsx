@@ -27,11 +27,13 @@ import {
 } from './constants';
 import {
     alreadyFoundTooltip,
+    getLogTypeLabel,
     isJustLogged,
     isPendingDnf,
     isPreviouslyFound,
     sanitizeLogTypeForGeocache,
 } from './helpers';
+import { SubmitBadge } from './submit-badge';
 import { GeocacheListItem, LogTypeValue, SubmissionStatus } from './types';
 
 const GeocacheLogEditorGeocachesTableImpl: React.FC<{
@@ -99,19 +101,6 @@ const GeocacheLogEditorGeocachesTableImpl: React.FC<{
     };
 
     const columns = React.useMemo<ColumnDef<GeocacheListItem>[]>(() => {
-        const typeLabel = (value: LogTypeValue): string => {
-            if (value === 'found') {
-                return 'Found it';
-            }
-            if (value === 'dnf') {
-                return "Didn't find it";
-            }
-            if (value === 'skip') {
-                return 'Ne pas loguer';
-            }
-            return 'Write note';
-        };
-
         const getPct = (favoritesCount: number | undefined, logsCount: number | undefined): number | undefined => {
             if (typeof favoritesCount !== 'number' || typeof logsCount !== 'number' || logsCount <= 0) {
                 return undefined;
@@ -139,98 +128,15 @@ const GeocacheLogEditorGeocachesTableImpl: React.FC<{
             return new Date(ts).toISOString().slice(0, 10);
         };
 
-        const statusBadge = (gc: GeocacheListItem): React.ReactNode => {
-            const status = perCacheSubmitStatus[gc.id];
-            if (status === 'ok') {
-                const ref = perCacheSubmitReference[gc.id];
-                return (
-                    <span
-                        style={{
-                            padding: '2px 6px',
-                            borderRadius: 3,
-                            fontSize: 12,
-                            background: 'var(--theia-charts-green, #22c55e)',
-                            color: '#fff',
-                            fontWeight: 700,
-                            whiteSpace: 'nowrap'
-                        }}
-                        title={ref ? `logReferenceCode: ${ref}` : 'Log envoyé'}
-                    >
-                        ✅
-                    </span>
-                );
-            }
-            if (status === 'skipped') {
-                return (
-                    <span
-                        style={{
-                            padding: '2px 6px',
-                            borderRadius: 3,
-                            fontSize: 12,
-                            background: 'var(--theia-charts-orange, #f59e0b)',
-                            color: '#fff',
-                            fontWeight: 700,
-                            whiteSpace: 'nowrap'
-                        }}
-                        title='Cache déjà loguée (précédemment)'
-                    >
-                        ↩️
-                    </span>
-                );
-            }
-            if (status === 'failed') {
-                return (
-                    <span
-                        style={{
-                            padding: '2px 6px',
-                            borderRadius: 3,
-                            fontSize: 12,
-                            background: 'var(--theia-errorForeground)',
-                            color: '#fff',
-                            fontWeight: 700,
-                            whiteSpace: 'nowrap'
-                        }}
-                        title={perCacheSubmitError[gc.id] ?? 'Dernière tentative en échec'}
-                    >
-                        ⚠️
-                    </span>
-                );
-            }
-            if (sanitizeLogTypeForGeocache(perCacheLogType[gc.id] ?? logType, gc) === 'skip') {
-                return (
-                    <span
-                        style={{
-                            padding: '2px 6px',
-                            borderRadius: 3,
-                            fontSize: 12,
-                            background: 'var(--theia-charts-lines, #6b7280)',
-                            color: '#fff',
-                            fontWeight: 700,
-                            whiteSpace: 'nowrap'
-                        }}
-                        title="Ne pas loguer : cette géocache sera ignorée à l'envoi"
-                    >
-                        🚫
-                    </span>
-                );
-            }
-            return (
-                <span
-                    style={{
-                        padding: '2px 6px',
-                        borderRadius: 3,
-                        fontSize: 12,
-                        background: 'var(--theia-charts-lines, #6b7280)',
-                        color: '#fff',
-                        fontWeight: 700,
-                        whiteSpace: 'nowrap'
-                    }}
-                    title='Pas encore envoyé'
-                >
-                    ⏳
-                </span>
-            );
-        };
+        const statusBadge = (gc: GeocacheListItem): React.ReactNode => (
+            <SubmitBadge
+                status={perCacheSubmitStatus[gc.id]}
+                reference={perCacheSubmitReference[gc.id]}
+                error={perCacheSubmitError[gc.id]}
+                compact
+                isSkipped={sanitizeLogTypeForGeocache(perCacheLogType[gc.id] ?? logType, gc) === 'skip'}
+            />
+        );
 
         return [
             {
@@ -364,10 +270,10 @@ const GeocacheLogEditorGeocachesTableImpl: React.FC<{
                                 ? { fontSize: 12, color: DNF_ACCENT, borderColor: DNF_ACCENT, fontWeight: 600 }
                                 : { fontSize: 12 }}
                         >
-                            <option value='found' disabled={previouslyFound}>{typeLabel('found')}</option>
-                            <option value='dnf'>{typeLabel('dnf')}</option>
-                            <option value='note'>{typeLabel('note')}</option>
-                            <option value='skip'>{typeLabel('skip')}</option>
+                            <option value='found' disabled={previouslyFound}>{getLogTypeLabel('found')}</option>
+                            <option value='dnf'>{getLogTypeLabel('dnf')}</option>
+                            <option value='note'>{getLogTypeLabel('note')}</option>
+                            <option value='skip'>{getLogTypeLabel('skip')}</option>
                         </select>
                     );
                 },

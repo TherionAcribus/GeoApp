@@ -13,75 +13,69 @@ export const SubmitBadge: React.FC<{
     reference?: string;
     /** Raison du dernier échec (infobulle du badge "failed"). */
     error?: string;
-}> = ({ status, reference, error }) => {
+    /** Mode compact : icône seule, sans texte (utilisé dans le tableau). */
+    compact?: boolean;
+    /** Type de log "skip" : affiche 🚫 au lieu de ⏳ quand la cache ne sera pas envoyée. */
+    isSkipped?: boolean;
+}> = ({ status, reference, error, compact, isSkipped }) => {
     if (status === 'ok') {
         return (
             <span
-                style={{
-                    padding: '2px 6px',
-                    borderRadius: 3,
-                    fontSize: 12,
-                    background: 'var(--theia-charts-green, #22c55e)',
-                    color: '#fff',
-                    fontWeight: 700,
-                    whiteSpace: 'nowrap'
-                }}
+                style={badgeStyle('var(--theia-charts-green, #22c55e)')}
                 title={reference ? `logReferenceCode: ${reference}` : 'Log envoyé'}
             >
-                ✅ Log envoyé
+                ✅{compact ? '' : ' Log envoyé'}
             </span>
         );
     }
     if (status === 'skipped') {
         return (
             <span
-                style={{
-                    padding: '2px 6px',
-                    borderRadius: 3,
-                    fontSize: 12,
-                    background: 'var(--theia-charts-orange, #f59e0b)',
-                    color: '#fff',
-                    fontWeight: 700,
-                    whiteSpace: 'nowrap'
-                }}
+                style={badgeStyle('var(--theia-charts-orange, #f59e0b)')}
                 title='Cache déjà loguée (non soumise)'
             >
-                ↩️ Déjà loguée
+                ↩️{compact ? '' : ' Déjà loguée'}
             </span>
         );
     }
     if (status === 'failed') {
         return (
             <span
-                style={{
-                    padding: '2px 6px',
-                    borderRadius: 3,
-                    fontSize: 12,
-                    background: 'var(--theia-errorForeground)',
-                    color: '#fff',
-                    fontWeight: 700,
-                    whiteSpace: 'nowrap'
-                }}
+                style={badgeStyle('var(--theia-errorForeground)')}
                 title={error ?? 'Dernière tentative en échec'}
             >
-                ⚠️ Échec
+                ⚠️{compact ? '' : ' Échec'}
+            </span>
+        );
+    }
+    if (isSkipped) {
+        return (
+            <span
+                style={badgeStyle('var(--theia-charts-lines, #6b7280)')}
+                title="Ne pas loguer : cette géocache sera ignorée à l'envoi"
+            >
+                🚫
             </span>
         );
     }
     return (
         <span
-            style={{
-                padding: '2px 6px',
-                borderRadius: 3,
-                fontSize: 12,
-                background: 'var(--theia-charts-lines, #6b7280)',
-                color: '#fff',
-                fontWeight: 700,
-                whiteSpace: 'nowrap'
-            }}
+            style={badgeStyle('var(--theia-charts-lines, #6b7280)')}
             title='Pas encore envoyé'
         >
-            ⏳ À envoyer
+            ⏳{compact ? '' : ' À envoyer'}
         </span>
     );
 };
+
+function badgeStyle(background: string): React.CSSProperties {
+    return {
+        padding: '2px 6px',
+        borderRadius: 3,
+        fontSize: 12,
+        background,
+        color: '#fff',
+        fontWeight: 700,
+        whiteSpace: 'nowrap',
+    };
+}

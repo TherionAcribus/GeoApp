@@ -91,6 +91,20 @@ export function isPendingDnf(
     return logTypeForGeocache === 'dnf' && !isJustLogged(geocache, perCacheSubmitStatus);
 }
 
+/** Libellé affichable d'un type de log. */
+export function getLogTypeLabel(value: LogTypeValue): string {
+    if (value === 'found') {
+        return 'Found it';
+    }
+    if (value === 'dnf') {
+        return "Didn't find it";
+    }
+    if (value === 'skip') {
+        return 'Ne pas loguer';
+    }
+    return 'Write note';
+}
+
 /** Taille de fichier lisible : "12 o", "345 Ko", "1,2 Mo". */
 export function formatFileSize(bytes: number): string {
     if (!Number.isFinite(bytes) || bytes < 0) {
