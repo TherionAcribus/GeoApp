@@ -31,6 +31,12 @@ type LogTypeValue = 'found' | 'dnf' | 'note' | 'skip';
 
 const LOG_TYPE_VALUES: readonly LogTypeValue[] = ['found', 'dnf', 'note', 'skip'];
 
+/**
+ * Longueur maximale du texte d'un log acceptée par geocaching.com (même limite que c:geo).
+ * Au-delà le site rejette l'envoi : on compte donc le texte **final** (patterns résolus).
+ */
+const GC_LOG_MAX_LENGTH = 4000;
+
 function isLogTypeValue(value: unknown): value is LogTypeValue {
     return typeof value === 'string' && (LOG_TYPE_VALUES as readonly string[]).includes(value);
 }
@@ -2621,6 +2627,97 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         return this.resolveAllPatterns(rawText, geocacheId);
     }
 
+    /**
+     * Longueurs du texte **final** (patterns résolus) pour une zone de saisie.
+     *
+     * En mode « texte identique » un même texte source donne un texte différent par
+     * géocache (`@cache_name`, `@cache_count`…) : on renvoie donc la fourchette
+     * observée sur les géocaches qui partiront, et la pire d'entre elles.
+     */
+    protected getFinalLengthStats(target: 'global' | { geocacheId: number }): {
+        raw: number;
+        min: number;
+        max: number;
+        worst?: GeocacheListItem;
+    } {
+        if (target !== 'global') {
+            const rawText = this.perCacheText[target.geocacheId] ?? '';
+            const length = this.resolveAllPatterns(rawText, target.geocacheId).length;
+            return { raw: rawText.length, min: length, max: length };
+        }
+
+        const rawText = this.globalText;
+        const targets = this.getGeocachesToSubmit();
+        const scope = targets.length > 0 ? targets : this.geocaches;
+        if (scope.length === 0) {
+            const length = this.resolveAllPatterns(rawText, null).length;
+            return { raw: rawText.length, min: length, max: length };
+        }
+
+        let min = Number.POSITIVE_INFINITY;
+        let max = -1;
+        let worst: GeocacheListItem | undefined;
+        for (const gc of scope) {
+            const length = this.resolveAllPatterns(rawText, gc.id).length;
+            min = Math.min(min, length);
+            if (length > max) {
+                max = length;
+                worst = gc;
+            }
+        }
+        return { raw: rawText.length, min, max, worst };
+    }
+
+    /**
+     * Compteur « texte final » sous une zone de saisie : ce que geocaching.com mesure
+     * n'est pas le texte tapé mais le texte patterns résolus, qui peut être bien plus long.
+     */
+    protected renderCharCounter(target: 'global' | { geocacheId: number }): React.ReactNode {
+        const { raw, min, max, worst } = this.getFinalLengthStats(target);
+        if (raw === 0 && max === 0) {
+            return undefined;
+        }
+
+        const over = max > GC_LOG_MAX_LENGTH;
+        const near = !over && max > GC_LOG_MAX_LENGTH * 0.9;
+        const color = over
+            ? 'var(--theia-errorForeground, #f85149)'
+            : near
+                ? 'var(--theia-editorWarning-foreground, #d29922)'
+                : undefined;
+
+        const count = min === max ? `${max}` : `${min}–${max}`;
+        const hints: string[] = [];
+        if (max !== raw) {
+            hints.push(`${raw} saisis`);
+        }
+        if (over) {
+            hints.push(`${max - GC_LOG_MAX_LENGTH} de trop`);
+        }
+
+        const tooltip = min === max
+            ? undefined
+            : `Les @patterns donnent un texte différent par géocache. La plus longue : ${worst?.gc_code ?? '?'} (${max} caractères).`;
+
+        return (
+            <div
+                style={{
+                    marginTop: 4,
+                    fontSize: 11,
+                    textAlign: 'right',
+                    opacity: color ? 1 : 0.7,
+                    color,
+                    fontWeight: over ? 600 : 400,
+                }}
+                title={tooltip}
+            >
+                {over && '⚠️ '}
+                Texte final : {count}/{GC_LOG_MAX_LENGTH} caractères
+                {hints.length > 0 && ` (${hints.join(', ')})`}
+            </div>
+        );
+    }
+
     protected renderTextWithHighlightedPatterns(text: string, geocacheId: number | null, key: string): React.ReactNode {
         const allPatternNames = this.getAllPatterns().map(p => p.name);
         const regex = /@([a-zA-Z_][a-zA-Z0-9_]*)/g;
@@ -3395,6 +3492,29 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 this.messages.warn('Le texte du log est vide.');
             } else {
                 this.messages.warn(`Texte manquant pour ${missingText.length} géocache(s).`);
+            }
+            return;
+        }
+
+        // Le texte final (patterns résolus) est ce que voit geocaching.com : au-delà de la
+        // limite le site rejette le log, autant l'arrêter ici avec un message exploitable.
+        const tooLong = toSubmit
+            .map(gc => ({ gc, length: this.getResolvedTextForGeocacheId(gc.id).length }))
+            .filter(x => x.length > GC_LOG_MAX_LENGTH);
+
+        if (tooLong.length > 0) {
+            const worst = tooLong.reduce((a, b) => (b.length > a.length ? b : a));
+            if (this.useSameTextForAll) {
+                this.messages.warn(
+                    `Texte final trop long : ${worst.length} caractères pour ${worst.gc.gc_code} (limite ${GC_LOG_MAX_LENGTH}). `
+                    + `Raccourcissez d'au moins ${worst.length - GC_LOG_MAX_LENGTH} caractères.`
+                );
+            } else {
+                const codes = tooLong.slice(0, 6).map(x => x.gc.gc_code).join(', ');
+                const more = tooLong.length > 6 ? `, +${tooLong.length - 6}` : '';
+                this.messages.warn(
+                    `Texte final trop long (limite ${GC_LOG_MAX_LENGTH} caractères) pour ${tooLong.length} géocache(s) : ${codes}${more}.`
+                );
             }
             return;
         }
@@ -4302,6 +4422,8 @@ ${geocacheContext}`;
                             )}
                         </div>
 
+                        {this.renderCharCounter('global')}
+
                         <div style={{ marginTop: 10 }}>
                             {this.renderImagesSection('global', this.isLoading || this.isSubmitting || allSubmitted)}
                         </div>
@@ -4540,6 +4662,8 @@ ${geocacheContext}`;
                                         </div>
                                     )}
                                 </div>
+
+                                {this.renderCharCounter({ geocacheId: gc.id })}
 
                                 {this.renderMarkdownPreview(
                                     this.resolveAllPatterns(this.perCacheText[gc.id] ?? '', gc.id),
