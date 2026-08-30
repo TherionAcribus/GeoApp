@@ -3,7 +3,7 @@ import { injectable, inject } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core';
 import { ApplicationShell, ConfirmDialog, StatefulWidget } from '@theia/core/lib/browser';
-import { CommandService } from '@theia/core';
+import { CommandService, CancellationTokenSource } from '@theia/core';
 import { LanguageModelRegistry, LanguageModelService } from '@theia/ai-core';
 import { PluginExecutorContribution } from '@mysterai/theia-plugins/lib/browser/plugins-contribution';
 import { GridPuzzleWorkbenchContribution } from '@mysterai/theia-plugins/lib/browser/grid-puzzle-workbench-contribution';
@@ -101,6 +101,8 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
     protected descriptionVariantGeocacheId: number | undefined;
     protected isTranslatingDescription = false;
     protected isTranslatingAllContent = false;
+    /** Source d'annulation de la traduction en cours (description seule ou tout le contenu). */
+    protected translationCts: CancellationTokenSource | undefined;
     protected lastAccessTimestamp: number = Date.now();
     protected archiveStatus: GeocacheArchiveStatus = 'none';
     protected archiveUpdatedAt: string | undefined = undefined;
@@ -736,10 +738,11 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         }
 
         this.isTranslatingDescription = true;
+        this.translationCts = new CancellationTokenSource();
         this.update();
 
         try {
-            await this.translationController.translateDescription(geocacheId, sourceHtml);
+            await this.translationController.translateDescription(geocacheId, sourceHtml, this.translationCts.token);
             // L'utilisateur a pu changer de géocache pendant l'appel LLM : on ne touche pas à
             // l'état de la géocache actuellement affichée.
             if (this.geocacheId !== geocacheId) {
@@ -750,10 +753,15 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             await this.load();
             this.messages.info('Traduction enregistrée dans la description modifiée');
         } catch (e) {
-            console.error('[GeocacheDetailsWidget] translateDescriptionToFrench error', e);
-            this.messages.error(getErrorMessage(e, 'Traduction IA: erreur'));
+            if (this.translationCts?.token.isCancellationRequested) {
+                this.messages.info('Traduction annulée');
+            } else {
+                console.error('[GeocacheDetailsWidget] translateDescriptionToFrench error', e);
+                this.messages.error(getErrorMessage(e, 'Traduction IA: erreur'));
+            }
         } finally {
             this.isTranslatingDescription = false;
+            this.translationCts = undefined;
             this.update();
         }
     }
@@ -1176,6 +1184,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         })).filter(w => typeof w.id === 'number');
 
         this.isTranslatingAllContent = true;
+        this.translationCts = new CancellationTokenSource();
         this.update();
 
         try {
@@ -1184,7 +1193,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                 descriptionHtml: sourceHtml,
                 hintsDecoded: sourceHints,
                 waypoints: sourceWaypoints,
-            });
+            }, this.translationCts.token);
             // L'utilisateur a pu changer de géocache pendant l'appel LLM : on ne touche pas à
             // l'état de la géocache actuellement affichée.
             if (this.geocacheId !== geocacheId) {
@@ -1201,11 +1210,26 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                 this.messages.info(`Traduction enregistrée (${result.translated.join(', ')})`);
             }
         } catch (e) {
-            console.error('[GeocacheDetailsWidget] translateAllToFrench error', e);
-            this.messages.error(getErrorMessage(e, 'Traduction IA: erreur'));
+            if (this.translationCts?.token.isCancellationRequested) {
+                this.messages.info('Traduction annulée');
+            } else {
+                console.error('[GeocacheDetailsWidget] translateAllToFrench error', e);
+                this.messages.error(getErrorMessage(e, 'Traduction IA: erreur'));
+            }
         } finally {
             this.isTranslatingAllContent = false;
+            this.translationCts = undefined;
             this.update();
+        }
+    }
+
+    /**
+     * Annule la traduction IA en cours (description seule ou tout le contenu). Sans effet si
+     * aucune traduction n'est active.
+     */
+    public cancelTranslation(): void {
+        if (this.translationCts) {
+            this.translationCts.cancel();
         }
     }
 
@@ -1310,6 +1334,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
     private readonly handleResetDescription = (): Promise<void> => this.resetDescriptionOverrides();
     private readonly handleTranslateDescription = (): Promise<void> => this.translateDescriptionToFrench();
     private readonly handleTranslateAll = (): Promise<void> => this.translateAllToFrench();
+    private readonly handleCancelTranslation = (): void => this.cancelTranslation();
 
     private readonly handleConfirmStoreAllImages = (opts: { geocacheId: number; pendingCount: number }): Promise<boolean> =>
         this.confirmStoreAllImages(opts);
@@ -1403,6 +1428,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                     isTranslating: this.isTranslatingDescription,
                     onTranslateAllToFrench: this.handleTranslateAll,
                     isTranslatingAll: this.isTranslatingAllContent,
+                    onCancelTranslation: this.handleCancelTranslation,
                     externalLinksOpenMode: this.preferencesController.getExternalLinksOpenMode(),
                 }}
                 displayedHints={displayedHints}

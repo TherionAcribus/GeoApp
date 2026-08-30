@@ -1,4 +1,5 @@
 import { inject, injectable } from '@theia/core/shared/inversify';
+import { CancellationToken, isCancelled } from '@theia/core';
 import {
     getJsonOfResponse,
     getTextOfResponse,
@@ -54,9 +55,9 @@ export class GeocacheDetailsTranslationController {
         @inject(GeocacheDetailsService) protected readonly geocacheDetailsService: GeocacheDetailsService
     ) {}
 
-    async translateDescription(geocacheId: number, sourceHtml: string): Promise<void> {
+    async translateDescription(geocacheId: number, sourceHtml: string, cancellationToken?: CancellationToken): Promise<void> {
         const languageModel = await this.selectTranslationLanguageModel();
-        const translatedHtml = await this.translateHtmlFragment(languageModel, sourceHtml, 'description');
+        const translatedHtml = await this.translateHtmlWithChunking(languageModel, sourceHtml, cancellationToken);
         if (!translatedHtml) {
             throw new Error('Traduction IA: reponse vide');
         }
@@ -67,7 +68,7 @@ export class GeocacheDetailsTranslationController {
         });
     }
 
-    async translateAllContent(input: TranslateAllContentInput): Promise<TranslateAllContentResult> {
+    async translateAllContent(input: TranslateAllContentInput, cancellationToken?: CancellationToken): Promise<TranslateAllContentResult> {
         const languageModel = await this.selectTranslationLanguageModel();
 
         const description = (input.descriptionHtml || '').trim();
@@ -92,10 +93,10 @@ export class GeocacheDetailsTranslationController {
         const hasMetaWork = sourceHints || sourceWaypoints.length > 0;
 
         const descriptionTask = description
-            ? this.runDescriptionTranslation(languageModel, input.geocacheId, description)
+            ? this.runDescriptionTranslation(languageModel, input.geocacheId, description, cancellationToken)
             : Promise.resolve<DescriptionStepResult>({ kind: 'skipped' });
         const metaTask = hasMetaWork
-            ? this.runMetaTranslation(languageModel, input.geocacheId, sourceHints, sourceWaypoints)
+            ? this.runMetaTranslation(languageModel, input.geocacheId, sourceHints, sourceWaypoints, cancellationToken)
             : Promise.resolve<MetaStepResult>({ kind: 'skipped' });
 
         const [descriptionOutcome, metaOutcome] = await Promise.allSettled([descriptionTask, metaTask]);
@@ -113,6 +114,11 @@ export class GeocacheDetailsTranslationController {
             }
             // 'skipped' : rien a signaler
         } else {
+            // Une annulation utilisateur n'est pas une erreur: on la remonte immediatement
+            // pour que l'appelant puisse l'ignorer sans afficher de message d'erreur.
+            if (isCancelled(result.reason as Error | undefined)) {
+                throw result.reason;
+            }
             failed.push('description');
             firstError ??= result.reason;
             console.error('[GeocacheDetailsTranslationController] echec traduction description', result.reason);
@@ -138,6 +144,9 @@ export class GeocacheDetailsTranslationController {
             }
             // 'skipped' : rien a signaler
         } else {
+            if (isCancelled(metaOutcome.reason as Error | undefined)) {
+                throw metaOutcome.reason;
+            }
             if (sourceHints) {
                 failed.push('indices');
             }
@@ -162,9 +171,10 @@ export class GeocacheDetailsTranslationController {
     private async runDescriptionTranslation(
         languageModel: any,
         geocacheId: number,
-        description: string
+        description: string,
+        cancellationToken?: CancellationToken
     ): Promise<DescriptionStepResult> {
-        const translatedHtml = await this.translateHtmlWithChunking(languageModel, description);
+        const translatedHtml = await this.translateHtmlWithChunking(languageModel, description, cancellationToken);
         // Sans ce garde-fou, une reponse vide (ou reduite a un bloc de raisonnement) serait
         // persistee telle quelle et effacerait la description modifiee existante.
         if (!translatedHtml) {
@@ -181,9 +191,10 @@ export class GeocacheDetailsTranslationController {
         languageModel: any,
         geocacheId: number,
         sourceHints: string,
-        sourceWaypoints: TranslateAllWaypointInput[]
+        sourceWaypoints: TranslateAllWaypointInput[],
+        cancellationToken?: CancellationToken
     ): Promise<MetaStepResult> {
-        const meta = await this.translateHintsAndWaypoints(languageModel, sourceHints, sourceWaypoints);
+        const meta = await this.translateHintsAndWaypoints(languageModel, sourceHints, sourceWaypoints, cancellationToken);
 
         const payload: UpdateTranslatedContentInput = {};
         if (sourceHints && meta.hintsDecoded) {
@@ -221,9 +232,9 @@ export class GeocacheDetailsTranslationController {
      * Retourne le HTML traduit reassemble, ou '' si aucun chunk n'a produit de traduction
      * exploitable (pour que l'appelant puisse le comptabiliser comme un echec).
      */
-    private async translateHtmlWithChunking(languageModel: any, sourceHtml: string): Promise<string> {
+    private async translateHtmlWithChunking(languageModel: any, sourceHtml: string, cancellationToken?: CancellationToken): Promise<string> {
         if (sourceHtml.length <= GeocacheDetailsTranslationController.CHUNK_THRESHOLD) {
-            const translated = await this.translateHtmlFragment(languageModel, sourceHtml, 'description');
+            const translated = await this.translateHtmlFragment(languageModel, sourceHtml, 'description', cancellationToken);
             if (!translated || this.detectTruncation(sourceHtml, translated)) {
                 return '';
             }
@@ -233,7 +244,10 @@ export class GeocacheDetailsTranslationController {
         const chunks = this.splitHtmlIntoChunks(sourceHtml);
         const translatedChunks: string[] = [];
         for (let i = 0; i < chunks.length; i++) {
-            const chunkTranslated = await this.translateHtmlFragment(languageModel, chunks[i], `description-chunk-${i}`);
+            if (cancellationToken?.isCancellationRequested) {
+                return '';
+            }
+            const chunkTranslated = await this.translateHtmlFragment(languageModel, chunks[i], `description-chunk-${i}`, cancellationToken);
             if (!chunkTranslated || this.detectTruncation(chunks[i], chunkTranslated)) {
                 // Un chunk tronque compromet la coherence du HTML reassemble : on abandonne
                 // plutot que de persister une traduction partielle et potentiellement cassee.
@@ -337,7 +351,7 @@ export class GeocacheDetailsTranslationController {
         return false;
     }
 
-    private async translateHtmlFragment(languageModel: any, sourceHtml: string, kind: string): Promise<string> {
+    private async translateHtmlFragment(languageModel: any, sourceHtml: string, kind: string, cancellationToken?: CancellationToken): Promise<string> {
         const prompt =
             'Tu es un traducteur. Traduis en francais le contenu TEXTUEL du HTML fourni, en conservant le HTML.\n'
             + '- Ne change pas les balises, attributs, liens, images, classes, ids.\n'
@@ -351,6 +365,7 @@ export class GeocacheDetailsTranslationController {
             agentId: GeoAppTranslateDescriptionAgentId,
             requestId: `geoapp-translate-${kind}-${Date.now()}`,
             sessionId: `geoapp-translate-${kind}-session-${Date.now()}`,
+            cancellationToken,
         };
 
         const response = await this.languageModelService.sendRequest(languageModel, request);
@@ -376,7 +391,8 @@ export class GeocacheDetailsTranslationController {
     private async translateHintsAndWaypoints(
         languageModel: any,
         hintsDecoded: string,
-        waypoints: TranslateAllWaypointInput[]
+        waypoints: TranslateAllWaypointInput[],
+        cancellationToken?: CancellationToken
     ): Promise<{ hintsDecoded: string; waypoints: Array<{ id: number; note_override: string }> }> {
         const hasHints = (hintsDecoded || '').trim().length > 0;
         const hasWaypoints = waypoints.length > 0;
@@ -398,6 +414,7 @@ export class GeocacheDetailsTranslationController {
             agentId: GeoAppTranslateDescriptionAgentId,
             requestId: `geoapp-translate-meta-${Date.now()}`,
             sessionId: `geoapp-translate-meta-session-${Date.now()}`,
+            cancellationToken,
         };
 
         const response = await this.languageModelService.sendRequest(languageModel, request);

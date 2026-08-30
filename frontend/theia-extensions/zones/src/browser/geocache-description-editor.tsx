@@ -15,6 +15,7 @@ export interface DescriptionEditorProps {
     isTranslating: boolean;
     onTranslateAllToFrench: () => Promise<void>;
     isTranslatingAll: boolean;
+    onCancelTranslation: () => void;
     externalLinksOpenMode: 'new-tab' | 'new-window';
 }
 
@@ -196,6 +197,7 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
     isTranslating,
     onTranslateAllToFrench,
     isTranslatingAll,
+    onCancelTranslation,
     externalLinksOpenMode
 }) => {
     const [variant, setVariant] = React.useState<DescriptionVariant>(defaultVariant);
@@ -525,6 +527,15 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
                             ? 'Traduction en cours : description + indices + notes de waypoints…'
                             : 'Traduction de la description en cours…'}
                     </span>
+                    <button
+                        type='button'
+                        className='theia-button secondary'
+                        onClick={onCancelTranslation}
+                        title='Annuler la traduction en cours'
+                        style={{ marginLeft: 'auto', padding: '2px 10px', fontSize: 11 }}
+                    >
+                        Annuler
+                    </button>
                 </div>
             ) : undefined}
 
