@@ -35,6 +35,17 @@ export interface TranslateAllContentResult {
     failed: string[];
 }
 
+/** Resultat de l'etape de traduction de la description (lancee en parallele des hints/waypoints). */
+type DescriptionStepResult =
+    | { kind: 'done' }
+    | { kind: 'empty' }
+    | { kind: 'skipped' };
+
+/** Resultat de l'etape de traduction des hints + waypoints (lancee en parallele de la description). */
+type MetaStepResult =
+    | { kind: 'done'; translatedHints: boolean; waypointCount: number }
+    | { kind: 'skipped' };
+
 @injectable()
 export class GeocacheDetailsTranslationController {
     constructor(
@@ -73,82 +84,124 @@ export class GeocacheDetailsTranslationController {
         // separement des hints + waypoints (petit JSON). Un unique appel qui renvoie tout dans un
         // seul JSON depasse frequemment la limite de generation des petits modeles locaux et se
         // retrouve tronque, faisant echouer l'ensemble.
-        // Chaque etape est persistee des qu'elle aboutit: un echec sur les hints/waypoints ne doit
-        // pas faire perdre la description, qui est de loin l'appel le plus long et le plus couteux.
+        //
+        // Les deux appels sont lances en parallele (Promise.allSettled) pour gagner du temps sur
+        // les modeles cloud/API. Chaque etape est persistee des qu'elle aboutit: un echec sur
+        // l'une n'empeche pas l'autre d'etre enregistree. Sur un modele local mono-requête, le
+        // runtime serialisera de toute façon les deux appels sans regression de robustesse.
+        const hasMetaWork = sourceHints || sourceWaypoints.length > 0;
+
+        const descriptionTask = description
+            ? this.runDescriptionTranslation(languageModel, input.geocacheId, description)
+            : Promise.resolve<DescriptionStepResult>({ kind: 'skipped' });
+        const metaTask = hasMetaWork
+            ? this.runMetaTranslation(languageModel, input.geocacheId, sourceHints, sourceWaypoints)
+            : Promise.resolve<MetaStepResult>({ kind: 'skipped' });
+
+        const [descriptionOutcome, metaOutcome] = await Promise.allSettled([descriptionTask, metaTask]);
+
         const translated: string[] = [];
         const failed: string[] = [];
+        let firstError: unknown;
 
-        if (description) {
-            const translatedHtml = await this.translateHtmlFragment(languageModel, description, 'description');
-            // Sans ce garde-fou, une reponse vide (ou reduite a un bloc de raisonnement) serait
-            // persistee telle quelle et effacerait la description modifiee existante.
-            if (translatedHtml) {
-                await this.geocacheDetailsService.updateTranslatedContent(input.geocacheId, {
-                    description_override_html: translatedHtml,
-                    description_override_raw: htmlToRawText(translatedHtml),
-                });
+        if (descriptionOutcome.status === 'fulfilled') {
+            const result = descriptionOutcome.value;
+            if (result.kind === 'done') {
                 translated.push('description');
-            } else {
+            } else if (result.kind === 'empty') {
                 failed.push('description');
             }
+            // 'skipped' : rien a signaler
+        } else {
+            failed.push('description');
+            firstError ??= result.reason;
+            console.error('[GeocacheDetailsTranslationController] echec traduction description', result.reason);
         }
 
-        if (!sourceHints && sourceWaypoints.length === 0) {
-            if (translated.length === 0) {
-                throw new Error(`Traduction IA: reponse vide (${failed.join(', ')})`);
+        if (metaOutcome.status === 'fulfilled') {
+            const result = metaOutcome.value;
+            if (result.kind === 'done') {
+                if (result.translatedHints) {
+                    translated.push('indices');
+                } else if (sourceHints) {
+                    failed.push('indices');
+                }
+                if (sourceWaypoints.length > 0) {
+                    if (result.waypointCount > 0) {
+                        translated.push(`notes de waypoints (${result.waypointCount}/${sourceWaypoints.length})`);
+                    }
+                    const missing = sourceWaypoints.length - result.waypointCount;
+                    if (missing > 0) {
+                        failed.push(`notes de waypoints (${missing}/${sourceWaypoints.length})`);
+                    }
+                }
             }
-            return { translated, failed };
-        }
-
-        // Une reponse JSON invalide ou une erreur reseau sur cette 2e etape est rattrapee: elle est
-        // comptabilisee comme un echec partiel plutot que d'annuler la description deja enregistree.
-        let meta: { hintsDecoded: string; waypoints: Array<{ id: number; note_override: string }> } = {
-            hintsDecoded: '',
-            waypoints: [],
-        };
-        let metaError: unknown;
-        try {
-            meta = await this.translateHintsAndWaypoints(languageModel, sourceHints, sourceWaypoints);
-        } catch (error) {
-            metaError = error;
-            console.error('[GeocacheDetailsTranslationController] echec traduction hints/waypoints', error);
-        }
-
-        const payload: UpdateTranslatedContentInput = {};
-
-        if (sourceHints) {
-            if (meta.hintsDecoded) {
-                payload.hints_decoded_override = meta.hintsDecoded;
-                translated.push('indices');
-            } else {
+            // 'skipped' : rien a signaler
+        } else {
+            if (sourceHints) {
                 failed.push('indices');
             }
-        }
-
-        if (sourceWaypoints.length > 0) {
-            if (meta.waypoints.length > 0) {
-                payload.waypoints = meta.waypoints;
-                translated.push(`notes de waypoints (${meta.waypoints.length}/${sourceWaypoints.length})`);
+            if (sourceWaypoints.length > 0) {
+                failed.push(`notes de waypoints (${sourceWaypoints.length}/${sourceWaypoints.length})`);
             }
-            if (meta.waypoints.length < sourceWaypoints.length) {
-                const missing = sourceWaypoints.length - meta.waypoints.length;
-                failed.push(`notes de waypoints (${missing}/${sourceWaypoints.length})`);
-            }
+            firstError ??= metaOutcome.reason;
+            console.error('[GeocacheDetailsTranslationController] echec traduction hints/waypoints', metaOutcome.reason);
         }
 
         if (translated.length === 0) {
-            // Rien n'a pu etre enregistre: on remonte la cause reelle si l'etape 2 a leve.
-            if (metaError) {
-                throw metaError;
+            // Rien n'a pu etre enregistre: on remonte la premiere cause d'erreur rencontree.
+            if (firstError) {
+                throw firstError;
             }
             throw new Error(`Traduction IA: reponse vide (${failed.join(', ')})`);
         }
 
-        if (Object.keys(payload).length > 0) {
-            await this.geocacheDetailsService.updateTranslatedContent(input.geocacheId, payload);
+        return { translated, failed };
+    }
+
+    private async runDescriptionTranslation(
+        languageModel: any,
+        geocacheId: number,
+        description: string
+    ): Promise<DescriptionStepResult> {
+        const translatedHtml = await this.translateHtmlFragment(languageModel, description, 'description');
+        // Sans ce garde-fou, une reponse vide (ou reduite a un bloc de raisonnement) serait
+        // persistee telle quelle et effacerait la description modifiee existante.
+        if (!translatedHtml) {
+            return { kind: 'empty' };
+        }
+        await this.geocacheDetailsService.updateTranslatedContent(geocacheId, {
+            description_override_html: translatedHtml,
+            description_override_raw: htmlToRawText(translatedHtml),
+        });
+        return { kind: 'done' };
+    }
+
+    private async runMetaTranslation(
+        languageModel: any,
+        geocacheId: number,
+        sourceHints: string,
+        sourceWaypoints: TranslateAllWaypointInput[]
+    ): Promise<MetaStepResult> {
+        const meta = await this.translateHintsAndWaypoints(languageModel, sourceHints, sourceWaypoints);
+
+        const payload: UpdateTranslatedContentInput = {};
+        if (sourceHints && meta.hintsDecoded) {
+            payload.hints_decoded_override = meta.hintsDecoded;
+        }
+        if (meta.waypoints.length > 0) {
+            payload.waypoints = meta.waypoints;
         }
 
-        return { translated, failed };
+        if (Object.keys(payload).length > 0) {
+            await this.geocacheDetailsService.updateTranslatedContent(geocacheId, payload);
+        }
+
+        return {
+            kind: 'done',
+            translatedHints: Boolean(meta.hintsDecoded),
+            waypointCount: meta.waypoints.length,
+        };
     }
 
     private async translateHtmlFragment(languageModel: any, sourceHtml: string, kind: string): Promise<string> {
