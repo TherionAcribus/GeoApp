@@ -4,12 +4,11 @@ import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core';
 import { Message, StorageService } from '@theia/core/lib/browser';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
-import { LanguageModelRegistry, LanguageModelService, UserRequest, getTextOfResponse, getJsonOfResponse, isLanguageModelParsedResponse } from '@theia/ai-core';
+import { LanguageModelRegistry, LanguageModelService } from '@theia/ai-core';
 import { GeoAppLogWriterAgentId } from './geoapp-log-writer-agent';
 import { LogTypeIcon } from './geocache-log-type-icons';
 import { AiGenerationPanel } from './log-editor/ai-generation-panel';
 import { CharCounter } from './log-editor/char-counter';
-import { DnfBadge } from './log-editor/dnf-badge';
 import { DraftBanner } from './log-editor/draft-banner';
 import { GeocacheLogEditorGeocachesTable } from './log-editor/geocaches-table';
 import { ImagesSection } from './log-editor/images-section';
@@ -36,24 +35,17 @@ import {
     resolvePatternValue,
     type PatternResolutionContext,
 } from './log-editor/pattern-resolver';
-import { SubmitBadge } from './log-editor/submit-badge';
 import { TextareaWithOverlay, TextWithHighlightedPatterns } from './log-editor/textarea-overlay';
 import { SubmitProgress } from './log-editor/submit-progress';
 import {
     ALREADY_FOUND_ACCENT,
-    ALREADY_FOUND_ROW_BACKGROUND,
-    DNF_ACCENT,
-    DNF_ROW_BACKGROUND,
     GC_LOG_MAX_LENGTH,
     IMAGE_FAILURE_SEND,
     IMAGE_FAILURE_SEND_ALL,
     IMAGE_FAILURE_SKIP,
-    JUST_LOGGED_ACCENT,
-    JUST_LOGGED_ROW_BACKGROUND,
     PATTERN_AUTOCOMPLETE_DELAY_MS,
 } from './log-editor/constants';
 import {
-    alreadyFoundTooltip,
     findPatternTokenStart,
     getCaretCoordinates,
     sanitizeLogTypeForGeocache,
@@ -70,9 +62,32 @@ import {
     PatternSuggestion,
     SelectedLogImage,
     SubmissionStatus,
-    isLogTypeValue,
-    isSubmissionStatus,
 } from './log-editor/types';
+import {
+    buildDraftFromState,
+    buildHistoryEntry,
+    computeDraftApplication,
+    computeHistoryApplication,
+    computeNextHistoryCursor,
+    deleteDraftFromStorage,
+    getDraftKey as getDraftKeyPure,
+    getLogHistoryMaxItems as getLogHistoryMaxItemsPure,
+    hasDraftWorthSaving as hasDraftWorthSavingPure,
+    loadLogHistory,
+    persistDraftToStorage,
+    pickKnownGeocacheValues as pickKnownGeocacheValuesPure,
+    pruneDrafts as pruneDraftsPure,
+    readDrafts as readDraftsPure,
+} from './log-editor/log-history-store';
+import {
+    fetchGeocachesBatch,
+    fetchUserStats,
+    formatFavoritePercent as formatFavoritePercentPure,
+    refreshUserStats,
+    toGeocacheListItem as toGeocacheListItemPure,
+} from './log-editor/geocache-loader';
+import { generateLogWithAi as generateLogWithAiPure, NoLanguageModelError } from './log-editor/ai-log-generator';
+import { PerCacheBlock } from './log-editor/per-cache-block';
 import {
     findFormatAtCaret,
     MarkdownFormatKind,
@@ -235,41 +250,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     }
 
     protected getLogHistoryMaxItems(): number {
-        const raw = this.preferenceService.get<number>(this.logHistoryMaxItemsPreferenceKey, 10);
-        const value = typeof raw === 'number' && isFinite(raw) ? Math.floor(raw) : 10;
-        return Math.max(1, Math.min(50, value));
-    }
-
-
-    protected readLegacyLocalStorageHistory(): LogHistoryEntry[] {
-        try {
-            if (typeof window === 'undefined' || !window.localStorage) {
-                return [];
-            }
-            const raw = window.localStorage.getItem(this.legacyLogHistoryLocalStorageKey);
-            if (!raw) {
-                return [];
-            }
-            const parsed = JSON.parse(raw);
-            if (!Array.isArray(parsed)) {
-                return [];
-            }
-            return (parsed as any[])
-                .filter(x => x && typeof x === 'object')
-                .map((x: any): LogHistoryEntry => ({
-                    id: typeof x.id === 'string' ? x.id : this.generateId(),
-                    createdAt: typeof x.createdAt === 'string' ? x.createdAt : new Date().toISOString(),
-                    logDate: typeof x.logDate === 'string' ? x.logDate : todayIsoDate(),
-                    useSameTextForAll: x.useSameTextForAll === true,
-                    globalText: typeof x.globalText === 'string' ? x.globalText : '',
-                    perCacheText: (x.perCacheText && typeof x.perCacheText === 'object') ? x.perCacheText as Record<number, string> : {},
-                    logType: isLogTypeValue(x.logType) ? x.logType : 'found',
-                    perCacheLogType: (x.perCacheLogType && typeof x.perCacheLogType === 'object') ? x.perCacheLogType as Record<number, LogTypeValue> : {},
-                    perCacheFavorite: (x.perCacheFavorite && typeof x.perCacheFavorite === 'object') ? x.perCacheFavorite as Record<number, boolean> : {},
-                }));
-        } catch {
-            return [];
-        }
+        return getLogHistoryMaxItemsPure(this.preferenceService, this.logHistoryMaxItemsPreferenceKey);
     }
 
     protected async refreshLogHistory(): Promise<void> {
@@ -277,54 +258,28 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         this.logHistoryCursor = -1;
         this.update();
 
-        let stored = await this.storageService.getData<LogHistoryEntry[]>(this.logHistoryStorageKey, []);
-        if (!Array.isArray(stored)) {
-            stored = [];
-        }
+        this.logHistory = await loadLogHistory(
+            this.storageService,
+            this.logHistoryStorageKey,
+            this.legacyLogHistoryLocalStorageKey,
+            () => this.generateId()
+        );
 
-        if (stored.length === 0) {
-            const legacy = this.readLegacyLocalStorageHistory();
-            if (legacy.length > 0) {
-                stored = legacy;
-                await this.storageService.setData(this.logHistoryStorageKey, stored);
-            }
-        }
-
-        this.logHistory = stored;
         this.isLoadingHistory = false;
         this.update();
     }
 
     protected getDraftKey(): string | undefined {
-        if (this.geocacheIds.length === 0) {
-            return undefined;
-        }
-        // Clé triée : le même ensemble de géocaches retrouve son brouillon quel que soit l'ordre d'ouverture.
-        return Array.from(new Set(this.geocacheIds)).sort((a, b) => a - b).join('-');
+        return getDraftKeyPure(this.geocacheIds);
     }
 
     protected async readDrafts(): Promise<Record<string, LogDraft>> {
-        const stored = await this.storageService.getData<Record<string, LogDraft>>(this.draftsStorageKey, {});
-        if (!stored || typeof stored !== 'object' || Array.isArray(stored)) {
-            return {};
-        }
-        return stored;
+        return readDraftsPure(this.storageService, this.draftsStorageKey);
     }
 
     /** Le stockage local est partagé avec tout Theia : on ne garde que les brouillons récents. */
     protected pruneDrafts(drafts: Record<string, LogDraft>): Record<string, LogDraft> {
-        const now = Date.now();
-        const kept = Object.entries(drafts)
-            .filter(([, draft]) => {
-                if (!draft || typeof draft !== 'object' || typeof draft.savedAt !== 'string') {
-                    return false;
-                }
-                const savedAt = Date.parse(draft.savedAt);
-                return Number.isNaN(savedAt) || now - savedAt < this.draftsMaxAgeMs;
-            })
-            .sort((a, b) => Date.parse(b[1].savedAt) - Date.parse(a[1].savedAt))
-            .slice(0, this.draftsMaxItems);
-        return Object.fromEntries(kept);
+        return pruneDraftsPure(drafts, this.draftsMaxAgeMs, this.draftsMaxItems);
     }
 
     /**
@@ -332,34 +287,30 @@ export class GeocacheLogEditorWidget extends ReactWidget {
      * de brouillon : ça ferait réapparaître un bandeau de restauration pour rien.
      */
     protected hasDraftWorthSaving(): boolean {
-        if (this.globalText.trim() !== '' || Object.values(this.perCacheText).some(text => (text ?? '').trim() !== '')) {
-            return true;
-        }
-        if (Object.values(this.perCacheFavorite).some(value => value === true)) {
-            return true;
-        }
-        if (Object.keys(this.perCacheSubmitStatus).length > 0) {
-            return true;
-        }
-        // Comparaison avec le type global *assaini* : une cache déjà trouvée bascule d'office sur
-        // « Ne pas loguer », ce n'est pas un choix de l'utilisateur et ça ne justifie pas un brouillon.
-        return this.geocaches.some(gc => this.getLogTypeForGeocacheId(gc.id) !== sanitizeLogTypeForGeocache(this.logType, gc));
+        return hasDraftWorthSavingPure(
+            this.globalText,
+            this.perCacheText,
+            this.perCacheFavorite,
+            this.perCacheSubmitStatus,
+            this.geocaches,
+            this.logType,
+            id => this.getLogTypeForGeocacheId(id)
+        );
     }
 
     protected buildDraft(): LogDraft {
-        return {
-            savedAt: new Date().toISOString(),
-            geocacheIds: this.geocaches.map(gc => gc.id),
-            logDate: this.logDate,
-            logType: this.logType,
-            useSameTextForAll: this.useSameTextForAll,
-            globalText: this.globalText,
-            perCacheText: { ...this.perCacheText },
-            perCacheLogType: { ...this.perCacheLogType },
-            perCacheFavorite: { ...this.perCacheFavorite },
-            perCacheSubmitStatus: { ...this.perCacheSubmitStatus },
-            perCacheSubmitReference: { ...this.perCacheSubmitReference },
-        };
+        return buildDraftFromState(
+            this.geocaches,
+            this.logDate,
+            this.logType,
+            this.useSameTextForAll,
+            this.globalText,
+            this.perCacheText,
+            this.perCacheLogType,
+            this.perCacheFavorite,
+            this.perCacheSubmitStatus,
+            this.perCacheSubmitReference
+        );
     }
 
     /** Programme l'écriture du brouillon ; appelé à chaque rendu, donc volontairement bon marché. */
@@ -399,17 +350,14 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 return;
             }
 
-            const drafts = await this.readDrafts();
-            if (draft) {
-                drafts[key] = draft;
-            } else if (!(key in drafts)) {
-                this.lastPersistedDraftJson = signature;
-                return;
-            } else {
-                delete drafts[key];
-            }
-
-            await this.storageService.setData(this.draftsStorageKey, this.pruneDrafts(drafts));
+            await persistDraftToStorage(
+                this.storageService,
+                this.draftsStorageKey,
+                key,
+                draft,
+                this.draftsMaxAgeMs,
+                this.draftsMaxItems
+            );
             this.lastPersistedDraftJson = signature;
         } catch (e) {
             console.error('[GeocacheLogEditorWidget] persistDraft error', e);
@@ -426,11 +374,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             this.draftSaveTimer = undefined;
         }
         try {
-            const drafts = await this.readDrafts();
-            if (key in drafts) {
-                delete drafts[key];
-                await this.storageService.setData(this.draftsStorageKey, drafts);
-            }
+            await deleteDraftFromStorage(this.storageService, this.draftsStorageKey, key);
             this.lastPersistedDraftJson = 'empty';
         } catch (e) {
             console.error('[GeocacheLogEditorWidget] deleteDraft error', e);
@@ -439,54 +383,35 @@ export class GeocacheLogEditorWidget extends ReactWidget {
 
     /** Ne conserve d'un enregistrement que les clés correspondant aux géocaches réellement chargées. */
     protected pickKnownGeocacheValues<T>(source: Record<number, T> | undefined, isValid: (value: unknown) => value is T): Record<number, T> {
-        const result: Record<number, T> = {};
-        if (!source || typeof source !== 'object') {
-            return result;
-        }
-        for (const gc of this.geocaches) {
-            const value = (source as Record<number, unknown>)[gc.id];
-            if (isValid(value)) {
-                result[gc.id] = value;
-            }
-        }
-        return result;
+        return pickKnownGeocacheValuesPure(this.geocaches, source, isValid);
     }
 
     protected applyDraft(draft: LogDraft): void {
-        // Une date épinglée reste prioritaire, comme pour l'historique.
-        if (!this.isLogDatePinned && this.isValidIsoDate(draft.logDate)) {
-            this.logDate = draft.logDate;
-        }
-        if (isLogTypeValue(draft.logType)) {
-            this.logType = draft.logType;
-        }
-        this.useSameTextForAll = draft.useSameTextForAll === true;
-        this.globalText = typeof draft.globalText === 'string' ? draft.globalText : '';
-        this.perCacheText = this.pickKnownGeocacheValues(draft.perCacheText, (v): v is string => typeof v === 'string');
+        const result = computeDraftApplication(
+            draft,
+            this.geocaches,
+            this.logDate,
+            this.logType,
+            this.perCacheLogType,
+            this.perCacheFavorite,
+            this.isLogDatePinned,
+            (v): v is string => this.isValidIsoDate(v)
+        );
+
+        this.logDate = result.logDate;
+        this.logType = result.logType;
+        this.useSameTextForAll = result.useSameTextForAll;
+        this.globalText = result.globalText;
+        this.perCacheText = result.perCacheText;
         // Comme pour l'historique : on ignore quels textes ont été personnalisés, donc aucun marqueur de distribution.
         this.lastDistributedGlobalText = undefined;
+        this.perCacheLogType = result.perCacheLogType;
+        this.perCacheFavorite = result.perCacheFavorite;
+        this.perCacheSubmitStatus = result.perCacheSubmitStatus;
+        this.perCacheSubmitReference = result.perCacheSubmitReference;
 
-        const restoredTypes = this.pickKnownGeocacheValues(draft.perCacheLogType, isLogTypeValue);
-        const nextTypes: Record<number, LogTypeValue> = { ...this.perCacheLogType };
-        for (const gc of this.geocaches) {
-            const stored = restoredTypes[gc.id];
-            if (stored !== undefined) {
-                nextTypes[gc.id] = sanitizeLogTypeForGeocache(stored, gc);
-            }
-        }
-        this.perCacheLogType = nextTypes;
-
-        this.perCacheFavorite = {
-            ...this.perCacheFavorite,
-            ...this.pickKnownGeocacheValues(draft.perCacheFavorite, (v): v is boolean => typeof v === 'boolean'),
-        };
-        this.perCacheSubmitStatus = this.pickKnownGeocacheValues(draft.perCacheSubmitStatus, isSubmissionStatus);
-        this.perCacheSubmitReference = this.pickKnownGeocacheValues(draft.perCacheSubmitReference, (v): v is string => typeof v === 'string');
-
-        // L'ordre est celui d'envoi et de la numérotation @cache_count : il fait partie du travail à restaurer.
-        const restoredIds = Array.isArray(draft.geocacheIds) ? draft.geocacheIds.filter(id => typeof id === 'number') : [];
-        if (restoredIds.length === this.geocaches.length && restoredIds.every(id => this.geocaches.some(gc => gc.id === id))) {
-            this.reorderGeocaches(restoredIds);
+        if (result.reorderedGeocacheIds) {
+            this.reorderGeocaches(result.reorderedGeocacheIds);
         }
     }
 
@@ -561,54 +486,39 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     }
 
     protected async saveCurrentStateToHistory(): Promise<void> {
-        const entry: LogHistoryEntry = {
-            id: this.generateId(),
-            createdAt: new Date().toISOString(),
-            logDate: this.logDate,
-            useSameTextForAll: this.useSameTextForAll,
-            globalText: this.globalText,
-            perCacheText: { ...this.perCacheText },
-            logType: this.logType,
-            perCacheLogType: { ...this.perCacheLogType },
-            perCacheFavorite: { ...this.perCacheFavorite },
-        };
+        const entry = buildHistoryEntry(
+            () => this.generateId(),
+            this.logDate,
+            this.useSameTextForAll,
+            this.globalText,
+            this.perCacheText,
+            this.logType,
+            this.perCacheLogType,
+            this.perCacheFavorite
+        );
 
         const maxItems = this.getLogHistoryMaxItems();
-        const next = [entry, ...this.logHistory].slice(0, maxItems);
-        this.logHistory = next;
-        await this.storageService.setData(this.logHistoryStorageKey, next);
+        this.logHistory = [entry, ...this.logHistory].slice(0, maxItems);
+        await this.storageService.setData(this.logHistoryStorageKey, this.logHistory);
         this.logHistoryCursor = -1;
         this.update();
     }
 
     protected applyHistoryEntry(entry: LogHistoryEntry): void {
-        const safeLogType = isLogTypeValue(entry.logType) ? entry.logType : this.logType;
+        const result = computeHistoryApplication(entry, this.logType, this.isLogDatePinned);
 
-        const perCacheValues = entry.perCacheText && typeof entry.perCacheText === 'object'
-            ? entry.perCacheText as Record<number, string>
-            : {};
-
-        const perCacheLogTypeValues = entry.perCacheLogType && typeof entry.perCacheLogType === 'object'
-            ? entry.perCacheLogType as Record<number, LogTypeValue>
-            : {};
-
-        const perCacheFavoriteValues = entry.perCacheFavorite && typeof entry.perCacheFavorite === 'object'
-            ? entry.perCacheFavorite as Record<number, boolean>
-            : {};
-
-        // Une date épinglée reste prioritaire sur celle de l'entrée d'historique restaurée.
-        if (!this.isLogDatePinned) {
-            this.logDate = entry.logDate;
+        if (result.logDate !== undefined) {
+            this.logDate = result.logDate;
         }
-        this.useSameTextForAll = entry.useSameTextForAll ?? false;
-        this.globalText = entry.globalText ?? '';
-        this.perCacheText = perCacheValues;
+        this.useSameTextForAll = result.useSameTextForAll;
+        this.globalText = result.globalText;
+        this.perCacheText = result.perCacheText;
         // Les textes viennent de l'historique : on ne sait pas lesquels ont été personnalisés,
         // donc on repart sans marqueur de distribution (ils seront tous conservés).
         this.lastDistributedGlobalText = undefined;
-        this.logType = safeLogType;
-        this.perCacheLogType = perCacheLogTypeValues;
-        this.perCacheFavorite = perCacheFavoriteValues;
+        this.logType = result.logType;
+        this.perCacheLogType = result.perCacheLogType;
+        this.perCacheFavorite = result.perCacheFavorite;
 
         this.update();
     }
@@ -628,21 +538,10 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     }
 
     protected navigateHistory(delta: number): void {
-        if (this.logHistory.length === 0) {
+        const nextCursor = computeNextHistoryCursor(this.logHistoryCursor, delta, this.logHistory.length);
+        if (nextCursor === undefined) {
             return;
         }
-
-        let nextCursor: number;
-        if (this.logHistoryCursor < 0) {
-            if (delta <= 0) {
-                return;
-            }
-            nextCursor = 0;
-        } else {
-            nextCursor = this.logHistoryCursor + delta;
-        }
-
-        nextCursor = Math.max(0, Math.min(this.logHistory.length - 1, nextCursor));
         this.logHistoryCursor = nextCursor;
         this.applyHistoryEntry(this.logHistory[nextCursor]);
     }
@@ -1215,24 +1114,9 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         this.update();
 
         try {
-            const res = await fetch(`${this.backendBaseUrl}/api/auth/status`, { credentials: 'include' });
-            if (!res.ok) {
-                console.warn('[GeocacheLogEditorWidget] Failed to fetch auth status');
-                return;
-            }
-            const authState = await res.json();
-            const awardedPoints = authState?.user?.awarded_favorite_points;
-            if (typeof awardedPoints === 'number') {
-                this.totalFavoritePoints = awardedPoints;
-            } else {
-                this.totalFavoritePoints = 0;
-            }
-            const findsCount = authState?.user?.finds_count;
-            if (typeof findsCount === 'number') {
-                this.userFindsCount = findsCount;
-            } else {
-                this.userFindsCount = 0;
-            }
+            const stats = await fetchUserStats(this.backendBaseUrl);
+            this.totalFavoritePoints = stats.awardedFavoritePoints;
+            this.userFindsCount = stats.findsCount;
         } catch (e) {
             console.error('[GeocacheLogEditorWidget] fetchFavoritePoints error', e);
             this.totalFavoritePoints = 0;
@@ -1272,22 +1156,12 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         this.update();
 
         try {
-            const res = await fetch(`${this.backendBaseUrl}/api/auth/profile/refresh`, {
-                method: 'POST',
-                credentials: 'include',
-            });
-            if (!res.ok) {
-                console.warn('[GeocacheLogEditorWidget] Failed to refresh profile stats', res.status);
-                return;
+            const stats = await refreshUserStats(this.backendBaseUrl);
+            if (stats.findsCount !== undefined) {
+                this.userFindsCount = stats.findsCount;
             }
-            const body = await res.json();
-            const finds = body?.stats?.finds_count;
-            if (typeof finds === 'number') {
-                this.userFindsCount = finds;
-            }
-            const awardedPoints = body?.stats?.awarded_favorite_points;
-            if (typeof awardedPoints === 'number') {
-                this.totalFavoritePoints = awardedPoints;
+            if (stats.awardedFavoritePoints !== undefined) {
+                this.totalFavoritePoints = stats.awardedFavoritePoints;
             }
         } catch (e) {
             console.error('[GeocacheLogEditorWidget] refreshUserFindsCount error', e);
@@ -1299,22 +1173,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
 
     /** Convertit une géocache renvoyée par le backend en entrée de liste, ou `undefined`. */
     protected toGeocacheListItem(data: unknown): GeocacheListItem | undefined {
-        const raw = data as Record<string, unknown> | null;
-        if (!raw || typeof raw.id !== 'number') {
-            return undefined;
-        }
-        return {
-            id: raw.id,
-            gc_code: (raw.gc_code ?? '').toString(),
-            name: (raw.name ?? '').toString(),
-            owner: (raw.owner ?? '').toString() || undefined,
-            favorites_count: typeof raw.favorites_count === 'number' ? raw.favorites_count : undefined,
-            logs_count: typeof raw.logs_count === 'number' ? raw.logs_count : undefined,
-            placed_at: (raw.placed_at ?? null) as string | null,
-            cache_type: (raw.type ?? '').toString(),
-            already_found: raw.found === true,
-            found_date: (raw.found_date ?? null) as string | null,
-        };
+        return toGeocacheListItemPure(data);
     }
 
     /**
@@ -1329,65 +1188,39 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         this.update();
 
         try {
-            const query = this.geocacheIds.join(',');
-            const res = await fetch(
-                `${this.backendBaseUrl}/api/geocaches/batch?ids=${encodeURIComponent(query)}`,
-                { credentials: 'include' }
+            const result = await fetchGeocachesBatch(
+                this.backendBaseUrl,
+                this.geocacheIds,
+                this.perCacheLogType,
+                this.logType
             );
-            if (!res.ok) {
-                throw new Error(`HTTP ${res.status}`);
-            }
-            const body = await res.json();
-
-            const loaded = new Map<number, GeocacheListItem>();
-            for (const raw of (Array.isArray(body?.geocaches) ? body.geocaches : [])) {
-                const item = this.toGeocacheListItem(raw);
-                if (item) {
-                    loaded.set(item.id, item);
-                }
-            }
-
-            // L'ordre demandé est celui de l'envoi des logs et de la numérotation
-            // `@cache_count` : on le réimpose plutôt que de faire confiance à la réponse.
-            const results = this.geocacheIds
-                .map(id => loaded.get(id))
-                .filter((gc): gc is GeocacheListItem => gc !== undefined);
 
             // Une géocache introuvable ne doit pas empêcher de loguer les autres : elle est
             // signalée et retirée de la liste, là où N requêtes unitaires faisaient tout échouer.
-            const missing = this.geocacheIds.filter(id => !loaded.has(id));
-            if (missing.length > 0) {
-                console.warn('[GeocacheLogEditorWidget] géocaches introuvables', missing);
-                this.messages.warn(missing.length === 1
-                    ? `La géocache ${missing[0]} est introuvable : elle est retirée de la liste.`
-                    : `${missing.length} géocaches sont introuvables (${missing.join(', ')}) : elles sont retirées de la liste.`);
+            if (result.missingIds.length > 0) {
+                console.warn('[GeocacheLogEditorWidget] géocaches introuvables', result.missingIds);
+                this.messages.warn(result.missingIds.length === 1
+                    ? `La géocache ${result.missingIds[0]} est introuvable : elle est retirée de la liste.`
+                    : `${result.missingIds.length} géocaches sont introuvables (${result.missingIds.join(', ')}) : elles sont retirées de la liste.`);
             }
-            if (results.length === 0) {
+            if (result.geocaches.length === 0) {
                 this.messages.error('Impossible de charger la liste des géocaches.');
             }
 
-            this.geocaches = results;
+            this.geocaches = result.geocaches;
+            this.perCacheLogType = result.perCacheLogType;
 
-            const nextTypes: Record<number, LogTypeValue> = { ...this.perCacheLogType };
-            for (const gc of results) {
-                const existing = nextTypes[gc.id];
-                const candidate = isLogTypeValue(existing) ? existing : this.logType;
-                nextTypes[gc.id] = sanitizeLogTypeForGeocache(candidate, gc);
-            }
-            this.perCacheLogType = nextTypes;
-
-            const alreadyFound = results.filter(gc => gc.already_found === true);
-            if (alreadyFound.length > 0 && this.logType === 'found') {
-                const codes = alreadyFound.map(gc => gc.gc_code).join(', ');
+            if (result.alreadyFound.length > 0 && this.logType === 'found') {
+                const codes = result.alreadyFound.map(gc => gc.gc_code).join(', ');
                 this.messages.warn(
-                    alreadyFound.length === 1
+                    result.alreadyFound.length === 1
                         ? `${codes} est déjà loguée "Found it" : elle est passée sur "Ne pas loguer".`
-                        : `${alreadyFound.length} géocaches sont déjà loguées "Found it" (${codes}) : elles sont passées sur "Ne pas loguer".`
+                        : `${result.alreadyFound.length} géocaches sont déjà loguées "Found it" (${codes}) : elles sont passées sur "Ne pas loguer".`
                 );
             }
 
             const nextFav: Record<number, boolean> = { ...this.perCacheFavorite };
-            for (const gc of results) {
+            for (const gc of result.geocaches) {
                 if (typeof nextFav[gc.id] !== 'boolean') {
                     nextFav[gc.id] = false;
                 }
@@ -1429,14 +1262,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     }
 
     protected formatFavoritePercent(favoritesCount: number | undefined, logsCount: number | undefined): string {
-        if (typeof favoritesCount !== 'number' || typeof logsCount !== 'number' || logsCount <= 0) {
-            return '—';
-        }
-        const pct = (favoritesCount / logsCount) * 100;
-        if (!isFinite(pct)) {
-            return '—';
-        }
-        return `${pct.toFixed(1)}%`;
+        return formatFavoritePercentPure(favoritesCount, logsCount);
     }
 
     protected toggleFavoriteForGeocacheId(geocacheId: number, nextValue: boolean): void {
@@ -2373,80 +2199,16 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         this.update();
 
         try {
-            const languageModel = await this.languageModelRegistry.selectLanguageModel({
-                agent: GeoAppLogWriterAgentId,
-                purpose: 'chat',
-                identifier: 'default/universal'
-            });
-
-            if (!languageModel) {
-                this.messages.error('Aucun modèle IA n\'est configuré (vérifie la configuration IA de Theia)');
-                return;
-            }
-
-            const logTypeLabel = this.logType === 'found' ? 'trouvaille (Found it)'
-                : this.logType === 'dnf' ? 'non trouvée (Did Not Find)'
-                : 'note (Write note)';
-
-            const geocacheContext = this.geocaches.length > 0
-                ? `\n\nContexte des géocaches à loguer :\n${this.geocaches.slice(0, 5).map(gc => `- ${gc.gc_code}: "${gc.name}" (type: ${gc.cache_type || 'inconnu'}, owner: ${gc.owner || 'inconnu'})`).join('\n')}${this.geocaches.length > 5 ? `\n... et ${this.geocaches.length - 5} autre(s)` : ''}`
-                : '';
-
-            const customInstructions = (this.aiCustomInstructions || '').trim();
-            const exampleLogs = (this.aiExampleLogs || '').trim();
-
-            let prompt = `Tu es un rédacteur de logs de géocache. Génère un log de type "${logTypeLabel}" basé sur les mots-clés et idées suivants :
-
-**Mots-clés / idées :** ${keywords}
-${geocacheContext}`;
-
-            if (customInstructions) {
-                prompt += `\n\n**Instructions personnalisées de l'utilisateur :**\n${customInstructions}`;
-            }
-
-            if (exampleLogs) {
-                prompt += `\n\n**Exemples de logs de l'utilisateur (style à reproduire) :**\n${exampleLogs}`;
-            }
-
-            prompt += `\n\n**Règles importantes :**
-- Écris UNIQUEMENT le texte du log, sans introduction ni explication.
-- Le log doit être naturel et personnel, comme s'il était écrit par un géocacheur.
-- Adapte le ton au type de log (enthousiaste pour une trouvaille, déçu mais positif pour un DNF, informatif pour une note).
-- Tu peux utiliser du Markdown simple (gras, italique) si approprié.
-- Le log doit faire entre 2 et 6 phrases.
-- NE PAS inclure de signature ou de "TFTC" sauf si demandé dans les instructions.`;
-
-            const request: UserRequest = {
-                messages: [
-                    { actor: 'user', type: 'text', text: prompt },
-                ],
-                agentId: GeoAppLogWriterAgentId,
-                requestId: `geoapp-log-writer-${Date.now()}`,
-                sessionId: `geoapp-log-writer-session-${Date.now()}`,
-            };
-
-            const response = await this.languageModelService.sendRequest(languageModel, request);
-            let generatedText = '';
-
-            if (isLanguageModelParsedResponse(response)) {
-                generatedText = JSON.stringify(response.parsed);
-            } else {
-                try {
-                    generatedText = await getTextOfResponse(response);
-                } catch {
-                    const jsonResponse = await getJsonOfResponse(response) as any;
-                    generatedText = typeof jsonResponse === 'string' ? jsonResponse : String(jsonResponse);
-                }
-            }
-
-            generatedText = (generatedText || '').toString().trim();
-
-            generatedText = generatedText
-                .replace(/\[THINK\][\s\S]*?\[\/THINK\]/gi, '')
-                .replace(/<think>[\s\S]*?<\/think>/gi, '')
-                .replace(/\[ANALYSIS\][\s\S]*?\[\/ANALYSIS\]/gi, '')
-                .replace(/<analysis>[\s\S]*?<\/analysis>/gi, '')
-                .trim();
+            const generatedText = await generateLogWithAiPure(
+                this.languageModelRegistry,
+                this.languageModelService,
+                GeoAppLogWriterAgentId,
+                this.logType,
+                keywords,
+                this.geocaches,
+                (this.aiCustomInstructions || '').trim(),
+                (this.aiExampleLogs || '').trim()
+            );
 
             if (!generatedText) {
                 this.messages.warn('L\'IA n\'a pas généré de texte.');
@@ -2465,6 +2227,10 @@ ${geocacheContext}`;
             this.messages.info('Log généré par IA !');
 
         } catch (error) {
+            if (error instanceof NoLanguageModelError) {
+                this.messages.error('Aucun modèle IA n\'est configuré (vérifie la configuration IA de Theia)');
+                return;
+            }
             console.error('[GeocacheLogEditorWidget] generateLogWithAi error', error);
             this.messages.error(`Erreur lors de la génération IA: ${error}`);
         } finally {
@@ -2498,201 +2264,102 @@ ${geocacheContext}`;
      * l'état dont il dépend a changé, et non à chaque frappe dans une autre cache.
      */
     protected renderPerCacheBlock(gc: GeocacheListItem): React.ReactNode {
+        const dropZoneKey = `cache-${gc.id}`;
+        const previewKeyPrefix = `per-preview-${gc.id}`;
+        const overlayKey = `per-cache-overlay-${gc.id}`;
+        const charCounterStats = this.getFinalLengthStats({ geocacheId: gc.id });
+        const isTextSameAsGlobal = (this.perCacheText[gc.id] ?? '') === this.globalText;
+
         return (
-            <div
-                style={{
-                    // Même cascade que dans le tableau : envoyé, puis DNF, puis déjà trouvée.
-                    border: this.isGeocacheSubmittedOk(gc.id)
-                        ? `1px solid ${JUST_LOGGED_ACCENT}`
-                        : this.isPendingDnf(gc.id)
-                            ? `1px solid ${DNF_ACCENT}`
-                            : this.isPendingAlreadyFound(gc.id)
-                                ? `1px solid ${ALREADY_FOUND_ACCENT}`
-                                : '1px solid var(--theia-panel-border)',
-                    borderRadius: 6,
-                    padding: 10,
-                    background: this.isGeocacheSubmittedOk(gc.id)
-                        ? JUST_LOGGED_ROW_BACKGROUND
-                        : this.isPendingDnf(gc.id)
-                            ? DNF_ROW_BACKGROUND
-                            : this.isPendingAlreadyFound(gc.id)
-                                ? ALREADY_FOUND_ROW_BACKGROUND
-                                : 'var(--theia-editor-background)'
+            <PerCacheBlock
+                gc={gc}
+                isSubmittedOk={this.isGeocacheSubmittedOk(gc.id)}
+                isPendingDnf={this.isPendingDnf(gc.id)}
+                isPendingAlreadyFound={this.isPendingAlreadyFound(gc.id)}
+                submitStatus={this.perCacheSubmitStatus[gc.id]}
+                submitReference={this.perCacheSubmitReference[gc.id]}
+                submitError={this.perCacheSubmitError[gc.id]}
+                logType={this.getLogTypeForGeocacheId(gc.id)}
+                onLogTypeChange={value => this.setLogTypeForGeocacheId(gc.id, value)}
+                isFavorite={this.perCacheFavorite[gc.id] === true}
+                onFavoriteChange={value => this.toggleFavoriteForGeocacheId(gc.id, value)}
+                remainingFavoritePoints={this.getRemainingFavoritePoints()}
+                formatFavoritePercent={(fav, logs) => this.formatFavoritePercent(fav, logs)}
+                getLogTypeLabel={value => this.getLogTypeLabel(value)}
+                images={this.getImagesForGeocacheId(gc.id)}
+                isImagesDisabled={this.isLoading || this.isSubmitting || this.isGeocacheSubmittedOk(gc.id)}
+                isDragOver={this.dragOverDropZone === dropZoneKey}
+                onAddFiles={files => this.addSelectedImages(files, { geocacheId: gc.id })}
+                onRemoveImage={imageId => this.removeSelectedImage({ geocacheId: gc.id }, imageId)}
+                onDragOverChange={active => {
+                    const next = active ? dropZoneKey : undefined;
+                    if (this.dragOverDropZone === next) {
+                        return;
+                    }
+                    this.dragOverDropZone = next;
+                    this.update();
                 }}
-            >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-                    <div style={{ fontWeight: 700 }}>{gc.gc_code}</div>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                        {this.isPendingDnf(gc.id) && <DnfBadge />}
-                        {this.isPendingAlreadyFound(gc.id) && (
-                            <span
-                                style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 4,
-                                    padding: '2px 6px',
-                                    borderRadius: 3,
-                                    fontSize: 12,
-                                    background: ALREADY_FOUND_ROW_BACKGROUND,
-                                    color: ALREADY_FOUND_ACCENT,
-                                    border: `1px solid ${ALREADY_FOUND_ACCENT}`,
-                                    fontWeight: 700,
-                                    whiteSpace: 'nowrap'
-                                }}
-                                title={alreadyFoundTooltip(gc)}
-                            >
-                                <LogTypeIcon kind='found' size={14} title={alreadyFoundTooltip(gc)} />
-                                Déjà trouvée
-                            </span>
-                        )}
-                        {(this.perCacheSubmitStatus[gc.id] === 'ok' || this.perCacheSubmitStatus[gc.id] === 'failed') && (
-                            <SubmitBadge
-                                status={this.perCacheSubmitStatus[gc.id]}
-                                reference={this.perCacheSubmitReference[gc.id]}
-                                error={this.perCacheSubmitError[gc.id]}
-                            />
-                        )}
-                        <div style={{ opacity: 0.8, fontSize: 12, textAlign: 'right' }}>{gc.name}</div>
-                    </div>
-                </div>
-
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
-                    <div style={{ fontSize: 12, opacity: 0.85 }}>
-                        PF: {typeof gc.favorites_count === 'number' ? gc.favorites_count : '—'}
-                        {'  '}(
-                        {this.formatFavoritePercent(gc.favorites_count, gc.logs_count)}
-                        )
-                    </div>
-                    <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                        <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12 }}>
-                            <span style={{ opacity: 0.85 }}>Type</span>
-                            <select
-                                className='theia-select'
-                                value={this.getLogTypeForGeocacheId(gc.id)}
-                                onChange={e => this.setLogTypeForGeocacheId(gc.id, e.target.value as LogTypeValue)}
-                                disabled={this.isGeocacheSubmittedOk(gc.id)}
-                                title={this.isGeocacheSubmittedOk(gc.id)
-                                    ? 'Log déjà envoyé pour cette géocache'
-                                    : this.isPendingAlreadyFound(gc.id) ? alreadyFoundTooltip(gc) : undefined}
-                                style={this.isPendingDnf(gc.id)
-                                    ? { fontSize: 12, color: DNF_ACCENT, borderColor: DNF_ACCENT, fontWeight: 600 }
-                                    : { fontSize: 12 }}
-                            >
-                                <option value='found' disabled={this.isPendingAlreadyFound(gc.id)}>{this.getLogTypeLabel('found')}</option>
-                                <option value='dnf'>{this.getLogTypeLabel('dnf')}</option>
-                                <option value='note'>{this.getLogTypeLabel('note')}</option>
-                                <option value='skip'>{this.getLogTypeLabel('skip')}</option>
-                            </select>
-                        </label>
-
-                        <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, opacity: this.getLogTypeForGeocacheId(gc.id) === 'found' ? 0.9 : 0.5 }}>
-                            <input
-                                type='checkbox'
-                                checked={this.perCacheFavorite[gc.id] === true}
-                                onChange={e => this.toggleFavoriteForGeocacheId(gc.id, e.target.checked)}
-                                disabled={this.getLogTypeForGeocacheId(gc.id) !== 'found' || (!this.perCacheFavorite[gc.id] && this.getRemainingFavoritePoints() <= 0)}
-                                title={!this.perCacheFavorite[gc.id] && this.getRemainingFavoritePoints() <= 0 ? 'Plus de PF disponibles' : ''}
-                            />
-                            Donner un PF
-                        </label>
-                    </div>
-                </div>
-
-                <div style={{ marginTop: 10 }}>
-                    {this.renderImagesSection({ geocacheId: gc.id }, this.isLoading || this.isSubmitting || this.isGeocacheSubmittedOk(gc.id))}
-                </div>
-
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 8, marginBottom: 6 }}>
-                    {this.renderMarkdownToolbar({ type: 'per-cache', geocacheId: gc.id }, this.isLoading || this.isSubmitting)}
-                    {this.globalText.trim() !== '' && (
-                        <button
-                            className='theia-button secondary'
-                            onClick={() => this.applyGlobalTextToGeocache(gc.id)}
-                            disabled={this.isLoading
-                                || this.isSubmitting
-                                || this.isGeocacheSubmittedOk(gc.id)
-                                || (this.perCacheText[gc.id] ?? '') === this.globalText}
-                            title={(this.perCacheText[gc.id] ?? '') === this.globalText
-                                ? 'Ce texte est déjà identique au texte commun'
-                                : `Remplacer ce texte par le texte commun :\n\n${this.getGlobalTextExcerpt()}`}
-                            style={{ fontSize: 11, padding: '2px 6px', marginLeft: 'auto' }}
-                        >
-                            ↺ Texte commun
-                        </button>
-                    )}
-                </div>
-                <div style={{ position: 'relative', marginTop: 8 }}>
-                    {this.renderTextareaWithOverlay(
-                        this.perCacheText[gc.id] ?? '',
-                        gc.id,
-                        {
-                            className: 'theia-input',
-                            value: this.perCacheText[gc.id] ?? '',
-                            onChange: e => {
-                                const start = e.currentTarget.selectionStart;
-                                const end = e.currentTarget.selectionEnd;
-                                const newValue = e.target.value;
-                                this.perCacheText = { ...this.perCacheText, [gc.id]: newValue };
-                                this.refreshPatternAutocomplete(newValue, e.currentTarget, gc.id);
-                                this.update();
-                                this.scheduleRestoreSelection({ type: 'per-cache', geocacheId: gc.id }, start, end);
-                            },
-                            onKeyDown: e => this.handleTextAreaKeyDown(e, gc.id),
-                            onBlur: () => this.handleTextAreaBlur(),
-                            onFocus: () => { this.activeEditor = { type: 'per-cache', geocacheId: gc.id }; },
-                            disabled: this.isGeocacheSubmittedOk(gc.id),
-                            rows: 6,
-                            style: { width: '100%', resize: 'vertical' },
-                            placeholder: 'Texte (Markdown) - Tapez @ pour insérer un pattern'
-                        },
-                        el => { this.perCacheTextAreas = { ...this.perCacheTextAreas, [gc.id]: el }; },
-                        `per-cache-overlay-${gc.id}`
-                    )}
-                    {this.patternAutocompleteOpen && this.patternAutocompleteTargetGeocacheId === gc.id && this.patternAutocompleteSuggestions.length > 0 && this.patternAutocompletePosition && (
-                        <div
-                            style={{
-                                position: 'fixed',
-                                top: `${this.patternAutocompletePosition.top + 20}px`,
-                                left: `${this.patternAutocompletePosition.left}px`,
-                                width: 320,
-                                maxHeight: 200,
-                                overflowY: 'auto',
-                                border: '1px solid var(--theia-panel-border)',
-                                background: 'var(--theia-editor-background)',
-                                borderRadius: 3,
-                                zIndex: 1000,
-                                boxShadow: '0 4px 12px rgba(0,0,0,0.35)'
-                            }}
-                            onMouseDown={e => e.preventDefault()}
-                        >
-                            {this.patternAutocompleteSuggestions.map((s, idx) => (
-                                <div
-                                    key={s.id}
-                                    style={{
-                                        padding: '6px 8px',
-                                        cursor: 'pointer',
-                                        background: idx === this.patternAutocompleteActiveIndex
-                                            ? 'var(--theia-list-activeSelectionBackground)'
-                                            : 'transparent'
-                                    }}
-                                    onMouseEnter={() => { this.patternAutocompleteActiveIndex = idx; this.update(); }}
-                                    onClick={() => this.applyPatternSuggestion(s)}
-                                >
-                                    <div style={{ fontSize: '0.9em', fontWeight: 600 }}>{s.label}</div>
-                                    <div style={{ fontSize: '0.8em', opacity: 0.7 }}>{s.description}</div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
-
-                {this.renderCharCounter({ geocacheId: gc.id })}
-
-                {this.renderMarkdownPreview(
-                    this.resolveAllPatterns(this.perCacheText[gc.id] ?? '', gc.id),
-                    `per-preview-${gc.id}`
-                )}
-            </div>
+                getPreviewUrl={file => this.getPreviewUrl(file)}
+                isToolbarDisabled={this.isLoading || this.isSubmitting}
+                activeCaretFormat={this.activeCaretFormat}
+                isEditorActive={this.isEditorActive({ type: 'per-cache', geocacheId: gc.id })}
+                onApplyFormat={(kind, placeholder) => this.applyMarkdownFormat(kind, placeholder)}
+                onApplyPrefix={(prefix, placeholder) => this.applyMarkdownPrefix(prefix, placeholder)}
+                globalText={this.globalText}
+                globalTextExcerpt={this.getGlobalTextExcerpt()}
+                onApplyGlobalText={() => this.applyGlobalTextToGeocache(gc.id)}
+                isApplyGlobalTextDisabled={this.isLoading || this.isSubmitting || this.isGeocacheSubmittedOk(gc.id) || isTextSameAsGlobal}
+                applyGlobalTextTitle={isTextSameAsGlobal
+                    ? 'Ce texte est déjà identique au texte commun'
+                    : `Remplacer ce texte par le texte commun :\n\n${this.getGlobalTextExcerpt()}`}
+                text={this.perCacheText[gc.id] ?? ''}
+                textareaProps={{
+                    className: 'theia-input',
+                    value: this.perCacheText[gc.id] ?? '',
+                    onChange: e => {
+                        const start = e.currentTarget.selectionStart;
+                        const end = e.currentTarget.selectionEnd;
+                        const newValue = e.target.value;
+                        this.perCacheText = { ...this.perCacheText, [gc.id]: newValue };
+                        this.refreshPatternAutocomplete(newValue, e.currentTarget, gc.id);
+                        this.update();
+                        this.scheduleRestoreSelection({ type: 'per-cache', geocacheId: gc.id }, start, end);
+                    },
+                    onKeyDown: e => this.handleTextAreaKeyDown(e, gc.id),
+                    onBlur: () => this.handleTextAreaBlur(),
+                    onFocus: () => { this.activeEditor = { type: 'per-cache', geocacheId: gc.id }; },
+                    disabled: this.isGeocacheSubmittedOk(gc.id),
+                    rows: 6,
+                    style: { width: '100%', resize: 'vertical' },
+                    placeholder: 'Texte (Markdown) - Tapez @ pour insérer un pattern'
+                }}
+                textareaRef={el => { this.perCacheTextAreas = { ...this.perCacheTextAreas, [gc.id]: el }; }}
+                overlayKey={overlayKey}
+                patternNames={this.getPatternsIndex().names}
+                resolvePatternValue={(name, id) => this.resolvePatternValue(name, id)}
+                onCaretChange={ta => this.refreshCaretFormat(ta)}
+                onScrollSync={(key, ta) => this.syncOverlayScroll(key, ta)}
+                registerTextarea={(key, el) => { this.overlayTextareas[key] = el; }}
+                registerOverlay={(key, el) => { this.overlayElements[key] = el; }}
+                autocompleteOpen={this.patternAutocompleteOpen && this.patternAutocompleteTargetGeocacheId === gc.id}
+                autocompleteSuggestions={this.patternAutocompleteSuggestions}
+                autocompleteActiveIndex={this.patternAutocompleteActiveIndex}
+                autocompletePosition={this.patternAutocompletePosition}
+                onAutocompleteHover={idx => { this.patternAutocompleteActiveIndex = idx; this.update(); }}
+                onAutocompleteClick={s => this.applyPatternSuggestion(s)}
+                charCounterStats={charCounterStats}
+                resolvedText={this.resolveAllPatterns(this.perCacheText[gc.id] ?? '', gc.id)}
+                previewKeyPrefix={previewKeyPrefix}
+                isPreviewOpen={this.openMarkdownPreviews.has(previewKeyPrefix)}
+                onPreviewToggle={open => {
+                    if (open) {
+                        this.openMarkdownPreviews.add(previewKeyPrefix);
+                    } else {
+                        this.openMarkdownPreviews.delete(previewKeyPrefix);
+                    }
+                    this.update();
+                }}
+            />
         );
     }
 
