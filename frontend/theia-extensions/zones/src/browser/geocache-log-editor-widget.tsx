@@ -1030,6 +1030,20 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     /** Empêche un second envoi tant que le récapitulatif de confirmation est ouvert. */
     protected isConfirmingSubmit = false;
     protected lastSubmitSummary: { ok: number; failed: number } | undefined;
+    /**
+     * Progression de l'envoi en cours. `current` est l'index 1-based de la géocache
+     * traitée ; `imagesDone`/`imagesTotal` détaillent l'upload des photos, qui domine
+     * le temps d'un lot et sans lequel la barre semblerait bloquée.
+     */
+    protected submitProgress: {
+        current: number;
+        total: number;
+        gcCode: string;
+        imagesDone: number;
+        imagesTotal: number;
+    } | undefined;
+    /** Arrêt demandé par l'utilisateur : la boucle s'interrompt *après* la géocache en cours. */
+    protected stopRequested = false;
     protected perCacheSubmitStatus: Record<number, SubmissionStatus> = {};
     protected perCacheSubmitReference: Record<number, string | undefined> = {};
     /** Détail du dernier échec par géocache (photo non envoyée, erreur backend…). */
@@ -2046,9 +2060,13 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         }
     }
 
-    protected async uploadImagesForGeocache(geocacheId: number): Promise<ImagesUploadResult> {
+    protected async uploadImagesForGeocache(
+        geocacheId: number,
+        onProgress?: (done: number, total: number) => void
+    ): Promise<ImagesUploadResult> {
         const current = this.getImagesForGeocacheId(geocacheId);
         if (current.length === 0) {
+            onProgress?.(0, 0);
             return { guids: [], total: 0, failed: 0 };
         }
 
@@ -2069,10 +2087,12 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             }
             working[i] = { ...img, status: 'uploading', error: undefined };
             this.setImagesForGeocacheId(geocacheId, working);
+            onProgress?.(i, working.length);
             const uploaded = await this.uploadOneLogImage(geocacheId, working[i]);
             working[i] = uploaded;
             this.setImagesForGeocacheId(geocacheId, working);
         }
+        onProgress?.(working.length, working.length);
 
         return {
             guids: working.filter(x => x.status === 'ok' && typeof x.imageGuid === 'string').map(x => x.imageGuid as string),
@@ -3284,6 +3304,62 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         return this.geocaches.filter(gc => !this.isGeocacheSubmittedOk(gc.id) && !this.isGeocacheSkipped(gc.id));
     }
 
+    /**
+     * Barre de progression de l'envoi : sans elle, un lot de 30 géocaches avec photos
+     * n'affiche rien pendant plusieurs minutes.
+     */
+    protected renderSubmitProgress(): React.ReactNode {
+        const progress = this.submitProgress;
+        if (!progress) {
+            return undefined;
+        }
+        const { current, total, gcCode, imagesDone, imagesTotal } = progress;
+        // La géocache en cours n'est pas encore terminée : elle compte pour la fraction
+        // de ses photos déjà envoyées, ce qui évite une barre qui saute par paliers.
+        const inCache = imagesTotal > 0 ? imagesDone / imagesTotal : 0;
+        const ratio = total > 0 ? Math.min(1, (current - 1 + inCache) / total) : 0;
+
+        return (
+            <div style={{ margin: '8px 0' }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 12, marginBottom: 4 }}>
+                    <span style={{ fontWeight: 600 }}>
+                        Envoi {current}/{total}
+                    </span>
+                    <span style={{ opacity: 0.85 }}>{gcCode}</span>
+                    {imagesTotal > 0 && (
+                        <span style={{ opacity: 0.7 }}>
+                            — photo {Math.min(imagesDone + 1, imagesTotal)}/{imagesTotal}
+                        </span>
+                    )}
+                    {this.stopRequested && (
+                        <span style={{ marginLeft: 'auto', color: 'var(--theia-editorWarning-foreground, #d29922)', fontWeight: 600 }}>
+                            Arrêt après cette géocache…
+                        </span>
+                    )}
+                </div>
+                <div
+                    style={{
+                        height: 6,
+                        borderRadius: 3,
+                        background: 'var(--theia-panel-border)',
+                        overflow: 'hidden',
+                    }}
+                >
+                    <div
+                        style={{
+                            width: `${Math.round(ratio * 100)}%`,
+                            height: '100%',
+                            background: this.stopRequested
+                                ? 'var(--theia-editorWarning-foreground, #d29922)'
+                                : 'var(--theia-progressBar-background, var(--theia-button-background))',
+                            transition: 'width 0.2s ease',
+                        }}
+                    />
+                </div>
+            </div>
+        );
+    }
+
     protected renderSubmitBadge(geocacheId: number): React.ReactNode {
         const status = this.perCacheSubmitStatus[geocacheId];
         if (status === 'ok') {
@@ -3532,6 +3608,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
 
         this.isSubmitting = true;
         this.lastSubmitSummary = undefined;
+        this.stopRequested = false;
+        this.submitProgress = undefined;
         this.update();
 
         // `@cache_count` numérote à partir du nombre de trouvailles du profil :
@@ -3543,6 +3621,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
 
         let ok = 0;
         let failed = 0;
+        let processed = 0;
         /** "Envoyer sans les photos" appliqué au reste du lot : on ne redemande plus. */
         let sendWithoutImagesForBatch = false;
 
@@ -3551,6 +3630,21 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 if (this.isGeocacheSubmittedOk(gc.id) || this.isGeocacheSkipped(gc.id)) {
                     continue;
                 }
+                // Arrêt demandé : on ne coupe jamais une géocache en plein vol (photos déjà
+                // uploadées, log peut-être posté), on s'arrête entre deux itérations.
+                if (this.stopRequested) {
+                    break;
+                }
+                processed += 1;
+                this.submitProgress = {
+                    current: processed,
+                    total: toSubmit.length,
+                    gcCode: gc.gc_code,
+                    imagesDone: 0,
+                    imagesTotal: this.getImagesForGeocacheId(gc.id).length,
+                };
+                this.update();
+
                 const logTypeForGc = this.getLogTypeForGeocacheId(gc.id);
                 const payload = {
                     text: this.getResolvedTextForGeocacheId(gc.id),
@@ -3559,7 +3653,12 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                     favorite: logTypeForGc === 'found' ? (this.perCacheFavorite[gc.id] === true) : false,
                 };
 
-                const upload = await this.uploadImagesForGeocache(gc.id);
+                const upload = await this.uploadImagesForGeocache(gc.id, (done, total) => {
+                    if (this.submitProgress) {
+                        this.submitProgress = { ...this.submitProgress, imagesDone: done, imagesTotal: total };
+                        this.update();
+                    }
+                });
                 if (upload.failed > 0 && !sendWithoutImagesForBatch) {
                     const decision = await this.askImageFailureDecision(gc, upload);
                     if (decision === 'send-all') {
@@ -3665,10 +3764,28 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             } else {
                 this.messages.warn(`Logs envoyés sur Geocaching.com: ${ok} ok, ${failed} échec(s)${notLoggedSuffix}`);
             }
+
+            const remaining = toSubmit.length - processed;
+            if (this.stopRequested && remaining > 0) {
+                this.messages.warn(
+                    `Envoi interrompu : ${remaining} géocache(s) non envoyée(s), conservée(s) dans le brouillon.`
+                );
+            }
         } finally {
             this.isSubmitting = false;
+            this.stopRequested = false;
+            this.submitProgress = undefined;
             this.update();
         }
+    }
+
+    /** Demande l'arrêt du lot : effectif dès que la géocache en cours est terminée. */
+    protected requestSubmitStop(): void {
+        if (!this.isSubmitting || this.stopRequested) {
+            return;
+        }
+        this.stopRequested = true;
+        this.update();
     }
 
     protected formatVisitedIso(dateOnly: string): string {
@@ -4009,8 +4126,26 @@ ${geocacheContext}`;
                                 : 'Envoyer le(s) log(s) sur Geocaching.com via le backend'}
                             style={{ fontSize: 12, padding: '4px 12px' }}
                         >
-                            ✅ Envoyer sur GC
+                            {this.isSubmitting && this.submitProgress
+                                ? `⏳ Envoi ${this.submitProgress.current}/${this.submitProgress.total}…`
+                                : '✅ Envoyer sur GC'}
                         </button>
+                        {this.isSubmitting && (
+                            <button
+                                className='theia-button secondary'
+                                onClick={() => this.requestSubmitStop()}
+                                disabled={this.stopRequested}
+                                title="Termine la géocache en cours (photos + log) puis interrompt le lot. Les géocaches restantes sont conservées dans le brouillon."
+                                style={{
+                                    fontSize: 12,
+                                    padding: '4px 12px',
+                                    color: this.stopRequested ? undefined : 'var(--theia-editorWarning-foreground, #d29922)',
+                                    fontWeight: 600,
+                                }}
+                            >
+                                {this.stopRequested ? '⏹️ Arrêt demandé…' : '⏹️ Stop après la cache en cours'}
+                            </button>
+                        )}
                         <button
                             className='theia-button secondary'
                             onClick={() => { void this.copyFieldNotes(); }}
@@ -4031,6 +4166,8 @@ ${geocacheContext}`;
                         </button>
                     </div>
                 </div>
+
+                {this.renderSubmitProgress()}
 
                 {this.renderDraftBanner()}
 
