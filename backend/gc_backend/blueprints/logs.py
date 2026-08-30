@@ -9,7 +9,7 @@ Ce module fournit les routes API pour :
 import json
 import logging
 from datetime import date as date_type
-from datetime import datetime, timezone
+from datetime import datetime, time as time_type
 
 from flask import Blueprint, jsonify, request
 
@@ -280,7 +280,11 @@ def submit_geocache_log(geocache_id: int):
 
         if resolved_log_type_id == 2:
             geocache.found = True
-            geocache.found_date = datetime.now(timezone.utc)
+            # On stocke la date de visite envoyée avec le log, pas l'instant de
+            # soumission : loguer aujourd'hui une sortie de la semaine dernière
+            # doit laisser la base locale d'accord avec Geocaching.com.
+            # Datetime naïf à minuit, comme le scraper (cf. scraper.py, "Logged on:").
+            geocache.found_date = datetime.combine(visited_date, time_type.min)
             db.session.commit()
             ArchiveService.sync_from_geocache(geocache)
 
