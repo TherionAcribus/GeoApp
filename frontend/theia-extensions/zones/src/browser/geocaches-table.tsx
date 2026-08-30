@@ -92,6 +92,12 @@ interface GeocachesTableProps {
     onFilteredDataChange?: (geocaches: Geocache[]) => void;
     /** Identifiants des géocaches cochées (pour les mettre en évidence sur la carte). */
     onSelectionChange?: (geocacheIds: number[]) => void;
+    /**
+     * Sélection imposée de l'extérieur (Ctrl+clic ou menu contextuel de la carte).
+     * Le tableau reste maître de ses cases à cocher : il se réaligne seulement
+     * quand cette liste diverge de son état interne.
+     */
+    selectedGeocacheIds?: number[];
     /** « Qui a trouvé quoi » : code GC -> pseudos d'amis (colonne `friends_found`). */
     friendFinds?: Record<string, string[]>;
 }
@@ -393,6 +399,7 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
     onVisibleColumnIdsChange,
     onFilteredDataChange,
     onSelectionChange,
+    selectedGeocacheIds,
     friendFinds
 }) => {
     const [sorting, setSorting] = React.useState<SortingState>([]);
@@ -822,6 +829,31 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
         onSelectionChange?.(selectedIds);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [rowSelection, filteredData]);
+
+    // Applique une sélection venue de la carte. La comparaison porte sur la
+    // sélection *visible* (celle que l'effet ci-dessus vient de remonter), sinon
+    // le retour de la carte relancerait l'effet en boucle. Les lignes cochées puis
+    // masquées par un filtre sont préservées : elles réapparaissent cochées quand
+    // le filtre est levé.
+    React.useEffect(() => {
+        if (!selectedGeocacheIds) {
+            return;
+        }
+        const desired = new Set(selectedGeocacheIds.map(String));
+        if (selectedIds.length === desired.size && selectedIds.every(id => desired.has(String(id)))) {
+            return;
+        }
+        const visibleKeys = new Set(filteredData.map(geocache => String(geocache.id)));
+        const next: Record<string, boolean> = {};
+        for (const [key, checked] of Object.entries(rowSelection as Record<string, boolean>)) {
+            if (checked && !visibleKeys.has(key)) {
+                next[key] = true; // cochée, mais masquée par le filtre courant
+            }
+        }
+        desired.forEach(key => { next[key] = true; });
+        setRowSelection(next);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedGeocacheIds]);
 
     const tableScrollRef = React.useRef<HTMLDivElement>(null);
 

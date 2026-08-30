@@ -47,6 +47,12 @@ export interface MapViewProps {
     geocaches: MapGeocache[];  // ✅ Données propres à cette carte
     /** Géocaches cochées dans la liste : anneau noir + pulsation à la sélection. */
     selectedGeocacheIds?: number[];
+    /**
+     * Modifie la sélection du tableau depuis la carte (Ctrl+clic, menu contextuel).
+     * Absent sur les cartes sans tableau associé : les entrées de menu correspondantes
+     * ne sont alors pas proposées.
+     */
+    onChangeListSelection?: (geocacheIds: number[], mode: 'toggle' | 'add' | 'remove' | 'clear') => void;
     onMapReady?: (map: Map) => void;
     onLoadNearbyGeocaches?: (geocacheId: number, radiusKm: number) => Promise<MapGeocache[]>;
     onAddWaypoint?: (options: { gcCoords: string; title?: string; note?: string; autoSave?: boolean }) => void;  // ✅ Callback pour ajouter un waypoint (carte géocache)
@@ -69,6 +75,7 @@ export const MapView: React.FC<MapViewProps> = ({
     mapService,
     geocaches,
     selectedGeocacheIds,
+    onChangeListSelection,
     onMapReady,
     onLoadNearbyGeocaches,
     onAddWaypoint,
@@ -89,6 +96,11 @@ export const MapView: React.FC<MapViewProps> = ({
     const overlayRef = React.useRef<Overlay | null>(null);
     const geocachesRef = React.useRef<MapGeocache[]>(geocaches);
     const onImportAroundRef = React.useRef<MapViewProps['onImportAround']>(onImportAround);
+    // Les gestionnaires de clic / menu contextuel sont installés une seule fois à
+    // l'initialisation de la carte : ils lisent la sélection et le callback via des
+    // refs pour ne pas capturer des valeurs périmées.
+    const onChangeListSelectionRef = React.useRef<MapViewProps['onChangeListSelection']>(onChangeListSelection);
+    const selectedGeocacheIdsRef = React.useRef<Set<number>>(new Set());
     const fittedGeocacheKeyRef = React.useRef<string | null>(null);
     const [isInitialized, setIsInitialized] = React.useState(false);
     const initialZoomRef = React.useRef(preferences?.defaultZoom ?? 6);
@@ -256,6 +268,14 @@ export const MapView: React.FC<MapViewProps> = ({
     }, [onImportAround]);
 
     React.useEffect(() => {
+        onChangeListSelectionRef.current = onChangeListSelection;
+    }, [onChangeListSelection]);
+
+    React.useEffect(() => {
+        selectedGeocacheIdsRef.current = new Set(selectedGeocacheIds ?? []);
+    }, [selectedGeocacheIds]);
+
+    React.useEffect(() => {
         if (layerManagerRef.current) {
             layerManagerRef.current.setLabelMode(labelMode);
         }
@@ -396,6 +416,51 @@ export const MapView: React.FC<MapViewProps> = ({
             }
         };
 
+        /**
+         * Ids des géocaches du tableau présentes sous le curseur : les clusters sont
+         * déballés, et les waypoints, points détectés et caches voisines (absentes du
+         * tableau) sont écartés.
+         */
+        const collectSelectableGeocacheIds = (raw: Feature<Geometry>[]): number[] => {
+            const ids: number[] = [];
+            const collect = (f: Feature<Geometry>): void => {
+                const props = f.getProperties();
+                if (typeof props.id !== 'number' || props.isWaypoint || props.isDetectedCoordinate) {
+                    return;
+                }
+                if (!geocachesRef.current.some(gc => gc.id === props.id) || ids.includes(props.id)) {
+                    return;
+                }
+                ids.push(props.id);
+            };
+            for (const f of raw) {
+                const inner = f.get('features') as Feature<Geometry>[] | undefined;
+                if (Array.isArray(inner)) {
+                    inner.forEach(collect);
+                } else {
+                    collect(f);
+                }
+            }
+            return ids;
+        };
+
+        /**
+         * Bascule la sélection du tableau pour les caches données. Sur un groupe, on
+         * choisit une action unique (tout ajouter, ou tout retirer si tout est déjà
+         * coché) plutôt que d'inverser cache par cache, ce qui serait imprévisible.
+         */
+        const requestListSelection = (ids: number[]): void => {
+            if (ids.length === 0 || !onChangeListSelectionRef.current) {
+                return;
+            }
+            if (ids.length === 1) {
+                onChangeListSelectionRef.current(ids, 'toggle');
+                return;
+            }
+            const allSelected = ids.every(id => selectedGeocacheIdsRef.current.has(id));
+            onChangeListSelectionRef.current(ids, allSelected ? 'remove' : 'add');
+        };
+
         // Ajouter le gestionnaire de clic gauche
         map.on('click', (evt) => {
             // Collecter toutes les features au pixel cliqué
@@ -404,6 +469,17 @@ export const MapView: React.FC<MapViewProps> = ({
                 rawFeatures.push(f as Feature<Geometry>);
                 return false; // Continue pour collecter toutes les features
             });
+
+            // Ctrl+clic (Cmd sur macOS) : coche/décoche dans le tableau au lieu
+            // d'ouvrir le popup ou d'éclater le cluster.
+            const mouseEvent = evt.originalEvent as MouseEvent | undefined;
+            if ((mouseEvent?.ctrlKey || mouseEvent?.metaKey) && onChangeListSelectionRef.current) {
+                const selectableIds = collectSelectableGeocacheIds(rawFeatures);
+                if (selectableIds.length > 0) {
+                    requestListSelection(selectableIds);
+                    return;
+                }
+            }
 
             const { features, multiCluster } = unwrapClusterFeatures(rawFeatures);
 
@@ -778,6 +854,28 @@ export const MapView: React.FC<MapViewProps> = ({
                         });
                     }
 
+                    if (onChangeListSelectionRef.current && props.id !== undefined) {
+                        const geocacheId = props.id;
+                        const isListSelected = selectedGeocacheIdsRef.current.has(geocacheId);
+                        items.push({ separator: true });
+                        items.push({
+                            label: isListSelected ? 'Retirer de la sélection' : 'Sélectionner dans la liste',
+                            icon: isListSelected ? '⬜' : '☑️',
+                            action: () => {
+                                onChangeListSelectionRef.current?.([geocacheId], 'toggle');
+                            }
+                        });
+                        if (selectedGeocacheIdsRef.current.size > 0) {
+                            items.push({
+                                label: `Vider la sélection (${selectedGeocacheIdsRef.current.size})`,
+                                icon: '🧹',
+                                action: () => {
+                                    onChangeListSelectionRef.current?.([], 'clear');
+                                }
+                            });
+                        }
+                    }
+
                     setContextMenu({
                         items,
                         x: event.clientX,
@@ -837,7 +935,36 @@ export const MapView: React.FC<MapViewProps> = ({
                         }
                     });
                 }
-                
+
+                if (onChangeListSelectionRef.current) {
+                    // Clic droit sur un cluster : il est écarté plus haut (il ne
+                    // représente pas une cache), mais on peut cocher tout le groupe.
+                    const groupIds = collectSelectableGeocacheIds(rawFeatures);
+                    if (groupIds.length > 1) {
+                        const allSelected = groupIds.every(id => selectedGeocacheIdsRef.current.has(id));
+                        items.push({ separator: true });
+                        items.push({
+                            label: allSelected
+                                ? `Retirer les ${groupIds.length} caches du groupe`
+                                : `Sélectionner les ${groupIds.length} caches du groupe`,
+                            icon: allSelected ? '⬜' : '☑️',
+                            action: () => {
+                                requestListSelection(groupIds);
+                            }
+                        });
+                    }
+                    if (selectedGeocacheIdsRef.current.size > 0) {
+                        items.push({ separator: true });
+                        items.push({
+                            label: `Vider la sélection (${selectedGeocacheIdsRef.current.size})`,
+                            icon: '🧹',
+                            action: () => {
+                                onChangeListSelectionRef.current?.([], 'clear');
+                            }
+                        });
+                    }
+                }
+
                 setContextMenu({
                     items,
                     x: event.clientX,

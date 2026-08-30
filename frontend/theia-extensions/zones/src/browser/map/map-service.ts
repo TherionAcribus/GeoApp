@@ -127,6 +127,19 @@ interface FormulaSolverPreviewOverlayEventDetail {
 }
 
 /**
+ * Demande de modification de la sélection du tableau, émise depuis une carte
+ * (Ctrl+clic ou menu contextuel).
+ */
+export interface ListSelectionRequest {
+    /** Identifiant du `MapWidget` à l'origine de la demande (le tableau filtre dessus). */
+    mapId?: string;
+    /** Géocaches concernées (ignoré pour `clear`). */
+    geocacheIds: number[];
+    /** `toggle` bascule chaque cache, `add`/`remove` forcent, `clear` vide la sélection. */
+    mode: 'toggle' | 'add' | 'remove' | 'clear';
+}
+
+/**
  * Service singleton pour gérer l'état partagé de la carte
  * 
  * Ce service permet la synchronisation entre :
@@ -171,6 +184,10 @@ export class MapService {
     // Événement émis quand le contexte d'une carte change (renommage, rattachement à une zone)
     private readonly onDidChangeMapContextEmitter = new Emitter<string>();
     readonly onDidChangeMapContext: TheiaEvent<string> = this.onDidChangeMapContextEmitter.event;
+
+    // Sélection demandée depuis une carte (Ctrl+clic, menu contextuel) → tableau
+    private readonly onDidRequestListSelectionEmitter = new Emitter<ListSelectionRequest>();
+    readonly onDidRequestListSelection: TheiaEvent<ListSelectionRequest> = this.onDidRequestListSelectionEmitter.event;
 
     // État interne
     private selectedGeocache: SelectedGeocache | null = null;
@@ -320,6 +337,14 @@ export class MapService {
 
     getLastFormulaSolverPreviewOverlay(): FormulaSolverPreviewOverlay | undefined {
         return this.lastFormulaSolverPreviewOverlay;
+    }
+
+    /**
+     * Demande au tableau de la zone de modifier sa sélection (cases à cocher).
+     * Le sens inverse (tableau → carte) passe directement par `MapWidget`.
+     */
+    requestListSelection(request: ListSelectionRequest): void {
+        this.onDidRequestListSelectionEmitter.fire(request);
     }
 
     /**
@@ -517,6 +542,7 @@ export class MapService {
      * Nettoie les ressources
      */
     dispose(): void {
+        this.onDidRequestListSelectionEmitter.dispose();
         this.onDidSelectGeocacheEmitter.dispose();
         this.onDidDeselectGeocacheEmitter.dispose();
         this.onDidChangeViewEmitter.dispose();

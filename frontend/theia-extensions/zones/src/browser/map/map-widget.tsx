@@ -219,6 +219,18 @@ export class MapWidget extends ReactWidget {
      * Nouvelle référence de tableau à chaque appel : `MapView` en dépend pour
      * détecter le changement.
      */
+    /**
+     * Ctrl+clic / menu contextuel : relaie la demande au tableau via `MapService`.
+     * La carte ne modifie pas son propre anneau, elle attend le retour du tableau,
+     * qui reste seul propriétaire de la sélection.
+     */
+    private readonly handleChangeListSelection = (
+        geocacheIds: number[],
+        mode: 'toggle' | 'add' | 'remove' | 'clear'
+    ): void => {
+        this.mapService.requestListSelection({ mapId: this.id, geocacheIds, mode });
+    };
+
     setSelectedGeocaches(geocacheIds: number[]): void {
         const unchanged = geocacheIds.length === this.selectedGeocacheIds.length
             && geocacheIds.every((id, index) => id === this.selectedGeocacheIds[index]);
@@ -304,6 +316,8 @@ export class MapWidget extends ReactWidget {
         const onSetWaypointAsCorrectedCoords = isGeocacheMap ? this.handleSetWaypointAsCorrectedCoords : undefined;
 
         const isBatchOrGeneralMap = this.context.type === 'general' || this.context.type === 'custom';
+        // Seule une carte de zone a un tableau de géocaches en face d'elle.
+        const isZoneMap = this.context.type === 'zone';
         const onSetDetectedAsCorrectedCoords = isBatchOrGeneralMap ? this.handleSetDetectedAsCorrectedCoords : undefined;
         const onAddWaypointFromDetected = isBatchOrGeneralMap ? this.handleAddWaypointFromDetected : undefined;
 
@@ -314,6 +328,7 @@ export class MapWidget extends ReactWidget {
                     mapService={this.mapService}
                     geocaches={this.geocaches}
                     selectedGeocacheIds={this.selectedGeocacheIds}
+                    onChangeListSelection={isZoneMap ? this.handleChangeListSelection : undefined}
                     onMapReady={this.handleMapReady}
                     onLoadNearbyGeocaches={this.handleLoadNearbyGeocaches}
                     onAddWaypoint={onAddWaypoint}

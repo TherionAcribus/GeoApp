@@ -106,6 +106,10 @@ export class MapLayerManager {
     private selectionPulses: Array<{ coordinate: Coordinate; start: number }> = [];
     /** Abonnement `postrender` actif tant qu'une pulsation est en cours. */
     private selectionPulseListener: EventsKey | undefined;
+    /** Géocaches ayant déjà pulsé, pour ne pas les refaire pulser à chaque mise à jour. */
+    private pulsedIds = new globalThis.Set<number>();
+    /** Évaluation de la pulsation différée, le temps que la sélection se stabilise. */
+    private pulseEvaluationTimer: ReturnType<typeof setTimeout> | undefined;
 
     constructor(map: Map) {
         this.map = map;
@@ -726,7 +730,7 @@ export class MapLayerManager {
         }
         this.listSelectedIds = next;
 
-        const pulseCoordinates: Coordinate[] = [];
+        // L'anneau, lui, suit immédiatement : c'est le retour visuel du clic.
         for (const feature of this.geocacheVectorSource.getFeatures()) {
             const id = feature.getId();
             if (typeof id !== 'number') {
@@ -738,22 +742,60 @@ export class MapLayerManager {
             }
             feature.set('listSelected', isSelected);
             feature.changed();
-            if (isSelected) {
-                const coordinate = feature.getGeometry()?.getCoordinates();
-                if (coordinate) {
-                    pulseCoordinates.push(coordinate);
-                }
-            }
         }
 
         if (this.clusteringEnabled) {
             this.geocacheClusterSource.changed();
         }
-        this.startSelectionPulse(pulseCoordinates);
+        this.schedulePulseEvaluation();
+    }
+
+    /**
+     * Diffère la décision « qui vient d'être coché ».
+     *
+     * Une sélection venue de la carte fait un aller-retour par le tableau, qui en
+     * est le propriétaire, et traverse au passage plusieurs rendus successifs :
+     * évaluée à chaque étape, la pulsation se déclencherait aussi sur les caches
+     * déjà cochées qui repassent transitoirement par un état intermédiaire. On
+     * attend donc que la sélection se stabilise avant de comparer.
+     */
+    private schedulePulseEvaluation(): void {
+        if (this.pulseEvaluationTimer) {
+            clearTimeout(this.pulseEvaluationTimer);
+        }
+        this.pulseEvaluationTimer = setTimeout(() => {
+            this.pulseEvaluationTimer = undefined;
+            this.pulseNewlySelected();
+        }, MapLayerManager.SELECTION_PULSE_SETTLE_DELAY);
+    }
+
+    /** Fait pulser les caches cochées depuis la dernière évaluation. */
+    private pulseNewlySelected(): void {
+        const coordinates: Coordinate[] = [];
+        for (const id of this.listSelectedIds) {
+            if (this.pulsedIds.has(id)) {
+                continue;
+            }
+            const feature = this.geocacheVectorSource.getFeatureById(id) as Feature<Point> | null;
+            const coordinate = feature?.getGeometry()?.getCoordinates();
+            if (coordinate) {
+                coordinates.push(coordinate);
+            }
+        }
+        // Une cache décochée doit pouvoir repulser si on la recoche plus tard.
+        this.pulsedIds = new globalThis.Set(this.listSelectedIds);
+        this.startSelectionPulse(coordinates);
     }
 
     /** Durée d'une pulsation de sélection, en millisecondes. */
     private static readonly SELECTION_PULSE_DURATION = 550;
+
+    /**
+     * Délai d'attente avant d'évaluer la pulsation, en millisecondes. Doit couvrir
+     * l'aller-retour tableau ↔ carte (quelques rendus React) tout en restant
+     * imperceptible.
+     */
+    private static readonly SELECTION_PULSE_SETTLE_DELAY = 100;
 
     /**
      * Démarre une pulsation sur les points donnés. Le dessin se fait dans le
@@ -1284,6 +1326,10 @@ export class MapLayerManager {
      * Nettoie toutes les couches
      */
     dispose(): void {
+        if (this.pulseEvaluationTimer) {
+            clearTimeout(this.pulseEvaluationTimer);
+            this.pulseEvaluationTimer = undefined;
+        }
         this.stopSelectionPulse();
         this.clearGeocaches();
         this.clearWaypoints();

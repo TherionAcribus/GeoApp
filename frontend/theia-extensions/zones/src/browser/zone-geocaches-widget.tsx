@@ -22,6 +22,7 @@ import { MoveGeocacheDialog } from './move-geocache-dialog';
 import { MapWidgetFactory } from './map/map-widget-factory';
 import type { MapWidget } from './map/map-widget';
 import type { MapGeocache } from './map/map-layer-manager';
+import { MapService, ListSelectionRequest } from './map/map-service';
 import { GeocacheTabsManager } from './geocache-tabs-manager';
 import { BackendApiClient } from './backend-api-client';
 import { GeocachesService } from './geocaches-service';
@@ -56,6 +57,12 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     protected zoneName?: string;
     protected rows: Geocache[] = [];
     protected loading = false;
+    /**
+     * Géocaches cochées dans le tableau. Miroir de l'état interne du tableau,
+     * tenu à jour par `handleSelectionChange` ; sert de base aux modifications
+     * demandées depuis la carte.
+     */
+    protected selectedGeocacheIds: number[] = [];
     protected zones: Array<{ id: number; name: string }> = [];
     protected showImportDialog = false;
     protected showBookmarkListDialog = false;
@@ -131,6 +138,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         @inject(ImportAroundService) protected readonly importAroundService: ImportAroundService,
         @inject(ZonesService) protected readonly zonesService: ZonesService,
         @inject(GeoAppWidgetEventsService) protected readonly widgetEventsService: GeoAppWidgetEventsService,
+        @inject(MapService) protected readonly mapService: MapService,
     ) {
         super();
         this.id = ZoneGeocachesWidget.ID;
@@ -141,6 +149,11 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         this.addClass('theia-zone-geocaches-widget');
         this.tableVisibleColumnIds = this.readTableVisibleColumnIds();
         this.preferenceChangeDisposable = this.preferenceService.onPreferenceChanged(event => this.handlePreferenceChanged(event));
+
+        // Sélection demandée depuis la carte de la zone (Ctrl+clic, menu contextuel).
+        this.toDispose.push(
+            this.mapService.onDidRequestListSelection(request => this.handleMapListSelectionRequest(request))
+        );
 
         // Recharger la liste des zones cibles (copy/move) quand le tree widget
         // signale qu'une zone a été créée, supprimée, renommée ou fusionnée.
@@ -982,9 +995,46 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     /**
      * Répercute sur la carte les géocaches cochées dans le tableau (anneau noir
      * et pulsation à la sélection).
+     *
+     * Pas de `update()` ici : le tableau détient déjà cet état, le re-rendre à
+     * chaque case cochée serait inutile. On mémorise seulement la sélection pour
+     * pouvoir la modifier depuis la carte.
      */
     protected handleSelectionChange(geocacheIds: number[]): void {
+        this.selectedGeocacheIds = geocacheIds;
         this.findZoneMapWidget()?.setSelectedGeocaches(geocacheIds);
+    }
+
+    /**
+     * Applique au tableau une sélection demandée depuis la carte de cette zone.
+     * Le tableau renverra ensuite la sélection vers la carte via
+     * `handleSelectionChange`, ce qui met l'anneau à jour.
+     */
+    protected handleMapListSelectionRequest(request: ListSelectionRequest): void {
+        if (!this.zoneId || request.mapId !== `geoapp-map-zone-${this.zoneId}`) {
+            return;
+        }
+
+        const next = new Set(this.selectedGeocacheIds);
+        switch (request.mode) {
+            case 'clear':
+                next.clear();
+                break;
+            case 'add':
+                for (const id of request.geocacheIds) { next.add(id); }
+                break;
+            case 'remove':
+                for (const id of request.geocacheIds) { next.delete(id); }
+                break;
+            default:
+                for (const id of request.geocacheIds) {
+                    if (next.has(id)) { next.delete(id); } else { next.add(id); }
+                }
+        }
+
+        // Nouvelle référence de tableau : le tableau en dépend pour se réaligner.
+        this.selectedGeocacheIds = [...next];
+        this.update();
     }
 
     /** Carte associée à la zone courante, si elle est ouverte. */
@@ -1719,6 +1769,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 onTableVisibleColumnIdsChange={this.handleTableVisibleColumnIdsChange}
                 onFilteredDataChange={geocaches => this.handleFilteredDataChange(geocaches)}
                 onSelectionChange={geocacheIds => this.handleSelectionChange(geocacheIds)}
+                selectedGeocacheIds={this.selectedGeocacheIds}
                 onImportGpx={(file, updateExisting, onProgress) => this.handleImportGpx(file, updateExisting, onProgress)}
                 onImportBookmarkList={(bookmarkCode, updateExisting, onProgress) => this.handleImportBookmarkList(bookmarkCode, updateExisting, onProgress)}
                 onImportPocketQuery={(pqCode, updateExisting, onProgress) => this.handleImportPocketQuery(pqCode, updateExisting, onProgress)}
