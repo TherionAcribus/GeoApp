@@ -712,6 +712,11 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             return;
         }
 
+        // On capture l'id dès le départ : l'appel LLM est long et l'utilisateur peut changer de
+        // géocache pendant ce temps. Sans cette garde, on basculerait la variante et rechargerait
+        // la *nouvelle* géocache au retour, corrompant son état.
+        const geocacheId = this.geocacheId;
+
         const hasModified = Boolean(this.data.description_override_raw) || Boolean(this.data.description_override_html);
         if (hasModified) {
             const dialog = new ConfirmDialog({
@@ -734,9 +739,14 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         this.update();
 
         try {
-            await this.translationController.translateDescription(this.geocacheId, sourceHtml);
+            await this.translationController.translateDescription(geocacheId, sourceHtml);
+            // L'utilisateur a pu changer de géocache pendant l'appel LLM : on ne touche pas à
+            // l'état de la géocache actuellement affichée.
+            if (this.geocacheId !== geocacheId) {
+                return;
+            }
             this.descriptionVariant = 'modified';
-            this.chatController.invalidateRoutingPreview(this.geocacheId);
+            this.chatController.invalidateRoutingPreview(geocacheId);
             await this.load();
             this.messages.info('Traduction enregistrée dans la description modifiée');
         } catch (e) {
@@ -1137,6 +1147,10 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             return;
         }
 
+        // Même garde que translateDescriptionToFrench : l'appel LLM est long, l'utilisateur peut
+        // changer de géocache entre-temps.
+        const geocacheId = this.geocacheId;
+
         const hasAnyOverride =
             Boolean(this.data.description_override_html) ||
             Boolean(this.data.description_override_raw) ||
@@ -1166,13 +1180,18 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
 
         try {
             const result = await this.translationController.translateAllContent({
-                geocacheId: this.geocacheId,
+                geocacheId,
                 descriptionHtml: sourceHtml,
                 hintsDecoded: sourceHints,
                 waypoints: sourceWaypoints,
             });
+            // L'utilisateur a pu changer de géocache pendant l'appel LLM : on ne touche pas à
+            // l'état de la géocache actuellement affichée.
+            if (this.geocacheId !== geocacheId) {
+                return;
+            }
             this.descriptionVariant = 'modified';
-            this.chatController.invalidateRoutingPreview(this.geocacheId);
+            this.chatController.invalidateRoutingPreview(geocacheId);
             await this.load();
             if (result.failed.length > 0) {
                 this.messages.warn(
