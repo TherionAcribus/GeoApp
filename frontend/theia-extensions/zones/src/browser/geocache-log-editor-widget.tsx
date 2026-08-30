@@ -25,14 +25,36 @@ import {
     getBuiltinPatterns,
     getCacheCountForIndex,
     getLogTypeForGeocache as getLogTypeForGeocachePure,
-    getPatternResolutionSignature,
     resolveAllPatterns as resolveAllPatternsPure,
     resolvePatternValue,
     type PatternResolutionContext,
 } from './log-editor/pattern-resolver';
+import {
+    computeFinalLengthStats as computeFinalLengthStatsPure,
+    resolveAllPatternsCached,
+    resolvePatternValueCached,
+} from './log-editor/pattern-resolution-cache';
+import {
+    addImagesToList,
+    computeImagesUploadResult,
+    createSelectedImagesFromFiles,
+    generateImageId,
+    getOrCreatePreviewUrl,
+    markImageUploading,
+    releaseUnusedPreviewUrls as releaseUnusedPreviewUrlsPure,
+    removeImageFromList,
+    resetImageForUpload,
+} from './log-editor/image-manager';
+import {
+    buildLogSubmissionPayload,
+    buildMissingTextWarning,
+    buildStopMessage,
+    buildSubmitSummaryMessage,
+    buildTooLongTextWarning,
+    validateSubmissionTexts,
+} from './log-editor/submission-orchestrator';
 import { SubmitProgress } from './log-editor/submit-progress';
 import {
-    GC_LOG_MAX_LENGTH,
     IMAGE_FAILURE_SEND,
     IMAGE_FAILURE_SEND_ALL,
     IMAGE_FAILURE_SKIP,
@@ -474,19 +496,6 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         this.update();
     }
 
-    protected renderDraftBanner(): React.ReactNode {
-        if (!this.restoredDraftAt) {
-            return null;
-        }
-        return (
-            <DraftBanner
-                restoredDraftAt={this.restoredDraftAt}
-                onDiscard={() => this.discardRestoredDraft()}
-                onDismiss={() => { this.restoredDraftAt = undefined; this.update(); }}
-            />
-        );
-    }
-
     protected onUpdateRequest(msg: Message): void {
         super.onUpdateRequest(msg);
         this.scheduleDraftSave();
@@ -903,80 +912,39 @@ export class GeocacheLogEditorWidget extends ReactWidget {
 
     /** Renvoie (en la créant au besoin) l'object URL de prévisualisation d'un fichier image. */
     protected getPreviewUrl(file: File): string | undefined {
-        const existing = this.previewUrlByFile.get(file);
-        if (existing) {
-            return existing;
-        }
-        try {
-            const url = URL.createObjectURL(file);
-            this.previewUrlByFile.set(file, url);
-            return url;
-        } catch (e) {
-            console.warn('[GeocacheLogEditorWidget] createObjectURL failed', e);
-            return undefined;
-        }
+        return getOrCreatePreviewUrl(file, this.previewUrlByFile);
     }
 
     /** Libère les object URLs des fichiers qui ne sont plus référencés par aucune sélection. */
     protected releaseUnusedPreviewUrls(): void {
-        const inUse = new Set<File>();
-        for (const img of this.globalImages) {
-            inUse.add(img.file);
-        }
-        for (const list of Object.values(this.perCacheImages)) {
-            for (const img of list) {
-                inUse.add(img.file);
-            }
-        }
-        for (const [file, url] of Array.from(this.previewUrlByFile.entries())) {
-            if (!inUse.has(file)) {
-                try {
-                    URL.revokeObjectURL(url);
-                } catch {
-                }
-                this.previewUrlByFile.delete(file);
-            }
-        }
+        releaseUnusedPreviewUrlsPure(this.previewUrlByFile, this.globalImages, this.perCacheImages);
     }
 
     protected generateId(): string {
-        try {
-            const w: any = window as any;
-            if (w?.crypto?.randomUUID) {
-                return w.crypto.randomUUID();
-            }
-        } catch {
-        }
-        return `img-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        return generateImageId();
     }
 
     protected addSelectedImages(files: FileList | File[], target: 'global' | { geocacheId: number }): void {
-        const list = Array.from(files as any as File[]).filter(f => f instanceof File);
-        if (list.length === 0) {
+        const mapped = createSelectedImagesFromFiles(files);
+        if (mapped.length === 0) {
             return;
         }
 
-        const mapped: SelectedLogImage[] = list.map(file => ({
-            id: this.generateId(),
-            file,
-            status: 'pending',
-        }));
-
         if (target === 'global') {
-            this.globalImages = [...this.globalImages, ...mapped];
+            this.globalImages = addImagesToList(this.globalImages, mapped);
         } else {
             const current = this.perCacheImages[target.geocacheId] ?? [];
-            this.perCacheImages = { ...this.perCacheImages, [target.geocacheId]: [...current, ...mapped] };
+            this.perCacheImages = { ...this.perCacheImages, [target.geocacheId]: addImagesToList(current, mapped) };
         }
         this.update();
     }
 
     protected removeSelectedImage(target: 'global' | { geocacheId: number }, imageId: string): void {
         if (target === 'global') {
-            this.globalImages = this.globalImages.filter(img => img.id !== imageId);
+            this.globalImages = removeImageFromList(this.globalImages, imageId);
         } else {
             const current = this.perCacheImages[target.geocacheId] ?? [];
-            this.perCacheImages = { ...this.perCacheImages, [target.geocacheId]: current.filter(img => img.id !== imageId) };
+            this.perCacheImages = { ...this.perCacheImages, [target.geocacheId]: removeImageFromList(current, imageId) };
         }
         this.releaseUnusedPreviewUrls();
         this.update();
@@ -1011,12 +979,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
 
         let working = [...current];
         if (this.useSameTextForAll) {
-            working = working.map(img => ({
-                ...img,
-                status: 'pending',
-                imageGuid: undefined,
-                error: undefined,
-            }));
+            working = working.map(resetImageForUpload);
             this.setImagesForGeocacheId(geocacheId, working);
         }
         for (let i = 0; i < working.length; i += 1) {
@@ -1024,7 +987,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             if (img.status === 'ok' && img.imageGuid) {
                 continue;
             }
-            working[i] = { ...img, status: 'uploading', error: undefined };
+            working[i] = markImageUploading(img);
             this.setImagesForGeocacheId(geocacheId, working);
             onProgress?.(i, working.length);
             const uploaded = await this.uploadOneLogImage(geocacheId, working[i]);
@@ -1033,11 +996,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         }
         onProgress?.(working.length, working.length);
 
-        return {
-            guids: working.filter(x => x.status === 'ok' && typeof x.imageGuid === 'string').map(x => x.imageGuid as string),
-            total: working.length,
-            failed: working.filter(x => x.status !== 'ok' || typeof x.imageGuid !== 'string').length,
-        };
+        return computeImagesUploadResult(working);
     }
 
     /**
@@ -1323,7 +1282,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     }
 
     protected resolvePatternValue(patternName: string, geocacheId: number | null): string {
-        return resolvePatternValue(patternName, geocacheId, this.getPatternResolutionContext());
+        return resolvePatternValueCached(patternName, geocacheId, this.getPatternResolutionContext());
     }
 
     /** Contexte de résolution des @patterns, reconstruit à chaque appel depuis l'état du widget. */
@@ -1338,28 +1297,11 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         };
     }
 
-    /**
-     * Données dont dépend la valeur d'un @pattern : patterns personnalisés, liste et
-     * types de log (pour `@cache_count`, qui compte les trouvailles précédentes), nombre
-     * de trouvailles et date. Sert de clé de validité au cache de résolution.
-     */
-    protected getPatternResolutionSignature(): readonly unknown[] {
-        return getPatternResolutionSignature(this.getPatternResolutionContext());
-    }
-
     protected resolveAllPatterns(text: string, geocacheId: number | null): string {
-        if (!text.includes('@')) {
-            return text;
-        }
-
-        const signature = this.getPatternResolutionSignature();
-        const stale = signature.some((value, index) => !Object.is(value, this.patternResolutionSignature[index]));
-        if (stale) {
-            this.patternResolutionSignature = signature;
-            this.patternResolutionCache.clear();
-        }
-
-        return resolveAllPatternsPure(text, geocacheId, this.getPatternResolutionContext(), this.patternResolutionCache);
+        return resolveAllPatternsCached(text, geocacheId, this.getPatternResolutionContext(), {
+            cache: this.patternResolutionCache,
+            signature: this.patternResolutionSignature,
+        });
     }
 
     protected getResolvedTextForGeocacheId(geocacheId: number): string {
@@ -1380,32 +1322,14 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         max: number;
         worst?: GeocacheListItem;
     } {
-        if (target !== 'global') {
-            const rawText = this.perCacheText[target.geocacheId] ?? '';
-            const length = this.resolveAllPatterns(rawText, target.geocacheId).length;
-            return { raw: rawText.length, min: length, max: length };
-        }
-
-        const rawText = this.globalText;
-        const targets = this.getGeocachesToSubmit();
-        const scope = targets.length > 0 ? targets : this.geocaches;
-        if (scope.length === 0) {
-            const length = this.resolveAllPatterns(rawText, null).length;
-            return { raw: rawText.length, min: length, max: length };
-        }
-
-        let min = Number.POSITIVE_INFINITY;
-        let max = -1;
-        let worst: GeocacheListItem | undefined;
-        for (const gc of scope) {
-            const length = this.resolveAllPatterns(rawText, gc.id).length;
-            min = Math.min(min, length);
-            if (length > max) {
-                max = length;
-                worst = gc;
-            }
-        }
-        return { raw: rawText.length, min, max, worst };
+        return computeFinalLengthStatsPure(
+            target,
+            this.globalText,
+            this.perCacheText,
+            this.getGeocachesToSubmit(),
+            this.geocaches,
+            (text, id) => this.resolveAllPatterns(text, id)
+        );
     }
 
     /** Aligne la couche de surlignage sur le défilement du <textarea>. */
@@ -1685,22 +1609,6 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         return this.geocaches.filter(gc => !this.isGeocacheSubmittedOk(gc.id) && !this.isGeocacheSkipped(gc.id));
     }
 
-    /**
-     * Barre de progression de l'envoi : sans elle, un lot de 30 géocaches avec photos
-     * n'affiche rien pendant plusieurs minutes.
-     */
-    protected renderSubmitProgress(): React.ReactNode {
-        if (!this.submitProgress) {
-            return undefined;
-        }
-        return (
-            <SubmitProgress
-                progress={this.submitProgress}
-                stopRequested={this.stopRequested}
-            />
-        );
-    }
-
     protected getTextForGeocacheId(geocacheId: number): string {
         return this.useSameTextForAll ? this.globalText : (this.perCacheText[geocacheId] ?? '');
     }
@@ -1753,39 +1661,19 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             return;
         }
 
-        const missingText = toSubmit
-            .map(gc => ({ gc, text: (this.getTextForGeocacheId(gc.id) || '').trim() }))
-            .filter(x => !x.text);
+        const validation = validateSubmissionTexts(
+            toSubmit,
+            id => this.getTextForGeocacheId(id),
+            id => this.getResolvedTextForGeocacheId(id)
+        );
 
-        if (missingText.length > 0) {
-            if (this.useSameTextForAll) {
-                this.messages.warn('Le texte du log est vide.');
-            } else {
-                this.messages.warn(`Texte manquant pour ${missingText.length} géocache(s).`);
-            }
+        if (validation.missingText.length > 0) {
+            this.messages.warn(buildMissingTextWarning(validation.missingText.length, this.useSameTextForAll));
             return;
         }
 
-        // Le texte final (patterns résolus) est ce que voit geocaching.com : au-delà de la
-        // limite le site rejette le log, autant l'arrêter ici avec un message exploitable.
-        const tooLong = toSubmit
-            .map(gc => ({ gc, length: this.getResolvedTextForGeocacheId(gc.id).length }))
-            .filter(x => x.length > GC_LOG_MAX_LENGTH);
-
-        if (tooLong.length > 0) {
-            const worst = tooLong.reduce((a, b) => (b.length > a.length ? b : a));
-            if (this.useSameTextForAll) {
-                this.messages.warn(
-                    `Texte final trop long : ${worst.length} caractères pour ${worst.gc.gc_code} (limite ${GC_LOG_MAX_LENGTH}). `
-                    + `Raccourcissez d'au moins ${worst.length - GC_LOG_MAX_LENGTH} caractères.`
-                );
-            } else {
-                const codes = tooLong.slice(0, 6).map(x => x.gc.gc_code).join(', ');
-                const more = tooLong.length > 6 ? `, +${tooLong.length - 6}` : '';
-                this.messages.warn(
-                    `Texte final trop long (limite ${GC_LOG_MAX_LENGTH} caractères) pour ${tooLong.length} géocache(s) : ${codes}${more}.`
-                );
-            }
+        if (validation.tooLong.length > 0) {
+            this.messages.warn(buildTooLongTextWarning(validation.tooLong, this.useSameTextForAll));
             return;
         }
 
@@ -1840,12 +1728,6 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 this.update();
 
                 const logTypeForGc = this.getLogTypeForGeocacheId(gc.id);
-                const payload = {
-                    text: this.getResolvedTextForGeocacheId(gc.id),
-                    date: this.logDate,
-                    logType: logTypeForGc,
-                    favorite: logTypeForGc === 'found' ? (this.perCacheFavorite[gc.id] === true) : false,
-                };
 
                 const upload = await this.uploadImagesForGeocache(gc.id, (done, total) => {
                     if (this.submitProgress) {
@@ -1869,9 +1751,15 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                         continue;
                     }
                 }
-                const payloadWithImages = upload.guids.length > 0 ? { ...payload, images: upload.guids } : payload;
+                const payload = buildLogSubmissionPayload(
+                    this.getResolvedTextForGeocacheId(gc.id),
+                    this.logDate,
+                    logTypeForGc,
+                    this.perCacheFavorite[gc.id] === true,
+                    upload.guids
+                );
 
-                const result = await submitOneLog(this.backendBaseUrl, gc.id, payloadWithImages);
+                const result = await submitOneLog(this.backendBaseUrl, gc.id, payload);
                 if (result.ok) {
                     ok += 1;
                     this.perCacheSubmitStatus = { ...this.perCacheSubmitStatus, [gc.id]: 'ok' };
@@ -1926,18 +1814,16 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 await this.persistDraft();
             }
             const notLogged = this.geocaches.filter(gc => this.isGeocacheSkipped(gc.id)).length;
-            const notLoggedSuffix = notLogged > 0 ? `, ${notLogged} non loguée(s)` : '';
-            if (failed === 0) {
-                this.messages.info(`Logs envoyés sur Geocaching.com: ${ok}/${ok}${notLoggedSuffix}`);
+            const summary = buildSubmitSummaryMessage(ok, failed, notLogged);
+            if (summary.isError) {
+                this.messages.warn(summary.text);
             } else {
-                this.messages.warn(`Logs envoyés sur Geocaching.com: ${ok} ok, ${failed} échec(s)${notLoggedSuffix}`);
+                this.messages.info(summary.text);
             }
 
             const remaining = toSubmit.length - processed;
             if (this.stopRequested && remaining > 0) {
-                this.messages.warn(
-                    `Envoi interrompu : ${remaining} géocache(s) non envoyée(s), conservée(s) dans le brouillon.`
-                );
+                this.messages.warn(buildStopMessage(remaining));
             }
         } finally {
             this.isSubmitting = false;
@@ -2066,24 +1952,6 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             this.isGeneratingAi = false;
             this.update();
         }
-    }
-
-    protected renderAiGenerationPanel(allSubmitted: boolean): React.ReactNode {
-        return (
-            <AiGenerationPanel
-                open={this.showAiPanel}
-                onToggleOpen={open => { this.showAiPanel = open; }}
-                keywords={this.aiKeywords}
-                onKeywordsChange={value => { this.aiKeywords = value; this.update(); }}
-                customInstructions={this.aiCustomInstructions}
-                onCustomInstructionsChange={value => { this.aiCustomInstructions = value; this.update(); }}
-                exampleLogs={this.aiExampleLogs}
-                onExampleLogsChange={value => { this.aiExampleLogs = value; this.update(); }}
-                isGenerating={this.isGeneratingAi}
-                allSubmitted={allSubmitted}
-                onGenerate={() => { void this.generateLogWithAi(); }}
-            />
-        );
     }
 
     /**
@@ -2227,9 +2095,20 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                     onDownloadFieldNotes={() => this.downloadFieldNotes()}
                 />
 
-                {this.renderSubmitProgress()}
+                {this.submitProgress && (
+                    <SubmitProgress
+                        progress={this.submitProgress}
+                        stopRequested={this.stopRequested}
+                    />
+                )}
 
-                {this.renderDraftBanner()}
+                {this.restoredDraftAt && (
+                    <DraftBanner
+                        restoredDraftAt={this.restoredDraftAt}
+                        onDiscard={() => this.discardRestoredDraft()}
+                        onDismiss={() => { this.restoredDraftAt = undefined; this.update(); }}
+                    />
+                )}
 
                 <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
                     {this.lastSubmitSummary && (
@@ -2287,7 +2166,19 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                     }}
                 />
 
-                {this.renderAiGenerationPanel(allSubmitted)}
+                <AiGenerationPanel
+                    open={this.showAiPanel}
+                    onToggleOpen={open => { this.showAiPanel = open; }}
+                    keywords={this.aiKeywords}
+                    onKeywordsChange={value => { this.aiKeywords = value; this.update(); }}
+                    customInstructions={this.aiCustomInstructions}
+                    onCustomInstructionsChange={value => { this.aiCustomInstructions = value; this.update(); }}
+                    exampleLogs={this.aiExampleLogs}
+                    onExampleLogsChange={value => { this.aiExampleLogs = value; this.update(); }}
+                    isGenerating={this.isGeneratingAi}
+                    allSubmitted={allSubmitted}
+                    onGenerate={() => { void this.generateLogWithAi(); }}
+                />
 
                 {!this.isLoading && this.geocaches.length > 0 && (
                     <div style={{ background: 'var(--theia-editor-background)' }}>
