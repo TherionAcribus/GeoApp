@@ -5,11 +5,14 @@ from datetime import date
 
 import pytest
 
+from gc_backend.services import geocaching_submit_logs
 from gc_backend.services.geocaching_submit_logs import (
     LEGACY_CREATE_GEOCACHE_LOG_URL,
     TRPC_CREATE_GEOCACHE_LOG_URL,
     GeocachingSubmitLogsClient,
 )
+
+LOG_DRAFT_IMAGES_URL = 'https://www.geocaching.com/api/live/v1/logdrafts/images'
 
 
 class FakeResponse:
@@ -28,24 +31,33 @@ class FakeResponse:
 class FakeSession:
     """Session requests minimale : sert le CSRF puis les réponses programmées."""
 
-    def __init__(self, responses):
+    def __init__(self, responses, tokens=None):
         self.headers = {}
         self._responses = list(responses)
+        # Jetons CSRF servis successivement ; le dernier vaut pour tous les appels suivants.
+        self._tokens = list(tokens) if tokens else ['token-42']
         self.calls = []
+        self.csrf_calls = 0
 
     def get(self, url, **kwargs):
         assert url.endswith('/api/auth/csrf')
-        return FakeResponse(200, {'csrfToken': 'token-42'})
+        self.csrf_calls += 1
+        token = self._tokens[min(self.csrf_calls - 1, len(self._tokens) - 1)]
+        return FakeResponse(200, {'csrfToken': token})
 
     def post(self, url, **kwargs):
         self.calls.append({'url': url, 'params': kwargs.get('params'), 'json': kwargs.get('json'),
-                           'headers': kwargs.get('headers')})
+                           'headers': kwargs.get('headers'), 'files': kwargs.get('files')})
         return self._responses.pop(0)
 
 
-def make_client(responses):
-    session = FakeSession(responses)
+def make_client(responses, tokens=None):
+    session = FakeSession(responses, tokens=tokens)
     return GeocachingSubmitLogsClient(session=session), session
+
+
+def upload(client):
+    return client.upload_log_draft_image(filename='photo.jpg', content=b'binaire', content_type='image/jpeg')
 
 
 def submit(client, **overrides):
@@ -153,3 +165,119 @@ def test_unwrap_trpc_payload_accepts_known_shapes(payload, expected):
 ])
 def test_unwrap_trpc_payload_rejects_other_shapes(payload):
     assert GeocachingSubmitLogsClient.unwrap_trpc_payload(payload) is None
+
+
+# ---------------------------------------------------------------------------
+# Jeton CSRF : mémorisé par session, renouvelé sur rejet
+# ---------------------------------------------------------------------------
+
+
+def test_csrf_token_is_fetched_once_for_several_submits():
+    client, session = make_client([
+        FakeResponse(200, [{'result': {'data': {'logReferenceCode': 'GL1'}}}]),
+        FakeResponse(200, [{'result': {'data': {'logReferenceCode': 'GL2'}}}]),
+    ])
+
+    submit(client)
+    submit(client)
+
+    assert session.csrf_calls == 1
+    assert [call['headers']['CSRF-Token'] for call in session.calls] == ['token-42', 'token-42']
+
+
+def test_csrf_token_is_shared_between_image_upload_and_submit():
+    client, session = make_client([
+        FakeResponse(200, {'imageGuid': 'guid-1'}),
+        FakeResponse(200, [{'result': {'data': {'logReferenceCode': 'GL1'}}}]),
+    ])
+
+    upload(client)
+    submit(client)
+
+    assert session.csrf_calls == 1
+
+
+def test_csrf_token_is_refetched_once_expired(monkeypatch):
+    monkeypatch.setattr(geocaching_submit_logs, 'CSRF_TOKEN_TTL_SECONDS', 0)
+    client, session = make_client([
+        FakeResponse(200, [{'result': {'data': {'logReferenceCode': 'GL1'}}}]),
+        FakeResponse(200, [{'result': {'data': {'logReferenceCode': 'GL2'}}}]),
+    ])
+
+    submit(client)
+    submit(client)
+
+    assert session.csrf_calls == 2
+
+
+def test_invalidate_csrf_token_forces_a_new_fetch():
+    client, session = make_client([])
+
+    assert client.get_csrf_token() == 'token-42'
+    assert client.get_csrf_token() == 'token-42'
+    assert session.csrf_calls == 1
+
+    client.invalidate_csrf_token()
+
+    assert client.get_csrf_token() == 'token-42'
+    assert session.csrf_calls == 2
+
+
+def test_submit_retries_once_with_a_fresh_token_when_rejected():
+    client, session = make_client(
+        [
+            FakeResponse(403, {'statusCode': 403}),
+            FakeResponse(200, [{'result': {'data': {'logReferenceCode': 'GL456'}}}]),
+        ],
+        tokens=['stale-token', 'fresh-token'],
+    )
+
+    result = submit(client)
+
+    assert result['logReferenceCode'] == 'GL456'
+    assert [call['headers']['CSRF-Token'] for call in session.calls] == ['stale-token', 'fresh-token']
+    assert session.csrf_calls == 2
+
+
+def test_submit_does_not_retry_when_the_same_token_is_reissued():
+    """Un 403 métier (« déjà loguée ») ne doit pas coûter un second envoi."""
+    client, session = make_client([
+        FakeResponse(403, [{'error': {'message': 'You have already logged this cache'}}]),
+    ])
+
+    result = submit(client)
+
+    assert result['ok'] is False
+    assert len(session.calls) == 1
+
+
+def test_image_upload_retries_once_with_a_fresh_token_when_rejected():
+    client, session = make_client(
+        [
+            FakeResponse(403, {'statusCode': 403}),
+            FakeResponse(200, {'imageGuid': 'guid-1'}),
+        ],
+        tokens=['stale-token', 'fresh-token'],
+    )
+
+    result = upload(client)
+
+    assert GeocachingSubmitLogsClient.extract_image_guid(result) == 'guid-1'
+    # Un refus d'authentification arrête l'essai des variantes de champ : deux POST en tout,
+    # pas les trois variantes suivies d'une deuxième série.
+    assert len(session.calls) == 2
+    assert [call['url'] for call in session.calls] == [LOG_DRAFT_IMAGES_URL] * 2
+    assert [call['headers']['CSRF-Token'] for call in session.calls] == ['stale-token', 'fresh-token']
+
+
+def test_image_upload_still_tries_field_name_variants_on_other_errors():
+    client, session = make_client([
+        FakeResponse(400, {'statusCode': 400}),
+        FakeResponse(200, {'imageGuid': 'guid-2'}),
+    ])
+
+    result = upload(client)
+
+    assert GeocachingSubmitLogsClient.extract_image_guid(result) == 'guid-2'
+    assert [list(call['files'].keys()) for call in session.calls] == [['file'], ['image']]
+    assert session.csrf_calls == 1

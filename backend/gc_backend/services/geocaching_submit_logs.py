@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import logging
+import threading
 from datetime import date as date_type
 from datetime import datetime, time
+from time import monotonic
 from typing import Any, Optional
+from weakref import WeakKeyDictionary
 
 import requests
 
@@ -19,6 +22,23 @@ WEBSITE_URL = 'https://www.geocaching.com'
 TRPC_CREATE_GEOCACHE_LOG_URL = f'{WEBSITE_URL}/api/live/v1/trpc/web.logs.createGeocacheLog'
 LEGACY_CREATE_GEOCACHE_LOG_URL = f'{WEBSITE_URL}/api/live/v1/logs/{{gc_code}}/geocacheLog'
 
+# Le jeton CSRF est lié à la session (à ses cookies), pas à un appel : le redemander avant
+# chaque log et chaque image doublait le nombre de requêtes vers Geocaching.com sur un lot
+# (20 caches + photos = 20+ allers-retours pour rien). Il est donc mémorisé par session.
+#
+# Trois façons de le perdre, et c'est voulu :
+#  - l'expiration ci-dessous, qui borne la fenêtre pendant laquelle on peut être périmé ;
+#  - un envoi rejeté en 401/403, qui le jette et rejoue l'appel avec un jeton frais ;
+#  - le remplacement de la session par le service d'authentification (login), qui fait
+#    disparaître l'entrée toute seule puisque la clé est faible.
+CSRF_TOKEN_TTL_SECONDS = 15 * 60
+
+#: Codes HTTP qui trahissent un jeton périmé ou refusé.
+CSRF_REJECTION_STATUSES = (401, 403)
+
+_csrf_tokens: 'WeakKeyDictionary[Any, tuple[str, float]]' = WeakKeyDictionary()
+_csrf_tokens_lock = threading.Lock()
+
 
 class GeocachingSubmitLogsClient:
     def __init__(self, session: Optional[requests.Session] = None) -> None:
@@ -31,7 +51,52 @@ class GeocachingSubmitLogsClient:
         
         self.session.headers.setdefault('User-Agent', GEOAPP_USER_AGENT)
 
-    def get_csrf_token(self) -> str | None:
+    def get_csrf_token(self, *, force_refresh: bool = False) -> str | None:
+        """
+        Jeton CSRF de la session, mémorisé d'un appel à l'autre (cf. `_csrf_tokens`).
+
+        `force_refresh` court-circuite le cache : à n'utiliser qu'après un rejet, sinon on
+        retombe sur une requête supplémentaire par envoi.
+        """
+        if not force_refresh:
+            cached = self._read_cached_csrf_token()
+            if cached is not None:
+                return cached
+
+        token = self._fetch_csrf_token()
+        if token:
+            with _csrf_tokens_lock:
+                _csrf_tokens[self.session] = (token, monotonic() + CSRF_TOKEN_TTL_SECONDS)
+        else:
+            self.invalidate_csrf_token()
+        return token
+
+    def _read_cached_csrf_token(self) -> str | None:
+        with _csrf_tokens_lock:
+            entry = _csrf_tokens.get(self.session)
+        if entry is None:
+            return None
+        token, expires_at = entry
+        if monotonic() >= expires_at:
+            self.invalidate_csrf_token()
+            return None
+        return token
+
+    def invalidate_csrf_token(self) -> None:
+        """Oublie le jeton mémorisé : le prochain appel en redemandera un."""
+        with _csrf_tokens_lock:
+            _csrf_tokens.pop(self.session, None)
+
+    @staticmethod
+    def _is_csrf_rejection(result: Any) -> bool:
+        """L'envoi a-t-il échoué d'une façon qui s'explique par un jeton périmé ?"""
+        return (
+            isinstance(result, dict)
+            and not result.get('ok')
+            and result.get('status') in CSRF_REJECTION_STATUSES
+        )
+
+    def _fetch_csrf_token(self) -> str | None:
         url = 'https://www.geocaching.com/api/auth/csrf'
         headers = {
             'Accept': 'application/json',
@@ -61,6 +126,27 @@ class GeocachingSubmitLogsClient:
             logger.error('Could not get CSRF token')
             return None
 
+        result = self._upload_log_draft_image_with_token(filename, content, content_type, csrf_token)
+
+        # Le jeton mémorisé a pu expirer au milieu d'un lot : on le renouvelle et on rejoue
+        # une fois, plutôt que de rendre un échec que l'utilisateur devrait relancer.
+        if self._is_csrf_rejection(result):
+            self.invalidate_csrf_token()
+            fresh_token = self.get_csrf_token(force_refresh=True)
+            if fresh_token and fresh_token != csrf_token:
+                logger.warning('Log image upload rejected (status=%s), retrying with a fresh CSRF token',
+                               result.get('status'))
+                result = self._upload_log_draft_image_with_token(filename, content, content_type, fresh_token)
+
+        return result
+
+    def _upload_log_draft_image_with_token(
+        self,
+        filename: str,
+        content: bytes,
+        content_type: str,
+        csrf_token: str,
+    ) -> dict[str, Any] | None:
         url = 'https://www.geocaching.com/api/live/v1/logdrafts/images'
         headers = {
             'Accept': 'application/json',
@@ -84,6 +170,11 @@ class GeocachingSubmitLogsClient:
                         'status': resp.status_code,
                         'body': body_preview,
                     }
+                    # Les variantes ne diffèrent que par le nom du champ de formulaire :
+                    # un refus d'authentification ne changera pas d'avis, inutile de
+                    # dépenser deux requêtes de plus avant de renouveler le jeton.
+                    if resp.status_code in CSRF_REJECTION_STATUSES:
+                        return last_error
                     continue
 
                 try:
@@ -210,6 +301,26 @@ class GeocachingSubmitLogsClient:
         if used_favorite_point is not None:
             log_body['usedFavoritePoint'] = bool(used_favorite_point)
 
+        result = self._submit_log_with_token(gc_code, log_body, csrf_token)
+
+        # Le jeton mémorisé a pu expirer au milieu d'un lot : on le renouvelle et on rejoue
+        # une fois, plutôt que de rendre un échec que l'utilisateur devrait relancer.
+        if self._is_csrf_rejection(result):
+            self.invalidate_csrf_token()
+            fresh_token = self.get_csrf_token(force_refresh=True)
+            if fresh_token and fresh_token != csrf_token:
+                logger.warning('Log submit rejected for %s (status=%s), retrying with a fresh CSRF token',
+                               gc_code, result.get('status'))
+                result = self._submit_log_with_token(gc_code, log_body, fresh_token)
+
+        return result
+
+    def _submit_log_with_token(
+        self,
+        gc_code: str,
+        log_body: dict[str, Any],
+        csrf_token: str,
+    ) -> dict[str, Any] | None:
         headers = {
             'Accept': 'application/json',
             'Content-Type': 'application/json',
