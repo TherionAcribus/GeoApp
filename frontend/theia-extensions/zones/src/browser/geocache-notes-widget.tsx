@@ -40,11 +40,29 @@ export class GeocacheNotesWidget extends ReactWidget {
     protected editingContent = '';
     protected editingType: GeocacheNoteType = 'user';
 
+    // Edition directe de la note personnelle GC.com (sans passer par une note app).
+    protected isEditingGcNote = false;
+    protected editingGcNoteContent = '';
+    protected isSavingGcNote = false;
+
     protected loadRequestToken = 0;
 
     // Stable callback references so memoized children (NoteItem) can bail out of re-renders.
     protected readonly handleSyncFromGeocaching = (): void => {
         void this.syncFromGeocaching();
+    };
+    protected readonly handleStartEditGcNote = (): void => {
+        this.startEditGcNote();
+    };
+    protected readonly handleCancelEditGcNote = (): void => {
+        this.cancelEditGcNote();
+    };
+    protected readonly handleEditingGcNoteContentChange = (value: string): void => {
+        this.editingGcNoteContent = value;
+        this.update();
+    };
+    protected readonly handleSaveGcNote = (): void => {
+        void this.saveGcNote();
     };
     protected readonly handleNewNoteContentChange = (value: string): void => {
         this.setNewNoteContent(value);
@@ -137,6 +155,10 @@ export class GeocacheNotesWidget extends ReactWidget {
         if (this.editingNoteId !== undefined && this.editingContent.trim().length > 0) {
             return true;
         }
+        // Édition directe de la note GC.com en cours (contenu modifié vs original).
+        if (this.isEditingGcNote && this.editingGcNoteContent !== (this.gcPersonalNote || '')) {
+            return true;
+        }
         return false;
     }
 
@@ -164,6 +186,9 @@ export class GeocacheNotesWidget extends ReactWidget {
         this.editingNoteId = undefined;
         this.editingContent = '';
         this.editingType = 'user';
+        this.isEditingGcNote = false;
+        this.editingGcNoteContent = '';
+        this.isSavingGcNote = false;
     }
 
     protected applyNotesData(data: GeocacheNotesApiResponse): void {
@@ -383,6 +408,53 @@ export class GeocacheNotesWidget extends ReactWidget {
         }
     }
 
+    protected startEditGcNote(): void {
+        if (!this.geocacheId) {
+            return;
+        }
+        this.isEditingGcNote = true;
+        this.editingGcNoteContent = this.gcPersonalNote || '';
+        this.update();
+    }
+
+    protected cancelEditGcNote(): void {
+        this.isEditingGcNote = false;
+        this.editingGcNoteContent = '';
+        this.update();
+    }
+
+    protected async saveGcNote(): Promise<void> {
+        const geocacheId = this.geocacheId;
+        if (!geocacheId || this.isSavingGcNote) {
+            return;
+        }
+
+        this.isSavingGcNote = true;
+        this.update();
+
+        try {
+            const data = await this.notesController.syncPersonalNoteToGeocaching(
+                geocacheId,
+                this.editingGcNoteContent
+            );
+            if (geocacheId !== this.geocacheId) {
+                return;
+            }
+            this.applyGcPersonalNoteState(data);
+            this.isEditingGcNote = false;
+            this.editingGcNoteContent = '';
+            this.messages.info('Note Geocaching.com mise à jour');
+        } catch (error) {
+            console.error('[GeocacheNotesWidget] Failed to save GC personal note:', error);
+            this.messages.error(getErrorMessage(error, 'Impossible d\'envoyer la note vers Geocaching.com'));
+        } finally {
+            if (geocacheId === this.geocacheId) {
+                this.isSavingGcNote = false;
+                this.update();
+            }
+        }
+    }
+
     protected async resolveSyncConflict(
         existingGcNote: string,
         newText: string
@@ -515,6 +587,9 @@ export class GeocacheNotesWidget extends ReactWidget {
                 editingNoteId={this.editingNoteId}
                 editingContent={this.editingContent}
                 editingType={this.editingType}
+                isEditingGcNote={this.isEditingGcNote}
+                editingGcNoteContent={this.editingGcNoteContent}
+                isSavingGcNote={this.isSavingGcNote}
                 onSyncFromGeocaching={this.handleSyncFromGeocaching}
                 onNewNoteContentChange={this.handleNewNoteContentChange}
                 onNewNoteTypeChange={this.handleNewNoteTypeChange}
@@ -526,6 +601,10 @@ export class GeocacheNotesWidget extends ReactWidget {
                 onEditingTypeChange={this.handleEditingTypeChange}
                 onCancelEdit={this.handleCancelEdit}
                 onSaveEdit={this.handleSaveEdit}
+                onStartEditGcNote={this.handleStartEditGcNote}
+                onCancelEditGcNote={this.handleCancelEditGcNote}
+                onEditingGcNoteContentChange={this.handleEditingGcNoteContentChange}
+                onSaveGcNote={this.handleSaveGcNote}
             />
         );
     }

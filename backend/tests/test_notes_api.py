@@ -163,3 +163,45 @@ def test_update_note_rejects_invalid_note_type(client, seeded_geocache, archive_
     resp = client.put(f'/api/notes/{note_id}', json={'note_type': 'admin'})
     assert resp.status_code == 400
     assert 'note_type' in resp.get_json()['error']
+
+
+def test_sync_personal_note_to_geocaching_pushes_content(client, seeded_geocache, monkeypatch):
+    """L'endpoint direct /api/geocaches/<id>/notes/sync-to-geocaching pousse un contenu
+    arbitraire vers GC.com sans dependre d'une note applicative."""
+    pushed = {}
+
+    class _FakeClient:
+        def update_personal_note(self, gc_code, note):
+            pushed['gc_code'] = gc_code
+            pushed['note'] = note
+            return True
+
+    monkeypatch.setattr('gc_backend.blueprints.notes.GeocachingPersonalNotesClient', lambda: _FakeClient())
+
+    resp = client.post(
+        f'/api/geocaches/{seeded_geocache}/notes/sync-to-geocaching',
+        json={'content': 'Nouvelle note GC'},
+    )
+    assert resp.status_code == 200
+    assert pushed == {'gc_code': 'GCNOTES1', 'note': 'Nouvelle note GC'}
+    assert resp.get_json()['gc_personal_note'] == 'Nouvelle note GC'
+
+
+def test_sync_personal_note_to_geocaching_allows_empty_content(client, seeded_geocache, monkeypatch):
+    """On peut vider la note GC.com en envoyant un contenu vide."""
+    pushed = {}
+
+    class _FakeClient:
+        def update_personal_note(self, gc_code, note):
+            pushed['note'] = note
+            return True
+
+    monkeypatch.setattr('gc_backend.blueprints.notes.GeocachingPersonalNotesClient', lambda: _FakeClient())
+
+    resp = client.post(
+        f'/api/geocaches/{seeded_geocache}/notes/sync-to-geocaching',
+        json={'content': ''},
+    )
+    assert resp.status_code == 200
+    assert pushed['note'] == ''
+    assert resp.get_json()['gc_personal_note'] == ''

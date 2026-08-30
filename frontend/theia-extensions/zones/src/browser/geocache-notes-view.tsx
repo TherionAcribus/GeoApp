@@ -19,6 +19,9 @@ export interface GeocacheNotesViewProps {
     editingNoteId?: number;
     editingContent: string;
     editingType: GeocacheNoteType;
+    isEditingGcNote: boolean;
+    editingGcNoteContent: string;
+    isSavingGcNote: boolean;
     onSyncFromGeocaching: () => void;
     onNewNoteContentChange: (value: string) => void;
     onNewNoteTypeChange: (value: GeocacheNoteType) => void;
@@ -30,6 +33,10 @@ export interface GeocacheNotesViewProps {
     onEditingTypeChange: (value: GeocacheNoteType) => void;
     onCancelEdit: () => void;
     onSaveEdit: () => void;
+    onStartEditGcNote: () => void;
+    onCancelEditGcNote: () => void;
+    onEditingGcNoteContentChange: (value: string) => void;
+    onSaveGcNote: () => void;
 }
 
 // Static style objects are hoisted to module scope so they are allocated once instead of
@@ -378,16 +385,70 @@ export function GeocacheNotesView(props: GeocacheNotesViewProps): React.JSX.Elem
             </div>
 
             <div style={gcSectionStyle}>
-                <div style={sectionTitleStyle}>Note Geocaching.com</div>
-                <div style={gcNoteBoxStyle}>
-                    {props.gcPersonalNote && props.gcPersonalNote.trim().length > 0
-                        ? props.gcPersonalNote
-                        : 'Aucune note personnelle trouvee sur Geocaching.com.'}
+                <div style={rowBetweenStyle}>
+                    <div style={sectionTitleStyle}>Note Geocaching.com</div>
+                    {!props.isEditingGcNote && (
+                        <button
+                            onClick={props.onStartEditGcNote}
+                            disabled={props.isSavingGcNote || props.isSyncingFromGc}
+                            style={{ ...actionButtonStyle, cursor: (props.isSavingGcNote || props.isSyncingFromGc) ? 'wait' : 'pointer' }}
+                            title='Éditer et envoyer la note vers Geocaching.com'
+                            aria-label='Éditer la note Geocaching.com'
+                        >
+                            <i className='fa fa-pencil' aria-hidden='true' />
+                            <span>Éditer</span>
+                        </button>
+                    )}
                 </div>
-                {personalNoteTimestamp && (
-                    <div style={metaTextStyle}>
-                        {personalNoteTimestamp}
+                {props.isEditingGcNote ? (
+                    <div style={editColumnStyle}>
+                        <textarea
+                            value={props.editingGcNoteContent}
+                            onChange={event => props.onEditingGcNoteContentChange(event.target.value)}
+                            onKeyDown={event => {
+                                if (event.key === 'Escape') {
+                                    event.preventDefault();
+                                    props.onCancelEditGcNote();
+                                } else if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+                                    event.preventDefault();
+                                    props.onSaveGcNote();
+                                }
+                            }}
+                            autoFocus={true}
+                            rows={5}
+                            placeholder='Contenu de la note Geocaching.com (vide pour effacer)...'
+                            style={textareaStyle}
+                        />
+                        <div style={editButtonsRowStyle}>
+                            <button
+                                onClick={props.onCancelEditGcNote}
+                                style={cancelButtonStyle}
+                            >
+                                Annuler
+                            </button>
+                            <button
+                                onClick={props.onSaveGcNote}
+                                disabled={props.isSavingGcNote}
+                                style={props.isSavingGcNote ? saveButtonDisabledStyle : saveButtonStyle}
+                            >
+                                <i className={`fa ${props.isSavingGcNote ? 'fa-spinner fa-spin' : 'fa-upload'}`} aria-hidden='true' />
+                                {props.isSavingGcNote ? 'Envoi...' : 'Envoyer vers GC.com'}
+                            </button>
+                        </div>
                     </div>
+                ) : (
+                    <>
+                        <div style={gcNoteBoxStyle}>
+                            {props.gcPersonalNote && props.gcPersonalNote.trim().length > 0
+                                ? props.gcPersonalNote
+                                : 'Aucune note personnelle trouvée sur Geocaching.com.'}
+                        </div>
+                        {personalNoteTimestamp && (
+                            <div style={metaTextStyle}>
+                                {personalNoteTimestamp}
+                            </div>
+                        )}
+                    </>
                 )}
             </div>
 

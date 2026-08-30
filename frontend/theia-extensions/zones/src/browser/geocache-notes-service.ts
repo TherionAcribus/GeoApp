@@ -65,4 +65,12 @@ export class GeocacheNotesService {
             'Erreur lors de l\'envoi de la note vers Geocaching.com'
         );
     }
+
+    async syncPersonalNoteToGeocaching(geocacheId: number, content: string): Promise<SyncNoteToGeocachingResponse> {
+        return this.apiClient.requestJson<SyncNoteToGeocachingResponse>(
+            `/api/geocaches/${geocacheId}/notes/sync-to-geocaching`,
+            this.apiClient.createJsonInit('POST', { content }),
+            'Erreur lors de l\'envoi de la note vers Geocaching.com'
+        );
+    }
 }

@@ -61,6 +61,10 @@ export class GeocacheNotesController {
         return this.notesService.syncFromGeocaching(geocacheId);
     }
 
+    async syncPersonalNoteToGeocaching(geocacheId: number, content: string): Promise<SyncNoteToGeocachingResponse> {
+        return this.notesService.syncPersonalNoteToGeocaching(geocacheId, content);
+    }
+
     async syncUserNoteToGeocaching(
         request: SyncUserNoteToGeocachingRequest,
         resolveConflict: (existingGcNote: string, newText: string) => Promise<GeocacheNoteSyncConflictDecision>

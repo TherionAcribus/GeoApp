@@ -247,3 +247,52 @@ def sync_note_to_geocaching(note_id: int):
         logger.error("Error syncing note %s to Geocaching.com: %s", note_id, e)
         db.session.rollback()
         raise
+
+
+@bp.post("/api/geocaches/<int:geocache_id>/notes/sync-to-geocaching")
+def sync_personal_note_to_geocaching(geocache_id: int):
+    """Pousse un contenu arbitraire vers la note personnelle GC.com d'une géocache.
+
+    Contrairement a /api/notes/<note_id>/sync-to-geocaching, cet endpoint ne depend
+    pas d'une note applicative : il permet d'editer directement la note GC.com (y
+    compris de la vider, en envoyant un contenu vide).
+    """
+    try:
+        geocache = Geocache.query.get(geocache_id)
+        if not geocache:
+            return jsonify({"error": "Geocache not found"}), 404
+
+        if not geocache.gc_code:
+            return jsonify({"error": "Geocache has no GC code"}), 400
+
+        data = request.get_json(silent=True) or {}
+        # On accepte explicitement une chaine vide (pour vider la note GC.com),
+        # mais on tombe sur le contenu actuel si le champ est absent.
+        if isinstance(data, dict) and "content" in data:
+            payload_content = data.get("content") or ""
+        else:
+            payload_content = geocache.gc_personal_note or ""
+
+        client = GeocachingPersonalNotesClient()
+        ok = client.update_personal_note(geocache.gc_code, payload_content)
+        if not ok:
+            return jsonify({"error": "Failed to update personal note on Geocaching.com"}), 502
+
+        geocache.gc_personal_note = payload_content
+        geocache.gc_personal_note_last_pushed_at = datetime.now(timezone.utc)
+        db.session.commit()
+
+        return jsonify(
+            {
+                "geocache_id": geocache.id,
+                "gc_code": geocache.gc_code,
+                "gc_personal_note": geocache.gc_personal_note,
+                "gc_personal_note_last_pushed_at": geocache.gc_personal_note_last_pushed_at.isoformat()
+                if geocache.gc_personal_note_last_pushed_at
+                else None,
+            }
+        )
+    except Exception as e:  # pragma: no cover
+        logger.error("Error syncing personal note for geocache %s to Geocaching.com: %s", geocache_id, e)
+        db.session.rollback()
+        raise
