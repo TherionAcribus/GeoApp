@@ -27,10 +27,12 @@ export interface SubmitLogResult {
     ok: boolean;
     /** logReferenceCode renvoyé par Geocaching.com (en cas de succès). */
     logReferenceCode?: string;
-    /** Vrai si le backend a détecté un "Found it" déjà existant (HTTP 409 + ALREADY_LOGGED). */
+    /** Vrai si le backend a détecté un log déjà existant (HTTP 409 + ALREADY_LOGGED). */
     alreadyLogged?: boolean;
-    /** Date de trouvaille renvoyée par le backend dans le cas "already logged". */
+    /** Date de trouvaille renvoyée par le backend dans le cas "already logged" (Found it uniquement). */
     foundDate?: string;
+    /** Type de log que GC a déjà accepté, quand déjàLogged est vrai pour une note/DNF. */
+    alreadyLoggedLogType?: LogTypeValue;
     /** Message d'erreur exploitable (en cas d'échec). */
     error?: string;
 }
@@ -75,18 +77,33 @@ export async function uploadOneLogImage(
     }
 }
 
-/** Soumet un log vers le backend. */
-export async function submitOneLog(
+/** Délai avant timeout d'un envoi de log (ms). GC peut mettre 10-15s avec des photos. */
+const SUBMIT_TIMEOUT_MS = 30_000;
+
+/** Délai avant un retry réseau (ms) : assez court pour ne pas bloquer l'utilisateur, assez long pour laisser le réseau revenir. */
+const SUBMIT_RETRY_DELAY_MS = 1_500;
+
+/**
+ * Tente un envoi de log avec timeout.
+ *
+ * Retourne `{ retriable: true }` si l'erreur est réseau (timeout ou échec de connexion) :
+ * le caller peut alors réessayer. Retourne `{ retriable: false, result }` si le backend
+ * a répondu (même avec un code d'erreur) : la réponse est exploitable, pas de retry.
+ */
+async function submitOneLogWithTimeout(
     backendBaseUrl: BackendBaseUrl,
     geocacheId: number,
     payload: SubmitLogPayload
-): Promise<SubmitLogResult> {
+): Promise<{ retriable: true } | { retriable: false; result: SubmitLogResult }> {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), SUBMIT_TIMEOUT_MS);
     try {
         const res = await fetch(`${backendBaseUrl}/api/geocaches/${geocacheId}/logs/submit`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
             body: JSON.stringify(payload),
+            signal: controller.signal,
         });
 
         let body: any = undefined;
@@ -98,24 +115,66 @@ export async function submitOneLog(
 
         if (res.ok) {
             const ref = typeof body?.log_reference_code === 'string' ? body.log_reference_code : undefined;
-            return { ok: true, logReferenceCode: ref };
+            return { retriable: false, result: { ok: true, logReferenceCode: ref } };
         }
 
         const errorCode = typeof body?.error_code === 'string' ? body.error_code : undefined;
         if (res.status === 409 && errorCode === 'ALREADY_LOGGED') {
+            // Le backend ne renvoie found_date que pour les "Found it". Pour les notes/DNF,
+            // on transmet le type de log pour que le widget sache qu'il ne faut pas marquer
+            // la cache comme "already_found".
+            const foundDate = typeof body?.found_date === 'string' ? body.found_date : undefined;
+            const alreadyLoggedLogType: LogTypeValue | undefined = foundDate
+                ? 'found'
+                : (payload.logType === 'dnf' ? 'dnf' : payload.logType === 'note' ? 'note' : undefined);
             return {
-                ok: false,
-                alreadyLogged: true,
-                foundDate: typeof body?.found_date === 'string' ? body.found_date : undefined,
+                retriable: false,
+                result: { ok: false, alreadyLogged: true, foundDate, alreadyLoggedLogType },
             };
         }
 
         const detail = body?.error ? `: ${body.error}` : '';
-        return { ok: false, error: `Envoi refusé par le backend${detail}` };
+        return { retriable: false, result: { ok: false, error: `Envoi refusé par le backend${detail}` } };
     } catch (e) {
+        // TypeError = échec de connexion (réseau coupé, DNS, etc.)
+        // AbortError = timeout
+        // Dans les deux cas, le backend n'a pas répondu : on peut réessayer sans risque de doublon
+        // (si le log a été accepté, le retry recevra un 409 ALREADY_LOGGED, géré ci-dessus).
+        const isAbort = e instanceof DOMException && e.name === 'AbortError';
+        const isNetwork = e instanceof TypeError;
+        if (isAbort || isNetwork) {
+            console.warn('[log-submit-service] submitOneLog réseau/timéout, retry possible', e);
+            return { retriable: true };
+        }
+        // Autre erreur inattendue : pas de retry
         console.error('[log-submit-service] submitOneLog error', e);
-        return { ok: false, error: 'Erreur réseau/backend' };
+        return { retriable: false, result: { ok: false, error: 'Erreur réseau/backend' } };
+    } finally {
+        window.clearTimeout(timer);
     }
+}
+
+/** Soumet un log vers le backend, avec un retry automatique unique sur erreur réseau. */
+export async function submitOneLog(
+    backendBaseUrl: BackendBaseUrl,
+    geocacheId: number,
+    payload: SubmitLogPayload
+): Promise<SubmitLogResult> {
+    const first = await submitOneLogWithTimeout(backendBaseUrl, geocacheId, payload);
+    if (first.retriable === false) {
+        return first.result;
+    }
+
+    // Retry unique après un court délai. Le cas vicieux (timeout après acceptation par GC)
+    // est sûr : le retry recevra un 409 ALREADY_LOGGED, géré par submitOneLogWithTimeout.
+    await new Promise(resolve => window.setTimeout(resolve, SUBMIT_RETRY_DELAY_MS));
+    const retry = await submitOneLogWithTimeout(backendBaseUrl, geocacheId, payload);
+    if (retry.retriable === false) {
+        return retry.result;
+    }
+
+    // Deux échecs réseau consécutifs : on abandonne.
+    return { ok: false, error: 'Erreur réseau (2 tentatives échouées)' };
 }
 
 /** Libellé affichable d'un type de log (ré-exporté depuis helpers pour compat). */

@@ -1787,12 +1787,23 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                     }
                 } else if (result.alreadyLogged) {
                     this.perCacheSubmitStatus = { ...this.perCacheSubmitStatus, [gc.id]: 'skipped' };
-                    // Le backend confirme le "Found it" existant : on sort la ligne du lot d'envoi.
-                    this.geocaches = this.geocaches.map(item => item.id === gc.id
-                        ? { ...item, already_found: true, found_date: result.foundDate ?? item.found_date }
-                        : item);
+                    // Le backend confirme qu'un log du même type existe déjà sur GC.
+                    // Pour "Found it" : on marque la cache comme trouvée (found_date fournie).
+                    // Pour notes/DNF : on ne marque PAS already_found — la cache n'est pas
+                    // "trouvée" pour autant, elle a juste un log existant (potentiellement
+                    // créé par le retry après un timeout).
+                    if (result.alreadyLoggedLogType === 'found' || result.foundDate) {
+                        this.geocaches = this.geocaches.map(item => item.id === gc.id
+                            ? { ...item, already_found: true, found_date: result.foundDate ?? item.found_date }
+                            : item);
+                    }
                     this.perCacheLogType = { ...this.perCacheLogType, [gc.id]: 'skip' };
-                    this.messages.warn(`${gc.gc_code} - déjà loguée (ignorée)`);
+                    const logTypeLabel = result.alreadyLoggedLogType === 'dnf'
+                        ? 'DNF'
+                        : result.alreadyLoggedLogType === 'note'
+                        ? 'note'
+                        : 'Found it';
+                    this.messages.warn(`${gc.gc_code} - déjà loguée (${logTypeLabel}, ignorée)`);
                 } else {
                     failed += 1;
                     this.perCacheSubmitStatus = { ...this.perCacheSubmitStatus, [gc.id]: 'failed' };
