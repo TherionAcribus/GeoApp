@@ -170,7 +170,11 @@ export class GeocacheDetailsTranslationController {
         const response = await this.languageModelService.sendRequest(languageModel, request);
         let translatedHtml = '';
         if (isLanguageModelParsedResponse(response)) {
-            translatedHtml = JSON.stringify(response.parsed);
+            // `parsed` est le resultat d'un parsing JSON. Pour une traduction HTML on attend une
+            // simple chaine : JSON.stringify l'entourerait de guillemets et echapperait les
+            // sauts de ligne, produisant un HTML corrompu. On extrait donc la chaine attendue
+            // et on retombe sur le contenu textuel brut (content) sinon.
+            translatedHtml = this.extractHtmlFromParsedResponse(response);
         } else {
             try {
                 translatedHtml = await getTextOfResponse(response);
@@ -285,6 +289,31 @@ export class GeocacheDetailsTranslationController {
             throw new Error('Aucun modele IA n est configure pour la traduction');
         }
         return languageModel;
+    }
+
+    /**
+     * Extrait le HTML traduit d'une reponse LLM « parsee » (JSON). Pour une traduction HTML on
+     * attend une simple chaine ; `JSON.stringify` l'entourerait de guillemets et echapperait les
+     * sauts de ligne, produisant un HTML corrompu. On gere donc :
+     *  - une chaine directement (cas attendu),
+     *  - un objet portant un champ texte evident (html/description/content/text/...),
+     *  - sinon le contenu textuel brut (content), qui est le HTML renvoye par le modele.
+     */
+    private extractHtmlFromParsedResponse(response: { parsed: unknown; content: string }): string {
+        const parsed = response.parsed;
+        if (typeof parsed === 'string') {
+            return parsed;
+        }
+        if (parsed && typeof parsed === 'object') {
+            const candidate = parsed as Record<string, unknown>;
+            for (const key of ['html', 'description', 'content', 'text', 'translation', 'translated_html', 'translatedHtml']) {
+                const value = candidate[key];
+                if (typeof value === 'string') {
+                    return value;
+                }
+            }
+        }
+        return response.content ?? '';
     }
 
     private sanitizeTranslatedHtml(value: string): string {
