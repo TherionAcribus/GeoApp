@@ -92,6 +92,10 @@ class GeocachingPersonalNotesClient:
 
             def _clean_note_text(raw: str) -> str:
                 text = re.sub(r"<br\s*/?>", "\n", raw, flags=re.IGNORECASE)
+                # Les balises de bloc marquent des fins de ligne/paragraphe :
+                # </p> sépare des paragraphes (ligne vide), les autres un simple saut.
+                text = re.sub(r"</p\s*>", "\n\n", text, flags=re.IGNORECASE)
+                text = re.sub(r"</(?:div|li|tr)>", "\n", text, flags=re.IGNORECASE)
                 text = re.sub(r"<[^>]+>", "", text)
                 text = text.replace("&nbsp;", " ")
                 text = text.replace("&amp;", "&")
@@ -99,7 +103,15 @@ class GeocachingPersonalNotesClient:
                 text = text.replace("&gt;", ">")
                 text = text.replace("&quot;", '"')
                 text = text.replace("&#39;", "'")
-                return re.sub(r"\s+", " ", text).strip()
+                # Normalisation type HTML : on collapse les espaces/tabs inline
+                # (sans toucher aux \n qu'on vient de réintroduire depuis <br>/balises bloc).
+                text = re.sub(r"[ \t]+", " ", text)
+                # Espaces en debut/fin de chaque ligne (sans fusionner les \n entre eux).
+                text = re.sub(r"[ \t]+\n", "\n", text)
+                text = re.sub(r"\n[ \t]+", "\n", text)
+                # Plus de 2 sauts de ligne consecutifs -> un seul saut de paragraphe.
+                text = re.sub(r"\n{3,}", "\n\n", text)
+                return text.strip()
 
             # 1) Nouveau design GC.com : texte affiché dans srOnlyCacheNote / viewCacheNote
             display_patterns = [
