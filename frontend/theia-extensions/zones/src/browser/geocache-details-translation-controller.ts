@@ -164,7 +164,7 @@ export class GeocacheDetailsTranslationController {
         geocacheId: number,
         description: string
     ): Promise<DescriptionStepResult> {
-        const translatedHtml = await this.translateHtmlFragment(languageModel, description, 'description');
+        const translatedHtml = await this.translateHtmlWithChunking(languageModel, description);
         // Sans ce garde-fou, une reponse vide (ou reduite a un bloc de raisonnement) serait
         // persistee telle quelle et effacerait la description modifiee existante.
         if (!translatedHtml) {
@@ -202,6 +202,139 @@ export class GeocacheDetailsTranslationController {
             translatedHints: Boolean(meta.hintsDecoded),
             waypointCount: meta.waypoints.length,
         };
+    }
+
+    /** Seuil en deca duquel la description est traduite en un seul appel LLM. */
+    private static readonly CHUNK_THRESHOLD = 6000;
+    /** Taille cible (en caracteres) d'un chunk lors du decoupage. */
+    private static readonly CHUNK_TARGET_SIZE = 4000;
+    /** Ratio minimal (texte sortie / texte entree) en deca duquel on suspecte une troncature. */
+    private static readonly TRUNCATION_MIN_RATIO = 0.25;
+
+    /**
+     * Traduit un fragment HTML, en le decoupant en chunks si il est volumineux. Chaque chunk est
+     * traduit separement pour rester sous la limite de generation des petits modeles, puis
+     * reassemble. Une detection de troncature (balises non equilibrees + ratio longueur) est
+     * appliquee sur chaque chunk : un chunk tronque est rejete plutot que d'enregistrer une
+     * traduction amputee.
+     *
+     * Retourne le HTML traduit reassemble, ou '' si aucun chunk n'a produit de traduction
+     * exploitable (pour que l'appelant puisse le comptabiliser comme un echec).
+     */
+    private async translateHtmlWithChunking(languageModel: any, sourceHtml: string): Promise<string> {
+        if (sourceHtml.length <= GeocacheDetailsTranslationController.CHUNK_THRESHOLD) {
+            const translated = await this.translateHtmlFragment(languageModel, sourceHtml, 'description');
+            if (!translated || this.detectTruncation(sourceHtml, translated)) {
+                return '';
+            }
+            return translated;
+        }
+
+        const chunks = this.splitHtmlIntoChunks(sourceHtml);
+        const translatedChunks: string[] = [];
+        for (let i = 0; i < chunks.length; i++) {
+            const chunkTranslated = await this.translateHtmlFragment(languageModel, chunks[i], `description-chunk-${i}`);
+            if (!chunkTranslated || this.detectTruncation(chunks[i], chunkTranslated)) {
+                // Un chunk tronque compromet la coherence du HTML reassemble : on abandonne
+                // plutot que de persister une traduction partielle et potentiellement cassee.
+                console.warn(`[GeocacheDetailsTranslationController] chunk ${i}/${chunks.length} tronque ou vide, abandon`);
+                return '';
+            }
+            translatedChunks.push(chunkTranslated);
+        }
+        return translatedChunks.join('');
+    }
+
+    /**
+     * Decoupe un fragment HTML en chunks aux frontieres des balises de bloc de niveau
+     * superieur (</p>, </div>, </table>, </ul>, </ol>, </blockquote>, </h1>-</h6>), en visant
+     * CHUNK_TARGET_SIZE caracteres par chunk. Les elements qui ne contiennent pas de balise de
+     * bloc (texte libre, <br>, <img>...) restent dans le chunk courant.
+     */
+    private splitHtmlIntoChunks(html: string): string[] {
+        const target = GeocacheDetailsTranslationController.CHUNK_TARGET_SIZE;
+        // Frontieres naturelles : fin des balises de bloc les plus courantes.
+        const boundaryRegex = /<\/(?:p|div|table|tbody|thead|tfoot|tr|ul|ol|li|blockquote|h[1-6]|section|article|header|footer|nav|aside|figure|figcaption|dl|dt|dd|pre|hr)\s*>/gi;
+
+        const chunks: string[] = [];
+        let lastCut = 0;
+        let lastBoundary = 0;
+
+        let match: RegExpExecArray | null;
+        boundaryRegex.lastIndex = 0;
+        while ((match = boundaryRegex.exec(html)) !== null) {
+            const boundaryEnd = match.index + match[0].length;
+            // Si on a depasse la taille cible depuis la derniere coupe, on coupe ici.
+            if (boundaryEnd - lastCut >= target) {
+                chunks.push(html.slice(lastCut, boundaryEnd));
+                lastCut = boundaryEnd;
+            }
+            lastBoundary = boundaryEnd;
+        }
+
+        // Reste apres la derniere frontiere trouvee.
+        if (lastCut < html.length) {
+            // Si le reste est petit ou qu'on n'a jamais coupe, on le prend tel quel.
+            const tail = html.slice(lastCut);
+            if (tail.trim()) {
+                chunks.push(tail);
+            }
+        }
+
+        // Cas degenerate : aucune frontiere trouvee, on n'a qu'un seul chunk trop gros.
+        // On le garde tel quel : le modele fera de son mieux, et la detection de troncature
+        // le rejetera si necessaire.
+        if (chunks.length === 0) {
+            chunks.push(html);
+        }
+
+        return chunks;
+    }
+
+    /**
+     * Detecte une traduction probablement tronquee. Deux signaux combines :
+     *  1. Balises HTML non equilibrees : on compte les balises ouvrantes (excluant les
+     *     self-closing comme <br/>, <img/>, <hr/>) et on compare au nombre de fermantes.
+     *  2. Ratio de longueur du texte : si la sortie fait moins de TRUNCATION_MIN_RATIO de
+     *     l'entree (en texte brut, pas en HTML), c'est suspect.
+     *
+     * Retourne true si la traduction semble tronquee.
+     */
+    private detectTruncation(sourceHtml: string, translatedHtml: string): boolean {
+        // Signal 1 : balises non equilibrees dans la traduction.
+        const selfClosing = /^(?:br|img|hr|input|meta|link|area|base|col|embed|source|track|wbr)$/i;
+        const openTags: string[] = [];
+        const tagRegex = /<\/?([a-zA-Z][a-zA-Z0-9]*)\b[^>]*?(\/?)>/g;
+        let tagMatch: RegExpExecArray | null;
+        while ((tagMatch = tagRegex.exec(translatedHtml)) !== null) {
+            const tagName = tagMatch[1].toLowerCase();
+            const isClosing = tagMatch[0].startsWith('</');
+            const isSelfClosing = tagMatch[2] === '/' || selfClosing.test(tagName);
+            if (isClosing) {
+                // Retirer la derniere balise ouvrante correspondante.
+                const idx = openTags.lastIndexOf(tagName);
+                if (idx >= 0) {
+                    openTags.splice(idx, 1);
+                }
+            } else if (!isSelfClosing) {
+                openTags.push(tagName);
+            }
+        }
+        if (openTags.length > 0) {
+            return true;
+        }
+
+        // Signal 2 : ratio de longueur du texte anormalement bas.
+        const sourceText = htmlToRawText(sourceHtml).trim();
+        const translatedText = htmlToRawText(translatedHtml).trim();
+        if (sourceText.length > 200 && translatedText.length > 0) {
+            const ratio = translatedText.length / sourceText.length;
+            if (ratio < GeocacheDetailsTranslationController.TRUNCATION_MIN_RATIO) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private async translateHtmlFragment(languageModel: any, sourceHtml: string, kind: string): Promise<string> {
