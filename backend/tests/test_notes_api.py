@@ -124,3 +124,42 @@ def test_update_note_only_user_notes_editable(client, seeded_geocache, archive_c
 
     resp = client.put(f'/api/notes/{note_id}', json={'content': 'Tentative'})
     assert resp.status_code == 400
+
+
+def test_create_note_rejects_invalid_source(client, seeded_geocache):
+    resp = client.post(
+        f'/api/geocaches/{seeded_geocache}/notes',
+        json={'content': 'Note', 'note_type': 'user', 'source': 'malicious'},
+    )
+    assert resp.status_code == 400
+    assert 'source' in resp.get_json()['error']
+
+
+def test_create_note_rejects_invalid_note_type(client, seeded_geocache):
+    resp = client.post(
+        f'/api/geocaches/{seeded_geocache}/notes',
+        json={'content': 'Note', 'note_type': 'admin', 'source': 'user'},
+    )
+    assert resp.status_code == 400
+    assert 'note_type' in resp.get_json()['error']
+
+
+def test_create_note_accepts_earthcoach_source(client, seeded_geocache, archive_calls):
+    resp = client.post(
+        f'/api/geocaches/{seeded_geocache}/notes',
+        json={'content': 'Synthese EC', 'note_type': 'system', 'source': 'earthcoach', 'source_plugin': 'earthcoach'},
+    )
+    assert resp.status_code == 201
+    assert resp.get_json()['note']['source'] == 'earthcoach'
+
+
+def test_update_note_rejects_invalid_note_type(client, seeded_geocache, archive_calls):
+    create = client.post(
+        f'/api/geocaches/{seeded_geocache}/notes',
+        json={'content': 'Note', 'note_type': 'user', 'source': 'user'},
+    )
+    note_id = create.get_json()['note']['id']
+
+    resp = client.put(f'/api/notes/{note_id}', json={'note_type': 'admin'})
+    assert resp.status_code == 400
+    assert 'note_type' in resp.get_json()['error']

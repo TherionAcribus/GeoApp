@@ -13,6 +13,12 @@ from ..services.geocaching_personal_notes import GeocachingPersonalNotesClient
 bp = Blueprint("notes", __name__)
 logger = logging.getLogger(__name__)
 
+# Valeurs legitimes pour source et note_type.
+# source : 'user' (saisie manuelle via UI/agent doc) ou 'earthcoach' (synthese EarthCoach).
+# note_type : 'user' (note personnelle) ou 'system' (note technique/generee).
+_ALLOWED_NOTE_SOURCES = {"user", "earthcoach"}
+_ALLOWED_NOTE_TYPES = {"user", "system"}
+
 
 @bp.get("/api/geocaches/<int:geocache_id>/notes")
 def get_geocache_notes(geocache_id: int):
@@ -60,6 +66,11 @@ def create_geocache_note(geocache_id: int):
         source = (data.get("source") or "user").strip() or "user"
         source_plugin = data.get("source_plugin")
 
+        if note_type not in _ALLOWED_NOTE_TYPES:
+            return jsonify({"error": f"note_type must be one of {sorted(_ALLOWED_NOTE_TYPES)}"}), 400
+        if source not in _ALLOWED_NOTE_SOURCES:
+            return jsonify({"error": f"source must be one of {sorted(_ALLOWED_NOTE_SOURCES)}"}), 400
+
         note = Note(content=content, note_type=note_type, source=source, source_plugin=source_plugin)
         db.session.add(note)
         db.session.flush()
@@ -98,6 +109,8 @@ def update_note(note_id: int):
         if "note_type" in data:
             note_type = (data.get("note_type") or "").strip()
             if note_type:
+                if note_type not in _ALLOWED_NOTE_TYPES:
+                    return jsonify({"error": f"note_type must be one of {sorted(_ALLOWED_NOTE_TYPES)}"}), 400
                 note.note_type = note_type
 
         db.session.commit()
