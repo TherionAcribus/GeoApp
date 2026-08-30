@@ -73,7 +73,8 @@ export class GeocacheDetailsTranslationController {
         // separement des hints + waypoints (petit JSON). Un unique appel qui renvoie tout dans un
         // seul JSON depasse frequemment la limite de generation des petits modeles locaux et se
         // retrouve tronque, faisant echouer l'ensemble.
-        const payload: UpdateTranslatedContentInput = {};
+        // Chaque etape est persistee des qu'elle aboutit: un echec sur les hints/waypoints ne doit
+        // pas faire perdre la description, qui est de loin l'appel le plus long et le plus couteux.
         const translated: string[] = [];
         const failed: string[] = [];
 
@@ -82,15 +83,38 @@ export class GeocacheDetailsTranslationController {
             // Sans ce garde-fou, une reponse vide (ou reduite a un bloc de raisonnement) serait
             // persistee telle quelle et effacerait la description modifiee existante.
             if (translatedHtml) {
-                payload.description_override_html = translatedHtml;
-                payload.description_override_raw = htmlToRawText(translatedHtml);
+                await this.geocacheDetailsService.updateTranslatedContent(input.geocacheId, {
+                    description_override_html: translatedHtml,
+                    description_override_raw: htmlToRawText(translatedHtml),
+                });
                 translated.push('description');
             } else {
                 failed.push('description');
             }
         }
 
-        const meta = await this.translateHintsAndWaypoints(languageModel, sourceHints, sourceWaypoints);
+        if (!sourceHints && sourceWaypoints.length === 0) {
+            if (translated.length === 0) {
+                throw new Error(`Traduction IA: reponse vide (${failed.join(', ')})`);
+            }
+            return { translated, failed };
+        }
+
+        // Une reponse JSON invalide ou une erreur reseau sur cette 2e etape est rattrapee: elle est
+        // comptabilisee comme un echec partiel plutot que d'annuler la description deja enregistree.
+        let meta: { hintsDecoded: string; waypoints: Array<{ id: number; note_override: string }> } = {
+            hintsDecoded: '',
+            waypoints: [],
+        };
+        let metaError: unknown;
+        try {
+            meta = await this.translateHintsAndWaypoints(languageModel, sourceHints, sourceWaypoints);
+        } catch (error) {
+            metaError = error;
+            console.error('[GeocacheDetailsTranslationController] echec traduction hints/waypoints', error);
+        }
+
+        const payload: UpdateTranslatedContentInput = {};
 
         if (sourceHints) {
             if (meta.hintsDecoded) {
@@ -113,10 +137,17 @@ export class GeocacheDetailsTranslationController {
         }
 
         if (translated.length === 0) {
+            // Rien n'a pu etre enregistre: on remonte la cause reelle si l'etape 2 a leve.
+            if (metaError) {
+                throw metaError;
+            }
             throw new Error(`Traduction IA: reponse vide (${failed.join(', ')})`);
         }
 
-        await this.geocacheDetailsService.updateTranslatedContent(input.geocacheId, payload);
+        if (Object.keys(payload).length > 0) {
+            await this.geocacheDetailsService.updateTranslatedContent(input.geocacheId, payload);
+        }
+
         return { translated, failed };
     }
 
