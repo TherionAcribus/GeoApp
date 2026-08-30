@@ -1,5 +1,5 @@
 import { inject, injectable } from '@theia/core/shared/inversify';
-import { CancellationToken, isCancelled } from '@theia/core';
+import { CancellationToken, CancellationError, isCancelled } from '@theia/core';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import {
     getJsonOfResponse,
@@ -284,6 +284,46 @@ export class GeocacheDetailsTranslationController {
     private static readonly CHUNK_TARGET_SIZE = 4000;
     /** Ratio minimal (texte sortie / texte entree) en deca duquel on suspecte une troncature. */
     private static readonly TRUNCATION_MIN_RATIO = 0.25;
+    /** Nombre de retries automatiques sur echec transitoire (reponse vide, JSON invalide). */
+    private static readonly LLM_RETRY_COUNT = 1;
+    /** Delai (ms) avant un retry, pour laisser le modele local respirer. */
+    private static readonly LLM_RETRY_DELAY_MS = 500;
+
+    /**
+     * Execute une operation LLM avec retry automatique sur echec transitoire. Les erreurs
+     * d'annulation ne sont jamais retentees (on les remonte immediatement). Une reponse vide
+     * est consideree comme transitoire : un petit modele local peut renvoyer une reponse vide
+     * ou un bloc de raisonnement isole au premier essai, puis reussir au second.
+     */
+    private async withLlmRetry<T>(
+        operation: () => Promise<T>,
+        isEmpty: (result: T) => boolean,
+        cancellationToken?: CancellationToken
+    ): Promise<T> {
+        let lastError: unknown;
+        for (let attempt = 0; attempt <= GeocacheDetailsTranslationController.LLM_RETRY_COUNT; attempt++) {
+            if (cancellationToken?.isCancellationRequested) {
+                throw new CancellationError();
+            }
+            try {
+                const result = await operation();
+                if (!isEmpty(result)) {
+                    return result;
+                }
+                // Reponse vide : transitoire, on retente si possible.
+                lastError = new Error('Traduction IA: reponse vide');
+            } catch (error) {
+                if (isCancelled(error as Error | undefined)) {
+                    throw error;
+                }
+                lastError = error;
+            }
+            if (attempt < GeocacheDetailsTranslationController.LLM_RETRY_COUNT) {
+                await new Promise(resolve => setTimeout(resolve, GeocacheDetailsTranslationController.LLM_RETRY_DELAY_MS));
+            }
+        }
+        throw lastError instanceof Error ? lastError : new Error('Traduction IA: echec apres retry');
+    }
 
     /**
      * Traduit un fragment HTML, en le decoupant en chunks si il est volumineux. Chaque chunk est
@@ -415,6 +455,14 @@ export class GeocacheDetailsTranslationController {
     }
 
     private async translateHtmlFragment(languageModel: any, sourceHtml: string, kind: string, cancellationToken?: CancellationToken): Promise<string> {
+        return this.withLlmRetry(
+            () => this.translateHtmlFragmentOnce(languageModel, sourceHtml, kind, cancellationToken),
+            result => !result,
+            cancellationToken
+        );
+    }
+
+    private async translateHtmlFragmentOnce(languageModel: any, sourceHtml: string, kind: string, cancellationToken?: CancellationToken): Promise<string> {
         const language = this.getTargetLanguage();
         const prompt =
             `Tu es un traducteur. Traduis en ${language} le contenu TEXTUEL du HTML fourni, en conservant le HTML.\n`
@@ -453,6 +501,19 @@ export class GeocacheDetailsTranslationController {
     }
 
     private async translateHintsAndWaypoints(
+        languageModel: any,
+        hintsDecoded: string,
+        waypoints: TranslateAllWaypointInput[],
+        cancellationToken?: CancellationToken
+    ): Promise<{ hintsDecoded: string; waypoints: Array<{ id: number; note_override: string }> }> {
+        return this.withLlmRetry(
+            () => this.translateHintsAndWaypointsOnce(languageModel, hintsDecoded, waypoints, cancellationToken),
+            result => !result.hintsDecoded && result.waypoints.length === 0,
+            cancellationToken
+        );
+    }
+
+    private async translateHintsAndWaypointsOnce(
         languageModel: any,
         hintsDecoded: string,
         waypoints: TranslateAllWaypointInput[],
