@@ -2517,17 +2517,31 @@ def reset_coordinates(geocache_id: int):
 @bp.post('/api/geocaches/<int:geocache_id>/reset-description')
 def reset_description(geocache_id: int):
     try:
+        from ..geocaches.models import GeocacheWaypoint
+
         geocache = Geocache.query.get(geocache_id)
         if not geocache:
             return jsonify({'error': 'Geocache not found'}), 404
 
+        # Reset de la description modifiee/traduite.
         geocache.description_override_raw = None
         geocache.description_override_html = None
         geocache.description_override_updated_at = None
 
+        # Reset des indices traduits (symetrique avec « Tout traduire » : sans cela, un
+        # hints_decoded_override restait impossible a annuler depuis l'UI).
+        geocache.hints_decoded_override = None
+        geocache.hints_decoded_override_updated_at = None
+
+        # Reset des notes de waypoints traduites.
+        waypoints = GeocacheWaypoint.query.filter_by(geocache_id=geocache_id).all()
+        for waypoint in waypoints:
+            waypoint.note_override = None
+            waypoint.note_override_updated_at = None
+
         db.session.commit()
 
-        logger.info(f"Reset description override for geocache {geocache_id}")
+        logger.info(f"Reset description/hints/waypoints overrides for geocache {geocache_id}")
         return jsonify({'success': True, 'geocache': geocache.to_dict()})
 
     except Exception as e:

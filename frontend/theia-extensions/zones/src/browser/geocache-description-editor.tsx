@@ -207,6 +207,12 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
     const savedSelectionRef = React.useRef<Range | null>(null);
 
     const hasModified = Boolean(geocacheData.description_override_raw) || Boolean(geocacheData.description_override_html);
+    // Le bouton « Revenir à l'originale » reset aussi les hints et notes de waypoints traduits
+    // (cf. endpoint reset-description) : on l'active des qu'un override existe sur l'une de
+    // ces trois zones, pas seulement sur la description.
+    const hasHintsOverride = Boolean(geocacheData.hints_decoded_override);
+    const hasWaypointNoteOverride = Boolean((geocacheData.waypoints || []).some(w => Boolean(w.note_override)));
+    const hasAnyOverride = hasModified || hasHintsOverride || hasWaypointNoteOverride;
     const isAnyTranslating = isTranslating || isTranslatingAll;
     const overrideDate = formatOverrideDate(geocacheData.description_override_updated_at);
 
@@ -651,8 +657,12 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
                         <button
                             className='theia-button secondary'
                             onClick={resetDescription}
-                            disabled={!hasModified}
-                            title={!hasModified ? 'Aucune description modifiée' : undefined}
+                            disabled={!hasAnyOverride}
+                            title={!hasAnyOverride
+                                ? 'Aucune modification à réinitialiser'
+                                : hasModified
+                                    ? 'Réinitialiser la description, les indices et les notes de waypoints modifiés/traduits'
+                                    : 'Réinitialiser les indices et/ou notes de waypoints modifiés/traduits'}
                         >
                             Revenir à l'originale
                         </button>

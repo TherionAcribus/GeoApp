@@ -395,10 +395,10 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             await this.geocacheDetailsService.resetDescription(this.geocacheId);
             this.descriptionVariant = 'original';
             await this.load();
-            this.messages.info('Description réinitialisée');
+            this.messages.info('Description, indices et notes de waypoints réinitialisés');
         } catch (error) {
             console.error('[GeocacheDetailsWidget] resetDescriptionOverrides error', error);
-            this.messages.error(getErrorMessage(error, 'Erreur lors de la réinitialisation de la description'));
+            this.messages.error(getErrorMessage(error, 'Erreur lors de la réinitialisation'));
             throw error;
         }
     }
