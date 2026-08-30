@@ -2,7 +2,7 @@
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core';
-import { ConfirmDialog, StorageService } from '@theia/core/lib/browser';
+import { ConfirmDialog, Message, StorageService } from '@theia/core/lib/browser';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import { LanguageModelRegistry, LanguageModelService, UserRequest, getTextOfResponse, getJsonOfResponse, isLanguageModelParsedResponse } from '@theia/ai-core';
 import { GeoAppLogWriterAgentId } from './geoapp-log-writer-agent';
@@ -66,6 +66,19 @@ function dayOffsetFromToday(iso: string): number | undefined {
 }
 
 type SubmissionStatus = 'ok' | 'failed' | 'skipped';
+
+function isSubmissionStatus(value: unknown): value is SubmissionStatus {
+    return value === 'ok' || value === 'failed' || value === 'skipped';
+}
+
+/** Horodatage ISO en date + heure françaises, pour le bandeau de brouillon restauré. */
+function formatIsoDateTimeFr(iso: string): string {
+    const parsed = new Date(iso);
+    if (Number.isNaN(parsed.getTime())) {
+        return iso;
+    }
+    return parsed.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
 
 /** Actions proposées quand l'envoi d'une photo échoue juste avant la soumission du log. */
 const IMAGE_FAILURE_SEND = 'Envoyer sans les photos';
@@ -203,6 +216,29 @@ interface LogHistoryEntry {
     logType: LogTypeValue;
     perCacheLogType: Record<number, LogTypeValue>;
     perCacheFavorite: Record<number, boolean>;
+}
+
+/**
+ * Sauvegarde automatique de la session de rédaction en cours, indexée par l'ensemble
+ * des géocaches ouvertes. Contrairement à l'historique (écrit après un envoi réussi),
+ * le brouillon existe dès la première frappe : c'est lui qui survit à une fermeture
+ * d'onglet ou à un plantage. Les photos sélectionnées (`File`) ne sont pas sérialisables
+ * et ne sont donc pas restaurées.
+ */
+interface LogDraft {
+    savedAt: string;
+    /** Ordre d'affichage/d'envoi au moment de la sauvegarde (il pilote `@cache_count`). */
+    geocacheIds: number[];
+    logDate: string;
+    logType: LogTypeValue;
+    useSameTextForAll: boolean;
+    globalText: string;
+    perCacheText: Record<number, string>;
+    perCacheLogType: Record<number, LogTypeValue>;
+    perCacheFavorite: Record<number, boolean>;
+    /** Logs déjà postés : les restaurer évite de republier après un plantage en cours de lot. */
+    perCacheSubmitStatus: Record<number, SubmissionStatus>;
+    perCacheSubmitReference: Record<number, string | undefined>;
 }
 
 interface LogTextPattern {
@@ -937,6 +973,19 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     protected readonly logHistoryStorageKey = 'geoApp.logs.history.v2';
     protected readonly logHistoryMaxItemsPreferenceKey = 'geoApp.logs.history.maxItems';
 
+    protected readonly draftsStorageKey = 'geoApp.logs.drafts.v1';
+    /** Délai d'inactivité avant écriture du brouillon : assez court pour ne rien perdre, assez long pour ne pas écrire à chaque frappe. */
+    protected readonly draftAutosaveDelayMs = 1000;
+    protected readonly draftsMaxItems = 30;
+    protected readonly draftsMaxAgeMs = 90 * 24 * 60 * 60 * 1000;
+    protected draftSaveTimer: number | undefined;
+    /** Dernier brouillon écrit (hors horodatage), pour ne pas réécrire le stockage à chaque rendu. */
+    protected lastPersistedDraftJson: string | undefined;
+    /** Coupe l'autosave pendant le chargement/la restauration : un état vide ne doit jamais écraser un brouillon. */
+    protected draftAutosaveSuspended = true;
+    /** Horodatage du brouillon restauré à l'ouverture, affiché tant que l'utilisateur n'a pas fermé le bandeau. */
+    protected restoredDraftAt: string | undefined;
+
     protected backendBaseUrl = 'http://localhost:8000';
 
     protected geocacheIds: number[] = [];
@@ -1099,6 +1148,295 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         this.logHistory = stored;
         this.isLoadingHistory = false;
         this.update();
+    }
+
+    protected getDraftKey(): string | undefined {
+        if (this.geocacheIds.length === 0) {
+            return undefined;
+        }
+        // Clé triée : le même ensemble de géocaches retrouve son brouillon quel que soit l'ordre d'ouverture.
+        return Array.from(new Set(this.geocacheIds)).sort((a, b) => a - b).join('-');
+    }
+
+    protected async readDrafts(): Promise<Record<string, LogDraft>> {
+        const stored = await this.storageService.getData<Record<string, LogDraft>>(this.draftsStorageKey, {});
+        if (!stored || typeof stored !== 'object' || Array.isArray(stored)) {
+            return {};
+        }
+        return stored;
+    }
+
+    /** Le stockage local est partagé avec tout Theia : on ne garde que les brouillons récents. */
+    protected pruneDrafts(drafts: Record<string, LogDraft>): Record<string, LogDraft> {
+        const now = Date.now();
+        const kept = Object.entries(drafts)
+            .filter(([, draft]) => {
+                if (!draft || typeof draft !== 'object' || typeof draft.savedAt !== 'string') {
+                    return false;
+                }
+                const savedAt = Date.parse(draft.savedAt);
+                return Number.isNaN(savedAt) || now - savedAt < this.draftsMaxAgeMs;
+            })
+            .sort((a, b) => Date.parse(b[1].savedAt) - Date.parse(a[1].savedAt))
+            .slice(0, this.draftsMaxItems);
+        return Object.fromEntries(kept);
+    }
+
+    /**
+     * Y a-t-il quelque chose à perdre ? Un onglet ouvert et laissé tel quel ne mérite pas
+     * de brouillon : ça ferait réapparaître un bandeau de restauration pour rien.
+     */
+    protected hasDraftWorthSaving(): boolean {
+        if (this.globalText.trim() !== '' || Object.values(this.perCacheText).some(text => (text ?? '').trim() !== '')) {
+            return true;
+        }
+        if (Object.values(this.perCacheFavorite).some(value => value === true)) {
+            return true;
+        }
+        if (Object.keys(this.perCacheSubmitStatus).length > 0) {
+            return true;
+        }
+        // Comparaison avec le type global *assaini* : une cache déjà trouvée bascule d'office sur
+        // « Ne pas loguer », ce n'est pas un choix de l'utilisateur et ça ne justifie pas un brouillon.
+        return this.geocaches.some(gc => this.getLogTypeForGeocacheId(gc.id) !== sanitizeLogTypeForGeocache(this.logType, gc));
+    }
+
+    protected buildDraft(): LogDraft {
+        return {
+            savedAt: new Date().toISOString(),
+            geocacheIds: this.geocaches.map(gc => gc.id),
+            logDate: this.logDate,
+            logType: this.logType,
+            useSameTextForAll: this.useSameTextForAll,
+            globalText: this.globalText,
+            perCacheText: { ...this.perCacheText },
+            perCacheLogType: { ...this.perCacheLogType },
+            perCacheFavorite: { ...this.perCacheFavorite },
+            perCacheSubmitStatus: { ...this.perCacheSubmitStatus },
+            perCacheSubmitReference: { ...this.perCacheSubmitReference },
+        };
+    }
+
+    /** Programme l'écriture du brouillon ; appelé à chaque rendu, donc volontairement bon marché. */
+    protected scheduleDraftSave(): void {
+        if (this.draftAutosaveSuspended || this.geocaches.length === 0 || !this.getDraftKey()) {
+            return;
+        }
+        if (this.draftSaveTimer !== undefined) {
+            window.clearTimeout(this.draftSaveTimer);
+        }
+        this.draftSaveTimer = window.setTimeout(() => {
+            this.draftSaveTimer = undefined;
+            void this.persistDraft();
+        }, this.draftAutosaveDelayMs);
+    }
+
+    /** Écrit tout de suite un enregistrement en attente (fermeture d'onglet, fin d'envoi). */
+    protected flushPendingDraftSave(): void {
+        if (this.draftSaveTimer === undefined) {
+            return;
+        }
+        window.clearTimeout(this.draftSaveTimer);
+        this.draftSaveTimer = undefined;
+        void this.persistDraft();
+    }
+
+    protected async persistDraft(): Promise<void> {
+        const key = this.getDraftKey();
+        if (!key || this.geocaches.length === 0) {
+            return;
+        }
+
+        try {
+            const draft = this.hasDraftWorthSaving() ? this.buildDraft() : undefined;
+            const signature = draft ? JSON.stringify({ ...draft, savedAt: '' }) : 'empty';
+            if (signature === this.lastPersistedDraftJson) {
+                return;
+            }
+
+            const drafts = await this.readDrafts();
+            if (draft) {
+                drafts[key] = draft;
+            } else if (!(key in drafts)) {
+                this.lastPersistedDraftJson = signature;
+                return;
+            } else {
+                delete drafts[key];
+            }
+
+            await this.storageService.setData(this.draftsStorageKey, this.pruneDrafts(drafts));
+            this.lastPersistedDraftJson = signature;
+        } catch (e) {
+            console.error('[GeocacheLogEditorWidget] persistDraft error', e);
+        }
+    }
+
+    protected async deleteDraft(): Promise<void> {
+        const key = this.getDraftKey();
+        if (!key) {
+            return;
+        }
+        if (this.draftSaveTimer !== undefined) {
+            window.clearTimeout(this.draftSaveTimer);
+            this.draftSaveTimer = undefined;
+        }
+        try {
+            const drafts = await this.readDrafts();
+            if (key in drafts) {
+                delete drafts[key];
+                await this.storageService.setData(this.draftsStorageKey, drafts);
+            }
+            this.lastPersistedDraftJson = 'empty';
+        } catch (e) {
+            console.error('[GeocacheLogEditorWidget] deleteDraft error', e);
+        }
+    }
+
+    /** Ne conserve d'un enregistrement que les clés correspondant aux géocaches réellement chargées. */
+    protected pickKnownGeocacheValues<T>(source: Record<number, T> | undefined, isValid: (value: unknown) => value is T): Record<number, T> {
+        const result: Record<number, T> = {};
+        if (!source || typeof source !== 'object') {
+            return result;
+        }
+        for (const gc of this.geocaches) {
+            const value = (source as Record<number, unknown>)[gc.id];
+            if (isValid(value)) {
+                result[gc.id] = value;
+            }
+        }
+        return result;
+    }
+
+    protected applyDraft(draft: LogDraft): void {
+        // Une date épinglée reste prioritaire, comme pour l'historique.
+        if (!this.isLogDatePinned && this.isValidIsoDate(draft.logDate)) {
+            this.logDate = draft.logDate;
+        }
+        if (isLogTypeValue(draft.logType)) {
+            this.logType = draft.logType;
+        }
+        this.useSameTextForAll = draft.useSameTextForAll === true;
+        this.globalText = typeof draft.globalText === 'string' ? draft.globalText : '';
+        this.perCacheText = this.pickKnownGeocacheValues(draft.perCacheText, (v): v is string => typeof v === 'string');
+        // Comme pour l'historique : on ignore quels textes ont été personnalisés, donc aucun marqueur de distribution.
+        this.lastDistributedGlobalText = undefined;
+
+        const restoredTypes = this.pickKnownGeocacheValues(draft.perCacheLogType, isLogTypeValue);
+        const nextTypes: Record<number, LogTypeValue> = { ...this.perCacheLogType };
+        for (const gc of this.geocaches) {
+            const stored = restoredTypes[gc.id];
+            if (stored !== undefined) {
+                nextTypes[gc.id] = sanitizeLogTypeForGeocache(stored, gc);
+            }
+        }
+        this.perCacheLogType = nextTypes;
+
+        this.perCacheFavorite = {
+            ...this.perCacheFavorite,
+            ...this.pickKnownGeocacheValues(draft.perCacheFavorite, (v): v is boolean => typeof v === 'boolean'),
+        };
+        this.perCacheSubmitStatus = this.pickKnownGeocacheValues(draft.perCacheSubmitStatus, isSubmissionStatus);
+        this.perCacheSubmitReference = this.pickKnownGeocacheValues(draft.perCacheSubmitReference, (v): v is string => typeof v === 'string');
+
+        // L'ordre est celui d'envoi et de la numérotation @cache_count : il fait partie du travail à restaurer.
+        const restoredIds = Array.isArray(draft.geocacheIds) ? draft.geocacheIds.filter(id => typeof id === 'number') : [];
+        if (restoredIds.length === this.geocaches.length && restoredIds.every(id => this.geocaches.some(gc => gc.id === id))) {
+            this.reorderGeocaches(restoredIds);
+        }
+    }
+
+    protected async restoreDraftIfAny(): Promise<void> {
+        const key = this.getDraftKey();
+        // Sans géocaches chargées (backend injoignable), on ne touche pas au brouillon : il serait
+        // restauré vidé de ses textes, puis réécrit vide par l'autosave.
+        if (!key || this.geocaches.length === 0) {
+            return;
+        }
+
+        let draft: LogDraft | undefined;
+        try {
+            draft = (await this.readDrafts())[key];
+        } catch (e) {
+            console.error('[GeocacheLogEditorWidget] restoreDraftIfAny error', e);
+            return;
+        }
+        if (!draft || typeof draft !== 'object') {
+            return;
+        }
+
+        this.applyDraft(draft);
+        this.restoredDraftAt = typeof draft.savedAt === 'string' ? draft.savedAt : undefined;
+        this.lastPersistedDraftJson = JSON.stringify({ ...this.buildDraft(), savedAt: '' });
+        this.update();
+    }
+
+    /** « Repartir de zéro » : on efface la rédaction, jamais les envois déjà effectués. */
+    protected discardRestoredDraft(): void {
+        this.globalText = '';
+        this.perCacheText = {};
+        this.lastDistributedGlobalText = undefined;
+
+        const nextTypes: Record<number, LogTypeValue> = {};
+        const nextFavorites: Record<number, boolean> = {};
+        for (const gc of this.geocaches) {
+            nextTypes[gc.id] = sanitizeLogTypeForGeocache(this.logType, gc);
+            nextFavorites[gc.id] = false;
+        }
+        this.perCacheLogType = nextTypes;
+        this.perCacheFavorite = nextFavorites;
+
+        this.restoredDraftAt = undefined;
+        void this.deleteDraft();
+        this.update();
+    }
+
+    protected renderDraftBanner(): React.ReactNode {
+        if (!this.restoredDraftAt) {
+            return null;
+        }
+        return (
+            <div
+                style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '6px 10px',
+                    fontSize: 12,
+                    borderRadius: 4,
+                    border: '1px solid var(--theia-editorWidget-border)',
+                    background: 'var(--theia-editorWidget-background)',
+                }}
+            >
+                <span>💾 Brouillon restauré (enregistré le {formatIsoDateTimeFr(this.restoredDraftAt)}). Les photos ne sont pas conservées.</span>
+                <button
+                    className='theia-button secondary'
+                    onClick={() => { this.discardRestoredDraft(); }}
+                    title='Effacer les textes restaurés et repartir sur un log vierge'
+                    style={{ fontSize: 11, padding: '2px 8px' }}
+                >
+                    Repartir de zéro
+                </button>
+                <button
+                    className='theia-button secondary'
+                    onClick={() => { this.restoredDraftAt = undefined; this.update(); }}
+                    title='Masquer ce message'
+                    style={{ fontSize: 11, padding: '2px 8px', marginLeft: 'auto' }}
+                >
+                    ✕
+                </button>
+            </div>
+        );
+    }
+
+    protected onUpdateRequest(msg: Message): void {
+        super.onUpdateRequest(msg);
+        this.scheduleDraftSave();
+    }
+
+    protected onCloseRequest(msg: Message): void {
+        // Dernière chance d'écrire : le widget n'est pas restauré au redémarrage, seul le brouillon l'est.
+        this.flushPendingDraftSave();
+        super.onCloseRequest(msg);
     }
 
     protected async saveCurrentStateToHistory(): Promise<void> {
@@ -1429,12 +1767,30 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             this.title.label = `Log - ${this.geocacheIds.length} géocaches`;
         }
 
-        void this.loadGeocaches();
+        this.draftAutosaveSuspended = true;
+        this.lastPersistedDraftJson = undefined;
+        this.restoredDraftAt = undefined;
+
         void this.refreshLogHistory();
         void this.fetchFavoritePoints();
         void this.loadPatterns();
-        void this.loadPinnedLogDate();
+        void this.initializeSession();
         this.update();
+    }
+
+    /**
+     * Date épinglée, géocaches, puis brouillon : l'ordre compte, chaque étape écrase
+     * des champs que la suivante doit pouvoir corriger. L'autosave n'est armé qu'à la fin.
+     */
+    protected async initializeSession(): Promise<void> {
+        try {
+            await this.loadPinnedLogDate();
+            await this.loadGeocaches();
+            await this.restoreDraftIfAny();
+        } finally {
+            this.draftAutosaveSuspended = false;
+            this.update();
+        }
     }
 
     protected toggleUseSameTextForAll(checked: boolean): void {
@@ -3171,6 +3527,17 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             if (ok > 0) {
                 await this.saveCurrentStateToHistory();
             }
+
+            if (this.getGeocachesToSubmit().length === 0) {
+                // Tout est parti : le travail vit désormais dans l'historique, le brouillon n'a plus d'objet.
+                this.draftAutosaveSuspended = true;
+                this.restoredDraftAt = undefined;
+                await this.deleteDraft();
+            } else {
+                // Lot incomplet : on fige tout de suite l'état, y compris les logs déjà postés.
+                this.flushPendingDraftSave();
+                await this.persistDraft();
+            }
             const notLogged = this.geocaches.filter(gc => this.isGeocacheSkipped(gc.id)).length;
             const notLoggedSuffix = notLogged > 0 ? `, ${notLogged} non loguée(s)` : '';
             if (failed === 0) {
@@ -3544,6 +3911,8 @@ ${geocacheContext}`;
                         </button>
                     </div>
                 </div>
+
+                {this.renderDraftBanner()}
 
                 <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
                     {this.lastSubmitSummary && (
