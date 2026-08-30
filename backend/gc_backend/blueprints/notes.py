@@ -122,9 +122,22 @@ def delete_note(note_id: int):
         if not note:
             return jsonify({"error": "Note not found"}), 404
 
+        # On capture les geocaches liees avant suppression : la sync archive
+        # (comme pour create/update) doit s'y refaire apres commit, sans quoi
+        # l'archive conserverait une note qui n'existe plus.
+        linked_geocache_ids = [
+            link.geocache_id
+            for link in GeocacheNote.query.filter_by(note_id=note_id).all()
+        ]
+
         GeocacheNote.query.filter_by(note_id=note_id).delete()
         db.session.delete(note)
         db.session.commit()
+
+        for geocache_id in linked_geocache_ids:
+            gc = Geocache.query.get(geocache_id)
+            if gc:
+                ArchiveService.sync_from_geocache(gc)
 
         return jsonify({"deleted": True})
     except Exception as e:  # pragma: no cover
