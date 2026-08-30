@@ -49,7 +49,20 @@ function todayIsoDate(): string {
 
 type SubmissionStatus = 'ok' | 'failed' | 'skipped';
 
+/** Actions proposées quand l'envoi d'une photo échoue juste avant la soumission du log. */
+const IMAGE_FAILURE_SEND = 'Envoyer sans les photos';
+const IMAGE_FAILURE_SEND_ALL = 'Envoyer sans les photos (tout le lot)';
+const IMAGE_FAILURE_SKIP = 'Ne pas loguer cette cache';
+
 type ImageUploadStatus = 'pending' | 'uploading' | 'ok' | 'failed';
+
+/** Résultat d'un lot d'uploads de photos pour une géocache. */
+interface ImagesUploadResult {
+    /** GUIDs des photos réellement acceptées par Geocaching.com. */
+    guids: string[];
+    total: number;
+    failed: number;
+}
 
 interface SelectedLogImage {
     id: string;
@@ -255,6 +268,8 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
     perCacheFavorite: Record<number, boolean>;
     perCacheSubmitStatus: Record<number, SubmissionStatus>;
     perCacheSubmitReference: Record<number, string | undefined>;
+    /** Raison du dernier échec, par géocache : sert d'infobulle sur le badge d'échec. */
+    perCacheSubmitError: Record<number, string | undefined>;
     onToggleFavorite: (geocacheId: number, nextValue: boolean) => void;
     onToggleLogType: (geocacheId: number, nextValue: LogTypeValue) => void;
     /** Ordre d'envoi manuel : la liste complète des identifiants, dans le nouvel ordre. */
@@ -262,7 +277,7 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
     reorderDisabled?: boolean;
     remainingFavoritePoints: number;
     maxHeight?: number;
-}> = ({ data, logType, perCacheLogType, perCacheFavorite, perCacheSubmitStatus, perCacheSubmitReference, onToggleFavorite, onToggleLogType, onReorder, reorderDisabled = false, remainingFavoritePoints, maxHeight = 220 }) => {
+}> = ({ data, logType, perCacheLogType, perCacheFavorite, perCacheSubmitStatus, perCacheSubmitReference, perCacheSubmitError, onToggleFavorite, onToggleLogType, onReorder, reorderDisabled = false, remainingFavoritePoints, maxHeight = 220 }) => {
     const [sorting, setSorting] = React.useState<SortingState>([]);
     const [draggedId, setDraggedId] = React.useState<number | null>(null);
     const [dropIndicator, setDropIndicator] = React.useState<{ id: number; position: 'before' | 'after' } | null>(null);
@@ -402,7 +417,7 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
                             fontWeight: 700,
                             whiteSpace: 'nowrap'
                         }}
-                        title='Dernière tentative en échec'
+                        title={perCacheSubmitError[gc.id] ?? 'Dernière tentative en échec'}
                     >
                         ⚠️
                     </span>
@@ -671,7 +686,7 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
                 enableSorting: false,
             },
         ];
-    }, [data, canReorder, logType, perCacheLogType, perCacheFavorite, perCacheSubmitStatus, perCacheSubmitReference, onToggleFavorite, onToggleLogType]);
+    }, [data, canReorder, logType, perCacheLogType, perCacheFavorite, perCacheSubmitStatus, perCacheSubmitReference, perCacheSubmitError, onToggleFavorite, onToggleLogType]);
 
     const table = useReactTable({
         data,
@@ -942,6 +957,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     protected lastSubmitSummary: { ok: number; failed: number } | undefined;
     protected perCacheSubmitStatus: Record<number, SubmissionStatus> = {};
     protected perCacheSubmitReference: Record<number, string | undefined> = {};
+    /** Détail du dernier échec par géocache (photo non envoyée, erreur backend…). */
+    protected perCacheSubmitError: Record<number, string | undefined> = {};
 
     protected globalTextArea: HTMLTextAreaElement | null = null;
     protected perCacheTextAreas: Record<number, HTMLTextAreaElement | null> = {};
@@ -1379,6 +1396,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         this.perCacheFavorite = {};
         this.perCacheSubmitStatus = {};
         this.perCacheSubmitReference = {};
+        this.perCacheSubmitError = {};
         this.globalImages = [];
         this.perCacheImages = {};
         this.releaseUnusedPreviewUrls();
@@ -1646,10 +1664,10 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         }
     }
 
-    protected async uploadImagesForGeocache(geocacheId: number): Promise<string[]> {
+    protected async uploadImagesForGeocache(geocacheId: number): Promise<ImagesUploadResult> {
         const current = this.getImagesForGeocacheId(geocacheId);
         if (current.length === 0) {
-            return [];
+            return { guids: [], total: 0, failed: 0 };
         }
 
         let working = [...current];
@@ -1674,7 +1692,36 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             this.setImagesForGeocacheId(geocacheId, working);
         }
 
-        return working.filter(x => x.status === 'ok' && typeof x.imageGuid === 'string').map(x => x.imageGuid as string);
+        return {
+            guids: working.filter(x => x.status === 'ok' && typeof x.imageGuid === 'string').map(x => x.imageGuid as string),
+            total: working.length,
+            failed: working.filter(x => x.status !== 'ok' || typeof x.imageGuid !== 'string').length,
+        };
+    }
+
+    /**
+     * Un log envoyé ne peut pratiquement plus être complété depuis l'app : plutôt que de
+     * soumettre silencieusement un log amputé de ses photos, on laisse l'utilisateur trancher.
+     * Fermer la notification vaut "ne pas loguer" : la cache reste renvoyable, alors qu'un
+     * log incomplet, non.
+     */
+    protected async askImageFailureDecision(gc: GeocacheListItem, upload: ImagesUploadResult): Promise<'send' | 'send-all' | 'skip'> {
+        const count = upload.failed === upload.total
+            ? `${upload.failed} photo(s)`
+            : `${upload.failed} photo(s) sur ${upload.total}`;
+        const answer = await this.messages.warn(
+            `${gc.gc_code} : échec de l'envoi de ${count}. Envoyer quand même le log sans ces photos ?`,
+            IMAGE_FAILURE_SEND,
+            IMAGE_FAILURE_SEND_ALL,
+            IMAGE_FAILURE_SKIP
+        );
+        if (answer === IMAGE_FAILURE_SEND) {
+            return 'send';
+        }
+        if (answer === IMAGE_FAILURE_SEND_ALL) {
+            return 'send-all';
+        }
+        return 'skip';
     }
 
     protected renderImagesSection(target: 'global' | { geocacheId: number }, disabled: boolean): React.ReactNode {
@@ -2816,7 +2863,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                         fontWeight: 700,
                         whiteSpace: 'nowrap'
                     }}
-                    title='Dernière tentative en échec'
+                    title={this.perCacheSubmitError[geocacheId] ?? 'Dernière tentative en échec'}
                 >
                     ⚠️ Échec
                 </span>
@@ -2885,6 +2932,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
 
         let ok = 0;
         let failed = 0;
+        /** "Envoyer sans les photos" appliqué au reste du lot : on ne redemande plus. */
+        let sendWithoutImagesForBatch = false;
 
         try {
             for (const gc of this.geocaches) {
@@ -2899,8 +2948,24 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                     favorite: logTypeForGc === 'found' ? (this.perCacheFavorite[gc.id] === true) : false,
                 };
 
-                const imageGuids = await this.uploadImagesForGeocache(gc.id);
-                const payloadWithImages = imageGuids.length > 0 ? { ...payload, images: imageGuids } : payload;
+                const upload = await this.uploadImagesForGeocache(gc.id);
+                if (upload.failed > 0 && !sendWithoutImagesForBatch) {
+                    const decision = await this.askImageFailureDecision(gc, upload);
+                    if (decision === 'send-all') {
+                        sendWithoutImagesForBatch = true;
+                    } else if (decision === 'skip') {
+                        failed += 1;
+                        this.perCacheSubmitStatus = { ...this.perCacheSubmitStatus, [gc.id]: 'failed' };
+                        this.perCacheSubmitError = {
+                            ...this.perCacheSubmitError,
+                            [gc.id]: `${upload.failed} photo(s) non envoyée(s) : log non soumis`,
+                        };
+                        this.messages.warn(`${gc.gc_code} - log non envoyé (${upload.failed} photo(s) en échec)`);
+                        this.update();
+                        continue;
+                    }
+                }
+                const payloadWithImages = upload.guids.length > 0 ? { ...payload, images: upload.guids } : payload;
 
                 let responseBody: any = undefined;
                 try {
@@ -2922,6 +2987,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                         this.perCacheSubmitStatus = { ...this.perCacheSubmitStatus, [gc.id]: 'ok' };
                         const ref = typeof responseBody?.log_reference_code === 'string' ? responseBody.log_reference_code : undefined;
                         this.perCacheSubmitReference = { ...this.perCacheSubmitReference, [gc.id]: ref };
+                        this.perCacheSubmitError = { ...this.perCacheSubmitError, [gc.id]: undefined };
                         // On ne marque pas `already_found` ici : le statut 'ok' verrouille déjà la ligne
                         // et affiche "loguée" plutôt que "déjà trouvée", qui serait trompeur juste après l'envoi.
 
@@ -2951,6 +3017,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                             failed += 1;
                             this.perCacheSubmitStatus = { ...this.perCacheSubmitStatus, [gc.id]: 'failed' };
                             const detail = responseBody?.error ? `: ${responseBody.error}` : '';
+                            this.perCacheSubmitError = { ...this.perCacheSubmitError, [gc.id]: `Envoi refusé par le backend${detail}` };
                             this.messages.warn(`${gc.gc_code} - échec${detail}`);
                         }
                     }
@@ -2958,6 +3025,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                     console.error('[GeocacheLogEditorWidget] submit log error', gc, e, responseBody);
                     failed += 1;
                     this.perCacheSubmitStatus = { ...this.perCacheSubmitStatus, [gc.id]: 'failed' };
+                    this.perCacheSubmitError = { ...this.perCacheSubmitError, [gc.id]: 'Erreur réseau/backend' };
                     this.messages.warn(`${gc.gc_code} - erreur réseau/backend`);
                 }
 
@@ -3502,6 +3570,7 @@ ${geocacheContext}`;
                             perCacheFavorite={this.perCacheFavorite}
                             perCacheSubmitStatus={this.perCacheSubmitStatus}
                             perCacheSubmitReference={this.perCacheSubmitReference}
+                            perCacheSubmitError={this.perCacheSubmitError}
                             onToggleFavorite={(geocacheId, nextValue) => this.toggleFavoriteForGeocacheId(geocacheId, nextValue)}
                             onToggleLogType={(geocacheId, nextValue) => this.setLogTypeForGeocacheId(geocacheId, nextValue)}
                             onReorder={orderedIds => this.reorderGeocaches(orderedIds)}
@@ -3829,7 +3898,7 @@ ${geocacheContext}`;
                                                     fontWeight: 700,
                                                     whiteSpace: 'nowrap'
                                                 }}
-                                                title='Dernière tentative en échec'
+                                                title={this.perCacheSubmitError[gc.id] ?? 'Dernière tentative en échec'}
                                             >
                                                 ⚠️ Échec
                                             </span>
