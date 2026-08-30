@@ -1,5 +1,6 @@
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { CancellationToken, CancellationError, isCancelled } from '@theia/core';
+import DOMPurify from '@theia/core/shared/dompurify';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import {
     getJsonOfResponse,
@@ -588,7 +589,9 @@ export class GeocacheDetailsTranslationController {
     }
 
     private extractJson(raw: string): any {
-        const cleaned = this.sanitizeTranslatedHtml(raw);
+        // On ne passe PAS par sanitizeTranslatedHtml ici : DOMPurify echapperait les < et > du
+        // JSON et casserait le parsing. On ne retire que les blocs de raisonnement.
+        const cleaned = this.stripReasoningBlocks(raw);
         try {
             return JSON.parse(cleaned);
         } catch {
@@ -650,7 +653,30 @@ export class GeocacheDetailsTranslationController {
         return response.content ?? '';
     }
 
+    /**
+     * Nettoie une reponse LLM : retire les blocs de raisonnement (THINK, ANALYSIS) que certains
+     * modeles locaux ajoutent, puis applique DOMPurify pour retirer tout contenu dangereux
+     * (scripts, event handlers, etc.) par defense en profondeur. Le HTML traduit provient du
+     * modele IA, qui a lui-meme recu du HTML tiers de geocaching.com : on ne fait pas confiance
+     * a sa sortie sans sanitization, meme si l'affichage passe deja par DOMPurify.
+     */
     private sanitizeTranslatedHtml(value: string): string {
+        const cleaned = this.stripReasoningBlocks(value);
+        // DOMPurify.sanitize sur une chaine vide retourne une chaine vide : pas de risque.
+        // On garde ALLOW_DATA_ATTR et les attributs courants (class, id, href, src, alt, etc.)
+        // pour ne pas casser la structure HTML legitime des descriptions de geocaches.
+        return DOMPurify.sanitize(cleaned, {
+            ALLOWED_URI_REGEXP: /^(?:(?:https?|ftp|mailto|tel|file|data):|[^a-z]|a)/i,
+            ALLOW_DATA_ATTR: true,
+        }).trim();
+    }
+
+    /**
+     * Retire uniquement les blocs de raisonnement (THINK, ANALYSIS) sans appliquer DOMPurify.
+     * Utilise pour nettoyer le JSON brut avant parsing : DOMPurify echapperait les < et > et
+     * casserait le JSON.
+     */
+    private stripReasoningBlocks(value: string): string {
         return (value || '')
             .toString()
             .replace(/\[THINK\][\s\S]*?\[\/THINK\]/gi, '')
