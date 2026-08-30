@@ -1447,6 +1447,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                     isTranslatingAll: this.isTranslatingAllContent,
                     onCancelTranslation: this.handleCancelTranslation,
                     translationProgress: this.translationProgress,
+                    targetLanguage: this.preferencesController.getTranslationTargetLanguage(),
                     externalLinksOpenMode: this.preferencesController.getExternalLinksOpenMode(),
                 }}
                 displayedHints={displayedHints}

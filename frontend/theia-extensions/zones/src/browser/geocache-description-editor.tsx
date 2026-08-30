@@ -18,6 +18,7 @@ export interface DescriptionEditorProps {
     isTranslatingAll: boolean;
     onCancelTranslation: () => void;
     translationProgress?: TranslationProgress;
+    targetLanguage: string;
     externalLinksOpenMode: 'new-tab' | 'new-window';
 }
 
@@ -215,6 +216,7 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
     isTranslatingAll,
     onCancelTranslation,
     translationProgress,
+    targetLanguage,
     externalLinksOpenMode
 }) => {
     const [variant, setVariant] = React.useState<DescriptionVariant>(defaultVariant);
@@ -471,7 +473,7 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
                             disabled={isEditing || isAnyTranslating}
                             aria-haspopup='menu'
                             aria-expanded={isTranslateMenuOpen}
-                            title="Traduire en français avec l'IA"
+                            title={`Traduire en ${targetLanguage} avec l'IA`}
                             style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                         >
                             {isAnyTranslating ? (

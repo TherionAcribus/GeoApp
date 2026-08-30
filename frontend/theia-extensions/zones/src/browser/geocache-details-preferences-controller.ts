@@ -27,6 +27,7 @@ export class GeocacheDetailsPreferencesController {
     private readonly ocrLmstudioBaseUrlPreferenceKey = 'geoApp.ocr.lmstudio.baseUrl';
     private readonly ocrLmstudioModelPreferenceKey = 'geoApp.ocr.lmstudio.model';
     private readonly ocrOpenRouterModelPreferenceKey = 'geoApp.ocr.openRouter.model';
+    private readonly translationTargetLanguagePreferenceKey = 'geoApp.translation.targetLanguage';
 
     constructor(
         @inject(PreferenceService) protected readonly preferenceService: PreferenceService
@@ -165,5 +166,10 @@ export class GeocacheDetailsPreferencesController {
             return 5;
         }
         return Math.max(1, Math.min(50, Math.floor(parsed)));
+    }
+
+    getTranslationTargetLanguage(): string {
+        const raw = this.preferenceService.get(this.translationTargetLanguagePreferenceKey, 'francais') as string;
+        return (raw || 'francais').toString().trim() || 'francais';
     }
 }

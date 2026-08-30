@@ -1,5 +1,6 @@
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { CancellationToken, isCancelled } from '@theia/core';
+import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import {
     getJsonOfResponse,
     getTextOfResponse,
@@ -65,8 +66,15 @@ export class GeocacheDetailsTranslationController {
     constructor(
         @inject(LanguageModelRegistry) protected readonly languageModelRegistry: LanguageModelRegistry,
         @inject(LanguageModelService) protected readonly languageModelService: LanguageModelService,
-        @inject(GeocacheDetailsService) protected readonly geocacheDetailsService: GeocacheDetailsService
+        @inject(GeocacheDetailsService) protected readonly geocacheDetailsService: GeocacheDetailsService,
+        @inject(PreferenceService) protected readonly preferenceService: PreferenceService
     ) {}
+
+    /** Langue cible de traduction, lue depuis la preference geoApp.translation.targetLanguage. */
+    private getTargetLanguage(): string {
+        const raw = this.preferenceService.get('geoApp.translation.targetLanguage', 'francais') as string;
+        return (raw || 'francais').toString().trim() || 'francais';
+    }
 
     async translateDescription(
         geocacheId: number,
@@ -407,8 +415,9 @@ export class GeocacheDetailsTranslationController {
     }
 
     private async translateHtmlFragment(languageModel: any, sourceHtml: string, kind: string, cancellationToken?: CancellationToken): Promise<string> {
+        const language = this.getTargetLanguage();
         const prompt =
-            'Tu es un traducteur. Traduis en francais le contenu TEXTUEL du HTML fourni, en conservant le HTML.\n'
+            `Tu es un traducteur. Traduis en ${language} le contenu TEXTUEL du HTML fourni, en conservant le HTML.\n`
             + '- Ne change pas les balises, attributs, liens, images, classes, ids.\n'
             + '- Ne traduis pas les coordonnees, codes GC, URLs, ni les identifiants techniques.\n'
             + '- Ne renvoie que le HTML final, sans markdown, sans explications.';
@@ -591,7 +600,8 @@ export class GeocacheDetailsTranslationController {
     }
 
     private createHintsWaypointsPrompt(): string {
-        return 'Traduis en francais le contenu suivant et renvoie UNIQUEMENT un JSON valide.\n'
+        const language = this.getTargetLanguage();
+        return `Traduis en ${language} le contenu suivant et renvoie UNIQUEMENT un JSON valide.\n`
             + 'Contraintes :\n'
             + '- hints_decoded : traduis le texte de l indice.\n'
             + '- Ne traduis pas les coordonnees, codes GC, URLs, ni les identifiants techniques.\n'
