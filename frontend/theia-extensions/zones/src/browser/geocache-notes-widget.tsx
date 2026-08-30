@@ -314,10 +314,20 @@ export class GeocacheNotesWidget extends ReactWidget {
         }
     }
 
-    protected async confirmDeleteNote(): Promise<boolean> {
+    protected async confirmDeleteNote(note: GeocacheNoteDto): Promise<boolean> {
+        // Les notes non-user (EarthCoach, systeme) ne sont pas editables : leur
+        // suppression est permise mais on demande une confirmation renforcee pour
+        // eviter de perdre par un clic maladroit une note generee automatiquement.
+        const isUserNote = note.source === 'user';
+        const sourceLabel = note.source === 'earthcoach'
+            ? 'EarthCoach'
+            : note.note_type === 'system' ? 'système' : note.source;
+
         const dialog = new ConfirmDialog({
-            title: 'Supprimer la note',
-            msg: 'Supprimer cette note ?',
+            title: isUserNote ? 'Supprimer la note' : `Supprimer la note ${sourceLabel} ?`,
+            msg: isUserNote
+                ? 'Supprimer cette note ?'
+                : `Cette note a été générée par ${sourceLabel} et n'est pas éditable. La supprimer est définitif. Continuer ?`,
             ok: 'Supprimer',
             cancel: Dialog.CANCEL
         });
@@ -328,7 +338,7 @@ export class GeocacheNotesWidget extends ReactWidget {
         if (!note.id) {
             return;
         }
-        if (!(await this.confirmDeleteNote())) {
+        if (!(await this.confirmDeleteNote(note))) {
             return;
         }
 
