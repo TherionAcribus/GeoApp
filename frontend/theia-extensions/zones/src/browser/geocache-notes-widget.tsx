@@ -110,7 +110,18 @@ export class GeocacheNotesWidget extends ReactWidget {
         this.resetWidgetState();
         this.title.label = params.gcCode ? `Notes - ${params.gcCode}` : 'Notes';
 
-        void this.loadNotes();
+        // On chaîne load -> sync : si les deux tournent en parallèle et que la sync
+        // (rapide) termine avant le load (qui renvoie aussi gc_personal_note depuis
+        // la BDD), applyNotesData() écraserait la valeur fraîche de la sync avec une
+        // valeur périmée. En attendant la fin du load, on garantit que la sync est
+        // la dernière à écrire dans gcPersonalNote.
+        await this.loadNotes();
+
+        // La géocache a pu changer pendant le load (un autre setGeocache a déclenché) :
+        // ne pas lancer la sync sur une géocache qu'on n'affiche plus.
+        if (this.geocacheId !== params.geocacheId) {
+            return;
+        }
 
         if (this.notesController.getGcPersonalNoteAutoSyncMode() === 'onNotesOpen') {
             void this.syncFromGeocaching(true);
