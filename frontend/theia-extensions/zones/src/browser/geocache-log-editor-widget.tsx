@@ -6,12 +6,9 @@ import { Message, StorageService } from '@theia/core/lib/browser';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import { LanguageModelRegistry, LanguageModelService } from '@theia/ai-core';
 import { GeoAppLogWriterAgentId } from './geoapp-log-writer-agent';
-import { LogTypeIcon } from './geocache-log-type-icons';
 import { AiGenerationPanel } from './log-editor/ai-generation-panel';
-import { CharCounter } from './log-editor/char-counter';
 import { DraftBanner } from './log-editor/draft-banner';
 import { GeocacheLogEditorGeocachesTable } from './log-editor/geocaches-table';
-import { ImagesSection } from './log-editor/images-section';
 import {
     buildFieldNotes as buildFieldNotesPure,
     buildSubmissionSummaryNode as buildSubmissionSummaryNodePure,
@@ -22,8 +19,6 @@ import {
     submitOneLog,
     uploadOneLogImage as uploadOneLogImagePure,
 } from './log-editor/log-submit-service';
-import { MarkdownPreview } from './log-editor/markdown-preview';
-import { MarkdownToolbar } from './log-editor/markdown-toolbar';
 import { MemoizedFragment } from './log-editor/memoized-fragment';
 import {
     buildPatternsIndex,
@@ -35,10 +30,8 @@ import {
     resolvePatternValue,
     type PatternResolutionContext,
 } from './log-editor/pattern-resolver';
-import { TextareaWithOverlay, TextWithHighlightedPatterns } from './log-editor/textarea-overlay';
 import { SubmitProgress } from './log-editor/submit-progress';
 import {
-    ALREADY_FOUND_ACCENT,
     GC_LOG_MAX_LENGTH,
     IMAGE_FAILURE_SEND,
     IMAGE_FAILURE_SEND_ALL,
@@ -46,8 +39,6 @@ import {
     PATTERN_AUTOCOMPLETE_DELAY_MS,
 } from './log-editor/constants';
 import {
-    findPatternTokenStart,
-    getCaretCoordinates,
     sanitizeLogTypeForGeocache,
     todayIsoDate,
 } from './log-editor/helpers';
@@ -88,11 +79,34 @@ import {
 } from './log-editor/geocache-loader';
 import { generateLogWithAi as generateLogWithAiPure, NoLanguageModelError } from './log-editor/ai-log-generator';
 import { PerCacheBlock } from './log-editor/per-cache-block';
+import { LogEditorHeader } from './log-editor/log-editor-header';
+import { PatternsSection } from './log-editor/patterns-section';
+import { GlobalLogEditor } from './log-editor/global-log-editor';
 import {
-    findFormatAtCaret,
+    addPatternToList,
+    createPattern,
+    deletePatternFromList,
+    loadCustomPatterns,
+    saveCustomPatterns,
+    updatePatternInList,
+} from './log-editor/pattern-store';
+import {
+    applySuggestionToText,
+    buildPatternSuggestions,
+    findPatternTokenAtCaret as findPatternTokenAtCaretPure,
+    getAutocompletePosition,
+} from './log-editor/pattern-autocomplete';
+import {
+    clampSelection,
+    computeMarkdownFormatEdit,
+    computeMarkdownPrefixEdit,
+    computePrefixSelection,
+    detectCaretFormat,
+    escapeHtml as escapeHtmlPure,
+} from './log-editor/markdown-editor-helpers';
+import {
     MarkdownFormatKind,
     sanitizeLogUrl,
-    toggleMarkdownFormat,
 } from './log-markdown';
 import '../../src/browser/style/log-editor-textarea.css';
 
@@ -604,12 +618,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     }
 
     protected escapeHtml(value: string): string {
-        return (value || '')
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
+        return escapeHtmlPure(value);
     }
 
     protected sanitizeUrl(url: string): string | undefined {
@@ -632,9 +641,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 return;
             }
             try {
-                const safeStart = Math.max(0, Math.min(pending.start, ta.value.length));
-                const safeEnd = Math.max(0, Math.min(pending.end, ta.value.length));
-                ta.setSelectionRange(safeStart, safeEnd);
+                const clamped = clampSelection(pending.start, pending.end, ta.value.length);
+                ta.setSelectionRange(clamped.start, clamped.end);
             } catch {
                 // ignore
             }
@@ -669,10 +677,10 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         const start = ta ? ta.selectionStart : value.length;
         const end = ta ? ta.selectionEnd : value.length;
 
-        const edit = toggleMarkdownFormat(value, start, end, kind, placeholder);
+        const edit = computeMarkdownFormatEdit(value, start, end, kind, placeholder);
 
         this.applyEditorValue(editor, edit.value);
-        this.activeCaretFormat = findFormatAtCaret(edit.value, edit.selectionStart)?.kind;
+        this.activeCaretFormat = detectCaretFormat(edit.value, edit.selectionStart);
         this.update();
         this.scheduleSelection(editor, edit.selectionStart, edit.selectionEnd);
     }
@@ -682,7 +690,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
      * Ne redessine que si l'état change, pour ne pas re-rendre à chaque frappe.
      */
     protected refreshCaretFormat(textArea: HTMLTextAreaElement): void {
-        const next = findFormatAtCaret(textArea.value, textArea.selectionStart ?? 0)?.kind;
+        const next = detectCaretFormat(textArea.value, textArea.selectionStart ?? 0);
         if (next !== this.activeCaretFormat) {
             this.activeCaretFormat = next;
             this.update();
@@ -724,21 +732,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         const start = ta ? ta.selectionStart : value.length;
         const end = ta ? ta.selectionEnd : value.length;
 
-        const lineStart = value.lastIndexOf('\n', start - 1) + 1;
-        const lineEnd = value.indexOf('\n', end);
-        const safeLineEnd = lineEnd === -1 ? value.length : lineEnd;
-
-        const selectedBlock = value.slice(lineStart, safeLineEnd);
-        const isEmpty = !selectedBlock.trim();
-        const toProcess = isEmpty ? placeholder : selectedBlock;
-
-        const processed = toProcess
-            .split('\n')
-            .map(l => (l.trim() ? `${prefix}${l}` : l))
-            .join('\n');
-
-        const nextValue = value.slice(0, lineStart) + processed + value.slice(safeLineEnd);
-        this.applyEditorValue(editor, nextValue);
+        const result = computeMarkdownPrefixEdit(value, start, end, prefix, placeholder);
+        this.applyEditorValue(editor, result.value);
         this.update();
 
         setTimeout(() => {
@@ -747,12 +742,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 return;
             }
             nextTa.focus();
-            const selStart = lineStart + prefix.length;
-            if (isEmpty) {
-                nextTa.setSelectionRange(selStart, selStart + placeholder.length);
-            } else {
-                nextTa.setSelectionRange(lineStart, lineStart + processed.length);
-            }
+            const sel = computePrefixSelection(result, prefix, placeholder);
+            nextTa.setSelectionRange(sel.start, sel.end);
         }, 0);
     }
 
@@ -1074,32 +1065,6 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         return 'skip';
     }
 
-    protected renderImagesSection(target: 'global' | { geocacheId: number }, disabled: boolean): React.ReactNode {
-        const images = target === 'global' ? this.globalImages : (this.perCacheImages[target.geocacheId] ?? []);
-        const title = target === 'global' ? 'Photos (appliquées à toutes les géocaches)' : 'Photos';
-        const dropZoneKey = target === 'global' ? 'global' : `cache-${target.geocacheId}`;
-
-        return (
-            <ImagesSection
-                images={images}
-                title={title}
-                disabled={disabled}
-                isDragOver={this.dragOverDropZone === dropZoneKey}
-                onAddFiles={files => this.addSelectedImages(files, target)}
-                onRemoveImage={imageId => this.removeSelectedImage(target, imageId)}
-                onDragOverChange={active => {
-                    const next = active ? dropZoneKey : undefined;
-                    if (this.dragOverDropZone === next) {
-                        return;
-                    }
-                    this.dragOverDropZone = next;
-                    this.update();
-                }}
-                getPreviewUrl={file => this.getPreviewUrl(file)}
-            />
-        );
-    }
-
     protected getRemainingFavoritePoints(): number {
         const usedCount = Object.values(this.perCacheFavorite).filter(v => v === true).length;
         return Math.max(0, this.totalFavoritePoints - usedCount);
@@ -1306,47 +1271,25 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         this.isLoadingPatterns = true;
         this.update();
 
-        try {
-            let stored = await this.storageService.getData<LogTextPattern[]>(this.logPatternsStorageKey, []);
-            if (!Array.isArray(stored)) {
-                stored = [];
-            }
-            this.customPatterns = stored.filter(p => p && typeof p === 'object' && typeof p.id === 'string' && typeof p.name === 'string');
-        } catch (e) {
-            console.error('[GeocacheLogEditorWidget] loadPatterns error', e);
-            this.customPatterns = [];
-        } finally {
-            this.isLoadingPatterns = false;
-            this.update();
-        }
+        this.customPatterns = await loadCustomPatterns(this.storageService, this.logPatternsStorageKey);
+
+        this.isLoadingPatterns = false;
+        this.update();
     }
 
     protected async savePatterns(): Promise<void> {
-        try {
-            await this.storageService.setData(this.logPatternsStorageKey, this.customPatterns);
-        } catch (e) {
-            console.error('[GeocacheLogEditorWidget] savePatterns error', e);
-        }
+        await saveCustomPatterns(this.storageService, this.logPatternsStorageKey, this.customPatterns);
     }
 
     protected addPattern(name: string, content: string): void {
-        const trimmedName = name.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
-        if (!trimmedName) {
-            this.messages.warn('Le nom du pattern est invalide');
+        const result = createPattern(name, content, () => this.generateId(), this.getAllPatterns());
+        if ('error' in result) {
+            this.messages.warn(result.error === 'invalid-name'
+                ? 'Le nom du pattern est invalide'
+                : `Le pattern "@${name.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_')}" existe déjà`);
             return;
         }
-        const existing = this.getAllPatterns().find(p => p.name === trimmedName);
-        if (existing) {
-            this.messages.warn(`Le pattern "@${trimmedName}" existe déjà`);
-            return;
-        }
-        const newPattern: LogTextPattern = {
-            id: this.generateId(),
-            name: trimmedName,
-            content: content.trim(),
-            isBuiltin: false,
-        };
-        this.customPatterns = [...this.customPatterns, newPattern];
+        this.customPatterns = addPatternToList(this.customPatterns, result);
         void this.savePatterns();
         this.patternNameInput = '';
         this.patternContentInput = '';
@@ -1354,19 +1297,14 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     }
 
     protected updatePattern(patternId: string, name: string, content: string): void {
-        const trimmedName = name.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
-        if (!trimmedName) {
-            this.messages.warn('Le nom du pattern est invalide');
+        const result = updatePatternInList(this.customPatterns, patternId, name, content, this.getAllPatterns());
+        if ('error' in result) {
+            this.messages.warn(result.error === 'invalid-name'
+                ? 'Le nom du pattern est invalide'
+                : `Le pattern "@${name.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_')}" existe déjà`);
             return;
         }
-        const existing = this.getAllPatterns().find(p => p.name === trimmedName && p.id !== patternId);
-        if (existing) {
-            this.messages.warn(`Le pattern "@${trimmedName}" existe déjà`);
-            return;
-        }
-        this.customPatterns = this.customPatterns.map(p =>
-            p.id === patternId ? { ...p, name: trimmedName, content: content.trim() } : p
-        );
+        this.customPatterns = result;
         void this.savePatterns();
         this.editingPattern = null;
         this.patternNameInput = '';
@@ -1375,7 +1313,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     }
 
     protected deletePattern(patternId: string): void {
-        this.customPatterns = this.customPatterns.filter(p => p.id !== patternId);
+        this.customPatterns = deletePatternFromList(this.customPatterns, patternId);
         void this.savePatterns();
         this.update();
     }
@@ -1470,97 +1408,6 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         return { raw: rawText.length, min, max, worst };
     }
 
-    /**
-     * Compteur « texte final » sous une zone de saisie : ce que geocaching.com mesure
-     * n'est pas le texte tapé mais le texte patterns résolus, qui peut être bien plus long.
-     */
-    protected renderCharCounter(target: 'global' | { geocacheId: number }): React.ReactNode {
-        const stats = this.getFinalLengthStats(target);
-        if (stats.raw === 0 && stats.max === 0) {
-            return undefined;
-        }
-        return <CharCounter {...stats} />;
-    }
-
-    protected renderTextWithHighlightedPatterns(text: string, geocacheId: number | null, key: string): React.ReactNode {
-        return (
-            <TextWithHighlightedPatterns
-                text={text}
-                geocacheId={geocacheId}
-                nodeKey={key}
-                patternNames={this.getPatternsIndex().names}
-                resolvePatternValue={(name, id) => this.resolvePatternValue(name, id)}
-            />
-        );
-    }
-
-    protected renderTextareaWithOverlay(
-        value: string,
-        geocacheId: number | null,
-        textareaProps: React.TextareaHTMLAttributes<HTMLTextAreaElement>,
-        textareaRef: (el: HTMLTextAreaElement | null) => void,
-        overlayKey: string
-    ): React.ReactNode {
-        return (
-            <TextareaWithOverlay
-                value={value}
-                geocacheId={geocacheId}
-                textareaProps={textareaProps}
-                textareaRef={textareaRef}
-                overlayKey={overlayKey}
-                patternNames={this.getPatternsIndex().names}
-                resolvePatternValue={(name, id) => this.resolvePatternValue(name, id)}
-                onCaretChange={ta => this.refreshCaretFormat(ta)}
-                onScrollSync={(key, ta) => this.syncOverlayScroll(key, ta)}
-                registerTextarea={(key, el) => { this.overlayTextareas[key] = el; }}
-                registerOverlay={(key, el) => { this.overlayElements[key] = el; }}
-            />
-        );
-    }
-
-    /**
-     * Barre d'outils Markdown, commune à l'éditeur global et aux éditeurs par cache.
-     *
-     * Les boutons d'emphase s'allument quand le curseur se trouve dans une zone déjà
-     * formatée, et un second clic retire alors le formatage (cf. toggleMarkdownFormat).
-     */
-    protected renderMarkdownToolbar(
-        section: { type: 'global' } | { type: 'per-cache'; geocacheId: number },
-        disabled: boolean
-    ): React.ReactNode {
-        return (
-            <MarkdownToolbar
-                activeCaretFormat={this.activeCaretFormat}
-                isActive={this.isEditorActive(section)}
-                disabled={disabled}
-                onApplyFormat={(kind, placeholder) => this.applyMarkdownFormat(kind, placeholder)}
-                onApplyPrefix={(prefix, placeholder) => this.applyMarkdownPrefix(prefix, placeholder)}
-            />
-        );
-    }
-
-    /**
-     * Bloc « Aperçu Markdown » : rendu du texte final, précédé d'un avertissement
-     * quand des astérisques ne seront pas interprétées par Geocaching.com.
-     */
-    protected renderMarkdownPreview(text: string, keyPrefix: string): React.ReactNode {
-        return (
-            <MarkdownPreview
-                text={text}
-                keyPrefix={keyPrefix}
-                isOpen={this.openMarkdownPreviews.has(keyPrefix)}
-                onToggle={open => {
-                    if (open) {
-                        this.openMarkdownPreviews.add(keyPrefix);
-                    } else {
-                        this.openMarkdownPreviews.delete(keyPrefix);
-                    }
-                    this.update();
-                }}
-            />
-        );
-    }
-
     /** Aligne la couche de surlignage sur le défilement du <textarea>. */
     protected syncOverlayScroll(overlayKey: string, textArea: HTMLTextAreaElement): void {
         const overlay = this.overlayElements[overlayKey];
@@ -1594,15 +1441,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
 
     /** Jeton `@xxx` en cours de saisie devant le curseur, s'il y en a un. */
     protected findPatternTokenAtCaret(value: string, caret: number): { start: number; fragment: string } | undefined {
-        const tokenStart = findPatternTokenStart(value.slice(0, caret));
-        if (tokenStart === null) {
-            return undefined;
-        }
-        const fragment = value.slice(tokenStart + 1, caret);
-        if (fragment.includes(' ') || fragment.includes('\n')) {
-            return undefined;
-        }
-        return { start: tokenStart, fragment };
+        return findPatternTokenAtCaretPure(value, caret);
     }
 
     /**
@@ -1649,26 +1488,19 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         }
 
         const prefix = token.fragment.toLowerCase();
-        const suggestions: PatternSuggestion[] = [];
-
-        for (const pattern of this.getAllPatterns()) {
-            if (!prefix || pattern.name.startsWith(prefix) || pattern.name.includes(prefix)) {
-                const resolvedValue = this.resolvePatternValue(pattern.name, geocacheId);
-                suggestions.push({
-                    id: pattern.id,
-                    label: `@${pattern.name}`,
-                    description: pattern.isBuiltin ? `→ ${resolvedValue}` : pattern.content.slice(0, 50),
-                    insertText: `@${pattern.name}`,
-                });
-            }
-        }
+        const suggestions = buildPatternSuggestions(
+            this.getAllPatterns(),
+            prefix,
+            (name, id) => this.resolvePatternValue(name, id),
+            geocacheId
+        );
 
         if (suggestions.length === 0) {
             this.closePatternAutocomplete();
             return;
         }
 
-        this.patternAutocompletePosition = getCaretCoordinates(textArea, token.start);
+        this.patternAutocompletePosition = getAutocompletePosition(textArea, token.start);
         this.patternAutocompleteReplaceRange = { start: token.start, end: caret };
         this.patternAutocompleteSuggestions = suggestions;
         this.patternAutocompleteActiveIndex = 0;
@@ -1693,30 +1525,27 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         }
 
         if (geocacheId === null) {
-            const current = this.globalText;
-            const next = current.slice(0, range.start) + suggestion.insertText + current.slice(range.end);
-            this.globalText = next;
-            const newPos = range.start + suggestion.insertText.length;
+            const result = applySuggestionToText(this.globalText, range, suggestion.insertText);
+            this.globalText = result.text;
             this.patternAutocompleteOpen = false;
             this.update();
             requestAnimationFrame(() => {
                 if (this.globalTextArea) {
                     this.globalTextArea.focus();
-                    this.globalTextArea.setSelectionRange(newPos, newPos);
+                    this.globalTextArea.setSelectionRange(result.cursorPos, result.cursorPos);
                 }
             });
         } else {
             const current = this.perCacheText[geocacheId] ?? '';
-            const next = current.slice(0, range.start) + suggestion.insertText + current.slice(range.end);
-            this.perCacheText = { ...this.perCacheText, [geocacheId]: next };
-            const newPos = range.start + suggestion.insertText.length;
+            const result = applySuggestionToText(current, range, suggestion.insertText);
+            this.perCacheText = { ...this.perCacheText, [geocacheId]: result.text };
             this.patternAutocompleteOpen = false;
             this.update();
             requestAnimationFrame(() => {
                 const textArea = this.perCacheTextAreas[geocacheId];
                 if (textArea) {
                     textArea.focus();
-                    textArea.setSelectionRange(newPos, newPos);
+                    textArea.setSelectionRange(result.cursorPos, result.cursorPos);
                 }
             });
         }
@@ -2368,92 +2197,35 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         const remainingFavoritePoints = this.getRemainingFavoritePoints();
         const canPrev = !this.isLoadingHistory && this.logHistory.length > 0 && (this.logHistoryCursor < this.logHistory.length - 1);
         const canNext = !this.isLoadingHistory && this.logHistory.length > 0 && (this.logHistoryCursor > 0);
+        const canSubmit = this.getGeocachesToSubmit().length > 0;
+        const pendingAlreadyFound = this.getPendingAlreadyFoundGeocaches();
+        const globalPreviewKey = 'global-preview';
+        const globalOverlayKey = 'global-overlay';
+        const globalDropZoneKey = 'global';
+        const charCounterStats = this.getFinalLengthStats('global');
+
         return (
             <div style={{ padding: 12, height: '100%', overflow: 'auto', display: 'grid', gap: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-                    <div style={{ display: 'grid', gap: 8 }}>
-                        <div>
-                            <h3 style={{ margin: 0 }}>Logs</h3>
-                            <div style={{ opacity: 0.7, fontSize: 12, marginTop: 4 }}>
-                                {/* Le compte demandé et le compte chargé diffèrent si une géocache est introuvable. */}
-                                {this.geocaches.length > 0 && this.geocaches.length !== this.geocacheIds.length
-                                    ? `${this.geocaches.length} géocache(s) sur ${this.geocacheIds.length} chargée(s)`
-                                    : `${this.geocacheIds.length} géocache(s)`}
-                            </div>
-                        </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                        <button
-                            className='theia-button secondary'
-                            onClick={() => this.navigateHistory(+1)}
-                            disabled={this.isLoading || this.isLoadingHistory || !canPrev}
-                            title='Log précédent'
-                            style={{ fontSize: 12, padding: '4px 10px' }}
-                        >
-                            ⬅️
-                        </button>
-                        <button
-                            className='theia-button secondary'
-                            onClick={() => this.navigateHistory(-1)}
-                            disabled={this.isLoading || this.isLoadingHistory || !canNext}
-                            title='Log suivant'
-                            style={{ fontSize: 12, padding: '4px 10px' }}
-                        >
-                            ➡️
-                        </button>
-                        <button
-                            className='theia-button primary'
-                            onClick={() => { void this.submitLogsToGeocaching(); }}
-                            disabled={
-                                this.isLoading ||
-                                this.isSubmitting ||
-                                this.getGeocachesToSubmit().length === 0
-                            }
-                            title={this.geocaches.length > 0 && this.getGeocachesToSubmit().length === 0
-                                ? 'Aucune géocache à envoyer (déjà envoyées ou en "Ne pas loguer")'
-                                : 'Envoyer le(s) log(s) sur Geocaching.com via le backend'}
-                            style={{ fontSize: 12, padding: '4px 12px' }}
-                        >
-                            {this.isSubmitting && this.submitProgress
-                                ? `⏳ Envoi ${this.submitProgress.current}/${this.submitProgress.total}…`
-                                : '✅ Envoyer sur GC'}
-                        </button>
-                        {this.isSubmitting && (
-                            <button
-                                className='theia-button secondary'
-                                onClick={() => this.requestSubmitStop()}
-                                disabled={this.stopRequested}
-                                title="Termine la géocache en cours (photos + log) puis interrompt le lot. Les géocaches restantes sont conservées dans le brouillon."
-                                style={{
-                                    fontSize: 12,
-                                    padding: '4px 12px',
-                                    color: this.stopRequested ? undefined : 'var(--theia-editorWarning-foreground, #d29922)',
-                                    fontWeight: 600,
-                                }}
-                            >
-                                {this.stopRequested ? '⏹️ Arrêt demandé…' : '⏹️ Stop après la cache en cours'}
-                            </button>
-                        )}
-                        <button
-                            className='theia-button secondary'
-                            onClick={() => { void this.copyFieldNotes(); }}
-                            disabled={this.isLoading || this.geocaches.length === 0}
-                            title='Copier le format geocache_visits.txt (field notes)'
-                            style={{ fontSize: 12, padding: '4px 12px' }}
-                        >
-                            📋 Copier field notes
-                        </button>
-                        <button
-                            className='theia-button secondary'
-                            onClick={() => this.downloadFieldNotes()}
-                            disabled={this.isLoading || this.geocaches.length === 0}
-                            title='Télécharger un fichier geocache_visits.txt'
-                            style={{ fontSize: 12, padding: '4px 12px' }}
-                        >
-                            ⬇️ Télécharger
-                        </button>
-                    </div>
-                </div>
+                <LogEditorHeader
+                    geocacheCount={this.geocacheIds.length}
+                    loadedCount={this.geocaches.length}
+                    isLoading={this.isLoading}
+                    isLoadingHistory={this.isLoadingHistory}
+                    canPrev={canPrev}
+                    canNext={canNext}
+                    isSubmitting={this.isSubmitting}
+                    submitProgress={this.submitProgress}
+                    canSubmit={canSubmit}
+                    submitTitle={this.geocaches.length > 0 && !canSubmit
+                        ? 'Aucune géocache à envoyer (déjà envoyées ou en "Ne pas loguer")'
+                        : 'Envoyer le(s) log(s) sur Geocaching.com via le backend'}
+                    stopRequested={this.stopRequested}
+                    onNavigateHistory={delta => this.navigateHistory(delta)}
+                    onSubmit={() => { void this.submitLogsToGeocaching(); }}
+                    onRequestStop={() => this.requestSubmitStop()}
+                    onCopyFieldNotes={() => { void this.copyFieldNotes(); }}
+                    onDownloadFieldNotes={() => this.downloadFieldNotes()}
+                />
 
                 {this.renderSubmitProgress()}
 
@@ -2470,7 +2242,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                             <strong>PF disponibles:</strong> {this.totalFavoritePoints}
                         </div>
                         <div style={{ opacity: 0.85 }}>
-                            <strong>PF restants:</strong> <span style={{ color: this.getRemainingFavoritePoints() === 0 ? 'var(--theia-errorForeground)' : 'inherit' }}>{this.getRemainingFavoritePoints()}</span>
+                            <strong>PF restants:</strong> <span style={{ color: remainingFavoritePoints === 0 ? 'var(--theia-errorForeground)' : 'inherit' }}>{remainingFavoritePoints}</span>
                         </div>
                         <div style={{ opacity: 0.85, display: 'flex', gap: 4, alignItems: 'center' }}>
                             <strong>Trouvailles:</strong> {this.userFindsCount}
@@ -2487,126 +2259,33 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                     </div>
                 </div>
 
-                <details style={{ marginBottom: 8 }}>
-                    <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: 12 }}>
-                        📝 Patterns de texte ({this.getAllPatterns().length}) - Tapez @ dans le texte pour les utiliser
-                    </summary>
-                    <div style={{ marginTop: 8, padding: 10, background: 'var(--theia-editor-background)', border: '1px solid var(--theia-panel-border)', borderRadius: 6 }}>
-                        <div style={{ marginBottom: 12 }}>
-                            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Patterns intégrés</div>
-                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: 11 }}>
-                                {this.getBuiltinPatterns().map(p => (
-                                    <span key={p.id} style={{ padding: '2px 6px', background: 'var(--theia-badge-background)', borderRadius: 3 }}>
-                                        @{p.name} → {this.resolvePatternValue(p.name, this.geocaches[0]?.id ?? null)}
-                                    </span>
-                                ))}
-                            </div>
-                        </div>
-
-                        <div style={{ marginBottom: 12 }}>
-                            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Patterns personnalisés</div>
-                            {this.customPatterns.length === 0 && (
-                                <div style={{ fontSize: 11, opacity: 0.7 }}>Aucun pattern personnalisé</div>
-                            )}
-                            {this.customPatterns.length > 0 && (
-                                <div style={{ display: 'grid', gap: 6 }}>
-                                    {this.customPatterns.map(p => (
-                                        <div key={p.id} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 11 }}>
-                                            <span style={{ padding: '2px 6px', background: 'var(--theia-badge-background)', borderRadius: 3, fontWeight: 600 }}>
-                                                @{p.name}
-                                            </span>
-                                            <span style={{ opacity: 0.8, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                {p.content}
-                                            </span>
-                                            <button
-                                                className='theia-button secondary'
-                                                style={{ fontSize: 10, padding: '2px 6px' }}
-                                                onClick={() => {
-                                                    this.editingPattern = p;
-                                                    this.patternNameInput = p.name;
-                                                    this.patternContentInput = p.content;
-                                                    this.update();
-                                                }}
-                                            >
-                                                ✏️
-                                            </button>
-                                            <button
-                                                className='theia-button secondary'
-                                                style={{ fontSize: 10, padding: '2px 6px' }}
-                                                onClick={() => this.deletePattern(p.id)}
-                                            >
-                                                🗑️
-                                            </button>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-
-                        <div style={{ borderTop: '1px solid var(--theia-panel-border)', paddingTop: 10 }}>
-                            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
-                                {this.editingPattern ? 'Modifier le pattern' : 'Ajouter un pattern'}
-                            </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr auto', gap: 8, alignItems: 'end' }}>
-                                <div>
-                                    <label style={{ display: 'block', fontSize: 10, opacity: 0.8, marginBottom: 2 }}>Nom (sans @)</label>
-                                    <input
-                                        className='theia-input'
-                                        value={this.patternNameInput}
-                                        onChange={e => { this.patternNameInput = e.target.value; this.update(); }}
-                                        placeholder='mon_pattern'
-                                        style={{ width: '100%', fontSize: 11 }}
-                                    />
-                                </div>
-                                <div>
-                                    <label style={{ display: 'block', fontSize: 10, opacity: 0.8, marginBottom: 2 }}>Contenu</label>
-                                    <input
-                                        className='theia-input'
-                                        value={this.patternContentInput}
-                                        onChange={e => { this.patternContentInput = e.target.value; this.update(); }}
-                                        placeholder='Texte à insérer...'
-                                        style={{ width: '100%', fontSize: 11 }}
-                                    />
-                                </div>
-                                <div style={{ display: 'flex', gap: 4 }}>
-                                    {this.editingPattern ? (
-                                        <>
-                                            <button
-                                                className='theia-button primary'
-                                                style={{ fontSize: 11, padding: '4px 8px' }}
-                                                onClick={() => this.updatePattern(this.editingPattern!.id, this.patternNameInput, this.patternContentInput)}
-                                                disabled={!this.patternNameInput.trim() || !this.patternContentInput.trim()}
-                                            >
-                                                Enregistrer
-                                            </button>
-                                            <button
-                                                className='theia-button secondary'
-                                                style={{ fontSize: 11, padding: '4px 8px' }}
-                                                onClick={() => {
-                                                    this.editingPattern = null;
-                                                    this.patternNameInput = '';
-                                                    this.patternContentInput = '';
-                                                    this.update();
-                                                }}
-                                            >
-                                                Annuler
-                                            </button>
-                                        </>
-                                    ) : (
-                                        <button
-                                            className='theia-button primary'
-                                            style={{ fontSize: 11, padding: '4px 8px' }}
-                                            onClick={() => this.addPattern(this.patternNameInput, this.patternContentInput)}
-                                            disabled={!this.patternNameInput.trim() || !this.patternContentInput.trim()}
-                                        >
-                                            Ajouter
-                                        </button>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </details>
+                <PatternsSection
+                    allPatternsCount={this.getAllPatterns().length}
+                    builtinPatterns={this.getBuiltinPatterns()}
+                    customPatterns={this.customPatterns}
+                    resolvePatternValue={(name, id) => this.resolvePatternValue(name, id)}
+                    firstGeocacheId={this.geocaches[0]?.id ?? null}
+                    editingPattern={this.editingPattern}
+                    patternNameInput={this.patternNameInput}
+                    patternContentInput={this.patternContentInput}
+                    onPatternNameInputChange={value => { this.patternNameInput = value; this.update(); }}
+                    onPatternContentInputChange={value => { this.patternContentInput = value; this.update(); }}
+                    onEditPattern={p => {
+                        this.editingPattern = p;
+                        this.patternNameInput = p.name;
+                        this.patternContentInput = p.content;
+                        this.update();
+                    }}
+                    onDeletePattern={id => this.deletePattern(id)}
+                    onAddPattern={() => this.addPattern(this.patternNameInput, this.patternContentInput)}
+                    onUpdatePattern={() => this.updatePattern(this.editingPattern!.id, this.patternNameInput, this.patternContentInput)}
+                    onCancelEditPattern={() => {
+                        this.editingPattern = null;
+                        this.patternNameInput = '';
+                        this.patternContentInput = '';
+                        this.update();
+                    }}
+                />
 
                 {this.renderAiGenerationPanel(allSubmitted)}
 
@@ -2644,221 +2323,90 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                         ✅ Tous les logs ont été envoyés.
                     </div>
                 )}
-                <div style={{ display: 'grid', gridTemplateColumns: '190px 220px 1fr', gap: 12, alignItems: 'end' }}>
-                    <div>
-                        <label style={{ display: 'block', fontSize: 12, opacity: 0.8, marginBottom: 4 }}>Date</label>
-                        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                            <input
-                                type='date'
-                                className='theia-input'
-                                value={this.logDate}
-                                onChange={e => { this.setLogDate(e.target.value); }}
-                                style={{ flex: 1, minWidth: 0 }}
-                            />
-                            <button
-                                className='theia-button secondary'
-                                onClick={() => { this.toggleLogDatePin(); }}
-                                title={this.isLogDatePinned
-                                    ? 'Date épinglée : elle sera réutilisée pour les prochains logs. Cliquer pour revenir à la date du jour.'
-                                    : 'Épingler la date pour la réutiliser lors des prochains logs'}
-                                aria-pressed={this.isLogDatePinned}
-                                style={{
-                                    padding: '2px 6px',
-                                    minWidth: 26,
-                                    fontSize: 13,
-                                    opacity: this.isLogDatePinned ? 1 : 0.6,
-                                    color: this.isLogDatePinned ? 'var(--theia-focusBorder)' : undefined,
-                                }}
-                            >
-                                <i className={this.isLogDatePinned ? 'fa fa-thumb-tack' : 'fa fa-thumb-tack fa-rotate-90'} />
-                            </button>
-                        </div>
-                    </div>
-                    <div>
-                        <label style={{ display: 'block', fontSize: 12, opacity: 0.8, marginBottom: 4 }}>Type</label>
-                        <select
-                            className='theia-select'
-                            value={this.logType}
-                            onChange={e => { this.setGlobalLogType(e.target.value as LogTypeValue); }}
-                            style={{ width: '100%' }}
-                        >
-                            <option value='found'>Found it</option>
-                            <option value='dnf'>Didn't find it</option>
-                            <option value='note'>Write note</option>
-                            <option value='skip'>Ne pas loguer</option>
-                        </select>
-                        {this.logType === 'found' && this.getPendingAlreadyFoundGeocaches().length > 0 && (
-                            <div
-                                style={{ fontSize: 11, marginTop: 4, color: ALREADY_FOUND_ACCENT, display: 'flex', alignItems: 'center', gap: 4 }}
-                                title={this.getPendingAlreadyFoundGeocaches().map(gc => gc.gc_code).join(', ')}
-                            >
-                                <LogTypeIcon kind='found' size={13} />
-                                {this.getPendingAlreadyFoundGeocaches().length} déjà trouvée(s) → "Ne pas loguer"
-                            </div>
-                        )}
-                    </div>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                        <input
-                            type='checkbox'
-                            checked={this.useSameTextForAll}
-                            onChange={e => { this.toggleUseSameTextForAll(e.target.checked); }}
-                        />
-                        <span style={{ fontSize: 12, opacity: 0.85 }}>Texte identique pour toutes les géocaches</span>
-                        {!this.useSameTextForAll && this.globalText.trim() !== '' && (
-                            <button
-                                className='theia-button secondary'
-                                onClick={() => { void this.applyGlobalTextToAllGeocaches(); }}
-                                disabled={this.isLoading || this.isSubmitting}
-                                title={`Remplacer le texte de chaque géocache par le texte commun :\n\n${this.getGlobalTextExcerpt()}`}
-                                style={{ fontSize: 11, padding: '2px 6px' }}
-                            >
-                                ↺ Réappliquer le texte commun
-                            </button>
-                        )}
-                    </div>
-                </div>
 
-                {this.useSameTextForAll && (
-                    <div>
-                        <label style={{ display: 'block', fontSize: 12, opacity: 0.8, marginBottom: 4 }}>Texte (Markdown)</label>
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 6 }}>
-                            <div style={{ position: 'relative' }}>
-                                <button
-                                    className='theia-button secondary'
-                                    style={{ fontSize: 12, padding: '2px 10px' }}
-                                    onClick={() => { this.historyDropdownOpen = !this.historyDropdownOpen; this.update(); }}
-                                    disabled={this.isLoading || this.isSubmitting || allSubmitted || this.logHistory.length === 0}
-                                    title='Réutiliser un log récent'
-                                >
-                                    📝 Logs récents ({this.logHistory.length})
-                                </button>
-                                {this.historyDropdownOpen && this.logHistory.length > 0 && (
-                                    <div
-                                        style={{
-                                            position: 'absolute',
-                                            top: '100%',
-                                            left: 0,
-                                            marginTop: 4,
-                                            width: 400,
-                                            maxHeight: 300,
-                                            overflowY: 'auto',
-                                            border: '1px solid var(--theia-panel-border)',
-                                            background: 'var(--theia-editor-background)',
-                                            borderRadius: 3,
-                                            zIndex: 1000,
-                                            boxShadow: '0 4px 12px rgba(0,0,0,0.35)'
-                                        }}
-                                    >
-                                        <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--theia-panel-border)', fontSize: 11, fontWeight: 600, opacity: 0.8 }}>
-                                            Cliquez pour réutiliser le texte
-                                        </div>
-                                        {this.logHistory.map((entry, idx) => {
-                                            const date = new Date(entry.createdAt);
-                                            const dateStr = date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-                                            const timeStr = date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-                                            const preview = (entry.globalText ?? '').slice(0, 80);
-                                            return (
-                                                <div
-                                                    key={entry.id}
-                                                    style={{
-                                                        padding: '8px',
-                                                        cursor: 'pointer',
-                                                        borderBottom: idx < this.logHistory.length - 1 ? '1px solid var(--theia-panel-border)' : 'none',
-                                                        background: 'transparent'
-                                                    }}
-                                                    onMouseEnter={e => { e.currentTarget.style.background = 'var(--theia-list-hoverBackground)'; }}
-                                                    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
-                                                    onClick={() => this.applyHistoryTextOnly(entry)}
-                                                >
-                                                    <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 2 }}>
-                                                        {dateStr} à {timeStr}
-                                                    </div>
-                                                    <div style={{ fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                                        {preview || '(vide)'}
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                )}
-                            </div>
-                            {this.renderMarkdownToolbar({ type: 'global' }, this.isLoading || this.isSubmitting || allSubmitted)}
-                        </div>
-                        <div style={{ position: 'relative' }}>
-                            {this.renderTextareaWithOverlay(
-                                this.globalText,
-                                this.geocaches[0]?.id ?? null,
-                                {
-                                    className: 'theia-input',
-                                    value: this.globalText,
-                                    onChange: e => {
-                                        const start = e.currentTarget.selectionStart;
-                                        const end = e.currentTarget.selectionEnd;
-                                        this.globalText = e.currentTarget.value;
-                                        this.refreshPatternAutocomplete(e.currentTarget.value, e.currentTarget, null);
-                                        this.update();
-                                        this.scheduleRestoreSelection({ type: 'global' }, start, end);
-                                    },
-                                    onKeyDown: e => this.handleTextAreaKeyDown(e, null),
-                                    onBlur: () => this.handleTextAreaBlur(),
-                                    onFocus: () => { this.activeEditor = { type: 'global' }; },
-                                    disabled: this.geocaches.length > 0 && this.geocaches.every(gc => this.isGeocacheSubmittedOk(gc.id)),
-                                    rows: 10,
-                                    style: { width: '100%', resize: 'vertical' }
-                                },
-                                el => { this.globalTextArea = el; },
-                                'global-overlay'
-                            )}
-                            {this.patternAutocompleteOpen && this.patternAutocompleteTargetGeocacheId === null && this.patternAutocompleteSuggestions.length > 0 && this.patternAutocompletePosition && (
-                                <div
-                                    style={{
-                                        position: 'fixed',
-                                        top: `${this.patternAutocompletePosition.top + 20}px`,
-                                        left: `${this.patternAutocompletePosition.left}px`,
-                                        width: 320,
-                                        maxHeight: 200,
-                                        overflowY: 'auto',
-                                        border: '1px solid var(--theia-panel-border)',
-                                        background: 'var(--theia-editor-background)',
-                                        borderRadius: 3,
-                                        zIndex: 1000,
-                                        boxShadow: '0 4px 12px rgba(0,0,0,0.35)'
-                                    }}
-                                    onMouseDown={e => e.preventDefault()}
-                                >
-                                    {this.patternAutocompleteSuggestions.map((s, idx) => (
-                                        <div
-                                            key={s.id}
-                                            style={{
-                                                padding: '6px 8px',
-                                                cursor: 'pointer',
-                                                background: idx === this.patternAutocompleteActiveIndex
-                                                    ? 'var(--theia-list-activeSelectionBackground)'
-                                                    : 'transparent'
-                                            }}
-                                            onMouseEnter={() => { this.patternAutocompleteActiveIndex = idx; this.update(); }}
-                                            onClick={() => this.applyPatternSuggestion(s)}
-                                        >
-                                            <div style={{ fontSize: '0.9em', fontWeight: 600 }}>{s.label}</div>
-                                            <div style={{ fontSize: '0.8em', opacity: 0.7 }}>{s.description}</div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-
-                        {this.renderCharCounter('global')}
-
-                        <div style={{ marginTop: 10 }}>
-                            {this.renderImagesSection('global', this.isLoading || this.isSubmitting || allSubmitted)}
-                        </div>
-
-                        {this.renderMarkdownPreview(
-                            this.resolveAllPatterns(this.globalText, this.geocaches[0]?.id ?? null),
-                            'global-preview'
-                        )}
-                    </div>
-                )}
+                <GlobalLogEditor
+                    logDate={this.logDate}
+                    onLogDateChange={value => this.setLogDate(value)}
+                    isLogDatePinned={this.isLogDatePinned}
+                    onToggleLogDatePin={() => this.toggleLogDatePin()}
+                    logType={this.logType}
+                    onLogTypeChange={value => this.setGlobalLogType(value)}
+                    pendingAlreadyFoundCount={pendingAlreadyFound.length}
+                    pendingAlreadyFoundCodes={pendingAlreadyFound.map(gc => gc.gc_code).join(', ')}
+                    useSameTextForAll={this.useSameTextForAll}
+                    onToggleUseSameTextForAll={checked => this.toggleUseSameTextForAll(checked)}
+                    globalText={this.globalText}
+                    globalTextExcerpt={this.getGlobalTextExcerpt()}
+                    onApplyGlobalTextToAll={() => { void this.applyGlobalTextToAllGeocaches(); }}
+                    historyDropdownOpen={this.historyDropdownOpen}
+                    onToggleHistoryDropdown={() => { this.historyDropdownOpen = !this.historyDropdownOpen; this.update(); }}
+                    logHistory={this.logHistory}
+                    onApplyHistoryTextOnly={entry => this.applyHistoryTextOnly(entry)}
+                    canUseHistory={!this.isLoading && !this.isSubmitting && !allSubmitted}
+                    isToolbarDisabled={this.isLoading || this.isSubmitting || allSubmitted}
+                    activeCaretFormat={this.activeCaretFormat}
+                    isEditorActive={this.isEditorActive({ type: 'global' })}
+                    onApplyFormat={(kind, placeholder) => this.applyMarkdownFormat(kind, placeholder)}
+                    onApplyPrefix={(prefix, placeholder) => this.applyMarkdownPrefix(prefix, placeholder)}
+                    textareaProps={{
+                        className: 'theia-input',
+                        value: this.globalText,
+                        onChange: e => {
+                            const start = e.currentTarget.selectionStart;
+                            const end = e.currentTarget.selectionEnd;
+                            this.globalText = e.currentTarget.value;
+                            this.refreshPatternAutocomplete(e.currentTarget.value, e.currentTarget, null);
+                            this.update();
+                            this.scheduleRestoreSelection({ type: 'global' }, start, end);
+                        },
+                        onKeyDown: e => this.handleTextAreaKeyDown(e, null),
+                        onBlur: () => this.handleTextAreaBlur(),
+                        onFocus: () => { this.activeEditor = { type: 'global' }; },
+                        rows: 10,
+                        style: { width: '100%', resize: 'vertical' },
+                    }}
+                    textareaRef={el => { this.globalTextArea = el; }}
+                    overlayKey={globalOverlayKey}
+                    patternNames={this.getPatternsIndex().names}
+                    resolvePatternValue={(name, id) => this.resolvePatternValue(name, id)}
+                    onCaretChange={ta => this.refreshCaretFormat(ta)}
+                    onScrollSync={(key, ta) => this.syncOverlayScroll(key, ta)}
+                    registerTextarea={(key, el) => { this.overlayTextareas[key] = el; }}
+                    registerOverlay={(key, el) => { this.overlayElements[key] = el; }}
+                    isTextareaDisabled={this.geocaches.length > 0 && this.geocaches.every(gc => this.isGeocacheSubmittedOk(gc.id))}
+                    autocompleteOpen={this.patternAutocompleteOpen && this.patternAutocompleteTargetGeocacheId === null}
+                    autocompleteSuggestions={this.patternAutocompleteSuggestions}
+                    autocompleteActiveIndex={this.patternAutocompleteActiveIndex}
+                    autocompletePosition={this.patternAutocompletePosition}
+                    onAutocompleteHover={idx => { this.patternAutocompleteActiveIndex = idx; this.update(); }}
+                    onAutocompleteClick={s => this.applyPatternSuggestion(s)}
+                    charCounterStats={charCounterStats}
+                    images={this.globalImages}
+                    isImagesDisabled={this.isLoading || this.isSubmitting || allSubmitted}
+                    isDragOver={this.dragOverDropZone === globalDropZoneKey}
+                    onAddFiles={files => this.addSelectedImages(files, 'global')}
+                    onRemoveImage={imageId => this.removeSelectedImage('global', imageId)}
+                    onDragOverChange={active => {
+                        const next = active ? globalDropZoneKey : undefined;
+                        if (this.dragOverDropZone === next) {
+                            return;
+                        }
+                        this.dragOverDropZone = next;
+                        this.update();
+                    }}
+                    getPreviewUrl={file => this.getPreviewUrl(file)}
+                    resolvedText={this.resolveAllPatterns(this.globalText, this.geocaches[0]?.id ?? null)}
+                    previewKeyPrefix={globalPreviewKey}
+                    isPreviewOpen={this.openMarkdownPreviews.has(globalPreviewKey)}
+                    onPreviewToggle={open => {
+                        if (open) {
+                            this.openMarkdownPreviews.add(globalPreviewKey);
+                        } else {
+                            this.openMarkdownPreviews.delete(globalPreviewKey);
+                        }
+                        this.update();
+                    }}
+                />
 
                 {this.isLoading && (
                     <div style={{ opacity: 0.7 }}>
