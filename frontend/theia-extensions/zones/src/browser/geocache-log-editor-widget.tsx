@@ -2,7 +2,7 @@
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core';
-import { StorageService } from '@theia/core/lib/browser';
+import { ConfirmDialog, StorageService } from '@theia/core/lib/browser';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import { LanguageModelRegistry, LanguageModelService, UserRequest, getTextOfResponse, getJsonOfResponse, isLanguageModelParsedResponse } from '@theia/ai-core';
 import { GeoAppLogWriterAgentId } from './geoapp-log-writer-agent';
@@ -45,6 +45,24 @@ function todayIsoDate(): string {
     const month = `${now.getMonth() + 1}`.padStart(2, '0');
     const day = `${now.getDate()}`.padStart(2, '0');
     return `${now.getFullYear()}-${month}-${day}`;
+}
+
+/** Date `YYYY-MM-DD` en format français, tel qu'affiché dans les logs et les récapitulatifs. */
+function formatIsoDateFr(iso: string): string {
+    const parsed = new Date(iso);
+    if (Number.isNaN(parsed.getTime())) {
+        return iso;
+    }
+    return parsed.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+/** Nombre de jours entre `iso` et aujourd'hui (négatif = dans le passé). */
+function dayOffsetFromToday(iso: string): number | undefined {
+    const target = Date.parse(`${iso}T12:00:00Z`);
+    if (Number.isNaN(target)) {
+        return undefined;
+    }
+    return Math.round((target - Date.parse(`${todayIsoDate()}T12:00:00Z`)) / 86400000);
 }
 
 type SubmissionStatus = 'ok' | 'failed' | 'skipped';
@@ -954,6 +972,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     protected previewUrlByFile = new Map<File, string>();
 
     protected isSubmitting = false;
+    /** Empêche un second envoi tant que le récapitulatif de confirmation est ouvert. */
+    protected isConfirmingSubmit = false;
     protected lastSubmitSummary: { ok: number; failed: number } | undefined;
     protected perCacheSubmitStatus: Record<number, SubmissionStatus> = {};
     protected perCacheSubmitReference: Record<number, string | undefined> = {};
@@ -2207,10 +2227,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         const geocache = geocacheIndex >= 0 ? this.geocaches[geocacheIndex] : null;
 
         switch (patternName) {
-            case 'date': {
-                const d = new Date(this.logDate);
-                return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-            }
+            case 'date':
+                return formatIsoDateFr(this.logDate);
             case 'cache_count':
                 if (geocacheIndex >= 0) {
                     return String(this.getCacheCountForIndex(geocacheIndex));
@@ -2891,8 +2909,114 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         return this.useSameTextForAll ? this.globalText : (this.perCacheText[geocacheId] ?? '');
     }
 
+    /**
+     * Récapitulatif avant envoi. Les logs postés sur Geocaching.com ne sont plus
+     * rattrapables depuis l'app, et la date comme le type de log sont globaux :
+     * c'est le dernier point où l'on peut encore repérer qu'ils n'ont pas été vérifiés.
+     */
+    protected buildSubmissionSummaryNode(toSubmit: GeocacheListItem[]): HTMLElement {
+        const node = document.createElement('div');
+        node.style.textAlign = 'left';
+        node.style.lineHeight = '1.5';
+
+        const intro = document.createElement('div');
+        intro.style.marginBottom = '8px';
+        intro.textContent = toSubmit.length === 1
+            ? '1 log va être publié sur Geocaching.com :'
+            : `${toSubmit.length} logs vont être publiés sur Geocaching.com :`;
+        node.appendChild(intro);
+
+        const list = document.createElement('ul');
+        list.style.margin = '0';
+        list.style.paddingLeft = '18px';
+        node.appendChild(list);
+
+        const addLine = (text: string, highlight = false): void => {
+            const item = document.createElement('li');
+            item.textContent = text;
+            if (highlight) {
+                item.style.color = 'var(--theia-editorWarning-foreground, var(--theia-errorForeground))';
+                item.style.fontWeight = '600';
+            }
+            list.appendChild(item);
+        };
+
+        const counts: Record<'found' | 'dnf' | 'note', number> = { found: 0, dnf: 0, note: 0 };
+        for (const gc of toSubmit) {
+            const logTypeForGc = this.getLogTypeForGeocacheId(gc.id);
+            if (logTypeForGc !== 'skip') {
+                counts[logTypeForGc] += 1;
+            }
+        }
+        if (counts.found > 0) {
+            addLine(`✅ ${counts.found} × Found it`);
+        }
+        if (counts.dnf > 0) {
+            addLine(`❌ ${counts.dnf} × Didn't find it`);
+        }
+        if (counts.note > 0) {
+            addLine(`📝 ${counts.note} × Write note`);
+        }
+
+        const offset = dayOffsetFromToday(this.logDate);
+        let dateSuffix = '';
+        if (offset === 0) {
+            dateSuffix = " (aujourd'hui)";
+        } else if (offset === -1) {
+            dateSuffix = ' (hier)';
+        } else if (offset !== undefined && offset < 0) {
+            dateSuffix = ` (il y a ${-offset} jours)`;
+        } else if (offset !== undefined && offset > 0) {
+            dateSuffix = offset === 1 ? ' (demain !)' : ` (dans ${offset} jours !)`;
+        }
+        addLine(`📅 Date de visite : ${formatIsoDateFr(this.logDate)}${dateSuffix}`, offset !== undefined && offset > 0);
+
+        const favorites = toSubmit.filter(gc => this.getLogTypeForGeocacheId(gc.id) === 'found' && this.perCacheFavorite[gc.id] === true).length;
+        if (favorites > 0) {
+            addLine(`⭐ ${favorites} point(s) favori(s) donné(s)`);
+        }
+
+        const photoCount = toSubmit.reduce((total, gc) => total + this.getImagesForGeocacheId(gc.id).length, 0);
+        if (photoCount > 0) {
+            addLine(this.useSameTextForAll
+                ? `🖼️ ${this.globalImages.length} photo(s) sur chacun des logs`
+                : `🖼️ ${photoCount} photo(s) au total`);
+        }
+
+        const skipped = this.geocaches.filter(gc => this.isGeocacheSkipped(gc.id));
+        if (skipped.length > 0) {
+            const codes = skipped.slice(0, 6).map(gc => gc.gc_code).join(', ');
+            const more = skipped.length > 6 ? `, +${skipped.length - 6}` : '';
+            addLine(`⏭️ ${skipped.length} géocache(s) en « Ne pas loguer », non envoyée(s) : ${codes}${more}`);
+        }
+
+        const alreadySent = this.geocaches.filter(gc => this.isGeocacheSubmittedOk(gc.id)).length;
+        if (alreadySent > 0) {
+            addLine(`✔️ ${alreadySent} log(s) déjà envoyé(s) plus tôt, non renvoyé(s)`);
+        }
+
+        const footer = document.createElement('div');
+        footer.style.marginTop = '10px';
+        footer.style.opacity = '0.75';
+        footer.textContent = "Un log publié ne peut plus être modifié ni supprimé depuis l'application.";
+        node.appendChild(footer);
+
+        return node;
+    }
+
+    protected async confirmSubmission(toSubmit: GeocacheListItem[]): Promise<boolean> {
+        const dialog = new ConfirmDialog({
+            title: 'Envoyer sur Geocaching.com ?',
+            msg: this.buildSubmissionSummaryNode(toSubmit),
+            ok: toSubmit.length === 1 ? 'Envoyer le log' : `Envoyer les ${toSubmit.length} logs`,
+            cancel: 'Annuler',
+            maxWidth: 520,
+        });
+        return (await dialog.open()) === true;
+    }
+
     protected async submitLogsToGeocaching(): Promise<void> {
-        if (this.isSubmitting) {
+        if (this.isSubmitting || this.isConfirmingSubmit) {
             return;
         }
         if (this.isLoading || this.geocaches.length === 0) {
@@ -2916,6 +3040,17 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             } else {
                 this.messages.warn(`Texte manquant pour ${missingText.length} géocache(s).`);
             }
+            return;
+        }
+
+        this.isConfirmingSubmit = true;
+        let confirmed = false;
+        try {
+            confirmed = await this.confirmSubmission(toSubmit);
+        } finally {
+            this.isConfirmingSubmit = false;
+        }
+        if (!confirmed) {
             return;
         }
 
