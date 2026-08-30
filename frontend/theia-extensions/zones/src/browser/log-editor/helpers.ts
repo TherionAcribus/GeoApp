@@ -91,6 +91,20 @@ export function isPendingDnf(
     return logTypeForGeocache === 'dnf' && !isJustLogged(geocache, perCacheSubmitStatus);
 }
 
+/** Taille de fichier lisible : "12 o", "345 Ko", "1,2 Mo". */
+export function formatFileSize(bytes: number): string {
+    if (!Number.isFinite(bytes) || bytes < 0) {
+        return '';
+    }
+    if (bytes < 1024) {
+        return `${bytes} o`;
+    }
+    if (bytes < 1024 * 1024) {
+        return `${(bytes / 1024).toFixed(0)} Ko`;
+    }
+    return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
+}
+
 export function findPatternTokenStart(beforeCaret: string): number | null {
     const idx = beforeCaret.lastIndexOf('@');
     if (idx === -1) {

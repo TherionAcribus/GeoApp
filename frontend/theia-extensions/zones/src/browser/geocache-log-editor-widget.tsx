@@ -7,10 +7,17 @@ import { PreferenceService } from '@theia/core/lib/common/preferences/preference
 import { LanguageModelRegistry, LanguageModelService, UserRequest, getTextOfResponse, getJsonOfResponse, isLanguageModelParsedResponse } from '@theia/ai-core';
 import { GeoAppLogWriterAgentId } from './geoapp-log-writer-agent';
 import { LogTypeIcon } from './geocache-log-type-icons';
-import { renderInlineLogMarkdown, renderLogMarkdown } from './log-markdown-renderer';
+import { AiGenerationPanel } from './log-editor/ai-generation-panel';
+import { CharCounter } from './log-editor/char-counter';
 import { DnfBadge } from './log-editor/dnf-badge';
+import { DraftBanner } from './log-editor/draft-banner';
 import { GeocacheLogEditorGeocachesTable } from './log-editor/geocaches-table';
+import { ImagesSection } from './log-editor/images-section';
+import { MarkdownPreview } from './log-editor/markdown-preview';
+import { MarkdownToolbar } from './log-editor/markdown-toolbar';
 import { MemoizedFragment } from './log-editor/memoized-fragment';
+import { SubmitBadge } from './log-editor/submit-badge';
+import { SubmitProgress } from './log-editor/submit-progress';
 import {
     ALREADY_FOUND_ACCENT,
     ALREADY_FOUND_ROW_BACKGROUND,
@@ -29,7 +36,6 @@ import {
     dayOffsetFromToday,
     findPatternTokenStart,
     formatIsoDateFr,
-    formatIsoDateTimeFr,
     getCaretCoordinates,
     sanitizeLogTypeForGeocache,
     todayIsoDate,
@@ -50,7 +56,6 @@ import {
 } from './log-editor/types';
 import {
     findFormatAtCaret,
-    findUnrenderedEmphasis,
     MarkdownFormatKind,
     sanitizeLogUrl,
     toggleMarkdownFormat,
@@ -516,36 +521,11 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             return null;
         }
         return (
-            <div
-                style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                    padding: '6px 10px',
-                    fontSize: 12,
-                    borderRadius: 4,
-                    border: '1px solid var(--theia-editorWidget-border)',
-                    background: 'var(--theia-editorWidget-background)',
-                }}
-            >
-                <span>💾 Brouillon restauré (enregistré le {formatIsoDateTimeFr(this.restoredDraftAt)}). Les photos ne sont pas conservées.</span>
-                <button
-                    className='theia-button secondary'
-                    onClick={() => { this.discardRestoredDraft(); }}
-                    title='Effacer les textes restaurés et repartir sur un log vierge'
-                    style={{ fontSize: 11, padding: '2px 8px' }}
-                >
-                    Repartir de zéro
-                </button>
-                <button
-                    className='theia-button secondary'
-                    onClick={() => { this.restoredDraftAt = undefined; this.update(); }}
-                    title='Masquer ce message'
-                    style={{ fontSize: 11, padding: '2px 8px', marginLeft: 'auto' }}
-                >
-                    ✕
-                </button>
-            </div>
+            <DraftBanner
+                restoredDraftAt={this.restoredDraftAt}
+                onDiscard={() => this.discardRestoredDraft()}
+                onDismiss={() => { this.restoredDraftAt = undefined; this.update(); }}
+            />
         );
     }
 
@@ -741,14 +721,6 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 // ignore
             }
         }, 0);
-    }
-
-    protected renderInlineMarkdown(text: string, keyPrefix: string): React.ReactNode[] {
-        return renderInlineLogMarkdown(text, keyPrefix);
-    }
-
-    protected renderMarkdown(text: string, keyPrefix: string): React.ReactNode {
-        return renderLogMarkdown(text, keyPrefix);
     }
 
     protected applyEditorValue(editor: { type: 'global' } | { type: 'per-cache'; geocacheId: number }, nextValue: string): void {
@@ -1058,19 +1030,6 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         }
     }
 
-    protected formatFileSize(bytes: number): string {
-        if (!Number.isFinite(bytes) || bytes < 0) {
-            return '';
-        }
-        if (bytes < 1024) {
-            return `${bytes} o`;
-        }
-        if (bytes < 1024 * 1024) {
-            return `${(bytes / 1024).toFixed(0)} Ko`;
-        }
-        return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
-    }
-
     protected generateId(): string {
         try {
             const w: any = window as any;
@@ -1231,167 +1190,26 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     protected renderImagesSection(target: 'global' | { geocacheId: number }, disabled: boolean): React.ReactNode {
         const images = target === 'global' ? this.globalImages : (this.perCacheImages[target.geocacheId] ?? []);
         const title = target === 'global' ? 'Photos (appliquées à toutes les géocaches)' : 'Photos';
-
         const dropZoneKey = target === 'global' ? 'global' : `cache-${target.geocacheId}`;
-        const isDragOver = this.dragOverDropZone === dropZoneKey;
-
-        const carriesFiles = (e: React.DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files');
-
-        const setDragOver = (active: boolean) => {
-            const next = active ? dropZoneKey : undefined;
-            if (this.dragOverDropZone === next) {
-                return;
-            }
-            this.dragOverDropZone = next;
-            this.update();
-        };
-
-        const onDrop = (e: React.DragEvent) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setDragOver(false);
-            if (disabled) {
-                return;
-            }
-            const files = e.dataTransfer?.files;
-            if (files && files.length > 0) {
-                this.addSelectedImages(files, target === 'global' ? 'global' : { geocacheId: target.geocacheId });
-            }
-        };
-
-        const onDragOver = (e: React.DragEvent) => {
-            e.preventDefault();
-            e.stopPropagation();
-            if (e.dataTransfer) {
-                e.dataTransfer.dropEffect = disabled ? 'none' : 'copy';
-            }
-            if (!disabled && carriesFiles(e)) {
-                setDragOver(true);
-            }
-        };
-
-        const onDragEnter = (e: React.DragEvent) => {
-            e.preventDefault();
-            e.stopPropagation();
-            if (!disabled && carriesFiles(e)) {
-                setDragOver(true);
-            }
-        };
-
-        const onDragLeave = (e: React.DragEvent) => {
-            // Ignore les passages sur un enfant de la zone : le survol reste actif.
-            const related = e.relatedTarget as Node | null;
-            if (related && e.currentTarget.contains(related)) {
-                return;
-            }
-            setDragOver(false);
-        };
 
         return (
-            <div style={{ border: '1px solid var(--theia-panel-border)', borderRadius: 6, padding: 10, background: 'var(--theia-editor-background)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
-                    <div style={{ fontWeight: 700 }}>{title}</div>
-                    <label style={{ fontSize: 12, opacity: disabled ? 0.6 : 0.9, cursor: disabled ? 'not-allowed' : 'pointer' }}>
-                        <input
-                            type='file'
-                            accept='image/png,image/jpeg,image/jpg,image/webp'
-                            multiple
-                            disabled={disabled}
-                            style={{ display: 'none' }}
-                            onChange={e => {
-                                const files = e.currentTarget.files;
-                                if (files && files.length > 0) {
-                                    this.addSelectedImages(files, target === 'global' ? 'global' : { geocacheId: target.geocacheId });
-                                }
-                                e.currentTarget.value = '';
-                            }}
-                        />
-                        + Ajouter…
-                    </label>
-                </div>
-
-                <div
-                    onDrop={onDrop}
-                    onDragOver={onDragOver}
-                    onDragEnter={onDragEnter}
-                    onDragLeave={onDragLeave}
-                    style={{
-                        border: isDragOver ? '2px dashed var(--theia-focusBorder)' : '1px dashed var(--theia-panel-border)',
-                        borderRadius: 6,
-                        padding: isDragOver ? 9 : 10,
-                        fontSize: 12,
-                        textAlign: 'center',
-                        opacity: disabled ? 0.6 : 0.9,
-                        color: isDragOver ? 'var(--theia-focusBorder)' : undefined,
-                        fontWeight: isDragOver ? 600 : undefined,
-                        background: isDragOver ? 'var(--theia-list-dropBackground, var(--theia-list-hoverBackground))' : 'var(--theia-editor-background)',
-                        transition: 'background 0.12s ease, border-color 0.12s ease',
-                    }}
-                >
-                    {isDragOver ? 'Dépose ici pour ajouter les images' : 'Glisse-dépose tes images ici'}
-                </div>
-
-                {images.length === 0 ? (
-                    <div style={{ marginTop: 8, fontSize: 12, opacity: 0.7 }}>Aucune photo</div>
-                ) : (
-                    <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>
-                        {images.map(img => {
-                            const previewUrl = this.getPreviewUrl(img.file);
-                            const size = this.formatFileSize(img.file.size);
-                            return (
-                            <div key={img.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', fontSize: 12 }}>
-                                <div style={{ display: 'flex', gap: 8, alignItems: 'center', minWidth: 0 }}>
-                                    <div
-                                        style={{
-                                            width: 44,
-                                            height: 44,
-                                            flex: '0 0 auto',
-                                            borderRadius: 4,
-                                            border: '1px solid var(--theia-panel-border)',
-                                            background: 'var(--theia-editorWidget-background)',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            overflow: 'hidden',
-                                        }}
-                                    >
-                                        {previewUrl ? (
-                                            <img
-                                                src={previewUrl}
-                                                alt={img.file.name}
-                                                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-                                            />
-                                        ) : (
-                                            <span style={{ opacity: 0.6 }}>🖼️</span>
-                                        )}
-                                    </div>
-                                    <div style={{ minWidth: 0 }}>
-                                        <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={img.file.name}>
-                                            {img.file.name}
-                                        </div>
-                                        <div style={{ opacity: 0.8 }} title={img.status === 'ok' ? img.imageGuid : undefined}>
-                                            {img.status === 'pending' && `📎 Prête — sera envoyée avec le log${size ? ` · ${size}` : ''}`}
-                                            {img.status === 'uploading' && '⬆️ Envoi en cours…'}
-                                            {img.status === 'ok' && '✅ Envoyée à Geocaching.com'}
-                                            {img.status === 'failed' && `⚠️ ${img.error ?? 'échec'}`}
-                                        </div>
-                                    </div>
-                                </div>
-                                <button
-                                    className='theia-button secondary'
-                                    style={{ fontSize: 12, padding: '2px 10px' }}
-                                    disabled={disabled || img.status === 'uploading'}
-                                    onClick={() => this.removeSelectedImage(target === 'global' ? 'global' : { geocacheId: target.geocacheId }, img.id)}
-                                    title='Retirer cette image'
-                                >
-                                    Supprimer
-                                </button>
-                            </div>
-                            );
-                        })}
-                    </div>
-                )}
-            </div>
+            <ImagesSection
+                images={images}
+                title={title}
+                disabled={disabled}
+                isDragOver={this.dragOverDropZone === dropZoneKey}
+                onAddFiles={files => this.addSelectedImages(files, target)}
+                onRemoveImage={imageId => this.removeSelectedImage(target, imageId)}
+                onDragOverChange={active => {
+                    const next = active ? dropZoneKey : undefined;
+                    if (this.dragOverDropZone === next) {
+                        return;
+                    }
+                    this.dragOverDropZone = next;
+                    this.update();
+                }}
+                getPreviewUrl={file => this.getPreviewUrl(file)}
+            />
         );
     }
 
@@ -1883,49 +1701,11 @@ export class GeocacheLogEditorWidget extends ReactWidget {
      * n'est pas le texte tapé mais le texte patterns résolus, qui peut être bien plus long.
      */
     protected renderCharCounter(target: 'global' | { geocacheId: number }): React.ReactNode {
-        const { raw, min, max, worst } = this.getFinalLengthStats(target);
-        if (raw === 0 && max === 0) {
+        const stats = this.getFinalLengthStats(target);
+        if (stats.raw === 0 && stats.max === 0) {
             return undefined;
         }
-
-        const over = max > GC_LOG_MAX_LENGTH;
-        const near = !over && max > GC_LOG_MAX_LENGTH * 0.9;
-        const color = over
-            ? 'var(--theia-errorForeground, #f85149)'
-            : near
-                ? 'var(--theia-editorWarning-foreground, #d29922)'
-                : undefined;
-
-        const count = min === max ? `${max}` : `${min}–${max}`;
-        const hints: string[] = [];
-        if (max !== raw) {
-            hints.push(`${raw} saisis`);
-        }
-        if (over) {
-            hints.push(`${max - GC_LOG_MAX_LENGTH} de trop`);
-        }
-
-        const tooltip = min === max
-            ? undefined
-            : `Les @patterns donnent un texte différent par géocache. La plus longue : ${worst?.gc_code ?? '?'} (${max} caractères).`;
-
-        return (
-            <div
-                style={{
-                    marginTop: 4,
-                    fontSize: 11,
-                    textAlign: 'right',
-                    opacity: color ? 1 : 0.7,
-                    color,
-                    fontWeight: over ? 600 : 400,
-                }}
-                title={tooltip}
-            >
-                {over && '⚠️ '}
-                Texte final : {count}/{GC_LOG_MAX_LENGTH} caractères
-                {hints.length > 0 && ` (${hints.join(', ')})`}
-            </div>
-        );
+        return <CharCounter {...stats} />;
     }
 
     protected renderTextWithHighlightedPatterns(text: string, geocacheId: number | null, key: string): React.ReactNode {
@@ -2166,55 +1946,14 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         section: { type: 'global' } | { type: 'per-cache'; geocacheId: number },
         disabled: boolean
     ): React.ReactNode {
-        const buttonStyle: React.CSSProperties = { fontSize: 12, padding: '2px 10px' };
-        const activeStyle: React.CSSProperties = {
-            ...buttonStyle,
-            background: 'var(--theia-button-background)',
-            color: 'var(--theia-button-foreground)',
-        };
-        const isActive = (kind: MarkdownFormatKind) =>
-            this.isEditorActive(section) && this.activeCaretFormat === kind;
-
-        const formatButton = (kind: MarkdownFormatKind, placeholder: string, title: string, label: React.ReactNode) => {
-            const active = isActive(kind);
-            return (
-                <button
-                    className='theia-button secondary'
-                    style={active ? activeStyle : buttonStyle}
-                    onClick={() => this.applyMarkdownFormat(kind, placeholder)}
-                    disabled={disabled}
-                    title={active ? `${title} — cliquer pour retirer` : title}
-                    aria-pressed={active}
-                >
-                    {label}
-                </button>
-            );
-        };
-
-        const prefixButton = (prefix: string, placeholder: string, title: string, label: React.ReactNode) => (
-            <button
-                className='theia-button secondary'
-                style={buttonStyle}
-                onClick={() => this.applyMarkdownPrefix(prefix, placeholder)}
-                disabled={disabled}
-                title={title}
-            >
-                {label}
-            </button>
-        );
-
         return (
-            <>
-                <span style={{ fontSize: 12, opacity: 0.75, marginRight: 6 }}>Markdown</span>
-                {formatButton('bold', 'texte', 'Gras', <strong>B</strong>)}
-                {formatButton('italic', 'texte', 'Italique', <em>I</em>)}
-                {formatButton('code', 'code', 'Code inline', '</>')}
-                {formatButton('link', 'lien', 'Lien', '🔗')}
-                {prefixButton('# ', 'Titre', 'Titre', 'H1')}
-                {prefixButton('## ', 'Sous-titre', 'Sous-titre', 'H2')}
-                {prefixButton('- ', 'item', 'Liste', '-')}
-                {prefixButton('> ', 'Citation', 'Citation', '>')}
-            </>
+            <MarkdownToolbar
+                activeCaretFormat={this.activeCaretFormat}
+                isActive={this.isEditorActive(section)}
+                disabled={disabled}
+                onApplyFormat={(kind, placeholder) => this.applyMarkdownFormat(kind, placeholder)}
+                onApplyPrefix={(prefix, placeholder) => this.applyMarkdownPrefix(prefix, placeholder)}
+            />
         );
     }
 
@@ -2223,22 +1962,12 @@ export class GeocacheLogEditorWidget extends ReactWidget {
      * quand des astérisques ne seront pas interprétées par Geocaching.com.
      */
     protected renderMarkdownPreview(text: string, keyPrefix: string): React.ReactNode {
-        const unrendered = findUnrenderedEmphasis(text);
-        // Le rendu Markdown complet (parsing + arbre React) est le poste le plus lourd du
-        // widget, multiplié par le nombre de géocaches. Tant que le bloc est replié il
-        // n'est vu par personne : on ne le construit qu'une fois déplié. L'avertissement
-        // du résumé, lui, reste calculé pour rester visible sans avoir à déplier.
-        const isOpen = this.openMarkdownPreviews.has(keyPrefix);
-
         return (
-            <details
-                style={{ marginTop: 8 }}
-                open={isOpen}
-                onToggle={event => {
-                    const open = (event.currentTarget as HTMLDetailsElement).open;
-                    if (open === this.openMarkdownPreviews.has(keyPrefix)) {
-                        return;
-                    }
+            <MarkdownPreview
+                text={text}
+                keyPrefix={keyPrefix}
+                isOpen={this.openMarkdownPreviews.has(keyPrefix)}
+                onToggle={open => {
                     if (open) {
                         this.openMarkdownPreviews.add(keyPrefix);
                     } else {
@@ -2246,54 +1975,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                     }
                     this.update();
                 }}
-            >
-                <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
-                    Aperçu Markdown (texte final)
-                    {unrendered.length > 0 && (
-                        <span style={{ marginLeft: 6, fontWeight: 400, color: 'var(--theia-editorWarning-foreground, #d29922)' }}>
-                            ⚠️ {unrendered.length} ligne{unrendered.length > 1 ? 's' : ''} avec des astérisques non interprétées
-                        </span>
-                    )}
-                </summary>
-                {isOpen && unrendered.length > 0 && (
-                    <div
-                        style={{
-                            marginTop: 8,
-                            padding: 8,
-                            borderRadius: 6,
-                            border: '1px solid var(--theia-editorWarning-foreground, #d29922)',
-                            fontSize: 12,
-                        }}
-                    >
-                        <div style={{ marginBottom: 4 }}>
-                            Geocaching.com exige que les astérisques soient collées au texte :{' '}
-                            <code>**gras**</code> fonctionne, <code>**gras **</code> non.
-                        </div>
-                        <ul style={{ margin: '4px 0 0 18px' }}>
-                            {unrendered.map((line, index) => (
-                                <li key={`${keyPrefix}-warn-${index}`}>
-                                    <code>{line}</code>
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
-                )}
-                {isOpen && (
-                    <div
-                        style={{
-                            marginTop: 8,
-                            background: 'var(--theia-editor-background)',
-                            border: '1px solid var(--theia-panel-border)',
-                            borderRadius: 6,
-                            padding: 10,
-                            fontSize: 13,
-                            overflow: 'auto',
-                        }}
-                    >
-                        {this.renderMarkdown(text, keyPrefix)}
-                    </div>
-                )}
-            </details>
+            />
         );
     }
 
@@ -2597,128 +2279,14 @@ export class GeocacheLogEditorWidget extends ReactWidget {
      * n'affiche rien pendant plusieurs minutes.
      */
     protected renderSubmitProgress(): React.ReactNode {
-        const progress = this.submitProgress;
-        if (!progress) {
+        if (!this.submitProgress) {
             return undefined;
         }
-        const { current, total, gcCode, imagesDone, imagesTotal } = progress;
-        // La géocache en cours n'est pas encore terminée : elle compte pour la fraction
-        // de ses photos déjà envoyées, ce qui évite une barre qui saute par paliers.
-        const inCache = imagesTotal > 0 ? imagesDone / imagesTotal : 0;
-        const ratio = total > 0 ? Math.min(1, (current - 1 + inCache) / total) : 0;
-
         return (
-            <div style={{ margin: '8px 0' }}>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 12, marginBottom: 4 }}>
-                    <span style={{ fontWeight: 600 }}>
-                        Envoi {current}/{total}
-                    </span>
-                    <span style={{ opacity: 0.85 }}>{gcCode}</span>
-                    {imagesTotal > 0 && (
-                        <span style={{ opacity: 0.7 }}>
-                            — photo {Math.min(imagesDone + 1, imagesTotal)}/{imagesTotal}
-                        </span>
-                    )}
-                    {this.stopRequested && (
-                        <span style={{ marginLeft: 'auto', color: 'var(--theia-editorWarning-foreground, #d29922)', fontWeight: 600 }}>
-                            Arrêt après cette géocache…
-                        </span>
-                    )}
-                </div>
-                <div
-                    style={{
-                        height: 6,
-                        borderRadius: 3,
-                        background: 'var(--theia-panel-border)',
-                        overflow: 'hidden',
-                    }}
-                >
-                    <div
-                        style={{
-                            width: `${Math.round(ratio * 100)}%`,
-                            height: '100%',
-                            background: this.stopRequested
-                                ? 'var(--theia-editorWarning-foreground, #d29922)'
-                                : 'var(--theia-progressBar-background, var(--theia-button-background))',
-                            transition: 'width 0.2s ease',
-                        }}
-                    />
-                </div>
-            </div>
-        );
-    }
-
-    protected renderSubmitBadge(geocacheId: number): React.ReactNode {
-        const status = this.perCacheSubmitStatus[geocacheId];
-        if (status === 'ok') {
-            return (
-                <span
-                    style={{
-                        padding: '2px 6px',
-                        borderRadius: 3,
-                        fontSize: 12,
-                        background: 'var(--theia-charts-green, #22c55e)',
-                        color: '#fff',
-                        fontWeight: 700,
-                        whiteSpace: 'nowrap'
-                    }}
-                    title={this.perCacheSubmitReference[geocacheId] ? `logReferenceCode: ${this.perCacheSubmitReference[geocacheId]}` : 'Log envoyé'}
-                >
-                    ✅ Log envoyé
-                </span>
-            );
-        }
-        if (status === 'skipped') {
-            return (
-                <span
-                    style={{
-                        padding: '2px 6px',
-                        borderRadius: 3,
-                        fontSize: 12,
-                        background: 'var(--theia-charts-orange, #f59e0b)',
-                        color: '#fff',
-                        fontWeight: 700,
-                        whiteSpace: 'nowrap'
-                    }}
-                    title='Cache déjà loguée (non soumise)'
-                >
-                    ↩️ Déjà loguée
-                </span>
-            );
-        }
-        if (status === 'failed') {
-            return (
-                <span
-                    style={{
-                        padding: '2px 6px',
-                        borderRadius: 3,
-                        fontSize: 12,
-                        background: 'var(--theia-errorForeground)',
-                        color: '#fff',
-                        fontWeight: 700,
-                        whiteSpace: 'nowrap'
-                    }}
-                    title={this.perCacheSubmitError[geocacheId] ?? 'Dernière tentative en échec'}
-                >
-                    ⚠️ Échec
-                </span>
-            );
-        }
-        return (
-            <span
-                style={{
-                    padding: '2px 6px',
-                    borderRadius: 3,
-                    fontSize: 12,
-                    background: 'var(--theia-charts-lines, #6b7280)',
-                    color: '#fff',
-                    fontWeight: 700,
-                    whiteSpace: 'nowrap'
-                }}
-                title='Pas encore envoyé'
-            >
-                ⏳ À envoyer
-            </span>
+            <SubmitProgress
+                progress={this.submitProgress}
+                stopRequested={this.stopRequested}
+            />
         );
     }
 
@@ -3266,104 +2834,19 @@ ${geocacheContext}`;
 
     protected renderAiGenerationPanel(allSubmitted: boolean): React.ReactNode {
         return (
-            <details
+            <AiGenerationPanel
                 open={this.showAiPanel}
-                onToggle={(e: React.SyntheticEvent<HTMLDetailsElement>) => {
-                    this.showAiPanel = (e.target as HTMLDetailsElement).open;
-                }}
-                style={{ marginBottom: 8 }}
-            >
-                <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: 12 }}>
-                    🤖 Génération de log par IA
-                </summary>
-                <div style={{
-                    marginTop: 8,
-                    padding: 12,
-                    background: 'var(--theia-editor-background)',
-                    border: '1px solid var(--theia-panel-border)',
-                    borderRadius: 6,
-                    display: 'grid',
-                    gap: 12
-                }}>
-                    <div>
-                        <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
-                            Mots-clés / Idées *
-                        </label>
-                        <input
-                            className='theia-input'
-                            value={this.aiKeywords}
-                            onChange={e => { this.aiKeywords = e.target.value; this.update(); }}
-                            placeholder='Ex: belle balade, vue magnifique, cache bien cachée, famille...'
-                            disabled={this.isGeneratingAi || allSubmitted}
-                            style={{ width: '100%', fontSize: 12 }}
-                        />
-                        <div style={{ fontSize: 11, opacity: 0.7, marginTop: 2 }}>
-                            Les idées principales pour le contenu du log
-                        </div>
-                    </div>
-
-                    <div>
-                        <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
-                            Instructions personnalisées (optionnel)
-                        </label>
-                        <textarea
-                            className='theia-input'
-                            value={this.aiCustomInstructions}
-                            onChange={e => { this.aiCustomInstructions = e.target.value; this.update(); }}
-                            placeholder='Ex: Toujours terminer par TFTC, utiliser un ton humoristique, mentionner la météo...'
-                            disabled={this.isGeneratingAi || allSubmitted}
-                            rows={3}
-                            style={{ width: '100%', fontSize: 12, resize: 'vertical' }}
-                        />
-                        <div style={{ fontSize: 11, opacity: 0.7, marginTop: 2 }}>
-                            Instructions générales pour personnaliser le style de génération
-                        </div>
-                    </div>
-
-                    <div>
-                        <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
-                            Exemples de logs (optionnel)
-                        </label>
-                        <textarea
-                            className='theia-input'
-                            value={this.aiExampleLogs}
-                            onChange={e => { this.aiExampleLogs = e.target.value; this.update(); }}
-                            placeholder="Colle ici 1 ou 2 exemples de logs que tu as déjà écrits pour que l'IA reproduise ton style..."
-                            disabled={this.isGeneratingAi || allSubmitted}
-                            rows={4}
-                            style={{ width: '100%', fontSize: 12, resize: 'vertical' }}
-                        />
-                        <div style={{ fontSize: 11, opacity: 0.7, marginTop: 2 }}>
-                            L'IA s'inspirera de ces exemples pour adopter ton style d'écriture
-                        </div>
-                    </div>
-
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                        <button
-                            className='theia-button primary'
-                            onClick={() => { void this.generateLogWithAi(); }}
-                            disabled={this.isGeneratingAi || allSubmitted || !this.aiKeywords.trim()}
-                            style={{ fontSize: 12, padding: '6px 16px' }}
-                        >
-                            {this.isGeneratingAi ? (
-                                <>
-                                    <i className='fa fa-spinner fa-spin' style={{ marginRight: 6 }} />
-                                    Génération...
-                                </>
-                            ) : (
-                                <>
-                                    🤖 Générer le log
-                                </>
-                            )}
-                        </button>
-                        {this.isGeneratingAi && (
-                            <span style={{ fontSize: 12, opacity: 0.7 }}>
-                                L'IA rédige le log...
-                            </span>
-                        )}
-                    </div>
-                </div>
-            </details>
+                onToggleOpen={open => { this.showAiPanel = open; }}
+                keywords={this.aiKeywords}
+                onKeywordsChange={value => { this.aiKeywords = value; this.update(); }}
+                customInstructions={this.aiCustomInstructions}
+                onCustomInstructionsChange={value => { this.aiCustomInstructions = value; this.update(); }}
+                exampleLogs={this.aiExampleLogs}
+                onExampleLogsChange={value => { this.aiExampleLogs = value; this.update(); }}
+                isGenerating={this.isGeneratingAi}
+                allSubmitted={allSubmitted}
+                onGenerate={() => { void this.generateLogWithAi(); }}
+            />
         );
     }
 
@@ -3421,37 +2904,12 @@ ${geocacheContext}`;
                                 Déjà trouvée
                             </span>
                         )}
-                        {this.perCacheSubmitStatus[gc.id] === 'ok' && (
-                            <span
-                                style={{
-                                    padding: '2px 6px',
-                                    borderRadius: 3,
-                                    fontSize: 12,
-                                    background: 'var(--theia-charts-green, #22c55e)',
-                                    color: '#fff',
-                                    fontWeight: 700,
-                                    whiteSpace: 'nowrap'
-                                }}
-                                title={this.perCacheSubmitReference[gc.id] ? `logReferenceCode: ${this.perCacheSubmitReference[gc.id]}` : 'Log envoyé'}
-                            >
-                                ✅ Log envoyé
-                            </span>
-                        )}
-                        {this.perCacheSubmitStatus[gc.id] === 'failed' && (
-                            <span
-                                style={{
-                                    padding: '2px 6px',
-                                    borderRadius: 3,
-                                    fontSize: 12,
-                                    background: 'var(--theia-errorForeground)',
-                                    color: '#fff',
-                                    fontWeight: 700,
-                                    whiteSpace: 'nowrap'
-                                }}
-                                title={this.perCacheSubmitError[gc.id] ?? 'Dernière tentative en échec'}
-                            >
-                                ⚠️ Échec
-                            </span>
+                        {(this.perCacheSubmitStatus[gc.id] === 'ok' || this.perCacheSubmitStatus[gc.id] === 'failed') && (
+                            <SubmitBadge
+                                status={this.perCacheSubmitStatus[gc.id]}
+                                reference={this.perCacheSubmitReference[gc.id]}
+                                error={this.perCacheSubmitError[gc.id]}
+                            />
                         )}
                         <div style={{ opacity: 0.8, fontSize: 12, textAlign: 'right' }}>{gc.name}</div>
                     </div>
