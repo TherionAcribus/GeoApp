@@ -2,7 +2,7 @@
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { MessageService } from '@theia/core';
-import { ConfirmDialog, Message, StorageService } from '@theia/core/lib/browser';
+import { Message, StorageService } from '@theia/core/lib/browser';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import { LanguageModelRegistry, LanguageModelService, UserRequest, getTextOfResponse, getJsonOfResponse, isLanguageModelParsedResponse } from '@theia/ai-core';
 import { GeoAppLogWriterAgentId } from './geoapp-log-writer-agent';
@@ -13,10 +13,31 @@ import { DnfBadge } from './log-editor/dnf-badge';
 import { DraftBanner } from './log-editor/draft-banner';
 import { GeocacheLogEditorGeocachesTable } from './log-editor/geocaches-table';
 import { ImagesSection } from './log-editor/images-section';
+import {
+    buildFieldNotes as buildFieldNotesPure,
+    buildSubmissionSummaryNode as buildSubmissionSummaryNodePure,
+    confirmSubmission as confirmSubmissionPure,
+    escapeFieldNotesText,
+    formatVisitedIso,
+    getLogTypeLabel,
+    submitOneLog,
+    uploadOneLogImage as uploadOneLogImagePure,
+} from './log-editor/log-submit-service';
 import { MarkdownPreview } from './log-editor/markdown-preview';
 import { MarkdownToolbar } from './log-editor/markdown-toolbar';
 import { MemoizedFragment } from './log-editor/memoized-fragment';
+import {
+    buildPatternsIndex,
+    getBuiltinPatterns,
+    getCacheCountForIndex,
+    getLogTypeForGeocache as getLogTypeForGeocachePure,
+    getPatternResolutionSignature,
+    resolveAllPatterns as resolveAllPatternsPure,
+    resolvePatternValue,
+    type PatternResolutionContext,
+} from './log-editor/pattern-resolver';
 import { SubmitBadge } from './log-editor/submit-badge';
+import { TextareaWithOverlay, TextWithHighlightedPatterns } from './log-editor/textarea-overlay';
 import { SubmitProgress } from './log-editor/submit-progress';
 import {
     ALREADY_FOUND_ACCENT,
@@ -33,9 +54,7 @@ import {
 } from './log-editor/constants';
 import {
     alreadyFoundTooltip,
-    dayOffsetFromToday,
     findPatternTokenStart,
-    formatIsoDateFr,
     getCaretCoordinates,
     sanitizeLogTypeForGeocache,
     todayIsoDate,
@@ -1087,38 +1106,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     }
 
     protected async uploadOneLogImage(geocacheId: number, img: SelectedLogImage): Promise<SelectedLogImage> {
-        try {
-            const form = new FormData();
-            form.append('image_file', img.file, img.file.name);
-
-            const res = await fetch(`${this.backendBaseUrl}/api/geocaches/${geocacheId}/logs/images/upload`, {
-                method: 'POST',
-                credentials: 'include',
-                body: form,
-            });
-
-            let body: any = undefined;
-            try {
-                body = await res.json();
-            } catch {
-                body = undefined;
-            }
-
-            if (!res.ok) {
-                const detail = body?.error ? `: ${body.error}` : '';
-                return { ...img, status: 'failed', error: `HTTP ${res.status}${detail}` };
-            }
-
-            const guid = typeof body?.image_guid === 'string' ? body.image_guid : undefined;
-            if (!guid) {
-                return { ...img, status: 'failed', error: 'Missing image_guid' };
-            }
-
-            return { ...img, status: 'ok', imageGuid: guid, error: undefined };
-        } catch (e) {
-            console.error('[GeocacheLogEditorWidget] uploadOneLogImage error', e);
-            return { ...img, status: 'failed', error: 'Erreur réseau/backend' };
-        }
+        return uploadOneLogImagePure(this.backendBaseUrl, geocacheId, img);
     }
 
     protected async uploadImagesForGeocache(
@@ -1467,13 +1455,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     }
 
     protected getBuiltinPatterns(): LogTextPattern[] {
-        return [
-            { id: 'builtin-date', name: 'date', content: '', isBuiltin: true },
-            { id: 'builtin-cache_count', name: 'cache_count', content: '', isBuiltin: true },
-            { id: 'builtin-cache_name', name: 'cache_name', content: '', isBuiltin: true },
-            { id: 'builtin-cache_owner', name: 'cache_owner', content: '', isBuiltin: true },
-            { id: 'builtin-gc_code', name: 'gc_code', content: '', isBuiltin: true },
-        ];
+        return getBuiltinPatterns();
     }
 
     /**
@@ -1485,8 +1467,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
      */
     protected getPatternsIndex(): { all: LogTextPattern[]; names: Set<string> } {
         if (!this.patternsIndexCache || this.patternsIndexCache.source !== this.customPatterns) {
-            const all = [...this.getBuiltinPatterns(), ...this.customPatterns];
-            this.patternsIndexCache = { source: this.customPatterns, all, names: new Set(all.map(p => p.name)) };
+            this.patternsIndexCache = { source: this.customPatterns, ...buildPatternsIndex(this.customPatterns) };
         }
         return this.patternsIndexCache;
     }
@@ -1574,34 +1555,23 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     }
 
     protected getCacheCountForIndex(geocacheIndex: number): number {
-        const foundCountBefore = this.geocaches.slice(0, geocacheIndex)
-            .filter(gc => this.getLogTypeForGeocacheId(gc.id) === 'found').length;
-        return this.userFindsCount + foundCountBefore + 1;
+        return getCacheCountForIndex(geocacheIndex, this.getPatternResolutionContext());
     }
 
     protected resolvePatternValue(patternName: string, geocacheId: number | null): string {
-        const geocacheIndex = geocacheId !== null ? this.geocaches.findIndex(gc => gc.id === geocacheId) : -1;
-        const geocache = geocacheIndex >= 0 ? this.geocaches[geocacheIndex] : null;
+        return resolvePatternValue(patternName, geocacheId, this.getPatternResolutionContext());
+    }
 
-        switch (patternName) {
-            case 'date':
-                return formatIsoDateFr(this.logDate);
-            case 'cache_count':
-                if (geocacheIndex >= 0) {
-                    return String(this.getCacheCountForIndex(geocacheIndex));
-                }
-                return String(this.userFindsCount + 1);
-            case 'cache_name':
-                return geocache?.name ?? '[cache_name]';
-            case 'cache_owner':
-                return geocache?.owner ?? '[cache_owner]';
-            case 'gc_code':
-                return geocache?.gc_code ?? '[gc_code]';
-            default: {
-                const custom = this.customPatterns.find(p => p.name === patternName);
-                return custom?.content ?? `@${patternName}`;
-            }
-        }
+    /** Contexte de résolution des @patterns, reconstruit à chaque appel depuis l'état du widget. */
+    protected getPatternResolutionContext(): PatternResolutionContext {
+        return {
+            geocaches: this.geocaches,
+            perCacheLogType: this.perCacheLogType,
+            logType: this.logType,
+            userFindsCount: this.userFindsCount,
+            logDate: this.logDate,
+            customPatterns: this.customPatterns,
+        };
     }
 
     /**
@@ -1610,14 +1580,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
      * de trouvailles et date. Sert de clé de validité au cache de résolution.
      */
     protected getPatternResolutionSignature(): readonly unknown[] {
-        return [
-            this.customPatterns,
-            this.geocaches,
-            this.perCacheLogType,
-            this.logType,
-            this.userFindsCount,
-            this.logDate,
-        ];
+        return getPatternResolutionSignature(this.getPatternResolutionContext());
     }
 
     protected resolveAllPatterns(text: string, geocacheId: number | null): string {
@@ -1632,22 +1595,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             this.patternResolutionCache.clear();
         }
 
-        const cacheKey = `${geocacheId ?? 'global'}:${text}`;
-        const cached = this.patternResolutionCache.get(cacheKey);
-        if (cached !== undefined) {
-            return cached;
-        }
-
-        const names = this.getPatternsIndex().names;
-        const resolved = text.replace(/@([a-zA-Z_][a-zA-Z0-9_]*)/g, (match, patternName: string) =>
-            names.has(patternName) ? this.resolvePatternValue(patternName, geocacheId) : match);
-
-        // Chaque frappe crée un texte inédit : on borne la croissance du cache.
-        if (this.patternResolutionCache.size > 1000) {
-            this.patternResolutionCache.clear();
-        }
-        this.patternResolutionCache.set(cacheKey, resolved);
-        return resolved;
+        return resolveAllPatternsPure(text, geocacheId, this.getPatternResolutionContext(), this.patternResolutionCache);
     }
 
     protected getResolvedTextForGeocacheId(geocacheId: number): string {
@@ -1709,48 +1657,15 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     }
 
     protected renderTextWithHighlightedPatterns(text: string, geocacheId: number | null, key: string): React.ReactNode {
-        const patternNames = this.getPatternsIndex().names;
-        const regex = /@([a-zA-Z_][a-zA-Z0-9_]*)/g;
-        const parts: React.ReactNode[] = [];
-        let lastIndex = 0;
-        let match: RegExpExecArray | null;
-        let partIndex = 0;
-
-        while ((match = regex.exec(text)) !== null) {
-            const patternName = match[1];
-            const isValidPattern = patternNames.has(patternName);
-
-            if (match.index > lastIndex) {
-                parts.push(<span key={`${key}-text-${partIndex++}`}>{text.slice(lastIndex, match.index)}</span>);
-            }
-
-            if (isValidPattern) {
-                const resolvedValue = this.resolvePatternValue(patternName, geocacheId);
-                parts.push(
-                    <span
-                        key={`${key}-pattern-${partIndex++}`}
-                        style={{
-                            color: 'var(--theia-textLink-foreground)',
-                            textDecoration: 'underline',
-                            cursor: 'help'
-                        }}
-                        title={`${match[0]} → ${resolvedValue}`}
-                    >
-                        {match[0]}
-                    </span>
-                );
-            } else {
-                parts.push(<span key={`${key}-text-${partIndex++}`}>{match[0]}</span>);
-            }
-
-            lastIndex = regex.lastIndex;
-        }
-
-        if (lastIndex < text.length) {
-            parts.push(<span key={`${key}-text-${partIndex++}`}>{text.slice(lastIndex)}</span>);
-        }
-
-        return parts.length > 0 ? parts : text;
+        return (
+            <TextWithHighlightedPatterns
+                text={text}
+                geocacheId={geocacheId}
+                nodeKey={key}
+                patternNames={this.getPatternsIndex().names}
+                resolvePatternValue={(name, id) => this.resolvePatternValue(name, id)}
+            />
+        );
     }
 
     protected renderTextareaWithOverlay(
@@ -1760,179 +1675,20 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         textareaRef: (el: HTMLTextAreaElement | null) => void,
         overlayKey: string
     ): React.ReactNode {
-        const patternNames = this.getPatternsIndex().names;
-        const regex = /@([a-zA-Z_][a-zA-Z0-9_]*)/g;
-        const parts: React.ReactNode[] = [];
-        let lastIndex = 0;
-        let match: RegExpExecArray | null;
-        let partIndex = 0;
-
-        while ((match = regex.exec(value)) !== null) {
-            const patternName = match[1];
-            const isValidPattern = patternNames.has(patternName);
-
-            if (match.index > lastIndex) {
-                parts.push(<span key={`${overlayKey}-text-${partIndex++}`}>{value.slice(lastIndex, match.index)}</span>);
-            }
-
-            if (isValidPattern) {
-                const resolvedValue = this.resolvePatternValue(patternName, geocacheId);
-                parts.push(
-                    <span
-                        key={`${overlayKey}-pattern-${partIndex++}`}
-                        style={{
-                            backgroundColor: 'rgba(0, 122, 204, 0.15)',
-                            color: 'var(--theia-textLink-foreground)',
-                            borderRadius: 2
-                        }}
-                        title={`${match[0]} → ${resolvedValue}`}
-                    >
-                        {match[0]}
-                    </span>
-                );
-            } else {
-                parts.push(<span key={`${overlayKey}-text-${partIndex++}`}>{match[0]}</span>);
-            }
-
-            lastIndex = regex.lastIndex;
-        }
-
-        if (lastIndex < value.length) {
-            parts.push(<span key={`${overlayKey}-text-${partIndex++}`}>{value.slice(lastIndex)}</span>);
-        }
-
-        const {
-            onFocus,
-            onBlur,
-            onScroll,
-            onSelect,
-            onKeyUp,
-            onMouseUp,
-            className,
-            style: textareaStyle,
-            ...restTextareaProps
-        } = textareaProps;
-
-        // Le texte du <textarea> est rendu transparent et c'est la couche ci-dessous qui
-        // l'affiche (avec les @patterns colorés). Les deux couches doivent donc produire
-        // exactement le même découpage de lignes : toute différence de police, de padding
-        // ou de box-sizing décale le surlignage, d'autant plus que le texte est long.
-        // Ces valeurs sont volontairement explicites (et non `inherit`) car le <textarea>
-        // porte la classe `theia-input`, dont le CSS ne s'applique pas à la couche : elle
-        // impose `font-size: var(--theia-ui-font-size1)`, `line-height: var(--theia-content-line-height)`
-        // et surtout `padding: 3px 0 3px 8px`, dont le `padding-right: 0` change la largeur
-        // de retour à la ligne. En les redéclarant inline, les deux couches sont identiques
-        // (le style inline l'emporte sur la classe).
-        const sharedMetrics = {
-            boxSizing: 'border-box',
-            padding: textareaStyle?.padding ?? '6px 8px',
-            fontFamily: 'var(--theia-ui-font-family)',
-            fontSize: 'var(--theia-ui-font-size1)',
-            lineHeight: 'var(--theia-content-line-height)',
-            letterSpacing: 'normal',
-            whiteSpace: 'pre-wrap',
-            wordWrap: 'break-word',
-            overflowWrap: 'break-word',
-            tabSize: 4,
-            // Réserve la gouttière de barre de défilement sur les deux couches : sans elle,
-            // l'apparition de la barre rétrécit la largeur de texte du seul <textarea>
-            // et les retours à la ligne des deux couches divergent à nouveau.
-            scrollbarGutter: 'stable',
-        } as React.CSSProperties;
-
-        const mergedTextareaStyle: React.CSSProperties = {
-            ...textareaStyle,
-            ...sharedMetrics,
-            display: 'block',
-            position: 'relative',
-            backgroundColor: 'transparent',
-            zIndex: 2,
-            color: 'transparent',
-            caretColor: 'var(--theia-editor-foreground)',
-            border: 'none',
-            outline: 'none',
-            width: '100%'
-        };
-
-        const textareaMergedProps: React.TextareaHTMLAttributes<HTMLTextAreaElement> = {
-            ...restTextareaProps,
-            // `geoapp-log-textarea` porte la règle ::selection translucide, sans laquelle
-            // la sélection masque le texte affiché par la couche de surlignage.
-            className: className ? `${className} geoapp-log-textarea` : 'geoapp-log-textarea',
-            style: mergedTextareaStyle as React.CSSProperties & { [key: string]: string | number | undefined },
-            // Le format sous le curseur pilote l'état allumé/éteint des boutons de la
-            // barre d'outils. `select` ne couvre pas les simples déplacements de curseur,
-            // d'où le trio select/keyUp/mouseUp.
-            onFocus: e => {
-                onFocus?.(e);
-                this.refreshCaretFormat(e.currentTarget);
-            },
-            onSelect: e => {
-                onSelect?.(e);
-                this.refreshCaretFormat(e.currentTarget);
-            },
-            onKeyUp: e => {
-                onKeyUp?.(e);
-                this.refreshCaretFormat(e.currentTarget);
-            },
-            onMouseUp: e => {
-                onMouseUp?.(e);
-                this.refreshCaretFormat(e.currentTarget);
-            },
-            onBlur: e => {
-                onBlur?.(e);
-            },
-            // Le <textarea> défile, pas la couche : sans cette synchronisation le
-            // surlignage reste figé dès que le texte dépasse la hauteur visible.
-            onScroll: e => {
-                this.syncOverlayScroll(overlayKey, e.currentTarget);
-                onScroll?.(e);
-            },
-        };
-
         return (
-            <div
-                style={{
-                    position: 'relative',
-                    border: '1px solid var(--theia-panel-border)',
-                    borderRadius: 3,
-                    background: 'var(--theia-editor-background)'
-                }}
-            >
-                <textarea
-                    {...textareaMergedProps}
-                    ref={el => {
-                        textareaRef(el);
-                        this.overlayTextareas[overlayKey] = el;
-                        if (el) {
-                            this.syncOverlayScroll(overlayKey, el);
-                        }
-                    }}
-                />
-                <div
-                    ref={el => {
-                        this.overlayElements[overlayKey] = el;
-                        const ta = this.overlayTextareas[overlayKey];
-                        if (el && ta) {
-                            this.syncOverlayScroll(overlayKey, ta);
-                        }
-                    }}
-                    style={{
-                        ...sharedMetrics,
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        overflow: 'hidden',
-                        pointerEvents: 'none',
-                        zIndex: 1,
-                        color: 'var(--theia-editor-foreground)'
-                    }}
-                >
-                    {parts.length > 0 ? parts : value}
-                </div>
-            </div>
+            <TextareaWithOverlay
+                value={value}
+                geocacheId={geocacheId}
+                textareaProps={textareaProps}
+                textareaRef={textareaRef}
+                overlayKey={overlayKey}
+                patternNames={this.getPatternsIndex().names}
+                resolvePatternValue={(name, id) => this.resolvePatternValue(name, id)}
+                onCaretChange={ta => this.refreshCaretFormat(ta)}
+                onScrollSync={(key, ta) => this.syncOverlayScroll(key, ta)}
+                registerTextarea={(key, el) => { this.overlayTextareas[key] = el; }}
+                registerOverlay={(key, el) => { this.overlayElements[key] = el; }}
+            />
         );
     }
 
@@ -2300,104 +2056,31 @@ export class GeocacheLogEditorWidget extends ReactWidget {
      * c'est le dernier point où l'on peut encore repérer qu'ils n'ont pas été vérifiés.
      */
     protected buildSubmissionSummaryNode(toSubmit: GeocacheListItem[]): HTMLElement {
-        const node = document.createElement('div');
-        node.style.textAlign = 'left';
-        node.style.lineHeight = '1.5';
-
-        const intro = document.createElement('div');
-        intro.style.marginBottom = '8px';
-        intro.textContent = toSubmit.length === 1
-            ? '1 log va être publié sur Geocaching.com :'
-            : `${toSubmit.length} logs vont être publiés sur Geocaching.com :`;
-        node.appendChild(intro);
-
-        const list = document.createElement('ul');
-        list.style.margin = '0';
-        list.style.paddingLeft = '18px';
-        node.appendChild(list);
-
-        const addLine = (text: string, highlight = false): void => {
-            const item = document.createElement('li');
-            item.textContent = text;
-            if (highlight) {
-                item.style.color = 'var(--theia-editorWarning-foreground, var(--theia-errorForeground))';
-                item.style.fontWeight = '600';
-            }
-            list.appendChild(item);
-        };
-
-        const counts: Record<'found' | 'dnf' | 'note', number> = { found: 0, dnf: 0, note: 0 };
-        for (const gc of toSubmit) {
-            const logTypeForGc = this.getLogTypeForGeocacheId(gc.id);
-            if (logTypeForGc !== 'skip') {
-                counts[logTypeForGc] += 1;
-            }
-        }
-        if (counts.found > 0) {
-            addLine(`✅ ${counts.found} × Found it`);
-        }
-        if (counts.dnf > 0) {
-            addLine(`❌ ${counts.dnf} × Didn't find it`);
-        }
-        if (counts.note > 0) {
-            addLine(`📝 ${counts.note} × Write note`);
-        }
-
-        const offset = dayOffsetFromToday(this.logDate);
-        let dateSuffix = '';
-        if (offset === 0) {
-            dateSuffix = " (aujourd'hui)";
-        } else if (offset === -1) {
-            dateSuffix = ' (hier)';
-        } else if (offset !== undefined && offset < 0) {
-            dateSuffix = ` (il y a ${-offset} jours)`;
-        } else if (offset !== undefined && offset > 0) {
-            dateSuffix = offset === 1 ? ' (demain !)' : ` (dans ${offset} jours !)`;
-        }
-        addLine(`📅 Date de visite : ${formatIsoDateFr(this.logDate)}${dateSuffix}`, offset !== undefined && offset > 0);
-
-        const favorites = toSubmit.filter(gc => this.getLogTypeForGeocacheId(gc.id) === 'found' && this.perCacheFavorite[gc.id] === true).length;
-        if (favorites > 0) {
-            addLine(`⭐ ${favorites} point(s) favori(s) donné(s)`);
-        }
-
-        const photoCount = toSubmit.reduce((total, gc) => total + this.getImagesForGeocacheId(gc.id).length, 0);
-        if (photoCount > 0) {
-            addLine(this.useSameTextForAll
-                ? `🖼️ ${this.globalImages.length} photo(s) sur chacun des logs`
-                : `🖼️ ${photoCount} photo(s) au total`);
-        }
-
-        const skipped = this.geocaches.filter(gc => this.isGeocacheSkipped(gc.id));
-        if (skipped.length > 0) {
-            const codes = skipped.slice(0, 6).map(gc => gc.gc_code).join(', ');
-            const more = skipped.length > 6 ? `, +${skipped.length - 6}` : '';
-            addLine(`⏭️ ${skipped.length} géocache(s) en « Ne pas loguer », non envoyée(s) : ${codes}${more}`);
-        }
-
-        const alreadySent = this.geocaches.filter(gc => this.isGeocacheSubmittedOk(gc.id)).length;
-        if (alreadySent > 0) {
-            addLine(`✔️ ${alreadySent} log(s) déjà envoyé(s) plus tôt, non renvoyé(s)`);
-        }
-
-        const footer = document.createElement('div');
-        footer.style.marginTop = '10px';
-        footer.style.opacity = '0.75';
-        footer.textContent = "Un log publié ne peut plus être modifié ni supprimé depuis l'application.";
-        node.appendChild(footer);
-
-        return node;
+        return buildSubmissionSummaryNodePure(toSubmit, {
+            logDate: this.logDate,
+            useSameTextForAll: this.useSameTextForAll,
+            geocaches: this.geocaches,
+            perCacheFavorite: this.perCacheFavorite,
+            globalImagesCount: this.globalImages.length,
+            getLogTypeForGeocacheId: id => this.getLogTypeForGeocacheId(id),
+            getImagesForGeocacheId: id => this.getImagesForGeocacheId(id).length,
+            isGeocacheSkipped: id => this.isGeocacheSkipped(id),
+            isGeocacheSubmittedOk: id => this.isGeocacheSubmittedOk(id),
+        });
     }
 
     protected async confirmSubmission(toSubmit: GeocacheListItem[]): Promise<boolean> {
-        const dialog = new ConfirmDialog({
-            title: 'Envoyer sur Geocaching.com ?',
-            msg: this.buildSubmissionSummaryNode(toSubmit),
-            ok: toSubmit.length === 1 ? 'Envoyer le log' : `Envoyer les ${toSubmit.length} logs`,
-            cancel: 'Annuler',
-            maxWidth: 520,
+        return confirmSubmissionPure(toSubmit, {
+            logDate: this.logDate,
+            useSameTextForAll: this.useSameTextForAll,
+            geocaches: this.geocaches,
+            perCacheFavorite: this.perCacheFavorite,
+            globalImagesCount: this.globalImages.length,
+            getLogTypeForGeocacheId: id => this.getLogTypeForGeocacheId(id),
+            getImagesForGeocacheId: id => this.getImagesForGeocacheId(id).length,
+            isGeocacheSkipped: id => this.isGeocacheSkipped(id),
+            isGeocacheSubmittedOk: id => this.isGeocacheSubmittedOk(id),
         });
-        return (await dialog.open()) === true;
     }
 
     protected async submitLogsToGeocaching(): Promise<void> {
@@ -2533,66 +2216,40 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 }
                 const payloadWithImages = upload.guids.length > 0 ? { ...payload, images: upload.guids } : payload;
 
-                let responseBody: any = undefined;
-                try {
-                    const res = await fetch(`${this.backendBaseUrl}/api/geocaches/${gc.id}/logs/submit`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        credentials: 'include',
-                        body: JSON.stringify(payloadWithImages),
-                    });
+                const result = await submitOneLog(this.backendBaseUrl, gc.id, payloadWithImages);
+                if (result.ok) {
+                    ok += 1;
+                    this.perCacheSubmitStatus = { ...this.perCacheSubmitStatus, [gc.id]: 'ok' };
+                    this.perCacheSubmitReference = { ...this.perCacheSubmitReference, [gc.id]: result.logReferenceCode };
+                    this.perCacheSubmitError = { ...this.perCacheSubmitError, [gc.id]: undefined };
+                    // On ne marque pas `already_found` ici : le statut 'ok' verrouille déjà la ligne
+                    // et affiche "loguée" plutôt que "déjà trouvée", qui serait trompeur juste après l'envoi.
 
-                    try {
-                        responseBody = await res.json();
-                    } catch {
-                        responseBody = undefined;
+                    if (typeof window !== 'undefined') {
+                        window.dispatchEvent(new CustomEvent('geoapp-geocache-log-submitted', {
+                            detail: {
+                                geocacheId: gc.id,
+                                gcCode: gc.gc_code,
+                                logType: logTypeForGc,
+                                logDate: this.logDate,
+                                found: logTypeForGc === 'found',
+                                logReferenceCode: result.logReferenceCode,
+                            }
+                        }));
                     }
-
-                    if (res.ok) {
-                        ok += 1;
-                        this.perCacheSubmitStatus = { ...this.perCacheSubmitStatus, [gc.id]: 'ok' };
-                        const ref = typeof responseBody?.log_reference_code === 'string' ? responseBody.log_reference_code : undefined;
-                        this.perCacheSubmitReference = { ...this.perCacheSubmitReference, [gc.id]: ref };
-                        this.perCacheSubmitError = { ...this.perCacheSubmitError, [gc.id]: undefined };
-                        // On ne marque pas `already_found` ici : le statut 'ok' verrouille déjà la ligne
-                        // et affiche "loguée" plutôt que "déjà trouvée", qui serait trompeur juste après l'envoi.
-
-                        if (typeof window !== 'undefined') {
-                            window.dispatchEvent(new CustomEvent('geoapp-geocache-log-submitted', {
-                                detail: {
-                                    geocacheId: gc.id,
-                                    gcCode: gc.gc_code,
-                                    logType: logTypeForGc,
-                                    logDate: this.logDate,
-                                    found: logTypeForGc === 'found',
-                                    logReferenceCode: ref,
-                                }
-                            }));
-                        }
-                    } else {
-                        const errorCode = typeof responseBody?.error_code === 'string' ? responseBody.error_code : undefined;
-                        if (res.status === 409 && errorCode === 'ALREADY_LOGGED') {
-                            this.perCacheSubmitStatus = { ...this.perCacheSubmitStatus, [gc.id]: 'skipped' };
-                            // Le backend confirme le "Found it" existant : on sort la ligne du lot d'envoi.
-                            this.geocaches = this.geocaches.map(item => item.id === gc.id
-                                ? { ...item, already_found: true, found_date: typeof responseBody?.found_date === 'string' ? responseBody.found_date : item.found_date }
-                                : item);
-                            this.perCacheLogType = { ...this.perCacheLogType, [gc.id]: 'skip' };
-                            this.messages.warn(`${gc.gc_code} - déjà loguée (ignorée)`);
-                        } else {
-                            failed += 1;
-                            this.perCacheSubmitStatus = { ...this.perCacheSubmitStatus, [gc.id]: 'failed' };
-                            const detail = responseBody?.error ? `: ${responseBody.error}` : '';
-                            this.perCacheSubmitError = { ...this.perCacheSubmitError, [gc.id]: `Envoi refusé par le backend${detail}` };
-                            this.messages.warn(`${gc.gc_code} - échec${detail}`);
-                        }
-                    }
-                } catch (e) {
-                    console.error('[GeocacheLogEditorWidget] submit log error', gc, e, responseBody);
+                } else if (result.alreadyLogged) {
+                    this.perCacheSubmitStatus = { ...this.perCacheSubmitStatus, [gc.id]: 'skipped' };
+                    // Le backend confirme le "Found it" existant : on sort la ligne du lot d'envoi.
+                    this.geocaches = this.geocaches.map(item => item.id === gc.id
+                        ? { ...item, already_found: true, found_date: result.foundDate ?? item.found_date }
+                        : item);
+                    this.perCacheLogType = { ...this.perCacheLogType, [gc.id]: 'skip' };
+                    this.messages.warn(`${gc.gc_code} - déjà loguée (ignorée)`);
+                } else {
                     failed += 1;
                     this.perCacheSubmitStatus = { ...this.perCacheSubmitStatus, [gc.id]: 'failed' };
-                    this.perCacheSubmitError = { ...this.perCacheSubmitError, [gc.id]: 'Erreur réseau/backend' };
-                    this.messages.warn(`${gc.gc_code} - erreur réseau/backend`);
+                    this.perCacheSubmitError = { ...this.perCacheSubmitError, [gc.id]: result.error ?? 'Erreur réseau/backend' };
+                    this.messages.warn(`${gc.gc_code} - échec${result.error ? ` (${result.error})` : ''}`);
                 }
 
                 this.update();
@@ -2645,43 +2302,27 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     }
 
     protected formatVisitedIso(dateOnly: string): string {
-        const safe = (dateOnly || '').trim();
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(safe)) {
-            return `${todayIsoDate()}T12:00Z`;
-        }
-        return `${safe}T12:00Z`;
+        return formatVisitedIso(dateOnly);
     }
 
     protected getLogTypeLabel(value: LogTypeValue): string {
-        if (value === 'found') {
-            return 'Found it';
-        }
-        if (value === 'dnf') {
-            return "Didn't find it";
-        }
-        if (value === 'skip') {
-            return 'Ne pas loguer';
-        }
-        return 'Write note';
+        return getLogTypeLabel(value);
     }
 
     protected escapeFieldNotesText(value: string): string {
-        return (value || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/"/g, '""');
+        return escapeFieldNotesText(value);
     }
 
     protected buildFieldNotes(): string {
-        const visited = this.formatVisitedIso(this.logDate);
-
-        // "Ne pas loguer" n'existe pas dans le format field notes : ces géocaches sont simplement absentes.
-        const lines = this.geocaches
-            .filter(gc => !this.isGeocacheSkipped(gc.id))
-            .map(gc => {
-                const rawText = this.useSameTextForAll ? this.globalText : (this.perCacheText[gc.id] ?? '');
-                const escaped = this.escapeFieldNotesText(rawText);
-                return `${gc.gc_code},${visited},${this.getLogTypeLabel(this.getLogTypeForGeocacheId(gc.id))},"${escaped}"`;
-            });
-
-        return lines.join('\n');
+        return buildFieldNotesPure(
+            this.geocaches,
+            this.logDate,
+            this.useSameTextForAll,
+            this.globalText,
+            this.perCacheText,
+            id => this.getLogTypeForGeocacheId(id),
+            id => this.isGeocacheSkipped(id)
+        );
     }
 
     protected async copyFieldNotes(): Promise<void> {
