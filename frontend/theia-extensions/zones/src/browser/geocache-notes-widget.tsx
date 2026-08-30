@@ -348,15 +348,52 @@ export class GeocacheNotesWidget extends ReactWidget {
             ? 'EarthCoach'
             : note.note_type === 'system' ? 'système' : note.source;
 
+        const introText = isUserNote
+            ? 'Supprimer cette note ?'
+            : `Cette note a été générée par ${sourceLabel} et n'est pas éditable. La supprimer est définitif. Continuer ?`;
+
         const dialog = new ConfirmDialog({
             title: isUserNote ? 'Supprimer la note' : `Supprimer la note ${sourceLabel} ?`,
-            msg: isUserNote
-                ? 'Supprimer cette note ?'
-                : `Cette note a été générée par ${sourceLabel} et n'est pas éditable. La supprimer est définitif. Continuer ?`,
+            msg: this.buildDeleteConfirmMessage(introText, note.content || ''),
             ok: 'Supprimer',
             cancel: Dialog.CANCEL
         });
         return dialog.open();
+    }
+
+    protected buildDeleteConfirmMessage(intro: string, content: string): HTMLElement {
+        const container = document.createElement('div');
+        container.style.display = 'flex';
+        container.style.flexDirection = 'column';
+        container.style.gap = '8px';
+
+        const introEl = document.createElement('p');
+        introEl.textContent = intro;
+        introEl.style.margin = '0';
+        container.appendChild(introEl);
+
+        // Extrait du contenu : on tronque a 200 caracteres et on ajoute une ellipse
+        // si la note est plus longue, pour garder le dialogue lisible.
+        const maxLen = 200;
+        const excerpt = content.length > maxLen
+            ? `${content.slice(0, maxLen)}…`
+            : content;
+
+        const previewEl = document.createElement('pre');
+        previewEl.textContent = excerpt || '(vide)';
+        previewEl.style.whiteSpace = 'pre-wrap';
+        previewEl.style.wordBreak = 'break-word';
+        previewEl.style.maxHeight = '100px';
+        previewEl.style.overflow = 'auto';
+        previewEl.style.padding = '8px';
+        previewEl.style.borderRadius = '4px';
+        previewEl.style.border = '1px solid var(--theia-panel-border)';
+        previewEl.style.background = 'var(--theia-sideBar-background)';
+        previewEl.style.fontSize = '12px';
+        previewEl.style.margin = '0';
+        container.appendChild(previewEl);
+
+        return container;
     }
 
     protected async deleteNote(note: GeocacheNoteDto): Promise<void> {
