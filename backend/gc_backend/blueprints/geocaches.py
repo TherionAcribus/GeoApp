@@ -25,6 +25,9 @@ from ..utils.preferences import get_value_or_default
 bp = Blueprint('geocaches', __name__)
 logger = logging.getLogger(__name__)
 
+#: Garde-fou sur `/api/geocaches/batch` : borne la clause IN et la longueur de l'URL.
+MAX_BATCH_GEOCACHE_IDS = 500
+
 
 def _new_import_counts() -> dict:
     """Compteurs pour un import de masse (créées / màj / déjà présentes / déplacées / erreurs)."""
@@ -988,6 +991,58 @@ def import_around():
     except Exception as e:
         logger.error(f"Erreur lors de l'import-around: {e}", exc_info=True)
         return jsonify({'error': 'Internal server error'}), 500
+
+
+@bp.get('/api/geocaches/batch')
+def get_geocaches_batch():
+    """
+    Vue légère de plusieurs géocaches en une seule requête : `?ids=1,2,3`.
+
+    Remplace N appels à `/api/geocaches/<id>` côté client. Un identifiant introuvable ne
+    fait pas échouer l'appel : il est renvoyé dans `missing`, à charge de l'appelant
+    d'afficher ce qu'il a obtenu et de signaler le reste.
+
+    Les géocaches sont renvoyées dans l'ordre demandé, sans doublon : cet ordre porte du
+    sens côté client (ordre d'envoi des logs, numérotation des trouvailles).
+    """
+    raw_ids = (request.args.get('ids') or '').strip()
+    if not raw_ids:
+        return jsonify({'error': 'Missing ids parameter'}), 400
+
+    requested: list[int] = []
+    seen: set[int] = set()
+    for token in raw_ids.split(','):
+        token = token.strip()
+        if not token:
+            continue
+        try:
+            geocache_id = int(token)
+        except ValueError:
+            return jsonify({'error': f'Invalid geocache id: {token}'}), 400
+        if geocache_id not in seen:
+            seen.add(geocache_id)
+            requested.append(geocache_id)
+
+    if not requested:
+        return jsonify({'error': 'Missing ids parameter'}), 400
+    if len(requested) > MAX_BATCH_GEOCACHE_IDS:
+        return jsonify({'error': f'Too many ids (max {MAX_BATCH_GEOCACHE_IDS})'}), 400
+
+    try:
+        found = {gc.id: gc for gc in Geocache.query.filter(Geocache.id.in_(requested)).all()}
+        geocaches = [found[gid].to_summary() for gid in requested if gid in found]
+        missing = [gid for gid in requested if gid not in found]
+
+        if missing:
+            logger.warning(f"Batch geocaches: {len(missing)} introuvable(s) sur {len(requested)}: {missing}")
+        else:
+            logger.info(f"Batch geocaches: {len(geocaches)} géocache(s) renvoyée(s)")
+
+        return jsonify({'geocaches': geocaches, 'missing': missing})
+
+    except Exception as e:
+        logger.error(f"Error fetching geocaches batch: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 @bp.get('/api/geocaches/<int:geocache_id>')

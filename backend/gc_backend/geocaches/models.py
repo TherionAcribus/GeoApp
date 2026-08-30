@@ -81,6 +81,33 @@ class Geocache(db.Model):
             'gc_code': self.gc_code,
         }
 
+    def to_summary(self) -> dict:
+        """
+        Vue légère d'une géocache : de quoi la lister et l'identifier sans payer le
+        `to_dict()` complet, qui embarque description, waypoints, checkers et images.
+        """
+        return {
+            'id': self.id,
+            'gc_code': self.gc_code,
+            'name': self.name,
+            'url': self.url,
+            'type': self.type,
+            'size': self.size,
+            'owner': self.owner,
+            'difficulty': self.difficulty,
+            'terrain': self.terrain,
+            'latitude': self.latitude,
+            'longitude': self.longitude,
+            'placed_at': self.placed_at.isoformat() if self.placed_at else None,
+            'status': self.status,
+            'zone_id': self.zone_id,
+            'favorites_count': self.favorites_count,
+            'logs_count': self.logs_count,
+            'found': self.found,
+            'found_date': self.found_date.isoformat() if self.found_date else None,
+            'solved': self.solved,
+        }
+
     @staticmethod
     def decode_hint_rot13(value: str) -> str:
         return codecs.decode(value, 'rot_13')

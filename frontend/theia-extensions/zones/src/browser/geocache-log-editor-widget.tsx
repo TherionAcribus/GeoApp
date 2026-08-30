@@ -2434,6 +2434,29 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         }
     }
 
+    /** Convertit une géocache renvoyée par le backend en entrée de liste, ou `undefined`. */
+    protected toGeocacheListItem(data: unknown): GeocacheListItem | undefined {
+        const raw = data as Record<string, unknown> | null;
+        if (!raw || typeof raw.id !== 'number') {
+            return undefined;
+        }
+        return {
+            id: raw.id,
+            gc_code: (raw.gc_code ?? '').toString(),
+            name: (raw.name ?? '').toString(),
+            owner: (raw.owner ?? '').toString() || undefined,
+            favorites_count: typeof raw.favorites_count === 'number' ? raw.favorites_count : undefined,
+            logs_count: typeof raw.logs_count === 'number' ? raw.logs_count : undefined,
+            placed_at: (raw.placed_at ?? null) as string | null,
+            cache_type: (raw.type ?? '').toString(),
+            already_found: raw.found === true,
+            found_date: (raw.found_date ?? null) as string | null,
+        };
+    }
+
+    /**
+     * Charge les géocaches du contexte en une seule requête (`/api/geocaches/batch`).
+     */
     protected async loadGeocaches(): Promise<void> {
         if (!this.geocacheIds.length || this.isLoading) {
             return;
@@ -2443,25 +2466,42 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         this.update();
 
         try {
-            const results = await Promise.all(this.geocacheIds.map(async (id) => {
-                const res = await fetch(`${this.backendBaseUrl}/api/geocaches/${id}`, { credentials: 'include' });
-                if (!res.ok) {
-                    throw new Error(`HTTP ${res.status}`);
+            const query = this.geocacheIds.join(',');
+            const res = await fetch(
+                `${this.backendBaseUrl}/api/geocaches/batch?ids=${encodeURIComponent(query)}`,
+                { credentials: 'include' }
+            );
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status}`);
+            }
+            const body = await res.json();
+
+            const loaded = new Map<number, GeocacheListItem>();
+            for (const raw of (Array.isArray(body?.geocaches) ? body.geocaches : [])) {
+                const item = this.toGeocacheListItem(raw);
+                if (item) {
+                    loaded.set(item.id, item);
                 }
-                const data = await res.json();
-                return {
-                    id: data.id as number,
-                    gc_code: (data.gc_code || '').toString(),
-                    name: (data.name || '').toString(),
-                    owner: (data.owner || '').toString() || undefined,
-                    favorites_count: typeof data.favorites_count === 'number' ? (data.favorites_count as number) : undefined,
-                    logs_count: typeof data.logs_count === 'number' ? (data.logs_count as number) : undefined,
-                    placed_at: (data.placed_at ?? null) as string | null,
-                    cache_type: (data.type || '').toString(),
-                    already_found: data.found === true,
-                    found_date: (data.found_date ?? null) as string | null,
-                } as GeocacheListItem;
-            }));
+            }
+
+            // L'ordre demandé est celui de l'envoi des logs et de la numérotation
+            // `@cache_count` : on le réimpose plutôt que de faire confiance à la réponse.
+            const results = this.geocacheIds
+                .map(id => loaded.get(id))
+                .filter((gc): gc is GeocacheListItem => gc !== undefined);
+
+            // Une géocache introuvable ne doit pas empêcher de loguer les autres : elle est
+            // signalée et retirée de la liste, là où N requêtes unitaires faisaient tout échouer.
+            const missing = this.geocacheIds.filter(id => !loaded.has(id));
+            if (missing.length > 0) {
+                console.warn('[GeocacheLogEditorWidget] géocaches introuvables', missing);
+                this.messages.warn(missing.length === 1
+                    ? `La géocache ${missing[0]} est introuvable : elle est retirée de la liste.`
+                    : `${missing.length} géocaches sont introuvables (${missing.join(', ')}) : elles sont retirées de la liste.`);
+            }
+            if (results.length === 0) {
+                this.messages.error('Impossible de charger la liste des géocaches.');
+            }
 
             this.geocaches = results;
 
@@ -4512,7 +4552,10 @@ ${geocacheContext}`;
                         <div>
                             <h3 style={{ margin: 0 }}>Logs</h3>
                             <div style={{ opacity: 0.7, fontSize: 12, marginTop: 4 }}>
-                                {this.geocacheIds.length} géocache(s)
+                                {/* Le compte demandé et le compte chargé diffèrent si une géocache est introuvable. */}
+                                {this.geocaches.length > 0 && this.geocaches.length !== this.geocacheIds.length
+                                    ? `${this.geocaches.length} géocache(s) sur ${this.geocacheIds.length} chargée(s)`
+                                    : `${this.geocacheIds.length} géocache(s)`}
                             </div>
                         </div>
                     </div>
