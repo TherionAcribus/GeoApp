@@ -298,30 +298,52 @@ function getCaretCoordinates(element: HTMLTextAreaElement, position: number): { 
     div.style.left = '0px';
     
     document.body.appendChild(div);
-    
-    const textBefore = element.value.substring(0, position);
-    div.textContent = textBefore;
-    
-    const span = document.createElement('span');
-    span.textContent = element.value.substring(position) || '.';
-    div.appendChild(span);
-    
-    const elementRect = element.getBoundingClientRect();
-    const spanRect = span.getBoundingClientRect();
-    const divRect = div.getBoundingClientRect();
-    
-    const relativeTop = spanRect.top - divRect.top;
-    const relativeLeft = spanRect.left - divRect.left;
-    
-    document.body.removeChild(div);
-    
-    return {
-        top: elementRect.top + relativeTop + element.scrollTop,
-        left: elementRect.left + relativeLeft + element.scrollLeft
-    };
+
+    try {
+        div.textContent = element.value.substring(0, position);
+
+        const span = document.createElement('span');
+        span.textContent = element.value.substring(position) || '.';
+        div.appendChild(span);
+
+        const elementRect = element.getBoundingClientRect();
+        const spanRect = span.getBoundingClientRect();
+        const divRect = div.getBoundingClientRect();
+
+        return {
+            top: elementRect.top + (spanRect.top - divRect.top) + element.scrollTop,
+            left: elementRect.left + (spanRect.left - divRect.left) + element.scrollLeft
+        };
+    } finally {
+        // `finally` plutot qu'une simple ligne apres les mesures : un miroir oublie dans
+        // le document y resterait invisible mais bien present, une fois par frappe.
+        div.remove();
+    }
 }
 
-const GeocacheLogEditorGeocachesTable: React.FC<{
+/** Délai avant l'ouverture du menu d'autocomplétion @pattern (cf. refreshPatternAutocomplete). */
+const PATTERN_AUTOCOMPLETE_DELAY_MS = 120;
+
+/**
+ * Enveloppe mémoïsée d'un fragment de rendu.
+ *
+ * Le widget est un `ReactWidget` monolithique : chaque frappe appelle `this.update()`,
+ * qui redessine tout l'arbre (tableau, N blocs par cache, surlignages, aperçus). Ce
+ * composant coupe la propagation : il ne rappelle `render` que si l'une des valeurs de
+ * `deps` a changé, à la manière d'un `useMemo`.
+ *
+ * `render` est une nouvelle closure à chaque rendu du parent : elle est volontairement
+ * exclue de la comparaison. Quand `deps` change, React re-rend avec les *nouvelles*
+ * props, donc la closure appelée est toujours la plus récente.
+ */
+const MemoizedFragment = React.memo(
+    ({ render }: { render: () => React.ReactNode; deps: readonly unknown[] }) => <>{render()}</>,
+    (prev, next) =>
+        prev.deps.length === next.deps.length
+        && prev.deps.every((value, index) => Object.is(value, next.deps[index]))
+);
+
+const GeocacheLogEditorGeocachesTableImpl: React.FC<{
     data: GeocacheListItem[];
     logType: LogTypeValue;
     perCacheLogType: Record<number, LogTypeValue>;
@@ -971,6 +993,13 @@ const GeocacheLogEditorGeocachesTable: React.FC<{
     );
 };
 
+/**
+ * Le tableau n'a aucune raison d'être redessiné à chaque frappe dans une zone de texte :
+ * toutes ses props sont des valeurs simples ou des références stables (les Record sont
+ * remplacés, jamais mutés), la comparaison superficielle de `React.memo` suffit donc.
+ */
+const GeocacheLogEditorGeocachesTable = React.memo(GeocacheLogEditorGeocachesTableImpl);
+
 @injectable()
 export class GeocacheLogEditorWidget extends ReactWidget {
     static readonly ID = 'geocache.logEditor.widget';
@@ -1073,6 +1102,16 @@ export class GeocacheLogEditorWidget extends ReactWidget {
 
     protected readonly logPatternsStorageKey = 'geoApp.logs.patterns.v1';
     protected customPatterns: LogTextPattern[] = [];
+    /** Liste + index des patterns, reconstruits seulement quand `customPatterns` change. */
+    private patternsIndexCache: { source: LogTextPattern[]; all: LogTextPattern[]; names: Set<string> } | undefined;
+    /**
+     * Résultats de `resolveAllPatterns`, avec la signature des données dont ils dépendent.
+     * Tant que la signature ne bouge pas, un même (texte, géocache) donne le même résultat :
+     * inutile de refaire la substitution à chaque rendu, ni d'invalider ce cache depuis les
+     * vingt endroits qui modifient l'état.
+     */
+    private patternResolutionCache = new Map<string, string>();
+    private patternResolutionSignature: readonly unknown[] = [];
     protected isLoadingPatterns = false;
     protected showPatternManager = false;
     protected editingPattern: LogTextPattern | null = null;
@@ -1085,6 +1124,11 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     protected patternAutocompleteReplaceRange: { start: number; end: number } | null = null;
     protected patternAutocompleteTargetGeocacheId: number | null = null;
     protected patternAutocompletePosition: { top: number; left: number } | null = null;
+    /** Timer d'ouverture différée du menu (cf. refreshPatternAutocomplete). */
+    private patternAutocompleteTimer: number | undefined;
+
+    /** Aperçus Markdown dépliés, par `keyPrefix` (cf. renderMarkdownPreview). */
+    protected openMarkdownPreviews = new Set<string>();
 
     protected historyDropdownOpen = false;
 
@@ -1456,6 +1500,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     protected onCloseRequest(msg: Message): void {
         // Dernière chance d'écrire : le widget n'est pas restauré au redémarrage, seul le brouillon l'est.
         this.flushPendingDraftSave();
+        this.cancelPatternAutocomplete();
         super.onCloseRequest(msg);
     }
 
@@ -2516,8 +2561,23 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         ];
     }
 
+    /**
+     * Patterns connus et index de leurs noms.
+     *
+     * Appelé plusieurs fois par zone de saisie et par frappe (surlignage, compteur,
+     * aperçu) : sans mémoïsation il réallouait les patterns intégrés à chaque appel,
+     * et le test d'appartenance se faisait par `Array.includes` dans une boucle.
+     */
+    protected getPatternsIndex(): { all: LogTextPattern[]; names: Set<string> } {
+        if (!this.patternsIndexCache || this.patternsIndexCache.source !== this.customPatterns) {
+            const all = [...this.getBuiltinPatterns(), ...this.customPatterns];
+            this.patternsIndexCache = { source: this.customPatterns, all, names: new Set(all.map(p => p.name)) };
+        }
+        return this.patternsIndexCache;
+    }
+
     protected getAllPatterns(): LogTextPattern[] {
-        return [...this.getBuiltinPatterns(), ...this.customPatterns];
+        return this.getPatternsIndex().all;
     }
 
     protected async loadPatterns(): Promise<void> {
@@ -2629,17 +2689,50 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Données dont dépend la valeur d'un @pattern : patterns personnalisés, liste et
+     * types de log (pour `@cache_count`, qui compte les trouvailles précédentes), nombre
+     * de trouvailles et date. Sert de clé de validité au cache de résolution.
+     */
+    protected getPatternResolutionSignature(): readonly unknown[] {
+        return [
+            this.customPatterns,
+            this.geocaches,
+            this.perCacheLogType,
+            this.logType,
+            this.userFindsCount,
+            this.logDate,
+        ];
+    }
+
     protected resolveAllPatterns(text: string, geocacheId: number | null): string {
-        const allPatternNames = this.getAllPatterns().map(p => p.name);
-        let result = text;
-        const regex = /@([a-zA-Z_][a-zA-Z0-9_]*)/g;
-        result = result.replace(regex, (match, patternName) => {
-            if (allPatternNames.includes(patternName)) {
-                return this.resolvePatternValue(patternName, geocacheId);
-            }
-            return match;
-        });
-        return result;
+        if (!text.includes('@')) {
+            return text;
+        }
+
+        const signature = this.getPatternResolutionSignature();
+        const stale = signature.some((value, index) => !Object.is(value, this.patternResolutionSignature[index]));
+        if (stale) {
+            this.patternResolutionSignature = signature;
+            this.patternResolutionCache.clear();
+        }
+
+        const cacheKey = `${geocacheId ?? 'global'}:${text}`;
+        const cached = this.patternResolutionCache.get(cacheKey);
+        if (cached !== undefined) {
+            return cached;
+        }
+
+        const names = this.getPatternsIndex().names;
+        const resolved = text.replace(/@([a-zA-Z_][a-zA-Z0-9_]*)/g, (match, patternName: string) =>
+            names.has(patternName) ? this.resolvePatternValue(patternName, geocacheId) : match);
+
+        // Chaque frappe crée un texte inédit : on borne la croissance du cache.
+        if (this.patternResolutionCache.size > 1000) {
+            this.patternResolutionCache.clear();
+        }
+        this.patternResolutionCache.set(cacheKey, resolved);
+        return resolved;
     }
 
     protected getResolvedTextForGeocacheId(geocacheId: number): string {
@@ -2739,7 +2832,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     }
 
     protected renderTextWithHighlightedPatterns(text: string, geocacheId: number | null, key: string): React.ReactNode {
-        const allPatternNames = this.getAllPatterns().map(p => p.name);
+        const patternNames = this.getPatternsIndex().names;
         const regex = /@([a-zA-Z_][a-zA-Z0-9_]*)/g;
         const parts: React.ReactNode[] = [];
         let lastIndex = 0;
@@ -2748,7 +2841,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
 
         while ((match = regex.exec(text)) !== null) {
             const patternName = match[1];
-            const isValidPattern = allPatternNames.includes(patternName);
+            const isValidPattern = patternNames.has(patternName);
 
             if (match.index > lastIndex) {
                 parts.push(<span key={`${key}-text-${partIndex++}`}>{text.slice(lastIndex, match.index)}</span>);
@@ -2790,7 +2883,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         textareaRef: (el: HTMLTextAreaElement | null) => void,
         overlayKey: string
     ): React.ReactNode {
-        const allPatternNames = this.getAllPatterns().map(p => p.name);
+        const patternNames = this.getPatternsIndex().names;
         const regex = /@([a-zA-Z_][a-zA-Z0-9_]*)/g;
         const parts: React.ReactNode[] = [];
         let lastIndex = 0;
@@ -2799,7 +2892,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
 
         while ((match = regex.exec(value)) !== null) {
             const patternName = match[1];
-            const isValidPattern = allPatternNames.includes(patternName);
+            const isValidPattern = patternNames.has(patternName);
 
             if (match.index > lastIndex) {
                 parts.push(<span key={`${overlayKey}-text-${partIndex++}`}>{value.slice(lastIndex, match.index)}</span>);
@@ -3034,9 +3127,29 @@ export class GeocacheLogEditorWidget extends ReactWidget {
      */
     protected renderMarkdownPreview(text: string, keyPrefix: string): React.ReactNode {
         const unrendered = findUnrenderedEmphasis(text);
+        // Le rendu Markdown complet (parsing + arbre React) est le poste le plus lourd du
+        // widget, multiplié par le nombre de géocaches. Tant que le bloc est replié il
+        // n'est vu par personne : on ne le construit qu'une fois déplié. L'avertissement
+        // du résumé, lui, reste calculé pour rester visible sans avoir à déplier.
+        const isOpen = this.openMarkdownPreviews.has(keyPrefix);
 
         return (
-            <details style={{ marginTop: 8 }}>
+            <details
+                style={{ marginTop: 8 }}
+                open={isOpen}
+                onToggle={event => {
+                    const open = (event.currentTarget as HTMLDetailsElement).open;
+                    if (open === this.openMarkdownPreviews.has(keyPrefix)) {
+                        return;
+                    }
+                    if (open) {
+                        this.openMarkdownPreviews.add(keyPrefix);
+                    } else {
+                        this.openMarkdownPreviews.delete(keyPrefix);
+                    }
+                    this.update();
+                }}
+            >
                 <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
                     Aperçu Markdown (texte final)
                     {unrendered.length > 0 && (
@@ -3045,7 +3158,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                         </span>
                     )}
                 </summary>
-                {unrendered.length > 0 && (
+                {isOpen && unrendered.length > 0 && (
                     <div
                         style={{
                             marginTop: 8,
@@ -3068,19 +3181,21 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                         </ul>
                     </div>
                 )}
-                <div
-                    style={{
-                        marginTop: 8,
-                        background: 'var(--theia-editor-background)',
-                        border: '1px solid var(--theia-panel-border)',
-                        borderRadius: 6,
-                        padding: 10,
-                        fontSize: 13,
-                        overflow: 'auto',
-                    }}
-                >
-                    {this.renderMarkdown(text, keyPrefix)}
-                </div>
+                {isOpen && (
+                    <div
+                        style={{
+                            marginTop: 8,
+                            background: 'var(--theia-editor-background)',
+                            border: '1px solid var(--theia-panel-border)',
+                            borderRadius: 6,
+                            padding: 10,
+                            fontSize: 13,
+                            overflow: 'auto',
+                        }}
+                    >
+                        {this.renderMarkdown(text, keyPrefix)}
+                    </div>
+                )}
             </details>
         );
     }
@@ -3095,25 +3210,84 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         overlay.scrollLeft = textArea.scrollLeft;
     }
 
+    /** Annule une ouverture d'autocomplétion encore en attente. */
+    protected cancelPatternAutocomplete(): void {
+        if (this.patternAutocompleteTimer !== undefined) {
+            window.clearTimeout(this.patternAutocompleteTimer);
+            this.patternAutocompleteTimer = undefined;
+        }
+    }
+
+    /**
+     * Ferme le menu. Ne redessine que s'il était ouvert : sans cette garde, chaque frappe
+     * hors d'un @pattern (donc la quasi-totalité) déclenchait un rendu complet inutile.
+     */
+    protected closePatternAutocomplete(): void {
+        this.cancelPatternAutocomplete();
+        if (!this.patternAutocompleteOpen) {
+            return;
+        }
+        this.patternAutocompleteOpen = false;
+        this.update();
+    }
+
+    /** Jeton `@xxx` en cours de saisie devant le curseur, s'il y en a un. */
+    protected findPatternTokenAtCaret(value: string, caret: number): { start: number; fragment: string } | undefined {
+        const tokenStart = findPatternTokenStart(value.slice(0, caret));
+        if (tokenStart === null) {
+            return undefined;
+        }
+        const fragment = value.slice(tokenStart + 1, caret);
+        if (fragment.includes(' ') || fragment.includes('\n')) {
+            return undefined;
+        }
+        return { start: tokenStart, fragment };
+    }
+
+    /**
+     * Autocomplétion des @patterns, appelée à chaque frappe.
+     *
+     * Le positionnement du menu passe par `getCaretCoordinates`, qui crée puis détruit un
+     * div-miroir dans le document et force un reflow : bien trop cher pour chaque caractère
+     * saisi. On ne garde donc ici que l'analyse du jeton (immédiate, sans DOM) et on diffère
+     * l'ouverture proprement dite.
+     */
     protected refreshPatternAutocomplete(value: string, textArea: HTMLTextAreaElement, geocacheId: number | null): void {
         const caret = textArea.selectionStart ?? value.length;
-        const before = value.slice(0, caret);
-        const tokenStart = findPatternTokenStart(before);
-
-        if (tokenStart === null) {
-            this.patternAutocompleteOpen = false;
-            this.update();
+        if (!this.findPatternTokenAtCaret(value, caret)) {
+            this.closePatternAutocomplete();
             return;
         }
 
-        const fragment = before.slice(tokenStart + 1);
-        if (fragment.includes(' ') || fragment.includes('\n')) {
-            this.patternAutocompleteOpen = false;
-            this.update();
+        this.cancelPatternAutocomplete();
+        this.patternAutocompleteTimer = window.setTimeout(() => {
+            this.patternAutocompleteTimer = undefined;
+            if (this.isDisposed) {
+                return;
+            }
+            this.openPatternAutocomplete(textArea, geocacheId);
+        }, PATTERN_AUTOCOMPLETE_DELAY_MS);
+    }
+
+    /**
+     * Ouverture différée du menu. Le texte et le curseur ont pu bouger depuis la frappe qui
+     * a armé le timer : on repart de l'état réel du champ de saisie.
+     */
+    protected openPatternAutocomplete(textArea: HTMLTextAreaElement, geocacheId: number | null): void {
+        if (!textArea.isConnected) {
+            this.closePatternAutocomplete();
             return;
         }
 
-        const prefix = fragment.toLowerCase();
+        const value = textArea.value;
+        const caret = textArea.selectionStart ?? value.length;
+        const token = this.findPatternTokenAtCaret(value, caret);
+        if (!token) {
+            this.closePatternAutocomplete();
+            return;
+        }
+
+        const prefix = token.fragment.toLowerCase();
         const suggestions: PatternSuggestion[] = [];
 
         for (const pattern of this.getAllPatterns()) {
@@ -3129,14 +3303,12 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         }
 
         if (suggestions.length === 0) {
-            this.patternAutocompleteOpen = false;
-            this.update();
+            this.closePatternAutocomplete();
             return;
         }
 
-        const coords = getCaretCoordinates(textArea, tokenStart);
-        this.patternAutocompletePosition = coords;
-        this.patternAutocompleteReplaceRange = { start: tokenStart, end: caret };
+        this.patternAutocompletePosition = getCaretCoordinates(textArea, token.start);
+        this.patternAutocompleteReplaceRange = { start: token.start, end: caret };
         this.patternAutocompleteSuggestions = suggestions;
         this.patternAutocompleteActiveIndex = 0;
         this.patternAutocompleteTargetGeocacheId = geocacheId;
@@ -3151,6 +3323,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         }
 
         const geocacheId = this.patternAutocompleteTargetGeocacheId;
+        this.cancelPatternAutocomplete();
 
         // Dès l'insertion de @cache_count : on va chercher le vrai nombre de
         // trouvailles pour que l'aperçu affiche le numéro qui sera réellement envoyé.
@@ -3212,15 +3385,17 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             }
         } else if (e.key === 'Escape') {
             e.preventDefault();
-            this.patternAutocompleteOpen = false;
-            this.update();
+            this.closePatternAutocomplete();
         }
     }
 
     protected handleTextAreaBlur(): void {
+        // Une ouverture différée ne doit pas ressusciter le menu après la perte du focus.
+        this.cancelPatternAutocomplete();
         window.setTimeout(() => {
-            this.patternAutocompleteOpen = false;
-            this.update();
+            if (!this.isDisposed) {
+                this.closePatternAutocomplete();
+            }
         }, 150);
     }
 
@@ -3284,6 +3459,22 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         }
         this.update();
     }
+
+    /**
+     * Rappels du tableau, liés une fois pour toutes : une fonction fléchée recréée à chaque
+     * rendu casserait la comparaison superficielle de `React.memo` sur le tableau.
+     */
+    protected readonly handleTableToggleFavorite = (geocacheId: number, nextValue: boolean): void => {
+        this.toggleFavoriteForGeocacheId(geocacheId, nextValue);
+    };
+
+    protected readonly handleTableToggleLogType = (geocacheId: number, nextValue: LogTypeValue): void => {
+        this.setLogTypeForGeocacheId(geocacheId, nextValue);
+    };
+
+    protected readonly handleTableReorder = (orderedGeocacheIds: number[]): void => {
+        this.reorderGeocaches(orderedGeocacheIds);
+    };
 
     protected getLogTypeForGeocacheId(geocacheId: number): LogTypeValue {
         const value = this.perCacheLogType[geocacheId] ?? this.logType;
@@ -4079,8 +4270,239 @@ ${geocacheContext}`;
         );
     }
 
+    /**
+     * Bloc d'édition d'une géocache, en mode « texte différent par cache ».
+     *
+     * Rendu à travers `MemoizedFragment` (cf. render) : il n'est reconstruit que si
+     * l'état dont il dépend a changé, et non à chaque frappe dans une autre cache.
+     */
+    protected renderPerCacheBlock(gc: GeocacheListItem): React.ReactNode {
+        return (
+            <div
+                style={{
+                    // Même cascade que dans le tableau : envoyé, puis DNF, puis déjà trouvée.
+                    border: this.isGeocacheSubmittedOk(gc.id)
+                        ? `1px solid ${JUST_LOGGED_ACCENT}`
+                        : this.isPendingDnf(gc.id)
+                            ? `1px solid ${DNF_ACCENT}`
+                            : this.isPendingAlreadyFound(gc.id)
+                                ? `1px solid ${ALREADY_FOUND_ACCENT}`
+                                : '1px solid var(--theia-panel-border)',
+                    borderRadius: 6,
+                    padding: 10,
+                    background: this.isGeocacheSubmittedOk(gc.id)
+                        ? JUST_LOGGED_ROW_BACKGROUND
+                        : this.isPendingDnf(gc.id)
+                            ? DNF_ROW_BACKGROUND
+                            : this.isPendingAlreadyFound(gc.id)
+                                ? ALREADY_FOUND_ROW_BACKGROUND
+                                : 'var(--theia-editor-background)'
+                }}
+            >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+                    <div style={{ fontWeight: 700 }}>{gc.gc_code}</div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                        {this.isPendingDnf(gc.id) && <DnfBadge />}
+                        {this.isPendingAlreadyFound(gc.id) && (
+                            <span
+                                style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    padding: '2px 6px',
+                                    borderRadius: 3,
+                                    fontSize: 12,
+                                    background: ALREADY_FOUND_ROW_BACKGROUND,
+                                    color: ALREADY_FOUND_ACCENT,
+                                    border: `1px solid ${ALREADY_FOUND_ACCENT}`,
+                                    fontWeight: 700,
+                                    whiteSpace: 'nowrap'
+                                }}
+                                title={alreadyFoundTooltip(gc)}
+                            >
+                                <LogTypeIcon kind='found' size={14} title={alreadyFoundTooltip(gc)} />
+                                Déjà trouvée
+                            </span>
+                        )}
+                        {this.perCacheSubmitStatus[gc.id] === 'ok' && (
+                            <span
+                                style={{
+                                    padding: '2px 6px',
+                                    borderRadius: 3,
+                                    fontSize: 12,
+                                    background: 'var(--theia-charts-green, #22c55e)',
+                                    color: '#fff',
+                                    fontWeight: 700,
+                                    whiteSpace: 'nowrap'
+                                }}
+                                title={this.perCacheSubmitReference[gc.id] ? `logReferenceCode: ${this.perCacheSubmitReference[gc.id]}` : 'Log envoyé'}
+                            >
+                                ✅ Log envoyé
+                            </span>
+                        )}
+                        {this.perCacheSubmitStatus[gc.id] === 'failed' && (
+                            <span
+                                style={{
+                                    padding: '2px 6px',
+                                    borderRadius: 3,
+                                    fontSize: 12,
+                                    background: 'var(--theia-errorForeground)',
+                                    color: '#fff',
+                                    fontWeight: 700,
+                                    whiteSpace: 'nowrap'
+                                }}
+                                title={this.perCacheSubmitError[gc.id] ?? 'Dernière tentative en échec'}
+                            >
+                                ⚠️ Échec
+                            </span>
+                        )}
+                        <div style={{ opacity: 0.8, fontSize: 12, textAlign: 'right' }}>{gc.name}</div>
+                    </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
+                    <div style={{ fontSize: 12, opacity: 0.85 }}>
+                        PF: {typeof gc.favorites_count === 'number' ? gc.favorites_count : '—'}
+                        {'  '}(
+                        {this.formatFavoritePercent(gc.favorites_count, gc.logs_count)}
+                        )
+                    </div>
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12 }}>
+                            <span style={{ opacity: 0.85 }}>Type</span>
+                            <select
+                                className='theia-select'
+                                value={this.getLogTypeForGeocacheId(gc.id)}
+                                onChange={e => this.setLogTypeForGeocacheId(gc.id, e.target.value as LogTypeValue)}
+                                disabled={this.isGeocacheSubmittedOk(gc.id)}
+                                title={this.isGeocacheSubmittedOk(gc.id)
+                                    ? 'Log déjà envoyé pour cette géocache'
+                                    : this.isPendingAlreadyFound(gc.id) ? alreadyFoundTooltip(gc) : undefined}
+                                style={this.isPendingDnf(gc.id)
+                                    ? { fontSize: 12, color: DNF_ACCENT, borderColor: DNF_ACCENT, fontWeight: 600 }
+                                    : { fontSize: 12 }}
+                            >
+                                <option value='found' disabled={this.isPendingAlreadyFound(gc.id)}>{this.getLogTypeLabel('found')}</option>
+                                <option value='dnf'>{this.getLogTypeLabel('dnf')}</option>
+                                <option value='note'>{this.getLogTypeLabel('note')}</option>
+                                <option value='skip'>{this.getLogTypeLabel('skip')}</option>
+                            </select>
+                        </label>
+
+                        <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, opacity: this.getLogTypeForGeocacheId(gc.id) === 'found' ? 0.9 : 0.5 }}>
+                            <input
+                                type='checkbox'
+                                checked={this.perCacheFavorite[gc.id] === true}
+                                onChange={e => this.toggleFavoriteForGeocacheId(gc.id, e.target.checked)}
+                                disabled={this.getLogTypeForGeocacheId(gc.id) !== 'found' || (!this.perCacheFavorite[gc.id] && this.getRemainingFavoritePoints() <= 0)}
+                                title={!this.perCacheFavorite[gc.id] && this.getRemainingFavoritePoints() <= 0 ? 'Plus de PF disponibles' : ''}
+                            />
+                            Donner un PF
+                        </label>
+                    </div>
+                </div>
+
+                <div style={{ marginTop: 10 }}>
+                    {this.renderImagesSection({ geocacheId: gc.id }, this.isLoading || this.isSubmitting || this.isGeocacheSubmittedOk(gc.id))}
+                </div>
+
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 8, marginBottom: 6 }}>
+                    {this.renderMarkdownToolbar({ type: 'per-cache', geocacheId: gc.id }, this.isLoading || this.isSubmitting)}
+                    {this.globalText.trim() !== '' && (
+                        <button
+                            className='theia-button secondary'
+                            onClick={() => this.applyGlobalTextToGeocache(gc.id)}
+                            disabled={this.isLoading
+                                || this.isSubmitting
+                                || this.isGeocacheSubmittedOk(gc.id)
+                                || (this.perCacheText[gc.id] ?? '') === this.globalText}
+                            title={(this.perCacheText[gc.id] ?? '') === this.globalText
+                                ? 'Ce texte est déjà identique au texte commun'
+                                : `Remplacer ce texte par le texte commun :\n\n${this.getGlobalTextExcerpt()}`}
+                            style={{ fontSize: 11, padding: '2px 6px', marginLeft: 'auto' }}
+                        >
+                            ↺ Texte commun
+                        </button>
+                    )}
+                </div>
+                <div style={{ position: 'relative', marginTop: 8 }}>
+                    {this.renderTextareaWithOverlay(
+                        this.perCacheText[gc.id] ?? '',
+                        gc.id,
+                        {
+                            className: 'theia-input',
+                            value: this.perCacheText[gc.id] ?? '',
+                            onChange: e => {
+                                const start = e.currentTarget.selectionStart;
+                                const end = e.currentTarget.selectionEnd;
+                                const newValue = e.target.value;
+                                this.perCacheText = { ...this.perCacheText, [gc.id]: newValue };
+                                this.refreshPatternAutocomplete(newValue, e.currentTarget, gc.id);
+                                this.update();
+                                this.scheduleRestoreSelection({ type: 'per-cache', geocacheId: gc.id }, start, end);
+                            },
+                            onKeyDown: e => this.handleTextAreaKeyDown(e, gc.id),
+                            onBlur: () => this.handleTextAreaBlur(),
+                            onFocus: () => { this.activeEditor = { type: 'per-cache', geocacheId: gc.id }; },
+                            disabled: this.isGeocacheSubmittedOk(gc.id),
+                            rows: 6,
+                            style: { width: '100%', resize: 'vertical' },
+                            placeholder: 'Texte (Markdown) - Tapez @ pour insérer un pattern'
+                        },
+                        el => { this.perCacheTextAreas = { ...this.perCacheTextAreas, [gc.id]: el }; },
+                        `per-cache-overlay-${gc.id}`
+                    )}
+                    {this.patternAutocompleteOpen && this.patternAutocompleteTargetGeocacheId === gc.id && this.patternAutocompleteSuggestions.length > 0 && this.patternAutocompletePosition && (
+                        <div
+                            style={{
+                                position: 'fixed',
+                                top: `${this.patternAutocompletePosition.top + 20}px`,
+                                left: `${this.patternAutocompletePosition.left}px`,
+                                width: 320,
+                                maxHeight: 200,
+                                overflowY: 'auto',
+                                border: '1px solid var(--theia-panel-border)',
+                                background: 'var(--theia-editor-background)',
+                                borderRadius: 3,
+                                zIndex: 1000,
+                                boxShadow: '0 4px 12px rgba(0,0,0,0.35)'
+                            }}
+                            onMouseDown={e => e.preventDefault()}
+                        >
+                            {this.patternAutocompleteSuggestions.map((s, idx) => (
+                                <div
+                                    key={s.id}
+                                    style={{
+                                        padding: '6px 8px',
+                                        cursor: 'pointer',
+                                        background: idx === this.patternAutocompleteActiveIndex
+                                            ? 'var(--theia-list-activeSelectionBackground)'
+                                            : 'transparent'
+                                    }}
+                                    onMouseEnter={() => { this.patternAutocompleteActiveIndex = idx; this.update(); }}
+                                    onClick={() => this.applyPatternSuggestion(s)}
+                                >
+                                    <div style={{ fontSize: '0.9em', fontWeight: 600 }}>{s.label}</div>
+                                    <div style={{ fontSize: '0.8em', opacity: 0.7 }}>{s.description}</div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                {this.renderCharCounter({ geocacheId: gc.id })}
+
+                {this.renderMarkdownPreview(
+                    this.resolveAllPatterns(this.perCacheText[gc.id] ?? '', gc.id),
+                    `per-preview-${gc.id}`
+                )}
+            </div>
+        );
+    }
+
     protected render(): React.ReactNode {
         const allSubmitted = this.geocaches.length > 0 && this.geocaches.every(gc => this.isGeocacheSubmittedOk(gc.id));
+        const remainingFavoritePoints = this.getRemainingFavoritePoints();
         const canPrev = !this.isLoadingHistory && this.logHistory.length > 0 && (this.logHistoryCursor < this.logHistory.length - 1);
         const canNext = !this.isLoadingHistory && this.logHistory.length > 0 && (this.logHistoryCursor > 0);
         return (
@@ -4332,11 +4754,11 @@ ${geocacheContext}`;
                             perCacheSubmitStatus={this.perCacheSubmitStatus}
                             perCacheSubmitReference={this.perCacheSubmitReference}
                             perCacheSubmitError={this.perCacheSubmitError}
-                            onToggleFavorite={(geocacheId, nextValue) => this.toggleFavoriteForGeocacheId(geocacheId, nextValue)}
-                            onToggleLogType={(geocacheId, nextValue) => this.setLogTypeForGeocacheId(geocacheId, nextValue)}
-                            onReorder={orderedIds => this.reorderGeocaches(orderedIds)}
+                            onToggleFavorite={this.handleTableToggleFavorite}
+                            onToggleLogType={this.handleTableToggleLogType}
+                            onReorder={this.handleTableReorder}
                             reorderDisabled={this.isSubmitting}
-                            remainingFavoritePoints={this.getRemainingFavoritePoints()}
+                            remainingFavoritePoints={remainingFavoritePoints}
                             maxHeight={220}
                         />
                     </div>
@@ -4586,228 +5008,47 @@ ${geocacheContext}`;
 
                 {!this.isLoading && this.geocaches.length > 0 && !this.useSameTextForAll && (
                     <div style={{ display: 'grid', gap: 10 }}>
-                        {this.geocaches.map(gc => (
-                            <div
-                                key={gc.id}
-                                style={{
-                                    // Même cascade que dans le tableau : envoyé, puis DNF, puis déjà trouvée.
-                                    border: this.isGeocacheSubmittedOk(gc.id)
-                                        ? `1px solid ${JUST_LOGGED_ACCENT}`
-                                        : this.isPendingDnf(gc.id)
-                                            ? `1px solid ${DNF_ACCENT}`
-                                            : this.isPendingAlreadyFound(gc.id)
-                                                ? `1px solid ${ALREADY_FOUND_ACCENT}`
-                                                : '1px solid var(--theia-panel-border)',
-                                    borderRadius: 6,
-                                    padding: 10,
-                                    background: this.isGeocacheSubmittedOk(gc.id)
-                                        ? JUST_LOGGED_ROW_BACKGROUND
-                                        : this.isPendingDnf(gc.id)
-                                            ? DNF_ROW_BACKGROUND
-                                            : this.isPendingAlreadyFound(gc.id)
-                                                ? ALREADY_FOUND_ROW_BACKGROUND
-                                                : 'var(--theia-editor-background)'
-                                }}
-                            >
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-                                    <div style={{ fontWeight: 700 }}>{gc.gc_code}</div>
-                                    <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                                        {this.isPendingDnf(gc.id) && <DnfBadge />}
-                                        {this.isPendingAlreadyFound(gc.id) && (
-                                            <span
-                                                style={{
-                                                    display: 'inline-flex',
-                                                    alignItems: 'center',
-                                                    gap: 4,
-                                                    padding: '2px 6px',
-                                                    borderRadius: 3,
-                                                    fontSize: 12,
-                                                    background: ALREADY_FOUND_ROW_BACKGROUND,
-                                                    color: ALREADY_FOUND_ACCENT,
-                                                    border: `1px solid ${ALREADY_FOUND_ACCENT}`,
-                                                    fontWeight: 700,
-                                                    whiteSpace: 'nowrap'
-                                                }}
-                                                title={alreadyFoundTooltip(gc)}
-                                            >
-                                                <LogTypeIcon kind='found' size={14} title={alreadyFoundTooltip(gc)} />
-                                                Déjà trouvée
-                                            </span>
-                                        )}
-                                        {this.perCacheSubmitStatus[gc.id] === 'ok' && (
-                                            <span
-                                                style={{
-                                                    padding: '2px 6px',
-                                                    borderRadius: 3,
-                                                    fontSize: 12,
-                                                    background: 'var(--theia-charts-green, #22c55e)',
-                                                    color: '#fff',
-                                                    fontWeight: 700,
-                                                    whiteSpace: 'nowrap'
-                                                }}
-                                                title={this.perCacheSubmitReference[gc.id] ? `logReferenceCode: ${this.perCacheSubmitReference[gc.id]}` : 'Log envoyé'}
-                                            >
-                                                ✅ Log envoyé
-                                            </span>
-                                        )}
-                                        {this.perCacheSubmitStatus[gc.id] === 'failed' && (
-                                            <span
-                                                style={{
-                                                    padding: '2px 6px',
-                                                    borderRadius: 3,
-                                                    fontSize: 12,
-                                                    background: 'var(--theia-errorForeground)',
-                                                    color: '#fff',
-                                                    fontWeight: 700,
-                                                    whiteSpace: 'nowrap'
-                                                }}
-                                                title={this.perCacheSubmitError[gc.id] ?? 'Dernière tentative en échec'}
-                                            >
-                                                ⚠️ Échec
-                                            </span>
-                                        )}
-                                        <div style={{ opacity: 0.8, fontSize: 12, textAlign: 'right' }}>{gc.name}</div>
-                                    </div>
-                                </div>
-
-                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
-                                    <div style={{ fontSize: 12, opacity: 0.85 }}>
-                                        PF: {typeof gc.favorites_count === 'number' ? gc.favorites_count : '—'}
-                                        {'  '}(
-                                        {this.formatFavoritePercent(gc.favorites_count, gc.logs_count)}
-                                        )
-                                    </div>
-                                    <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                                        <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12 }}>
-                                            <span style={{ opacity: 0.85 }}>Type</span>
-                                            <select
-                                                className='theia-select'
-                                                value={this.getLogTypeForGeocacheId(gc.id)}
-                                                onChange={e => this.setLogTypeForGeocacheId(gc.id, e.target.value as LogTypeValue)}
-                                                disabled={this.isGeocacheSubmittedOk(gc.id)}
-                                                title={this.isGeocacheSubmittedOk(gc.id)
-                                                    ? 'Log déjà envoyé pour cette géocache'
-                                                    : this.isPendingAlreadyFound(gc.id) ? alreadyFoundTooltip(gc) : undefined}
-                                                style={this.isPendingDnf(gc.id)
-                                                    ? { fontSize: 12, color: DNF_ACCENT, borderColor: DNF_ACCENT, fontWeight: 600 }
-                                                    : { fontSize: 12 }}
-                                            >
-                                                <option value='found' disabled={this.isPendingAlreadyFound(gc.id)}>{this.getLogTypeLabel('found')}</option>
-                                                <option value='dnf'>{this.getLogTypeLabel('dnf')}</option>
-                                                <option value='note'>{this.getLogTypeLabel('note')}</option>
-                                                <option value='skip'>{this.getLogTypeLabel('skip')}</option>
-                                            </select>
-                                        </label>
-
-                                        <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, opacity: this.getLogTypeForGeocacheId(gc.id) === 'found' ? 0.9 : 0.5 }}>
-                                            <input
-                                                type='checkbox'
-                                                checked={this.perCacheFavorite[gc.id] === true}
-                                                onChange={e => this.toggleFavoriteForGeocacheId(gc.id, e.target.checked)}
-                                                disabled={this.getLogTypeForGeocacheId(gc.id) !== 'found' || (!this.perCacheFavorite[gc.id] && this.getRemainingFavoritePoints() <= 0)}
-                                                title={!this.perCacheFavorite[gc.id] && this.getRemainingFavoritePoints() <= 0 ? 'Plus de PF disponibles' : ''}
-                                            />
-                                            Donner un PF
-                                        </label>
-                                    </div>
-                                </div>
-
-                                <div style={{ marginTop: 10 }}>
-                                    {this.renderImagesSection({ geocacheId: gc.id }, this.isLoading || this.isSubmitting || this.isGeocacheSubmittedOk(gc.id))}
-                                </div>
-
-                                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 8, marginBottom: 6 }}>
-                                    {this.renderMarkdownToolbar({ type: 'per-cache', geocacheId: gc.id }, this.isLoading || this.isSubmitting)}
-                                    {this.globalText.trim() !== '' && (
-                                        <button
-                                            className='theia-button secondary'
-                                            onClick={() => this.applyGlobalTextToGeocache(gc.id)}
-                                            disabled={this.isLoading
-                                                || this.isSubmitting
-                                                || this.isGeocacheSubmittedOk(gc.id)
-                                                || (this.perCacheText[gc.id] ?? '') === this.globalText}
-                                            title={(this.perCacheText[gc.id] ?? '') === this.globalText
-                                                ? 'Ce texte est déjà identique au texte commun'
-                                                : `Remplacer ce texte par le texte commun :\n\n${this.getGlobalTextExcerpt()}`}
-                                            style={{ fontSize: 11, padding: '2px 6px', marginLeft: 'auto' }}
-                                        >
-                                            ↺ Texte commun
-                                        </button>
-                                    )}
-                                </div>
-                                <div style={{ position: 'relative', marginTop: 8 }}>
-                                    {this.renderTextareaWithOverlay(
-                                        this.perCacheText[gc.id] ?? '',
-                                        gc.id,
-                                        {
-                                            className: 'theia-input',
-                                            value: this.perCacheText[gc.id] ?? '',
-                                            onChange: e => {
-                                                const start = e.currentTarget.selectionStart;
-                                                const end = e.currentTarget.selectionEnd;
-                                                const newValue = e.target.value;
-                                                this.perCacheText = { ...this.perCacheText, [gc.id]: newValue };
-                                                this.refreshPatternAutocomplete(newValue, e.currentTarget, gc.id);
-                                                this.update();
-                                                this.scheduleRestoreSelection({ type: 'per-cache', geocacheId: gc.id }, start, end);
-                                            },
-                                            onKeyDown: e => this.handleTextAreaKeyDown(e, gc.id),
-                                            onBlur: () => this.handleTextAreaBlur(),
-                                            onFocus: () => { this.activeEditor = { type: 'per-cache', geocacheId: gc.id }; },
-                                            disabled: this.isGeocacheSubmittedOk(gc.id),
-                                            rows: 6,
-                                            style: { width: '100%', resize: 'vertical' },
-                                            placeholder: 'Texte (Markdown) - Tapez @ pour insérer un pattern'
-                                        },
-                                        el => { this.perCacheTextAreas = { ...this.perCacheTextAreas, [gc.id]: el }; },
-                                        `per-cache-overlay-${gc.id}`
-                                    )}
-                                    {this.patternAutocompleteOpen && this.patternAutocompleteTargetGeocacheId === gc.id && this.patternAutocompleteSuggestions.length > 0 && this.patternAutocompletePosition && (
-                                        <div
-                                            style={{
-                                                position: 'fixed',
-                                                top: `${this.patternAutocompletePosition.top + 20}px`,
-                                                left: `${this.patternAutocompletePosition.left}px`,
-                                                width: 320,
-                                                maxHeight: 200,
-                                                overflowY: 'auto',
-                                                border: '1px solid var(--theia-panel-border)',
-                                                background: 'var(--theia-editor-background)',
-                                                borderRadius: 3,
-                                                zIndex: 1000,
-                                                boxShadow: '0 4px 12px rgba(0,0,0,0.35)'
-                                            }}
-                                            onMouseDown={e => e.preventDefault()}
-                                        >
-                                            {this.patternAutocompleteSuggestions.map((s, idx) => (
-                                                <div
-                                                    key={s.id}
-                                                    style={{
-                                                        padding: '6px 8px',
-                                                        cursor: 'pointer',
-                                                        background: idx === this.patternAutocompleteActiveIndex
-                                                            ? 'var(--theia-list-activeSelectionBackground)'
-                                                            : 'transparent'
-                                                    }}
-                                                    onMouseEnter={() => { this.patternAutocompleteActiveIndex = idx; this.update(); }}
-                                                    onClick={() => this.applyPatternSuggestion(s)}
-                                                >
-                                                    <div style={{ fontSize: '0.9em', fontWeight: 600 }}>{s.label}</div>
-                                                    <div style={{ fontSize: '0.8em', opacity: 0.7 }}>{s.description}</div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-
-                                {this.renderCharCounter({ geocacheId: gc.id })}
-
-                                {this.renderMarkdownPreview(
-                                    this.resolveAllPatterns(this.perCacheText[gc.id] ?? '', gc.id),
-                                    `per-preview-${gc.id}`
-                                )}
-                            </div>
-                        ))}
+                        {this.geocaches.map(gc => {
+                            const previewKey = `per-preview-${gc.id}`;
+                            const autocompleteHere = this.patternAutocompleteOpen
+                                && this.patternAutocompleteTargetGeocacheId === gc.id;
+                            return (
+                                <MemoizedFragment
+                                    key={gc.id}
+                                    // Tout ce que le bloc lit dans l'état du widget. Une frappe ne
+                                    // change que le texte de la cache éditée : les autres blocs sont
+                                    // alors sautés au lieu d'être redessinés.
+                                    deps={[
+                                        gc,
+                                        this.geocaches,
+                                        this.perCacheText[gc.id],
+                                        this.globalText,
+                                        this.perCacheLogType,
+                                        this.logType,
+                                        this.perCacheFavorite[gc.id] === true,
+                                        remainingFavoritePoints,
+                                        this.perCacheSubmitStatus[gc.id],
+                                        this.perCacheSubmitReference[gc.id],
+                                        this.perCacheSubmitError[gc.id],
+                                        this.isLoading,
+                                        this.isSubmitting,
+                                        this.customPatterns,
+                                        this.userFindsCount,
+                                        this.logDate,
+                                        this.perCacheImages[gc.id],
+                                        this.dragOverDropZone === `cache-${gc.id}`,
+                                        this.isEditorActive({ type: 'per-cache', geocacheId: gc.id })
+                                            ? this.activeCaretFormat
+                                            : undefined,
+                                        autocompleteHere ? this.patternAutocompleteSuggestions : undefined,
+                                        autocompleteHere ? this.patternAutocompletePosition : undefined,
+                                        autocompleteHere ? this.patternAutocompleteActiveIndex : undefined,
+                                        this.openMarkdownPreviews.has(previewKey),
+                                    ]}
+                                    render={() => this.renderPerCacheBlock(gc)}
+                                />
+                            );
+                        })}
                     </div>
                 )}
             </div>
