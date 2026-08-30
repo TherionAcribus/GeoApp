@@ -222,19 +222,25 @@ export class GeocacheDetailsTranslationController {
 
         // On ne garde que les waypoints demandes (le modele peut en inventer ou en dupliquer)
         // dont la note traduite est non vide: sinon on ecraserait un note_override existant.
+        // Certains modeles renvoient l'id en chaine ("12") au lieu d'un nombre : on coerce via
+        // Number() et on valide avec Number.isFinite pour rester tolerant sans accepter n'importe quoi.
         const requestedIds = new Set(waypoints.map(waypoint => waypoint.id));
         const seenIds = new Set<number>();
         const notes: Array<{ id: number; note_override: string }> = [];
         for (const waypoint of translatedWaypoints) {
-            if (!waypoint || typeof waypoint.id !== 'number' || !requestedIds.has(waypoint.id) || seenIds.has(waypoint.id)) {
+            if (!waypoint) {
+                continue;
+            }
+            const id = Number(waypoint.id);
+            if (!Number.isFinite(id) || !requestedIds.has(id) || seenIds.has(id)) {
                 continue;
             }
             const note = this.sanitizeTranslatedHtml((waypoint.note ?? '').toString());
             if (!note) {
                 continue;
             }
-            seenIds.add(waypoint.id);
-            notes.push({ id: waypoint.id, note_override: note });
+            seenIds.add(id);
+            notes.push({ id, note_override: note });
         }
 
         return { hintsDecoded: translatedHints, waypoints: notes };
