@@ -36,10 +36,12 @@ class Geocache(db.Model):
     description_override_html = db.Column(db.Text)
     description_override_raw = db.Column(db.Text)
     description_override_updated_at = db.Column(db.DateTime)
+    description_override_source = db.Column(db.String(20))  # 'manual' | 'translation'
     hints = db.Column(db.Text)
     hints_decoded = db.Column(db.Text)
     hints_decoded_override = db.Column(db.Text)
     hints_decoded_override_updated_at = db.Column(db.DateTime)
+    hints_decoded_override_source = db.Column(db.String(20))  # 'manual' | 'translation'
     attributes = db.Column(db.JSON)
     favorites_count = db.Column(db.Integer)
     logs_count = db.Column(db.Integer)
@@ -142,10 +144,12 @@ class Geocache(db.Model):
             'description_override_html': self.description_override_html,
             'description_override_raw': self.description_override_raw,
             'description_override_updated_at': self.description_override_updated_at.isoformat() if self.description_override_updated_at else None,
+            'description_override_source': self.description_override_source,
             'hints': self.hints,
             'hints_decoded': decoded_hints,
             'hints_decoded_override': self.hints_decoded_override,
             'hints_decoded_override_updated_at': self.hints_decoded_override_updated_at.isoformat() if self.hints_decoded_override_updated_at else None,
+            'hints_decoded_override_source': self.hints_decoded_override_source,
             'attributes': self.attributes,
             'favorites_count': self.favorites_count,
             'logs_count': self.logs_count,
@@ -290,6 +294,7 @@ class GeocacheWaypoint(db.Model):
     note = db.Column(db.Text)
     note_override = db.Column(db.Text)
     note_override_updated_at = db.Column(db.DateTime)
+    note_override_source = db.Column(db.String(20))  # 'manual' | 'translation'
 
     geocache = db.relationship('Geocache', back_populates='waypoints')
 
@@ -306,6 +311,7 @@ class GeocacheWaypoint(db.Model):
             'note': self.note,
             'note_override': self.note_override,
             'note_override_updated_at': self.note_override_updated_at.isoformat() if self.note_override_updated_at else None,
+            'note_override_source': self.note_override_source,
         }
 
 

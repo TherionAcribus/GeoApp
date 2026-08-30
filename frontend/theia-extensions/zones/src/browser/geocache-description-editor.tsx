@@ -228,6 +228,9 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
     const savedSelectionRef = React.useRef<Range | null>(null);
 
     const hasModified = Boolean(geocacheData.description_override_raw) || Boolean(geocacheData.description_override_html);
+    // Distingue une traduction IA d'une edition manuelle pour afficher un chip precis.
+    const isTranslated = geocacheData.description_override_source === 'translation';
+    const modifiedLabel = isTranslated ? 'Traduite' : 'Modifiée';
     // Le bouton « Revenir à l'originale » reset aussi les hints et notes de waypoints traduits
     // (cf. endpoint reset-description) : on l'active des qu'un override existe sur l'une de
     // ces trois zones, pas seulement sur la description.
@@ -444,9 +447,9 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
                             onClick={() => switchVariant('modified')}
                             disabled={isEditing || !hasModified}
                             style={segmentStyle(variant === 'modified', isEditing || !hasModified)}
-                            title={hasModified ? 'Afficher la description modifiée / traduite' : 'Aucune description modifiée'}
+                            title={hasModified ? `Afficher la description ${isTranslated ? 'traduite' : 'modifiée'}` : 'Aucune description modifiée'}
                         >
-                            Modifiée
+                            {modifiedLabel}
                         </button>
                     </div>
 
@@ -454,10 +457,10 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
                     {hasModified ? (
                         <span
                             style={modifiedChipStyle}
-                            title={overrideDate ? `Version modifiée disponible (mise à jour le ${overrideDate})` : 'Une version modifiée / traduite existe'}
+                            title={overrideDate ? `Version ${isTranslated ? 'traduite' : 'modifiée'} disponible (mise à jour le ${overrideDate})` : `Une version ${isTranslated ? 'traduite' : 'modifiée'} existe`}
                         >
                             <span aria-hidden='true'>✦</span>
-                            {overrideDate ? `Modifiée · ${overrideDate}` : 'Modifiée'}
+                            {overrideDate ? `${modifiedLabel} · ${overrideDate}` : modifiedLabel}
                         </span>
                     ) : (
                         <span style={mutedChipStyle}>Aucune modification</span>

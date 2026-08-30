@@ -18,6 +18,7 @@ export type GeocacheWaypoint = {
     note?: string;
     note_override?: string;
     note_override_updated_at?: string;
+    note_override_source?: 'manual' | 'translation';
 };
 export type GeocacheChecker = { id?: number; name?: string; url?: string };
 export type GeocacheSolvedStatus = 'not_solved' | 'in_progress' | 'solved';
@@ -48,10 +49,12 @@ export type GeocacheDto = {
     description_override_html?: string;
     description_override_raw?: string;
     description_override_updated_at?: string;
+    description_override_source?: 'manual' | 'translation';
     hints?: string;
     hints_decoded?: string;
     hints_decoded_override?: string;
     hints_decoded_override_updated_at?: string;
+    hints_decoded_override_source?: 'manual' | 'translation';
     attributes?: GeocacheAttribute[];
     favorites_count?: number;
     logs_count?: number;

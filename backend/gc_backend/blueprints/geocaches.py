@@ -2260,12 +2260,14 @@ def update_translated_content(geocache_id: int):
             if override_html is not None:
                 geocache.description_override_html = override_html
             geocache.description_override_updated_at = datetime.now(timezone.utc)
+            geocache.description_override_source = 'translation'
             any_update = True
 
         hints_decoded_override = _translated_value('hints_decoded_override')
         if hints_decoded_override is not None:
             geocache.hints_decoded_override = hints_decoded_override
             geocache.hints_decoded_override_updated_at = datetime.now(timezone.utc)
+            geocache.hints_decoded_override_source = 'translation'
             any_update = True
 
         waypoints = data.get('waypoints')
@@ -2284,6 +2286,7 @@ def update_translated_content(geocache_id: int):
 
                 waypoint.note_override = str(note_override)
                 waypoint.note_override_updated_at = datetime.now(timezone.utc)
+                waypoint.note_override_source = 'translation'
                 any_update = True
 
         if not any_update:
@@ -2470,6 +2473,7 @@ def update_description(geocache_id: int):
             geocache.description_override_html = str(override_html)
 
         geocache.description_override_updated_at = datetime.now(timezone.utc)
+        geocache.description_override_source = 'manual'
 
         db.session.commit()
 
@@ -2527,17 +2531,20 @@ def reset_description(geocache_id: int):
         geocache.description_override_raw = None
         geocache.description_override_html = None
         geocache.description_override_updated_at = None
+        geocache.description_override_source = None
 
         # Reset des indices traduits (symetrique avec « Tout traduire » : sans cela, un
         # hints_decoded_override restait impossible a annuler depuis l'UI).
         geocache.hints_decoded_override = None
         geocache.hints_decoded_override_updated_at = None
+        geocache.hints_decoded_override_source = None
 
         # Reset des notes de waypoints traduites.
         waypoints = GeocacheWaypoint.query.filter_by(geocache_id=geocache_id).all()
         for waypoint in waypoints:
             waypoint.note_override = None
             waypoint.note_override_updated_at = None
+            waypoint.note_override_source = None
 
         db.session.commit()
 
