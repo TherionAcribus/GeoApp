@@ -35,6 +35,18 @@ function isLogTypeValue(value: unknown): value is LogTypeValue {
     return typeof value === 'string' && (LOG_TYPE_VALUES as readonly string[]).includes(value);
 }
 
+/**
+ * Date du jour au format ISO `YYYY-MM-DD` en heure **locale**.
+ * `toISOString()` renvoie la date UTC : entre minuit et 2h (heure d’été française) on était
+ * encore la veille, ce qui pré-datait les logs d'un jour.
+ */
+function todayIsoDate(): string {
+    const now = new Date();
+    const month = `${now.getMonth() + 1}`.padStart(2, '0');
+    const day = `${now.getDate()}`.padStart(2, '0');
+    return `${now.getFullYear()}-${month}-${day}`;
+}
+
 type SubmissionStatus = 'ok' | 'failed' | 'skipped';
 
 type ImageUploadStatus = 'pending' | 'uploading' | 'ok' | 'failed';
@@ -898,7 +910,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     protected geocaches: GeocacheListItem[] = [];
     protected isLoading = false;
 
-    protected logDate = new Date().toISOString().slice(0, 10);
+    protected logDate = todayIsoDate();
     protected logType: LogTypeValue = 'found';
 
     protected readonly pinnedLogDateStorageKey = 'geoApp.logs.pinnedDate.v1';
@@ -1016,7 +1028,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 .map((x: any): LogHistoryEntry => ({
                     id: typeof x.id === 'string' ? x.id : this.generateId(),
                     createdAt: typeof x.createdAt === 'string' ? x.createdAt : new Date().toISOString(),
-                    logDate: typeof x.logDate === 'string' ? x.logDate : new Date().toISOString().slice(0, 10),
+                    logDate: typeof x.logDate === 'string' ? x.logDate : todayIsoDate(),
                     useSameTextForAll: x.useSameTextForAll === true,
                     globalText: typeof x.globalText === 'string' ? x.globalText : '',
                     perCacheText: (x.perCacheText && typeof x.perCacheText === 'object') ? x.perCacheText as Record<number, string> : {},
@@ -1140,7 +1152,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     }
 
     protected getTodayIsoDate(): string {
-        return new Date().toISOString().slice(0, 10);
+        return todayIsoDate();
     }
 
     protected isValidIsoDate(value: unknown): value is string {
@@ -2972,7 +2984,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     protected formatVisitedIso(dateOnly: string): string {
         const safe = (dateOnly || '').trim();
         if (!/^\d{4}-\d{2}-\d{2}$/.test(safe)) {
-            return `${new Date().toISOString().slice(0, 10)}T12:00Z`;
+            return `${todayIsoDate()}T12:00Z`;
         }
         return `${safe}T12:00Z`;
     }
