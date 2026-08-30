@@ -90,7 +90,18 @@ export class GeocacheNotesWidget extends ReactWidget {
         this.addClass('theia-geocache-notes-widget');
     }
 
-    setGeocache(params: { geocacheId: number; gcCode?: string; name?: string }): void {
+    async setGeocache(params: { geocacheId: number; gcCode?: string; name?: string }): Promise<void> {
+        // Même géocache : rien à faire (évite de recharger/perdre le brouillon pour rien).
+        if (this.geocacheId === params.geocacheId) {
+            return;
+        }
+
+        // Avant d'écraser l'état, on protège un brouillon en cours de saisie ou d'édition :
+        // resetWidgetState() vide newNoteContent / editing* sans confirmation.
+        if (this.hasUnsavedDraft() && !(await this.confirmDiscardDraft())) {
+            return;
+        }
+
         // loadNotes() owns the cancellation token: it bumps loadRequestToken on each call,
         // which invalidates any in-flight load from the previously selected geocache.
         this.geocacheId = params.geocacheId;
@@ -104,6 +115,28 @@ export class GeocacheNotesWidget extends ReactWidget {
         if (this.notesController.getGcPersonalNoteAutoSyncMode() === 'onNotesOpen') {
             void this.syncFromGeocaching(true);
         }
+    }
+
+    protected hasUnsavedDraft(): boolean {
+        // Nouvelle note en cours de saisie (non vide après trim).
+        if (this.newNoteContent.trim().length > 0) {
+            return true;
+        }
+        // Édition d'une note existante en cours.
+        if (this.editingNoteId !== undefined && this.editingContent.trim().length > 0) {
+            return true;
+        }
+        return false;
+    }
+
+    protected async confirmDiscardDraft(): Promise<boolean> {
+        const dialog = new ConfirmDialog({
+            title: 'Abandonner le brouillon ?',
+            msg: 'Une note est en cours de saisie. Changer de géocache abandonnera les modifications non enregistrées. Continuer ?',
+            ok: 'Abandonner et changer',
+            cancel: Dialog.CANCEL
+        });
+        return dialog.open();
     }
 
     protected resetWidgetState(): void {
