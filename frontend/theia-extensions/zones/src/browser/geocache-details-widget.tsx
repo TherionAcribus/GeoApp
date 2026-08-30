@@ -37,7 +37,7 @@ import {
     SaveWaypointInput,
     UpdateDescriptionInput,
 } from './geocache-details-service';
-import { GeocacheDetailsTranslationController } from './geocache-details-translation-controller';
+import { GeocacheDetailsTranslationController, TranslationProgress } from './geocache-details-translation-controller';
 import {
     DescriptionVariant,
     GeocacheDto,
@@ -103,6 +103,8 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
     protected isTranslatingAllContent = false;
     /** Source d'annulation de la traduction en cours (description seule ou tout le contenu). */
     protected translationCts: CancellationTokenSource | undefined;
+    /** Progression detaillee de la traduction en cours, affichee dans la banniere. */
+    protected translationProgress: TranslationProgress | undefined;
     protected lastAccessTimestamp: number = Date.now();
     protected archiveStatus: GeocacheArchiveStatus = 'none';
     protected archiveUpdatedAt: string | undefined = undefined;
@@ -739,10 +741,19 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
 
         this.isTranslatingDescription = true;
         this.translationCts = new CancellationTokenSource();
+        this.translationProgress = undefined;
         this.update();
 
         try {
-            await this.translationController.translateDescription(geocacheId, sourceHtml, this.translationCts.token);
+            await this.translationController.translateDescription(
+                geocacheId,
+                sourceHtml,
+                this.translationCts.token,
+                progress => {
+                    this.translationProgress = progress;
+                    this.update();
+                }
+            );
             // L'utilisateur a pu changer de géocache pendant l'appel LLM : on ne touche pas à
             // l'état de la géocache actuellement affichée.
             if (this.geocacheId !== geocacheId) {
@@ -762,6 +773,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         } finally {
             this.isTranslatingDescription = false;
             this.translationCts = undefined;
+            this.translationProgress = undefined;
             this.update();
         }
     }
@@ -1185,6 +1197,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
 
         this.isTranslatingAllContent = true;
         this.translationCts = new CancellationTokenSource();
+        this.translationProgress = undefined;
         this.update();
 
         try {
@@ -1193,7 +1206,10 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                 descriptionHtml: sourceHtml,
                 hintsDecoded: sourceHints,
                 waypoints: sourceWaypoints,
-            }, this.translationCts.token);
+            }, this.translationCts.token, progress => {
+                this.translationProgress = progress;
+                this.update();
+            });
             // L'utilisateur a pu changer de géocache pendant l'appel LLM : on ne touche pas à
             // l'état de la géocache actuellement affichée.
             if (this.geocacheId !== geocacheId) {
@@ -1219,6 +1235,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         } finally {
             this.isTranslatingAllContent = false;
             this.translationCts = undefined;
+            this.translationProgress = undefined;
             this.update();
         }
     }
@@ -1429,6 +1446,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                     onTranslateAllToFrench: this.handleTranslateAll,
                     isTranslatingAll: this.isTranslatingAllContent,
                     onCancelTranslation: this.handleCancelTranslation,
+                    translationProgress: this.translationProgress,
                     externalLinksOpenMode: this.preferencesController.getExternalLinksOpenMode(),
                 }}
                 displayedHints={displayedHints}

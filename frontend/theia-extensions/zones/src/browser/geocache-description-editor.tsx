@@ -2,6 +2,7 @@ import * as React from 'react';
 import DOMPurify from '@theia/core/shared/dompurify';
 import { UpdateDescriptionInput } from './geocache-details-service';
 import { DescriptionVariant, GeocacheDto } from './geocache-details-types';
+import { TranslationProgress, TranslationPhaseStatus } from './geocache-details-translation-controller';
 
 export interface DescriptionEditorProps {
     geocacheData: GeocacheDto;
@@ -16,6 +17,7 @@ export interface DescriptionEditorProps {
     onTranslateAllToFrench: () => Promise<void>;
     isTranslatingAll: boolean;
     onCancelTranslation: () => void;
+    translationProgress?: TranslationProgress;
     externalLinksOpenMode: 'new-tab' | 'new-window';
 }
 
@@ -185,6 +187,20 @@ function segmentStyle(active: boolean, disabled: boolean): React.CSSProperties {
     };
 }
 
+/** Indicateur visuel d'une phase de traduction (en cours / done / failed). */
+const PhaseIndicator: React.FC<{ label: string; status: TranslationPhaseStatus }> = ({ label, status }) => {
+    const icon = status === 'done' ? '✓' : status === 'failed' ? '✗' : '…';
+    const color = status === 'done' ? 'var(--theia-charts-green, #4ade80)'
+        : status === 'failed' ? 'var(--theia-errorForeground, #f87171)'
+        : 'var(--theia-descriptionForeground, var(--theia-foreground))';
+    return (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+            <span aria-hidden='true' style={{ color, fontWeight: 600 }}>{icon}</span>
+            <span>{label}</span>
+        </span>
+    );
+};
+
 export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
     geocacheData,
     geocacheId,
@@ -198,6 +214,7 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
     onTranslateAllToFrench,
     isTranslatingAll,
     onCancelTranslation,
+    translationProgress,
     externalLinksOpenMode
 }) => {
     const [variant, setVariant] = React.useState<DescriptionVariant>(defaultVariant);
@@ -522,11 +539,26 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
             {isAnyTranslating ? (
                 <div style={translateBannerStyle} role='status' aria-live='polite'>
                     <i className='fa fa-spinner fa-spin' aria-hidden='true' />
-                    <span>
-                        {isTranslatingAll
-                            ? 'Traduction en cours : description + indices + notes de waypoints…'
-                            : 'Traduction de la description en cours…'}
-                    </span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1 }}>
+                        <span style={{ fontWeight: 600 }}>
+                            {isTranslatingAll
+                                ? 'Traduction en cours…'
+                                : 'Traduction de la description en cours…'}
+                        </span>
+                        {translationProgress ? (
+                            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 11, opacity: 0.85 }}>
+                                {translationProgress.description !== 'skipped' ? (
+                                    <PhaseIndicator label='Description' status={translationProgress.description} />
+                                ) : undefined}
+                                {translationProgress.hints !== 'skipped' ? (
+                                    <PhaseIndicator label='Indices' status={translationProgress.hints} />
+                                ) : undefined}
+                                {translationProgress.waypoints !== 'skipped' ? (
+                                    <PhaseIndicator label='Waypoints' status={translationProgress.waypoints} />
+                                ) : undefined}
+                            </div>
+                        ) : undefined}
+                    </div>
                     <button
                         type='button'
                         className='theia-button secondary'

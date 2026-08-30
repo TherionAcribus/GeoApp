@@ -36,6 +36,19 @@ export interface TranslateAllContentResult {
     failed: string[];
 }
 
+/** Statut d'une phase de traduction, pour la progression affichee a l'utilisateur. */
+export type TranslationPhaseStatus = 'pending' | 'done' | 'failed' | 'skipped';
+
+/** Progression detaillee d'une traduction, notifiee au widget a chaque transition de phase. */
+export interface TranslationProgress {
+    description: TranslationPhaseStatus;
+    hints: TranslationPhaseStatus;
+    waypoints: TranslationPhaseStatus;
+}
+
+/** Callback de progression, appele par le controleur a chaque changement d'etat d'une phase. */
+export type TranslationProgressCallback = (progress: TranslationProgress) => void;
+
 /** Resultat de l'etape de traduction de la description (lancee en parallele des hints/waypoints). */
 type DescriptionStepResult =
     | { kind: 'done' }
@@ -55,10 +68,17 @@ export class GeocacheDetailsTranslationController {
         @inject(GeocacheDetailsService) protected readonly geocacheDetailsService: GeocacheDetailsService
     ) {}
 
-    async translateDescription(geocacheId: number, sourceHtml: string, cancellationToken?: CancellationToken): Promise<void> {
+    async translateDescription(
+        geocacheId: number,
+        sourceHtml: string,
+        cancellationToken?: CancellationToken,
+        onProgress?: TranslationProgressCallback
+    ): Promise<void> {
         const languageModel = await this.selectTranslationLanguageModel();
+        onProgress?.({ description: 'pending', hints: 'skipped', waypoints: 'skipped' });
         const translatedHtml = await this.translateHtmlWithChunking(languageModel, sourceHtml, cancellationToken);
         if (!translatedHtml) {
+            onProgress?.({ description: 'failed', hints: 'skipped', waypoints: 'skipped' });
             throw new Error('Traduction IA: reponse vide');
         }
 
@@ -66,9 +86,14 @@ export class GeocacheDetailsTranslationController {
             description_override_html: translatedHtml,
             description_override_raw: htmlToRawText(translatedHtml),
         });
+        onProgress?.({ description: 'done', hints: 'skipped', waypoints: 'skipped' });
     }
 
-    async translateAllContent(input: TranslateAllContentInput, cancellationToken?: CancellationToken): Promise<TranslateAllContentResult> {
+    async translateAllContent(
+        input: TranslateAllContentInput,
+        cancellationToken?: CancellationToken,
+        onProgress?: TranslationProgressCallback
+    ): Promise<TranslateAllContentResult> {
         const languageModel = await this.selectTranslationLanguageModel();
 
         const description = (input.descriptionHtml || '').trim();
@@ -92,11 +117,32 @@ export class GeocacheDetailsTranslationController {
         // runtime serialisera de toute façon les deux appels sans regression de robustesse.
         const hasMetaWork = sourceHints || sourceWaypoints.length > 0;
 
+        // Progression initiale : toutes les phases actives sont 'pending', les autres 'skipped'.
+        const progress: TranslationProgress = {
+            description: description ? 'pending' : 'skipped',
+            hints: sourceHints ? 'pending' : 'skipped',
+            waypoints: sourceWaypoints.length > 0 ? 'pending' : 'skipped',
+        };
+        const reportProgress = (): void => onProgress?.({ ...progress });
+
+        reportProgress();
+
         const descriptionTask = description
-            ? this.runDescriptionTranslation(languageModel, input.geocacheId, description, cancellationToken)
+            ? this.runDescriptionTranslation(languageModel, input.geocacheId, description, cancellationToken, (status => {
+                progress.description = status;
+                reportProgress();
+            }))
             : Promise.resolve<DescriptionStepResult>({ kind: 'skipped' });
         const metaTask = hasMetaWork
-            ? this.runMetaTranslation(languageModel, input.geocacheId, sourceHints, sourceWaypoints, cancellationToken)
+            ? this.runMetaTranslation(languageModel, input.geocacheId, sourceHints, sourceWaypoints, cancellationToken, (hintsStatus, waypointStatus => {
+                if (hintsStatus) {
+                    progress.hints = hintsStatus;
+                }
+                if (waypointStatus) {
+                    progress.waypoints = waypointStatus;
+                }
+                reportProgress();
+            }))
             : Promise.resolve<MetaStepResult>({ kind: 'skipped' });
 
         const [descriptionOutcome, metaOutcome] = await Promise.allSettled([descriptionTask, metaTask]);
@@ -172,18 +218,21 @@ export class GeocacheDetailsTranslationController {
         languageModel: any,
         geocacheId: number,
         description: string,
-        cancellationToken?: CancellationToken
+        cancellationToken?: CancellationToken,
+        onPhaseStatus?: (status: TranslationPhaseStatus) => void
     ): Promise<DescriptionStepResult> {
         const translatedHtml = await this.translateHtmlWithChunking(languageModel, description, cancellationToken);
         // Sans ce garde-fou, une reponse vide (ou reduite a un bloc de raisonnement) serait
         // persistee telle quelle et effacerait la description modifiee existante.
         if (!translatedHtml) {
+            onPhaseStatus?.('failed');
             return { kind: 'empty' };
         }
         await this.geocacheDetailsService.updateTranslatedContent(geocacheId, {
             description_override_html: translatedHtml,
             description_override_raw: htmlToRawText(translatedHtml),
         });
+        onPhaseStatus?.('done');
         return { kind: 'done' };
     }
 
@@ -192,7 +241,8 @@ export class GeocacheDetailsTranslationController {
         geocacheId: number,
         sourceHints: string,
         sourceWaypoints: TranslateAllWaypointInput[],
-        cancellationToken?: CancellationToken
+        cancellationToken?: CancellationToken,
+        onPhaseStatus?: (hintsStatus: TranslationPhaseStatus | null, waypointStatus: TranslationPhaseStatus | null) => void
     ): Promise<MetaStepResult> {
         const meta = await this.translateHintsAndWaypoints(languageModel, sourceHints, sourceWaypoints, cancellationToken);
 
@@ -207,6 +257,11 @@ export class GeocacheDetailsTranslationController {
         if (Object.keys(payload).length > 0) {
             await this.geocacheDetailsService.updateTranslatedContent(geocacheId, payload);
         }
+
+        onPhaseStatus?.(
+            sourceHints ? (meta.hintsDecoded ? 'done' : 'failed') : null,
+            sourceWaypoints.length > 0 ? (meta.waypoints.length > 0 ? 'done' : 'failed') : null
+        );
 
         return {
             kind: 'done',
