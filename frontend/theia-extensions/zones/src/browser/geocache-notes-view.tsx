@@ -206,6 +206,35 @@ function formatDateTime(value: string | null | undefined): string | undefined {
     return formatted;
 }
 
+// Date relative ("il y a 2 h", "il y a 3 j") avec fallback sur la date absolue
+// au-dela de 7 jours. Non memoisee : le resultat depend de l'heure courante.
+function formatRelativeDateTime(value: string | null | undefined): string | undefined {
+    if (!value) {
+        return undefined;
+    }
+    const date = new Date(value);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMin = Math.floor(diffMs / 60000);
+    const diffH = Math.floor(diffMin / 60);
+    const diffD = Math.floor(diffH / 24);
+
+    if (diffMin < 1) {
+        return 'à l\'instant';
+    }
+    if (diffMin < 60) {
+        return `il y a ${diffMin} min`;
+    }
+    if (diffH < 24) {
+        return `il y a ${diffH} h`;
+    }
+    if (diffD < 7) {
+        return `il y a ${diffD} j`;
+    }
+    // Au-dela de 7 jours, on retombe sur la date absolue (memoisee).
+    return formatDateTime(value);
+}
+
 function getPersonalNoteTimestamp(
     gcPersonalNoteSyncedAt: string | null,
     gcPersonalNoteLastPushedAt: string | null
@@ -252,8 +281,16 @@ const NoteItem = React.memo(function NoteItem(props: NoteItemProps): React.JSX.E
     const typeColor = note.source === 'earthcoach'
         ? 'var(--theia-charts-green, #047857)'
         : note.note_type === 'system' ? 'var(--theia-charts-lines, #6b7280)' : 'var(--theia-charts-blue, #3b82f6)';
-    const created = formatDateTime(note.created_at);
-    const updated = formatDateTime(note.updated_at);
+    const createdRelative = formatRelativeDateTime(note.created_at);
+    const createdAbsolute = formatDateTime(note.created_at);
+    const updatedRelative = formatRelativeDateTime(note.updated_at);
+    const isModified = note.updated_at && note.updated_at !== note.created_at;
+
+    const handleCopy = (): void => {
+        if (note.content) {
+            void navigator.clipboard.writeText(note.content);
+        }
+    };
 
     return (
         <div style={noteCardStyle}>
@@ -262,14 +299,22 @@ const NoteItem = React.memo(function NoteItem(props: NoteItemProps): React.JSX.E
                     <span style={{ ...typeBadgeBaseStyle, color: typeColor, borderColor: typeColor }}>
                         {typeLabel}
                     </span>
-                    {created && (
-                        <span style={metaTextStyle}>
-                            {created}
-                            {updated && updated !== created ? ` - modifiee le ${updated}` : ''}
+                    {createdRelative && (
+                        <span style={metaTextStyle} title={createdAbsolute}>
+                            {createdRelative}
+                            {isModified && updatedRelative ? ` - modifiée ${updatedRelative}` : ''}
                         </span>
                     )}
                 </div>
                 <div style={actionsRowStyle}>
+                    <button
+                        onClick={handleCopy}
+                        style={actionButtonPointerStyle}
+                        title='Copier le contenu de la note'
+                        aria-label='Copier le contenu de la note'
+                    >
+                        <i className='fa fa-copy' aria-hidden='true' />
+                    </button>
                     {isUserNote && (
                         <button
                             onClick={() => props.onSyncNoteToGeocaching(note)}
@@ -419,21 +464,26 @@ export function GeocacheNotesView(props: GeocacheNotesViewProps): React.JSX.Elem
                             placeholder='Contenu de la note Geocaching.com (vide pour effacer)...'
                             style={textareaStyle}
                         />
-                        <div style={editButtonsRowStyle}>
-                            <button
-                                onClick={props.onCancelEditGcNote}
-                                style={cancelButtonStyle}
-                            >
-                                Annuler
-                            </button>
-                            <button
-                                onClick={props.onSaveGcNote}
-                                disabled={props.isSavingGcNote}
-                                style={props.isSavingGcNote ? saveButtonDisabledStyle : saveButtonStyle}
-                            >
-                                <i className={`fa ${props.isSavingGcNote ? 'fa-spinner fa-spin' : 'fa-upload'}`} aria-hidden='true' />
-                                {props.isSavingGcNote ? 'Envoi...' : 'Envoyer vers GC.com'}
-                            </button>
+                        <div style={rowBetweenStyle}>
+                            <span style={metaTextStyle}>
+                                {props.editingGcNoteContent.length} / 2500 caractères
+                            </span>
+                            <div style={editButtonsRowStyle}>
+                                <button
+                                    onClick={props.onCancelEditGcNote}
+                                    style={cancelButtonStyle}
+                                >
+                                    Annuler
+                                </button>
+                                <button
+                                    onClick={props.onSaveGcNote}
+                                    disabled={props.isSavingGcNote || props.editingGcNoteContent.length > 2500}
+                                    style={(props.isSavingGcNote || props.editingGcNoteContent.length > 2500) ? saveButtonDisabledStyle : saveButtonStyle}
+                                >
+                                    <i className={`fa ${props.isSavingGcNote ? 'fa-spinner fa-spin' : 'fa-upload'}`} aria-hidden='true' />
+                                    {props.isSavingGcNote ? 'Envoi...' : 'Envoyer vers GC.com'}
+                                </button>
+                            </div>
                         </div>
                     </div>
                 ) : (
@@ -470,7 +520,9 @@ export function GeocacheNotesView(props: GeocacheNotesViewProps): React.JSX.Elem
                         style={textareaStyle}
                     />
                     <div style={newNoteControlsRowStyle}>
-                        <span style={metaTextStyle}>Note utilisateur</span>
+                        <span style={metaTextStyle}>
+                            {props.newNoteContent.length} caractère{props.newNoteContent.length !== 1 ? 's' : ''}
+                        </span>
                         <button
                             onClick={props.onCreateNote}
                             disabled={isAddDisabled}
