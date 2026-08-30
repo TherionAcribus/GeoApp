@@ -230,8 +230,22 @@ class GeocachingSubmitLogsClient:
         return data if isinstance(data, dict) else None
 
     @staticmethod
-    def extract_trpc_error(payload: Any) -> str | None:
-        """Récupère le message d'erreur d'une enveloppe tRPC, si présent."""
+    def extract_trpc_error_info(payload: Any) -> dict[str, Any] | None:
+        """Détails d'une enveloppe d'erreur tRPC, ou None si la réponse n'en est pas une.
+
+        Forme attendue : ``[{"error": {"message": ..., "data": {"code": "CONFLICT",
+        "httpStatus": 409}}}]`` (parfois enveloppé dans un niveau ``json``
+        supplémentaire selon le transformer, comme pour les réponses utiles).
+
+        Le message est rendu tel quel, mais c'est `code`/`http_status` qui doivent
+        servir à décider quoi faire de l'erreur : eux sont stables, alors que le
+        message est un texte d'interface que Geocaching.com peut reformuler ou
+        localiser du jour au lendemain.
+
+        Returns:
+            ``{'message': str|None, 'code': str|None, 'http_status': int|None}``,
+            ou None si l'enveloppe ne porte pas de nœud d'erreur.
+        """
         node = payload
         if isinstance(node, list):
             node = node[0] if node else None
@@ -247,11 +261,35 @@ class GeocachingSubmitLogsClient:
         if isinstance(inner, dict):
             candidates.insert(0, inner)
 
+        message = None
+        code = None
+        http_status = None
         for candidate in candidates:
-            message = candidate.get('message')
-            if isinstance(message, str) and message.strip():
-                return message.strip()
-        return None
+            if message is None:
+                value = candidate.get('message')
+                if isinstance(value, str) and value.strip():
+                    message = value.strip()
+
+            # `error.code` est le code numérique JSON-RPC (-32603...) : le code
+            # exploitable est celui de `error.data.code` ("CONFLICT", "NOT_FOUND"...).
+            data = candidate.get('data')
+            if isinstance(data, dict):
+                if code is None:
+                    value = data.get('code')
+                    if isinstance(value, str) and value.strip():
+                        code = value.strip()
+                if http_status is None:
+                    value = data.get('httpStatus')
+                    if isinstance(value, int) and not isinstance(value, bool):
+                        http_status = value
+
+        return {'message': message, 'code': code, 'http_status': http_status}
+
+    @staticmethod
+    def extract_trpc_error(payload: Any) -> str | None:
+        """Récupère le message d'erreur d'une enveloppe tRPC, si présent."""
+        info = GeocachingSubmitLogsClient.extract_trpc_error_info(payload)
+        return info.get('message') if info else None
 
     def submit_geocache_log(
         self,
@@ -350,15 +388,25 @@ class GeocachingSubmitLogsClient:
 
         status, data, body_preview = response
 
-        error_message = self.extract_trpc_error(data)
-        if error_message:
-            logger.error('Log submit rejected for %s: status=%s message=%r', gc_code, status, error_message)
-            return {
+        error_info = self.extract_trpc_error_info(data)
+        if error_info:
+            logger.error('Log submit rejected for %s: status=%s code=%r http_status=%r message=%r',
+                         gc_code, status, error_info.get('code'), error_info.get('http_status'),
+                         error_info.get('message'))
+            rejection: dict[str, Any] = {
                 'ok': False,
                 'status': status,
-                'error_message': error_message,
                 'body': body_preview,
             }
+            # Le lot tRPC répond parfois 200 avec l'erreur dans l'enveloppe :
+            # `error_http_status` est alors le seul statut qui décrit l'échec.
+            if error_info.get('message'):
+                rejection['error_message'] = error_info['message']
+            if error_info.get('code'):
+                rejection['error_code'] = error_info['code']
+            if error_info.get('http_status'):
+                rejection['error_http_status'] = error_info['http_status']
+            return rejection
 
         unwrapped = self.unwrap_trpc_payload(data)
         if unwrapped is None or not unwrapped.get('logReferenceCode'):

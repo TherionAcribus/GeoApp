@@ -6,7 +6,6 @@ Ce module fournit les routes API pour :
 - Filtrer les logs par type
 """
 
-import json
 import logging
 from datetime import date as date_type
 from datetime import datetime, time as time_type
@@ -240,6 +239,55 @@ def _store_submitted_log(geocache, *, log_reference_code, text, visited_date,
         return None
 
 
+# Geocaching.com refuse un second « Found it » sur la même cache, mais ne
+# documente pas de code d'erreur pour ça : on lit d'abord ce que l'enveloppe tRPC
+# expose de structuré (code tRPC, statut HTTP porté par l'erreur), et le texte ne
+# sert plus qu'en dernier recours — sur le seul message d'erreur, pas sur la
+# réponse sérialisée entière, où n'importe quel champ (le texte du log lui-même,
+# qui parle volontiers de « cache » et de « log ») pouvait déclencher un faux positif.
+_ALREADY_LOGGED_ERROR_CODES = frozenset({
+    'CONFLICT',           # code tRPC standard pour « existe déjà »
+    'ALREADY_LOGGED',
+    'DUPLICATE',
+    'DUPLICATE_LOG',
+    'LOG_ALREADY_EXISTS',
+})
+
+#: Statut HTTP du refus pour doublon, que l'erreur vienne de tRPC ou de l'ancien REST.
+_ALREADY_LOGGED_HTTP_STATUS = 409
+
+
+def _looks_like_already_logged(result) -> bool:
+    """L'envoi a-t-il été refusé parce que la cache est déjà loguée ?"""
+    if not isinstance(result, dict):
+        return False
+
+    error_code = result.get('error_code')
+    if isinstance(error_code, str) and error_code.strip().upper() in _ALREADY_LOGGED_ERROR_CODES:
+        return True
+
+    # `status` est le code HTTP de la requête, `error_http_status` celui que porte
+    # l'enveloppe tRPC quand le lot répond 200 avec l'erreur dans le corps.
+    for key in ('error_http_status', 'status'):
+        if result.get(key) == _ALREADY_LOGGED_HTTP_STATUS:
+            return True
+
+    # Dernier recours : le message renvoyé par Geocaching.com. Il est en anglais
+    # aujourd'hui, mais rien ne le garantit — d'où le fait de ne s'y fier qu'ici,
+    # et seulement sur le champ qui contient bien un message d'erreur.
+    message = result.get('error_message')
+    if isinstance(message, str):
+        lowered = message.lower()
+        if 'already logged' in lowered:
+            return True
+        if 'already' in lowered and 'log' in lowered:
+            return True
+        if 'duplicate' in lowered and 'log' in lowered:
+            return True
+
+    return False
+
+
 @bp.post('/api/geocaches/<int:geocache_id>/logs/submit')
 def submit_geocache_log(geocache_id: int):
     try:
@@ -327,23 +375,6 @@ def submit_geocache_log(geocache_id: int):
         )
         if not result:
             return jsonify({'error': 'Failed to submit log to Geocaching.com'}), 502
-
-        def _looks_like_already_logged(payload) -> bool:
-            try:
-                if isinstance(payload, (dict, list)):
-                    text_payload = json.dumps(payload, ensure_ascii=False)
-                else:
-                    text_payload = str(payload)
-                lowered = (text_payload or '').lower()
-                if 'already logged' in lowered:
-                    return True
-                if 'already' in lowered and 'log' in lowered and 'cache' in lowered:
-                    return True
-                if 'duplicate' in lowered and 'log' in lowered:
-                    return True
-                return False
-            except Exception:
-                return False
 
         if not isinstance(result, dict) or not result.get('logReferenceCode'):
             if _looks_like_already_logged(result):

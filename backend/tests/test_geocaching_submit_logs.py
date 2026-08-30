@@ -124,6 +124,43 @@ def test_submit_surfaces_trpc_error_message():
     assert 'logReferenceCode' not in result
 
 
+def test_submit_surfaces_the_structured_trpc_error_code():
+    # `error.data.code` / `httpStatus` sont les repères stables du refus : le
+    # message, lui, est un texte d'interface que Geocaching.com peut localiser.
+    client, _ = make_client([
+        FakeResponse(200, [{'error': {'json': {
+            'message': 'Vous avez déjà consigné cette géocache',
+            'code': -32603,
+            'data': {'code': 'CONFLICT', 'httpStatus': 409},
+        }}}]),
+    ])
+
+    result = submit(client)
+
+    assert result['ok'] is False
+    assert result['error_code'] == 'CONFLICT'
+    assert result['error_http_status'] == 409
+    assert result['error_message'] == 'Vous avez déjà consigné cette géocache'
+
+
+def test_submit_reports_an_error_envelope_without_message():
+    client, _ = make_client([
+        FakeResponse(400, [{'error': {'data': {'code': 'BAD_REQUEST', 'httpStatus': 400}}}]),
+    ])
+
+    result = submit(client)
+
+    assert result['ok'] is False
+    assert result['error_code'] == 'BAD_REQUEST'
+    assert 'error_message' not in result
+    assert 'logReferenceCode' not in result
+
+
+def test_extract_trpc_error_info_ignores_a_successful_envelope():
+    assert GeocachingSubmitLogsClient.extract_trpc_error_info(
+        [{'result': {'data': {'logReferenceCode': 'GL1'}}}]) is None
+
+
 def test_submit_falls_back_to_legacy_endpoint_when_trpc_missing():
     client, session = make_client([
         FakeResponse(404, {'statusCode': 404}),
