@@ -36,6 +36,17 @@ CSRF_TOKEN_TTL_SECONDS = 15 * 60
 #: Codes HTTP qui trahissent un jeton périmé ou refusé.
 CSRF_REJECTION_STATUSES = (401, 403)
 
+# Nom du champ multipart attendu par Geocaching.com pour le fichier image.
+#
+# Trois noms étaient essayés à la suite (`file`, `image`, `imageFile`) : sur un refus, le
+# même fichier — jusqu'à 10 Mo — repartait donc trois fois avant de rendre l'erreur.
+# c:geo poste ses images sur l'API live de Groundspeak avec le champ `image` et l'en-tête
+# `CSRF-Token` (GCLogAPI.addLogImage : `bodyForm(null, "image", "image/jpeg", ...)`).
+# C'est ce nom qui est figé ici, et un échec est rendu tel quel, sans nouvel envoi.
+LOG_IMAGE_FORM_FIELD = 'image'
+
+LOG_DRAFT_IMAGES_URL = f'{WEBSITE_URL}/api/live/v1/logdrafts/images'
+
 _csrf_tokens: 'WeakKeyDictionary[Any, tuple[str, float]]' = WeakKeyDictionary()
 _csrf_tokens_lock = threading.Lock()
 
@@ -147,56 +158,35 @@ class GeocachingSubmitLogsClient:
         content_type: str,
         csrf_token: str,
     ) -> dict[str, Any] | None:
-        url = 'https://www.geocaching.com/api/live/v1/logdrafts/images'
         headers = {
             'Accept': 'application/json',
             'CSRF-Token': csrf_token,
         }
+        files = {LOG_IMAGE_FORM_FIELD: (filename, content, content_type)}
 
-        files_variants = [
-            {'file': (filename, content, content_type)},
-            {'image': (filename, content, content_type)},
-            {'imageFile': (filename, content, content_type)},
-        ]
+        try:
+            resp = self.session.post(LOG_DRAFT_IMAGES_URL, headers=headers, files=files, timeout=60)
+        except requests.RequestException as e:  # pragma: no cover
+            logger.error('Failed to upload log image %r: %s', filename, e)
+            return {'ok': False, 'status': 0, 'error': str(e)}
 
-        last_error: dict[str, Any] | None = None
-        for files in files_variants:
-            try:
-                resp = self.session.post(url, headers=headers, files=files, timeout=60)
-                if resp.status_code not in (200, 201):
-                    body_preview = (resp.text or '')[:2000]
-                    last_error = {
-                        'ok': False,
-                        'status': resp.status_code,
-                        'body': body_preview,
-                    }
-                    # Les variantes ne diffèrent que par le nom du champ de formulaire :
-                    # un refus d'authentification ne changera pas d'avis, inutile de
-                    # dépenser deux requêtes de plus avant de renouveler le jeton.
-                    if resp.status_code in CSRF_REJECTION_STATUSES:
-                        return last_error
-                    continue
+        body_preview = (resp.text or '')[:2000]
 
-                try:
-                    data = resp.json() if resp.content else None
-                except Exception as e:  # pragma: no cover
-                    logger.error('Log image upload invalid JSON: %s body=%r', e, (resp.text or '')[:2000])
-                    last_error = {
-                        'ok': False,
-                        'status': resp.status_code,
-                        'body': (resp.text or '')[:2000],
-                    }
-                    continue
+        if resp.status_code not in (200, 201):
+            logger.error('Log image upload failed for %r: status=%s body=%r',
+                         filename, resp.status_code, body_preview)
+            return {'ok': False, 'status': resp.status_code, 'body': body_preview}
 
-                if isinstance(data, dict):
-                    data.setdefault('ok', True)
-                return data if isinstance(data, dict) else {'ok': True, 'data': data}
-            except requests.RequestException as e:  # pragma: no cover
-                logger.error('Failed to upload log image: %s', e)
-                last_error = {'ok': False, 'status': 0, 'error': str(e)}
-                continue
+        try:
+            data = resp.json() if resp.content else None
+        except ValueError as e:
+            logger.error('Log image upload invalid JSON for %r: %s body=%r', filename, e, body_preview)
+            return {'ok': False, 'status': resp.status_code, 'body': body_preview}
 
-        return last_error
+        if isinstance(data, dict):
+            data.setdefault('ok', True)
+            return data
+        return {'ok': True, 'data': data}
 
     @staticmethod
     def extract_image_guid(payload: Any) -> str | None:

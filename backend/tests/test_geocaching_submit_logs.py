@@ -8,18 +8,19 @@ import pytest
 from gc_backend.services import geocaching_submit_logs
 from gc_backend.services.geocaching_submit_logs import (
     LEGACY_CREATE_GEOCACHE_LOG_URL,
+    LOG_DRAFT_IMAGES_URL,
+    LOG_IMAGE_FORM_FIELD,
     TRPC_CREATE_GEOCACHE_LOG_URL,
     GeocachingSubmitLogsClient,
 )
 
-LOG_DRAFT_IMAGES_URL = 'https://www.geocaching.com/api/live/v1/logdrafts/images'
-
 
 class FakeResponse:
-    def __init__(self, status_code, payload):
+    def __init__(self, status_code, payload, text=None):
         self.status_code = status_code
         self._payload = payload
-        self.text = json.dumps(payload) if payload is not None else ''
+        # `text` explicite : sert à simuler un corps non-JSON (page d'erreur HTML).
+        self.text = text if text is not None else (json.dumps(payload) if payload is not None else '')
         self.content = self.text.encode('utf-8')
 
     def json(self):
@@ -270,14 +271,42 @@ def test_image_upload_retries_once_with_a_fresh_token_when_rejected():
     assert [call['headers']['CSRF-Token'] for call in session.calls] == ['stale-token', 'fresh-token']
 
 
-def test_image_upload_still_tries_field_name_variants_on_other_errors():
+def test_image_upload_posts_a_single_multipart_field():
+    """Un seul champ, celui que c:geo utilise : plus de noms essayés à l'aveugle."""
+    client, session = make_client([FakeResponse(200, {'guid': 'guid-1', 'url': 'https://img'})])
+
+    result = upload(client)
+
+    assert GeocachingSubmitLogsClient.extract_image_guid(result) == 'guid-1'
+    assert result['ok'] is True
+
+    call = session.calls[0]
+    assert call['url'] == LOG_DRAFT_IMAGES_URL
+    assert list(call['files'].keys()) == [LOG_IMAGE_FORM_FIELD] == ['image']
+    assert call['files']['image'] == ('photo.jpg', b'binaire', 'image/jpeg')
+    assert call['headers']['CSRF-Token'] == 'token-42'
+
+
+def test_image_upload_does_not_resend_the_file_when_rejected():
+    """Un fichier refusé remontait jusqu'à trois envois du même contenu."""
     client, session = make_client([
-        FakeResponse(400, {'statusCode': 400}),
-        FakeResponse(200, {'imageGuid': 'guid-2'}),
+        FakeResponse(400, {'statusCode': 400, 'message': 'Invalid image'}),
     ])
 
     result = upload(client)
 
-    assert GeocachingSubmitLogsClient.extract_image_guid(result) == 'guid-2'
-    assert [list(call['files'].keys()) for call in session.calls] == [['file'], ['image']]
-    assert session.csrf_calls == 1
+    assert result['ok'] is False
+    assert result['status'] == 400
+    assert 'Invalid image' in result['body']
+    assert len(session.calls) == 1
+
+
+def test_image_upload_reports_invalid_json_without_resending():
+    client, session = make_client([FakeResponse(200, None, text='<html>oops</html>')])
+
+    result = upload(client)
+
+    assert result['ok'] is False
+    assert result['status'] == 200
+    assert result['body'] == '<html>oops</html>'
+    assert len(session.calls) == 1

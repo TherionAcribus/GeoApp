@@ -233,8 +233,14 @@ Contrôles appliqués :
 Le backend appelle :
 - `POST https://www.geocaching.com/api/live/v1/logdrafts/images`
 
-Le client tente plusieurs noms de champ multipart (tolérance) :
-- `file`, `image`, `imageFile`
+Champ multipart : `image` (constante `LOG_IMAGE_FORM_FIELD`), en-tête `CSRF-Token`.
+
+C'est le nom utilisé par c:geo sur l'API live de Groundspeak (`GCLogAPI.addLogImage` :
+`bodyForm(null, "image", "image/jpeg", ...)`). Le client tentait auparavant trois noms
+successifs (`file`, `image`, `imageFile`), ce qui renvoyait le fichier — jusqu'à 10 Mo —
+jusqu'à trois fois avant de rendre l'erreur. Un envoi refusé est désormais remonté tel
+quel, sans nouvel upload ; seul un rejet CSRF (401/403) rejoue l'appel, une fois, avec un
+jeton frais.
 
 Extraction du GUID :
 - `GeocachingSubmitLogsClient.extract_image_guid()` cherche des clés possibles (`imageGuid`, `ImageGuid`, `guid`, etc.) et parcourt récursivement les objets/lists.
