@@ -169,6 +169,29 @@ def sync_notes_from_geocaching(geocache_id: int):
         if not geocache.gc_code:
             return jsonify({"error": "Geocache has no GC code"}), 400
 
+        # Cache TTL : si on a deja synchronise recemment (moins de 5 min) et que
+        # l'appelant ne force pas le refresh, on retourne la valeur en cache sans
+        # refaire un fetch HTTP vers GC.com. Evite les fetchs repetes lors des
+        # ouvertures successives du widget.
+        force = request.args.get("force", "false").lower() in ("1", "true", "yes")
+        cache_ttl_seconds = 300  # 5 minutes
+        if (
+            not force
+            and geocache.gc_personal_note_synced_at
+            and (datetime.now(timezone.utc) - geocache.gc_personal_note_synced_at).total_seconds() < cache_ttl_seconds
+        ):
+            return jsonify(
+                {
+                    "geocache_id": geocache.id,
+                    "gc_code": geocache.gc_code,
+                    "gc_personal_note": geocache.gc_personal_note,
+                    "gc_personal_note_synced_at": geocache.gc_personal_note_synced_at.isoformat()
+                    if geocache.gc_personal_note_synced_at
+                    else None,
+                    "cached": True,
+                }
+            )
+
         client = GeocachingPersonalNotesClient()
         note_text = client.get_personal_note(geocache.gc_code)
 

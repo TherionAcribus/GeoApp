@@ -2,6 +2,7 @@ import { inject, injectable } from '@theia/core/shared/inversify';
 import { BackendApiClient } from './backend-api-client';
 import {
     CreateGeocacheNoteInput,
+    GeocacheNoteDto,
     GeocacheNotesApiResponse,
     SyncFromGeocachingResponse,
     SyncNoteToGeocachingResponse,
@@ -22,20 +23,22 @@ export class GeocacheNotesService {
         );
     }
 
-    async createNote(geocacheId: number, payload: CreateGeocacheNoteInput): Promise<void> {
-        await this.apiClient.requestVoid(
+    async createNote(geocacheId: number, payload: CreateGeocacheNoteInput): Promise<GeocacheNoteDto> {
+        const response = await this.apiClient.requestJson<{ note: GeocacheNoteDto }>(
             `/api/geocaches/${geocacheId}/notes`,
             this.apiClient.createJsonInit('POST', payload),
             'Erreur lors de la creation de la note'
         );
+        return response.note;
     }
 
-    async updateNote(noteId: number, payload: UpdateGeocacheNoteInput): Promise<void> {
-        await this.apiClient.requestVoid(
+    async updateNote(noteId: number, payload: UpdateGeocacheNoteInput): Promise<GeocacheNoteDto> {
+        const response = await this.apiClient.requestJson<{ note: GeocacheNoteDto }>(
             `/api/notes/${noteId}`,
             this.apiClient.createJsonInit('PUT', payload),
             'Erreur lors de la mise a jour de la note'
         );
+        return response.note;
     }
 
     async deleteNote(noteId: number): Promise<void> {
@@ -46,9 +49,10 @@ export class GeocacheNotesService {
         );
     }
 
-    async syncFromGeocaching(geocacheId: number): Promise<SyncFromGeocachingResponse> {
+    async syncFromGeocaching(geocacheId: number, force: boolean = false): Promise<SyncFromGeocachingResponse> {
+        const query = force ? '?force=true' : '';
         return this.apiClient.requestJson<SyncFromGeocachingResponse>(
-            `/api/geocaches/${geocacheId}/notes/sync-from-geocaching`,
+            `/api/geocaches/${geocacheId}/notes/sync-from-geocaching${query}`,
             { method: 'POST' },
             'Erreur lors de la synchronisation des notes Geocaching.com'
         );

@@ -64,7 +64,8 @@ export class GeocacheNotesWidget extends ReactWidget {
 
     // Stable callback references so memoized children (NoteItem) can bail out of re-renders.
     protected readonly handleSyncFromGeocaching = (): void => {
-        void this.syncFromGeocaching();
+        // Bouton manuel : force le refresh (ignore le cache backend).
+        void this.syncFromGeocaching(false, true);
     };
     protected readonly handleStartEditGcNote = (): void => {
         this.startEditGcNote();
@@ -301,10 +302,13 @@ export class GeocacheNotesWidget extends ReactWidget {
         this.update();
 
         try {
-            await this.notesController.createNote(geocacheId, content, this.newNoteType);
+            const createdNote = await this.notesController.createNote(geocacheId, content, this.newNoteType);
             this.newNoteContent = '';
             this.newNoteType = 'user';
-            await this.loadNotes();
+            // Mise a jour locale : on ajoute la note retournee par l'API sans
+            // recharger toute la liste (evite un aller-retour supplementaire).
+            this.notes = [...this.notes, createdNote];
+            this.update();
             this.messages.info('Note creee');
         } catch (error) {
             console.error('[GeocacheNotesWidget] Failed to create note:', error);
@@ -344,9 +348,13 @@ export class GeocacheNotesWidget extends ReactWidget {
         }
 
         try {
-            await this.notesController.updateNote(this.editingNoteId, content, this.editingType);
+            const updatedNote = await this.notesController.updateNote(this.editingNoteId, content, this.editingType);
+            const noteId = this.editingNoteId;
             this.cancelEdit();
-            await this.loadNotes();
+            // Mise a jour locale : on remplace la note dans la liste sans
+            // recharger toute la liste.
+            this.notes = this.notes.map(n => n.id === noteId ? updatedNote : n);
+            this.update();
             this.messages.info('Note mise a jour');
         } catch (error) {
             console.error('[GeocacheNotesWidget] Failed to update note:', error);
@@ -421,7 +429,10 @@ export class GeocacheNotesWidget extends ReactWidget {
 
         try {
             await this.notesController.deleteNote(note.id);
-            await this.loadNotes();
+            // Mise a jour locale : on retire la note supprimee sans recharger
+            // toute la liste.
+            this.notes = this.notes.filter(n => n.id !== note.id);
+            this.update();
             this.messages.info('Note supprimee');
         } catch (error) {
             console.error('[GeocacheNotesWidget] Failed to delete note:', error);
@@ -429,7 +440,7 @@ export class GeocacheNotesWidget extends ReactWidget {
         }
     }
 
-    protected async syncFromGeocaching(silent: boolean = false): Promise<void> {
+    protected async syncFromGeocaching(silent: boolean = false, force: boolean = false): Promise<void> {
         const geocacheId = this.geocacheId;
         if (!geocacheId || this.isSyncingFromGc) {
             return;
@@ -439,7 +450,7 @@ export class GeocacheNotesWidget extends ReactWidget {
         this.update();
 
         try {
-            const data = await this.notesController.syncFromGeocaching(geocacheId);
+            const data = await this.notesController.syncFromGeocaching(geocacheId, force);
             if (geocacheId !== this.geocacheId) {
                 return;
             }
