@@ -207,6 +207,22 @@ const GEOAPP_WIDGET_ID_PREFIXES = [
 
 const CONTEXT_CHARS = 60;
 
+/** Widgets ciblés à l'ouverture d'un résultat de recherche. */
+const DETAILS_WIDGET_ID = 'geocache.details.widget';
+const NOTES_WIDGET_ID = 'geocache.notes.widget';
+
+/** Attente de l'ouverture (asynchrone) du panneau Notes. */
+const WIDGET_WAIT_TIMEOUT_MS = 5000;
+const WIDGET_POLL_INTERVAL_MS = 150;
+
+/** Délai laissé à une activation pour se stabiliser avant vérification. */
+const ACTIVATION_SETTLE_MS = 300;
+
+/** Tentatives d'activation du panneau Notes face aux activations concurrentes. */
+const NOTES_ACTIVATION_ATTEMPTS = 3;
+
+const delay = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
+
 @injectable()
 export class GlobalSearchService {
 
@@ -342,6 +358,91 @@ export class GlobalSearchService {
     }
 
     /**
+     * Ouvre la géocache portant une note : ses détails dans l'espace principal,
+     * puis le panneau Notes positionné sur cette géocache, où la requête est
+     * surlignée.
+     */
+    openNote(geocacheId: number, gcCode?: string, name?: string): void {
+        const query = this.state.query.trim();
+        const options: SearchOptions = { ...this.state.options };
+
+        window.dispatchEvent(new CustomEvent('geoapp-open-geocache-details', {
+            detail: { geocacheId, name }
+        }));
+        window.dispatchEvent(new CustomEvent('open-geocache-notes', {
+            detail: { geocacheId, gcCode, name }
+        }));
+
+        void this.focusNotesWhenReady(query ? { query, options } : undefined);
+    }
+
+    /**
+     * Attend l'attachement du panneau Notes (son ouverture est asynchrone) puis
+     * l'active. Les détails de la géocache s'ouvrant en parallèle et volant
+     * l'activation quand leur chargement se termine après le nôtre, on ré-active
+     * jusqu'à ce que le panneau reste actif — sinon le surlignage in-page, qui
+     * cible le widget actif, s'appliquerait aux détails au lieu des notes.
+     */
+    private async focusNotesWhenReady(highlight?: { query: string; options: SearchOptions }): Promise<void> {
+        const notes = await this.waitForWidget(NOTES_WIDGET_ID, WIDGET_WAIT_TIMEOUT_MS);
+        if (!notes) {
+            return;
+        }
+
+        for (let attempt = 0; attempt < NOTES_ACTIVATION_ATTEMPTS; attempt++) {
+            void this.shell.activateWidget(notes.id);
+            await delay(ACTIVATION_SETTLE_MS);
+            if (this.shell.activeWidget === notes) {
+                break;
+            }
+        }
+
+        if (highlight && this.shell.activeWidget === notes) {
+            this.triggerHighlight(highlight.query, highlight.options);
+        }
+    }
+
+    /**
+     * Résout dès qu'un widget attaché dont l'ID commence par `idPrefix` existe,
+     * ou `undefined` au bout de `timeoutMs`.
+     */
+    private async waitForWidget(idPrefix: string, timeoutMs: number): Promise<Widget | undefined> {
+        const deadline = Date.now() + timeoutMs;
+        for (;;) {
+            const widget = this.shell.widgets.find(w => String(w.id).startsWith(idPrefix) && w.isAttached);
+            if (widget || Date.now() >= deadline) {
+                return widget;
+            }
+            await delay(WIDGET_POLL_INTERVAL_MS);
+        }
+    }
+
+    /**
+     * Ouvre la recherche in-page sur le widget actif, pré-remplie avec la
+     * requête, pour surligner les termes trouvés.
+     */
+    private triggerHighlight(query: string, options: SearchOptions): void {
+        try {
+            this.searchService.open();
+            this.searchService.updateOptions({ ...options });
+            this.searchService.updateQuery(query);
+        } catch {
+            // best-effort : le surlignage ne doit jamais casser l'ouverture
+        }
+        // Re-déclenche pour rattraper le contenu chargé de façon asynchrone
+        // (le contenu est fetché puis rendu après l'activation du widget).
+        setTimeout(() => {
+            try {
+                if (this.searchService.isOpen) {
+                    this.searchService.updateQuery(query);
+                }
+            } catch {
+                // best-effort
+            }
+        }, 900);
+    }
+
+    /**
      * Dès que le widget de détails de géocache devient actif, ouvre la
      * recherche in-page pré-remplie avec la requête pour surligner les termes.
      * Best-effort : n'interfère pas si le widget n'apparaît pas (timeout).
@@ -357,37 +458,16 @@ export class GlobalSearchService {
             clearTimeout(timer);
         };
 
-        const triggerHighlight = () => {
-            try {
-                this.searchService.open();
-                this.searchService.updateOptions({ ...options });
-                this.searchService.updateQuery(query);
-            } catch {
-                // best-effort : le surlignage ne doit jamais casser l'ouverture
-            }
-            // Re-déclenche pour rattraper le contenu chargé de façon asynchrone
-            // (la géocache est fetchée puis rendue après l'activation du widget).
-            setTimeout(() => {
-                try {
-                    if (this.searchService.isOpen) {
-                        this.searchService.updateQuery(query);
-                    }
-                } catch {
-                    // best-effort
-                }
-            }, 900);
-        };
-
         const onActive = (widget: { id: string | number } | null | undefined) => {
             if (settled || !widget) {
                 return;
             }
-            if (!String(widget.id).startsWith('geocache.details.widget')) {
+            if (!String(widget.id).startsWith(DETAILS_WIDGET_ID)) {
                 return;
             }
             cleanup();
             // Laisser le widget s'attacher/rendre avant de chercher.
-            setTimeout(triggerHighlight, 250);
+            setTimeout(() => this.triggerHighlight(query, options), 250);
         };
 
         const disposable = this.shell.onDidChangeActiveWidget((args: any) => onActive(args?.newValue));

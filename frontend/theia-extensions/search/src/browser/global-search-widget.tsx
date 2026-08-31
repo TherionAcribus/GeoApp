@@ -103,6 +103,7 @@ export class GlobalSearchWidget extends ReactWidget {
             onClear={() => this.globalSearchService.clearResults()}
             onRevealInWidget={(widgetId) => this.globalSearchService.revealInWidget(widgetId)}
             onOpenGeocache={(id) => this.globalSearchService.openGeocache(id)}
+            onOpenNote={(id, gcCode, name) => this.globalSearchService.openNote(id, gcCode, name)}
             onOpenPlugin={(name) => this.globalSearchService.openPlugin(name)}
             onOpenAlphabet={(id) => this.globalSearchService.openAlphabet(id)}
         />;
@@ -120,9 +121,10 @@ const GlobalSearchComponent: React.FC<{
     onClear: () => void;
     onRevealInWidget: (widgetId: string) => void;
     onOpenGeocache: (id: number) => void;
+    onOpenNote: (geocacheId: number, gcCode: string, name: string) => void;
     onOpenPlugin: (name: string) => void;
     onOpenAlphabet: (id: string) => void;
-}> = ({ state, onSearch, onUpdateOptions, onUpdateScope, onClear, onRevealInWidget, onOpenGeocache, onOpenPlugin, onOpenAlphabet }) => {
+}> = ({ state, onSearch, onUpdateOptions, onUpdateScope, onClear, onRevealInWidget, onOpenGeocache, onOpenNote, onOpenPlugin, onOpenAlphabet }) => {
 
     const inputRef = React.useRef<HTMLInputElement>(null);
     const [localQuery, setLocalQuery] = React.useState(state.query);
@@ -220,6 +222,8 @@ const GlobalSearchComponent: React.FC<{
                         <option value='open_tabs'>Onglets ouverts</option>
                         <option value='database'>Base de données</option>
                         <option value='geocaches'>Géocaches</option>
+                        <option value='logs'>Logs</option>
+                        <option value='notes'>Notes</option>
                         <option value='plugins'>Plugins</option>
                         <option value='alphabets'>Alphabets</option>
                     </select>
@@ -293,7 +297,7 @@ const GlobalSearchComponent: React.FC<{
                 {state.noteResults.length > 0 && (
                     <ResultSection title={sectionTitle('Notes', state.noteResults.length, state.counts.notes)} icon='codicon-note'>
                         {state.noteResults.map(r => (
-                            <NoteResultItem key={r.id} result={r} />
+                            <NoteResultItem key={r.id} result={r} onOpen={onOpenNote} />
                         ))}
                     </ResultSection>
                 )}
@@ -457,28 +461,41 @@ const LogResultItem: React.FC<{
 
 /**
  * Résultat d'une note (DB).
+ *
+ * Cliquer ouvre la géocache liée (détails + panneau Notes). Une note peut
+ * n'être liée à aucune géocache : il n'existe alors aucun panneau où l'ouvrir,
+ * l'élément reste donc non cliquable.
  */
 const NoteResultItem: React.FC<{
     result: NoteSearchResult;
-}> = ({ result }) => (
-    <div className='geoapp-gs-result-item'>
-        <div className='geoapp-gs-result-header'>
-            <span className='codicon codicon-note geoapp-gs-result-icon' />
-            <span className='geoapp-gs-result-title'>
-                Note ({result.note_type})
-                {result.linked_geocaches.length > 0 && (
-                    <span className='geoapp-gs-note-link'> — {result.linked_geocaches.map(g => g.gc_code).join(', ')}</span>
-                )}
-            </span>
-            <span className='geoapp-gs-result-badge'>{result.total_matches}</span>
-        </div>
-        {result.snippets.slice(0, 1).map((s, i) => (
-            <div key={i} className='geoapp-gs-result-snippet'>
-                <SnippetDisplay snippet={s} />
+    onOpen: (geocacheId: number, gcCode: string, name: string) => void;
+}> = ({ result, onOpen }) => {
+    const target = result.linked_geocaches[0];
+
+    return (
+        <div
+            className='geoapp-gs-result-item'
+            title={target ? `Ouvrir ${target.gc_code} et le panneau Notes` : undefined}
+            {...(target ? clickableProps(() => onOpen(target.id, target.gc_code, target.name)) : {})}
+        >
+            <div className='geoapp-gs-result-header'>
+                <span className='codicon codicon-note geoapp-gs-result-icon' />
+                <span className='geoapp-gs-result-title'>
+                    Note ({result.note_type})
+                    {result.linked_geocaches.length > 0 && (
+                        <span className='geoapp-gs-note-link'> — {result.linked_geocaches.map(g => g.gc_code).join(', ')}</span>
+                    )}
+                </span>
+                <span className='geoapp-gs-result-badge'>{result.total_matches}</span>
             </div>
-        ))}
-    </div>
-);
+            {result.snippets.slice(0, 1).map((s, i) => (
+                <div key={i} className='geoapp-gs-result-snippet'>
+                    <SnippetDisplay snippet={s} />
+                </div>
+            ))}
+        </div>
+    );
+};
 
 /**
  * Résultat d'un plugin (DB).
