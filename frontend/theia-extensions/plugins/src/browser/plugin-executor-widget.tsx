@@ -1303,7 +1303,22 @@ const PluginExecutorComponent: React.FC<{
                 );
 
                 if (!response.ok || !response.body) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    // Tenter de lire le body de la réponse d'erreur : le backend
+                    // peut renvoyer un JSON { "error": "..." } avec un message
+                    // explicite (ex. plugin introuvable, inputs invalides).
+                    let errorDetail = '';
+                    try {
+                        const errorBody = await response.text();
+                        try {
+                            const errorJson = JSON.parse(errorBody);
+                            errorDetail = errorJson.error || errorJson.message || errorBody;
+                        } catch {
+                            errorDetail = errorBody || response.statusText;
+                        }
+                    } catch {
+                        errorDetail = response.statusText;
+                    }
+                    throw new Error(`HTTP ${response.status}: ${errorDetail}`);
                 }
 
                 const reader = response.body.getReader();
@@ -1408,6 +1423,15 @@ const PluginExecutorComponent: React.FC<{
                                         finalResult = parsed;
                                         pendingEvents.push(sseEvent);
                                         flushBatchedEvents();
+                                    } else if (currentEventType === 'error') {
+                                        // Erreur fatale SSE (backend) : afficher dans
+                                        // la zone d'erreur principale + notification.
+                                        const errorReason = parsed?.error || parsed?.message || JSON.stringify(parsed);
+                                        console.error('[Metasolver SSE] Erreur backend:', errorReason);
+                                        pendingEvents.push(sseEvent);
+                                        flushBatchedEvents();
+                                        setState(prev => ({ ...prev, error: `Erreur streaming: ${errorReason}`, isStreaming: false }));
+                                        messageService.error(`Erreur streaming: ${errorReason}`);
                                     } else {
                                         pendingEvents.push(sseEvent);
                                         scheduleFlush();
@@ -1515,7 +1539,12 @@ const PluginExecutorComponent: React.FC<{
                 return;
             }
             console.error('Erreur lors de l\'exécution:', error);
-            const errorMsg = error.message || String(error);
+            // Distinguer les erreurs réseau (fetch échoué, backend injoignable)
+            // des erreurs métier pour guider l'utilisateur vers la bonne action.
+            let errorMsg = error.message || String(error);
+            if (error.name === 'TypeError' && errorMsg.includes('fetch')) {
+                errorMsg = 'Backend injoignable — vérifiez que le serveur est démarré.';
+            }
             setState(prev => ({ ...prev, error: errorMsg, isExecuting: false, isStreaming: false }));
             messageService.error(`Erreur lors de l'exécution: ${errorMsg}`);
         } finally {
@@ -2422,7 +2451,23 @@ const PluginExecutorComponent: React.FC<{
             {/* Affichage des erreurs */}
             {state.error && (
                 <div className='plugin-error'>
-                    <h4><StatusIcon status='error' /> Erreur</h4>
+                    <h4 style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span><StatusIcon status='error' /> Erreur</span>
+                        <button
+                            onClick={() => setState(prev => ({ ...prev, error: null }))}
+                            title='Fermer'
+                            style={{
+                                background: 'none',
+                                border: 'none',
+                                cursor: 'pointer',
+                                fontSize: '14px',
+                                opacity: 0.6,
+                                padding: '0 4px',
+                            }}
+                        >
+                            ✕
+                        </button>
+                    </h4>
                     <pre>{state.error}</pre>
                 </div>
             )}
