@@ -487,6 +487,13 @@
     color: var(--theia-descriptionForeground);
 }
 
+.geoapp-images-refresh-indicator {
+    margin-left: 6px;
+    font-size: 12px;
+    vertical-align: middle;
+    opacity: 0.7;
+}
+
 @media (max-width: 1180px) {
     .geoapp-images-body {
         grid-template-columns: minmax(200px, 280px) minmax(320px, 1fr);

@@ -466,7 +466,9 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     const selected = React.useMemo(() => visibleImages.find(i => i.id === selectedId) ?? null, [visibleImages, selectedId]);
 
     React.useEffect(() => {
-        if (selectedId === null) {
+        if (selectedId === null || isLoading) {
+            // Pendant un refresh, visibleImages reflète encore l'ancienne liste :
+            // ne pas désélectionner (la nouvelle image peut ne pas y figurer).
             return;
         }
         const stillVisible = visibleImages.some(img => img.id === selectedId);
@@ -474,7 +476,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             setSelectedId(null);
             setDetailsMode('hidden');
         }
-    }, [selectedId, visibleImages]);
+    }, [selectedId, visibleImages, isLoading]);
 
     React.useEffect(() => {
         if (selectedId === null || !gridRef.current) {
@@ -2090,9 +2092,14 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
         void applyDefaultStorageMode();
     }, [applyDefaultStorageMode, isLoading, isSaving]);
 
-    if (isLoading) {
+    // Spinner plein écran uniquement au premier chargement (aucune image à
+    // afficher). Pendant un refresh (upload, duplication, suppression...), on
+    // garde les images précédentes à l'écran pour éviter le flicker ; un
+    // indicateur subtil dans le header signale la mise à jour en cours.
+    if (isLoading && images.length === 0) {
         return <div className='geoapp-images-loading'>Chargement des images...</div>;
     }
+    const isRefreshing = isLoading && images.length > 0;
 
     const selectedImage = selected;
     const showDetails = Boolean(selectedImage);
@@ -2241,7 +2248,12 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
 
             <header className='geoapp-images-header'>
                 <div className='geoapp-images-title-block'>
-                    <div className='geoapp-images-title'>Galerie</div>
+                    <div className='geoapp-images-title'>
+                        Galerie
+                        {isRefreshing ? (
+                            <span className='codicon codicon-loading codicon-modifier-spin geoapp-images-refresh-indicator' title='Mise à jour…' aria-label='Mise à jour de la galerie en cours' />
+                        ) : undefined}
+                    </div>
                     <div className='geoapp-images-stats'>
                         <span>{images.length} image(s)</span>
                         <span>{derivedCount} dérivée(s)</span>
