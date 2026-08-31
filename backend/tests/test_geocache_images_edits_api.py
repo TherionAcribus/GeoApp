@@ -89,6 +89,11 @@ def _make_png_bytes() -> bytes:
     return b'\x89PNG\r\n\x1a\n' + b'0' * 64
 
 
+def _make_gif_bytes() -> bytes:
+    # GIF89a signature + minimal trailing bytes (passes signature sniffing)
+    return b'GIF89a' + b'0' * 64
+
+
 class TestGeocacheImageEditorState:
     def test_get_editor_state_returns_null_when_missing(self, client, seed_data):
         response = client.get(f"/api/geocache-images/{seed_data['original_image_id']}/editor-state")
@@ -372,3 +377,51 @@ class TestGeocacheImageEdits:
         assert response.status_code == 400
         payload = json.loads(response.data)
         assert payload['error'] == 'Unsupported mime type'
+
+
+class TestGeocacheImageUpload:
+    """Tests pour l'endpoint /api/geocaches/<id>/images/upload."""
+
+    def test_upload_gif_is_accepted(self, client, app, seed_data):
+        response = client.post(
+            f"/api/geocaches/{seed_data['geocache_id']}/images/upload",
+            data={
+                'image_file': (io.BytesIO(_make_gif_bytes()), 'anim.gif', 'image/gif'),
+            },
+            content_type='multipart/form-data',
+        )
+        assert response.status_code == 200
+        payload = json.loads(response.data)
+        assert payload['geocache_id'] == seed_data['geocache_id']
+        assert payload['source_url'].startswith('geoapp-upload://')
+        assert payload['stored'] is True
+
+        with app.app_context():
+            img = GeocacheImage.query.get(payload['id'])
+            assert img is not None
+            assert img.mime_type == 'image/gif'
+
+    def test_upload_gif_with_wrong_content_is_rejected(self, client, seed_data):
+        # Content-Type image/gif mais le contenu n'est pas un vrai GIF.
+        response = client.post(
+            f"/api/geocaches/{seed_data['geocache_id']}/images/upload",
+            data={
+                'image_file': (io.BytesIO(b'not a gif at all'), 'fake.gif', 'image/gif'),
+            },
+            content_type='multipart/form-data',
+        )
+        assert response.status_code == 400
+        payload = json.loads(response.data)
+        assert payload['error'] == 'Invalid GIF file'
+
+    def test_upload_png_still_works(self, client, seed_data):
+        response = client.post(
+            f"/api/geocaches/{seed_data['geocache_id']}/images/upload",
+            data={
+                'image_file': (io.BytesIO(_make_png_bytes()), 'photo.png', 'image/png'),
+            },
+            content_type='multipart/form-data',
+        )
+        assert response.status_code == 200
+        payload = json.loads(response.data)
+        assert payload['mime_type'] == 'image/png'

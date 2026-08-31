@@ -2259,7 +2259,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             <input
                 ref={uploadInputRef}
                 type='file'
-                accept='image/png,image/jpeg,image/webp'
+                accept='image/png,image/jpeg,image/webp,image/gif'
                 multiple
                 hidden
                 onChange={(e) => {

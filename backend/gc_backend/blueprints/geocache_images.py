@@ -34,6 +34,7 @@ _ALLOWED_RENDERED_MIME_TYPES = {
     'image/jpeg',
     'image/jpg',
     'image/webp',
+    'image/gif',
 }
 
 
@@ -239,12 +240,15 @@ def _get_uploaded_image_file():
     is_png = content.startswith(b'\x89PNG\r\n\x1a\n')
     is_jpeg = content.startswith(b'\xff\xd8')
     is_webp = content.startswith(b'RIFF') and len(content) > 12 and content[8:12] == b'WEBP'
+    is_gif = content.startswith(b'GIF87a') or content.startswith(b'GIF89a')
     if content_type == 'image/png' and not is_png:
         return None, jsonify({'error': 'Invalid PNG file'}), 400
     if content_type in {'image/jpeg', 'image/jpg'} and not is_jpeg:
         return None, jsonify({'error': 'Invalid JPEG file'}), 400
     if content_type == 'image/webp' and not is_webp:
         return None, jsonify({'error': 'Invalid WEBP file'}), 400
+    if content_type == 'image/gif' and not is_gif:
+        return None, jsonify({'error': 'Invalid GIF file'}), 400
 
     filename = secure_filename(uploaded.filename or '')
     return (content, content_type, filename), None, None
