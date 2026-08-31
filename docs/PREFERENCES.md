@@ -118,6 +118,13 @@ Une préférence permet de contrôler l'export des Notes GeoApp dans les fichier
   - `listing` : ajoute les Notes au listing (description longue).
   - `none` : n'exporte pas les Notes.
 
+La note personnelle Geocaching.com (`gc_personal_note`, synchronisée depuis GC.com) a sa propre préférence, indépendante des Notes GeoApp :
+
+- `geoApp.gpxExport.personalNoteMode` (string)
+  - `logs` (défaut) : exporte la note perso comme premier log Groundspeak (avant les Notes GeoApp et les logs GC.com), préfixée `[Note perso GC]`.
+  - `listing` : ajoute la note perso à la fin du listing (texte échappé, retours à la ligne convertis en `<br/>`).
+  - `none` : n'exporte pas la note perso.
+
 Deux préférences additionnelles contrôlent l'inclusion des logs Geocaching.com (si disponibles localement) :
 
 - `geoApp.gpxExport.includeGeocachingLogs` (bool, défaut `true`) : inclut les logs Geocaching.com dans `groundspeak:logs`.

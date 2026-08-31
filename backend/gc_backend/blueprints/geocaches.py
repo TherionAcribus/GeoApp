@@ -6,6 +6,7 @@ import zipfile
 import xml.etree.ElementTree as ET
 import xml.dom.minidom as minidom
 import json
+import html
 from datetime import datetime, timezone
 import re
 
@@ -234,6 +235,16 @@ def _sorted_notes(geocache: Geocache) -> list:
     )
 
 
+def _personal_note_text(geocache: Geocache) -> str:
+    """Note personnelle Geocaching.com de la géocache, nettoyée (ou chaîne vide)."""
+    return (getattr(geocache, 'gc_personal_note', None) or '').strip()
+
+
+def _personal_note_html(text: str) -> str:
+    """Note perso GC (texte brut GC.com) convertie en HTML sûr pour le listing."""
+    return html.escape(text).replace('\r\n', '\n').replace('\n', '<br/>')
+
+
 def _build_groundspeak_gpx_bytes(geocaches: list[Geocache]) -> bytes:
     gpx = ET.Element('gpx')
     gpx.set('xmlns:xsi', 'http://www.w3.org/2001/XMLSchema-instance')
@@ -269,6 +280,7 @@ def _build_groundspeak_gpx_bytes(geocaches: list[Geocache]) -> bytes:
     notes_mode = str(get_value_or_default('geoApp.gpxExport.notesMode', 'logs') or 'logs').strip().lower()
     include_gc_logs = bool(get_value_or_default('geoApp.gpxExport.includeGeocachingLogs', True))
     max_gc_logs = int(get_value_or_default('geoApp.gpxExport.maxGeocachingLogs', 5) or 0)
+    personal_note_mode = str(get_value_or_default('geoApp.gpxExport.personalNoteMode', 'logs') or 'logs').strip().lower()
 
     for geocache in geocaches:
         lat = geocache.latitude
@@ -360,14 +372,25 @@ def _build_groundspeak_gpx_bytes(geocaches: list[Geocache]) -> bytes:
             gs_terrain = ET.SubElement(gs_cache, 'groundspeak:terrain')
             gs_terrain.text = f"{float(terrain):.1f}"
 
+        personal_note = _personal_note_text(geocache)
+
         listing_html = geocache.description_html or geocache.description_raw or ''
+        # Blocs ajoutés en fin de listing (note perso GC d'abord, puis les Notes
+        # GeoApp), chacun selon sa propre préférence de position.
+        listing_blocks: list[str] = []
+        if personal_note_mode == 'listing' and personal_note:
+            listing_blocks.append(
+                f"<p><b>[Note perso GC]</b><br/>{_personal_note_html(personal_note)}</p>"
+            )
         if notes_mode == 'listing' and geocache.notes:
             sorted_notes = _sorted_notes(geocache)
             if sorted_notes:
-                notes_block = '\n'.join(
+                listing_blocks.append('\n'.join(
                     f"<p><b>[GeoApp Note - {getattr(n, 'note_type', 'note')}]</b><br/>{getattr(n, 'content', '')}</p>" for n in sorted_notes
-                )
-                listing_html = f"{listing_html}\n<hr/>\n{notes_block}"
+                ))
+        if listing_blocks:
+            blocks_html = '\n'.join(listing_blocks)
+            listing_html = f"{listing_html}\n<hr/>\n{blocks_html}"
 
         gs_short_desc = ET.SubElement(gs_cache, 'groundspeak:short_description')
         gs_short_desc.set('html', 'True')
@@ -391,11 +414,35 @@ def _build_groundspeak_gpx_bytes(geocaches: list[Geocache]) -> bytes:
 
         wants_note_logs = notes_mode == 'logs'
         has_notes = bool(geocache.notes)
+        wants_personal_log = personal_note_mode == 'logs' and bool(personal_note)
         wants_gc_logs = include_gc_logs and max_gc_logs > 0
         has_logs = bool(geocache.logs) and wants_gc_logs
 
-        if (wants_note_logs and has_notes) or has_logs:
+        if (wants_note_logs and has_notes) or wants_personal_log or has_logs:
             gs_logs = ET.SubElement(gs_cache, 'groundspeak:logs')
+
+            # La note perso GC est placée en premier log : c'est celui que GSAK,
+            # c:geo et les GPS affichent en tête de la fiche.
+            if wants_personal_log:
+                gs_log = ET.SubElement(gs_logs, 'groundspeak:log')
+                gs_log.set('id', str(2000000000 + int(getattr(geocache, 'id', 0) or 0)))
+
+                gs_log_date = ET.SubElement(gs_log, 'groundspeak:date')
+                gs_log_date.text = _as_gpx_time(
+                    getattr(geocache, 'gc_personal_note_synced_at', None)
+                    or getattr(geocache, 'gc_personal_note_last_pushed_at', None)
+                )
+
+                gs_log_type = ET.SubElement(gs_log, 'groundspeak:type')
+                gs_log_type.text = 'Write note'
+
+                gs_log_finder = ET.SubElement(gs_log, 'groundspeak:finder')
+                gs_log_finder.set('id', '0')
+                gs_log_finder.text = 'GeoApp'
+
+                gs_log_text = ET.SubElement(gs_log, 'groundspeak:text')
+                gs_log_text.set('encoded', 'False')
+                gs_log_text.text = f"[Note perso GC] {personal_note}"
 
             if wants_note_logs and has_notes:
                 sorted_notes = _sorted_notes(geocache)

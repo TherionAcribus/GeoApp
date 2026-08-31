@@ -3135,6 +3135,43 @@
         "notes"
       ]
     },
+    "geoApp.gpxExport.personalNoteMode": {
+      "type": "string",
+      "enum": [
+        "logs",
+        "listing",
+        "none"
+      ],
+      "default": "logs",
+      "title": "Export GPX de la note personnelle Geocaching.com",
+      "description": "Contrôle l'export de la note personnelle Geocaching.com dans le GPX (premier log Groundspeak, à la fin du listing, ou non exportée).",
+      "x-ui": {
+        "section": "GPX",
+        "label": "Position de la note perso GC",
+        "order": 105,
+        "enumLabels": {
+          "logs": "Dans les logs (en premier)",
+          "listing": "À la fin du listing",
+          "none": "Ne pas exporter"
+        },
+        "keywords": [
+          "export",
+          "gpx",
+          "note personnelle",
+          "geocaching.com"
+        ]
+      },
+      "x-category": "notes",
+      "x-targets": [
+        "frontend",
+        "backend"
+      ],
+      "x-tags": [
+        "gpx",
+        "export",
+        "notes"
+      ]
+    },
     "geoApp.gpxExport.includeGeocachingLogs": {
       "type": "boolean",
       "default": true,
