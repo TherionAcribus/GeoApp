@@ -132,6 +132,28 @@ Exemple :
 @EarthCoach quel est le contexte geologique de cette EarthCache ?
 ```
 
+### En France : le complement BRGM
+
+Macrostrat couvre le monde entier, mais reste grossier en dehors de l'Amerique du Nord. Pour une EarthCache en **France metropolitaine**, EarthCoach interroge en priorite les geoservices du **BRGM / InfoTerre**, qui lui donnent :
+
+- la **lithologie** et le type de roche dans le vocabulaire geologique francais ;
+- le **numero et le nom de la feuille de la carte geologique au 1/50 000** qui couvre le point, avec le **lien vers sa notice explicative** en PDF ;
+- sur demande, les **forages de la Banque du Sous-Sol** proches, dont le log donne la stratigraphie locale reelle.
+
+La carte harmonisee au 1/50 000 n'est pas interrogeable point par point : c'est sa **notice** qui contient le detail des formations. EarthCoach vous donne donc le lien plutot que d'inventer une reponse, et le dit clairement. Hors de France metropolitaine, il revient a Macrostrat.
+
+## Altitude et denivele
+
+Beaucoup de questions d'EarthCache portent sur une altitude ou une difference d'altitude : hauteur d'une cascade, denivele entre un point de vue et le fond de vallee, position dans un profil topographique.
+
+Demandez-le simplement dans le chat : EarthCoach utilise l'**IGN (RGE ALTI)** en France, precis au metre, et un modele mondial (**Copernicus DEM**, environ 90 m) ailleurs. Vous pouvez lui donner plusieurs points d'un coup : il renvoie chaque altitude **et** le denivele entre elles.
+
+```text
+@EarthCoach quel est le denivele entre les coordonnees de la cache et le waypoint du belvedere ?
+```
+
+EarthCoach annonce toujours la source et sa precision. C'est un **modele numerique de terrain**, pas une mesure : a confirmer au GPS ou a l'altimetre sur place.
+
 ## Calculs geologiques
 
 Beaucoup d'EarthCaches posent des questions chiffrees (hauteur, pente, distance, age, debit...). EarthCoach dispose d'un outil de calcul deterministe `earthcoach_calculate` : il applique une formule exacte aux mesures que vous fournissez, au lieu d'estimer le resultat de tete.
@@ -311,4 +333,4 @@ Le mode `resolver` peut aider a formuler une reponse candidate, mais il doit lai
 
 EarthCoach sait lire les observations structurees GeoApp avec type observation / hypothese / interpretation, date, waypoint, coordonnees et photos liees. Si aucune observation structuree n'existe encore, il utilise les notes utilisateur comme fallback textuel.
 
-Les sources BRGM, InfoTerre, GeoWiki et Planet-Terre sont exposees comme portails fiables. Une integration plus profonde, capable de retrouver automatiquement une notice de carte geologique precise depuis une position ou un numero de carte, reste prevue pour une version ulterieure.
+Les sources BRGM, InfoTerre, GeoWiki et Planet-Terre sont exposees comme portails fiables. EarthCoach sait desormais retrouver automatiquement la feuille de carte geologique 1/50 000 et le lien de sa notice a partir des coordonnees, mais il ne lit pas encore le contenu de cette notice : la lithologie qu'il annonce reste au 1/1 000 000.

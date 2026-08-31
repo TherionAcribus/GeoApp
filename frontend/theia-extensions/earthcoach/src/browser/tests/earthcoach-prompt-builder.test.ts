@@ -21,7 +21,9 @@ import { EarthCoachLoggingTaskTools } from '../earthcoach-logging-task-tools';
 import { EarthCoachGeoCalculatorTools } from '../earthcoach-geo-calculator-tools';
 import { runEarthCoachCalculation } from '../earthcoach-geo-calculator';
 import { EarthCoachGeologyTools } from '../earthcoach-geology-tools';
-import { formatGeologySummary } from '../earthcoach-geology';
+import { formatFrenchGeologySummary, formatGeologySummary } from '../earthcoach-geology';
+import { EarthCoachElevationTools, readElevationPoints } from '../earthcoach-elevation-tools';
+import { formatElevationSummary } from '../earthcoach-elevation';
 import { EarthCoachModeTools } from '../earthcoach-mode-tools';
 import {
     applyEarthCoachModeToSettings,
@@ -739,10 +741,78 @@ function testGeoCalculationErrors(): void {
 
 function testGeologyToolShape(): void {
     const tools = new EarthCoachGeologyTools().buildAllTools();
-    assert.equal(tools.length, 1);
+    assert.equal(tools.length, 2);
     assert.equal(tools[0].id, EarthCoachGeologyTools.GEOLOGY_TOOL_ID);
     assert.equal(tools[0].name, 'earthcoach_geology_at_point');
     assert.match(tools[0].description, /Macrostrat/);
+    assert.equal(tools[1].id, EarthCoachGeologyTools.FRENCH_GEOLOGY_TOOL_ID);
+    assert.equal(tools[1].name, 'earthcoach_geology_france');
+    assert.match(tools[1].description, /BRGM/);
+    assert.match(tools[1].description, /1\/50 000/);
+}
+
+function testFrenchGeologyToolSummary(): void {
+    const summary = formatFrenchGeologySummary({
+        lat: 45.7722,
+        lon: 2.9644,
+        source: 'brgm',
+        attribution: 'BRGM',
+        covered: true,
+        lithology: { description: 'Basaltes et rhyolites', rock_type: 'Roches Magmatiques', scale: '1/1 000 000' },
+        sheet: { number: '693', name: 'CLERMONT-FERRAND', scale: '1/50 000', notice_url: 'http://ficheinfoterre.brgm.fr/Notices/0693N.pdf' },
+        boreholes: [{ bss_id: 'BSS001SVMG', label: 'BSS001SVMG (06935X4002/GT)', commune: 'ORCINES' }],
+    });
+    assert.match(summary, /Lithologie BRGM \(1\/1 000 000\): Basaltes et rhyolites - Roches Magmatiques/);
+    assert.match(summary, /Carte geologique 1\/50 000 n 693 CLERMONT-FERRAND/);
+    assert.match(summary, /Notices\/0693N\.pdf/);
+    assert.match(summary, /Forage BSS proche: BSS001SVMG \(06935X4002\/GT\) \(ORCINES\)/);
+
+    // Hors France: l'agent doit etre renvoye vers Macrostrat, pas vers un trou noir.
+    const outside = formatFrenchGeologySummary({
+        lat: 41.9, lon: 12.5, source: 'brgm', attribution: 'BRGM', covered: false, boreholes: [],
+    });
+    assert.match(outside, /Macrostrat/);
+}
+
+function testElevationToolShape(): void {
+    const tools = new EarthCoachElevationTools().buildAllTools();
+    assert.equal(tools.length, 1);
+    assert.equal(tools[0].id, EarthCoachElevationTools.ELEVATION_TOOL_ID);
+    assert.equal(tools[0].name, 'earthcoach_elevation_at_point');
+    assert.match(tools[0].description, /denivele/);
+}
+
+function testReadElevationPoints(): void {
+    assert.deepEqual(readElevationPoints({ lat: 45.78, lon: 4.87 }), [{ lat: 45.78, lon: 4.87 }]);
+    // Le LLM passe souvent des nombres en chaine.
+    assert.deepEqual(readElevationPoints({ lat: '45.78', lon: '4.87' }), [{ lat: 45.78, lon: 4.87 }]);
+    assert.deepEqual(
+        readElevationPoints({ points: [{ lat: 1, lon: 2 }, { lat: 3, lon: 4 }] }),
+        [{ lat: 1, lon: 2 }, { lat: 3, lon: 4 }]
+    );
+    assert.equal(readElevationPoints({ lat: 45.78 }), undefined);
+    assert.equal(readElevationPoints({ points: [] }), undefined);
+    assert.equal(readElevationPoints({ points: Array.from({ length: 11 }, () => ({ lat: 1, lon: 2 })) }), undefined);
+}
+
+function testFormatElevationSummary(): void {
+    const summary = formatElevationSummary({
+        points: [
+            { lat: 45.7722, lon: 2.9644, elevation_m: 1454.41, source: 'ign_rge_alti' },
+            { lat: 41.9028, lon: 12.4964, elevation_m: 58, source: 'open-meteo' },
+        ],
+        attribution: 'IGN / Open-Meteo',
+        difference_m: 1396.41,
+    });
+    assert.match(summary, /Point 1 \(45.7722, 2.9644\): 1454.41 m \[IGN RGE ALTI\]/);
+    assert.match(summary, /Point 2 \(41.9028, 12.4964\): 58 m \[Copernicus DEM \(~90 m\)\]/);
+    assert.match(summary, /Denivele entre les points: 1396.41 m/);
+
+    const missing = formatElevationSummary({
+        points: [{ lat: 0, lon: 0, elevation_m: null, source: null }],
+        attribution: '',
+    });
+    assert.match(missing, /altitude indisponible/);
 }
 
 function testFormatGeologySummary(): void {
@@ -773,6 +843,8 @@ function testGeologyActionInstruction(): void {
         images: [],
     });
     assert.match(prompt, /earthcoach_geology_at_point/);
+    assert.match(prompt, /earthcoach_geology_france/);
+    assert.match(prompt, /earthcoach_elevation_at_point/);
     assert.match(prompt, /Coordonnees decimales: 45.78, 4.87/);
 }
 
@@ -1002,6 +1074,10 @@ async function run(): Promise<void> {
     testGeoCalculationErrors();
     testGeologyToolShape();
     testFormatGeologySummary();
+    testFrenchGeologyToolSummary();
+    testElevationToolShape();
+    testReadElevationPoints();
+    testFormatElevationSummary();
     testGeologyActionInstruction();
     testModeToolShape();
     testNormalizeEarthCoachMode();

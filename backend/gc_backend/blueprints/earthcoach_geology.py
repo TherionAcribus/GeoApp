@@ -9,10 +9,11 @@ reponse et mettre en cache les appels repetes pendant une session.
 from __future__ import annotations
 
 import logging
-import time
 
 import requests
 from flask import Blueprint, jsonify, request
+
+from .earthcoach_geo_common import TTLCache, parse_coord
 
 bp = Blueprint('earthcoach_geology', __name__)
 logger = logging.getLogger(__name__)
@@ -21,26 +22,11 @@ MACROSTRAT_URL = 'https://macrostrat.org/api/v2/geologic_units/map'
 ATTRIBUTION = 'Donnees geologiques: Macrostrat (macrostrat.org, CC-BY 4.0)'
 REQUEST_TIMEOUT = 15
 CACHE_TTL_SECONDS = 24 * 60 * 60
-# Plafond du cache: chaque coordonnee arrondie unique ajoute une entree a vie du
-# process. On borne comme WebSearchService (purge grossiere au-dela de la limite)
-# pour eviter une croissance illimitee sur un serveur longue duree.
 CACHE_MAX_ENTRIES = 500
 _USER_AGENT = 'GeoApp-EarthCoach/1.0 (geological context lookup)'
 
-# Cache memoire simple: cle = "lat,lon" arrondis, valeur = (timestamp, payload).
-_cache: dict[str, tuple[float, dict]] = {}
-
-
-def _parse_coord(value: object, name: str, low: float, high: float) -> float:
-    if value is None or value == '':
-        raise ValueError(f'{name} is required')
-    try:
-        parsed = float(value)
-    except (TypeError, ValueError):
-        raise ValueError(f'{name} must be a number') from None
-    if not low <= parsed <= high:
-        raise ValueError(f'{name} must be between {low} and {high}')
-    return parsed
+# Cache memoire: cle = "lat,lon" arrondis.
+_cache = TTLCache(CACHE_TTL_SECONDS, CACHE_MAX_ENTRIES)
 
 
 def _first(unit: dict, *keys: str) -> object:
@@ -101,17 +87,15 @@ def _fetch_macrostrat(lat: float, lon: float) -> list[dict]:
 @bp.get('/api/earthcoach/geology')
 def geology_at_point():
     try:
-        lat = _parse_coord(request.args.get('lat'), 'lat', -90, 90)
-        lon = _parse_coord(request.args.get('lon') or request.args.get('lng'), 'lon', -180, 180)
+        lat = parse_coord(request.args.get('lat'), 'lat', -90, 90)
+        lon = parse_coord(request.args.get('lon') or request.args.get('lng'), 'lon', -180, 180)
     except ValueError as error:
         return jsonify({'error': str(error)}), 400
 
     cache_key = f'{round(lat, 4)},{round(lon, 4)}'
     cached = _cache.get(cache_key)
-    if cached and (time.time() - cached[0]) < CACHE_TTL_SECONDS:
-        result = dict(cached[1])
-        result['from_cache'] = True
-        return jsonify(result)
+    if cached:
+        return jsonify({**cached, 'from_cache': True})
 
     try:
         units = _fetch_macrostrat(lat, lon)
@@ -130,7 +114,5 @@ def geology_at_point():
         'units': units,
         'from_cache': False,
     }
-    if len(_cache) >= CACHE_MAX_ENTRIES:
-        _cache.clear()
-    _cache[cache_key] = (time.time(), result)
+    _cache.set(cache_key, result)
     return jsonify(result)

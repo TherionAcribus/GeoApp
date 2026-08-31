@@ -46,7 +46,10 @@ Fichiers principaux :
 | `earthcoach-geo-calculator-tools.ts` | Tool `earthcoach_calculate` exposant les calculs deterministes a l'agent. |
 | `earthcoach-geology.ts` | Types du contexte geologique et resume pur `formatGeologySummary`. |
 | `earthcoach-geology-service.ts` | Client frontend du proxy geologique (`/api/earthcoach/geology`). |
-| `earthcoach-geology-tools.ts` | Tool `earthcoach_geology_at_point` (contexte geologique par coordonnees). |
+| `earthcoach-geology-tools.ts` | Tools `earthcoach_geology_at_point` (Macrostrat, mondial) et `earthcoach_geology_france` (BRGM/InfoTerre). |
+| `earthcoach-elevation.ts` | Types altitude et resume pur `formatElevationSummary`. |
+| `earthcoach-elevation-service.ts` | Client frontend du proxy altimetrie (`/api/earthcoach/elevation`). |
+| `earthcoach-elevation-tools.ts` | Tool `earthcoach_elevation_at_point` (altitude et denivele). |
 | `earthcoach-mode.ts` | Helpers purs du mode: normalisation, lecture et mise a jour des settings de session. |
 | `earthcoach-mode-tools.ts` | Tool `earthcoach_set_mode` (bascule coach <-> resolver de la session active). |
 | `earthcoach-reference-tools.ts` | Tool `earthcoach_search_reference`, recherches Wikipedia/Wikimedia, cache local. |
@@ -384,6 +387,37 @@ Architecture :
 
 Le prompt systeme rappelle que ces donnees viennent d'une carte geologique generale : ce n'est jamais une observation de terrain, et le resultat doit etre confirme sur place. Attribution : Macrostrat (CC-BY 4.0).
 
+### Complement BRGM / InfoTerre pour la France
+
+Macrostrat reste grossier hors Amerique du Nord. Pour une EarthCache en France metropolitaine, le tool `earthcoach_geology_france` interroge les geoservices OGC du BRGM (`earthcoach_geology_fr.py`, route `GET /api/earthcoach/geology/fr?lat=&lon=&boreholes=`) par WMS `GetFeatureInfo` :
+
+| Couche WMS | Apport |
+|---|---|
+| `LITHO_1M_SIMPLIFIEE` | Lithologie et type de roche en vocabulaire geologique francais (`DESCR`, `TYPE`), echelle 1/1 000 000. |
+| `SCAN_F_GEOL50_CATALOG` | Numero et nom de la feuille de la carte geologique 1/50 000, donc lien direct vers la notice explicative PDF. |
+| `BSS_TOTAL_SANS_LABEL` | Optionnel (`boreholes=1`) : forages de la Banque du Sous-Sol proches, dont le log donne la stratigraphie locale reelle. |
+
+Points d'implementation :
+
+- **La carte harmonisee 1/50 000 vecteur (BD Charm-50) n'est pas interrogeable** : ses couches WMS (`GEOL50_HARM` sur `mapsref.brgm.fr`, `SCAN_D_GEOL50` sur `geoservices.brgm.fr`) repondent `LayerNotQueryable`, et le WFS n'expose que les perimetres. On ne peut donc pas recuperer le polygone de formation au 1/50 000 : le tool renvoie a la place la feuille et sa notice, qui est la vraie source utile pour repondre a une question d'EarthCache. Le champ `note` de la reponse le dit explicitement a l'agent.
+- MapServer n'offre pas de sortie JSON sur ce service : on interroge en `info_format=text/plain` et on parse les lignes `CLE = 'valeur'` (le GML imposerait un parsing XML avec des namespaces variables selon la couche).
+- `LITHO_1M_SIMPLIFIEE` porte une contrainte d'echelle serveur : sous une bbox d'environ 0,02 deg de demi-largeur elle ne repond plus (`Search returned no results`). D'ou deux demi-largeurs distinctes : 0,02 pour la lithologie, 0,005 pour les couches 1/50 000.
+- Hors de l'emprise France metropolitaine (`FRANCE_BBOX`), la route repond **200 avec `covered: false`**, sans appel reseau : l'agent doit pouvoir enchainer sur Macrostrat plutot que traiter une erreur.
+- La notice est publiee sous `http://ficheinfoterre.brgm.fr/Notices/{numero sur 4 chiffres}N.pdf`. Ce host ne repond qu'en HTTP : c'est un lien affiche a l'utilisateur, jamais telecharge par le backend.
+
+Attribution : BRGM / InfoTerre (geoservices.brgm.fr).
+
+## Altitude et denivele
+
+Beaucoup de questions d'EarthCache portent sur une altitude ou un denivele (sommet et point de vue, haut et bas d'une cascade, terrasses alluviales). Le tool `earthcoach_elevation_at_point` accepte soit `{lat, lon}`, soit `{points: [{lat, lon}, ...]}` (10 points au maximum) et renvoie alors `min_m`, `max_m` et `difference_m`.
+
+Le proxy `earthcoach_elevation.py` (`GET /api/earthcoach/elevation?lat=&lon=` ou `?points=lat,lon|lat,lon`) combine deux sources sans cle :
+
+- **IGN / Geoplateforme** (`RGE ALTI`) d'abord : precision metrique, mais renvoie la sentinelle `-99999` hors couverture ;
+- **Open-Meteo elevation** (Copernicus DEM ~90 m) en repli mondial, appele uniquement sur les points que l'IGN n'a pas resolus.
+
+Chaque point garde la trace de la source qui l'a resolu (`ign_rge_alti` ou `open-meteo`), pour que l'agent annonce la precision reelle. Si l'IGN est injoignable, tous les points basculent sur le repli ; si les deux services echouent, la route renvoie 502, mais un echec du seul repli conserve les points deja resolus par l'IGN. Le prompt systeme demande d'annoncer la source et de rappeler qu'un modele numerique de terrain se confirme au GPS ou a l'altimetre sur place.
+
 ## Integration avec `zones`
 
 `zones` ne depend pas d'EarthCoach directement. Il expose un point d'extension generique pour les actions d'en-tete de fiche geocache :
@@ -647,7 +681,17 @@ Ils verifient notamment :
 - respect des preferences references ;
 - cache local des references ;
 - ajout des portails BRGM, InfoTerre, GeoWiki et Planet-Terre ;
+- forme des tools `earthcoach_geology_france` et `earthcoach_elevation_at_point` ;
+- resumes purs BRGM (lithologie, feuille, notice) et altitude (denivele, source par point) ;
 - sauvegarde d'une note EarthCoach avec `source: earthcoach`.
+
+Tests backend des proxies geo :
+
+```bash
+python -m pytest backend/tests/test_earthcoach_geology_api.py backend/tests/test_earthcoach_geology_fr_api.py backend/tests/test_earthcoach_elevation_api.py
+```
+
+Ils couvrent le parsing `GetFeatureInfo` de MapServer, la normalisation du numero de feuille, le hors-couverture France, le repli IGN vers Open-Meteo et les caches.
 
 Builds utiles :
 
@@ -661,11 +705,15 @@ yarn --cwd frontend/theia-extensions/zones build
 ## Limites actuelles
 
 - Les sources BRGM, InfoTerre, GeoWiki et Planet-Terre sont exposees comme portails fiables, sans extraction automatique de notices precises.
+- La geologie francaise par point reste au 1/1 000 000 : la carte harmonisee 1/50 000 vecteur n'est pas interrogeable par WMS, seule sa notice est atteignable.
+- Le complement BRGM ne couvre que la France metropolitaine ; l'outre-mer retombe sur Macrostrat.
 - Le cache references est en memoire, non persistant.
 
 ## Evolutions prevues
 
 - Synchronisation optionnelle entre anciennes notes terrain et observations structurees.
 - Recherche avancee de notice de carte geologique a partir d'une position, d'un numero de carte ou d'un nom de commune.
+- Extraction du texte de la notice 1/50 000 (PDF) pour repondre au niveau de detail de la formation.
+- Profil altimetrique le long d'un trace, en plus du denivele entre points isoles.
 - Providers dedies pour extraire et normaliser plus finement les resultats BRGM/InfoTerre/Planet-Terre quand une API stable est disponible.
 - Tests plus fins sur l'exposition effective des tools dans les sessions Theia.

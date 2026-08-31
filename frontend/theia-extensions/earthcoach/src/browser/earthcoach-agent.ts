@@ -22,6 +22,7 @@ import { EarthCoachReferenceTools } from './earthcoach-reference-tools';
 import { EarthCoachLoggingTaskTools } from './earthcoach-logging-task-tools';
 import { EarthCoachGeoCalculatorTools } from './earthcoach-geo-calculator-tools';
 import { EarthCoachGeologyTools } from './earthcoach-geology-tools';
+import { EarthCoachElevationTools } from './earthcoach-elevation-tools';
 import { EarthCoachModeTools } from './earthcoach-mode-tools';
 import { readEarthCoachModeFromSettings } from './earthcoach-mode';
 
@@ -61,6 +62,9 @@ export class EarthCoachAgent extends AbstractStreamParsingChatAgent {
     @inject(EarthCoachGeologyTools)
     protected readonly geologyTools!: EarthCoachGeologyTools;
 
+    @inject(EarthCoachElevationTools)
+    protected readonly elevationTools!: EarthCoachElevationTools;
+
     @inject(EarthCoachModeTools)
     protected readonly modeTools!: EarthCoachModeTools;
 
@@ -78,6 +82,7 @@ export class EarthCoachAgent extends AbstractStreamParsingChatAgent {
             ...this.loggingTaskTools.buildAllTools(),
             ...this.geoCalculatorTools.buildAllTools(),
             ...this.geologyTools.buildAllTools(),
+            ...this.elevationTools.buildAllTools(),
             ...this.modeTools.buildAllTools(),
         ];
         const earthCoachToolIds = new Set(earthCoachTools.map(tool => tool.id));

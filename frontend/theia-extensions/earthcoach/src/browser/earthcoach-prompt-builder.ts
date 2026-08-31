@@ -579,7 +579,7 @@ function buildActionInstruction(action: EarthCoachQuickAction, mode: EarthCoachM
         return 'Action demandee: expliquer un mot. Demande le terme a expliquer si aucun terme precis n est fourni, puis explique-le simplement dans le contexte EarthCache.';
     }
     if (action === 'geology_context') {
-        return 'Action demandee: situer le contexte geologique. Appelle le tool earthcoach_geology_at_point avec les coordonnees decimales de la cache, puis resume lithologie, age et formation. Rappelle que c est une carte generale a confirmer sur le terrain.';
+        return 'Action demandee: situer le contexte geologique. Appelle earthcoach_geology_france si la cache est en France metropolitaine, sinon earthcoach_geology_at_point, avec les coordonnees decimales de la cache, puis resume lithologie, age et formation. Ajoute l altitude via earthcoach_elevation_at_point si elle eclaire le site. Cite la notice 1/50 000 quand le tool la fournit, et rappelle que c est une carte generale a confirmer sur le terrain.';
     }
     if (action === 'illustrate_term') {
         return 'Action demandee: illustrer un terme geologique. Utilise des references externes educational_reference si disponibles, puis precise que les images sont generiques.';
