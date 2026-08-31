@@ -283,6 +283,41 @@
     box-shadow: none;
 }
 
+.geoapp-gc-action-btn:disabled {
+    cursor: default;
+    opacity: 0.75;
+}
+
+.geoapp-gc-action-btn:disabled:hover {
+    background: var(--theia-button-secondaryBackground);
+    transform: none;
+    box-shadow: none;
+}
+
+/* Anneau tournant affiché à la place de l'icône pendant une action longue
+   (export GPX), pour que le bouton porte lui-même l'état « en cours ». */
+.geoapp-gc-action-btn__spinner {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    opacity: 0.85;
+    animation: geoapp-gc-action-btn-spin 700ms linear infinite;
+}
+
+@keyframes geoapp-gc-action-btn-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .geoapp-gc-action-btn__spinner {
+        animation-duration: 2s;
+    }
+}
+
 .geoapp-gc-action-btn__icon {
     font-size: 1.05em;
     line-height: 1;

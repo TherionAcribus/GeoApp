@@ -68,6 +68,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     protected showBookmarkListDialog = false;
     protected showPocketQueryDialog = false;
     protected isImporting = false;
+    /** Vrai pendant la génération puis le téléchargement d'un export GPX. */
+    protected exportingGpx = false;
     protected importAbortController?: AbortController;
     protected copySelectedDialog: { geocacheIds: number[] } | null = null;
     protected moveSelectedDialog: { geocacheIds: number[] } | null = null;
@@ -515,22 +517,45 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     }
 
     protected async handleExportGpxSelected(geocacheIds: number[]): Promise<void> {
+        if (!geocacheIds || geocacheIds.length === 0) {
+            this.messages.warn('Aucune géocache sélectionnée');
+            return;
+        }
+        if (this.exportingGpx) {
+            // Un export est déjà en cours : on ignore le clic plutôt que de
+            // lancer une seconde génération concurrente.
+            return;
+        }
+
+        const count = geocacheIds.length;
+        const plural = count > 1 ? 's' : '';
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const safeZoneName = (this.zoneName || '')
+            .replace(/[^A-Za-z0-9._-]+/g, '_')
+            .replace(/^[_\-.]+|[_\-.]+$/g, '');
+        const zoneSuffix = safeZoneName ? `_${safeZoneName}` : '';
+        const filename = `geoapp${zoneSuffix}_geocaches_${timestamp}.gpx`;
+
+        // La génération côté serveur peut durer plusieurs secondes sur une
+        // grosse sélection : on affiche une notification de progression
+        // annulable, en plus de l'état « en cours » du bouton de la barre
+        // d'actions.
+        const abortController = new AbortController();
+        // showProgress est sur MessageService, pas sur ProgressService
+        const progress = await this.messages.showProgress(
+            {
+                text: `Export GPX de ${count} géocache${plural}`,
+                options: { cancelable: true, location: 'notification' }
+            },
+            () => abortController.abort()
+        );
+        progress.report({ message: 'Génération du fichier sur le serveur…' });
+
+        this.exportingGpx = true;
+        this.update();
+
         try {
-            if (!geocacheIds || geocacheIds.length === 0) {
-                this.messages.warn('Aucune géocache sélectionnée');
-                return;
-            }
-
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-            const safeZoneName = (this.zoneName || '')
-                .replace(/[^A-Za-z0-9._-]+/g, '_')
-                .replace(/^[_\-.]+|[_\-.]+$/g, '');
-            const zoneSuffix = safeZoneName ? `_${safeZoneName}` : '';
-            const filename = `geoapp${zoneSuffix}_geocaches_${timestamp}.gpx`;
-
-            this.messages.info(`Export GPX en cours (${geocacheIds.length} géocache${geocacheIds.length > 1 ? 's' : ''})…`);
-
-            const res = await this.geocachesService.exportGpx(geocacheIds, filename);
+            const res = await this.geocachesService.exportGpx(geocacheIds, filename, abortController.signal);
 
             // Parsing du Content-Disposition : on privilégie la forme
             // ``filename*=UTF-8''<name>`` (RFC 5987) à la forme legacy
@@ -544,6 +569,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             const contentType = res.headers.get('Content-Type') || '';
             const isZip = contentType.includes('application/zip') || downloadName.toLowerCase().endsWith('.zip');
 
+            progress.report({ message: `Réception de ${downloadName}…` });
+
             const blob = await res.blob();
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -556,12 +583,20 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
 
             this.messages.info(
                 isZip
-                    ? `Export GPX généré : archive ZIP (${geocacheIds.length} géocache${geocacheIds.length > 1 ? 's' : ''}, fichier GPX + waypoints)`
-                    : `Export GPX généré (${geocacheIds.length} géocache${geocacheIds.length > 1 ? 's' : ''})`
+                    ? `Export GPX généré : archive ZIP (${count} géocache${plural}, fichier GPX + waypoints)`
+                    : `Export GPX généré (${count} géocache${plural})`
             );
         } catch (e) {
-            console.error('Export GPX error', e);
-            this.messages.error('Erreur lors de l\'export GPX');
+            if ((e as Error)?.name === 'AbortError') {
+                this.messages.warn('Export GPX annulé');
+            } else {
+                console.error('Export GPX error', e);
+                this.messages.error(getErrorMessage(e, 'Erreur lors de l\'export GPX'));
+            }
+        } finally {
+            progress.cancel();
+            this.exportingGpx = false;
+            this.update();
         }
     }
 
@@ -1744,6 +1779,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 tableVisibleColumnIds={this.tableVisibleColumnIds}
                 loading={this.loading}
                 isImporting={this.isImporting}
+                exportingGpx={this.exportingGpx}
                 showImportDialog={this.showImportDialog}
                 showBookmarkListDialog={this.showBookmarkListDialog}
                 showPocketQueryDialog={this.showPocketQueryDialog}

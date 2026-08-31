@@ -80,6 +80,8 @@ interface GeocachesTableProps {
     onMoveSelected?: (ids: number[]) => void;
     onApplyPluginSelected?: (ids: number[]) => void;
     onExportGpxSelected?: (ids: number[]) => void;
+    /** Vrai pendant la génération/le téléchargement de l'export GPX. */
+    exportingGpx?: boolean;
     onDelete?: (geocache: Geocache) => void;
     onRefresh?: (id: number) => void;
     onMove?: (geocache: Geocache, targetZoneId: number) => void;
@@ -388,6 +390,7 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
     onMoveSelected,
     onApplyPluginSelected,
     onExportGpxSelected,
+    exportingGpx = false,
     onDelete,
     onRefresh,
     onMove,
@@ -1250,10 +1253,18 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                                 <button
                                     onClick={() => onExportGpxSelected(selectedIds)}
                                     className="geoapp-gc-action-btn"
-                                    title="Exporter les géocaches sélectionnées au format GPX"
+                                    disabled={exportingGpx}
+                                    aria-busy={exportingGpx}
+                                    title={exportingGpx
+                                        ? 'Génération du fichier GPX en cours…'
+                                        : 'Exporter les géocaches sélectionnées au format GPX'}
                                 >
-                                    <span className="geoapp-gc-action-btn__icon" aria-hidden="true">⬇️</span>
-                                    Exporter GPX
+                                    {exportingGpx ? (
+                                        <span className="geoapp-gc-action-btn__spinner" aria-hidden="true" />
+                                    ) : (
+                                        <span className="geoapp-gc-action-btn__icon" aria-hidden="true">⬇️</span>
+                                    )}
+                                    {exportingGpx ? 'Export en cours…' : 'Exporter GPX'}
                                 </button>
                             )}
                             {onRefreshSelected && (

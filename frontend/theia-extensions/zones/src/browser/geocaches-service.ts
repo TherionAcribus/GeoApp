@@ -29,10 +29,10 @@ export class GeocachesService {
         @inject(BackendApiClient) protected readonly apiClient: BackendApiClient
     ) {}
 
-    async exportGpx(geocacheIds: number[], filename: string): Promise<Response> {
+    async exportGpx(geocacheIds: number[], filename: string, signal?: AbortSignal): Promise<Response> {
         return this.apiClient.requestResponse(
             '/api/geocaches/export-gpx',
-            this.apiClient.createJsonInit('POST', { geocache_ids: geocacheIds, filename }),
+            this.apiClient.createJsonInit('POST', { geocache_ids: geocacheIds, filename }, { signal }),
             'Erreur lors de l\'export GPX'
         );
     }

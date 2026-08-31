@@ -37,6 +37,8 @@ export interface ZoneGeocachesViewProps {
     onMoveSelected: (ids: number[]) => void | Promise<void>;
     onApplyPluginSelected: (ids: number[]) => void | Promise<void>;
     onExportGpxSelected: (ids: number[]) => void | Promise<void>;
+    /** Un export GPX est en cours : le bouton de la barre d'actions passe en attente. */
+    exportingGpx?: boolean;
     onDelete: (geocache: Geocache) => void | Promise<void>;
     onRefresh: (id: number) => void | Promise<void>;
     onMove: (geocache: Geocache, targetZoneId: number) => void | Promise<void>;
@@ -176,6 +178,7 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
                 onMoveSelected={props.onMoveSelected}
                 onApplyPluginSelected={props.onApplyPluginSelected}
                 onExportGpxSelected={props.onExportGpxSelected}
+                exportingGpx={props.exportingGpx}
                 onDelete={geocache => props.onDelete(geocache)}
                 onRefresh={props.onRefresh}
                 onMove={props.onMove}
