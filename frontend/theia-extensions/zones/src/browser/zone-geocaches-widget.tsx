@@ -569,7 +569,11 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             const contentType = res.headers.get('Content-Type') || '';
             const isZip = contentType.includes('application/zip') || downloadName.toLowerCase().endsWith('.zip');
 
-            progress.report({ message: `Réception de ${downloadName}…` });
+            progress.report({
+                message: isZip
+                    ? `Réception de l'archive ZIP ${downloadName}…`
+                    : `Réception de ${downloadName}…`
+            });
 
             const blob = await res.blob();
             const url = window.URL.createObjectURL(blob);
@@ -581,10 +585,15 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             a.remove();
             window.URL.revokeObjectURL(url);
 
+            // Le ZIP surprend l'utilisateur qui a demandé « un GPX » : le backend
+            // n'y bascule que si la sélection a des waypoints additionnels, et il
+            // y met alors exactement 2 fichiers (les caches + leurs waypoints).
+            // On nomme donc explicitement le fichier obtenu et son contenu.
             this.messages.info(
                 isZip
-                    ? `Export GPX généré : archive ZIP (${count} géocache${plural}, fichier GPX + waypoints)`
-                    : `Export GPX généré (${count} géocache${plural})`
+                    ? `Export GPX terminé : ${downloadName} — archive ZIP de 2 fichiers `
+                        + `(${count} géocache${plural} + leurs waypoints additionnels), à décompresser avant import`
+                    : `Export GPX terminé : ${downloadName} (${count} géocache${plural})`
             );
         } catch (e) {
             if ((e as Error)?.name === 'AbortError') {
