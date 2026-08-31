@@ -1,4 +1,6 @@
 import sys
+import threading
+import time
 from pathlib import Path
 
 
@@ -34,6 +36,21 @@ class _FakeManager:
             "summary": "ok",
             "results": [{"text_output": f"{name}_out", "confidence": 0.5}],
         }
+
+
+class _HangingManager(_FakeManager):
+    """PluginManager dont un plugin pend indéfiniment (simule un sub-plugin bloqué)."""
+
+    def __init__(self, names, hanging_name, hang_seconds=30):
+        super().__init__(names)
+        self._hanging_name = hanging_name
+        self._hang_seconds = hang_seconds
+
+    def execute_plugin(self, name, inputs):
+        if name == self._hanging_name:
+            time.sleep(self._hang_seconds)
+            return {"status": "ok", "results": []}
+        return super().execute_plugin(name, inputs)
 
 
 def _collect_events(names):
@@ -136,3 +153,70 @@ def test_direct_fallback_caps_timeout(tmp_path, monkeypatch):
     assert result == {"status": "ok", "results": []}
     # 300 déclaré -> plafonné à default_timeout (60) car allow_long_running=False
     assert captured["timeout"] == 60
+
+
+def test_streaming_timeout_marks_hanging_plugin_and_returns_partial_result(monkeypatch):
+    """Un sous-plugin qui pend ne doit pas bloquer le flux SSE indéfiniment.
+
+    La deadline globale (mockée très courte) déclenche un abort : le plugin
+    pendant est marqué "timeout" et un événement result partiel est émis.
+    """
+    import plugins.official.metasolver.main as meta_mod
+
+    # Deadline très courte pour que le test soit rapide
+    monkeypatch.setattr(meta_mod, "STREAMING_GLOBAL_TIMEOUT_S", 0.3)
+    monkeypatch.setattr(meta_mod, "_STREAMING_POLL_INTERVAL_S", 0.1)
+
+    plugin = MetaSolverPlugin()
+    plugin.set_plugin_manager(_HangingManager(["fast", "hanging"], "hanging", hang_seconds=30))
+
+    events = list(plugin.execute_streaming({"text": "ABCDE", "mode": "decode", "preset": "all"}))
+
+    # Le flux doit se terminer par un événement result (et non rester bloqué)
+    assert events[-1]["event"] == "result"
+    result_data = events[-1]["data"]
+    # Status timeout (aucun résultat collecté car le plugin rapide seul ne
+    # suffit pas forcément à produire du texte exploitable ici ; on accepte
+    # aussi partial_success si le plugin rapide a produit quelque chose)
+    assert result_data["status"] in {"timeout", "partial_success"}
+    assert result_data["diagnostics"]["aborted"] == "timeout"
+
+    # Le plugin pendant doit apparaître dans failed_plugins avec raison timeout
+    failed_names = {f["plugin"] for f in result_data["failed_plugins"]}
+    assert "hanging" in failed_names
+
+    # Un événement plugin_error doit avoir été émis pour le plugin pendant
+    errors = [e for e in events if e["event"] == "plugin_error" and e["data"].get("plugin") == "hanging"]
+    assert len(errors) == 1
+    assert "Délai" in errors[0]["data"]["reason"]
+
+
+def test_streaming_cancel_event_aborts_and_returns_cancelled_status(monkeypatch):
+    """Un cancel_event set par l'appelant doit interrompre le drain et renvoyer
+    une réponse partielle avec status cancelled."""
+    import plugins.official.metasolver.main as meta_mod
+
+    monkeypatch.setattr(meta_mod, "STREAMING_GLOBAL_TIMEOUT_S", 30)
+    monkeypatch.setattr(meta_mod, "_STREAMING_POLL_INTERVAL_S", 0.1)
+
+    plugin = MetaSolverPlugin()
+    plugin.set_plugin_manager(_HangingManager(["hanging"], "hanging", hang_seconds=30))
+
+    cancel_event = threading.Event()
+
+    # Setter l'annulation juste après la soumission : on consomme l'init, puis
+    # on set l'event avant de continuer à drainer.
+    events = []
+    gen = plugin.execute_streaming({"text": "ABCDE", "mode": "decode", "preset": "all"}, cancel_event=cancel_event)
+    for event in gen:
+        events.append(event)
+        if event["event"] == "init":
+            cancel_event.set()
+
+    assert events[-1]["event"] == "result"
+    result_data = events[-1]["data"]
+    assert result_data["status"] in {"cancelled", "partial_success"}
+    assert result_data["diagnostics"]["aborted"] == "cancelled"
+
+    failed_names = {f["plugin"] for f in result_data["failed_plugins"]}
+    assert "hanging" in failed_names

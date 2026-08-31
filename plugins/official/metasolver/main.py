@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import queue
 import re
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -43,6 +44,18 @@ GENERIC_KEY_FIELDS = ("key", "keyword", "transpo_key", "polybius_key")
 
 # Plafond de plugins exécutés en parallèle (évite de surcharger le backend).
 MAX_PARALLEL_WORKERS = 6
+
+# Budget de temps global pour une exécution streaming (en secondes). Placé
+# volontairement sous le ``timeout_seconds`` du plugin.json (120s) pour laisser
+# une marge : si un sous-plugin pend, on ne bloque pas indéfiniment la file SSE
+# et on rend la main au client avec un résultat partiel plutôt qu'un timeout HTTP
+# brutal. Au-delà de cette deadline, les sous-plugins non terminés sont marqués
+# "timeout" et la réponse partielle est renvoyée.
+STREAMING_GLOBAL_TIMEOUT_S = 110
+
+# Pas de sondage de la file d'événements (en secondes). Court pour réagir vite
+# à une annulation, mais pas trop pour éviter un busy-loop.
+_STREAMING_POLL_INTERVAL_S = 1.0
 
 try:
     from gc_backend.plugins.scoring import score_and_rank_results as _score_and_rank
@@ -140,7 +153,7 @@ class MetaSolverPlugin:
     # ------------------------------------------------------------------
     # API streaming (SSE)
     # ------------------------------------------------------------------
-    def execute_streaming(self, inputs: Dict[str, Any]):
+    def execute_streaming(self, inputs: Dict[str, Any], cancel_event: Optional[threading.Event] = None):
         """Générateur qui yield des événements de progression SSE.
 
         Chaque élément yielded est un dict sérialisable en JSON avec un champ
@@ -151,9 +164,17 @@ class MetaSolverPlugin:
         - ``plugin_error`` : un sous-plugin a échoué
         - ``progress``     : avancement global (pourcentage, compteurs)
         - ``result``       : résultat final complet (même format que execute())
+
+        Args:
+            inputs: paramètres d'entrée (text, mode, preset, ...).
+            cancel_event: event optionnel permettant à l'appelant (ex. la route
+                Flask) de signaler une déconnexion/annulation. Quand il est set,
+                les sous-plugins non terminés sont marqués "cancelled" et la
+                réponse partielle est renvoyée sans attendre les workers.
         """
 
         start_time = time.time()
+        deadline = start_time + STREAMING_GLOBAL_TIMEOUT_S
 
         if not self._plugin_manager:
             yield {"event": "result", "data": self._error_response("PluginManager non initialisé", start_time)}
@@ -262,12 +283,38 @@ class MetaSolverPlugin:
         # aient terminé, en relayant les événements dans leur ordre réel.
         max_workers = min(MAX_PARALLEL_WORKERS, total_candidates)
         completed_count = 0
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        completed_names: set = set()
+        aborted_reason: Optional[str] = None
+
+        # Gestion manuelle du lifecycle de l'executor (au lieu de ``with``) pour
+        # pouvoir faire un shutdown non-bloquant en cas de timeout / annulation /
+        # déconnexion client (GeneratorExit). Le ``with`` appellerait
+        # ``shutdown(wait=True)`` et bloquerait tant que les workers pendents
+        # n'auraient pas terminé — exactement le piège qu'on évite ici.
+        executor = ThreadPoolExecutor(max_workers=max_workers)
+        try:
             for idx_candidate, candidate in enumerate(candidates):
                 executor.submit(_run_streaming, candidate, idx_candidate)
 
             while completed_count < total_candidates:
-                kind, payload = event_queue.get()
+                # Vérifier l'annulation externe (déconnexion client) avant de
+                # bloquer sur la file.
+                if cancel_event is not None and cancel_event.is_set():
+                    aborted_reason = "cancelled"
+                    break
+
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    aborted_reason = "timeout"
+                    break
+
+                # Sondage avec timeout court : permet de réévaluer
+                # cancel_event / deadline régulièrement sans busy-loop.
+                poll_timeout = min(_STREAMING_POLL_INTERVAL_S, remaining)
+                try:
+                    kind, payload = event_queue.get(timeout=poll_timeout)
+                except queue.Empty:
+                    continue
 
                 if kind == "start":
                     yield {"event": "plugin_start", "data": payload}
@@ -348,6 +395,8 @@ class MetaSolverPlugin:
                         },
                     }
 
+                completed_names.add(plugin_name)
+
                 # Événement progress
                 completed_count += 1
                 yield {
@@ -359,6 +408,38 @@ class MetaSolverPlugin:
                         "results_so_far": len(aggregated_results),
                         "failures_so_far": len(failed_plugins),
                         "elapsed_ms": round((time.time() - start_time) * 1000, 2),
+                    },
+                }
+        finally:
+            # Shutdown non-bloquant : annule les futures non démarrées et rend
+            # la main immédiatement (sortie normale, timeout, annulation ou
+            # GeneratorExit sur déconnexion client). Les workers en cours
+            # d'exécution termineront en arrière-plan mais ne bloqueront pas le
+            # générateur. ``cancel_futures`` requiert Python 3.9+.
+            try:
+                executor.shutdown(wait=False, cancel_futures=True)
+            except TypeError:  # pragma: no cover - Python < 3.9
+                executor.shutdown(wait=False)
+
+        # Si on est sorti prématurément (timeout ou annulation), marquer les
+        # sous-plugins non terminés et émettre leurs événements plugin_error
+        # avant de construire la réponse partielle.
+        if aborted_reason is not None:
+            for candidate in candidates:
+                pname = candidate["name"]
+                if pname in completed_names:
+                    continue
+                reason_label = "Annulé par l'utilisateur" if aborted_reason == "cancelled" else "Délai dépassé"
+                failed_plugins.append({"plugin": pname, "reason": reason_label})
+                execution_log.append({"plugin": pname, "status": aborted_reason})
+                yield {
+                    "event": "plugin_error",
+                    "data": {
+                        "plugin": pname,
+                        "index": candidate.get("index", 0),
+                        "total": len(candidates),
+                        "reason": reason_label,
+                        "execution_time_ms": round((time.time() - start_time) * 1000, 2),
                     },
                 }
 
@@ -383,6 +464,7 @@ class MetaSolverPlugin:
             inputs_echo=inputs_echo,
             start_time=start_time,
             max_workers=max_workers,
+            aborted_reason=aborted_reason,
         )
 
         yield {"event": "result", "data": response}
@@ -965,6 +1047,7 @@ class MetaSolverPlugin:
         inputs_echo: Dict[str, Any],
         start_time: float,
         max_workers: int,
+        aborted_reason: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Construit la réponse finale (dédup + rescoring + tri déterministe).
 
@@ -1015,6 +1098,12 @@ class MetaSolverPlugin:
             if deduped
             else "Aucun plugin n'a produit de résultat exploitable"
         )
+        if aborted_reason == "cancelled":
+            status = "cancelled" if not deduped else "partial_success"
+            summary_message = f"Exécution annulée — {summary_message}"
+        elif aborted_reason == "timeout":
+            status = "timeout" if not deduped else "partial_success"
+            summary_message = f"Délai dépassé — {summary_message}"
 
         total_ms = round((time.time() - start_time) * 1000, 2)
         plugin_times = [e.get("execution_time_ms", 0) for e in execution_log if e.get("status") in ("success", "ok")]
@@ -1056,10 +1145,11 @@ class MetaSolverPlugin:
                 "total_raw_results": raw_results_count,
                 "full_rescoring": full_rescored,
                 "rescored_results": len(deduped) if full_rescored else 0,
+                "aborted": aborted_reason,
             },
         }
 
-        if not deduped and failed_plugins:
+        if not deduped and failed_plugins and not aborted_reason:
             response["status"] = "error"
 
         return response

@@ -6667,11 +6667,16 @@ def metasolver_execute_stream():
         }), 400
 
     inputs = data['inputs']
+    if not isinstance(inputs, dict):
+        return jsonify({
+            "error": "Requête invalide",
+            "message": "Le champ 'inputs' doit être un objet JSON"
+        }), 400
 
     manager = get_plugin_manager()
 
     # Charger le plugin metasolver via le plugin manager
-    wrapper = manager.get_plugin(('metasolver'))
+    wrapper = manager.get_plugin('metasolver')
     if not wrapper:
         return jsonify({
             "error": "Plugin metasolver non disponible",
@@ -6688,9 +6693,16 @@ def metasolver_execute_stream():
 
     logger.info(f"Démarrage exécution streaming metasolver avec inputs: {list(inputs.keys())}")
 
+    # Event d'annulation partagé avec execute_streaming : permet de signaler
+    # une déconnexion client (le générateur Flask est fermé → finally ci-dessous)
+    # pour que le metasolver arrête d'attendre les workers et renvoie une
+    # réponse partielle au lieu de fuiter en arrière-plan.
+    import threading as _threading
+    cancel_event = _threading.Event()
+
     def generate():
         try:
-            for event in raw_instance.execute_streaming(inputs):
+            for event in raw_instance.execute_streaming(inputs, cancel_event=cancel_event):
                 event_type = event.get('event', 'message')
                 try:
                     event_data = _json.dumps(event.get('data', {}), ensure_ascii=False)
@@ -6700,6 +6712,12 @@ def metasolver_execute_stream():
                 logger.debug(f"[streaming] Yielding event: {event_type}")
                 yield f"event: {event_type}\ndata: {event_data}\n\n"
             logger.info("[streaming] execute_streaming generator exhausted — all events sent")
+        except GeneratorExit:
+            # Le client a fermé la connexion : on signale l'annulation au
+            # metasolver pour qu'il libère ses workers (shutdown non-bloquant).
+            logger.info("[streaming] Client disconnected — signalling cancel to metasolver")
+            cancel_event.set()
+            raise
         except Exception as exc:
             logger.error(f"[streaming] Unhandled exception in generate(): {exc}", exc_info=True)
             error_data = _json.dumps({
@@ -6707,6 +6725,10 @@ def metasolver_execute_stream():
                 "type": type(exc).__name__
             }, ensure_ascii=False)
             yield f"event: error\ndata: {error_data}\n\n"
+        finally:
+            # Ceinture et bretelles : garantir le signal d'annulation même si
+            # le générateur est fermé sans GeneratorExit explicite.
+            cancel_event.set()
 
     return Response(
         stream_with_context(generate()),
