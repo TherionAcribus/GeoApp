@@ -82,6 +82,6 @@
     "tags": ["substitution", "no_key"],
     "priority": 40,
     "family": "substitution",
-    "preferred_when": []
+    "preferred_when": ["mixed_input", "grouped_input"]
   }
 }

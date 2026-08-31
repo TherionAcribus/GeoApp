@@ -84,7 +84,7 @@
     "tags": ["frequent", "transposition", "no_key"],
     "priority": 72,
     "family": "text_reversal",
-    "preferred_when": ["letters_only", "words"],
+    "preferred_when": ["letters_only", "words_only"],
     "supports_grouped_input": true
   }
 }

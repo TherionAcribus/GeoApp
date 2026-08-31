@@ -425,6 +425,11 @@ def score_metasolver_candidate(candidate: Dict[str, Any], signature: Dict[str, A
     if signature.get('looks_like_postnet') and _candidate_name_matches(candidate, 'postnet', 'barcode'):
         score += 260
         reasons.append("Le texte ressemble à un code POSTNET")
+        # postnet_barcode est le decodeur canonique pour POSTNET ; planet_barcode
+        # (variant PLANET) recoit aussi le bonus via "barcode" mais doit rester
+        # derriere postnet_barcode pour eviter qu'il ne le devance au tiebreak.
+        if _candidate_name_matches(candidate, 'postnet') and not _candidate_name_matches(candidate, 'planet'):
+            score += 20
 
     if signature.get('looks_like_prime_sequence') and _candidate_name_matches(candidate, 'prime'):
         score += 130

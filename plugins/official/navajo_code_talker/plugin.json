@@ -97,7 +97,7 @@
     "tags": ["historical", "substitution", "no_key"],
     "priority": 55,
     "family": "word_substitution",
-    "preferred_when": ["words", "grouped_input"],
+    "preferred_when": ["words_only", "grouped_input"],
     "supports_grouped_input": true
   }
 }

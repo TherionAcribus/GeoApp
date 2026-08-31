@@ -120,8 +120,7 @@
     "priority": 40,
     "family": "substitution",
     "preferred_when": [
-      "symbols_only",
-      "two_symbols"
+      "symbols_only"
     ],
     "requires_key": false,
     "supports_grouped_input": true

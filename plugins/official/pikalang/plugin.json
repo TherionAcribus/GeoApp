@@ -147,7 +147,7 @@
     "tags": ["esoteric", "programming", "no_key"],
     "priority": 58,
     "family": "esolang",
-    "preferred_when": ["words", "long_input"],
+    "preferred_when": ["words_only", "long_input"],
     "supports_grouped_input": true
   }
 }

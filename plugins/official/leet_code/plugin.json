@@ -74,7 +74,7 @@
     "tags": ["substitution", "leet", "no_key", "digits"],
     "priority": 35,
     "family": "substitution",
-    "preferred_when": ["digits_and_letters"],
+    "preferred_when": ["mixed_input"],
     "requires_key": false
   }
 }

@@ -81,7 +81,7 @@
     "tags": ["substitution", "no_key"],
     "priority": 50,
     "family": "barcode",
-    "preferred_when": ["planet_like", "binary_like", "symbols_only"],
+    "preferred_when": ["postnet_like", "binary_like", "symbols_only"],
     "supports_grouped_input": false
   }
 }

@@ -70,7 +70,7 @@
     "tags": ["substitution", "positional", "no_key"],
     "priority": 40,
     "family": "keyboard_position",
-    "preferred_when": ["digit_pairs", "grouped_numbers"],
+    "preferred_when": ["digit_groups", "grouped_input"],
     "requires_key": false,
     "supports_grouped_input": true
   }

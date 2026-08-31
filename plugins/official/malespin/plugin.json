@@ -86,6 +86,6 @@
     "tags": ["substitution", "no_key"],
     "priority": 45,
     "family": "language_substitution",
-    "preferred_when": ["letters_only", "spanish_like"]
+    "preferred_when": ["letters_only"]
   }
 }

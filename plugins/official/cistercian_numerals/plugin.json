@@ -96,7 +96,7 @@
     "tags": ["numeral", "classic", "no_key"],
     "priority": 25,
     "family": "numeral_system",
-    "preferred_when": ["digits_only", "short_numeric"],
+    "preferred_when": ["digits_only", "short_input"],
     "supports_grouped_input": true
   }
 }

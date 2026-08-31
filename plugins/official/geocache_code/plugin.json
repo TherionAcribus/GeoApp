@@ -103,7 +103,7 @@
     "tags": ["numeral", "geo", "no_key"],
     "priority": 50,
     "family": "geocaching",
-    "preferred_when": ["gc_code_like", "digits_only"],
+    "preferred_when": ["digits_only"],
     "supports_grouped_input": true
   }
 }

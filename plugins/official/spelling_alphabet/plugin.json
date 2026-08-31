@@ -141,7 +141,6 @@
     "priority": 60,
     "family": "word_code",
     "preferred_when": [
-      "nato_like",
       "words_only",
       "grouped_input"
     ],
