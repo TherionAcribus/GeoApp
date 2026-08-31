@@ -462,6 +462,130 @@ export class PluginExecutorWidget extends ReactWidget implements StatefulWidget 
         />;
     }
 }
+
+// ── TaskMonitor ───────────────────────────────────────────────────
+// Composant de suivi d'une tâche async : affiche le statut, une barre de
+// progression, le résultat quand il est disponible, et un bouton cancel.
+const TASK_STATUS_LABELS: Record<string, string> = {
+    queued: 'En file d\'attente',
+    running: 'En cours',
+    completed: 'Terminée',
+    failed: 'Échouée',
+    cancelled: 'Annulée',
+};
+
+const TASK_STATUS_COLORS: Record<string, string> = {
+    queued: 'var(--theia-disabledForeground, #888)',
+    running: 'var(--theia-progressBar-background, #0078d4)',
+    completed: 'var(--theia-successBackground, #4caf50)',
+    failed: 'var(--theia-errorForeground, #f44336)',
+    cancelled: 'var(--theia-warningBackground, #e6a817)',
+};
+
+const TaskMonitor: React.FC<{
+    task: Task;
+    onCancel: () => void;
+    onDismiss: () => void;
+}> = ({ task, onCancel, onDismiss }) => {
+    const isTerminal = task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled';
+    const isRunning = task.status === 'running' || task.status === 'queued';
+    const progress = task.progress ?? 0;
+    const statusLabel = TASK_STATUS_LABELS[task.status] || task.status;
+    const statusColor = TASK_STATUS_COLORS[task.status] || '#888';
+
+    return (
+        <div className='plugin-task' style={{
+            padding: '10px',
+            border: '1px solid var(--theia-panel-border)',
+            borderRadius: '4px',
+            marginTop: '8px',
+        }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                <h4 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    {isRunning && <span className='fa fa-spinner fa-spin' style={{ fontSize: '12px' }} />}
+                    {isTerminal && <span style={{ fontSize: '14px' }}>{task.status === 'completed' ? '✓' : task.status === 'failed' ? '✕' : '⏹'}</span>}
+                    ⏱ Tâche : {task.plugin_name}
+                </h4>
+                {isTerminal && (
+                    <button
+                        className='theia-button'
+                        style={{ padding: '2px 8px', fontSize: '11px' }}
+                        onClick={onDismiss}
+                        title='Fermer le suivi de tâche'
+                    >
+                        ✕
+                    </button>
+                )}
+            </div>
+
+            {/* Statut + ID */}
+            <div style={{ fontSize: '11px', opacity: 0.7, marginBottom: '6px', display: 'flex', gap: '12px' }}>
+                <span style={{ color: statusColor, fontWeight: 'bold' }}>{statusLabel}</span>
+                <span title={task.task_id}>ID: {task.task_id.slice(0, 8)}…</span>
+                {task.created_at && (
+                    <span>Créée: {new Date(task.created_at).toLocaleTimeString()}</span>
+                )}
+            </div>
+
+            {/* Barre de progression */}
+            {isRunning && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                    <div style={{
+                        flex: 1,
+                        height: '6px',
+                        background: 'var(--theia-editor-background)',
+                        borderRadius: '3px',
+                        overflow: 'hidden',
+                    }}>
+                        <div style={{
+                            width: `${progress}%`,
+                            height: '100%',
+                            background: statusColor,
+                            borderRadius: '3px',
+                            transition: 'width 0.3s ease',
+                        }} />
+                    </div>
+                    <span style={{ fontSize: '11px', fontWeight: 'bold', minWidth: '36px', textAlign: 'right' }}>
+                        {progress}%
+                    </span>
+                </div>
+            )}
+
+            {/* Erreur */}
+            {task.status === 'failed' && task.error && (
+                <div style={{
+                    fontSize: '12px',
+                    color: 'var(--theia-errorForeground)',
+                    background: 'var(--theia-errorBackground, rgba(255,0,0,0.1))',
+                    padding: '6px 10px',
+                    borderRadius: '4px',
+                    marginBottom: '6px',
+                }}>
+                    {task.error}
+                </div>
+            )}
+
+            {/* Bouton cancel */}
+            {isRunning && (
+                <button
+                    className='theia-button secondary'
+                    style={{ fontSize: '11px', padding: '4px 12px' }}
+                    onClick={onCancel}
+                >
+                    ⏹ Annuler la tâche
+                </button>
+            )}
+
+            {/* Résultat quand terminé */}
+            {task.status === 'completed' && task.result && (
+                <div style={{ fontSize: '11px', opacity: 0.7, marginTop: '4px' }}>
+                    ✓ Résultat disponible ci-dessous
+                </div>
+            )}
+        </div>
+    );
+};
+
 /**
  * Composant React pour l'interface d'exécution
  */
@@ -523,6 +647,46 @@ const PluginExecutorComponent: React.FC<{
             aiScoringAbortControllerRef.current?.abort();
         };
     }, []);
+
+    // ── Polling des tâches async ───────────────────────────────────
+    // Quand state.task est set et n'est pas dans un état terminal, on
+    // interroge le backend toutes les 2s pour mettre à jour le statut.
+    // Le polling s'arrête automatiquement quand la tâche est terminée
+    // (completed/failed/cancelled) ou si le composant est unmount.
+    React.useEffect(() => {
+        if (!state.task) return;
+        const taskId = state.task.task_id;
+        const status = state.task.status;
+        if (status === 'completed' || status === 'failed' || status === 'cancelled') return;
+
+        let cancelled = false;
+        const pollInterval = setInterval(async () => {
+            if (cancelled) return;
+            try {
+                const updated = await tasksService.getTaskStatus(taskId);
+                if (cancelled) return;
+                setState(prev => ({ ...prev, task: updated }));
+                // Si la tâche est terminée, afficher le résultat
+                if (updated.status === 'completed' && updated.result) {
+                    setState(prev => ({ ...prev, result: updated.result }));
+                    messageService.info(`Tâche ${taskId} terminée avec succès`);
+                } else if (updated.status === 'failed') {
+                    messageService.error(`Tâche ${taskId} échouée: ${updated.error || 'erreur inconnue'}`);
+                } else if (updated.status === 'cancelled') {
+                    messageService.warn(`Tâche ${taskId} annulée`);
+                }
+            } catch (err) {
+                // Erreur de polling : ne pas arrêter le polling, juste logger
+                // (le backend peut être temporairement indisponible)
+                console.error('[Tasks Monitor] Erreur polling tâche:', err);
+            }
+        }, 2000);
+
+        return () => {
+            cancelled = true;
+            clearInterval(pollInterval);
+        };
+    }, [state.task?.task_id, state.task?.status]);
 
     // État pour savoir si on charge le plugin initial (mode PLUGIN uniquement)
     const [isLoadingInitial, setIsLoadingInitial] = React.useState<boolean>(
@@ -2417,13 +2581,21 @@ const PluginExecutorComponent: React.FC<{
                 </div>
             )}
 
-            {/* Tâche créée */}
+            {/* Tasks Monitor — suivi des tâches async */}
             {state.task && (
-                <div className='plugin-task'>
-                    <h4>⏱ Tâche créée</h4>
-                    <div>ID: {state.task.task_id}</div>
-                    <div>Statut: {state.task.status}</div>
-                </div>
+                <TaskMonitor
+                    task={state.task}
+                    onCancel={async () => {
+                        try {
+                            await tasksService.cancelTask(state.task!.task_id);
+                            setState(prev => ({ ...prev, task: { ...prev.task!, status: 'cancelled' } }));
+                            messageService.info('Tâche annulée');
+                        } catch (err) {
+                            messageService.error(`Échec de l'annulation: ${err}`);
+                        }
+                    }}
+                    onDismiss={() => setState(prev => ({ ...prev, task: null }))}
+                />
             )}
         </div>
     );
