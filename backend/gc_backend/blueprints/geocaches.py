@@ -302,8 +302,12 @@ def _build_groundspeak_gpx_bytes(geocaches: list[Geocache]) -> bytes:
         wpt_urlname = ET.SubElement(wpt, 'urlname')
         wpt_urlname.text = geocache.name
 
+        # Symbole conforme aux Pocket Queries Groundspeak : ``Geocache Found``
+        # pour une cache trouvée (smiley sur GSAK, c:geo, Garmin), ``Geocache``
+        # sinon. ``found`` peut être None en base, on traite tout ce qui n'est pas
+        # explicitement vrai comme non trouvé.
         wpt_sym = ET.SubElement(wpt, 'sym')
-        wpt_sym.text = 'Geocache'
+        wpt_sym.text = 'Geocache Found' if bool(geocache.found) else 'Geocache'
 
         wpt_type = ET.SubElement(wpt, 'type')
         wpt_type.text = f"Geocache|{cache_type}"
