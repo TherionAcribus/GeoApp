@@ -1019,10 +1019,21 @@ const PluginExecutorComponent: React.FC<{
                 },
             }));
 
-            // Fusionner les résultats scorés dans les items originaux (par index)
+            // Fusionner les résultats scorés dans les items originaux.
+            // IMPORTANT : le backend (ai_score_results) renvoie les items enrichis
+            // dans le MÊME ordre que le tableau `items` reçu (traitement par batch
+            // qui préserve l'ordre, avec fallback garantissant 1 sortie par entrée).
+            // On ne peut donc PAS utiliser l'index dans result.results : `items` a été
+            // filtré + trié par confiance + limité au top 30, ses indices ne
+            // correspondent plus à ceux de result.results. Il faut reboucler sur
+            // `items` directement (ces objets sont les mêmes références que ceux de
+            // result.results, la mise à jour se propage donc bien au résultat final).
+            if (aiResult.items.length > items.length) {
+                console.warn('[AI Scorer] Le backend a renvoyé plus d\'items qu\'envoyés, troncature');
+            }
             aiResult.items.forEach((scored: any, idx: number) => {
-                if (!result.results || !result.results[idx]) { return; }
-                const target = result.results[idx];
+                const target = items[idx];
+                if (!target) { return; }
                 if (typeof scored.confidence === 'number') {
                     target.confidence = scored.confidence;
                 }
