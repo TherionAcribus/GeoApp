@@ -463,6 +463,24 @@
     color: var(--theia-errorForeground);
 }
 
+.geoapp-images-dirty-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--theia-statusBarItem-warningForeground, var(--theia-warningForeground, #cca700));
+    opacity: 0.9;
+}
+
+.geoapp-images-dirty-indicator .codicon {
+    font-size: 10px;
+}
+
+/* Surligne discrètement l'inspecteur quand des champs sont modifiés. */
+.geoapp-images-inspector.is-dirty {
+    box-shadow: inset 2px 0 0 var(--theia-statusBarItem-warningForeground, var(--theia-warningForeground, #cca700));
+}
+
 .geoapp-images-empty,
 .geoapp-images-loading {
     padding: 14px;

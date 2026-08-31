@@ -4,7 +4,7 @@
 
 import * as React from 'react';
 import { MessageService } from '@theia/core';
-import { ConfirmDialog } from '@theia/core/lib/browser';
+import { ConfirmDialog, ConfirmSaveDialog } from '@theia/core/lib/browser';
 import { LanguageModelRegistry, LanguageModelService, UserRequest, getJsonOfResponse, getTextOfResponse, isLanguageModelParsedResponse } from '@theia/ai-core';
 import { ContextMenu, ContextMenuItem } from './context-menu';
 import '../../src/browser/style/geocache-images-panel.css';
@@ -502,6 +502,33 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     const [draftQr, setDraftQr] = React.useState('');
     const [draftOcr, setDraftOcr] = React.useState('');
 
+    // Champs modifiés par l'utilisateur mais non encore sauvegardés.
+    // Sert à ne pas écraser les saisies en cours quand l'objet `selected` est
+    // rafraîchi (ex: OCR/QR/EXIF qui déclenche un patchImage) et à proposer une
+    // confirmation avant de changer d'image avec des modifications en cours.
+    type DirtyField = 'title' | 'note' | 'qr' | 'ocr';
+    const [dirtyFields, setDirtyFields] = React.useState<Set<DirtyField>>(new Set());
+    const markFieldDirty = React.useCallback((field: DirtyField): void => {
+        setDirtyFields(prev => prev.has(field) ? prev : (() => { const next = new Set(prev); next.add(field); return next; })());
+    }, []);
+    const clearDirtyFields = React.useCallback((): void => {
+        setDirtyFields(prev => prev.size === 0 ? prev : new Set());
+    }, []);
+    const clearDirtyField = React.useCallback((field: DirtyField): void => {
+        setDirtyFields(prev => {
+            if (!prev.has(field)) {
+                return prev;
+            }
+            const next = new Set(prev);
+            next.delete(field);
+            return next;
+        });
+    }, []);
+    const prevSelectedIdRef = React.useRef<number | null>(null);
+    // Ref vers la fonction de changement de sélection (définie plus bas, après
+    // saveMetadata) pour éviter une dépendance circulaire avec handleThumbnailClick.
+    const requestSelectionChangeRef = React.useRef<(imageId: number | null) => Promise<boolean>>(async () => false);
+
     const resolveImageUrl = React.useCallback((url: string) => {
         if (!url) {
             return url;
@@ -561,27 +588,51 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     }, [geocacheId, loadImages]);
 
     React.useEffect(() => {
+        const currentId = selected?.id ?? null;
+        const prevId = prevSelectedIdRef.current;
+        prevSelectedIdRef.current = currentId;
+
         if (!selected) {
             setDraftTitle('');
             setDraftNote('');
             setDraftQr('');
             setDraftOcr('');
+            clearDirtyFields();
             return;
         }
+
+        if (prevId === currentId) {
+            // Même image, objet rafraîchi (ex: OCR/QR/EXIF qui appelle patchImage).
+            // On n'écrase que les champs que l'utilisateur n'a pas modifiés.
+            if (!dirtyFields.has('title')) {
+                setDraftTitle(selected.title ?? '');
+            }
+            if (!dirtyFields.has('note')) {
+                setDraftNote(selected.note ?? '');
+            }
+            if (!dirtyFields.has('qr')) {
+                setDraftQr(selected.qr_payload ?? '');
+            }
+            if (!dirtyFields.has('ocr')) {
+                setDraftOcr(selected.ocr_text ?? '');
+            }
+            return;
+        }
+
+        // Changement d'image : on recharge les drafts depuis la nouvelle sélection.
         setDraftTitle(selected.title ?? '');
         setDraftNote(selected.note ?? '');
         setDraftQr(selected.qr_payload ?? '');
         setDraftOcr(selected.ocr_text ?? '');
-    }, [selected]);
+        clearDirtyFields();
+    }, [selected, dirtyFields, clearDirtyFields]);
 
     const handleThumbnailClick = React.useCallback((imageId: number): void => {
-        setSelectedId(imageId);
-        setDetailsMode('fields');
+        void requestSelectionChangeRef.current(imageId);
     }, []);
 
     const closeSelectedImage = (): void => {
-        setSelectedId(null);
-        setDetailsMode('hidden');
+        void requestSelectionChangeRef.current(null);
     };
 
     const openThumbnailContextMenu = React.useCallback((e: React.MouseEvent, imageId: number): void => {
@@ -607,8 +658,11 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
 
         if (currentIndex === -1) {
             const firstId = visibleImages[0].id;
-            handleThumbnailClick(firstId);
-            gridRef.current?.querySelector<HTMLElement>(`[data-image-id="${firstId}"]`)?.focus();
+            void requestSelectionChangeRef.current(firstId).then(proceeded => {
+                if (proceeded) {
+                    gridRef.current?.querySelector<HTMLElement>(`[data-image-id="${firstId}"]`)?.focus();
+                }
+            });
             return;
         }
 
@@ -628,10 +682,13 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
 
         if (nextIndex !== currentIndex) {
             const targetId = visibleImages[nextIndex].id;
-            handleThumbnailClick(targetId);
-            gridRef.current?.querySelector<HTMLElement>(`[data-image-id="${targetId}"]`)?.focus();
+            void requestSelectionChangeRef.current(targetId).then(proceeded => {
+                if (proceeded) {
+                    gridRef.current?.querySelector<HTMLElement>(`[data-image-id="${targetId}"]`)?.focus();
+                }
+            });
         }
-    }, [selectedId, visibleImages, handleThumbnailClick]);
+    }, [selectedId, visibleImages]);
 
     const isUploadedImage = React.useCallback((img: GeocacheImageV2Dto | null | undefined): boolean => {
         return Boolean((img?.source_url || '').startsWith('geoapp-upload://'));
@@ -1325,6 +1382,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             });
             if (updated) {
                 setDraftOcr(updated.ocr_text ?? text);
+                clearDirtyField('ocr');
             }
         } catch (e) {
             if ((e as Error).name === 'AbortError') {
@@ -1426,6 +1484,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             });
             if (updated) {
                 setDraftOcr(updated.ocr_text ?? text);
+                clearDirtyField('ocr');
             }
         } catch (e) {
             if ((e as Error).name === 'AbortError') {
@@ -1480,6 +1539,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             };
             const updated = await patchImage(selected.id, payload);
             if (updated) {
+                clearDirtyFields();
                 messages.info('Métadonnées enregistrées');
             }
         } catch (e) {
@@ -1488,6 +1548,36 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             setIsSaving(false);
         }
     };
+
+    // Garde-fou avant de changer d'image ou de fermer l'aperçu : propose
+    // d'enregistrer, d'abandonner ou d'annuler quand des champs sont modifiés.
+    // Retourne true si le changement a eu lieu, false si l'utilisateur a annulé.
+    const requestSelectionChange = async (imageId: number | null): Promise<boolean> => {
+        if (dirtyFields.size > 0 && selected) {
+            const choice = await new ConfirmSaveDialog({
+                title: 'Modifications non enregistrées',
+                msg: `Enregistrer les modifications de « ${getImageTitle(selected)} » avant de changer d'image ?`,
+                cancel: 'Annuler',
+                dontSave: 'Ne pas enregistrer',
+                save: 'Enregistrer',
+            }).open();
+            if (choice === undefined) {
+                return false;
+            }
+            if (choice === true) {
+                await saveMetadata();
+            }
+        }
+        if (imageId === null) {
+            setSelectedId(null);
+            setDetailsMode('hidden');
+        } else {
+            setSelectedId(imageId);
+            setDetailsMode('fields');
+        }
+        return true;
+    };
+    requestSelectionChangeRef.current = requestSelectionChange;
 
     const decodeQrFromImage = async (imageId: number): Promise<void> => {
         const img = visibleImages.find(i => i.id === imageId);
@@ -1555,7 +1645,11 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             progress.report({ message: 'Enregistrement…' });
             setSelectedId(imageId);
             setDetailsMode('fields');
-            await patchImage(imageId, { qr_payload: String(qrPayload) });
+            const qrUpdated = await patchImage(imageId, { qr_payload: String(qrPayload) });
+            if (qrUpdated) {
+                setDraftQr(qrUpdated.qr_payload ?? String(qrPayload));
+                clearDirtyField('qr');
+            }
             messages.info(`QR code décodé: ${String(qrPayload).substring(0, 50)}${String(qrPayload).length > 50 ? '...' : ''}`);
         } catch (e) {
             console.error('[GeocacheImagesPanel] decode qr error', e);
@@ -2126,6 +2220,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     const selectedIsAnimatedGif = isAnimatedGifImage(selectedImage);
     const selectedPreviewUrl = selectedImage && selectedImage.url ? resolveImageUrl(selectedImage.url) : '';
     const selectedExifText = formatExifFeatureForDisplay(getExifFeature(selectedImage));
+    const hasDirtyMetadata = dirtyFields.size > 0;
 
     return (
         <div className='geoapp-images-panel'>
@@ -2441,12 +2536,12 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                                 </div>
                             </section>
 
-                            <aside className='geoapp-images-inspector'>
+                            <aside className={`geoapp-images-inspector${hasDirtyMetadata ? ' is-dirty' : ''}`}>
                                 <div className='geoapp-images-inspector-section'>
                                     <h4>Informations</h4>
                                     <div className='geoapp-images-field'>
                                         <label>Titre</label>
-                                        <input className='theia-input geoapp-images-input' value={draftTitle} onChange={e => setDraftTitle(e.target.value)} />
+                                        <input className='theia-input geoapp-images-input' value={draftTitle} onChange={e => { setDraftTitle(e.target.value); markFieldDirty('title'); }} />
                                     </div>
 
                                     <div className='geoapp-images-field'>
@@ -2455,7 +2550,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                                             className='theia-input geoapp-images-textarea'
                                             rows={4}
                                             value={draftNote}
-                                            onChange={e => setDraftNote(e.target.value)}
+                                            onChange={e => { setDraftNote(e.target.value); markFieldDirty('note'); }}
                                         />
                                     </div>
 
@@ -2474,7 +2569,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                                             className='theia-input geoapp-images-textarea'
                                             rows={3}
                                             value={draftQr}
-                                            onChange={e => setDraftQr(e.target.value)}
+                                            onChange={e => { setDraftQr(e.target.value); markFieldDirty('qr'); }}
                                             placeholder='Résultat QR ou saisie manuelle'
                                         />
                                     </div>
@@ -2485,7 +2580,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                                             className='theia-input geoapp-images-textarea'
                                             rows={7}
                                             value={draftOcr}
-                                            onChange={e => setDraftOcr(e.target.value)}
+                                            onChange={e => { setDraftOcr(e.target.value); markFieldDirty('ocr'); }}
                                             placeholder='Texte détecté ou transcription manuelle'
                                         />
                                     </div>
@@ -2508,7 +2603,13 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                                                 Copier QR
                                             </button>
                                         )}
-                                        <button className='theia-button' onClick={saveMetadata} disabled={isSaving} type='button'>
+                                        {hasDirtyMetadata ? (
+                                            <span className='geoapp-images-dirty-indicator' title='Titre, note, QR ou OCR modifié(s) non enregistré(s)'>
+                                                <span className='codicon codicon-circle-filled' aria-hidden='true' />
+                                                Modifié
+                                            </span>
+                                        ) : undefined}
+                                        <button className='theia-button' onClick={saveMetadata} disabled={isSaving || !hasDirtyMetadata} type='button'>
                                             Sauvegarder
                                         </button>
                                     </div>
