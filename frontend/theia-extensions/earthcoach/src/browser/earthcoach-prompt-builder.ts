@@ -81,23 +81,338 @@ function truncateText(value: string, maxLength: number): string {
     return `${value.substring(0, maxLength).trim()}...`;
 }
 
+function clipText(value: string, maxLength: number): string {
+    if (value.length <= maxLength) {
+        return value;
+    }
+    if (maxLength <= 3) {
+        return value.substring(0, Math.max(0, maxLength));
+    }
+    return `${value.substring(0, maxLength - 3).trim()}...`;
+}
+
+// Balises de bloc: on insere un saut de ligne autour pour que le texte extrait
+// garde la structure du listing (paragraphes, items de liste, cellules). Sans
+// cela `textContent` colle `<p>a</p><p>b</p>` en "ab" et toute segmentation du
+// listing devient impossible.
+const BLOCK_LEVEL_TAG_PATTERN =
+    /<\s*\/?\s*(?:p|div|br|hr|li|ul|ol|dl|dt|dd|tr|td|th|table|thead|tbody|section|article|header|footer|aside|main|blockquote|pre|h[1-6])\b[^>]*>/gi;
+
+/** `textContent` remonte aussi le code des <script>/<style>: on les retire avant. */
+function dropInertMarkup(value: string): string {
+    return value
+        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<!--[\s\S]*?-->/g, ' ');
+}
+
+function insertBlockBreaks(value: string): string {
+    return value.replace(BLOCK_LEVEL_TAG_PATTERN, match => `\n${match}\n`);
+}
+
+/** Entites les plus frequentes des listings, pour le chemin sans DOMParser. */
+function decodeCommonEntities(value: string): string {
+    return value
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&(?:quot|#34);/gi, '"')
+        .replace(/&(?:apos|#39);/gi, "'")
+        .replace(/&(?:lt|#60);/gi, '<')
+        .replace(/&(?:gt|#62);/gi, '>')
+        .replace(/&amp;/gi, '&');
+}
+
+function normalizePlainText(value: string): string {
+    return value
+        .replace(/\r\n?/g, '\n')
+        .replace(/[^\S\n]+/g, ' ')
+        .replace(/ *\n */g, '\n')
+        .replace(/\n{2,}/g, '\n')
+        .trim();
+}
+
 function stripHtml(value: string): string {
     // On evite `div.innerHTML = value`: assigner innerHTML declenche le
     // telechargement des <img src> du listing (requetes reseau vers
     // geocaching.com a chaque ouverture d'EarthCoach). DOMParser produit un
     // document inerte qui n'effectue aucun chargement de ressource.
+    const withBreaks = insertBlockBreaks(dropInertMarkup(value));
     if (typeof DOMParser !== 'undefined') {
-        const parsed = new DOMParser().parseFromString(value, 'text/html');
-        return (parsed.body.textContent || '').trim();
+        const parsed = new DOMParser().parseFromString(withBreaks, 'text/html');
+        return normalizePlainText(parsed.body.textContent || '');
     }
-    return value.replace(/<[^>]+>/g, ' ').trim();
+    return normalizePlainText(decodeCommonEntities(withBreaks.replace(/<[^>]+>/g, ' ')));
 }
 
-function sanitizeRichText(value?: string, maxLength = 1800): string {
-    if (!value) {
-        return '';
+/**
+ * Part du budget de description reservee au debut du listing (contexte
+ * geologique). Le reste finance les passages porteurs de questions, qui dans
+ * les EarthCaches se trouvent presque toujours a la fin.
+ */
+const DESCRIPTION_HEAD_RATIO = 0.55;
+/** Longueur au-dela de laquelle un bloc est redecoupe en phrases. */
+const DESCRIPTION_SEGMENT_MAX = 320;
+/** En dessous, garder un fragment de plus n apporte plus rien d exploitable. */
+const DESCRIPTION_MIN_SEGMENT = 80;
+/** Marqueur insere a la place des passages omis, pour que le LLM voie les trous. */
+export const DESCRIPTION_GAP_MARKER = '[...]';
+
+/** Formulations qui annoncent la section "conditions de log" d une EarthCache. */
+const STRONG_QUESTION_PATTERNS: RegExp[] = [
+    /logging (?:task|requirement|condition)/,
+    /requirements? (?:for|to) log/,
+    /to (?:log|claim) (?:this|your|it)/,
+    /pour (?:pouvoir |bien )?(?:logger|valider|enregistrer)/,
+    /afin de (?:pouvoir )?(?:logger|valider)/,
+    /conditions? de (?:validation|log)/,
+    /questions? (?:a|du|de la|des|suivantes)/,
+    /taches? de log/,
+];
+
+/** Vocabulaire de demande adressee au geocacheur. */
+const QUESTION_PATTERNS: RegExp[] = [
+    /\bquestions?\b/,
+    /\brepond(?:re|ez|s)\b/,
+    /\banswers?\b/,
+    /\benvoy(?:ez|er)\b/,
+    /\bsend\b/,
+    /\b(?:e-?mail|courriel|message)\b/,
+    /\bphotos?\b/,
+];
+
+/** Verbes de releve terrain: signal plus faible, un listing en contient partout. */
+const MEASUREMENT_PATTERNS: RegExp[] = [
+    /\bmesur/,
+    /\bestim/,
+    /\bdecri/,
+    /\bdescribe\b/,
+    /\bcombien\b/,
+    /\bquels?\b/,
+    /\bquelles?\b/,
+    /\bhow (?:many|much|wide|high|long|old|deep)\b/,
+    /\bwhat (?:is|are|colou?r|kind|type)\b/,
+];
+
+/** Puce ou numerotation en tete de bloc: forme habituelle des questions listees. */
+const LIST_ITEM_PATTERN = /^(?:[-*•·●▪]|\(?\d{1,2}\)?\s*[.):\-–]|[a-h]\s*[.):])\s+/;
+
+function countMatches(patterns: RegExp[], value: string): number {
+    return patterns.reduce((total, pattern) => (pattern.test(value) ? total + 1 : total), 0);
+}
+
+/**
+ * Accents et casse varient d un listing a l autre (et beaucoup sont en anglais):
+ * on score sur une copie normalisee pour que les marqueurs restent simples.
+ */
+function foldForScoring(value: string): string {
+    return value.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+}
+
+/** Score de "ce bloc porte une question du proprietaire", independant de sa position. */
+function scoreQuestionMarkers(segment: string): number {
+    const folded = foldForScoring(segment);
+    let score = 0;
+    score += 3 * countMatches(STRONG_QUESTION_PATTERNS, folded);
+    score += 2 * countMatches(QUESTION_PATTERNS, folded);
+    score += countMatches(MEASUREMENT_PATTERNS, folded);
+    if (segment.includes('?')) {
+        score += 2;
     }
-    return truncateText(stripHtml(value).replace(/\s+/g, ' ').trim(), maxLength);
+    if (LIST_ITEM_PATTERN.test(segment)) {
+        score += 2;
+    }
+    return score;
+}
+
+/** Score de selection: marqueurs + bonus de fin de listing, ou nichent les questions. */
+function scoreSegment(segment: string, index: number, total: number): number {
+    let score = scoreQuestionMarkers(segment);
+    if (total > 1) {
+        if (index / (total - 1) >= 0.7) {
+            score += 1;
+        }
+        if (index === total - 1) {
+            score += 1;
+        }
+    }
+    return score;
+}
+
+function splitIntoSentences(value: string): string[] {
+    const parts = value.split(/([.!?…]+["'»)\]]*\s+)/);
+    const sentences: string[] = [];
+    for (let index = 0; index < parts.length; index += 2) {
+        const sentence = `${parts[index] || ''}${parts[index + 1] || ''}`.trim();
+        if (sentence) {
+            sentences.push(sentence);
+        }
+    }
+    return sentences.length ? sentences : [value];
+}
+
+/**
+ * Decoupe le listing en blocs exploitables: paragraphes issus du HTML, puis
+ * regroupements de phrases pour les paragraphes trop longs. Un listing ecrit
+ * d un seul tenant reste ainsi segmentable, ce qui est indispensable pour en
+ * garder la fin.
+ */
+function segmentDescription(text: string): string[] {
+    const segments: string[] = [];
+    for (const block of text.split('\n')) {
+        const trimmed = block.trim();
+        if (!trimmed) {
+            continue;
+        }
+        if (trimmed.length <= DESCRIPTION_SEGMENT_MAX) {
+            segments.push(trimmed);
+            continue;
+        }
+        let current = '';
+        for (const sentence of splitIntoSentences(trimmed)) {
+            if (current && current.length + 1 + sentence.length > DESCRIPTION_SEGMENT_MAX) {
+                segments.push(current);
+                current = sentence;
+            } else {
+                current = current ? `${current} ${sentence}` : sentence;
+            }
+        }
+        if (current) {
+            segments.push(current);
+        }
+    }
+    return segments;
+}
+
+function assembleSegments(kept: Map<number, string>, total: number): { text: string; hasGaps: boolean } {
+    const indexes = [...kept.keys()].sort((left, right) => left - right);
+    const parts: string[] = [];
+    let hasGaps = false;
+    let previous = -1;
+    for (const index of indexes) {
+        if (index > previous + 1) {
+            parts.push(DESCRIPTION_GAP_MARKER);
+            hasGaps = true;
+        }
+        parts.push(kept.get(index) as string);
+        previous = index;
+    }
+    if (previous >= 0 && previous < total - 1) {
+        parts.push(DESCRIPTION_GAP_MARKER);
+        hasGaps = true;
+    }
+    return { text: parts.join('\n'), hasGaps };
+}
+
+export interface EarthCoachDescriptionExcerpt {
+    /** Texte a injecter dans le prompt, deja plafonne a la limite demandee. */
+    text: string;
+    /** Vrai si le listing complet ne tenait pas dans le budget. */
+    truncated: boolean;
+    /** Vrai si l extrait n est pas contigu (des DESCRIPTION_GAP_MARKER ont ete inseres). */
+    hasGaps: boolean;
+    /** Vrai si le listing contient des passages qui ressemblent aux questions du proprietaire. */
+    questionSectionFound: boolean;
+}
+
+/**
+ * Construit l extrait de description envoye au LLM.
+ *
+ * Une simple troncature en tete perd systematiquement les questions du
+ * proprietaire, qui closent presque toujours un listing EarthCache: tant que
+ * les logging tasks ne sont pas extraites, le modele ne les voit alors nulle
+ * part. On garde donc le debut (contexte geologique) puis, sur le budget
+ * restant, les blocs les mieux notes - marqueurs de question, listes
+ * numerotees, fin du listing - reassembles dans l ordre du document.
+ */
+export function buildEarthCoachDescriptionExcerpt(value: string | undefined, maxLength: number): EarthCoachDescriptionExcerpt {
+    const empty: EarthCoachDescriptionExcerpt = { text: '', truncated: false, hasGaps: false, questionSectionFound: false };
+    if (!value) {
+        return empty;
+    }
+    const plain = stripHtml(value);
+    if (!plain) {
+        return empty;
+    }
+    const segments = segmentDescription(plain);
+    if (!segments.length) {
+        return empty;
+    }
+    const questionSectionFound = segments.some(segment => scoreQuestionMarkers(segment) >= 3);
+
+    const full = segments.join('\n');
+    if (full.length <= maxLength) {
+        return { text: full, truncated: false, hasGaps: false, questionSectionFound };
+    }
+
+    const kept = new Map<number, string>();
+    let used = 0;
+
+    // 1) Tete du listing: le contexte geologique y est presque toujours pose.
+    const headBudget = Math.max(DESCRIPTION_MIN_SEGMENT, Math.round(maxLength * DESCRIPTION_HEAD_RATIO));
+    for (let index = 0; index < segments.length; index++) {
+        const separator = kept.size ? 1 : 0;
+        const remaining = headBudget - used - separator;
+        if (remaining <= 0) {
+            break;
+        }
+        const segment = segments[index];
+        if (segment.length <= remaining) {
+            kept.set(index, segment);
+            used += segment.length + separator;
+            continue;
+        }
+        if (!kept.size) {
+            // Listing dont le tout premier bloc depasse deja le budget de tete.
+            kept.set(index, clipText(segment, remaining));
+        }
+        break;
+    }
+
+    // 2) Budget restant: les passages porteurs de questions, du mieux note au moins bien,
+    //    a score egal le plus proche de la fin du listing.
+    const candidates = segments
+        .map((text, index) => ({ text, index, score: scoreSegment(text, index, segments.length) }))
+        .filter(candidate => !kept.has(candidate.index) && candidate.score > 0)
+        .sort((left, right) => right.score - left.score || right.index - left.index);
+
+    // Le cout d un fragment depend des marqueurs de trou qu il fait apparaitre ou
+    // disparaitre autour de lui: on le mesure sur un assemblage d essai plutot que
+    // de l estimer, sinon un budget majore ecarte a tort les blocs courts et bien
+    // notes (un intertitre "Pour valider cette EarthCache" par exemple).
+    for (const candidate of candidates) {
+        const trial = new Map(kept);
+        trial.set(candidate.index, candidate.text);
+        const trialLength = assembleSegments(trial, segments.length).text.length;
+        if (trialLength <= maxLength) {
+            kept.set(candidate.index, candidate.text);
+            continue;
+        }
+        const room = maxLength - (trialLength - candidate.text.length);
+        if (room >= DESCRIPTION_MIN_SEGMENT) {
+            kept.set(candidate.index, clipText(candidate.text, room));
+        }
+    }
+
+    // 3) Budget encore disponible (listing sans autre passage note): on prolonge le
+    //    contexte dans l ordre du document plutot que de laisser de la place vide.
+    for (let index = 0; index < segments.length; index++) {
+        if (kept.has(index)) {
+            continue;
+        }
+        const trial = new Map(kept);
+        trial.set(index, segments[index]);
+        if (assembleSegments(trial, segments.length).text.length <= maxLength) {
+            kept.set(index, segments[index]);
+        }
+    }
+
+    const assembled = assembleSegments(kept, segments.length);
+
+    return {
+        text: clipText(assembled.text, maxLength),
+        truncated: true,
+        hasGaps: assembled.hasGaps,
+        questionSectionFound,
+    };
 }
 
 function getDecodedHints(data: EarthCoachGeocacheData): string | undefined {
@@ -182,9 +497,23 @@ function buildObservationsBlock(
     return lines;
 }
 
-function buildLoggingTasksBlock(loggingTasks: LoggingTask[], limits: EarthCoachPromptLimits): string[] {
+function buildLoggingTasksBlock(
+    loggingTasks: LoggingTask[],
+    limits: EarthCoachPromptLimits,
+    questionSectionFound: boolean
+): string[] {
     if (!loggingTasks.length) {
-        return [];
+        // Le listing contient visiblement les questions du proprietaire mais elles
+        // ne sont pas encore structurees: on demande l extraction au premier usage
+        // plutot que de laisser le modele repondre a cote.
+        if (!questionSectionFound) {
+            return [];
+        }
+        return [
+            'Questions du proprietaire (logging tasks):',
+            '- Aucune question n est encore enregistree dans GeoApp, mais le listing en contient (passages conserves ci-dessus).',
+            '- Appelle d abord le tool earthcoach_extract_logging_tasks avec ces questions dans l ordre, sans en inventer ni y mettre de reponse, puis poursuis ta reponse.',
+        ];
     }
     const ordered = [...loggingTasks].sort((left, right) => left.position - right.position);
     const lines = ['Questions du proprietaire (logging tasks):'];
@@ -304,9 +633,17 @@ export function buildEarthCoachPrompt(input: EarthCoachPromptInput): string {
     const limits = PROMPT_LIMITS_BY_VERBOSITY[verbosity];
     const data = input.geocache;
     const loggingTasks = input.loggingTasks || [];
-    const description = sanitizeRichText(data.description_html || data.description_raw, limits.description);
+    const descriptionExcerpt = buildEarthCoachDescriptionExcerpt(
+        data.description_html || data.description_raw,
+        limits.description
+    );
+    const description = descriptionExcerpt.text;
     const hints = getDecodedHints(data);
-    const loggingTasksBlock = buildLoggingTasksBlock(loggingTasks, limits);
+    const loggingTasksBlock = buildLoggingTasksBlock(
+        loggingTasks,
+        limits,
+        descriptionExcerpt.questionSectionFound
+    );
     const lines: string[] = [
         '--- CONTEXTE EARTHCACHE ---',
         `Nom: ${data.name}`,
@@ -320,7 +657,13 @@ export function buildEarthCoachPrompt(input: EarthCoachPromptInput): string {
             : undefined,
         data.placed_at ? `Placee le: ${data.placed_at}` : undefined,
         '',
-        description ? 'Description du listing (extrait):' : undefined,
+        description
+            ? `Description du listing (${
+                descriptionExcerpt.hasGaps
+                    ? `extrait cible, ${DESCRIPTION_GAP_MARKER} marque un passage omis`
+                    : descriptionExcerpt.truncated ? 'extrait' : 'integrale'
+            }):`
+            : undefined,
         description || undefined,
         hints ? '' : undefined,
         hints ? `Indices (extrait): ${truncateText(hints.trim(), limits.hints)}` : undefined,

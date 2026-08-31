@@ -6,7 +6,13 @@ import {
     createEarthCoachObservationDraftFromDto,
     toggleObservationImageId,
 } from '../earthcoach-observations';
-import { buildEarthCoachPrompt, selectEarthCoachImagesForChat, toImageContext } from '../earthcoach-prompt-builder';
+import {
+    buildEarthCoachDescriptionExcerpt,
+    buildEarthCoachPrompt,
+    DESCRIPTION_GAP_MARKER,
+    selectEarthCoachImagesForChat,
+    toImageContext,
+} from '../earthcoach-prompt-builder';
 import { buildEarthCoachSystemPrompt } from '../earthcoach-prompts';
 import { GeoImage, LoggingTask, UserObservation } from '../earthcoach-types';
 import { EarthCoachNoteTools } from '../earthcoach-note-tools';
@@ -839,12 +845,141 @@ function testSelectImagesForChatHonorsPreferredIds(): void {
     assert.deepEqual(selected.map(image => image.id), ['1398', '1399', '110']);
 }
 
+/** Listing type: contexte geologique long, puis les questions du proprietaire tout a la fin. */
+function createListingWithTrailingQuestions(): string {
+    const context = Array.from(
+        { length: 12 },
+        (_, index) => `<p>Contexte geologique ${index + 1}. Le calcaire urgonien affleure ici sur plusieurs dizaines de metres et montre une stratification nette liee au depot marin du Cretace inferieur.</p>`
+    ).join('');
+    return `<h2>Le canyon des Gorges</h2>
+<p>Cette EarthCache vous invite a decouvrir un affleurement de calcaire urgonien, temoin d une mer chaude et peu profonde.</p>
+${context}
+<h3>Pour valider cette EarthCache</h3>
+<p>Rendez-vous aux coordonnees indiquees et repondez aux questions suivantes, puis envoyez-moi vos reponses par message :</p>
+<ol>
+<li>1. Quelle est la couleur dominante de la roche a l affleurement principal ?</li>
+<li>2. Mesurez ou estimez l epaisseur moyenne des strates visibles.</li>
+<li>3. Observez-vous des fossiles ? Si oui, decrivez leur forme.</li>
+</ol>
+<p>Une photo devant l affleurement est obligatoire pour logger.</p>`;
+}
+
+function testDescriptionExcerptKeepsOwnerQuestions(): void {
+    const excerpt = buildEarthCoachDescriptionExcerpt(createListingWithTrailingQuestions(), 900);
+
+    assert.ok(excerpt.truncated);
+    assert.ok(excerpt.text.length <= 900);
+    // Le debut du listing reste present: c est la ou se pose le contexte geologique.
+    assert.match(excerpt.text, /calcaire urgonien, temoin d une mer chaude/);
+    // Et surtout la fin, que la troncature en tete perdait systematiquement.
+    assert.match(excerpt.text, /Pour valider cette EarthCache/);
+    assert.match(excerpt.text, /Quelle est la couleur dominante/);
+    assert.match(excerpt.text, /Mesurez ou estimez l epaisseur/);
+    assert.match(excerpt.text, /Observez-vous des fossiles/);
+    assert.ok(excerpt.hasGaps);
+    assert.ok(excerpt.text.includes(DESCRIPTION_GAP_MARKER));
+    assert.ok(excerpt.questionSectionFound);
+}
+
+function testDescriptionExcerptSegmentsListingWithoutMarkup(): void {
+    // Listing ecrit d un seul tenant: sans redecoupage en phrases, la fin serait perdue.
+    const filler = 'Le basalte forme ici des orgues verticales bien visibles depuis le sentier. '.repeat(30);
+    const excerpt = buildEarthCoachDescriptionExcerpt(
+        `<p>Bienvenue sur cette EarthCache. ${filler}Pour logger cette cache, repondez aux questions suivantes : 1) Combien de faces comptent les colonnes ? 2) Quelle est leur hauteur approximative ?</p>`,
+        900
+    );
+
+    assert.ok(excerpt.text.length <= 900);
+    assert.match(excerpt.text, /Bienvenue sur cette EarthCache/);
+    assert.match(excerpt.text, /Combien de faces comptent les colonnes/);
+    assert.match(excerpt.text, /hauteur approximative/);
+}
+
+function testDescriptionExcerptKeepsShortListingIntact(): void {
+    const excerpt = buildEarthCoachDescriptionExcerpt(
+        '<p>Observer les strates et expliquer leur formation.</p>',
+        900
+    );
+
+    assert.equal(excerpt.text, 'Observer les strates et expliquer leur formation.');
+    assert.equal(excerpt.truncated, false);
+    assert.equal(excerpt.hasGaps, false);
+    assert.equal(excerpt.questionSectionFound, false);
+    assert.equal(buildEarthCoachDescriptionExcerpt(undefined, 900).text, '');
+}
+
+function testPromptAsksForLoggingTaskExtractionWhenMissing(): void {
+    const promptWithoutTasks = buildEarthCoachPrompt({
+        geocache: {
+            id: 1,
+            gc_code: 'GC123',
+            name: 'Earth test',
+            type: 'EarthCache',
+            description_html: createListingWithTrailingQuestions(),
+        },
+        mode: 'coach',
+        action: 'understand',
+        verbosity: 'compact',
+        observations: [],
+        images: [],
+    });
+
+    assert.match(promptWithoutTasks, /extrait cible/);
+    assert.match(promptWithoutTasks, /Quelle est la couleur dominante/);
+    assert.match(promptWithoutTasks, /Aucune question n est encore enregistree dans GeoApp/);
+    assert.match(promptWithoutTasks, /earthcoach_extract_logging_tasks/);
+
+    // Une fois les questions extraites, le rappel disparait au profit des vraies taches.
+    const promptWithTasks = buildEarthCoachPrompt({
+        geocache: {
+            id: 1,
+            gc_code: 'GC123',
+            name: 'Earth test',
+            type: 'EarthCache',
+            description_html: createListingWithTrailingQuestions(),
+        },
+        mode: 'coach',
+        action: 'understand',
+        verbosity: 'compact',
+        observations: [],
+        loggingTasks: createLoggingTasks(),
+        images: [],
+    });
+
+    assert.doesNotMatch(promptWithTasks, /Aucune question n est encore enregistree dans GeoApp/);
+    assert.match(promptWithTasks, /Q1 \[a traiter\]: Quelle est la couleur dominante/);
+}
+
+function testPromptSkipsExtractionHintWithoutQuestions(): void {
+    const prompt = buildEarthCoachPrompt({
+        geocache: {
+            id: 1,
+            gc_code: 'GC123',
+            name: 'Earth test',
+            type: 'EarthCache',
+            description_html: '<p>Cet affleurement montre une stratification nette du Cretace inferieur.</p>',
+        },
+        mode: 'coach',
+        action: 'understand',
+        observations: [],
+        images: [],
+    });
+
+    assert.doesNotMatch(prompt, /Questions du proprietaire \(logging tasks\)/);
+    assert.match(prompt, /Description du listing \(integrale\)/);
+}
+
 async function run(): Promise<void> {
     testSystemPromptModes();
     testReferenceToolShape();
     testNoteToolShape();
     testPromptIncludesImageOriginsAndObservations();
     testPromptHonorsCompactVerbosity();
+    testDescriptionExcerptKeepsOwnerQuestions();
+    testDescriptionExcerptSegmentsListingWithoutMarkup();
+    testDescriptionExcerptKeepsShortListingIntact();
+    testPromptAsksForLoggingTaskExtractionWhenMissing();
+    testPromptSkipsExtractionHintWithoutQuestions();
     testPromptIncludesStructuredObservationMetadata();
     testObservationActionInstruction();
     testObservationInputBuilder();
