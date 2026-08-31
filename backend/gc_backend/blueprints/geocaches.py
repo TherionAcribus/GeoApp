@@ -512,17 +512,28 @@ def _build_waypoints_gpx_bytes(geocaches: list[Geocache]) -> bytes | None:
         wp_sym = ET.SubElement(wpt, 'sym')
         wp_type = ET.SubElement(wpt, 'type')
 
-        sym = 'Reference Point'
-        if prefix:
-            p = prefix.lower()
-            if p.startswith('pk') or p.startswith('p'):
-                sym = 'Parking Area'
-            elif p.startswith('st') or p.startswith('s'):
-                sym = 'Stages of a Multicache'
-            elif p.startswith('fn') or p.startswith('f'):
-                sym = 'Final Location'
-            elif p.startswith('tr') or p.startswith('t'):
-                sym = 'Trailhead'
+        # Symbole du waypoint : on utilise en priorité ``waypoint.type`` (renseigné
+        # à l'import depuis le GPX source, au format "Parking Area", "Final
+        # Location", etc.). L'heuristique sur le préfixe n'intervient qu'en
+        # fallback quand ``type`` est absent — l'ancien comportement devinait le
+        # type à partir de la première lettre du préfixe (``p`` -> Parking, ``s``
+        # -> Stage...), ce qui produisait des classifications erronées (un
+        # préfixe "S" pouvait être n'importe quoi, pas forcément un Stage).
+        wp_raw_type = (getattr(waypoint, 'type', None) or '').strip()
+        if wp_raw_type:
+            sym = wp_raw_type
+        else:
+            sym = 'Reference Point'
+            if prefix:
+                p = prefix.lower()
+                if p.startswith('pk') or p.startswith('p'):
+                    sym = 'Parking Area'
+                elif p.startswith('st') or p.startswith('s'):
+                    sym = 'Stages of a Multicache'
+                elif p.startswith('fn') or p.startswith('f'):
+                    sym = 'Final Location'
+                elif p.startswith('tr') or p.startswith('t'):
+                    sym = 'Trailhead'
 
         wp_sym.text = sym
         wp_type.text = f"Waypoint|{sym}"
