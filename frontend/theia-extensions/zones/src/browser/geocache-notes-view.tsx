@@ -422,6 +422,49 @@ const NoteItem = React.memo(function NoteItem(props: NoteItemProps): React.JSX.E
     );
 });
 
+interface NewNoteSectionProps {
+    content: string;
+    isCreating: boolean;
+    onContentChange: (value: string) => void;
+    onCreate: () => void;
+}
+
+const NewNoteSection = React.memo(function NewNoteSection(props: NewNoteSectionProps): React.JSX.Element {
+    const isDisabled = props.isCreating || props.content.trim().length === 0;
+    const charCount = props.content.length;
+
+    return (
+        <div style={newNoteSectionStyle}>
+            <textarea
+                value={props.content}
+                onChange={event => props.onContentChange(event.target.value)}
+                onKeyDown={event => {
+                    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && !isDisabled) {
+                        event.preventDefault();
+                        props.onCreate();
+                    }
+                }}
+                placeholder='Ajouter une nouvelle note... (Ctrl+Entrée pour ajouter)'
+                rows={3}
+                style={textareaStyle}
+            />
+            <div style={newNoteControlsRowStyle}>
+                <span style={metaTextStyle}>
+                    {charCount} caractère{charCount !== 1 ? 's' : ''}
+                </span>
+                <button
+                    onClick={props.onCreate}
+                    disabled={isDisabled}
+                    style={isDisabled ? addButtonDisabledStyle : (props.isCreating ? addButtonWaitingStyle : addButtonActiveStyle)}
+                >
+                    <i className={`fa ${props.isCreating ? 'fa-spinner fa-spin' : 'fa-plus'}`} aria-hidden='true' />
+                    {props.isCreating ? 'Création...' : 'Ajouter'}
+                </button>
+            </div>
+        </div>
+    );
+});
+
 export function GeocacheNotesView(props: GeocacheNotesViewProps): React.JSX.Element {
     if (!props.geocacheId) {
         return renderEmptyState();
@@ -431,8 +474,6 @@ export function GeocacheNotesView(props: GeocacheNotesViewProps): React.JSX.Elem
         props.gcPersonalNoteSyncedAt,
         props.gcPersonalNoteLastPushedAt
     );
-
-    const isAddDisabled = props.isCreating || props.newNoteContent.trim().length === 0;
 
     return (
         <div style={containerStyle}>
@@ -534,34 +575,12 @@ export function GeocacheNotesView(props: GeocacheNotesViewProps): React.JSX.Elem
             <div style={appSectionStyle}>
                 <div style={sectionTitleStyle}>Notes de l'application</div>
 
-                <div style={newNoteSectionStyle}>
-                    <textarea
-                        value={props.newNoteContent}
-                        onChange={event => props.onNewNoteContentChange(event.target.value)}
-                        onKeyDown={event => {
-                            if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && !isAddDisabled) {
-                                event.preventDefault();
-                                props.onCreateNote();
-                            }
-                        }}
-                        placeholder='Ajouter une nouvelle note... (Ctrl+Entree pour ajouter)'
-                        rows={3}
-                        style={textareaStyle}
-                    />
-                    <div style={newNoteControlsRowStyle}>
-                        <span style={metaTextStyle}>
-                            {props.newNoteContent.length} caractère{props.newNoteContent.length !== 1 ? 's' : ''}
-                        </span>
-                        <button
-                            onClick={props.onCreateNote}
-                            disabled={isAddDisabled}
-                            style={isAddDisabled ? addButtonDisabledStyle : (props.isCreating ? addButtonWaitingStyle : addButtonActiveStyle)}
-                        >
-                            <i className={`fa ${props.isCreating ? 'fa-spinner fa-spin' : 'fa-plus'}`} aria-hidden='true' />
-                            {props.isCreating ? 'Creation...' : 'Ajouter'}
-                        </button>
-                    </div>
-                </div>
+                <NewNoteSection
+                    content={props.newNoteContent}
+                    isCreating={props.isCreating}
+                    onContentChange={props.onNewNoteContentChange}
+                    onCreate={props.onCreateNote}
+                />
 
                 <div style={listScrollStyle}>
                     {props.isLoading && props.notes.length === 0 ? (
