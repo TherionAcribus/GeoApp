@@ -5,6 +5,14 @@ import {
     fieldChecklistItemKey,
     formatEarthCoachFieldChecklistMarkdown,
 } from '../earthcoach-field-checklist';
+import {
+    EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT,
+    EARTHCOACH_OBSERVATIONS_UPDATED_EVENT,
+    EarthCoachRefreshScheduler,
+    GEOAPP_GEOCACHE_IMAGES_UPDATED_EVENT,
+    isUpdateForGeocache,
+    readUpdatedGeocacheId,
+} from '../earthcoach-events';
 import { buildEarthCoachImageGallery } from '../earthcoach-image-gallery';
 import {
     applyObservationCoordinatesFill,
@@ -1176,6 +1184,63 @@ function testPromptSkipsExtractionHintWithoutQuestions(): void {
     assert.match(prompt, /Description du listing \(integrale\)/);
 }
 
+function testDataUpdatedEventNames(): void {
+    // Les noms d'evenements sont un contrat inter-widgets (et, pour les images,
+    // avec l'extension zones): un renommage silencieux casserait la fraicheur.
+    assert.equal(EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT, 'earthcoach-logging-tasks-updated');
+    assert.equal(EARTHCOACH_OBSERVATIONS_UPDATED_EVENT, 'earthcoach-observations-updated');
+    assert.equal(GEOAPP_GEOCACHE_IMAGES_UPDATED_EVENT, 'geoapp-geocache-images-updated');
+}
+
+function testReadUpdatedGeocacheId(): void {
+    assert.equal(readUpdatedGeocacheId({ geocacheId: 42 }), 42);
+    assert.equal(readUpdatedGeocacheId({ geocacheId: '42' }), 42);
+    assert.equal(readUpdatedGeocacheId({ geocacheId: 0 }), undefined);
+    assert.equal(readUpdatedGeocacheId({ geocacheId: -3 }), undefined);
+    assert.equal(readUpdatedGeocacheId({ geocacheId: 1.5 }), undefined);
+    assert.equal(readUpdatedGeocacheId({}), undefined);
+    assert.equal(readUpdatedGeocacheId(undefined), undefined);
+    assert.equal(readUpdatedGeocacheId('42'), undefined);
+}
+
+function testIsUpdateForGeocache(): void {
+    assert.equal(isUpdateForGeocache({ geocacheId: 7 }, 7), true);
+    assert.equal(isUpdateForGeocache({ geocacheId: 7 }, 8), false);
+    // Un evenement sans id ne doit pas declencher un rafraichissement aveugle.
+    assert.equal(isUpdateForGeocache({}, 7), false);
+    assert.equal(isUpdateForGeocache({ geocacheId: 7 }, undefined), false);
+    // Un widget qui emet et ecoute le meme evenement ignore ses propres mutations.
+    const options = { ignoreOrigin: 'earthcoach.loggingTasks' };
+    assert.equal(isUpdateForGeocache({ geocacheId: 7, origin: 'earthcoach.loggingTasks' }, 7, options), false);
+    assert.equal(isUpdateForGeocache({ geocacheId: 7, origin: 'earthcoach.observations' }, 7, options), true);
+    assert.equal(isUpdateForGeocache({ geocacheId: 7 }, 7, options), true);
+}
+
+function testRefreshSchedulerDefersWhileHidden(): void {
+    let visible = false;
+    let refreshCount = 0;
+    const scheduler = new EarthCoachRefreshScheduler(() => visible, () => { refreshCount += 1; });
+
+    // Widget cache: on memorise la demande sans collecte reseau.
+    scheduler.request();
+    scheduler.request();
+    assert.equal(refreshCount, 0);
+    assert.equal(scheduler.hasPendingRefresh, true);
+
+    // Retour a l'affichage: une seule collecte, puis plus rien a rejouer.
+    visible = true;
+    scheduler.flush();
+    assert.equal(refreshCount, 1);
+    assert.equal(scheduler.hasPendingRefresh, false);
+    scheduler.flush();
+    assert.equal(refreshCount, 1);
+
+    // Widget visible: rafraichissement immediat, rien en attente.
+    scheduler.request();
+    assert.equal(refreshCount, 2);
+    assert.equal(scheduler.hasPendingRefresh, false);
+}
+
 async function run(): Promise<void> {
     testSystemPromptModes();
     testReferenceToolShape();
@@ -1195,6 +1260,10 @@ async function run(): Promise<void> {
     testFieldChecklistMarkdownExport();
     testFieldChecklistFileNameFallbacks();
     testImageGalleryGroupsByOrigin();
+    testDataUpdatedEventNames();
+    testReadUpdatedGeocacheId();
+    testIsUpdateForGeocache();
+    testRefreshSchedulerDefersWhileHidden();
     testResolverInstructionDoesNotPretendTerrain();
     testPromptIncludesLoggingTasks();
     testResolverTemplateConsumesLoggingTasks();

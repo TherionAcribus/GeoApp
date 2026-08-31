@@ -2,7 +2,16 @@ import * as React from 'react';
 import { MessageService } from '@theia/core/lib/common';
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
-import { EarthCoachContext } from './earthcoach-context-service';
+import { Message } from '@theia/core/lib/browser';
+import { EarthCoachContext, EarthCoachContextService } from './earthcoach-context-service';
+import {
+    EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT,
+    EARTHCOACH_OBSERVATIONS_UPDATED_EVENT,
+    EarthCoachRefreshScheduler,
+    GEOAPP_GEOCACHE_IMAGES_UPDATED_EVENT,
+    isUpdateForGeocache,
+    subscribeEarthCoachDataUpdates,
+} from './earthcoach-events';
 import {
     buildEarthCoachFieldChecklist,
     buildEarthCoachFieldChecklistFileName,
@@ -142,9 +151,21 @@ export class EarthCoachFieldChecklistWidget extends ReactWidget {
     protected checklist: EarthCoachFieldChecklist | undefined;
     protected checkedKeys = new Set<string>();
     protected storageKey: string | undefined;
+    protected geocacheId: number | undefined;
+    protected refreshToken = 0;
 
     @inject(MessageService)
     protected readonly messages!: MessageService;
+
+    @inject(EarthCoachContextService)
+    protected readonly contextService!: EarthCoachContextService;
+
+    // Un onglet lateral cache ne relance pas de collecte reseau: la demande est
+    // rejouee a l'affichage.
+    protected readonly refreshScheduler = new EarthCoachRefreshScheduler(
+        () => this.isVisible,
+        () => { void this.refreshContext(); }
+    );
 
     @postConstruct()
     protected init(): void {
@@ -154,15 +175,67 @@ export class EarthCoachFieldChecklistWidget extends ReactWidget {
         this.title.iconClass = 'codicon codicon-checklist';
         this.title.closable = true;
         this.addClass('earthcoach-field-checklist-widget');
+        // Observations, questions et photos ajoutees ailleurs changent les
+        // compteurs et la section "Questions du listing": la checklist se
+        // reconstruit sans fermeture/reouverture du panneau.
+        this.toDispose.push(subscribeEarthCoachDataUpdates(
+            [
+                EARTHCOACH_OBSERVATIONS_UPDATED_EVENT,
+                EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT,
+                GEOAPP_GEOCACHE_IMAGES_UPDATED_EVENT,
+            ],
+            detail => {
+                if (isUpdateForGeocache(detail, this.geocacheId)) {
+                    this.refreshScheduler.request();
+                }
+            }
+        ));
         this.update();
     }
 
     setContext(context: EarthCoachContext): void {
+        this.geocacheId = context.geocacheData.id;
+        // Un changement de cache annule un rafraichissement encore en vol.
+        this.refreshToken++;
+        this.applyContext(context);
+    }
+
+    /**
+     * Reconstruit la checklist. Les cases cochees ne sont relues du stockage
+     * local que si la cache affichee change: un rafraichissement en cours de
+     * terrain ne doit jamais decocher ce que l'utilisateur vient de pointer.
+     */
+    protected applyContext(context: EarthCoachContext): void {
         this.checklist = buildEarthCoachFieldChecklist(context);
-        this.storageKey = `geoapp.earthcoach.fieldChecklist.${this.checklist.reference}`;
-        this.checkedKeys = this.loadCheckedKeys(this.storageKey);
+        const storageKey = `geoapp.earthcoach.fieldChecklist.${this.checklist.reference}`;
+        if (storageKey !== this.storageKey) {
+            this.storageKey = storageKey;
+            this.checkedKeys = this.loadCheckedKeys(storageKey);
+        }
         this.title.label = `${EarthCoachFieldChecklistWidget.LABEL} - ${context.geocacheData.gc_code || context.geocacheData.name}`;
         this.update();
+    }
+
+    protected async refreshContext(): Promise<void> {
+        const geocacheId = this.geocacheId;
+        if (!geocacheId) {
+            return;
+        }
+        const requestToken = ++this.refreshToken;
+        try {
+            const context = await this.contextService.collectContext({ geocacheId });
+            if (!context || requestToken !== this.refreshToken || geocacheId !== this.geocacheId) {
+                return;
+            }
+            this.applyContext(context);
+        } catch (error) {
+            console.warn('[EarthCoach] Unable to refresh field checklist', error);
+        }
+    }
+
+    protected onAfterShow(msg: Message): void {
+        super.onAfterShow(msg);
+        this.refreshScheduler.flush();
     }
 
     protected loadCheckedKeys(storageKey: string): Set<string> {

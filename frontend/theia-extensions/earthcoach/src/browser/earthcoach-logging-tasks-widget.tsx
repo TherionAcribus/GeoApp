@@ -1,12 +1,19 @@
 import * as React from 'react';
 import { CommandService, MessageService } from '@theia/core/lib/common';
-import { ConfirmDialog, Dialog } from '@theia/core/lib/browser';
+import { ConfirmDialog, Dialog, Message } from '@theia/core/lib/browser';
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { getErrorMessage } from 'theia-ide-zones-ext/lib/browser/backend-api-client';
-import { EarthCoachContext } from './earthcoach-context-service';
+import { EarthCoachContext, EarthCoachContextService } from './earthcoach-context-service';
 import { EarthCoachLoggingTaskService } from './earthcoach-logging-task-service';
-import { EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT } from './earthcoach-logging-task-tools';
+import {
+    dispatchEarthCoachDataUpdated,
+    EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT,
+    EARTHCOACH_OBSERVATIONS_UPDATED_EVENT,
+    EarthCoachRefreshScheduler,
+    isUpdateForGeocache,
+    subscribeEarthCoachDataUpdates,
+} from './earthcoach-events';
 import { EarthCoachObserveTaskCommandId, EarthCoachOpenCommandId, LoggingTaskStatus, UserObservation } from './earthcoach-types';
 import {
     buildLoggingTaskInput,
@@ -413,6 +420,7 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
     protected isSaving = false;
     protected deletingTaskId: number | undefined;
     protected loadRequestToken = 0;
+    protected contextRequestToken = 0;
 
     @inject(MessageService)
     protected readonly messages!: MessageService;
@@ -423,17 +431,25 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
     @inject(EarthCoachLoggingTaskService)
     protected readonly loggingTaskService!: EarthCoachLoggingTaskService;
 
+    @inject(EarthCoachContextService)
+    protected readonly contextService!: EarthCoachContextService;
+
+    // Un onglet lateral cache ne relance pas de collecte reseau: les demandes
+    // sont rejouees a l'affichage.
+    protected readonly tasksRefreshScheduler = new EarthCoachRefreshScheduler(
+        () => this.isVisible,
+        () => { void this.loadTasks(); }
+    );
+
+    protected readonly observationsRefreshScheduler = new EarthCoachRefreshScheduler(
+        () => this.isVisible,
+        () => { void this.refreshObservationOptions(); }
+    );
+
     // References stables pour l'efficacite de React.memo des cartes.
     protected readonly handleStartEdit = (task: LoggingTaskDto): void => this.startEdit(task);
     protected readonly handleObserve = (task: LoggingTaskDto): Promise<void> => this.observeTask(task);
     protected readonly handleDelete = (task: LoggingTaskDto): Promise<void> => this.deleteTask(task);
-
-    protected readonly onTasksUpdated = (event: Event): void => {
-        const detail = (event as CustomEvent).detail as { geocacheId?: number } | undefined;
-        if (detail?.geocacheId && detail.geocacheId === this.context?.geocacheData.id) {
-            void this.loadTasks();
-        }
-    };
 
     @postConstruct()
     protected init(): void {
@@ -443,17 +459,34 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
         this.title.iconClass = 'codicon codicon-checklist';
         this.title.closable = true;
         this.addClass('earthcoach-logging-tasks-widget');
-        if (typeof window !== 'undefined') {
-            window.addEventListener(EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT, this.onTasksUpdated);
-        }
-        this.toDispose.push({
-            dispose: () => {
-                if (typeof window !== 'undefined') {
-                    window.removeEventListener(EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT, this.onTasksUpdated);
+        this.toDispose.push(subscribeEarthCoachDataUpdates(
+            [EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT],
+            detail => {
+                // Nos propres mutations sont deja suivies d'un loadTasks().
+                const options = { ignoreOrigin: EarthCoachLoggingTasksWidget.ID };
+                if (isUpdateForGeocache(detail, this.context?.geocacheData.id, options)) {
+                    this.tasksRefreshScheduler.request();
                 }
-            },
-        });
+            }
+        ));
+        // La liste deroulante "observation liee" est construite a partir du
+        // contexte fige a l'ouverture: sans ce signal, une observation creee
+        // entre-temps reste invisible ici.
+        this.toDispose.push(subscribeEarthCoachDataUpdates(
+            [EARTHCOACH_OBSERVATIONS_UPDATED_EVENT],
+            detail => {
+                if (isUpdateForGeocache(detail, this.context?.geocacheData.id)) {
+                    this.observationsRefreshScheduler.request();
+                }
+            }
+        ));
         this.update();
+    }
+
+    protected onAfterShow(msg: Message): void {
+        super.onAfterShow(msg);
+        this.tasksRefreshScheduler.flush();
+        this.observationsRefreshScheduler.flush();
     }
 
     setContext(context: EarthCoachContext): void {
@@ -474,8 +507,33 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
         this.editingTaskId = undefined;
         this.editingDraft = createLoggingTaskDraft();
         this.title.label = `${EarthCoachLoggingTasksWidget.LABEL} - ${context.geocacheData.gc_code || context.geocacheData.name}`;
+        // Un changement de cache annule un rafraichissement de contexte en vol.
+        this.contextRequestToken++;
         void this.loadTasks();
         this.update();
+    }
+
+    /**
+     * Recharge le contexte EarthCoach pour reconstruire les options
+     * d'observation, sans toucher aux brouillons de question en cours.
+     */
+    protected async refreshObservationOptions(): Promise<void> {
+        const geocacheId = this.context?.geocacheData.id;
+        if (!geocacheId) {
+            return;
+        }
+        const requestToken = ++this.contextRequestToken;
+        try {
+            const context = await this.contextService.collectContext({ geocacheId });
+            if (!context || requestToken !== this.contextRequestToken || geocacheId !== this.context?.geocacheData.id) {
+                return;
+            }
+            this.context = context;
+            this.observationOptions = buildObservationOptions(context.observations);
+            this.update();
+        } catch (error) {
+            console.warn('[EarthCoach] Unable to refresh observation options', error);
+        }
     }
 
     protected async loadTasks(): Promise<void> {
@@ -573,6 +631,7 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
             this.createDraft = createLoggingTaskDraft();
             this.showCreateForm = false;
             await this.loadTasks();
+            this.notifyLoggingTasksUpdated(geocacheId);
             this.messages.info('Question ajoutee');
         } catch (error) {
             console.error('[EarthCoach] Unable to create logging task', error);
@@ -605,12 +664,14 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
             return;
         }
         const taskId = this.editingTaskId;
+        const geocacheId = this.context?.geocacheData.id;
         this.isSaving = true;
         this.update();
         try {
             await this.loggingTaskService.updateLoggingTask(taskId, payload);
             this.cancelEdit();
             await this.loadTasks();
+            this.notifyLoggingTasksUpdated(geocacheId);
             this.messages.info('Question mise a jour');
         } catch (error) {
             console.error('[EarthCoach] Unable to update logging task', error);
@@ -619,6 +680,19 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
             this.isSaving = false;
             this.update();
         }
+    }
+
+    /**
+     * La checklist terrain reprend les questions du proprietaire: elle doit
+     * apprendre nos mutations. L'origine evite que ce widget ne se recharge
+     * une seconde fois pour son propre evenement.
+     */
+    protected notifyLoggingTasksUpdated(geocacheId: number | undefined): void {
+        dispatchEarthCoachDataUpdated(
+            EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT,
+            geocacheId,
+            EarthCoachLoggingTasksWidget.ID
+        );
     }
 
     protected async confirmDelete(): Promise<boolean> {
@@ -635,6 +709,7 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
         if (!(await this.confirmDelete())) {
             return;
         }
+        const geocacheId = this.context?.geocacheData.id;
         this.deletingTaskId = task.id;
         this.update();
         try {
@@ -643,6 +718,7 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
                 this.cancelEdit();
             }
             await this.loadTasks();
+            this.notifyLoggingTasksUpdated(geocacheId);
             this.messages.info('Question supprimee');
         } catch (error) {
             console.error('[EarthCoach] Unable to delete logging task', error);

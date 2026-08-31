@@ -1,13 +1,21 @@
 import * as React from 'react';
 import { MessageService } from '@theia/core/lib/common';
-import { ConfirmDialog, Dialog } from '@theia/core/lib/browser';
+import { ConfirmDialog, Dialog, Message } from '@theia/core/lib/browser';
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { getErrorMessage } from 'theia-ide-zones-ext/lib/browser/backend-api-client';
-import { EarthCoachContext } from './earthcoach-context-service';
+import { EarthCoachContext, EarthCoachContextService } from './earthcoach-context-service';
 import { EarthCoachObservationService } from './earthcoach-observation-service';
 import { EarthCoachLoggingTaskService } from './earthcoach-logging-task-service';
-import { EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT } from './earthcoach-logging-task-tools';
+import {
+    dispatchEarthCoachDataUpdated,
+    EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT,
+    EARTHCOACH_OBSERVATIONS_UPDATED_EVENT,
+    EarthCoachRefreshScheduler,
+    GEOAPP_GEOCACHE_IMAGES_UPDATED_EVENT,
+    isUpdateForGeocache,
+    subscribeEarthCoachDataUpdates,
+} from './earthcoach-events';
 import { formatLoggingTaskSeedLabel, LoggingTaskSeed } from './earthcoach-logging-tasks';
 import { EarthCoachGeocacheData, GeoImage } from './earthcoach-types';
 import {
@@ -603,6 +611,7 @@ export class EarthCoachObservationsWidget extends ReactWidget {
     protected isUploadingImage = false;
     protected deletingObservationId: number | undefined;
     protected loadRequestToken = 0;
+    protected imagesRequestToken = 0;
 
     @inject(MessageService)
     protected readonly messages!: MessageService;
@@ -612,6 +621,16 @@ export class EarthCoachObservationsWidget extends ReactWidget {
 
     @inject(EarthCoachLoggingTaskService)
     protected readonly loggingTaskService!: EarthCoachLoggingTaskService;
+
+    @inject(EarthCoachContextService)
+    protected readonly contextService!: EarthCoachContextService;
+
+    // Un onglet lateral cache ne relance pas de collecte reseau: la demande est
+    // rejouee a l'affichage.
+    protected readonly imagesRefreshScheduler = new EarthCoachRefreshScheduler(
+        () => this.isVisible,
+        () => { void this.refreshImages(); }
+    );
 
     // Callbacks a reference stable, pour que React.memo des cartes soit efficace:
     // taper dans le formulaire ne re-rend pas les cartes existantes.
@@ -627,7 +646,24 @@ export class EarthCoachObservationsWidget extends ReactWidget {
         this.title.iconClass = 'codicon codicon-list-selection';
         this.title.closable = true;
         this.addClass('earthcoach-observations-widget');
+        // Photo ajoutee depuis l'editeur d'images GeoApp: elle doit apparaitre
+        // dans le selecteur de photos sans fermeture/reouverture du panneau.
+        // Nos propres uploads sont deja pris en compte localement.
+        this.toDispose.push(subscribeEarthCoachDataUpdates(
+            [GEOAPP_GEOCACHE_IMAGES_UPDATED_EVENT],
+            detail => {
+                const options = { ignoreOrigin: EarthCoachObservationsWidget.ID };
+                if (isUpdateForGeocache(detail, this.context?.geocacheData.id, options)) {
+                    this.imagesRefreshScheduler.request();
+                }
+            }
+        ));
         this.update();
+    }
+
+    protected onAfterShow(msg: Message): void {
+        super.onAfterShow(msg);
+        this.imagesRefreshScheduler.flush();
     }
 
     setContext(context: EarthCoachContext): void {
@@ -650,8 +686,32 @@ export class EarthCoachObservationsWidget extends ReactWidget {
         this.pendingLinkTask = undefined;
         this.showCreateForm = false;
         this.title.label = `${EarthCoachObservationsWidget.LABEL} - ${context.geocacheData.gc_code || context.geocacheData.name}`;
+        // Un changement de cache annule un rafraichissement d'images en vol.
+        this.imagesRequestToken++;
         void this.loadObservations();
         this.update();
+    }
+
+    /**
+     * Recharge les photos disponibles sans toucher aux brouillons: les images
+     * selectionnees le sont par id, une liste rafraichie ne les perd pas.
+     */
+    protected async refreshImages(): Promise<void> {
+        const geocacheId = this.context?.geocacheData.id;
+        if (!geocacheId) {
+            return;
+        }
+        const requestToken = ++this.imagesRequestToken;
+        try {
+            const context = await this.contextService.collectContext({ geocacheId });
+            if (!context || requestToken !== this.imagesRequestToken || geocacheId !== this.context?.geocacheData.id) {
+                return;
+            }
+            this.images = [...context.images];
+            this.update();
+        } catch (error) {
+            console.warn('[EarthCoach] Unable to refresh observation images', error);
+        }
     }
 
     seedFromLoggingTask(seed: LoggingTaskSeed): void {
@@ -733,6 +793,7 @@ export class EarthCoachObservationsWidget extends ReactWidget {
                 await this.linkObservationToTask(linkTask, created.id, geocacheId);
             }
             await this.loadObservations();
+            this.notifyObservationsUpdated(geocacheId);
             this.messages.info(linkTask
                 ? `Observation ajoutee et liee a la question Q${linkTask.position}`
                 : 'Observation EarthCoach ajoutee');
@@ -749,9 +810,11 @@ export class EarthCoachObservationsWidget extends ReactWidget {
         try {
             await this.loggingTaskService.linkObservation(seed.taskId, observationId);
             this.pendingLinkTask = undefined;
-            if (typeof window !== 'undefined') {
-                window.dispatchEvent(new CustomEvent(EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT, { detail: { geocacheId } }));
-            }
+            dispatchEarthCoachDataUpdated(
+                EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT,
+                geocacheId,
+                EarthCoachObservationsWidget.ID
+            );
         } catch (error) {
             console.error('[EarthCoach] Unable to link observation to logging task', error);
             this.messages.warn('Observation creee, mais impossible de la lier automatiquement a la question.');
@@ -780,12 +843,14 @@ export class EarthCoachObservationsWidget extends ReactWidget {
             return;
         }
         const observationId = this.editingObservationId;
+        const geocacheId = this.context?.geocacheData.id;
         this.isSaving = true;
         this.update();
         try {
             await this.observationService.updateObservation(observationId, payload);
             this.cancelEdit();
             await this.loadObservations();
+            this.notifyObservationsUpdated(geocacheId);
             this.messages.info('Observation EarthCoach mise a jour');
         } catch (error) {
             console.error('[EarthCoach] Unable to update observation', error);
@@ -810,6 +875,7 @@ export class EarthCoachObservationsWidget extends ReactWidget {
         if (!(await this.confirmDelete())) {
             return;
         }
+        const geocacheId = this.context?.geocacheData.id;
         this.deletingObservationId = observation.id;
         this.update();
         try {
@@ -818,6 +884,7 @@ export class EarthCoachObservationsWidget extends ReactWidget {
                 this.cancelEdit();
             }
             await this.loadObservations();
+            this.notifyObservationsUpdated(geocacheId);
             this.messages.info('Observation EarthCoach supprimee');
         } catch (error) {
             console.error('[EarthCoach] Unable to delete observation', error);
@@ -878,9 +945,11 @@ export class EarthCoachObservationsWidget extends ReactWidget {
                 this.addImageToAvailable(image);
             }
             this.selectImageInDraft(target, imageId);
-            if (typeof window !== 'undefined') {
-                window.dispatchEvent(new CustomEvent('geoapp-geocache-images-updated', { detail: { geocacheId } }));
-            }
+            dispatchEarthCoachDataUpdated(
+                GEOAPP_GEOCACHE_IMAGES_UPDATED_EVENT,
+                geocacheId,
+                EarthCoachObservationsWidget.ID
+            );
             this.messages.info('Photo ajoutee a l observation');
         } catch (error) {
             console.error('[EarthCoach] Unable to upload observation image', error);
@@ -889,6 +958,19 @@ export class EarthCoachObservationsWidget extends ReactWidget {
             this.isUploadingImage = false;
             this.update();
         }
+    }
+
+    /**
+     * Les panneaux qui figent le contexte EarthCoach (galerie, checklist terrain,
+     * questions du proprietaire) n'ont aucun autre moyen d'apprendre qu'une
+     * observation vient de changer: on les previent apres chaque mutation.
+     */
+    protected notifyObservationsUpdated(geocacheId: number | undefined): void {
+        dispatchEarthCoachDataUpdated(
+            EARTHCOACH_OBSERVATIONS_UPDATED_EVENT,
+            geocacheId,
+            EarthCoachObservationsWidget.ID
+        );
     }
 
     protected toGeoImage(image: EarthCoachObservationImageDto, index: number): GeoImage | undefined {

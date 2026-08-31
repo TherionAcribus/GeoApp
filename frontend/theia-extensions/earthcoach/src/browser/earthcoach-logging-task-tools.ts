@@ -5,12 +5,14 @@ import {
     ToolRequest,
     ToolRequestParameters,
 } from '@theia/ai-core';
+import {
+    dispatchEarthCoachDataUpdated,
+    EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT,
+} from './earthcoach-events';
 import { EarthCoachLoggingTaskService } from './earthcoach-logging-task-service';
 import { normalizeExtractionTasks } from './earthcoach-logging-tasks';
 
 const PROVIDER_NAME = 'geoapp.earthcoach';
-
-export const EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT = 'earthcoach-logging-tasks-updated';
 
 function ok(data: unknown): string {
     return JSON.stringify({ success: true, data });
@@ -139,9 +141,7 @@ export class EarthCoachLoggingTaskTools implements FrontendApplicationContributi
     }
 
     protected notifyUpdated(geocacheId: number): void {
-        if (typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent(EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT, { detail: { geocacheId } }));
-        }
+        dispatchEarthCoachDataUpdated(EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT, geocacheId);
     }
 
     protected toPositiveInteger(value: unknown): number | undefined {

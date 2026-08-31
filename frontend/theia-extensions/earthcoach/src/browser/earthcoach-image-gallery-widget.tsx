@@ -2,7 +2,15 @@ import * as React from 'react';
 import { inject, injectable, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { CommandService } from '@theia/core';
-import { EarthCoachContext } from './earthcoach-context-service';
+import { Message } from '@theia/core/lib/browser';
+import { EarthCoachContext, EarthCoachContextService } from './earthcoach-context-service';
+import {
+    EARTHCOACH_OBSERVATIONS_UPDATED_EVENT,
+    EarthCoachRefreshScheduler,
+    GEOAPP_GEOCACHE_IMAGES_UPDATED_EVENT,
+    isUpdateForGeocache,
+    subscribeEarthCoachDataUpdates,
+} from './earthcoach-events';
 import { buildEarthCoachImageGallery, EarthCoachImageGallery } from './earthcoach-image-gallery';
 import { GeoImage } from './earthcoach-types';
 import { EmptyState } from './state-views';
@@ -124,9 +132,21 @@ export class EarthCoachImageGalleryWidget extends ReactWidget {
 
     protected gallery: EarthCoachImageGallery | undefined;
     protected geocacheTitle = EarthCoachImageGalleryWidget.LABEL;
+    protected geocacheId: number | undefined;
+    protected refreshToken = 0;
 
     @inject(CommandService)
     protected readonly commandService!: CommandService;
+
+    @inject(EarthCoachContextService)
+    protected readonly contextService!: EarthCoachContextService;
+
+    // Un onglet lateral cache ne relance pas de collecte reseau: la demande est
+    // rejouee a l'affichage.
+    protected readonly refreshScheduler = new EarthCoachRefreshScheduler(
+        () => this.isVisible,
+        () => { void this.refreshContext(); }
+    );
 
     @postConstruct()
     protected init(): void {
@@ -136,14 +156,53 @@ export class EarthCoachImageGalleryWidget extends ReactWidget {
         this.title.iconClass = 'codicon codicon-device-camera';
         this.title.closable = true;
         this.addClass('earthcoach-image-gallery-widget');
+        // Photos ajoutees depuis les observations ou l'editeur d'images: la
+        // galerie se remet a jour sans fermeture/reouverture du panneau.
+        this.toDispose.push(subscribeEarthCoachDataUpdates(
+            [EARTHCOACH_OBSERVATIONS_UPDATED_EVENT, GEOAPP_GEOCACHE_IMAGES_UPDATED_EVENT],
+            detail => {
+                if (isUpdateForGeocache(detail, this.geocacheId)) {
+                    this.refreshScheduler.request();
+                }
+            }
+        ));
         this.update();
     }
 
     setContext(context: EarthCoachContext): void {
+        this.geocacheId = context.geocacheData.id;
+        // Un changement de cache annule un rafraichissement encore en vol.
+        this.refreshToken++;
+        this.applyContext(context);
+    }
+
+    protected applyContext(context: EarthCoachContext): void {
         this.gallery = buildEarthCoachImageGallery(context.images);
         this.geocacheTitle = `Images EarthCoach - ${context.geocacheData.gc_code || context.geocacheData.name}`;
         this.title.label = this.geocacheTitle;
         this.update();
+    }
+
+    protected async refreshContext(): Promise<void> {
+        const geocacheId = this.geocacheId;
+        if (!geocacheId) {
+            return;
+        }
+        const requestToken = ++this.refreshToken;
+        try {
+            const context = await this.contextService.collectContext({ geocacheId });
+            if (!context || requestToken !== this.refreshToken || geocacheId !== this.geocacheId) {
+                return;
+            }
+            this.applyContext(context);
+        } catch (error) {
+            console.warn('[EarthCoach] Unable to refresh image gallery', error);
+        }
+    }
+
+    protected onAfterShow(msg: Message): void {
+        super.onAfterShow(msg);
+        this.refreshScheduler.flush();
     }
 
     protected render(): React.ReactNode {

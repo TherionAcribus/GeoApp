@@ -28,6 +28,7 @@ Fichiers principaux :
 | `earthcoach-agent.ts` | Agent `@EarthCoach`, prompt systeme et injection des tools EarthCoach. |
 | `earthcoach-command-contribution.ts` | Commandes, menus, bouton EarthCoach sur les fiches EarthCache, QuickPick d'actions. |
 | `earthcoach-context-service.ts` | Collecte le contexte actif : cache, observations structurees, notes fallback, images, derniere fiche ouverte. |
+| `earthcoach-events.ts` | Evenements de fraicheur des widgets (noms, emission, abonnement) et report des rafraichissements des onglets caches. |
 | `earthcoach-prompt-builder.ts` | Construit le prompt utilisateur envoye au chat a l'ouverture d'une action. |
 | `earthcoach-prompts.ts` | Prompt systeme des modes `coach` et `resolver`. |
 | `earthcoach-types.ts` | Types EarthCoach : modes, actions, images, observations. |
@@ -40,7 +41,7 @@ Fichiers principaux :
 | `earthcoach-observations-widget.tsx` | Widget Theia de creation, edition, suppression et liaison de photos aux observations. |
 | `earthcoach-logging-tasks.ts` | Helpers purs des questions du proprietaire : DTO, drafts, normalisation de l'extraction LLM. |
 | `earthcoach-logging-task-service.ts` | Client frontend des routes logging tasks (liste, CRUD, remplacement en masse). |
-| `earthcoach-logging-task-tools.ts` | Tool `earthcoach_extract_logging_tasks` et evenement de rafraichissement du widget. |
+| `earthcoach-logging-task-tools.ts` | Tool `earthcoach_extract_logging_tasks`, emet l'evenement de rafraichissement des questions. |
 | `earthcoach-logging-tasks-widget.tsx` | Widget Theia de suivi, edition et extraction des questions du proprietaire. |
 | `earthcoach-geo-calculator.ts` | Fonctions pures de calcul geologique deterministe et dispatcher `runEarthCoachCalculation`. |
 | `earthcoach-geo-calculator-tools.ts` | Tool `earthcoach_calculate` exposant les calculs deterministes a l'agent. |
@@ -395,6 +396,23 @@ Cote widget Observations :
 
 La liaison inverse (choisir une observation existante pour une question) reste disponible via le menu deroulant du formulaire de question. La boucle se ferme donc dans les deux sens : terrain -> observation -> question -> resolution.
 
+## Fraicheur des widgets lateraux
+
+Les panneaux EarthCoach recoivent leur contexte par `setContext` a l'ouverture. Sans signal, une observation, une question ou une photo ajoutee ensuite n'apparaissait qu'apres fermeture/reouverture du panneau. `earthcoach-events.ts` centralise donc trois evenements `window`, tous porteurs d'un detail `{ geocacheId, origin? }` :
+
+| Evenement | Emis par | Consomme par |
+|---|---|---|
+| `earthcoach-logging-tasks-updated` | tool `earthcoach_extract_logging_tasks`, widget Questions (CRUD), widget Observations (liaison a une question) | widget Questions (sauf ses propres mutations), checklist terrain |
+| `earthcoach-observations-updated` | widget Observations (creation, edition, suppression) | galerie images, checklist terrain, widget Questions (liste deroulante "observation liee") |
+| `geoapp-geocache-images-updated` | widget Observations (upload photo), editeur d'images de `zones` | galerie images, checklist terrain, widget Observations (selecteur de photos), panneau images de `zones` |
+
+Regles communes :
+
+- `isUpdateForGeocache(detail, geocacheId, { ignoreOrigin })` filtre les evenements : ceux sans id, ceux d'une autre cache et, si `ignoreOrigin` est fourni, ceux emis par le widget lui-meme (il a deja recharge localement) ;
+- un consommateur rafraichit en rappelant `EarthCoachContextService.collectContext({ geocacheId })`, avec jeton de requete pour ignorer une reponse tardive apres changement de cache ;
+- `EarthCoachRefreshScheduler` reporte le rafraichissement d'un onglet lateral cache : la demande est memorisee et rejouee dans `onAfterShow`, ce qui evite une collecte reseau pour un panneau que personne ne regarde ;
+- la checklist terrain ne relit les cases cochees du `localStorage` que si la cache affichee change : un rafraichissement ne doit jamais decocher ce que l'utilisateur vient de pointer sur le terrain.
+
 ## Calculs geologiques deterministes
 
 Le tool `earthcoach_calculate` (`earthcoach-geo-calculator-tools.ts`) couvre les questions quantitatives frequentes des EarthCaches, la ou un calcul fait "de tete" par le LLM est peu fiable. La logique est entierement deterministe et testee dans `earthcoach-geo-calculator.ts` :
@@ -717,6 +735,7 @@ Ils verifient notamment :
 - mapping observations structurees vers contexte EarthCoach ;
 - fallback notes existantes vers observations ;
 - pre-remplissage des coordonnees d'observation depuis la cache ou le waypoint selectionne ;
+- noms des evenements de fraicheur, filtrage par cache et par origine, report du rafraichissement d'un widget cache ;
 - respect des preferences references ;
 - cache local des references ;
 - ajout des portails BRGM, InfoTerre, GeoWiki et Planet-Terre ;
