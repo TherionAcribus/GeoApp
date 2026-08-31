@@ -9,6 +9,8 @@ import json
 from datetime import datetime, timezone
 import re
 
+from sqlalchemy.orm import selectinload
+
 from ..database import db
 from ..geocaches.models import Geocache
 from ..geocaches.importer import GeocacheImporter
@@ -219,6 +221,19 @@ def _safe_groundspeaks_bool(value: bool) -> str:
     return 'True' if value else 'False'
 
 
+def _sorted_notes(geocache: Geocache) -> list:
+    """Notes de la géocache triées par date décroissante, sans le contenu vide.
+
+    Utilisé à la fois pour l'injection dans la description (mode ``listing``) et
+    pour la sérialisation en ``<groundspeak:logs>`` (mode ``logs``).
+    """
+    return sorted(
+        [n for n in (geocache.notes or []) if getattr(n, 'content', None)],
+        key=lambda n: getattr(n, 'updated_at', None) or getattr(n, 'created_at', None) or datetime.min.replace(tzinfo=timezone.utc),
+        reverse=True,
+    )
+
+
 def _build_groundspeak_gpx_bytes(geocaches: list[Geocache]) -> bytes:
     gpx = ET.Element('gpx')
     gpx.set('xmlns:xsi', 'http://www.w3.org/2001/XMLSchema-instance')
@@ -339,11 +354,7 @@ def _build_groundspeak_gpx_bytes(geocaches: list[Geocache]) -> bytes:
 
         listing_html = geocache.description_html or geocache.description_raw or ''
         if notes_mode == 'listing' and geocache.notes:
-            sorted_notes = sorted(
-                [n for n in (geocache.notes or []) if getattr(n, 'content', None)],
-                key=lambda n: getattr(n, 'updated_at', None) or getattr(n, 'created_at', None) or datetime.min.replace(tzinfo=timezone.utc),
-                reverse=True,
-            )
+            sorted_notes = _sorted_notes(geocache)
             if sorted_notes:
                 notes_block = '\n'.join(
                     f"<p><b>[GeoApp Note - {getattr(n, 'note_type', 'note')}]</b><br/>{getattr(n, 'content', '')}</p>" for n in sorted_notes
@@ -379,11 +390,7 @@ def _build_groundspeak_gpx_bytes(geocaches: list[Geocache]) -> bytes:
             gs_logs = ET.SubElement(gs_cache, 'groundspeak:logs')
 
             if wants_note_logs and has_notes:
-                sorted_notes = sorted(
-                    [n for n in (geocache.notes or []) if getattr(n, 'content', None)],
-                    key=lambda n: getattr(n, 'updated_at', None) or getattr(n, 'created_at', None) or datetime.min.replace(tzinfo=timezone.utc),
-                    reverse=True,
-                )
+                sorted_notes = _sorted_notes(geocache)
                 for note in sorted_notes:
                     gs_log = ET.SubElement(gs_logs, 'groundspeak:log')
                     gs_log.set('id', str(1000000000 + int(getattr(note, 'id', 0) or 0)))
@@ -691,7 +698,20 @@ def export_gpx():
     except (TypeError, ValueError):
         return jsonify({'error': 'Invalid geocache_ids'}), 400
 
-    geocaches = Geocache.query.filter(Geocache.id.in_(geocache_ids)).all()
+    # Chargement eager des relations utilisées par l'export (notes, logs,
+    # waypoints) pour éviter un N+1 : sans cela, chaque accès à
+    # ``geocache.notes``/``logs``/``waypoints`` déclenche une requête SQL
+    # distincte (3 requêtes par géocache, soit ~1500 pour 500 caches).
+    geocaches = (
+        Geocache.query
+        .options(
+            selectinload(Geocache.notes),
+            selectinload(Geocache.logs),
+            selectinload(Geocache.waypoints),
+        )
+        .filter(Geocache.id.in_(geocache_ids))
+        .all()
+    )
     if not geocaches:
         return jsonify({'error': 'No geocaches found'}), 404
 
