@@ -25,6 +25,12 @@ import {
     toggleObservationImageId,
 } from '../earthcoach-observations';
 import {
+    buildQuickActionPicks,
+    buildQuickActionPlaceHolder,
+    CHAT_ICON,
+    PANEL_ICON,
+} from '../earthcoach-quick-actions';
+import {
     buildEarthCoachDescriptionExcerpt,
     buildEarthCoachPrompt,
     DESCRIPTION_GAP_MARKER,
@@ -1024,6 +1030,28 @@ function testApplyEarthCoachModeToSettings(): void {
     assert.equal(readEarthCoachModeFromSettings({}), 'coach');
 }
 
+function testQuickActionIconsAreConsistent(): void {
+    const emojiPattern = /[\u{1F300}-\u{1FAFF}\u{2B00}-\u{2BFF}]/u;
+    const picks = buildQuickActionPicks();
+    const actions = picks.filter(pick => (pick as any).type !== 'separator') as Array<{ label: string }>;
+    assert.ok(actions.length > 0);
+
+    // Chaque action porte exactement un des deux codicons, et aucun emoji de substitution.
+    for (const action of actions) {
+        const hasChat = action.label.startsWith(CHAT_ICON + ' ');
+        const hasPanel = action.label.startsWith(PANEL_ICON + ' ');
+        assert.ok(hasChat !== hasPanel, 'label sans icone unique: ' + action.label);
+        assert.ok(!emojiPattern.test(action.label), 'emoji residuel: ' + action.label);
+    }
+
+    // Le placeHolder est pose sur un attribut d'input DOM: ni codicon brut, ni emoji.
+    const placeHolder = buildQuickActionPlaceHolder();
+    assert.ok(!placeHolder.includes('$('), placeHolder);
+    assert.ok(!emojiPattern.test(placeHolder), placeHolder);
+    assert.ok(placeHolder.includes('chat'), placeHolder);
+    assert.ok(placeHolder.includes('panneau'), placeHolder);
+}
+
 function testImageContextMapping(): void {
     const context = toImageContext(createImages()[1]);
     assert.deepEqual(context, {
@@ -1289,6 +1317,7 @@ async function run(): Promise<void> {
     testModeToolShape();
     testNormalizeEarthCoachMode();
     testApplyEarthCoachModeToSettings();
+    testQuickActionIconsAreConsistent();
     testImageContextMapping();
     testSelectImagesForChatPrioritizesUserObservations();
     testSelectImagesForChatHonorsPreferredIds();
