@@ -86,7 +86,7 @@ interface ThumbnailItemProps {
     isHiddenDomain: boolean;
     isMissing: boolean;
     isChatSelected: boolean;
-    isSaving: boolean;
+    isBusy: boolean;
     thumbnailImageClassName: string;
     thumbnailDimensions: { width: number; height: number };
     resolvedUrl: string;
@@ -99,7 +99,7 @@ interface ThumbnailItemProps {
 }
 
 const ThumbnailItem = React.memo<ThumbnailItemProps>(function ThumbnailItem({
-    img, isSelected, isOcrBusy, isHiddenDomain, isMissing, isChatSelected, isSaving,
+    img, isSelected, isOcrBusy, isHiddenDomain, isMissing, isChatSelected, isBusy,
     thumbnailImageClassName, thumbnailDimensions, resolvedUrl, showChatToggle,
     hasUsefulExifFeature, onCancelOcr, onClick, onContextMenu, onToggleChat,
 }) {
@@ -129,13 +129,13 @@ const ThumbnailItem = React.memo<ThumbnailItemProps>(function ThumbnailItem({
     return (
         <div
             role='button'
-            tabIndex={isSaving ? -1 : 0}
+            tabIndex={isBusy ? -1 : 0}
             data-image-id={img.id}
-            className={`geoapp-images-thumbnail ${isSelected ? 'is-selected' : ''} ${isHiddenDomain ? 'is-hidden-domain' : ''} ${isSaving ? 'is-disabled' : ''}`}
-            onClick={() => { if (!isSaving) { onClick(img.id); } }}
-            onContextMenu={(e) => { if (!isSaving) { onContextMenu(e, img.id); } }}
+            className={`geoapp-images-thumbnail ${isSelected ? 'is-selected' : ''} ${isHiddenDomain ? 'is-hidden-domain' : ''} ${isBusy ? 'is-disabled' : ''}`}
+            onClick={() => { if (!isBusy) { onClick(img.id); } }}
+            onContextMenu={(e) => { if (!isBusy) { onContextMenu(e, img.id); } }}
             onKeyDown={(e) => {
-                if (isSaving) {
+                if (isBusy) {
                     return;
                 }
                 if (e.key === 'Enter' || e.key === ' ') {
@@ -146,7 +146,7 @@ const ThumbnailItem = React.memo<ThumbnailItemProps>(function ThumbnailItem({
             title={img.source_url}
             aria-busy={isOcrBusy}
             aria-pressed={isSelected}
-            aria-disabled={isSaving || undefined}
+            aria-disabled={isBusy || undefined}
         >
             <div className='geoapp-images-thumbnail-frame'>
                 {isMissing || !img.url ? (
@@ -210,7 +210,7 @@ const ThumbnailItem = React.memo<ThumbnailItemProps>(function ThumbnailItem({
                                 onToggleChat(img.id);
                             }}
                             title='Ajouter ou retirer cette image de la sélection chat'
-                            disabled={isSaving}
+                            disabled={isBusy}
                         >
                             CHAT
                         </button>
@@ -248,7 +248,30 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     const [images, setImages] = React.useState<GeocacheImageV2Dto[]>([]);
     const [isLoading, setIsLoading] = React.useState(false);
     const [selectedId, setSelectedId] = React.useState<number | null>(null);
+    // `isSaving` ne bloque plus que les opérations globales (upload, store-all,
+    // analyze-chat). Les opérations par image utilisent `busyImageIds` pour ne
+    // pas geler toute la galerie pendant une action sur une seule vignette.
     const [isSaving, setIsSaving] = React.useState(false);
+
+    // Opérations par image en cours (stockage, suppression, QR, EXIF, etc.).
+    // Permet de désactiver uniquement les actions sur l'image concernée, pas
+    // toute la galerie. L'OCR a son propre état (ocrInProgressById) car il est
+    // annulable.
+    const [busyImageIds, setBusyImageIds] = React.useState<Record<number, true>>({});
+    const setBusyImage = React.useCallback((imageId: number, busy: boolean): void => {
+        setBusyImageIds(prev => {
+            const next = { ...prev };
+            if (busy) {
+                next[imageId] = true;
+            } else {
+                delete next[imageId];
+            }
+            return next;
+        });
+    }, []);
+    const isImageBusy = React.useCallback((imageId: number): boolean => {
+        return Boolean(busyImageIds[imageId]) || Boolean(ocrInProgressById[imageId]);
+    }, [busyImageIds, ocrInProgressById]);
 
     const [ocrInProgressById, setOcrInProgressById] = React.useState<Record<number, true>>({});
     const ocrAbortControllersRef = React.useRef<Record<number, AbortController>>({});
@@ -787,7 +810,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             return;
         }
 
-        setIsSaving(true);
+        setBusyImage(imageId, true);
         messages.info('Découpage du GIF en cours...');
 
         try {
@@ -813,9 +836,9 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             console.error('[GeocacheImagesPanel] split GIF error', e);
             messages.error(`Impossible de découper le GIF: ${String(e)}`);
         } finally {
-            setIsSaving(false);
+            setBusyImage(imageId, false);
         }
-    }, [backendBaseUrl, messages, isAnimatedGifImage, visibleImages, loadImages]);
+    }, [backendBaseUrl, messages, isAnimatedGifImage, visibleImages, loadImages, setBusyImage]);
 
     // Fonctions pour le visualiseur de GIF frame par frame
     const openGifFrameViewer = React.useCallback(async (imageId: number): Promise<void> => {
@@ -963,7 +986,9 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             return undefined;
         }
 
-        setIsSaving(true);
+        // Note : isSaving est géré par l'appelant (uploadNewImages), pas ici,
+        // pour éviter le clignotement du flag entre chaque fichier d'un upload
+        // multiple.
         try {
             const formData = new FormData();
             formData.append('image_file', file);
@@ -1006,8 +1031,6 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             console.error('[GeocacheImagesPanel] upload image error', e);
             messages.error(`Impossible d'ajouter l'image (${String(e)})`);
             return undefined;
-        } finally {
-            setIsSaving(false);
         }
     };
 
@@ -1016,14 +1039,15 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
         if (!validFiles.length) {
             return;
         }
-        if (validFiles.length === 1) {
-            await uploadNewImage(validFiles[0]);
-            return;
-        }
 
-        const createdIds: number[] = [];
         setIsSaving(true);
         try {
+            if (validFiles.length === 1) {
+                await uploadNewImage(validFiles[0]);
+                return;
+            }
+
+            const createdIds: number[] = [];
             for (const file of validFiles) {
                 const created = await uploadNewImage(file, false);
                 if (created?.id) {
@@ -1042,7 +1066,11 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                     return next;
                 });
             }
-            messages.info(`${createdIds.length} image(s) ajoutee(s)`);
+            if (createdIds.length === 0) {
+                messages.error('Aucune image n\'a pu être ajoutée');
+            } else {
+                messages.info(`${createdIds.length} image(s) ajoutee(s)`);
+            }
         } finally {
             setIsSaving(false);
         }
@@ -1150,7 +1178,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     };
 
     const duplicateImageById = async (imageId: number): Promise<void> => {
-        setIsSaving(true);
+        setBusyImage(imageId, true);
         try {
             const source = images.find(i => i.id === imageId) ?? visibleImages.find(i => i.id === imageId);
             if (source && canStoreImage(source)) {
@@ -1179,7 +1207,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             console.error('[GeocacheImagesPanel] duplicate image error', e);
             messages.error(`Impossible de dupliquer l'image : ${String(e)}`);
         } finally {
-            setIsSaving(false);
+            setBusyImage(imageId, false);
         }
     };
 
@@ -1528,7 +1556,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
         if (!selected) {
             return;
         }
-        setIsSaving(true);
+        setBusyImage(selected.id, true);
         try {
             const payload = {
                 title: draftTitle,
@@ -1544,7 +1572,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
         } catch (e) {
             console.error('[GeocacheImagesPanel] save metadata error', e);
         } finally {
-            setIsSaving(false);
+            setBusyImage(selected.id, false);
         }
     };
 
@@ -1585,7 +1613,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             return;
         }
 
-        setIsSaving(true);
+        setBusyImage(imageId, true);
         const progress = await messages.showProgress(
             { text: 'Décodage QR…', options: { cancelable: false, location: 'notification' } }
         );
@@ -1655,7 +1683,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             messages.error(`Erreur décodage QR: ${String(e)}`);
         } finally {
             progress.cancel();
-            setIsSaving(false);
+            setBusyImage(imageId, false);
         }
     };
 
@@ -1669,7 +1697,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
         const silent = Boolean(options.silent);
         const preserveSelection = Boolean(options.preserveSelection);
         if (!silent) {
-            setIsSaving(true);
+            setBusyImage(imageId, true);
         }
         const progress = silent
             ? null
@@ -1757,7 +1785,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
         } finally {
             progress?.cancel();
             if (!silent) {
-                setIsSaving(false);
+                setBusyImage(imageId, false);
             }
         }
     };
@@ -1895,7 +1923,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             return;
         }
 
-        setIsSaving(true);
+        setBusyImage(imageId, true);
         try {
             const res = await fetch(`${backendBaseUrl}/api/geocache-images/${imageId}/store`, {
                 method: 'POST',
@@ -1911,7 +1939,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             console.error('[GeocacheImagesPanel] store image error', e);
             messages.error(`Impossible de stocker l'image : ${String(e)}`);
         } finally {
-            setIsSaving(false);
+            setBusyImage(imageId, false);
         }
     };
 
@@ -1921,7 +1949,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             return;
         }
 
-        setIsSaving(true);
+        setBusyImage(imageId, true);
         try {
             const res = await fetch(`${backendBaseUrl}/api/geocache-images/${imageId}/unstore`, {
                 method: 'POST',
@@ -1937,7 +1965,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             console.error('[GeocacheImagesPanel] unstore image error', e);
             messages.error(`Impossible de supprimer le stockage local : ${String(e)}`);
         } finally {
-            setIsSaving(false);
+            setBusyImage(imageId, false);
         }
     };
 
@@ -1956,7 +1984,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             return;
         }
 
-        setIsSaving(true);
+        setBusyImage(imageId, true);
         try {
             const res = await fetch(`${backendBaseUrl}/api/geocache-images/${imageId}`, {
                 method: 'DELETE',
@@ -1974,7 +2002,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
             console.error('[GeocacheImagesPanel] delete image error', e);
             messages.error(`Impossible de supprimer l'image : ${String(e)}`);
         } finally {
-            setIsSaving(false);
+            setBusyImage(imageId, false);
         }
     };
 
@@ -2100,7 +2128,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
 
     const selectedImage = selected;
     const showDetails = Boolean(selectedImage);
-    const isContextMenuOcrBusy = contextMenu ? Boolean(ocrInProgressById[contextMenu.imageId]) : false;
+    const isContextMenuImageBusy = contextMenu ? (isImageBusy(contextMenu.imageId) || isSaving) : false;
     const contextMenuImage = contextMenu ? (visibleImages.find(i => i.id === contextMenu.imageId) ?? null) : null;
     const isContextMenuGoogleSearchEnabled = canSearchImageOnGoogle(contextMenuImage);
     const isContextMenuStoreEnabled = canStoreImage(contextMenuImage);
@@ -2112,22 +2140,22 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
         {
             label: 'Éditer l\'image…',
             action: () => { openImageEditor(contextMenu.imageId); },
-            disabled: isSaving,
+            disabled: isContextMenuImageBusy,
         },
         {
             label: 'Dupliquer l\'image',
             action: () => { void duplicateImageById(contextMenu.imageId); },
-            disabled: isSaving,
+            disabled: isContextMenuImageBusy,
         },
         {
             label: 'Télécharger l\'image',
             action: () => { void downloadImageById(contextMenu.imageId); },
-            disabled: isSaving || !Boolean(contextMenuImage?.stored),
+            disabled: isContextMenuImageBusy || !Boolean(contextMenuImage?.stored),
         },
         {
             label: 'Rechercher sur Google (Lens)',
             action: () => { void searchImageOnGoogleById(contextMenu.imageId); },
-            disabled: isSaving || !isContextMenuGoogleSearchEnabled,
+            disabled: isContextMenuImageBusy || !isContextMenuGoogleSearchEnabled,
         },
         {
             separator: true,
@@ -2135,32 +2163,32 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
         {
             label: 'Décoder QR (plugin)',
             action: () => { void decodeQrFromImage(contextMenu.imageId); },
-            disabled: isSaving,
+            disabled: isContextMenuImageBusy,
         },
         {
             label: 'Lire Exif (plugin)',
             action: () => { void readExifFromImage(contextMenu.imageId); },
-            disabled: isSaving,
+            disabled: isContextMenuImageBusy,
         },
         {
             label: `OCR (défaut: ${ocrDefaultEngine === 'vision_ocr' ? 'IA' : 'EasyOCR'})`,
             action: () => { void runDefaultOcrForImage(contextMenu.imageId); },
-            disabled: isSaving || isContextMenuOcrBusy,
+            disabled: isContextMenuImageBusy,
         },
         {
             label: 'OCR (EasyOCR)',
             action: () => { void runOcrPluginForImage(contextMenu.imageId, 'easyocr_ocr'); },
-            disabled: isSaving || isContextMenuOcrBusy,
+            disabled: isContextMenuImageBusy,
         },
         {
             label: `OCR (IA - ${ocrVisionProvider === 'openrouter' ? 'OpenRouter' : 'LMStudio'})`,
             action: () => { void runOcrPluginForImage(contextMenu.imageId, 'vision_ocr'); },
-            disabled: isSaving || isContextMenuOcrBusy,
+            disabled: isContextMenuImageBusy,
         },
         {
             label: 'OCR (IA - Cloud)',
             action: () => { void runCloudOcrForImage(contextMenu.imageId); },
-            disabled: isSaving || isContextMenuOcrBusy,
+            disabled: isContextMenuImageBusy,
         },
         {
             separator: true,
@@ -2168,28 +2196,28 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
         {
             label: 'Stocker localement',
             action: () => { void storeImageById(contextMenu.imageId); },
-            disabled: isSaving || !isContextMenuStoreEnabled,
+            disabled: isContextMenuImageBusy || !isContextMenuStoreEnabled,
         },
         ...(isContextMenuUnstoreEnabled ? [{
             label: 'Supprimer stockage local',
             action: () => { void unstoreImageById(contextMenu.imageId); },
-            disabled: isSaving,
+            disabled: isContextMenuImageBusy,
             danger: true,
         }] : []),
         ...(isContextMenuDeleteEnabled ? [{
             label: 'Supprimer l\'image',
             action: () => { void deleteImageById(contextMenu.imageId); },
-            disabled: isSaving,
+            disabled: isContextMenuImageBusy,
             danger: true,
         }] : []),
         ...(isContextMenuGifEnabled ? [{
             label: 'Découper GIF animé',
             action: () => { void splitAnimatedGif(contextMenu.imageId); },
-            disabled: isSaving,
+            disabled: isContextMenuImageBusy,
         }, {
             label: 'Voir frame par frame',
             action: () => { void openGifFrameViewer(contextMenu.imageId); },
-            disabled: isSaving,
+            disabled: isContextMenuImageBusy,
         }] : []),
         {
             separator: true,
@@ -2218,7 +2246,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     const selectedCanUnstore = canUnstoreImage(selectedImage);
     const selectedCanDelete = canDeleteImage(selectedImage);
     const selectedCanGoogle = canSearchImageOnGoogle(selectedImage);
-    const selectedIsOcrBusy = selectedImage ? Boolean(ocrInProgressById[selectedImage.id]) : false;
+    const selectedIsBusy = selectedImage ? (isImageBusy(selectedImage.id) || isSaving) : false;
     const selectedIsHidden = Boolean(selectedImage && isHiddenByDomain(selectedImage.source_url));
     const selectedIsMissing = isMissingLocalImage(selectedImage);
     const selectedIsAnimatedGif = isAnimatedGifImage(selectedImage);
@@ -2400,24 +2428,24 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                         {
                             label: 'Dupliquer',
                             action: () => { void duplicateImageById(selectedImage.id); },
-                            disabled: isSaving || selectedIsMissing,
+                            disabled: selectedIsBusy || selectedIsMissing,
                         },
                         {
                             label: 'Télécharger',
                             action: () => { void downloadImageById(selectedImage.id); },
-                            disabled: isSaving || !selectedImage.stored,
+                            disabled: selectedIsBusy || !selectedImage.stored,
                         },
                         ...(selectedIsAnimatedGif ? [
                             { separator: true } as ContextMenuItem,
                             {
                                 label: 'Découper GIF',
                                 action: () => { void splitAnimatedGif(selectedImage.id); },
-                                disabled: isSaving || selectedIsMissing,
+                                disabled: selectedIsBusy || selectedIsMissing,
                             },
                             {
                                 label: 'Frames GIF',
                                 action: () => { void openGifFrameViewer(selectedImage.id); },
-                                disabled: isSaving,
+                                disabled: selectedIsBusy,
                             },
                         ] : []),
                     ]}
@@ -2444,7 +2472,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                                     isHiddenDomain={isHiddenByDomain(img.source_url)}
                                     isMissing={isMissingLocalImage(img)}
                                     isChatSelected={chatImageIdsSet.has(img.id)}
-                                    isSaving={isSaving}
+                                    isBusy={isImageBusy(img.id) || isSaving}
                                     thumbnailImageClassName={thumbnailImageClassName}
                                     thumbnailDimensions={thumbnailDimensions}
                                     resolvedUrl={resolveImageUrl(img.url)}
@@ -2499,23 +2527,23 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                                 </div>
 
                                 <div className='geoapp-images-action-bar'>
-                                    <button className='theia-button geoapp-images-icon-button' type='button' onClick={() => openImageEditor(selectedImage.id)} disabled={isSaving || selectedIsMissing}>
+                                    <button className='theia-button geoapp-images-icon-button' type='button' onClick={() => openImageEditor(selectedImage.id)} disabled={selectedIsBusy || selectedIsMissing}>
                                         <span className='codicon codicon-edit' />
                                         Éditer
                                     </button>
-                                    <button className='theia-button secondary geoapp-images-icon-button' type='button' onClick={() => { void runDefaultOcrForImage(selectedImage.id); }} disabled={isSaving || selectedIsOcrBusy || selectedIsMissing}>
+                                    <button className='theia-button secondary geoapp-images-icon-button' type='button' onClick={() => { void runDefaultOcrForImage(selectedImage.id); }} disabled={selectedIsBusy || selectedIsMissing}>
                                         <span className='codicon codicon-whole-word' />
                                         OCR
                                     </button>
-                                    <button className='theia-button secondary geoapp-images-icon-button' type='button' onClick={() => { void decodeQrFromImage(selectedImage.id); }} disabled={isSaving || selectedIsMissing}>
+                                    <button className='theia-button secondary geoapp-images-icon-button' type='button' onClick={() => { void decodeQrFromImage(selectedImage.id); }} disabled={selectedIsBusy || selectedIsMissing}>
                                         <span className='codicon codicon-key' />
                                         QR
                                     </button>
-                                    <button className='theia-button secondary geoapp-images-icon-button' type='button' onClick={() => { void readExifFromImage(selectedImage.id); }} disabled={isSaving || selectedIsMissing}>
+                                    <button className='theia-button secondary geoapp-images-icon-button' type='button' onClick={() => { void readExifFromImage(selectedImage.id); }} disabled={selectedIsBusy || selectedIsMissing}>
                                         <span className='codicon codicon-info' />
                                         Exif
                                     </button>
-                                    <button className='theia-button secondary geoapp-images-icon-button' type='button' onClick={() => { void searchImageOnGoogleById(selectedImage.id); }} disabled={isSaving || !selectedCanGoogle}>
+                                    <button className='theia-button secondary geoapp-images-icon-button' type='button' onClick={() => { void searchImageOnGoogleById(selectedImage.id); }} disabled={selectedIsBusy || !selectedCanGoogle}>
                                         <span className='codicon codicon-search' />
                                         Lens
                                     </button>
@@ -2524,7 +2552,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                                             className='theia-button secondary geoapp-images-icon-button'
                                             type='button'
                                             onClick={() => toggleChatImage(selectedImage.id)}
-                                            disabled={isSaving}
+                                            disabled={selectedIsBusy}
                                         >
                                             <span className={chatImageIdsSet.has(selectedImage.id) ? 'codicon codicon-check' : 'codicon codicon-add'} />
                                             {chatImageIdsSet.has(selectedImage.id) ? 'Retirer chat' : 'Ajouter chat'}
@@ -2533,7 +2561,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                                     <button
                                         className='theia-button secondary geoapp-images-icon-button'
                                         type='button'
-                                        disabled={isSaving}
+                                        disabled={selectedIsBusy}
                                         title="Plus d'actions"
                                         onClick={(e) => {
                                             const rect = e.currentTarget.getBoundingClientRect();
@@ -2618,7 +2646,7 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                                                 Modifié
                                             </span>
                                         ) : undefined}
-                                        <button className='theia-button' onClick={saveMetadata} disabled={isSaving || !hasDirtyMetadata} type='button'>
+                                        <button className='theia-button' onClick={saveMetadata} disabled={selectedIsBusy || !hasDirtyMetadata} type='button'>
                                             Sauvegarder
                                         </button>
                                     </div>
@@ -2627,13 +2655,13 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                                 <div className='geoapp-images-inspector-section'>
                                     <h4>Stockage</h4>
                                     <div className='geoapp-images-storage-actions'>
-                                        <button className='theia-button secondary' onClick={storeSelected} disabled={isSaving || !selectedCanStore} type='button'>
+                                        <button className='theia-button secondary' onClick={storeSelected} disabled={selectedIsBusy || !selectedCanStore} type='button'>
                                             Stocker localement
                                         </button>
-                                        <button className='theia-button secondary' onClick={() => { void unstoreImageById(selectedImage.id); }} disabled={isSaving || !selectedCanUnstore} type='button'>
+                                        <button className='theia-button secondary' onClick={() => { void unstoreImageById(selectedImage.id); }} disabled={selectedIsBusy || !selectedCanUnstore} type='button'>
                                             Retirer local
                                         </button>
-                                        <button className='theia-button secondary geoapp-images-danger-button' onClick={() => { void deleteImageById(selectedImage.id); }} disabled={isSaving || !selectedCanDelete} type='button'>
+                                        <button className='theia-button secondary geoapp-images-danger-button' onClick={() => { void deleteImageById(selectedImage.id); }} disabled={selectedIsBusy || !selectedCanDelete} type='button'>
                                             Supprimer
                                         </button>
                                     </div>
