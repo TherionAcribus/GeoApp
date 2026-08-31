@@ -563,6 +563,38 @@ def matches_metasolver_filter(metasolver_meta: Dict[str, Any], preset_filter: Op
     return True
 
 
+def extract_metasolver_key_fields(metadata: Dict[str, Any]) -> List[str]:
+    """
+    Extrait les noms des champs qui ressemblent à une clé de décodage
+    (key, keyword, candidate_keys, *_key, etc.) depuis les input_types
+    d'un plugin. Utilisé pour enrichir les candidats metasolver avec
+    key_fields et dériver requires_key.
+    """
+    input_types = metadata.get('input_types') if isinstance(metadata.get('input_types'), dict) else {}
+    key_fields: List[str] = []
+    for field_name, field_def in input_types.items():
+        normalized = str(field_name or '').strip().lower()
+        if not normalized:
+            continue
+        label = ''
+        description = ''
+        if isinstance(field_def, dict):
+            label = str(field_def.get('label') or '').lower()
+            description = str(field_def.get('description') or '').lower()
+        key_like = (
+            normalized in {'key', 'keyword', 'candidate_keys', 'transpo_key', 'polybius_key'}
+            or normalized.endswith('_key')
+            or (normalized.endswith('_keys') and 'candidate' in normalized)
+            or 'cle' in label
+            or 'key' in label
+            or 'cle' in description
+            or 'key' in description
+        )
+        if key_like:
+            key_fields.append(str(field_name))
+    return key_fields
+
+
 def collect_metasolver_candidates(
     *,
     preset_filter: Optional[Dict[str, Any]] = None,
@@ -570,7 +602,8 @@ def collect_metasolver_candidates(
 ) -> List[Dict[str, Any]]:
     """
     Collecte tous les plugins éligibles au metasolver depuis la base de données,
-    filtrés par preset et mode.
+    filtrés par preset et mode. Chaque candidat est enrichi avec key_fields
+    et requires_key dérivé des input_types.
     """
     from ..plugins.models import Plugin as PluginModel
 
@@ -602,6 +635,13 @@ def collect_metasolver_candidates(
         except Exception:
             priority = 50
 
+        key_fields = extract_metasolver_key_fields(metadata)
+        input_types = metadata.get('input_types') if isinstance(metadata.get('input_types'), dict) else {}
+        required_key_field = any(
+            isinstance(input_types.get(field), dict) and bool(input_types[field].get('required'))
+            for field in key_fields
+        )
+
         candidates.append({
             'name': plugin.name,
             'description': plugin.description or '',
@@ -611,7 +651,8 @@ def collect_metasolver_candidates(
             'capabilities': capabilities,
             'family': metasolver_meta.get('family'),
             'preferred_when': list(metasolver_meta.get('preferred_when') or []),
-            'requires_key': bool(metasolver_meta.get('requires_key', False)),
+            'requires_key': bool(metasolver_meta.get('requires_key', False) or required_key_field),
+            'key_fields': key_fields,
             'supports_grouped_input': bool(metasolver_meta.get('supports_grouped_input', False)),
         })
 
