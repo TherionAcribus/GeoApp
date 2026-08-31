@@ -297,10 +297,45 @@
 .geoapp-images-badge--interactive {
     cursor: pointer;
     user-select: none;
+    /* Reset des styles natifs des <button> : le toggle chat était un <span>. */
+    background: transparent;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    padding: 1px 4px;
+    font: inherit;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.2;
 }
 
 .geoapp-images-badge--interactive:hover {
     opacity: 0.75;
+}
+
+.geoapp-images-badge--interactive:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+/* Reset des styles natifs du <button> d'annulation OCR (était un <span>). */
+button.geoapp-images-thumbnail-cancel {
+    background: var(--theia-inputValidation-errorBackground);
+    color: var(--theia-inputValidation-errorForeground);
+    border: none;
+    padding: 0;
+    font: inherit;
+    line-height: 1;
+    cursor: pointer;
+}
+
+button.geoapp-images-thumbnail-cancel:hover {
+    opacity: 0.85;
+}
+
+/* Vignette désactivée pendant une opération globale (isSaving). */
+.geoapp-images-thumbnail.is-disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
 }
 
 .geoapp-images-preview,

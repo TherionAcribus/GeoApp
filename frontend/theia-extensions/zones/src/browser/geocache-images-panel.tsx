@@ -127,16 +127,26 @@ const ThumbnailItem = React.memo<ThumbnailItemProps>(function ThumbnailItem({
     if (img.parent_image_id) { badges.push({ label: 'DÉRIVÉE', tone: 'neutral' }); }
 
     return (
-        <button
-            type='button'
+        <div
+            role='button'
+            tabIndex={isSaving ? -1 : 0}
             data-image-id={img.id}
-            className={`geoapp-images-thumbnail ${isSelected ? 'is-selected' : ''} ${isHiddenDomain ? 'is-hidden-domain' : ''}`}
-            onClick={() => onClick(img.id)}
-            onContextMenu={(e) => onContextMenu(e, img.id)}
+            className={`geoapp-images-thumbnail ${isSelected ? 'is-selected' : ''} ${isHiddenDomain ? 'is-hidden-domain' : ''} ${isSaving ? 'is-disabled' : ''}`}
+            onClick={() => { if (!isSaving) { onClick(img.id); } }}
+            onContextMenu={(e) => { if (!isSaving) { onContextMenu(e, img.id); } }}
+            onKeyDown={(e) => {
+                if (isSaving) {
+                    return;
+                }
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onClick(img.id);
+                }
+            }}
             title={img.source_url}
-            disabled={isSaving}
             aria-busy={isOcrBusy}
             aria-pressed={isSelected}
+            aria-disabled={isSaving || undefined}
         >
             <div className='geoapp-images-thumbnail-frame'>
                 {isMissing || !img.url ? (
@@ -162,25 +172,18 @@ const ThumbnailItem = React.memo<ThumbnailItemProps>(function ThumbnailItem({
                 )}
 
                 {isOcrBusy && (
-                    <span
-                        role='button'
-                        tabIndex={0}
+                    <button
+                        type='button'
                         className='geoapp-images-thumbnail-cancel'
                         onClick={(e) => {
                             e.stopPropagation();
                             onCancelOcr(img.id);
                         }}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                onCancelOcr(img.id);
-                            }
-                        }}
                         title="Annuler l'OCR"
+                        aria-label="Annuler l'OCR"
                     >
                         ×
-                    </span>
+                    </button>
                 )}
             </div>
 
@@ -196,31 +199,25 @@ const ThumbnailItem = React.memo<ThumbnailItemProps>(function ThumbnailItem({
                         </span>
                     ))}
                     {showChatToggle && (
-                        <span
+                        <button
+                            type='button'
                             role='checkbox'
                             aria-checked={isChatSelected}
-                            tabIndex={0}
                             className={`geoapp-images-badge geoapp-images-badge--interactive ${isChatSelected ? 'geoapp-images-badge--accent' : 'geoapp-images-badge--neutral'}`}
                             onClick={(event) => {
                                 event.preventDefault();
                                 event.stopPropagation();
                                 onToggleChat(img.id);
                             }}
-                            onKeyDown={(event) => {
-                                if (event.key === 'Enter' || event.key === ' ') {
-                                    event.preventDefault();
-                                    event.stopPropagation();
-                                    onToggleChat(img.id);
-                                }
-                            }}
                             title='Ajouter ou retirer cette image de la sélection chat'
+                            disabled={isSaving}
                         >
                             CHAT
-                        </span>
+                        </button>
                     )}
                 </div>
             )}
-        </button>
+        </div>
     );
 });
 
