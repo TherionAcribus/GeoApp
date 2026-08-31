@@ -293,7 +293,7 @@ const NoteItem = React.memo(function NoteItem(props: NoteItemProps): React.JSX.E
     };
 
     return (
-        <div style={noteCardStyle}>
+        <div style={noteCardStyle} data-note-id={note.id}>
             <div style={rowBetweenStyle}>
                 <div style={badgeRowStyle}>
                     <span style={{ ...typeBadgeBaseStyle, color: typeColor, borderColor: typeColor }}>
@@ -488,7 +488,7 @@ export function GeocacheNotesView(props: GeocacheNotesViewProps): React.JSX.Elem
                     </div>
                 ) : (
                     <>
-                        <div style={gcNoteBoxStyle}>
+                        <div style={gcNoteBoxStyle} data-gc-note='true'>
                             {props.gcPersonalNote && props.gcPersonalNote.trim().length > 0
                                 ? props.gcPersonalNote
                                 : 'Aucune note personnelle trouvée sur Geocaching.com.'}

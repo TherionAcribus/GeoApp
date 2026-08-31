@@ -15,6 +15,21 @@ import {
     SyncNoteToGeocachingResponse
 } from './geocache-notes-types';
 
+// Types minimaux pour l'integration avec le module de recherche GeoApp
+// (duck-typed : le SearchService detecte getSearchableContent via typeof check).
+interface SearchableContent {
+    id: string;
+    text: string;
+    element?: HTMLElement;
+}
+interface SearchMatch {
+    index: number;
+    contentId: string;
+    startOffset: number;
+    endOffset: number;
+    matchText: string;
+}
+
 @injectable()
 export class GeocacheNotesWidget extends ReactWidget {
     static readonly ID = 'geocache.notes.widget';
@@ -644,5 +659,68 @@ export class GeocacheNotesWidget extends ReactWidget {
                 onSaveGcNote={this.handleSaveGcNote}
             />
         );
+    }
+
+    // --- SearchableWidget implementation ---
+
+    getSearchableContent(): SearchableContent[] {
+        const contents: SearchableContent[] = [];
+
+        // Note personnelle GC.com (section lecture seule uniquement — pas en mode édition).
+        if (!this.isEditingGcNote && this.gcPersonalNote && this.gcPersonalNote.trim().length > 0) {
+            const gcEl = this.node.querySelector<HTMLElement>('[data-gc-note="true"]');
+            contents.push({
+                id: 'gc-personal-note',
+                text: this.gcPersonalNote,
+                element: gcEl || undefined
+            });
+        }
+
+        // Notes applicatives (contenu uniquement, pas en mode édition).
+        for (const note of this.notes) {
+            if (this.editingNoteId === note.id) {
+                continue; // En cours d'édition : le contenu change, on skip.
+            }
+            const noteEl = this.node.querySelector<HTMLElement>(`[data-note-id="${note.id}"]`);
+            contents.push({
+                id: `note-${note.id}`,
+                text: note.content || '',
+                element: noteEl || undefined
+            });
+        }
+
+        return contents;
+    }
+
+    revealMatch(match: SearchMatch): void {
+        this.clearSearchHighlights();
+        const target = this.findSearchableElement(match.contentId);
+        if (!target) {
+            return;
+        }
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        target.classList.add('geoapp-search-active');
+        target.style.transition = 'outline 0.2s ease';
+        target.style.outline = '2px solid var(--theia-search-findMatch, #ffd700)';
+        target.style.outlineOffset = '2px';
+    }
+
+    clearSearchHighlights(): void {
+        const highlighted = this.node.querySelectorAll('.geoapp-search-active');
+        highlighted.forEach(el => {
+            el.classList.remove('geoapp-search-active');
+            el.removeAttribute('style');
+        });
+    }
+
+    protected findSearchableElement(contentId: string): HTMLElement | null {
+        if (contentId === 'gc-personal-note') {
+            return this.node.querySelector<HTMLElement>('[data-gc-note="true"]');
+        }
+        if (contentId.startsWith('note-')) {
+            const noteId = contentId.slice(5);
+            return this.node.querySelector<HTMLElement>(`[data-note-id="${noteId}"]`);
+        }
+        return null;
     }
 }
