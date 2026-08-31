@@ -29,6 +29,25 @@ const sectionTitle = (name: string, shown: number, total: number): string =>
     total > shown ? `${name} (${shown} sur ${total})` : `${name} (${total})`;
 
 /**
+ * Périmètres proposés par le sélecteur. `target` complète « Rechercher … » et
+ * sert au placeholder comme à l'invite de départ : les trois libellés sont ainsi
+ * dérivés d'une même source et ne peuvent pas annoncer un périmètre différent de
+ * celui qui est actif.
+ */
+const SCOPES: readonly { value: SearchScope; label: string; target: string }[] = [
+    { value: 'all', label: 'Tout', target: 'partout' },
+    { value: 'open_tabs', label: 'Onglets ouverts', target: 'dans les onglets ouverts' },
+    { value: 'database', label: 'Base de données', target: 'dans la base de données' },
+    { value: 'geocaches', label: 'Géocaches', target: 'dans les géocaches' },
+    { value: 'logs', label: 'Logs', target: 'dans les logs' },
+    { value: 'notes', label: 'Notes', target: 'dans les notes' },
+    { value: 'plugins', label: 'Plugins', target: 'dans les plugins' },
+    { value: 'alphabets', label: 'Alphabets', target: 'dans les alphabets' }
+];
+
+const scopeInfo = (scope: SearchScope) => SCOPES.find(s => s.value === scope) ?? SCOPES[0];
+
+/**
  * Props rendant un élément non natif accessible au clavier (focusable + activable
  * par Entrée/Espace), tout en conservant l'activation à la souris.
  */
@@ -165,6 +184,7 @@ const GlobalSearchComponent: React.FC<{
 
     const hasQuery = localQuery.trim().length > 0;
     const isShortQuery = hasQuery && localQuery.trim().length < MIN_QUERY_LENGTH;
+    const activeScope = scopeInfo(state.scope);
 
     return (
         <div className='geoapp-gs-container'>
@@ -175,7 +195,7 @@ const GlobalSearchComponent: React.FC<{
                         ref={inputRef}
                         className='geoapp-gs-input'
                         type='text'
-                        placeholder='Rechercher partout…'
+                        placeholder={`Rechercher ${activeScope.target}…`}
                         value={localQuery}
                         onChange={handleQueryChange}
                         onKeyDown={handleKeyDown}
@@ -223,14 +243,9 @@ const GlobalSearchComponent: React.FC<{
                         value={state.scope}
                         onChange={(e) => onUpdateScope(e.target.value as SearchScope)}
                     >
-                        <option value='all'>Tout</option>
-                        <option value='open_tabs'>Onglets ouverts</option>
-                        <option value='database'>Base de données</option>
-                        <option value='geocaches'>Géocaches</option>
-                        <option value='logs'>Logs</option>
-                        <option value='notes'>Notes</option>
-                        <option value='plugins'>Plugins</option>
-                        <option value='alphabets'>Alphabets</option>
+                        {SCOPES.map(s => (
+                            <option key={s.value} value={s.value}>{s.label}</option>
+                        ))}
                     </select>
                 </div>
             </div>
@@ -257,7 +272,7 @@ const GlobalSearchComponent: React.FC<{
             <div className='geoapp-gs-results'>
                 {!hasQuery && !state.isSearching && (
                     <div className='geoapp-gs-placeholder'>
-                        Tapez un terme pour rechercher dans les onglets ouverts et la base de données.
+                        Tapez un terme pour rechercher {activeScope.target}.
                     </div>
                 )}
 
