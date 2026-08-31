@@ -1,5 +1,10 @@
 import * as assert from 'assert/strict';
-import { buildEarthCoachFieldChecklist, formatEarthCoachFieldChecklistMarkdown } from '../earthcoach-field-checklist';
+import {
+    buildEarthCoachFieldChecklist,
+    buildEarthCoachFieldChecklistFileName,
+    fieldChecklistItemKey,
+    formatEarthCoachFieldChecklistMarkdown,
+} from '../earthcoach-field-checklist';
 import { buildEarthCoachImageGallery } from '../earthcoach-image-gallery';
 import {
     applyObservationCoordinatesFill,
@@ -505,6 +510,75 @@ function testFieldChecklistBuilder(): void {
     assert.match(markdown, /# Earth test/);
     assert.match(markdown, /## A photographier/);
     assert.match(markdown, /- \[ \] /);
+}
+
+function testFieldChecklistMarkdownExport(): void {
+    const checklist = buildEarthCoachFieldChecklist({
+        geocacheData: {
+            id: 42,
+            gc_code: 'GC123',
+            name: 'Earth test',
+            type: 'EarthCache',
+            description_html: '<p>Quelle couleur ?</p>',
+        },
+        observations: [],
+        loggingTasks: [],
+        gcPersonalNote: null,
+        images: [],
+    });
+
+    assert.equal(checklist.reference, 'GC123');
+    assert.equal(
+        buildEarthCoachFieldChecklistFileName(checklist, new Date(2026, 7, 31)),
+        'earthcoach-terrain-gc123-2026-08-31.md'
+    );
+
+    // Le fichier exporte doit refleter les cases cochees dans le widget.
+    const section = checklist.sections[0];
+    const checked = new Set([fieldChecklistItemKey(section.title, section.items[0])]);
+    const markdown = formatEarthCoachFieldChecklistMarkdown(checklist, checked);
+    assert.ok(markdown.includes(`- [x] ${section.items[0]}`));
+    assert.ok(markdown.includes(`- [ ] ${section.items[1]}`));
+}
+
+function testFieldChecklistFileNameFallbacks(): void {
+    const noGcCode = buildEarthCoachFieldChecklist({
+        geocacheData: {
+            id: 77,
+            name: 'Grotte de l Eboulis',
+            type: 'EarthCache',
+        },
+        observations: [],
+        loggingTasks: [],
+        gcPersonalNote: null,
+        images: [],
+    });
+
+    // Sans code GC, la reference reste l'id GeoApp (meme cle que le stockage local),
+    // mais le nom de fichier reste lisible hors application.
+    assert.equal(noGcCode.reference, '77');
+    assert.equal(
+        buildEarthCoachFieldChecklistFileName(noGcCode, new Date(2026, 0, 5)),
+        'earthcoach-terrain-geoapp-77-2026-01-05.md'
+    );
+
+    const accented = {
+        title: 'Falaise \u00c9boulis !',
+        subtitle: 'sans code',
+        reference: '',
+        meta: [],
+        sections: [],
+    };
+    assert.equal(
+        buildEarthCoachFieldChecklistFileName(accented, new Date(2026, 11, 1)),
+        'earthcoach-terrain-falaise-eboulis-2026-12-01.md'
+    );
+
+    const untitled = { title: '', subtitle: '', reference: '', meta: [], sections: [] };
+    assert.equal(
+        buildEarthCoachFieldChecklistFileName(untitled, new Date(2026, 11, 1)),
+        'earthcoach-terrain-earthcache-2026-12-01.md'
+    );
 }
 
 function testImageGalleryGroupsByOrigin(): void {
@@ -1118,6 +1192,8 @@ async function run(): Promise<void> {
     testObservationInputBuilder();
     testObservationCoordinatesPrefill();
     testFieldChecklistBuilder();
+    testFieldChecklistMarkdownExport();
+    testFieldChecklistFileNameFallbacks();
     testImageGalleryGroupsByOrigin();
     testResolverInstructionDoesNotPretendTerrain();
     testPromptIncludesLoggingTasks();

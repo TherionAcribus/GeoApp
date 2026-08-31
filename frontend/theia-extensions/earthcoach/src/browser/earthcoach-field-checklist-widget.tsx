@@ -5,6 +5,7 @@ import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { EarthCoachContext } from './earthcoach-context-service';
 import {
     buildEarthCoachFieldChecklist,
+    buildEarthCoachFieldChecklistFileName,
     EarthCoachFieldChecklist,
     fieldChecklistItemKey,
     formatEarthCoachFieldChecklistMarkdown,
@@ -16,6 +17,7 @@ interface EarthCoachFieldChecklistViewProps {
     checkedKeys: ReadonlySet<string>;
     onToggle: (key: string) => void;
     onCopy: () => void | Promise<void>;
+    onExport: () => void;
     onPrint: () => void;
 }
 
@@ -56,6 +58,14 @@ function EarthCoachFieldChecklistView(props: EarthCoachFieldChecklistViewProps):
                         <div className='earthcoach-field-actions' style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                             <button className='theia-button secondary' type='button' onClick={() => { void props.onCopy(); }}>
                                 Copier Markdown
+                            </button>
+                            <button
+                                className='theia-button secondary'
+                                type='button'
+                                title='Telecharger la checklist au format Markdown (.md)'
+                                onClick={props.onExport}
+                            >
+                                Exporter .md
                             </button>
                             <button className='theia-button' type='button' onClick={props.onPrint}>
                                 Imprimer
@@ -149,8 +159,7 @@ export class EarthCoachFieldChecklistWidget extends ReactWidget {
 
     setContext(context: EarthCoachContext): void {
         this.checklist = buildEarthCoachFieldChecklist(context);
-        const cacheRef = context.geocacheData.gc_code || String(context.geocacheData.id);
-        this.storageKey = `geoapp.earthcoach.fieldChecklist.${cacheRef}`;
+        this.storageKey = `geoapp.earthcoach.fieldChecklist.${this.checklist.reference}`;
         this.checkedKeys = this.loadCheckedKeys(this.storageKey);
         this.title.label = `${EarthCoachFieldChecklistWidget.LABEL} - ${context.geocacheData.gc_code || context.geocacheData.name}`;
         this.update();
@@ -200,6 +209,37 @@ export class EarthCoachFieldChecklistWidget extends ReactWidget {
         }
     }
 
+    /**
+     * Export fichier du mode terrain : meme Markdown que le bouton copier
+     * (cases cochees incluses), telecharge sous un nom stable par cache et par jour.
+     */
+    protected exportMarkdown(): void {
+        if (!this.checklist) {
+            return;
+        }
+        const fileName = buildEarthCoachFieldChecklistFileName(this.checklist);
+        let objectUrl: string | undefined;
+        try {
+            const markdown = formatEarthCoachFieldChecklistMarkdown(this.checklist, this.checkedKeys);
+            const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+            objectUrl = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = objectUrl;
+            link.download = fileName;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            this.messages.info(`Checklist EarthCoach exportee : ${fileName}`);
+        } catch (error) {
+            console.warn('[EarthCoach] Unable to export field checklist', error);
+            this.messages.error('Export impossible de la checklist EarthCoach.');
+        } finally {
+            if (objectUrl) {
+                window.URL.revokeObjectURL(objectUrl);
+            }
+        }
+    }
+
     protected render(): React.ReactNode {
         return (
             <EarthCoachFieldChecklistView
@@ -207,6 +247,7 @@ export class EarthCoachFieldChecklistWidget extends ReactWidget {
                 checkedKeys={this.checkedKeys}
                 onToggle={key => this.toggleItem(key)}
                 onCopy={() => this.copyMarkdown()}
+                onExport={() => this.exportMarkdown()}
                 onPrint={() => window.print()}
             />
         );

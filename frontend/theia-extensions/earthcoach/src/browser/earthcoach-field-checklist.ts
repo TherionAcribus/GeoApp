@@ -8,6 +8,8 @@ export interface EarthCoachFieldChecklistSection {
 export interface EarthCoachFieldChecklist {
     title: string;
     subtitle: string;
+    /** Reference stable de la cache (code GC sinon id GeoApp): stockage local et nom de fichier exporte. */
+    reference: string;
     meta: string[];
     sections: EarthCoachFieldChecklistSection[];
 }
@@ -116,6 +118,7 @@ export function buildEarthCoachFieldChecklist(context: EarthCoachContext): Earth
     return {
         title: geocache.name,
         subtitle: `${geocache.gc_code || 'Code GC inconnu'} - EarthCoach terrain`,
+        reference: geocache.gc_code || String(geocache.id),
         meta: [
             `ID GeoApp: ${geocache.id}`,
             `D/T: ${geocache.difficulty ?? '?'} / ${geocache.terrain ?? '?'}`,
@@ -164,4 +167,40 @@ export function formatEarthCoachFieldChecklistMarkdown(
         lines.push('');
     }
     return lines.join('\n').trim();
+}
+
+function slugifyForFileName(value: string, maxLength: number): string {
+    return value
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, maxLength)
+        .replace(/-+$/g, '');
+}
+
+function formatLocalDateStamp(date: Date): string {
+    const year = date.getFullYear();
+    const month = `${date.getMonth() + 1}`.padStart(2, '0');
+    const day = `${date.getDate()}`.padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+/**
+ * Nom de fichier propose lors de l'export terrain : prefixe stable, reference
+ * de la cache (code GC sinon id GeoApp, sinon titre) et date locale de sortie.
+ * Volontairement pur pour rester testable et identique d'un export a l'autre.
+ */
+export function buildEarthCoachFieldChecklistFileName(
+    checklist: EarthCoachFieldChecklist,
+    date: Date = new Date()
+): string {
+    const referenceSlug = slugifyForFileName(checklist.reference || '', 40);
+    // Une cache sans code GC retombe sur son id GeoApp : on le prefixe pour que
+    // le fichier reste lisible hors de l'application.
+    const reference = /^[0-9]+$/.test(referenceSlug)
+        ? `geoapp-${referenceSlug}`
+        : referenceSlug || slugifyForFileName(checklist.title || '', 40) || 'earthcache';
+    return `earthcoach-terrain-${reference}-${formatLocalDateStamp(date)}.md`;
 }

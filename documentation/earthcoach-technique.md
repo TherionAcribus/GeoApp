@@ -213,12 +213,20 @@ Fonctions exportees :
 
 ```ts
 buildEarthCoachFieldChecklist(context)
-formatEarthCoachFieldChecklistMarkdown(checklist)
+formatEarthCoachFieldChecklistMarkdown(checklist, checkedKeys?)
+buildEarthCoachFieldChecklistFileName(checklist, date?)
+fieldChecklistItemKey(sectionTitle, item)
 ```
 
-Le bouton **Copier Markdown** utilise le presse-papiers navigateur avec une sortie en cases a cocher Markdown.
+La checklist expose une `reference` stable (code GC sinon id GeoApp). Elle sert de cle de stockage local des cases cochees (`geoapp.earthcoach.fieldChecklist.<reference>`) et de base du nom de fichier exporte.
 
-Le bouton **Imprimer** appelle `window.print()`. Le widget inclut une regle CSS `@media print` pour masquer les actions.
+Trois sorties terrain sont disponibles depuis l'en-tete du widget :
+
+- **Copier Markdown** : presse-papiers navigateur, sortie en cases a cocher Markdown ;
+- **Exporter .md** : telechargement d'un fichier Markdown (`Blob` + lien `download`) nomme `earthcoach-terrain-<reference>-<AAAA-MM-JJ>.md`, par exemple `earthcoach-terrain-gc123-2026-08-31.md`. Une cache sans code GC donne `earthcoach-terrain-geoapp-<id>-...` ;
+- **Imprimer** : `window.print()`, avec une regle CSS `@media print` qui masque les actions et n'imprime que le widget.
+
+Les trois sorties partagent le meme Markdown, cases cochees comprises : ce qui est coche dans le panneau est coche dans le fichier exporte. `buildEarthCoachFieldChecklistFileName` est pure (date injectable) et testee.
 
 ## Galerie images stricte
 
