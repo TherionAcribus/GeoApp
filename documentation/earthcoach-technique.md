@@ -27,7 +27,8 @@ Fichiers principaux :
 | `earthcoach-frontend-module.ts` | Module InversifyJS, bindings agent, commands, tools, widget references. |
 | `earthcoach-agent.ts` | Agent `@EarthCoach`, prompt systeme et injection des tools EarthCoach. |
 | `earthcoach-command-contribution.ts` | Commandes, menus, bouton EarthCoach sur les fiches EarthCache, QuickPick d'actions. |
-| `earthcoach-context-service.ts` | Collecte le contexte actif : cache, observations structurees, notes fallback, images, derniere fiche ouverte. |
+| `earthcoach-context-service.ts` | Collecte le contexte actif : cache, observations structurees, notes fallback, images, derniere fiche ouverte. Un seul aller-retour via la route agregee, micro-cache TTL et repli sur les routes unitaires. |
+| `earthcoach-context-data.ts` | Helpers purs du contexte : mapping des DTO backend, assemblage avec replis, micro-cache TTL `EarthCoachContextCache`. |
 | `earthcoach-events.ts` | Evenements de fraicheur des widgets (noms, emission, abonnement) et report des rafraichissements des onglets caches. |
 | `earthcoach-prompt-builder.ts` | Construit le prompt utilisateur envoye au chat a l'ouverture d'une action. |
 | `earthcoach-prompts.ts` | Prompt systeme des modes `coach` et `resolver`. |
@@ -396,6 +397,31 @@ Cote widget Observations :
 
 La liaison inverse (choisir une observation existante pour une question) reste disponible via le menu deroulant du formulaire de question. La boucle se ferme donc dans les deux sens : terrain -> observation -> question -> resolution.
 
+## Collecte du contexte (route agregee et micro-cache)
+
+Ouvrir une action EarthCoach demandait quatre lectures HTTP (`/images`, `/observations`, `/logging-tasks`, `/notes`), lancees en parallele mais payees a chaque action : enchainer "Comprendre" puis "Preparer la visite" rechargeait tout alors que rien n'avait bouge. Deux mesures se combinent.
+
+**Route agregee backend** - `GET /api/geocaches/<id>/earthcoach-context` (`backend/gc_backend/blueprints/earthcoach_context.py`) renvoie les quatre sections en une reponse :
+
+```json
+{
+  "geocache_id": 12, "gc_code": "GCXXXX", "name": "...",
+  "gc_personal_note": "...",
+  "images": [...], "observations": [...], "logging_tasks": [...], "notes": [...]
+}
+```
+
+Les serialisations, les tris et la synchronisation `ensure_images_v2_for_geocache` sont exactement ceux des routes unitaires : un test backend compare les deux reponses champ a champ. Le frontend retombe sur les quatre routes si la route agregee est absente (backend plus ancien), et memorise ce repli pour ne pas repayer un 404 a chaque collecte.
+
+**Micro-cache TTL** - `EarthCoachContextCache` (`earthcoach-context-data.ts`) garde par geocache la part *reseau* du contexte pendant `EARTHCOACH_CONTEXT_CACHE_TTL_MS` (45 s). La geocache elle-meme n'est pas cachee : elle vient de l'appelant (widget actif, requete explicite) et `assembleEarthCoachContext` reassemble le contexte a chaque appel, avec ses replis (images du listing si le backend n'en connait aucune, notes utilisateur si aucune observation structuree).
+
+Regles de fraicheur du cache :
+
+- une requete deja en vol est partagee : deux widgets ouverts d'affilee ne declenchent qu'un aller-retour ;
+- `collectContext({ geocacheId, forceRefresh: true })` ignore l'entree en cache ; les quatre rafraichissements de widgets qui suivent une mutation l'utilisent systematiquement ;
+- les trois evenements de fraicheur (observations, questions, images) invalident l'entree de la cache concernee, meme si un appelant oublie `forceRefresh` ;
+- une lecture partie *avant* une invalidation n'est ni rejointe ni mise en cache : elle a lu l'etat d'avant la mutation.
+
 ## Fraicheur des widgets lateraux
 
 Les panneaux EarthCoach recoivent leur contexte par `setContext` a l'ouverture. Sans signal, une observation, une question ou une photo ajoutee ensuite n'apparaissait qu'apres fermeture/reouverture du panneau. `earthcoach-events.ts` centralise donc trois evenements `window`, tous porteurs d'un detail `{ geocacheId, origin? }` :
@@ -409,7 +435,7 @@ Les panneaux EarthCoach recoivent leur contexte par `setContext` a l'ouverture. 
 Regles communes :
 
 - `isUpdateForGeocache(detail, geocacheId, { ignoreOrigin })` filtre les evenements : ceux sans id, ceux d'une autre cache et, si `ignoreOrigin` est fourni, ceux emis par le widget lui-meme (il a deja recharge localement) ;
-- un consommateur rafraichit en rappelant `EarthCoachContextService.collectContext({ geocacheId })`, avec jeton de requete pour ignorer une reponse tardive apres changement de cache ;
+- un consommateur rafraichit en rappelant `EarthCoachContextService.collectContext({ geocacheId, forceRefresh: true })`, avec jeton de requete pour ignorer une reponse tardive apres changement de cache ; `forceRefresh` est indispensable ici, le micro-cache servirait sinon l'etat d'avant la mutation ;
 - `EarthCoachRefreshScheduler` reporte le rafraichissement d'un onglet lateral cache : la demande est memorisee et rejouee dans `onAfterShow`, ce qui evite une collecte reseau pour un panneau que personne ne regarde ;
 - la checklist terrain ne relit les cases cochees du `localStorage` que si la cache affichee change : un rafraichissement ne doit jamais decocher ce que l'utilisateur vient de pointer sur le terrain.
 
@@ -736,6 +762,9 @@ Ils verifient notamment :
 - fallback notes existantes vers observations ;
 - pre-remplissage des coordonnees d'observation depuis la cache ou le waypoint selectionne ;
 - noms des evenements de fraicheur, filtrage par cache et par origine, report du rafraichissement d'un widget cache ;
+- parsing de la reponse agregee `earthcoach-context` (prefixe des URLs d'images, origine des photos televersees, rejet des entrees vides) ;
+- replis d'assemblage du contexte : images du listing, notes utilisateur, dedoublonnage des photos d'observation ;
+- micro-cache TTL : actions enchainees, expiration, `forceRefresh`, invalidation explicite (celle que declenchent les evenements de fraicheur), partage d'une requete en vol et rejet d'une lecture antecedente a une mutation ;
 - respect des preferences references ;
 - cache local des references ;
 - ajout des portails BRGM, InfoTerre, GeoWiki et Planet-Terre ;
@@ -747,6 +776,12 @@ Tests backend des proxies geo :
 
 ```bash
 python -m pytest backend/tests/test_earthcoach_geology_api.py backend/tests/test_earthcoach_geology_fr_api.py backend/tests/test_earthcoach_elevation_api.py
+```
+
+Tests backend de la route agregee :
+
+```bash
+python -m pytest backend/tests/test_earthcoach_context_api.py
 ```
 
 Ils couvrent le parsing `GetFeatureInfo` de MapServer, la normalisation du numero de feuille, le hors-couverture France, le repli IGN vers Open-Meteo et les caches.

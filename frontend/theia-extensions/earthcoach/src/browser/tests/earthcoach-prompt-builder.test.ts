@@ -31,6 +31,12 @@ import {
     PANEL_ICON,
 } from '../earthcoach-quick-actions';
 import {
+    assembleEarthCoachContext,
+    EarthCoachContextCache,
+    EarthCoachContextPayload,
+    parseEarthCoachContextResponse,
+} from '../earthcoach-context-data';
+import {
     buildEarthCoachDescriptionExcerpt,
     buildEarthCoachPrompt,
     DESCRIPTION_GAP_MARKER,
@@ -1269,6 +1275,170 @@ function testRefreshSchedulerDefersWhileHidden(): void {
     assert.equal(scheduler.hasPendingRefresh, false);
 }
 
+function buildAggregatedResponse(): any {
+    return {
+        geocache_id: 12,
+        gc_code: 'GC_AGG',
+        name: 'Falaise',
+        gc_personal_note: 'Prevoir un marteau.',
+        images: [
+            { id: 5, url: '/api/geocache-images/5/file', source_url: 'https://img.test/5.jpg', title: 'Affleurement' },
+            { id: 6, url: '/api/geocache-images/6/file', source_url: 'geoapp-upload://obs-6', title: 'Photo terrain' },
+        ],
+        observations: [
+            {
+                id: 3,
+                geocache_id: 12,
+                observation_type: 'hypothesis',
+                content: 'Calcaire recifal.',
+                observed_at: '2026-05-03T10:00:00+00:00',
+                latitude: 45.5,
+                longitude: 3.25,
+                images: [{ id: 6, url: '/api/geocache-images/6/file', source_url: 'geoapp-upload://obs-6' }],
+            },
+            { id: 4, geocache_id: 12, content: '   ', images: [] },
+        ],
+        logging_tasks: [
+            { id: 1, geocache_id: 12, position: 1, question: 'Quelle couleur ?', status: 'field', requires_photo: true },
+            { id: 2, geocache_id: 12, position: 2, question: '   ' },
+        ],
+        notes: [
+            { id: 9, content: 'Note de terrain.', source: 'user', created_at: '2026-05-02T08:00:00+00:00' },
+            { id: 10, content: 'Synthese.', source: 'earthcoach', created_at: '2026-05-02T09:00:00+00:00' },
+        ],
+    };
+}
+
+function testParseAggregatedContextResponse(): void {
+    const payload = parseEarthCoachContextResponse('http://localhost:5000', 12, buildAggregatedResponse());
+
+    // Les URLs relatives sont prefixees par le backend, les absolues laissees telles quelles.
+    assert.deepEqual(payload.images.map(image => image.fileUri), [
+        'http://localhost:5000/api/geocache-images/5/file',
+        'http://localhost:5000/api/geocache-images/6/file',
+    ]);
+    // L'origine se lit sur source_url: une image televersee est une photo utilisateur.
+    assert.deepEqual(payload.images.map(image => image.origin), ['cache_listing', 'user_observation']);
+
+    // Observations et questions vides sont ecartees, le statut est normalise.
+    assert.deepEqual(payload.observations.map(observation => observation.id), ['observation-3']);
+    assert.deepEqual(payload.observations[0].coordinates, { lat: 45.5, lon: 3.25 });
+    assert.equal(payload.observations[0].observationType, 'hypothesis');
+    assert.deepEqual(payload.loggingTasks.map(task => task.id), ['logging-task-1']);
+    // Le backend sert des statuts deja normalises; tout autre valeur retombe sur 'todo'.
+    assert.equal(payload.loggingTasks[0].status, 'field');
+    assert.equal(payload.loggingTasks[0].requiresPhoto, true);
+
+    assert.equal(payload.gcPersonalNote, 'Prevoir un marteau.');
+    assert.equal(payload.notes.length, 2);
+
+    // Une reponse vide ou absente ne casse rien: contexte vide, pas d'exception.
+    const empty = parseEarthCoachContextResponse('http://localhost:5000', 12, undefined);
+    assert.deepEqual(empty, { images: [], observations: [], loggingTasks: [], notes: [], gcPersonalNote: undefined });
+}
+
+function testAssembleContextFallbacks(): void {
+    const geocache: any = {
+        id: 12,
+        name: 'Falaise',
+        gc_code: 'GC_AGG',
+        images: [{ url: 'https://listing.test/legacy.jpg' }],
+    };
+    const payload = parseEarthCoachContextResponse('http://localhost:5000', 12, buildAggregatedResponse());
+    const context = assembleEarthCoachContext(geocache, payload);
+
+    // Le backend connait des images: pas de repli sur celles du listing brut,
+    // et la photo attachee a l'observation n'est pas dupliquee.
+    assert.deepEqual(context.images.map(image => image.id), ['5', '6']);
+    assert.deepEqual(context.observations.map(observation => observation.id), ['observation-3']);
+    assert.equal(context.gcPersonalNote, 'Prevoir un marteau.');
+
+    // Sans images ni observations backend: repli sur le listing et sur les notes
+    // utilisateur (les notes EarthCoach ne sont pas des observations).
+    const bare: EarthCoachContextPayload = {
+        images: [],
+        observations: [],
+        loggingTasks: [],
+        notes: payload.notes,
+        gcPersonalNote: undefined,
+    };
+    const fallback = assembleEarthCoachContext(geocache, bare);
+    assert.deepEqual(fallback.images.map(image => image.fileUri), ['https://listing.test/legacy.jpg']);
+    assert.deepEqual(fallback.observations.map(observation => observation.id), ['note-9']);
+    assert.equal(fallback.observations[0].source, 'note');
+}
+
+function emptyPayload(marker: string): EarthCoachContextPayload {
+    return { images: [], observations: [], loggingTasks: [], notes: [], gcPersonalNote: marker };
+}
+
+async function testContextCacheServesRepeatedActions(): Promise<void> {
+    let now = 1_000;
+    let loads = 0;
+    const cache = new EarthCoachContextCache(45_000, () => now);
+    const loader = async () => {
+        loads += 1;
+        return emptyPayload(`load-${loads}`);
+    };
+
+    // Actions enchainees sur la meme cache: un seul aller-retour.
+    assert.equal((await cache.load(12, loader)).gcPersonalNote, 'load-1');
+    assert.equal((await cache.load(12, loader)).gcPersonalNote, 'load-1');
+    assert.equal(loads, 1);
+
+    // Une autre geocache a sa propre entree.
+    await cache.load(13, loader);
+    assert.equal(loads, 2);
+
+    // forceRefresh relit le reseau meme si l'entree est fraiche.
+    assert.equal((await cache.load(12, loader, { forceRefresh: true })).gcPersonalNote, 'load-3');
+    assert.equal(loads, 3);
+
+    // Une mutation signalee peremptorise l'entree.
+    cache.invalidate(12);
+    await cache.load(12, loader);
+    assert.equal(loads, 4);
+
+    // Passe le TTL, l'entree expire d'elle-meme.
+    now += 45_000;
+    await cache.load(12, loader);
+    assert.equal(loads, 5);
+
+    // Deux ouvertures simultanees partagent la requete en vol.
+    const cold = new EarthCoachContextCache(45_000, () => now);
+    let concurrentLoads = 0;
+    const slowLoader = () => {
+        concurrentLoads += 1;
+        return new Promise<EarthCoachContextPayload>(resolve => setTimeout(() => resolve(emptyPayload('slow')), 5));
+    };
+    const [first, second] = await Promise.all([cold.load(20, slowLoader), cold.load(20, slowLoader)]);
+    assert.equal(concurrentLoads, 1);
+    assert.equal(first, second);
+}
+
+async function testContextCacheDropsRequestsStartedBeforeAMutation(): Promise<void> {
+    const cache = new EarthCoachContextCache(45_000, () => 0);
+    let loads = 0;
+    const loader = () => {
+        loads += 1;
+        const marker = `load-${loads}`;
+        return new Promise<EarthCoachContextPayload>(resolve => setTimeout(() => resolve(emptyPayload(marker)), 5));
+    };
+
+    // Une lecture part, puis une mutation survient pendant qu'elle est en vol:
+    // la rejoindre servirait l'etat d'avant la mutation.
+    const stale = cache.load(12, loader);
+    cache.invalidate(12);
+    const fresh = cache.load(12, loader, { forceRefresh: true });
+    assert.equal((await stale).gcPersonalNote, 'load-1');
+    assert.equal((await fresh).gcPersonalNote, 'load-2');
+    assert.equal(loads, 2);
+
+    // Et c'est bien la lecture d'apres la mutation qui reste en cache.
+    assert.equal((await cache.load(12, loader)).gcPersonalNote, 'load-2');
+    assert.equal(loads, 2);
+}
+
 async function run(): Promise<void> {
     testSystemPromptModes();
     testReferenceToolShape();
@@ -1292,6 +1462,10 @@ async function run(): Promise<void> {
     testReadUpdatedGeocacheId();
     testIsUpdateForGeocache();
     testRefreshSchedulerDefersWhileHidden();
+    testParseAggregatedContextResponse();
+    testAssembleContextFallbacks();
+    await testContextCacheServesRepeatedActions();
+    await testContextCacheDropsRequestsStartedBeforeAMutation();
     testResolverInstructionDoesNotPretendTerrain();
     testPromptIncludesLoggingTasks();
     testResolverTemplateConsumesLoggingTasks();

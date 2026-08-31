@@ -524,7 +524,7 @@ export class EarthCoachLoggingTasksWidget extends ReactWidget {
         }
         const requestToken = ++this.contextRequestToken;
         try {
-            const context = await this.contextService.collectContext({ geocacheId });
+            const context = await this.contextService.collectContext({ geocacheId, forceRefresh: true });
             if (!context || requestToken !== this.contextRequestToken || geocacheId !== this.context?.geocacheData.id) {
                 return;
             }

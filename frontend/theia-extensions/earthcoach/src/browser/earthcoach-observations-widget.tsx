@@ -703,7 +703,7 @@ export class EarthCoachObservationsWidget extends ReactWidget {
         }
         const requestToken = ++this.imagesRequestToken;
         try {
-            const context = await this.contextService.collectContext({ geocacheId });
+            const context = await this.contextService.collectContext({ geocacheId, forceRefresh: true });
             if (!context || requestToken !== this.imagesRequestToken || geocacheId !== this.context?.geocacheData.id) {
                 return;
             }

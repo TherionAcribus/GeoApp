@@ -5,59 +5,60 @@ import { GeocachesService } from 'theia-ide-zones-ext/lib/browser/geocaches-serv
 import { GeocacheNotesService } from 'theia-ide-zones-ext/lib/browser/geocache-notes-service';
 import { GeocacheNoteDto } from 'theia-ide-zones-ext/lib/browser/geocache-notes-types';
 import { GeocacheDto } from 'theia-ide-zones-ext/lib/browser/geocache-details-types';
-import {
-    EarthCoachGeocacheData,
-    GeoImage,
-    LoggingTask,
-    LoggingTaskStatus,
-    UserObservation,
-} from './earthcoach-types';
+import { EarthCoachGeocacheData, GeoImage, LoggingTask, UserObservation } from './earthcoach-types';
 import { LoggingTaskDto } from './earthcoach-logging-tasks';
+import {
+    EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT,
+    EARTHCOACH_OBSERVATIONS_UPDATED_EVENT,
+    GEOAPP_GEOCACHE_IMAGES_UPDATED_EVENT,
+    readUpdatedGeocacheId,
+    subscribeEarthCoachDataUpdates,
+} from './earthcoach-events';
+import {
+    assembleEarthCoachContext,
+    BackendGeocacheImageDto,
+    createEmptyEarthCoachContextPayload,
+    EarthCoachContext,
+    EarthCoachContextApiResponse,
+    EarthCoachContextCache,
+    EarthCoachContextPayload,
+    mapBackendImages,
+    mapLoggingTasks,
+    mapObservations,
+    parseEarthCoachContextResponse,
+    UserObservationDto,
+} from './earthcoach-context-data';
 
 interface WidgetInfo {
     geocacheId?: number;
     geocacheData?: GeocacheDto;
 }
 
-interface BackendGeocacheImageDto {
-    id?: number;
-    url?: string;
-    source_url?: string;
-    image_type?: string;
-    title?: string;
-    note?: string;
+export interface EarthCoachContextRequest {
+    geocacheData?: EarthCoachGeocacheData;
+    geocacheId?: number;
+    /**
+     * Ignore le micro-cache. A utiliser apres une mutation (creation d'une
+     * observation, extraction de questions, ajout de photo): un widget qui se
+     * rafraichit doit voir la donnee qu'il vient d'ecrire.
+     */
+    forceRefresh?: boolean;
 }
 
-interface UserObservationDto {
-    id: number;
-    geocache_id?: number;
-    cache_id?: string;
-    user_id?: string;
-    observation_type?: 'observation' | 'hypothesis' | 'interpretation';
-    content?: string;
-    note?: string;
-    observed_at?: string | null;
-    created_at?: string | null;
-    waypoint_id?: number | null;
-    coordinates_raw?: string | null;
-    latitude?: number | null;
-    longitude?: number | null;
-    images?: BackendGeocacheImageDto[];
-}
-
-export interface EarthCoachContext {
-    geocacheData: EarthCoachGeocacheData;
-    observations: UserObservation[];
-    loggingTasks: LoggingTask[];
-    gcPersonalNote?: string | null;
-    images: GeoImage[];
-}
+export { EarthCoachContext } from './earthcoach-context-data';
 
 @injectable()
 export class EarthCoachContextService implements FrontendApplicationContribution {
 
     protected initialized = false;
     protected lastGeocache: WidgetInfo | undefined;
+    protected readonly cache = new EarthCoachContextCache();
+    /**
+     * Passe a false des qu'un backend repond 404 sur la route agregee: une
+     * version plus ancienne ne la connait pas, on retombe alors definitivement
+     * sur les quatre routes unitaires plutot que de payer un 404 a chaque fois.
+     */
+    protected aggregatedEndpointAvailable = true;
 
     @inject(ApplicationShell)
     protected readonly shell!: ApplicationShell;
@@ -80,37 +81,32 @@ export class EarthCoachContextService implements FrontendApplicationContribution
      * notes ni logging tasks). Utile pour verifier tot qu'il s'agit d'une
      * EarthCache et afficher le QuickPick avant la collecte reseau complete.
      */
-    async resolveGeocache(input?: { geocacheData?: EarthCoachGeocacheData; geocacheId?: number }): Promise<EarthCoachGeocacheData | undefined> {
+    async resolveGeocache(input?: EarthCoachContextRequest): Promise<EarthCoachGeocacheData | undefined> {
         this.ensureInitialized();
         return this.resolveGeocacheData(input);
     }
 
-    async collectContext(input?: { geocacheData?: EarthCoachGeocacheData; geocacheId?: number }): Promise<EarthCoachContext | undefined> {
+    async collectContext(input?: EarthCoachContextRequest): Promise<EarthCoachContext | undefined> {
         this.ensureInitialized();
         const geocacheData = await this.resolveGeocacheData(input);
         if (!geocacheData) {
             return undefined;
         }
+        const payload = await this.cache.load(
+            geocacheData.id,
+            () => this.loadPayload(geocacheData.id),
+            { forceRefresh: input?.forceRefresh }
+        );
+        return assembleEarthCoachContext(geocacheData, payload);
+    }
 
-        // Ces quatre appels sont independants: on les lance en parallele pour
-        // diviser la latence d'ouverture d'EarthCoach au lieu de la cumuler.
-        const [images, structuredObservations, loggingTasks, notesResponse] = await Promise.all([
-            this.loadImages(geocacheData),
-            this.loadStructuredObservations(geocacheData.id),
-            this.loadLoggingTasks(geocacheData.id),
-            this.loadNotes(geocacheData.id),
-        ]);
-        const noteObservations = structuredObservations.length
-            ? []
-            : this.notesToObservations(geocacheData.id, notesResponse?.notes || []);
-        const observations = [...structuredObservations, ...noteObservations];
-        return {
-            geocacheData,
-            observations,
-            loggingTasks,
-            gcPersonalNote: notesResponse?.gc_personal_note,
-            images: this.mergeImages(images, structuredObservations.flatMap(observation => observation.images)),
-        };
+    /** Oublie les donnees en cache d'une geocache (ou de toutes sans argument). */
+    invalidate(geocacheId?: number): void {
+        if (geocacheId === undefined) {
+            this.cache.clear();
+            return;
+        }
+        this.cache.invalidate(geocacheId);
     }
 
     protected ensureInitialized(): void {
@@ -124,9 +120,25 @@ export class EarthCoachContextService implements FrontendApplicationContribution
                 this.lastGeocache = info;
             }
         });
+        // Toute mutation signalee peremptorise le cache de la geocache visee:
+        // meme si l'appelant oublie `forceRefresh`, il ne relira pas d'anciennes
+        // observations ou questions.
+        subscribeEarthCoachDataUpdates(
+            [
+                EARTHCOACH_OBSERVATIONS_UPDATED_EVENT,
+                EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT,
+                GEOAPP_GEOCACHE_IMAGES_UPDATED_EVENT,
+            ],
+            detail => {
+                const geocacheId = readUpdatedGeocacheId(detail);
+                if (geocacheId !== undefined) {
+                    this.cache.invalidate(geocacheId);
+                }
+            }
+        );
     }
 
-    protected async resolveGeocacheData(input?: { geocacheData?: EarthCoachGeocacheData; geocacheId?: number }): Promise<EarthCoachGeocacheData | undefined> {
+    protected async resolveGeocacheData(input?: EarthCoachContextRequest): Promise<EarthCoachGeocacheData | undefined> {
         if (input?.geocacheData) {
             return input.geocacheData;
         }
@@ -159,6 +171,62 @@ export class EarthCoachContextService implements FrontendApplicationContribution
         return undefined;
     }
 
+    /**
+     * Charge la part reseau du contexte. Un seul aller-retour via la route
+     * agregee; les quatre routes unitaires ne servent que de repli.
+     */
+    protected async loadPayload(geocacheId: number): Promise<EarthCoachContextPayload> {
+        if (this.aggregatedEndpointAvailable) {
+            const aggregated = await this.loadAggregatedPayload(geocacheId);
+            if (aggregated) {
+                return aggregated;
+            }
+        }
+        return this.loadPayloadFromUnitaryEndpoints(geocacheId);
+    }
+
+    protected async loadAggregatedPayload(geocacheId: number): Promise<EarthCoachContextPayload | undefined> {
+        try {
+            const baseUrl = this.apiClient.getBaseUrl();
+            const response = await fetch(`${baseUrl}/api/geocaches/${geocacheId}/earthcoach-context`, { credentials: 'include' });
+            if (response.status === 404) {
+                // 404 sur une geocache existante et 404 "route inconnue" se
+                // distinguent par le corps: seule la route sert un message.
+                const payload = await response.json().catch(() => undefined) as { error?: string } | undefined;
+                if (payload?.error === 'Geocache not found') {
+                    return createEmptyEarthCoachContextPayload();
+                }
+                this.aggregatedEndpointAvailable = false;
+                return undefined;
+            }
+            if (!response.ok) {
+                return undefined;
+            }
+            const payload = await response.json() as EarthCoachContextApiResponse;
+            return parseEarthCoachContextResponse(baseUrl, geocacheId, payload);
+        } catch (error) {
+            console.warn('[EarthCoach] Unable to load aggregated context', error);
+            return undefined;
+        }
+    }
+
+    /** Repli historique: quatre lectures paralleles. */
+    protected async loadPayloadFromUnitaryEndpoints(geocacheId: number): Promise<EarthCoachContextPayload> {
+        const [images, observations, loggingTasks, notesResponse] = await Promise.all([
+            this.loadBackendImages(geocacheId),
+            this.loadStructuredObservations(geocacheId),
+            this.loadLoggingTasks(geocacheId),
+            this.loadNotes(geocacheId),
+        ]);
+        return {
+            images,
+            observations,
+            loggingTasks,
+            notes: notesResponse?.notes || [],
+            gcPersonalNote: notesResponse?.gc_personal_note,
+        };
+    }
+
     protected async loadNotes(geocacheId: number): Promise<{ gc_personal_note?: string | null; notes: GeocacheNoteDto[] } | undefined> {
         try {
             return await this.notesService.getNotes(geocacheId);
@@ -166,23 +234,6 @@ export class EarthCoachContextService implements FrontendApplicationContribution
             console.warn('[EarthCoach] Unable to load notes', error);
             return undefined;
         }
-    }
-
-    protected notesToObservations(geocacheId: number, notes: GeocacheNoteDto[]): UserObservation[] {
-        return notes
-            .filter(note => note.source === 'user' && Boolean((note.content || '').trim()))
-            .map(note => ({
-                id: `note-${note.id}`,
-                cacheId: String(geocacheId),
-                userId: 'local-user',
-                observationType: 'observation',
-                note: note.content,
-                observedAt: note.created_at || note.updated_at || undefined,
-                createdAt: note.created_at || note.updated_at || new Date(0).toISOString(),
-                source: 'note',
-                sourceNoteId: note.id,
-                images: [],
-            }));
     }
 
     protected async loadStructuredObservations(geocacheId: number): Promise<UserObservation[]> {
@@ -193,27 +244,7 @@ export class EarthCoachContextService implements FrontendApplicationContribution
                 return [];
             }
             const payload = await response.json() as { observations?: UserObservationDto[] };
-            return (payload.observations || []).map(observation => {
-                const images = (observation.images || [])
-                    .map((image, index) => this.mapBackendImage(geocacheId, image, index))
-                    .filter((image): image is GeoImage => Boolean(image));
-                return {
-                    id: `observation-${observation.id}`,
-                    cacheId: String(observation.geocache_id ?? observation.cache_id ?? geocacheId),
-                    userId: observation.user_id || 'local-user',
-                    waypointId: observation.waypoint_id != null ? String(observation.waypoint_id) : undefined,
-                    observationType: observation.observation_type || 'observation',
-                    note: observation.content || observation.note || '',
-                    observedAt: observation.observed_at || undefined,
-                    createdAt: observation.created_at || observation.observed_at || new Date(0).toISOString(),
-                    coordinates: observation.latitude != null && observation.longitude != null
-                        ? { lat: observation.latitude, lon: observation.longitude }
-                        : undefined,
-                    coordinatesRaw: observation.coordinates_raw || undefined,
-                    source: 'structured' as const,
-                    images,
-                };
-            }).filter(observation => Boolean(observation.note.trim()));
+            return mapObservations(baseUrl, geocacheId, payload.observations);
         } catch (error) {
             console.warn('[EarthCoach] Unable to load structured observations', error);
             return [];
@@ -228,59 +259,11 @@ export class EarthCoachContextService implements FrontendApplicationContribution
                 return [];
             }
             const payload = await response.json() as { logging_tasks?: LoggingTaskDto[] };
-            return (payload.logging_tasks || [])
-                .map((task, index) => this.mapLoggingTask(geocacheId, task, index))
-                .filter((task): task is LoggingTask => Boolean(task));
+            return mapLoggingTasks(geocacheId, payload.logging_tasks);
         } catch (error) {
             console.warn('[EarthCoach] Unable to load logging tasks', error);
             return [];
         }
-    }
-
-    protected mapLoggingTask(geocacheId: number, task: LoggingTaskDto, index: number): LoggingTask | undefined {
-        const question = (task.question || '').trim();
-        if (!question) {
-            return undefined;
-        }
-        return {
-            id: `logging-task-${task.id}`,
-            geocacheId: String(task.geocache_id ?? geocacheId),
-            position: task.position ?? index + 1,
-            question,
-            guidance: task.guidance?.trim() || undefined,
-            answer: task.answer?.trim() || undefined,
-            status: this.normalizeLoggingTaskStatus(task.status),
-            requiresPhoto: Boolean(task.requires_photo),
-            observationId: task.observation_id != null ? `observation-${task.observation_id}` : undefined,
-            source: task.source?.trim() || undefined,
-        };
-    }
-
-    protected normalizeLoggingTaskStatus(value: string | null | undefined): LoggingTaskStatus {
-        return value === 'field' || value === 'answered' ? value : 'todo';
-    }
-
-    protected async loadImages(geocacheData: EarthCoachGeocacheData): Promise<GeoImage[]> {
-        const images = await this.loadBackendImages(geocacheData.id);
-        if (images.length) {
-            return images;
-        }
-        const legacyImages = ((geocacheData as any).images || []) as Array<{ url?: string }>;
-        return legacyImages
-            .map((image, index) => {
-                if (!image.url) {
-                    return undefined;
-                }
-                const geoImage: GeoImage = {
-                    id: `legacy-${index + 1}`,
-                    origin: 'cache_listing',
-                    cacheId: String(geocacheData.id),
-                    label: `Image listing ${index + 1}`,
-                    fileUri: image.url,
-                };
-                return geoImage;
-            })
-            .filter((image): image is GeoImage => Boolean(image));
     }
 
     protected async loadBackendImages(geocacheId: number): Promise<GeoImage[]> {
@@ -291,45 +274,10 @@ export class EarthCoachContextService implements FrontendApplicationContribution
                 return [];
             }
             const images = await response.json() as BackendGeocacheImageDto[];
-            return images
-                .map((image, index) => this.mapBackendImage(geocacheId, image, index))
-                .filter((image): image is GeoImage => Boolean(image));
+            return mapBackendImages(baseUrl, geocacheId, images);
         } catch (error) {
             console.warn('[EarthCoach] Unable to load images', error);
             return [];
         }
-    }
-
-    protected mapBackendImage(geocacheId: number, image: BackendGeocacheImageDto, index: number): GeoImage | undefined {
-        const baseUrl = this.apiClient.getBaseUrl();
-        const rawUrl = (image.url || image.source_url || '').trim();
-        if (!rawUrl) {
-            return undefined;
-        }
-        const fileUri = rawUrl.startsWith('/') ? `${baseUrl}${rawUrl}` : rawUrl;
-        const sourceUrl = (image.source_url || '').trim().toLowerCase();
-        const origin = sourceUrl.startsWith('geoapp-upload://') ? 'user_observation' : 'cache_listing';
-        return {
-            id: image.id != null ? String(image.id) : `image-${index + 1}`,
-            origin,
-            cacheId: String(geocacheId),
-            label: image.title || `Image ${index + 1}`,
-            description: image.note,
-            fileUri,
-        };
-    }
-
-    protected mergeImages(primary: GeoImage[], secondary: GeoImage[]): GeoImage[] {
-        const seen = new Set<string>();
-        const merged: GeoImage[] = [];
-        for (const image of [...primary, ...secondary]) {
-            const key = `${image.origin}:${image.id}:${image.fileUri}`;
-            if (seen.has(key)) {
-                continue;
-            }
-            seen.add(key);
-            merged.push(image);
-        }
-        return merged;
     }
 }
