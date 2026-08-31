@@ -528,11 +528,21 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             const zoneSuffix = safeZoneName ? `_${safeZoneName}` : '';
             const filename = `geoapp${zoneSuffix}_geocaches_${timestamp}.gpx`;
 
+            this.messages.info(`Export GPX en cours (${geocacheIds.length} géocache${geocacheIds.length > 1 ? 's' : ''})…`);
+
             const res = await this.geocachesService.exportGpx(geocacheIds, filename);
 
+            // Parsing du Content-Disposition : on privilégie la forme
+            // ``filename*=UTF-8''<name>`` (RFC 5987) à la forme legacy
+            // ``filename="<name>"``, car c'est elle qui transporte les caractères
+            // non-ASCII. Le backend sanitize en ASCII, mais on reste robuste.
             const contentDisposition = res.headers.get('Content-Disposition') || '';
-            const filenameMatch = /filename\s*=\s*"?([^";]+)"?/i.exec(contentDisposition);
-            const downloadName = (filenameMatch?.[1] || '').trim() || filename;
+            const starMatch = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(contentDisposition);
+            const plainMatch = /filename\s*=\s*"?([^";]+)"?/i.exec(contentDisposition);
+            const downloadName = decodeURIComponent((starMatch?.[1] || plainMatch?.[1] || '').trim()) || filename;
+
+            const contentType = res.headers.get('Content-Type') || '';
+            const isZip = contentType.includes('application/zip') || downloadName.toLowerCase().endsWith('.zip');
 
             const blob = await res.blob();
             const url = window.URL.createObjectURL(blob);
@@ -544,7 +554,11 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             a.remove();
             window.URL.revokeObjectURL(url);
 
-            this.messages.info('Export GPX généré');
+            this.messages.info(
+                isZip
+                    ? `Export GPX généré : archive ZIP (${geocacheIds.length} géocache${geocacheIds.length > 1 ? 's' : ''}, fichier GPX + waypoints)`
+                    : `Export GPX généré (${geocacheIds.length} géocache${geocacheIds.length > 1 ? 's' : ''})`
+            );
         } catch (e) {
             console.error('Export GPX error', e);
             this.messages.error('Erreur lors de l\'export GPX');

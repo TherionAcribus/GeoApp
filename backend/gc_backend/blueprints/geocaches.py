@@ -242,6 +242,10 @@ def _build_groundspeak_gpx_bytes(geocaches: list[Geocache]) -> bytes:
     gpx.set('creator', 'GeoApp')
     gpx.set('xmlns', 'http://www.topografix.com/GPX/1/0')
     gpx.set('xmlns:groundspeak', 'http://www.groundspeak.com/cache/1/0/1')
+    # Namespace GSAK : permet d'exporter les coordonnées originales d'une cache
+    # corrigée via ``gsak:wptExtension``, afin que GSAK/c:geo conservent la
+    # coordonnée d'origine et marquent la cache comme corrigée.
+    gpx.set('xmlns:gsak', 'http://www.gsak.net/cell/2007/11/GSAK')
     gpx.set(
         'xsi:schemaLocation',
         'http://www.topografix.com/GPX/1/0 http://www.topografix.com/GPX/1/0/gpx.xsd '
@@ -434,6 +438,22 @@ def _build_groundspeak_gpx_bytes(geocaches: list[Geocache]) -> bytes:
                     gs_log_text.set('encoded', 'False')
                     gs_log_text.text = getattr(log, 'text', None) or ''
 
+        # Extension GSAK : si la coordonnée a été corrigée, on exporte la
+        # coordonnée d'origine dans ``gsak:wptExtension``. GSAK et c:geo
+        # l'utilisent pour marquer la cache comme corrigée et conserver
+        # l'originale, au lieu de perdre l'information.
+        if getattr(geocache, 'is_corrected', None) and (
+            geocache.original_latitude is not None
+            or geocache.original_longitude is not None
+        ):
+            gsak_ext = ET.SubElement(wpt, 'gsak:wptExtension')
+            if geocache.original_latitude is not None:
+                gsak_lat = ET.SubElement(gsak_ext, 'gsak:LatBeforeCorrect')
+                gsak_lat.text = str(geocache.original_latitude)
+            if geocache.original_longitude is not None:
+                gsak_lon = ET.SubElement(gsak_ext, 'gsak:LonBeforeCorrect')
+                gsak_lon.text = str(geocache.original_longitude)
+
     if lats and lons:
         bounds = ET.SubElement(gpx, 'bounds')
         bounds.set('minlat', str(min(lats)))
@@ -503,8 +523,14 @@ def _build_waypoints_gpx_bytes(geocaches: list[Geocache]) -> bytes | None:
         wp_desc = ET.SubElement(wpt, 'desc')
         wp_desc.text = getattr(waypoint, 'name', None) or 'Additional Waypoint'
 
-        wp_url = ET.SubElement(wpt, 'url')
-        wp_url.text = f"http://www.geocaching.com/seek/wpt.aspx?WID={getattr(waypoint, 'id', 0)}"
+        # ``wpt.aspx?WID=`` attend l'identifiant Groundspeak du waypoint, or on ne
+        # stocke que l'ID interne de la base : l'ancien lien pointait vers un
+        # waypoint aléatoire (ou rien) sur geocaching.com. On relie plutôt le
+        # waypoint à sa cache parente via ``coord.info``, qui est toujours valide.
+        parent_gc_code = getattr(waypoint.geocache, 'gc_code', None) or ''
+        if parent_gc_code:
+            wp_url = ET.SubElement(wpt, 'url')
+            wp_url.text = f"https://coord.info/{parent_gc_code}"
 
         wp_urlname = ET.SubElement(wpt, 'urlname')
         wp_urlname.text = getattr(waypoint, 'name', None) or 'Additional Waypoint'
