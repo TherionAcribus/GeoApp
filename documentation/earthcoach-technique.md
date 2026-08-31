@@ -274,8 +274,38 @@ Fonctions exposees cote UI :
 - date terrain `observed_at` ;
 - waypoint lie ;
 - coordonnees texte et coordonnees decimales ;
+- pre-remplissage des coordonnees en un clic depuis la cache ou depuis le waypoint selectionne ;
 - liaison d'images existantes de la cache ;
 - upload direct d'une photo utilisateur, puis liaison automatique au brouillon courant.
+
+### Pre-remplissage des coordonnees
+
+La saisie manuelle de lat/lon etant le cas le plus frequent, le formulaire expose
+deux boutons `Coordonnees de la cache` et `Coordonnees du waypoint` juste au-dessus
+des champs lat/lon. Ils reposent sur des fonctions pures de
+`earthcoach-observations.ts` :
+
+```text
+buildObservationCoordinatesFill(source)   -> { latitude, longitude, coordinatesRaw } | undefined
+applyObservationCoordinatesFill(draft, fill)
+findObservationDraftWaypoint(waypoints, waypointId)
+```
+
+Regles retenues :
+
+- la source cache est `latitude` / `longitude` / `coordinates_raw` du listing, la
+  source waypoint est `latitude` / `longitude` / `gc_coords` du waypoint choisi
+  dans le select du formulaire ;
+- les trois champs sont remplis comme un ensemble coherent : si la source n'a
+  qu'un texte DDM, les champs decimaux sont vides plutot que de conserver les
+  valeurs d'une autre source ;
+- un bouton est desactive (avec un `title` explicatif) quand la source n'a ni
+  texte ni couple lat/lon exploitable, ou quand aucun waypoint n'est selectionne ;
+- le pre-remplissage est toujours declenche explicitement par l'utilisateur : le
+  changement de waypoint dans le select ne modifie jamais les coordonnees saisies.
+
+Les boutons sont disponibles aussi bien dans le formulaire de creation que dans
+le formulaire d'edition d'une observation existante.
 
 Le widget recharge la liste depuis :
 
@@ -678,6 +708,7 @@ Ils verifient notamment :
 - separation des origines d'images ;
 - mapping observations structurees vers contexte EarthCoach ;
 - fallback notes existantes vers observations ;
+- pre-remplissage des coordonnees d'observation depuis la cache ou le waypoint selectionne ;
 - respect des preferences references ;
 - cache local des references ;
 - ajout des portails BRGM, InfoTerre, GeoWiki et Planet-Terre ;

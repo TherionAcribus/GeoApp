@@ -11,13 +11,18 @@ import { EARTHCOACH_LOGGING_TASKS_UPDATED_EVENT } from './earthcoach-logging-tas
 import { formatLoggingTaskSeedLabel, LoggingTaskSeed } from './earthcoach-logging-tasks';
 import { EarthCoachGeocacheData, GeoImage } from './earthcoach-types';
 import {
+    applyObservationCoordinatesFill,
     buildEarthCoachObservationInput,
+    buildObservationCoordinatesFill,
     createEarthCoachObservationDraft,
     createEarthCoachObservationDraftFromDto,
+    EarthCoachObservationCoordinatesFill,
     EarthCoachObservationDraft,
     EarthCoachObservationDto,
     EarthCoachObservationImageDto,
     EarthCoachObservationType,
+    findObservationDraftWaypoint,
+    formatObservationWaypointLabel,
     toggleObservationImageId,
 } from './earthcoach-observations';
 
@@ -55,10 +60,7 @@ function getWaypointLabel(waypoints: NonNullable<EarthCoachGeocacheData['waypoin
         return undefined;
     }
     const waypoint = waypoints.find(item => item.id === waypointId);
-    if (!waypoint) {
-        return `Waypoint ${waypointId}`;
-    }
-    return [waypoint.prefix, waypoint.lookup, waypoint.name].filter(Boolean).join(' / ') || `Waypoint ${waypointId}`;
+    return waypoint ? formatObservationWaypointLabel(waypoint) : `Waypoint ${waypointId}`;
 }
 
 function formatObservationDate(value?: string | null): string | undefined {
@@ -85,6 +87,7 @@ function formatObservationCoordinates(observation: EarthCoachObservationDto): st
 interface ObservationFormProps {
     title: string;
     draft: EarthCoachObservationDraft;
+    geocache: EarthCoachGeocacheData;
     waypoints: NonNullable<EarthCoachGeocacheData['waypoints']>;
     images: GeoImage[];
     submitLabel: string;
@@ -101,6 +104,15 @@ function ObservationForm(props: ObservationFormProps): React.ReactElement {
     const selectableImages = React.useMemo(() => getSelectableImages(props.images), [props.images]);
     const setDraft = (patch: Partial<EarthCoachObservationDraft>) => {
         props.onDraftChange({ ...props.draft, ...patch });
+    };
+    // Sources de pre-remplissage: la cache elle-meme et le waypoint choisi dans
+    // le select ci-dessous. Un bouton reste desactive tant que sa source n a pas
+    // de coordonnees exploitables, plutot que d effacer la saisie en cours.
+    const geocacheFill = buildObservationCoordinatesFill(props.geocache);
+    const selectedWaypoint = findObservationDraftWaypoint(props.waypoints, props.draft.waypointId);
+    const waypointFill = buildObservationCoordinatesFill(selectedWaypoint);
+    const applyFill = (fill: EarthCoachObservationCoordinatesFill) => {
+        props.onDraftChange(applyObservationCoordinatesFill(props.draft, fill));
     };
     return (
         <form
@@ -163,7 +175,7 @@ function ObservationForm(props: ObservationFormProps): React.ReactElement {
                     >
                         <option value=''>Aucun waypoint</option>
                         {props.waypoints.map(waypoint => {
-                            const label = [waypoint.prefix, waypoint.lookup, waypoint.name].filter(Boolean).join(' / ') || `Waypoint ${waypoint.id}`;
+                            const label = formatObservationWaypointLabel(waypoint);
                             return waypoint.id != null ? (
                                 <option key={waypoint.id} value={String(waypoint.id)}>{label}</option>
                             ) : undefined;
@@ -179,6 +191,34 @@ function ObservationForm(props: ObservationFormProps): React.ReactElement {
                         onChange={event => setDraft({ coordinatesRaw: event.currentTarget.value })}
                     />
                 </label>
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <span style={{ fontSize: 12, color: 'var(--theia-descriptionForeground)' }}>Pre-remplir avec :</span>
+                <button
+                    className='theia-button secondary'
+                    type='button'
+                    disabled={!geocacheFill}
+                    title={geocacheFill
+                        ? 'Reprendre les coordonnees de la cache'
+                        : 'La cache n a pas de coordonnees connues'}
+                    onClick={() => { if (geocacheFill) { applyFill(geocacheFill); } }}
+                >
+                    Coordonnees de la cache
+                </button>
+                <button
+                    className='theia-button secondary'
+                    type='button'
+                    disabled={!waypointFill}
+                    title={waypointFill && selectedWaypoint
+                        ? `Reprendre les coordonnees de ${formatObservationWaypointLabel(selectedWaypoint)}`
+                        : selectedWaypoint
+                            ? 'Ce waypoint n a pas de coordonnees connues'
+                            : 'Selectionnez d abord un waypoint ci-dessus'}
+                    onClick={() => { if (waypointFill) { applyFill(waypointFill); } }}
+                >
+                    Coordonnees du waypoint
+                </button>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10 }}>
@@ -459,6 +499,7 @@ function EarthCoachObservationsView(props: EarthCoachObservationsViewProps): Rea
                 <ObservationForm
                     title={props.pendingLinkTask ? `Nouvelle observation pour Q${props.pendingLinkTask.position}` : 'Nouvelle observation'}
                     draft={props.createDraft}
+                    geocache={context.geocacheData}
                     waypoints={waypoints}
                     images={props.images}
                     submitLabel='Ajouter'
@@ -509,6 +550,7 @@ function EarthCoachObservationsView(props: EarthCoachObservationsViewProps): Rea
                                 key={observation.id}
                                 title={`Modifier #${observation.id}`}
                                 draft={props.editingDraft}
+                                geocache={context.geocacheData}
                                 waypoints={waypoints}
                                 images={props.images}
                                 submitLabel='Enregistrer'

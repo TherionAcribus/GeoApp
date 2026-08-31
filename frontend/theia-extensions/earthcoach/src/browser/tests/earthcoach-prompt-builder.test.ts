@@ -2,8 +2,13 @@ import * as assert from 'assert/strict';
 import { buildEarthCoachFieldChecklist, formatEarthCoachFieldChecklistMarkdown } from '../earthcoach-field-checklist';
 import { buildEarthCoachImageGallery } from '../earthcoach-image-gallery';
 import {
+    applyObservationCoordinatesFill,
     buildEarthCoachObservationInput,
+    buildObservationCoordinatesFill,
+    createEarthCoachObservationDraft,
     createEarthCoachObservationDraftFromDto,
+    findObservationDraftWaypoint,
+    formatObservationWaypointLabel,
     toggleObservationImageId,
 } from '../earthcoach-observations';
 import {
@@ -409,6 +414,62 @@ function testObservationInputBuilder(): void {
     assert.equal(input.coordinates_raw, 'N 48 00.000 E 002 00.000');
     assert.deepEqual(input.image_ids, [3, 5]);
     assert.equal(typeof input.observed_at, 'string');
+}
+
+function testObservationCoordinatesPrefill(): void {
+    // Cache: texte + couple numerique, les trois champs sont repris ensemble.
+    const cacheFill = buildObservationCoordinatesFill({
+        latitude: 48.8584,
+        longitude: 2.2945,
+        coordinates_raw: 'N 48 51.504 E 002 17.670',
+    });
+    assert.ok(cacheFill);
+    assert.deepEqual(cacheFill, {
+        latitude: '48.8584',
+        longitude: '2.2945',
+        coordinatesRaw: 'N 48 51.504 E 002 17.670',
+    });
+
+    // Waypoint sans lat/lon: le texte DDM suffit, les champs numeriques sont
+    // vides pour ne pas conserver ceux d une autre source.
+    const waypointFill = buildObservationCoordinatesFill({ gc_coords: '  N 48 52.000 E 002 18.000  ' });
+    assert.deepEqual(waypointFill, {
+        latitude: '',
+        longitude: '',
+        coordinatesRaw: 'N 48 52.000 E 002 18.000',
+    });
+
+    // Rien d exploitable: le bouton correspondant reste desactive.
+    assert.equal(buildObservationCoordinatesFill(undefined), undefined);
+    assert.equal(buildObservationCoordinatesFill({}), undefined);
+    assert.equal(buildObservationCoordinatesFill({ latitude: 48.1, coordinates_raw: '   ' }), undefined);
+
+    const draft = {
+        ...createEarthCoachObservationDraft(new Date('2026-05-22T10:15:00Z')),
+        content: 'Strates visibles.',
+        latitude: '1.5',
+        longitude: '2.5',
+        coordinatesRaw: 'ancien texte',
+        selectedImageIds: [7],
+    };
+    const filled = applyObservationCoordinatesFill(draft, waypointFill!);
+    assert.equal(filled.latitude, '');
+    assert.equal(filled.longitude, '');
+    assert.equal(filled.coordinatesRaw, 'N 48 52.000 E 002 18.000');
+    // Le reste du brouillon est preserve.
+    assert.equal(filled.content, 'Strates visibles.');
+    assert.deepEqual(filled.selectedImageIds, [7]);
+    assert.equal(draft.coordinatesRaw, 'ancien texte');
+
+    const waypoints = [
+        { id: 4, prefix: 'P1', name: 'Affleurement', gc_coords: 'N 48 52.000 E 002 18.000' },
+        { id: 5, name: 'Parking' },
+    ];
+    assert.equal(findObservationDraftWaypoint(waypoints, '4')?.name, 'Affleurement');
+    assert.equal(findObservationDraftWaypoint(waypoints, ''), undefined);
+    assert.equal(findObservationDraftWaypoint(waypoints, '99'), undefined);
+    assert.equal(formatObservationWaypointLabel(waypoints[0]), 'P1 / Affleurement');
+    assert.equal(formatObservationWaypointLabel({ id: 12 }), 'Waypoint 12');
 }
 
 function testFieldChecklistBuilder(): void {
@@ -1055,6 +1116,7 @@ async function run(): Promise<void> {
     testPromptIncludesStructuredObservationMetadata();
     testObservationActionInstruction();
     testObservationInputBuilder();
+    testObservationCoordinatesPrefill();
     testFieldChecklistBuilder();
     testImageGalleryGroupsByOrigin();
     testResolverInstructionDoesNotPretendTerrain();

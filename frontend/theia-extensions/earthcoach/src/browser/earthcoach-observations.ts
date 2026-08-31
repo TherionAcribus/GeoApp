@@ -1,3 +1,5 @@
+import { EarthCoachGeocacheData } from './earthcoach-types';
+
 export type EarthCoachObservationType = 'observation' | 'hypothesis' | 'interpretation';
 
 export interface EarthCoachObservationImageDto {
@@ -141,6 +143,80 @@ export function buildEarthCoachObservationInput(draft: EarthCoachObservationDraf
         coordinates_raw: draft.coordinatesRaw.trim() || null,
         image_ids: [...draft.selectedImageIds],
     };
+}
+
+export type EarthCoachWaypoint = NonNullable<EarthCoachGeocacheData['waypoints']>[number];
+
+/**
+ * Jeu coherent de coordonnees pret a etre injecte dans un brouillon: les trois
+ * champs decrivent le meme point, on ne melange donc jamais le texte d une
+ * source avec les valeurs numeriques d une autre.
+ */
+export interface EarthCoachObservationCoordinatesFill {
+    latitude: string;
+    longitude: string;
+    coordinatesRaw: string;
+}
+
+interface EarthCoachCoordinatesSource {
+    latitude?: number | null;
+    longitude?: number | null;
+    coordinates_raw?: string | null;
+    gc_coords?: string | null;
+}
+
+/**
+ * Extrait les coordonnees exploitables d une cache ou d un waypoint.
+ * Renvoie undefined quand la source n a ni texte ni couple lat/lon valide:
+ * le bouton de pre-remplissage correspondant est alors desactive.
+ */
+export function buildObservationCoordinatesFill(
+    source: EarthCoachCoordinatesSource | undefined,
+): EarthCoachObservationCoordinatesFill | undefined {
+    if (!source) {
+        return undefined;
+    }
+    const raw = (source.coordinates_raw || source.gc_coords || '').trim();
+    const latitude = source.latitude;
+    const longitude = source.longitude;
+    const hasPair = latitude != null && longitude != null
+        && Number.isFinite(latitude) && Number.isFinite(longitude);
+    if (!raw && !hasPair) {
+        return undefined;
+    }
+    return {
+        latitude: hasPair ? String(latitude) : '',
+        longitude: hasPair ? String(longitude) : '',
+        coordinatesRaw: raw,
+    };
+}
+
+export function applyObservationCoordinatesFill(
+    draft: EarthCoachObservationDraft,
+    fill: EarthCoachObservationCoordinatesFill,
+): EarthCoachObservationDraft {
+    return {
+        ...draft,
+        latitude: fill.latitude,
+        longitude: fill.longitude,
+        coordinatesRaw: fill.coordinatesRaw,
+    };
+}
+
+export function findObservationDraftWaypoint(
+    waypoints: EarthCoachWaypoint[],
+    waypointId: string,
+): EarthCoachWaypoint | undefined {
+    const parsed = parseOptionalObservationInteger(waypointId);
+    if (parsed == null) {
+        return undefined;
+    }
+    return waypoints.find(waypoint => waypoint.id === parsed);
+}
+
+export function formatObservationWaypointLabel(waypoint: EarthCoachWaypoint): string {
+    return [waypoint.prefix, waypoint.lookup, waypoint.name].filter(Boolean).join(' / ')
+        || `Waypoint ${waypoint.id ?? ''}`.trim();
 }
 
 export function toggleObservationImageId(selectedImageIds: number[], imageId: number): number[] {
