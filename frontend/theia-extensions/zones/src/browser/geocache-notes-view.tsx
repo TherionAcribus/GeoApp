@@ -187,6 +187,37 @@ const saveButtonStyle: React.CSSProperties = {
 
 const saveButtonDisabledStyle: React.CSSProperties = { ...saveButtonStyle, cursor: 'not-allowed', opacity: 0.6 };
 
+const addButtonBaseStyle: React.CSSProperties = { ...primaryButtonBaseStyle, padding: '6px 14px' };
+const addButtonDisabledStyle: React.CSSProperties = { ...addButtonBaseStyle, cursor: 'not-allowed', opacity: 0.6 };
+const addButtonActiveStyle: React.CSSProperties = { ...addButtonBaseStyle, cursor: 'pointer' };
+const addButtonWaitingStyle: React.CSSProperties = { ...addButtonBaseStyle, cursor: 'wait' };
+
+const syncFromGcButtonBaseStyle: React.CSSProperties = { ...primaryButtonBaseStyle, padding: '8px 16px' };
+const syncFromGcButtonActiveStyle: React.CSSProperties = { ...syncFromGcButtonBaseStyle, cursor: 'pointer' };
+const syncFromGcButtonWaitingStyle: React.CSSProperties = { ...syncFromGcButtonBaseStyle, cursor: 'wait' };
+
+const editGcButtonActiveStyle: React.CSSProperties = { ...actionButtonStyle, cursor: 'pointer' };
+const editGcButtonWaitingStyle: React.CSSProperties = { ...actionButtonStyle, cursor: 'wait' };
+
+const syncNoteButtonActiveStyle: React.CSSProperties = { ...actionButtonStyle, cursor: 'pointer' };
+const syncNoteButtonWaitingStyle: React.CSSProperties = { ...actionButtonStyle, cursor: 'wait' };
+
+const earthcoachBadgeStyle: React.CSSProperties = {
+    ...typeBadgeBaseStyle,
+    color: 'var(--theia-charts-green, #047857)',
+    borderColor: 'var(--theia-charts-green, #047857)'
+};
+const systemBadgeStyle: React.CSSProperties = {
+    ...typeBadgeBaseStyle,
+    color: 'var(--theia-charts-lines, #6b7280)',
+    borderColor: 'var(--theia-charts-lines, #6b7280)'
+};
+const userBadgeStyle: React.CSSProperties = {
+    ...typeBadgeBaseStyle,
+    color: 'var(--theia-charts-blue, #3b82f6)',
+    borderColor: 'var(--theia-charts-blue, #3b82f6)'
+};
+
 const noteContentStyle: React.CSSProperties = { marginTop: 4, whiteSpace: 'pre-wrap', fontSize: 13 };
 
 // Formatting via Intl (toLocaleString) is relatively costly and timestamps are stable
@@ -275,12 +306,10 @@ interface NoteItemProps {
 const NoteItem = React.memo(function NoteItem(props: NoteItemProps): React.JSX.Element {
     const { note, isEditing, isSyncing } = props;
     const isUserNote = note.source === 'user';
-    const typeLabel = note.source === 'earthcoach'
-        ? 'EarthCoach'
-        : note.note_type === 'system' ? 'Systeme' : 'Utilisateur';
-    const typeColor = note.source === 'earthcoach'
-        ? 'var(--theia-charts-green, #047857)'
-        : note.note_type === 'system' ? 'var(--theia-charts-lines, #6b7280)' : 'var(--theia-charts-blue, #3b82f6)';
+    const isEarthcoach = note.source === 'earthcoach';
+    const isSystem = note.note_type === 'system';
+    const typeLabel = isEarthcoach ? 'EarthCoach' : isSystem ? 'Systeme' : 'Utilisateur';
+    const badgeStyle = isEarthcoach ? earthcoachBadgeStyle : isSystem ? systemBadgeStyle : userBadgeStyle;
     const createdRelative = formatRelativeDateTime(note.created_at);
     const createdAbsolute = formatDateTime(note.created_at);
     const updatedRelative = formatRelativeDateTime(note.updated_at);
@@ -296,7 +325,7 @@ const NoteItem = React.memo(function NoteItem(props: NoteItemProps): React.JSX.E
         <div style={noteCardStyle} data-note-id={note.id}>
             <div style={rowBetweenStyle}>
                 <div style={badgeRowStyle}>
-                    <span style={{ ...typeBadgeBaseStyle, color: typeColor, borderColor: typeColor }}>
+                    <span style={badgeStyle}>
                         {typeLabel}
                     </span>
                     {createdRelative && (
@@ -319,7 +348,7 @@ const NoteItem = React.memo(function NoteItem(props: NoteItemProps): React.JSX.E
                         <button
                             onClick={() => props.onSyncNoteToGeocaching(note)}
                             disabled={isSyncing}
-                            style={{ ...actionButtonStyle, cursor: isSyncing ? 'wait' : 'pointer' }}
+                            style={isSyncing ? syncNoteButtonWaitingStyle : syncNoteButtonActiveStyle}
                             title='Envoyer cette note vers Geocaching.com'
                             aria-label='Envoyer cette note vers Geocaching.com'
                         >
@@ -421,7 +450,7 @@ export function GeocacheNotesView(props: GeocacheNotesViewProps): React.JSX.Elem
                 <button
                     onClick={props.onSyncFromGeocaching}
                     disabled={props.isSyncingFromGc}
-                    style={{ ...primaryButtonBaseStyle, padding: '8px 16px', cursor: props.isSyncingFromGc ? 'wait' : 'pointer' }}
+                    style={props.isSyncingFromGc ? syncFromGcButtonWaitingStyle : syncFromGcButtonActiveStyle}
                     title='Importer la note personnelle depuis Geocaching.com'
                 >
                     <i className={`fa ${props.isSyncingFromGc ? 'fa-spinner fa-spin' : 'fa-cloud-download-alt'}`} aria-hidden='true' />
@@ -436,7 +465,7 @@ export function GeocacheNotesView(props: GeocacheNotesViewProps): React.JSX.Elem
                         <button
                             onClick={props.onStartEditGcNote}
                             disabled={props.isSavingGcNote || props.isSyncingFromGc}
-                            style={{ ...actionButtonStyle, cursor: (props.isSavingGcNote || props.isSyncingFromGc) ? 'wait' : 'pointer' }}
+                            style={(props.isSavingGcNote || props.isSyncingFromGc) ? editGcButtonWaitingStyle : editGcButtonActiveStyle}
                             title='Éditer et envoyer la note vers Geocaching.com'
                             aria-label='Éditer la note Geocaching.com'
                         >
@@ -526,12 +555,7 @@ export function GeocacheNotesView(props: GeocacheNotesViewProps): React.JSX.Elem
                         <button
                             onClick={props.onCreateNote}
                             disabled={isAddDisabled}
-                            style={{
-                                ...primaryButtonBaseStyle,
-                                padding: '6px 14px',
-                                cursor: props.isCreating ? 'wait' : (isAddDisabled ? 'not-allowed' : 'pointer'),
-                                opacity: isAddDisabled ? 0.6 : 1
-                            }}
+                            style={isAddDisabled ? addButtonDisabledStyle : (props.isCreating ? addButtonWaitingStyle : addButtonActiveStyle)}
                         >
                             <i className={`fa ${props.isCreating ? 'fa-spinner fa-spin' : 'fa-plus'}`} aria-hidden='true' />
                             {props.isCreating ? 'Creation...' : 'Ajouter'}
