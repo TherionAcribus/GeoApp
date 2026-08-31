@@ -38,6 +38,7 @@ from ..services.metasolver_analysis import (
     normalize_max_plugins,
     recommend_metasolver_plugins,
     extract_metasolver_key_fields,
+    invalidate_metasolver_caches,
 )
 
 # Alias avec préfixe underscore pour préserver les call sites existants du
@@ -6562,7 +6563,11 @@ def discover_plugins():
         
         # Lancer la découverte
         discovered = manager.discover_plugins()
-        
+
+        # Invalider les caches metasolver : les presets et candidats peuvent
+        # avoir changé (nouveaux plugins, métadonnées modifiées).
+        invalidate_metasolver_caches()
+
         # Récupérer les erreurs
         errors = manager.get_discovery_errors()
         

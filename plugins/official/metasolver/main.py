@@ -17,6 +17,7 @@ encore la détection automatique de coordonnées.
 from __future__ import annotations
 
 import json
+import logging
 import queue
 import re
 import threading
@@ -24,6 +25,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 KEY_FIELD_ALIASES = {
     "cle": "key",
@@ -43,6 +46,8 @@ KEY_FIELD_ALIASES = {
 GENERIC_KEY_FIELDS = ("key", "keyword", "transpo_key", "polybius_key")
 
 # Plafond de plugins exécutés en parallèle (évite de surcharger le backend).
+# Peut être surchargé via la clé ``metasolver_config.max_parallel_workers`` du
+# plugin.json (ex: pour un serveur 16 cores, mettre 12).
 MAX_PARALLEL_WORKERS = 6
 
 # Budget de temps global pour une exécution streaming (en secondes). Placé
@@ -51,10 +56,12 @@ MAX_PARALLEL_WORKERS = 6
 # et on rend la main au client avec un résultat partiel plutôt qu'un timeout HTTP
 # brutal. Au-delà de cette deadline, les sous-plugins non terminés sont marqués
 # "timeout" et la réponse partielle est renvoyée.
+# Peut être surchargé via ``metasolver_config.streaming_global_timeout_s``.
 STREAMING_GLOBAL_TIMEOUT_S = 110
 
 # Pas de sondage de la file d'événements (en secondes). Court pour réagir vite
 # à une annulation, mais pas trop pour éviter un busy-loop.
+# Peut être surchargé via ``metasolver_config.streaming_poll_interval_s``.
 _STREAMING_POLL_INTERVAL_S = 1.0
 
 try:
@@ -84,6 +91,11 @@ class MetaSolverPlugin:
         self.version = "2.0.0"
         self._plugin_manager = None
         self._presets: Optional[Dict[str, Any]] = None
+        # Constantes configurables (chargées depuis plugin.json via
+        # _load_config() quand le plugin manager est injecté).
+        self._max_parallel_workers = MAX_PARALLEL_WORKERS
+        self._streaming_global_timeout_s = STREAMING_GLOBAL_TIMEOUT_S
+        self._streaming_poll_interval_s = _STREAMING_POLL_INTERVAL_S
 
     # ---------------------------------------------------------------------
     # Infrastructure (injection du plugin manager)
@@ -92,6 +104,39 @@ class MetaSolverPlugin:
         """Injection du plugin manager fournie par le wrapper Python."""
 
         self._plugin_manager = plugin_manager
+        self._load_config()
+
+    def _load_config(self) -> None:
+        """Charge les constantes configurables depuis plugin.json.
+
+        Les clés sont lues sous ``metasolver_config`` dans le plugin.json.
+        En cas d'absence ou d'erreur, les valeurs par défaut du module
+        sont conservées.
+        """
+        plugin_json_path = Path(__file__).parent / "plugin.json"
+        try:
+            with plugin_json_path.open("r", encoding="utf-8") as handle:
+                metadata = json.load(handle)
+        except Exception as exc:
+            logger.debug("metasolver: plugin.json non lisible pour config: %s", exc)
+            return
+
+        config = metadata.get("metasolver_config") or {}
+        if not isinstance(config, dict):
+            return
+
+        try:
+            self._max_parallel_workers = int(config.get("max_parallel_workers", MAX_PARALLEL_WORKERS))
+        except (TypeError, ValueError):
+            pass
+        try:
+            self._streaming_global_timeout_s = float(config.get("streaming_global_timeout_s", STREAMING_GLOBAL_TIMEOUT_S))
+        except (TypeError, ValueError):
+            pass
+        try:
+            self._streaming_poll_interval_s = float(config.get("streaming_poll_interval_s", _STREAMING_POLL_INTERVAL_S))
+        except (TypeError, ValueError):
+            pass
 
     # ------------------------------------------------------------------
     # Presets
@@ -174,7 +219,7 @@ class MetaSolverPlugin:
         """
 
         start_time = time.time()
-        deadline = start_time + STREAMING_GLOBAL_TIMEOUT_S
+        deadline = start_time + self._streaming_global_timeout_s
 
         # ── Hardening des inputs ───────────────────────────────────────
         # Coercion systématique en str pour éviter les AttributeError si
@@ -294,7 +339,7 @@ class MetaSolverPlugin:
 
         # Soumettre tous les plugins puis drainer la file jusqu'à ce que tous
         # aient terminé, en relayant les événements dans leur ordre réel.
-        max_workers = min(MAX_PARALLEL_WORKERS, total_candidates)
+        max_workers = min(self._max_parallel_workers, total_candidates)
         completed_count = 0
         completed_names: set = set()
         aborted_reason: Optional[str] = None
@@ -323,7 +368,7 @@ class MetaSolverPlugin:
 
                 # Sondage avec timeout court : permet de réévaluer
                 # cancel_event / deadline régulièrement sans busy-loop.
-                poll_timeout = min(_STREAMING_POLL_INTERVAL_S, remaining)
+                poll_timeout = min(self._streaming_poll_interval_s, remaining)
                 try:
                     kind, payload = event_queue.get(timeout=poll_timeout)
                 except queue.Empty:
@@ -660,7 +705,8 @@ class MetaSolverPlugin:
         try:
             with plugin_json.open("r", encoding="utf-8") as handle:
                 metadata = json.load(handle)
-        except Exception:
+        except Exception as exc:
+            logger.warning("metasolver: échec lecture plugin.json pour %s: %s", plugin_name, exc)
             return None
 
         try:
@@ -697,7 +743,8 @@ class MetaSolverPlugin:
 
             return wrapper.execute(inputs)
 
-        except Exception:
+        except Exception as exc:
+            logger.warning("metasolver: échec exécution directe de %s: %s", plugin_name, exc, exc_info=True)
             return None
 
     def _build_additional_inputs(
@@ -1164,6 +1211,15 @@ class MetaSolverPlugin:
 
         if not deduped and failed_plugins and not aborted_reason:
             response["status"] = "error"
+            # Surface les causes d'échec pour permettre un diagnostic
+            # programmatif (ex. tous les plugins ont-ils échoué pour la
+            # même raison ? un plugin clé est-il en panne ?).
+            failure_reasons = [
+                f"{f.get('plugin', '?')}: {f.get('reason', 'unknown')}"
+                for f in failed_plugins
+            ]
+            response["error_code"] = "all_plugins_failed"
+            response["summary_details"]["failure_reasons"] = failure_reasons
 
         return response
 

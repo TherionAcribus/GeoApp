@@ -540,6 +540,17 @@ def score_metasolver_candidate(candidate: Dict[str, Any], signature: Dict[str, A
 _presets_cache: Dict[str, Any] = {}  # {path_str: (mtime, presets_dict)}
 
 
+def invalidate_metasolver_caches() -> None:
+    """Invalide tous les caches du service metasolver.
+
+    À appeler quand les plugins sont redécouverts ou rechargés (ex. route
+    /rediscover) pour forcer un rechargement des presets et des candidats
+    au prochain appel.
+    """
+    _presets_cache.clear()
+    _candidates_cache.clear()
+
+
 def load_metasolver_presets(manager: PluginManager) -> Dict[str, Any]:
     """Charge les presets depuis le fichier presets.json du plugin metasolver.
 
