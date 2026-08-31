@@ -125,7 +125,7 @@ def analyze_metasolver_signature(text: str) -> Dict[str, Any]:
     Analyse un texte et produit une signature décrivant ses caractéristiques
     (type d'entrée dominant, patterns détectés comme Morse, binaire, hex, etc.).
     """
-    raw_text = text or ''
+    raw_text = str(text) if text is not None else ''
     trimmed = raw_text.strip()
     non_space = [char for char in trimmed if not char.isspace()]
     compact = ''.join(non_space)
@@ -214,8 +214,7 @@ def analyze_metasolver_signature(text: str) -> Dict[str, Any]:
         and all(token in CHEMICAL_SYMBOLS for token in alpha_tokens_upper)
     )
     looks_like_houdini_words = (
-        len(merged_houdini_tokens) >= 2
-        and len(merged_houdini_tokens) == len(normalized_word_tokens)
+        len(merged_houdini_tokens) >= 1
         and all(token in HOUDINI_WORDS for token in merged_houdini_tokens)
     )
     looks_like_nak_nak = (
@@ -339,14 +338,24 @@ def score_metasolver_candidate(candidate: Dict[str, Any], signature: Dict[str, A
     """
     Calcule le score d'un plugin candidat en fonction de la signature du texte.
     """
-    score = float(candidate.get('priority', 50))
+    # ── Type-guards : priority peut être None, tags/preferred_when peuvent
+    # être des strings au lieu de listes (metadata malformée).
+    try:
+        score = float(candidate.get('priority') or 50)
+    except (TypeError, ValueError):
+        score = 50.0
     reasons: List[str] = []
 
     candidate_charset = candidate.get('input_charset') or ''
     dominant_kind = signature.get('dominant_input_kind')
     charsets_present = set(signature.get('charsets_present') or [])
-    tags = set(candidate.get('tags') or [])
-    preferred_when = list(candidate.get('preferred_when') or [])
+
+    raw_tags = candidate.get('tags')
+    tags = set(raw_tags) if isinstance(raw_tags, list) else set()
+
+    raw_preferred = candidate.get('preferred_when')
+    preferred_when = raw_preferred if isinstance(raw_preferred, list) else []
+
     requires_key = bool(candidate.get('requires_key', False))
     supports_grouped_input = bool(candidate.get('supports_grouped_input', False))
 

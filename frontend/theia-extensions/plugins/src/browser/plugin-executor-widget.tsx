@@ -514,6 +514,16 @@ const PluginExecutorComponent: React.FC<{
     // Contrôle du scoring IA
     const aiScoringAbortControllerRef = React.useRef<AbortController | null>(null);
 
+    // Cleanup au unmount : abort tous les AbortControllers en vol pour
+    // éviter les setState sur composant unmounted et les fuites mémoire
+    // (fetch/SSE reader qui continuent en arrière-plan).
+    React.useEffect(() => {
+        return () => {
+            abortControllerRef.current?.abort();
+            aiScoringAbortControllerRef.current?.abort();
+        };
+    }, []);
+
     // État pour savoir si on charge le plugin initial (mode PLUGIN uniquement)
     const [isLoadingInitial, setIsLoadingInitial] = React.useState<boolean>(
         config.mode === 'plugin' && !!config.pluginName
@@ -1342,24 +1352,28 @@ const PluginExecutorComponent: React.FC<{
                                 // Un seul espace optionnel après le colon est consommé.
                                 const dataValue = line.slice(5).replace(/^ /, '');
                                 currentData = currentData ? currentData + '\n' + dataValue : dataValue;
-                            } else if (line === '' && currentEventType && currentData) {
-                                // End of SSE message
+                            } else if (line === '' && currentData) {
+                                // End of SSE message — selon la spec SSE, si
+                                // aucun event: n'a été vu, le type par défaut est
+                                // 'message'. Sans ce fallback, les données sont
+                                // perdues et reportées sur l'événement suivant.
+                                const eventType = currentEventType || 'message';
                                 try {
                                     const parsed = JSON.parse(currentData);
                                     const sseEvent: StreamingEvent = {
-                                        event: currentEventType as StreamingEvent['event'],
+                                        event: eventType as StreamingEvent['event'],
                                         data: parsed,
                                         timestamp: Date.now(),
                                     };
 
 
-                                    if (currentEventType === 'progress') {
+                                    if (eventType === 'progress') {
                                         // On ne garde que le dernier progress : les
                                         // intermédiaires sont écrasés car la barre
                                         // n'affiche que la valeur la plus récente.
                                         pendingProgress = parsed;
                                         scheduleFlush();
-                                    } else if (currentEventType === 'result') {
+                                    } else if (eventType === 'result') {
                                         // result est terminal et important : flush
                                         // immédiat pour ne pas attendre le prochain
                                         // frame (l'utilisateur doit voir le résultat
@@ -1367,7 +1381,7 @@ const PluginExecutorComponent: React.FC<{
                                         finalResult = parsed;
                                         pendingEvents.push(sseEvent);
                                         flushBatchedEvents();
-                                    } else if (currentEventType === 'error') {
+                                    } else if (eventType === 'error') {
                                         // Erreur fatale SSE (backend) : afficher dans
                                         // la zone d'erreur principale + notification.
                                         const errorReason = parsed?.error || parsed?.message || JSON.stringify(parsed);

@@ -979,6 +979,12 @@ class MetaSolverPlugin:
         if not input_types or not key_entries:
             return {}
 
+        # Guard : input_types peut être une liste ou autre type non-dict si
+        # le plugin.json est malformé. Sans ce guard, input_types.get() lèverait
+        # AttributeError.
+        if not isinstance(input_types, dict):
+            return {}
+
         values_by_field: Dict[str, List[Any]] = {}
         fallback_values_by_field: Dict[str, List[Any]] = {}
         generic_key_values: List[Any] = []
@@ -1084,8 +1090,14 @@ class MetaSolverPlugin:
                 groups[key] = group
                 order.append(key)
             else:
-                current = float(group["rep"].get("confidence", 0) or 0)
-                candidate = float(item.get("confidence", 0) or 0)
+                try:
+                    current = float(group["rep"].get("confidence") or 0)
+                except (TypeError, ValueError):
+                    current = 0.0
+                try:
+                    candidate = float(item.get("confidence") or 0)
+                except (TypeError, ValueError):
+                    candidate = 0.0
                 if candidate > current:
                     group["rep"] = item
 
@@ -1202,7 +1214,13 @@ class MetaSolverPlugin:
                 deduped = ranked + without_text
                 full_rescored = True
 
-        deduped.sort(key=lambda item: float(item.get("confidence", 0)), reverse=True)
+        def _safe_confidence(item):
+            try:
+                return float(item.get("confidence") or 0)
+            except (TypeError, ValueError):
+                return 0.0
+
+        deduped.sort(key=_safe_confidence, reverse=True)
 
         # Ordonnancement déterministe des structures d'audit (priorité des candidats)
         execution_log = sorted(execution_log, key=lambda e: order.get(e.get("plugin"), 999))
