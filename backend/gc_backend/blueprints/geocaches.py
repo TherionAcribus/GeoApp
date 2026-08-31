@@ -358,8 +358,17 @@ def _build_groundspeak_gpx_bytes(geocaches: list[Geocache]) -> bytes:
         gs_long_desc.set('html', 'True')
         gs_long_desc.text = listing_html
 
+        # ``geocache.hints`` est stocké en ROT13 (cf. gpx_parser/importer) ; le champ
+        # GPX ``encoded_hints`` est attendu en clair par les outils (GSAK, c:geo,
+        # Garmin). On exporte donc la version décodée, en respectant l'éventuel
+        # override utilisateur.
+        decoded_hint = (
+            geocache.hints_decoded_override
+            or geocache.hints_decoded
+            or (Geocache.decode_hint_rot13(geocache.hints) if geocache.hints else None)
+        )
         gs_hints = ET.SubElement(gs_cache, 'groundspeak:encoded_hints')
-        gs_hints.text = geocache.hints or ''
+        gs_hints.text = decoded_hint or ''
 
         wants_note_logs = notes_mode == 'logs'
         has_notes = bool(geocache.notes)
