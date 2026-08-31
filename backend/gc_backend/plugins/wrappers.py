@@ -246,7 +246,17 @@ class PythonPluginWrapper(PluginInterface):
                 exc_info=True
             )
             return False
-    
+
+    @property
+    def instance(self):
+        """Accès public en lecture seule à l'instance du plugin.
+
+        Remplace l'accès direct au privé ``self._instance`` depuis les
+        blueprints et autres appelants. Retourne ``None`` si le plugin
+        n'est pas encore initialisé.
+        """
+        return self._instance
+
     def _find_plugin_class(self):
         """
         Trouve la classe du plugin dans le module.

@@ -126,7 +126,6 @@ export class PluginToolsManager implements FrontendApplicationContribution {
             }
 
             const totalTools = registeredTools.length;
-            console.log(`[PluginTools] ${totalTools} tools IA synchronisés:`, registeredTools);
 
             if (!options?.silent) {
                 this.messages.info(`Tools IA synchronisés (${totalTools})`);
@@ -587,15 +586,12 @@ export class PluginToolsManager implements FrontendApplicationContribution {
     }
 
     protected async executePlugin(name: string, argString: string): Promise<ToolCallResult> {
-        console.log(`[PluginTools] Exécution du plugin '${name}' avec arguments:`, argString);
         try {
             const inputs = this.parseArguments(argString);
-            console.log(`[PluginTools] Arguments parsés pour '${name}':`, inputs);
 
             const result = await this.pluginsService.executePlugin(name, inputs);
             const formatted = this.formatResult(result);
 
-            console.log(`[PluginTools] Résultat du plugin '${name}':`, formatted);
             return formatted;
         } catch (error) {
             console.error(`[PluginTools] Erreur lors de l'exécution du plugin '${name}':`, error);
@@ -1060,7 +1056,6 @@ export class PluginToolsManager implements FrontendApplicationContribution {
      */
     logToolsStatus(): void {
         const status = this.getToolsStatus();
-        console.log(`[PluginTools] Statut actuel: ${status.total} tools enregistrés`, status.names);
 
         if (status.total === 0) {
             console.warn('[PluginTools] Aucun tool IA enregistré - vérifiez que les plugins sont actifs');

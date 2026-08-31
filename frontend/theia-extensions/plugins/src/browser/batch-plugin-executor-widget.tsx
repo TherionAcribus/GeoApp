@@ -32,8 +32,6 @@ async function loadBatchMap(
     messageService: MessageService
 ): Promise<void> {
     try {
-        console.log('[Batch Map] Loading batch map with', geocaches.length, 'geocaches');
-        
         // Convertir les géocaches au format MapGeocache
         const mapGeocaches = geocaches.map(gc => ({
             id: gc.id,
@@ -66,14 +64,11 @@ async function loadBatchMap(
                 // Ouvrir la carte dans le panneau du bas
                 await shell.addWidget(existingMap, { area: 'bottom' });
                 await shell.activateWidget(existingMap.id);
-                
-                console.log('[Batch Map] Created and opened new map widget');
             }
         }
 
         // Charger les géocaches sur la carte
         if (existingMap && 'loadGeocaches' in existingMap) {
-            console.log('[Batch Map] Loading geocaches onto map');
             (existingMap as any).loadGeocaches(mapGeocaches);
             messageService.info(`Carte batch ouverte avec ${mapGeocaches.length} géocaches`);
         } else {
@@ -99,8 +94,6 @@ function dispatchCoordinateToMap(
     pluginName: string,
     sourceResultText?: string
 ): void {
-    console.log('[Batch Map] Dispatching coordinate to map for', gcCode, coordinates);
-    
     window.dispatchEvent(new CustomEvent('geoapp-map-highlight-coordinate', {
         detail: {
             gcCode: gcCode,
@@ -119,8 +112,6 @@ function dispatchCoordinateToMap(
             sourceResultText: sourceResultText
         }
     }));
-    
-    console.log('[Batch Map] Coordinate event dispatched for', gcCode);
 }
 
 /**
@@ -236,7 +227,6 @@ export class BatchPluginExecutorWidget extends ReactWidget {
         window.addEventListener('batch-executor-initialize', (event: any) => {
             const detail = event.detail;
             if (detail && detail.geocaches) {
-                console.log('[Batch Plugin Executor] Received initialization event', detail);
                 this.initialize(detail);
             }
         });
@@ -248,7 +238,6 @@ export class BatchPluginExecutorWidget extends ReactWidget {
     public initialize(config: BatchPluginExecutorConfig): void {
         this.config = config;
         this.title.label = `Batch: ${config.geocaches.length} géocaches`;
-        console.log(`[Batch Plugin Executor] Initialized with ${config.geocaches.length} geocaches`);
         this.update();
     }
 
@@ -324,9 +313,6 @@ const BatchPluginExecutorComponent: React.FC<{
 
     // Mettre à jour les coordonnées détectées sur la carte au fur et à mesure
     React.useEffect(() => {
-        console.log('[Batch useEffect] Vérification des résultats pour dispatch carte:', 
-            state.results.map(r => ({ gcCode: r.gcCode, status: r.status, hasCoords: !!r.coordinates })));
-        
         state.results.forEach(result => {
             if (result.coordinates && result.status === 'completed') {
                 // Créer une clé unique pour cette coordonnée
@@ -347,8 +333,6 @@ const BatchPluginExecutorComponent: React.FC<{
                         state.plugin || 'Batch Plugin',
                         sourceText
                     );
-                    
-                    console.log('[Batch] Coordonnées dispatchées pour', result.gcCode, result.coordinates.formatted);
                 }
             }
         });
@@ -658,15 +642,6 @@ const BatchPluginExecutorComponent: React.FC<{
                 }
 
                 const status = await response.json();
-                
-                // DEBUG: Logger les résultats du backend
-                console.log('[Batch Polling] Status reçu:', status.status, 'Progress:', status.progress);
-                console.log('[Batch Polling] Résultats backend:', status.results?.map((r: any) => ({
-                    gc_code: r.gc_code,
-                    status: r.status,
-                    hasCoordinates: !!r.coordinates,
-                    coordinates: r.coordinates
-                })));
 
                 // Mettre à jour l'état avec les résultats du batch
                 setState(prev => {

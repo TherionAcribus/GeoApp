@@ -38,6 +38,13 @@ export const MetasolverStreamingPanel: React.FC<{
     // entre le streaming (avant dédup) et l'affichage final (après dédup).
     const resultEvent = events.find(e => e.event === 'result');
     const duplicatesMerged: number = resultEvent?.data?.summary_details?.duplicates_merged || 0;
+    const finalStatus: string | undefined = resultEvent?.data?.status;
+
+    // Événement d'erreur top-level (ex. backend down, erreur interne)
+    const topLevelError = events.find(e => e.event === 'error');
+
+    // État "connecting" : aucun événement n'est encore arrivé
+    const isConnecting = events.length === 0;
 
     // Construire le statut de chaque plugin
     const pluginStatuses = React.useMemo(() => {
@@ -79,6 +86,49 @@ export const MetasolverStreamingPanel: React.FC<{
     return (
         <div className='plugin-form' style={{ padding: '10px' }}>
             <h4 style={{ margin: '0 0 8px 0' }}>📡 Progression en direct</h4>
+
+            {/* État "connecting" : aucun événement n'est encore arrivé */}
+            {isConnecting && (
+                <div style={{
+                    fontSize: '12px',
+                    opacity: 0.6,
+                    fontStyle: 'italic',
+                    marginBottom: '8px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                }}>
+                    <span className='fa fa-spinner fa-spin' />
+                    Connexion au stream en cours…
+                </div>
+            )}
+
+            {/* Erreur top-level (ex. backend down, erreur interne) */}
+            {topLevelError && (
+                <div style={{
+                    fontSize: '12px',
+                    color: 'var(--theia-errorForeground)',
+                    background: 'var(--theia-errorBackground, rgba(255,0,0,0.1))',
+                    padding: '6px 10px',
+                    borderRadius: '4px',
+                    marginBottom: '8px',
+                }}>
+                    <strong>Erreur :</strong> {topLevelError.data?.error || topLevelError.data?.message || 'Une erreur est survenue pendant le streaming'}
+                </div>
+            )}
+
+            {/* Bannière de statut final (cancelled / timeout) */}
+            {resultEvent && (finalStatus === 'cancelled' || finalStatus === 'timeout') && (
+                <div style={{
+                    fontSize: '12px',
+                    color: 'var(--theia-warningForeground, #e6a817)',
+                    padding: '4px 10px',
+                    marginBottom: '8px',
+                    borderLeft: '3px solid var(--theia-warningBackground, #e6a817)',
+                }}>
+                    {finalStatus === 'cancelled' ? '⏹ Exécution annulée' : '⏱ Délai dépassé'} — résultats partiels ci-dessous
+                </div>
+            )}
 
             {/* Phase 1: Exécution des plugins */}
             <div style={{ fontSize: '11px', fontWeight: 'bold', opacity: 0.6, marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '6px' }}>

@@ -27,10 +27,7 @@ import './style/plugins-browser.css';
 import './style/plugin-executor.css';
 import './style/grid-puzzle-workbench.css';
 
-console.log('[MYSTERAI] Loading plugins-frontend-module...');
-
 export default new ContainerModule(bind => {
-    console.log('[MYSTERAI] Registering services and contributions...');
     // Services de communication avec l'API
     bind(PluginsService).to(PluginsServiceImpl).inSingletonScope();
     bind(PluginsServiceImpl).toSelf().inSingletonScope();

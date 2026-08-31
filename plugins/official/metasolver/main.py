@@ -158,11 +158,24 @@ class MetaSolverPlugin:
         return self._presets
 
     def _get_preset_filter(self, preset_name: str) -> Dict[str, Any]:
-        """Retourne le filtre d'un preset donné (vide si preset inconnu ou 'all')."""
+        """Retourne le filtre d'un preset donné (vide si preset inconnu ou 'all').
+
+        Log un warning si le preset demandé n'existe pas, pour aider à
+        diagnostiquer les fautes de frappe (ex: ``frequet`` au lieu de
+        ``frequent``). Le comportement reste identique (filtre vide = all),
+        mais le warning apparaît dans les logs.
+        """
 
         presets = self._load_presets()
         preset = presets.get(preset_name)
         if not preset:
+            if preset_name and preset_name != "all":
+                logger.warning(
+                    "metasolver: preset inconnu '%s' — utilisation du filtre 'all'. "
+                    "Presets disponibles: %s",
+                    preset_name,
+                    ", ".join(sorted(presets.keys())),
+                )
             return {}
         return preset.get("filter") or {}
 
@@ -655,7 +668,26 @@ class MetaSolverPlugin:
     ) -> Dict[str, Any]:
         """Tente d'exécuter via le PluginManager puis bascule sur un chargement direct."""
 
-        manager_result = self._plugin_manager.execute_plugin(plugin_name, inputs)
+        # ── Protection : execute_plugin peut lever une exception ─────────
+        # (ex. plugin qui crash, erreur d'import, timeout interne). Sans ce
+        # try/except, l'exception remonterait jusqu'au worker de execute_streaming
+        # qui la catcherait, mais on perdrait la cause racine dans les logs.
+        try:
+            manager_result = self._plugin_manager.execute_plugin(plugin_name, inputs)
+        except Exception as exc:
+            logger.warning("metasolver: exception execute_plugin(%s): %s", plugin_name, exc, exc_info=True)
+            # Tenter le fallback direct avant d'abandonner
+            direct_result = self._execute_plugin_direct(plugin_name, inputs)
+            if direct_result:
+                return direct_result
+            return self._error_response(f"Plugin {plugin_name} a levé une exception: {exc}", time.time())
+
+        # ── Type-guard : le résultat doit être un dict ou None ───────────
+        # Si execute_plugin retourne une string/list/int, les .get() ci-dessous
+        # lèveraient un AttributeError. On normalise en dict vide.
+        if manager_result is not None and not isinstance(manager_result, dict):
+            logger.warning("metasolver: execute_plugin(%s) a retourné %s, pas un dict", plugin_name, type(manager_result).__name__)
+            manager_result = None
 
         # Détection d'indisponibilité : privilégier le code d'erreur structuré
         # renvoyé par le PluginManager ; le repli sur sous-chaînes ne sert que pour
@@ -785,13 +817,34 @@ class MetaSolverPlugin:
         for field in ("key", "keyword", "candidate_keys", "transpo_key", "polybius_key"):
             value = inputs.get(field)
             if self._has_key_value(value):
-                entries.append({"field": field, "value": value})
+                # Expand list values : candidate_keys=["abc","def"] doit
+                # produire deux entries distinctes, pas une seule avec une
+                # liste comme value.
+                if isinstance(value, list):
+                    for item in value:
+                        if self._has_key_value(item):
+                            entries.append({"field": field, "value": str(item).strip()})
+                else:
+                    entries.append({"field": field, "value": value})
 
-        return [
-            entry
-            for entry in entries
-            if self._has_key_value(entry.get("value"))
-        ]
+        # Filtrer les entries sans valeur + dédupliquer par (field, value, plugin)
+        seen: set = set()
+        deduped: List[Dict[str, Any]] = []
+        for entry in entries:
+            if not self._has_key_value(entry.get("value")):
+                continue
+            # Normaliser la valeur en str pour la clé de dédup
+            val_str = str(entry.get("value") or "").strip()
+            if not val_str:
+                continue
+            entry["value"] = val_str
+            dedup_key = (entry.get("field", "key"), val_str, str(entry.get("plugin") or ""))
+            if dedup_key in seen:
+                continue
+            seen.add(dedup_key)
+            deduped.append(entry)
+
+        return deduped
 
     def _normalize_key_entries(self, raw_value: Any) -> List[Dict[str, Any]]:
         if raw_value is None:
@@ -811,22 +864,31 @@ class MetaSolverPlugin:
                     "plugin": raw_value.get("plugin") or raw_value.get("plugin_name"),
                 }]
 
+            # Dict sans clés value/field/name : on ne collecte que les
+            # champs qui ressemblent à des clés (pas text, mode, preset, etc.)
             entries = []
             plugin_filter = raw_value.get("plugin") or raw_value.get("plugin_name")
+            skip_fields = {"id", "plugin", "plugin_name", "text", "mode", "preset",
+                           "max_plugins", "plugin_list", "enable_bruteforce",
+                           "detect_coordinates", "inputs"}
             for field, value in raw_value.items():
-                if field in {"id", "plugin", "plugin_name"}:
+                if field in skip_fields:
                     continue
-                entries.append({
-                    "field": self._normalize_key_field(field),
-                    "value": value,
-                    "plugin": plugin_filter,
-                })
+                # Seulement accepter les valeurs de type str ou list[str]
+                if isinstance(value, (str, list)):
+                    entries.append({
+                        "field": self._normalize_key_field(field),
+                        "value": value,
+                        "plugin": plugin_filter,
+                    })
             return entries
 
         if isinstance(raw_value, str):
             return [{"field": "key", "value": raw_value}]
 
-        return [{"field": "key", "value": raw_value}]
+        # Types non-supportés (int, float, bool, etc.) : ignorer au lieu
+        # de les traiter comme une clé valide.
+        return []
 
     @staticmethod
     def _normalize_key_field(field: Any) -> str:

@@ -5825,10 +5825,15 @@ def metasolver_eligible_plugins():
         preset_filter = preset_info.get('filter', {})
         eligible = _collect_metasolver_candidates(preset_filter=preset_filter)
 
+        # Détecter les presets inconnus pour aider le client à diagnostiquer
+        # les fautes de frappe (ex: ?preset=frequet au lieu de frequent).
+        unknown_preset = bool(preset_name) and preset_name != 'all' and preset_name not in presets
+
         return jsonify({
             'preset': preset_name,
             'preset_label': preset_info.get('label', preset_name),
             'preset_filter': preset_filter or None,
+            'unknown_preset': unknown_preset,
             'plugins': eligible,
             'total': len(eligible),
             'available_presets': {
@@ -5881,6 +5886,11 @@ def metasolver_recommend_plugins():
 
     requested_preset = (data.get('preset') or '').strip().lower()
     mode = (data.get('mode') or 'decode').strip().lower()
+    if mode not in {'decode', 'detect'}:
+        return jsonify({
+            "error": "Mode invalide",
+            "message": f"Le mode doit être 'decode' ou 'detect', reçu: {mode!r}"
+        }), 400
     max_plugins = _normalize_max_plugins(data.get('max_plugins'), default=8)
     extract_fragments = bool(data.get('extract_fragments', False))
     max_secret_fragments = _normalize_max_plugins(data.get('max_secret_fragments'), default=5)
@@ -6201,6 +6211,16 @@ def metasolver_execute_stream():
                 "message": f"max_plugins doit être un entier positif, reçu: {raw_max_plugins!r}"
             }), 400
 
+    # Validation du texte : doit être une string non-vide.
+    raw_text = inputs.get('text')
+    if raw_text is not None:
+        text_str = str(raw_text).strip()
+        if not text_str:
+            return jsonify({
+                "error": "Texte invalide",
+                "message": "Le champ 'text' ne doit pas être vide"
+            }), 400
+
     manager = get_plugin_manager()
 
     # Charger le plugin metasolver via le plugin manager
@@ -6212,7 +6232,7 @@ def metasolver_execute_stream():
         }), 500
 
     # Accéder à l'instance brute du plugin pour appeler execute_streaming
-    raw_instance = getattr(wrapper, '_instance', None)
+    raw_instance = wrapper.instance
     if not raw_instance or not hasattr(raw_instance, 'execute_streaming'):
         return jsonify({
             "error": "Streaming non supporté",

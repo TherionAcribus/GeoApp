@@ -41,7 +41,6 @@ export class BatchPluginService {
             }
             this.shell.activateWidget(widget.id);
 
-            console.log(`[BatchPluginService] Opened batch executor with ${config.geocaches.length} geocaches`);
             return widget;
         } catch (error) {
             console.error('[BatchPluginService] Error opening batch executor:', error);
@@ -110,7 +109,6 @@ export class BatchPluginService {
             for (const widget of widgets) {
                 if (widget.id === BatchPluginExecutorWidget.ID) {
                     await this.shell.closeWidget(widget.id);
-                    console.log('[BatchPluginService] Batch executor closed');
                     break;
                 }
             }

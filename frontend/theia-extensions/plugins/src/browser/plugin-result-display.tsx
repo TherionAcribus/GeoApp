@@ -32,11 +32,6 @@ export const PluginResultDisplay: React.FC<{
     onSetAsCorrectedCoords?: (gcCoords: string) => Promise<void>;
     messageService: MessageService;
 }> = ({ result, configMode, geocacheContext, pluginName, pluginsService, onRequestAddWaypoint, onVerifyCoordinates, onSetAsCorrectedCoords, messageService }) => {
-    console.log('=== PluginResultDisplay RENDER ===');
-    console.log('Received result:', result);
-    console.log('result.results:', result.results);
-    console.log('result.summary:', result.summary);
-
     const [verifiedCoordinates, setVerifiedCoordinates] = React.useState<Record<string, { status?: string; message?: string }>>({});
     const [verifyingCoordinates, setVerifyingCoordinates] = React.useState<Record<string, boolean>>({});
     const [detectingCoordinates, setDetectingCoordinates] = React.useState<Record<string, boolean>>({});
@@ -86,7 +81,6 @@ export const PluginResultDisplay: React.FC<{
             const confB = b.confidence ?? 0;
             return confB - confA;
         }) : [];
-        console.log('sortedResults:', sortedResults);
     } catch (error) {
         console.error('Erreur lors du tri des résultats:', error);
         sortedResults = result.results || [];
@@ -323,11 +317,6 @@ export const PluginResultDisplay: React.FC<{
         });
     }, [mapPoints, geocacheContext, pluginName, result.plugin_info?.name]);
 
-    console.log('PluginResultDisplay final render');
-    console.log('result.status:', result.status);
-    console.log('result.summary:', result.summary);
-    console.log('sortedResults.length:', sortedResults.length);
-
     const isAnalysisWebPageResult =
         pluginName === 'analysis_web_page' ||
         result.plugin_info?.name === 'analysis_web_page' ||
@@ -440,7 +429,6 @@ export const PluginResultDisplay: React.FC<{
             {sortedResults.length > 0 && (
                 <div>
                     {sortedResults.map((item, index) => {
-                        console.log(`Rendering result ${index}:`, item);
                         try {
                             const itemKey = getItemKey(item, index);
                             const manualCoords = manualDetectedCoordinates[itemKey];

@@ -171,7 +171,6 @@ export class PluginExecutorContribution extends AbstractViewContribution<PluginE
         autoExecute: boolean = false,
         forceDuplicate: boolean = false
     ): Promise<void> {
-        console.log('[PluginExecutorContribution] openWithContext called', context, 'pluginName:', pluginName, 'autoExecute:', autoExecute, 'forceDuplicate:', forceDuplicate);
         if (pluginName === PluginsCommands.GRID_PUZZLE_SOLVER_PLUGIN) {
             await this.gridPuzzleWorkbenchContribution.openWithContext(context);
             return;
@@ -207,6 +206,5 @@ export class PluginsFrontendApplicationContribution implements FrontendApplicati
     
     onStart(): void {
         // Hook pour initialisation au démarrage si nécessaire
-        console.log('MysterAI Plugins Extension started');
     }
 }

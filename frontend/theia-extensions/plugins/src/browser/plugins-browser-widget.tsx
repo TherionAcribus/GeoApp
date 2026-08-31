@@ -202,7 +202,6 @@ export class PluginsBrowserWidget extends ReactWidget {
      * Gère le clic sur un plugin - Ouvre le Plugin Executor avec le plugin pré-sélectionné.
      */
     protected handlePluginClick = (plugin: Plugin): void => {
-        console.log('Opening plugin executor for:', plugin.name);
         this.pluginExecutorContribution.openWithPlugin(plugin.name);
     };
     
