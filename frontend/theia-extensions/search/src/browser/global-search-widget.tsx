@@ -130,13 +130,18 @@ const GlobalSearchComponent: React.FC<{
     const [localQuery, setLocalQuery] = React.useState(state.query);
 
     // Synchroniser l'input quand la query est réinitialisée de l'extérieur
-    // (ex: clear programmatique). localQuery est dans les deps pour éviter la
-    // closure obsolète ; l'effet reste idempotent.
+    // (ex: clear programmatique). On ne réagit qu'à la TRANSITION vers une query
+    // vide : tester `!state.query` suffisait à effacer le premier caractère
+    // saisi. setLocalQuery provoque en effet un re-render immédiat où la prop
+    // `state` est encore périmée (`query: ''`), le widget ne se re-rendant qu'au
+    // message d'update Lumino suivant — l'effet croyait alors à un clear externe.
+    const previousQuery = React.useRef(state.query);
     React.useEffect(() => {
-        if (!state.query && localQuery) {
+        if (previousQuery.current && !state.query) {
             setLocalQuery('');
         }
-    }, [state.query, localQuery]);
+        previousQuery.current = state.query;
+    }, [state.query]);
 
     const handleQueryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const value = e.target.value;
