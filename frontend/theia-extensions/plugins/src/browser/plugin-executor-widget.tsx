@@ -1331,11 +1331,25 @@ const PluginExecutorComponent: React.FC<{
                         const lines = buffer.split('\n');
                         buffer = lines.pop() || ''; // keep incomplete line in buffer
 
-                        for (const line of lines) {
-                            if (line.startsWith('event: ')) {
-                                currentEventType = line.slice(7).trim();
-                            } else if (line.startsWith('data: ')) {
-                                currentData = line.slice(6);
+                        for (const rawLine of lines) {
+                            // Strip trailing \r pour supporter les serveurs qui émettent
+                            // \r\n au lieu de \n (ex. derrière certains reverse proxies).
+                            const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
+
+                            // Lignes de commentaire SSE (commençant par ':') — ignorées
+                            // per spec, tout comme les lignes vides hors événement.
+                            if (line.startsWith(':')) {
+                                continue;
+                            }
+
+                            if (line.startsWith('event:')) {
+                                // SSE spec : un seul espace optionnel après le colon.
+                                currentEventType = line.slice(6).replace(/^ /, '').trim();
+                            } else if (line.startsWith('data:')) {
+                                // SSE spec : multiple lignes data: sont concaténées avec \n.
+                                // Un seul espace optionnel après le colon est consommé.
+                                const dataValue = line.slice(5).replace(/^ /, '');
+                                currentData = currentData ? currentData + '\n' + dataValue : dataValue;
                             } else if (line === '' && currentEventType && currentData) {
                                 // End of SSE message
                                 try {
