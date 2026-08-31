@@ -1066,10 +1066,13 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                     return next;
                 });
             }
+            const failedCount = validFiles.length - createdIds.length;
             if (createdIds.length === 0) {
-                messages.error('Aucune image n\'a pu être ajoutée');
+                messages.error(`Aucune image n'a pu être ajoutée (${failedCount} échec(s))`);
+            } else if (failedCount > 0) {
+                messages.warn(`${createdIds.length} image(s) ajoutée(s), ${failedCount} échec(s)`);
             } else {
-                messages.info(`${createdIds.length} image(s) ajoutee(s)`);
+                messages.info(`${createdIds.length} image(s) ajoutée(s)`);
             }
         } finally {
             setIsSaving(false);
