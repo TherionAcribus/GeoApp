@@ -1319,6 +1319,38 @@ const PluginExecutorComponent: React.FC<{
                 let currentEventType = '';
                 let currentData = '';
 
+                // ── Batching des événements SSE ──────────────────────────────
+                // Chaque événement SSE déclenchait auparavant un setState séparé,
+                // causant des dizaines de re-renders React par seconde quand 6
+                // workers parallèles émettent plugin_start/plugin_done/progress.
+                // On accumule maintenant les événements dans un buffer local et
+                // on flush via requestAnimationFrame (aligné sur le frame rate,
+                // ~16ms). Les événements progress intermédiaires sont écrasés
+                // (seul le dernier compte pour l'affichage de la barre).
+                let pendingEvents: StreamingEvent[] = [];
+                let pendingProgress: StreamingProgress | null = null;
+                let flushScheduled = false;
+
+                const flushBatchedEvents = () => {
+                    flushScheduled = false;
+                    if (pendingEvents.length === 0 && pendingProgress === null) return;
+                    const eventsToFlush = pendingEvents;
+                    const progressToFlush = pendingProgress;
+                    pendingEvents = [];
+                    pendingProgress = null;
+                    setState(prev => ({
+                        ...prev,
+                        ...(progressToFlush !== null ? { streamingProgress: progressToFlush } : {}),
+                        streamingEvents: [...prev.streamingEvents, ...eventsToFlush],
+                    }));
+                };
+
+                const scheduleFlush = () => {
+                    if (flushScheduled) return;
+                    flushScheduled = true;
+                    requestAnimationFrame(flushBatchedEvents);
+                };
+
                 try {
                     while (true) {
                         if (abortController.signal.aborted) break;
@@ -1363,22 +1395,22 @@ const PluginExecutorComponent: React.FC<{
                                     console.log(`[Metasolver SSE] ${currentEventType}:`, parsed);
 
                                     if (currentEventType === 'progress') {
-                                        setState(prev => ({
-                                            ...prev,
-                                            streamingProgress: parsed,
-                                            streamingEvents: [...prev.streamingEvents, sseEvent],
-                                        }));
+                                        // On ne garde que le dernier progress : les
+                                        // intermédiaires sont écrasés car la barre
+                                        // n'affiche que la valeur la plus récente.
+                                        pendingProgress = parsed;
+                                        scheduleFlush();
                                     } else if (currentEventType === 'result') {
+                                        // result est terminal et important : flush
+                                        // immédiat pour ne pas attendre le prochain
+                                        // frame (l'utilisateur doit voir le résultat
+                                        // dès que possible).
                                         finalResult = parsed;
-                                        setState(prev => ({
-                                            ...prev,
-                                            streamingEvents: [...prev.streamingEvents, sseEvent],
-                                        }));
+                                        pendingEvents.push(sseEvent);
+                                        flushBatchedEvents();
                                     } else {
-                                        setState(prev => ({
-                                            ...prev,
-                                            streamingEvents: [...prev.streamingEvents, sseEvent],
-                                        }));
+                                        pendingEvents.push(sseEvent);
+                                        scheduleFlush();
                                     }
                                 } catch (parseErr) {
                                     console.warn('[Metasolver SSE] Parse error:', parseErr);
@@ -1389,6 +1421,9 @@ const PluginExecutorComponent: React.FC<{
                         }
                     }
                 } finally {
+                    // Flush final : ne pas perdre les événements en vol si le
+                    // stream se termine entre deux frames.
+                    flushBatchedEvents();
                     reader.releaseLock();
                 }
 
