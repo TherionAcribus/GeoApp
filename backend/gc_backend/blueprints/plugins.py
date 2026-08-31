@@ -590,6 +590,10 @@ def _score_metasolver_candidate(candidate: Dict[str, Any], signature: Dict[str, 
         score += 120
         reasons.append("Le texte ressemble à du Tap Code")
 
+    if signature.get('looks_like_bacon') and _candidate_name_matches(candidate, 'bacon'):
+        score += 150
+        reasons.append("Le texte ressemble à du code Bacon")
+
     if signature.get('looks_like_decimal_sequence') and candidate_charset == 'digits':
         score += 15
         reasons.append("Entrée découpée en groupes numériques")
@@ -1920,6 +1924,29 @@ def _score_secret_fragment(signature: Dict[str, Any], source_name: str) -> float
         score -= 12
     if dominant_kind == 'words' and int(signature.get('word_count', 0)) >= 3:
         score -= 20
+
+    # Penalise les tres longs blocs de chiffres qui ne correspondent a aucun
+    # pattern de chiffrement connu : il s'agit generalement d'une reference
+    # de letter-tour ou de coordonnees encodees, pas d'un code decodable.
+    # looks_like_decimal_sequence est exclu car trop generique (juste "des
+    # chiffres en groupes") et ne reflete pas un schema de decodage precis.
+    # Seuil de 80 pour ne pas penaliser les fragments compacts de ~50 chars
+    # qui restent plausibles (paires ASCII, A1Z26 concatene, etc.).
+    if dominant_kind == 'digits' and fragment_length >= 80:
+        known_digit_pattern = any(
+            bool(signature.get(key))
+            for key in (
+                'looks_like_a1z26',
+                'looks_like_pi_index_positions',
+                'looks_like_tap_code',
+                'looks_like_polybius',
+                'looks_like_phone_keypad',
+                'looks_like_multitap',
+                'looks_like_prime_sequence',
+            )
+        )
+        if not known_digit_pattern:
+            score -= 30
 
     return score
 

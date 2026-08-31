@@ -85,7 +85,7 @@ class TestPlugin:
 '''
         
         plugin_file = temp_plugin_dir / 'main.py'
-        plugin_file.write_text(plugin_code)
+        plugin_file.write_text(plugin_code, encoding='utf-8')
         
         # Mettre à jour les métadonnées
         basic_metadata.path = str(temp_plugin_dir)
@@ -127,7 +127,7 @@ class TestPlugin:
 '''
         
         plugin_file = temp_plugin_dir / 'main.py'
-        plugin_file.write_text(plugin_code)
+        plugin_file.write_text(plugin_code, encoding='utf-8')
         
         basic_metadata.path = str(temp_plugin_dir)
         
@@ -155,7 +155,7 @@ class TestPlugin:
 '''
         
         plugin_file = temp_plugin_dir / 'main.py'
-        plugin_file.write_text(plugin_code)
+        plugin_file.write_text(plugin_code, encoding='utf-8')
         
         basic_metadata.path = str(temp_plugin_dir)
         
@@ -179,7 +179,7 @@ class TestpluginPlugin:
 '''
         
         plugin_file = temp_plugin_dir / 'main.py'
-        plugin_file.write_text(plugin_code)
+        plugin_file.write_text(plugin_code, encoding='utf-8')
         
         basic_metadata.path = str(temp_plugin_dir)
         
@@ -199,7 +199,7 @@ class MyCustomPlugin:
 '''
         
         plugin_file = temp_plugin_dir / 'main.py'
-        plugin_file.write_text(plugin_code)
+        plugin_file.write_text(plugin_code, encoding='utf-8')
         
         basic_metadata.path = str(temp_plugin_dir)
         
@@ -222,15 +222,15 @@ class TestPlugin:
 '''
         
         plugin_file = temp_plugin_dir / 'main.py'
-        plugin_file.write_text(plugin_code)
-        
+        plugin_file.write_text(plugin_code, encoding='utf-8')
+
         basic_metadata.path = str(temp_plugin_dir)
-        
+
         wrapper = PythonPluginWrapper(basic_metadata)
         wrapper.initialize()
-        
+
         assert wrapper._instance is not None
-        
+
         result = wrapper.cleanup()
         
         assert result is True
@@ -249,7 +249,7 @@ class TestPlugin:
 '''
 
         plugin_file = temp_plugin_dir / 'main.py'
-        plugin_file.write_text(plugin_code)
+        plugin_file.write_text(plugin_code, encoding='utf-8')
 
         basic_metadata.path = str(temp_plugin_dir)
         basic_metadata.timeout_seconds = 1
@@ -275,7 +275,7 @@ class TestPlugin:
 '''
 
         plugin_file = temp_plugin_dir / 'main.py'
-        plugin_file.write_text(plugin_code)
+        plugin_file.write_text(plugin_code, encoding='utf-8')
 
         basic_metadata.path = str(temp_plugin_dir)
         basic_metadata.timeout_seconds = 0
@@ -296,7 +296,7 @@ class TestPlugin:
 '''
 
         plugin_file = temp_plugin_dir / 'main.py'
-        plugin_file.write_text(plugin_code)
+        plugin_file.write_text(plugin_code, encoding='utf-8')
 
         basic_metadata.path = str(temp_plugin_dir)
         basic_metadata.timeout_seconds = 5
@@ -322,7 +322,7 @@ class TestPlugin:
 '''
         
         plugin_file = temp_plugin_dir / 'main.py'
-        plugin_file.write_text(plugin_code)
+        plugin_file.write_text(plugin_code, encoding='utf-8')
         
         basic_metadata.path = str(temp_plugin_dir)
         
@@ -408,7 +408,7 @@ class TestPlugin:
     def execute(self, inputs):
         return {"status": "ok", "results": []}
 '''
-        (temp_plugin_dir / 'main.py').write_text(plugin_code)
+        (temp_plugin_dir / 'main.py').write_text(plugin_code, encoding='utf-8')
         basic_metadata.path = str(temp_plugin_dir)
 
         sys_path_before = list(sys.path)

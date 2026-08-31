@@ -448,6 +448,10 @@ def score_metasolver_candidate(candidate: Dict[str, Any], signature: Dict[str, A
         score += 120
         reasons.append("Le texte ressemble à du Tap Code")
 
+    if signature.get('looks_like_bacon') and _candidate_name_matches(candidate, 'bacon'):
+        score += 150
+        reasons.append("Le texte ressemble à du code Bacon")
+
     if signature.get('looks_like_decimal_sequence') and candidate_charset == 'digits':
         score += 15
         reasons.append("Entrée découpée en groupes numériques")
