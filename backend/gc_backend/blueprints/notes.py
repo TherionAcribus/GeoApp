@@ -4,6 +4,7 @@ import logging
 from datetime import datetime, timezone
 
 from flask import Blueprint, jsonify, request
+from sqlalchemy.orm import selectinload
 
 from ..database import db
 from ..geocaches.models import Geocache, Note, GeocacheNote
@@ -53,7 +54,13 @@ def get_geocache_notes(geocache_id: int):
 @bp.post("/api/geocaches/<int:geocache_id>/notes")
 def create_geocache_note(geocache_id: int):
     try:
-        geocache = Geocache.query.get(geocache_id)
+        # Eager-load waypoints (utilise par ArchiveService) pour eviter un
+        # lazy-load lors du snapshot archive. Les notes seront deja en session.
+        geocache = (
+            Geocache.query
+            .options(selectinload(Geocache.waypoints))
+            .get(geocache_id)
+        )
         if not geocache:
             return jsonify({"error": "Geocache not found"}), 404
 
@@ -115,10 +122,16 @@ def update_note(note_id: int):
 
         db.session.commit()
 
-        # Sync archive for all geocaches linked to this note (batch load).
+        # Sync archive for all geocaches linked to this note (batch load +
+        # eager-loading des relations pour ArchiveService).
         linked_ids = [link.geocache_id for link in GeocacheNote.query.filter_by(note_id=note_id).all()]
         if linked_ids:
-            linked_geocaches = Geocache.query.filter(Geocache.id.in_(linked_ids)).all()
+            linked_geocaches = (
+                Geocache.query
+                .options(selectinload(Geocache.notes), selectinload(Geocache.waypoints))
+                .filter(Geocache.id.in_(linked_ids))
+                .all()
+            )
             for gc in linked_geocaches:
                 ArchiveService.sync_from_geocache(gc)
 
@@ -148,10 +161,16 @@ def delete_note(note_id: int):
         db.session.delete(note)
         db.session.commit()
 
-        # Batch load des geocaches liees (evite un N+1 si une note est lieee
-        # a plusieurs geocaches).
+        # Batch load des geocaches liees avec eager-loading des relations
+        # utilisees par ArchiveService (notes, waypoints) pour eviter du
+        # lazy-loading N+1 lors du snapshot archive.
         if linked_geocache_ids:
-            linked_geocaches = Geocache.query.filter(Geocache.id.in_(linked_geocache_ids)).all()
+            linked_geocaches = (
+                Geocache.query
+                .options(selectinload(Geocache.notes), selectinload(Geocache.waypoints))
+                .filter(Geocache.id.in_(linked_geocache_ids))
+                .all()
+            )
             for gc in linked_geocaches:
                 ArchiveService.sync_from_geocache(gc)
 
