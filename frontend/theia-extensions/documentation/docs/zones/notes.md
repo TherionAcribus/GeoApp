@@ -3,7 +3,7 @@ title: "Les notes d'une géocache"
 description: "Prendre des notes sur une géocache, importer et renvoyer la note personnelle Geocaching.com."
 chapter: zones
 order: 20
-tags: [notes, géocache, note personnelle, geocaching, synchronisation, earthcoach, aide-ia]
+tags: [notes, géocache, note personnelle, geocaching, synchronisation, earthcoach, aide-ia, markdown, mise en forme]
 ---
 
 # Les notes d'une géocache
@@ -27,26 +27,50 @@ Le panneau Notes s'ouvre depuis la fiche d'une géocache. Il affiche, de haut en
 
 Dans le bloc **Notes de l'application** :
 
-1. Saisissez votre texte dans la zone « Ajouter une nouvelle note… ».
-2. Choisissez le type de note :
-   - **Note utilisateur** : une note classique, la vôtre ;
-   - **Note système** : une note à caractère plus technique/automatique.
+1. Saisissez votre texte dans la zone « Ajouter une nouvelle note en Markdown… ».
+2. Mettez-le en forme si vous le souhaitez, avec la **barre d'outils Markdown** au-dessus de la zone de saisie (voir ci-dessous).
 3. Cliquez sur **Ajouter** (ou utilisez le raccourci **Ctrl/Cmd + Entrée**).
 
-Le bouton **Ajouter** reste désactivé tant que la note est vide.
+Le bouton **Ajouter** reste désactivé tant que la note est vide. Les notes que vous créez ici sont des **notes utilisateur** ; les notes « système » sont ajoutées par les outils de GeoApp.
+
+## Mettre en forme avec le Markdown
+
+Vos notes acceptent le **Markdown** : vous pouvez y mettre du gras, des titres, des listes, des liens…
+
+La **barre d'outils** au-dessus de chaque zone de saisie applique la mise en forme sur le texte sélectionné (ou insère un exemple si rien n'est sélectionné) :
+
+| Bouton | Effet | Ce que vous tapez |
+|---|---|---|
+| **B** | Gras | `**important**` |
+| *I* | Italique | `*nuance*` |
+| `</>` | Code | `` `N48 12.345` `` |
+| 🔗 | Lien | `[le sentier](https://…)` |
+| H1 / H2 | Titre / sous-titre | `# Titre` / `## Sous-titre` |
+| `-` | Liste à puces | `- premier indice` |
+| `>` | Citation | `> extrait de l'énigme` |
+
+Le bouton correspondant au format sous votre curseur **s'allume** : recliquer dessus retire la mise en forme.
+
+Sous la zone de saisie, dépliez **« Aperçu Markdown (texte final) »** pour voir le rendu avant d'enregistrer.
+
+> ⚠️ **Les astérisques doivent être collées au texte.** `**gras**` fonctionne, `**gras **` non — c'est la règle de Geocaching.com, et GeoApp l'applique à l'identique pour que l'aperçu corresponde à ce que le site affichera. L'aperçu vous signale les lignes concernées.
+>
+> Bonne nouvelle pour les formules : `A * B` (avec des espaces) reste affiché tel quel, il n'est **pas** interprété comme de l'italique.
+
+> ℹ️ Vos anciennes notes, écrites avant l'arrivée du Markdown, s'affichent normalement : le texte simple reste du texte simple.
 
 ## Modifier ou supprimer une note
 
 Chaque note affiche sa date de création (et de modification le cas échéant) ainsi qu'une étiquette de type colorée.
 
-- **Modifier** (icône crayon) : ouvre la note en édition. Validez avec **Ctrl/Cmd + Entrée**, annulez avec **Échap**.
+- **Modifier** (icône crayon) : ouvre la note en édition, avec la barre d'outils Markdown et l'aperçu. Validez avec **Ctrl/Cmd + Entrée**, annulez avec **Échap**.
 - **Supprimer** (icône corbeille) : une confirmation vous est demandée avant suppression.
 
 > ℹ️ Seules **vos notes** (type « utilisateur ») peuvent être modifiées ou renvoyées vers Geocaching.com. Les notes ajoutées par un outil comme EarthCoach sont en **lecture seule** dans ce panneau.
 
 ## La note personnelle Geocaching.com
 
-Le bloc **Note Geocaching.com** affiche la dernière version connue de votre note personnelle pour cette cache, avec, si disponibles, les dates d'**import** et d'**envoi**.
+Le bloc **Note Geocaching.com** affiche la dernière version connue de votre note personnelle pour cette cache, avec, si disponibles, les dates d'**import** et d'**envoi**. Elle aussi se rédige en Markdown (bouton **Éditer**) : Geocaching.com interprète la même syntaxe, l'aperçu de GeoApp correspond donc à ce que vous verrez sur le site.
 
 ### Importer la note depuis Geocaching.com
 

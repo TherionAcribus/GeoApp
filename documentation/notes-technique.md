@@ -2,7 +2,7 @@
 
 ## Vue d'ensemble
 
-Le systeme de Notes permet d'attacher du texte libre a une geocache. Il distingue **deux familles** de notes :
+Le systeme de Notes permet d'attacher du texte libre (au format **Markdown**, cf. section dediee) a une geocache. Il distingue **deux familles** de notes :
 
 1. **Notes applicatives** (locales, stockees en base GeoApp) : notes saisies par l'utilisateur ou ajoutees par des plugins/agents (ex. EarthCoach). Chaque note a un `source` (`user`, `system`, `earthcoach`, ...) et un `note_type` (`user` / `system`).
 2. **Note personnelle Geocaching.com** : la "personal cache note" d'une geocache sur GC.com. Elle est unique par cache, importable (scraping de la page) et reenvoyable (API GC.com). Elle est mise en cache cote GeoApp sur la geocache elle-meme.
@@ -33,6 +33,7 @@ backend/gc_backend/services/geocaching_personal_notes.py
 | `geocache-notes-controller.ts` | Couche metier sans dependance Theia UI. Expose le CRUD, l'import GC.com, et la logique de push avec resolution de conflit (`append` / `replace` / `cancel`). Lit la preference d'auto-sync. |
 | `geocache-notes-service.ts` | Client HTTP (via `BackendApiClient`). Mappe chaque action sur un endpoint backend. |
 | `geocache-notes-types.ts` | DTO et types partages (`GeocacheNoteDto`, reponses d'API, inputs). |
+| `geocache-notes-markdown-editor.tsx` | `NotesMarkdownEditor` : zone de saisie Markdown autonome (barre d'outils + textarea + apercu). Utilisee par les trois surfaces d'edition (nouvelle note, edition de note, note GC.com). |
 
 Separation des responsabilites : **View** (rendu) -> **Widget** (etat + orchestration) -> **Controller** (metier) -> **Service** (HTTP). Le controller et la view ne dependent pas l'un de l'autre.
 
@@ -160,6 +161,56 @@ Le widget (`geocache-notes-widget.tsx`) detient notamment :
    - **Annuler** (`cancel`) : aucune ecriture.
 4. le contenu final est envoye via `POST /api/notes/<id>/sync-to-geocaching`.
 
+## Markdown
+
+Depuis aout 2026, les notes sont saisies et affichees en **Markdown** (auparavant : texte brut).
+
+### Syntaxe et moteur
+
+Le moteur est celui **deja utilise par l'editeur de logs**, reutilise tel quel :
+
+| Module | Role |
+|---|---|
+| `log-markdown.ts` | Parsing pur (sans React, donc teste : `tests/log-markdown.test.ts`). Blocs (titres `#`/`##`/`###`, listes `-`, citations `>`, blocs de code ```` ``` ````) et inline (`**gras**`, `*italique*`, `` `code` ``, `[lien](url)`). |
+| `log-markdown-renderer.tsx` | Rendu React des blocs et des tokens inline. |
+| `log-editor/markdown-toolbar.tsx` | `MarkdownToolbar` : boutons B / I / code / lien / H1 / H2 / liste / citation. |
+| `log-editor/markdown-preview.tsx` | `MarkdownPreview` : bloc `<details>` « Apercu Markdown (texte final) » + avertissement sur les asterisques non interpretees. |
+| `log-editor/markdown-editor-helpers.ts` | Calculs purs : appliquer/retirer un format, appliquer un prefixe de ligne, detecter le format sous le curseur, borner une selection. |
+
+C'est **la syntaxe de Geocaching.com** (voir <https://www.geocaching.com/guide/markdown.aspx>) : une emphase n'est reconnue que si les delimiteurs sont **colles** au texte (`**gras**` oui, `**gras **` non). Ce choix est volontaire : une note applicative peut etre poussee vers la note personnelle GC.com, et l'apercu doit donc correspondre a ce que GC.com affichera.
+
+Effet de bord utile pour le geocaching : `A * B` (formule avec espaces) reste **litteral**, seul `A*B*C` serait interprete comme une emphase.
+
+### Ou le Markdown s'applique
+
+| Surface | Saisie | Affichage |
+|---|---|---|
+| Nouvelle note applicative | `NotesMarkdownEditor` | — |
+| Edition d'une note applicative (`source == 'user'`) | `NotesMarkdownEditor` | `renderLogMarkdown` |
+| Notes en lecture (toutes sources, y compris `system` / `earthcoach`) | — | `renderLogMarkdown` |
+| Note personnelle GC.com | `NotesMarkdownEditor` | `renderLogMarkdown` |
+
+### Pas de migration de donnees
+
+Aucun changement de schema : le Markdown **est** du texte, `Note.content` reste un `Text` et l'API est inchangee. Les notes creees avant ce changement sont simplement rendues avec le meme moteur ; les regles conservatrices ci-dessus rendent le risque de reinterpretation quasi nul.
+
+### `NotesMarkdownEditor` : conception
+
+L'editeur de logs a **une seule** barre d'outils, qui pilote la zone de texte actuellement active (le widget detient `activeEditor` et `activeCaretFormat`). Le panneau Notes a fait le choix inverse : **chaque zone de saisie embarque sa propre barre**, et tout l'etat d'edition Markdown (position du curseur, format sous le curseur, apercu deplie) est **local au composant**.
+
+Consequence : `geocache-notes-widget.tsx` n'a **pas** ete modifie — il ne connait rien du Markdown, il continue de detenir uniquement le texte.
+
+Points techniques :
+
+- **Valeur controlee + selection differee** : la valeur du textarea appartient au widget. Apres l'application d'un format, la nouvelle selection est stockee dans un `ref` et appliquee dans un `useLayoutEffect` **sans tableau de dependances** (le rendu suivant peut venir du widget pour une autre raison ; la selection en attente doit etre consommee des le premier rendu qui suit).
+- **`footer`** : les controles propres a chaque surface (compteur de caracteres, boutons Ajouter / Sauvegarder / Envoyer) sont passes en prop et rendus **entre** le textarea et l'apercu, pour que deplier l'apercu ne repousse pas les boutons hors de vue.
+- **Apercu paresseux** : `MarkdownPreview` ne construit l'arbre React du rendu que lorsque le `<details>` est ouvert.
+- **Focus** : cliquer un bouton de la barre fait perdre le focus au textarea, mais `selectionStart` / `selectionEnd` sont conserves par le navigateur ; le `useLayoutEffect` redonne ensuite le focus et repositionne le curseur.
+
+### Recherche
+
+`getSearchableContent()` continue d'exposer le **texte source** (Markdown brut), pas le texte rendu : la recherche porte donc sur ce que l'utilisateur a tape.
+
 ## Performance (rendu React)
 
 Le panneau peut afficher de nombreuses notes ; le rendu a ete optimise pour que la saisie reste fluide :
@@ -179,6 +230,8 @@ Effet net : le cout d'une frappe est quasi independant du nombre de notes affich
   - zone "nouvelle note" : `Ctrl/Cmd+Enter` ajoute la note (si non vide) ;
   - zone d'edition : `Ctrl/Cmd+Enter` sauvegarde, `Escape` annule.
 - **Autofocus** : le textarea d'edition prend le focus a l'entree en mode edition.
+- **Barre d'outils Markdown** : presente au-dessus de chaque zone de saisie (nouvelle note, edition, note GC.com), avec le bouton du format sous le curseur allume (`aria-pressed`). Desactivee pendant une operation en cours (creation, envoi vers GC.com).
+- **Apercu repliable** : « Apercu Markdown (texte final) » sous chaque zone de saisie, ferme par defaut ; son etat ouvert/ferme est conserve tant que la zone reste montee.
 - **Couleurs themisees** : le badge de type utilise les variables de theme (`var(--theia-charts-green|lines|blue, <fallback>)`) en chip *outline* (texte + bordure colores), pour un contraste correct en theme clair comme sombre.
 - **ARIA** : les boutons icone-seule (envoyer / editer / supprimer) portent un `aria-label` ; les `<i class="fa ...">` decoratives portent `aria-hidden="true"`.
 
@@ -197,6 +250,8 @@ Effet net : le cout d'une frappe est quasi independant du nombre de notes affich
   - `frontend/theia-extensions/zones/src/browser/geocache-notes-controller.ts`
   - `frontend/theia-extensions/zones/src/browser/geocache-notes-service.ts`
   - `frontend/theia-extensions/zones/src/browser/geocache-notes-types.ts`
+  - `frontend/theia-extensions/zones/src/browser/geocache-notes-markdown-editor.tsx`
+  - Markdown partage avec l'editeur de logs : `log-markdown.ts`, `log-markdown-renderer.tsx`, `log-editor/markdown-toolbar.tsx`, `log-editor/markdown-preview.tsx`, `log-editor/markdown-editor-helpers.ts`
 - Backend
   - `backend/gc_backend/blueprints/notes.py`
   - `backend/gc_backend/services/geocaching_personal_notes.py`

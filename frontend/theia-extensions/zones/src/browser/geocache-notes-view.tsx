@@ -1,5 +1,7 @@
 import * as React from 'react';
 import { GeocacheNoteDto, GeocacheNoteType } from './geocache-notes-types';
+import { NotesMarkdownEditor } from './geocache-notes-markdown-editor';
+import { renderLogMarkdown } from './log-markdown-renderer';
 import { EmptyState, LoadingState } from './state-views';
 
 export interface GeocacheNotesViewProps {
@@ -92,7 +94,6 @@ const gcNoteBoxStyle: React.CSSProperties = {
     minHeight: 60,
     background: 'var(--theia-sideBar-background)',
     borderRadius: 4,
-    whiteSpace: 'pre-wrap',
     fontSize: 13
 };
 
@@ -169,8 +170,6 @@ const actionButtonStyle: React.CSSProperties = {
 
 const actionButtonPointerStyle: React.CSSProperties = { ...actionButtonStyle, cursor: 'pointer' };
 
-const editColumnStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 6 };
-
 const editButtonsRowStyle: React.CSSProperties = { display: 'flex', gap: 8 };
 
 const cancelButtonStyle: React.CSSProperties = { ...actionButtonStyle, padding: '4px 10px', cursor: 'pointer' };
@@ -218,7 +217,7 @@ const userBadgeStyle: React.CSSProperties = {
     borderColor: 'var(--theia-charts-blue, #3b82f6)'
 };
 
-const noteContentStyle: React.CSSProperties = { marginTop: 4, whiteSpace: 'pre-wrap', fontSize: 13 };
+const noteContentStyle: React.CSSProperties = { marginTop: 4, fontSize: 13 };
 
 // Formatting via Intl (toLocaleString) is relatively costly and timestamps are stable
 // strings that recur across renders/notes, so we memoize on the raw value.
@@ -376,46 +375,47 @@ const NoteItem = React.memo(function NoteItem(props: NoteItemProps): React.JSX.E
                 </div>
             </div>
             {isEditing ? (
-                <div style={editColumnStyle}>
-                    <textarea
-                        value={props.editingContent}
-                        onChange={event => props.onEditingContentChange(event.target.value)}
-                        onKeyDown={event => {
-                            if (event.key === 'Escape') {
-                                event.preventDefault();
-                                props.onCancelEdit();
-                            } else if ((event.ctrlKey || event.metaKey) && event.key === 'Enter'
-                                && props.editingContent.trim().length > 0) {
-                                event.preventDefault();
-                                props.onSaveEdit();
-                            }
-                        }}
-                        autoFocus={true}
-                        rows={3}
-                        style={textareaStyle}
-                    />
-                    <div style={rowBetweenStyle}>
-                        <span style={metaTextStyle}>Note utilisateur</span>
-                        <div style={editButtonsRowStyle}>
-                            <button
-                                onClick={props.onCancelEdit}
-                                style={cancelButtonStyle}
-                            >
-                                Annuler
-                            </button>
-                            <button
-                                onClick={props.onSaveEdit}
-                                disabled={props.editingContent.trim().length === 0}
-                                style={props.editingContent.trim().length === 0 ? saveButtonDisabledStyle : saveButtonStyle}
-                            >
-                                Sauvegarder
-                            </button>
+                <NotesMarkdownEditor
+                    value={props.editingContent}
+                    onChange={props.onEditingContentChange}
+                    onKeyDown={event => {
+                        if (event.key === 'Escape') {
+                            event.preventDefault();
+                            props.onCancelEdit();
+                        } else if ((event.ctrlKey || event.metaKey) && event.key === 'Enter'
+                            && props.editingContent.trim().length > 0) {
+                            event.preventDefault();
+                            props.onSaveEdit();
+                        }
+                    }}
+                    autoFocus={true}
+                    rows={3}
+                    textareaStyle={textareaStyle}
+                    previewKeyPrefix={`note-edit-${note.id}`}
+                    footer={
+                        <div style={rowBetweenStyle}>
+                            <span style={metaTextStyle}>Note utilisateur</span>
+                            <div style={editButtonsRowStyle}>
+                                <button
+                                    onClick={props.onCancelEdit}
+                                    style={cancelButtonStyle}
+                                >
+                                    Annuler
+                                </button>
+                                <button
+                                    onClick={props.onSaveEdit}
+                                    disabled={props.editingContent.trim().length === 0}
+                                    style={props.editingContent.trim().length === 0 ? saveButtonDisabledStyle : saveButtonStyle}
+                                >
+                                    Sauvegarder
+                                </button>
+                            </div>
                         </div>
-                    </div>
-                </div>
+                    }
+                />
             ) : (
                 <div style={noteContentStyle}>
-                    {note.content}
+                    {renderLogMarkdown(note.content || '', `note-${note.id}`)}
                 </div>
             )}
         </div>
@@ -435,32 +435,36 @@ const NewNoteSection = React.memo(function NewNoteSection(props: NewNoteSectionP
 
     return (
         <div style={newNoteSectionStyle}>
-            <textarea
+            <NotesMarkdownEditor
                 value={props.content}
-                onChange={event => props.onContentChange(event.target.value)}
+                onChange={props.onContentChange}
                 onKeyDown={event => {
                     if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && !isDisabled) {
                         event.preventDefault();
                         props.onCreate();
                     }
                 }}
-                placeholder='Ajouter une nouvelle note... (Ctrl+Entrée pour ajouter)'
+                placeholder='Ajouter une nouvelle note en Markdown... (Ctrl+Entrée pour ajouter)'
                 rows={3}
-                style={textareaStyle}
+                disabled={props.isCreating}
+                textareaStyle={textareaStyle}
+                previewKeyPrefix='note-new'
+                footer={
+                    <div style={newNoteControlsRowStyle}>
+                        <span style={metaTextStyle}>
+                            {charCount} caractère{charCount !== 1 ? 's' : ''}
+                        </span>
+                        <button
+                            onClick={props.onCreate}
+                            disabled={isDisabled}
+                            style={isDisabled ? addButtonDisabledStyle : (props.isCreating ? addButtonWaitingStyle : addButtonActiveStyle)}
+                        >
+                            <i className={`fa ${props.isCreating ? 'fa-spinner fa-spin' : 'fa-plus'}`} aria-hidden='true' />
+                            {props.isCreating ? 'Création...' : 'Ajouter'}
+                        </button>
+                    </div>
+                }
             />
-            <div style={newNoteControlsRowStyle}>
-                <span style={metaTextStyle}>
-                    {charCount} caractère{charCount !== 1 ? 's' : ''}
-                </span>
-                <button
-                    onClick={props.onCreate}
-                    disabled={isDisabled}
-                    style={isDisabled ? addButtonDisabledStyle : (props.isCreating ? addButtonWaitingStyle : addButtonActiveStyle)}
-                >
-                    <i className={`fa ${props.isCreating ? 'fa-spinner fa-spin' : 'fa-plus'}`} aria-hidden='true' />
-                    {props.isCreating ? 'Création...' : 'Ajouter'}
-                </button>
-            </div>
         </div>
     );
 });
@@ -516,51 +520,53 @@ export function GeocacheNotesView(props: GeocacheNotesViewProps): React.JSX.Elem
                     )}
                 </div>
                 {props.isEditingGcNote ? (
-                    <div style={editColumnStyle}>
-                        <textarea
-                            value={props.editingGcNoteContent}
-                            onChange={event => props.onEditingGcNoteContentChange(event.target.value)}
-                            onKeyDown={event => {
-                                if (event.key === 'Escape') {
-                                    event.preventDefault();
-                                    props.onCancelEditGcNote();
-                                } else if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-                                    event.preventDefault();
-                                    props.onSaveGcNote();
-                                }
-                            }}
-                            autoFocus={true}
-                            rows={5}
-                            placeholder='Contenu de la note Geocaching.com (vide pour effacer)...'
-                            style={textareaStyle}
-                        />
-                        <div style={rowBetweenStyle}>
-                            <span style={metaTextStyle}>
-                                {props.editingGcNoteContent.length} / 2500 caractères
-                            </span>
-                            <div style={editButtonsRowStyle}>
-                                <button
-                                    onClick={props.onCancelEditGcNote}
-                                    style={cancelButtonStyle}
-                                >
-                                    Annuler
-                                </button>
-                                <button
-                                    onClick={props.onSaveGcNote}
-                                    disabled={props.isSavingGcNote || props.editingGcNoteContent.length > 2500}
-                                    style={(props.isSavingGcNote || props.editingGcNoteContent.length > 2500) ? saveButtonDisabledStyle : saveButtonStyle}
-                                >
-                                    <i className={`fa ${props.isSavingGcNote ? 'fa-spinner fa-spin' : 'fa-upload'}`} aria-hidden='true' />
-                                    {props.isSavingGcNote ? 'Envoi...' : 'Envoyer vers GC.com'}
-                                </button>
+                    <NotesMarkdownEditor
+                        value={props.editingGcNoteContent}
+                        onChange={props.onEditingGcNoteContentChange}
+                        onKeyDown={event => {
+                            if (event.key === 'Escape') {
+                                event.preventDefault();
+                                props.onCancelEditGcNote();
+                            } else if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+                                event.preventDefault();
+                                props.onSaveGcNote();
+                            }
+                        }}
+                        autoFocus={true}
+                        rows={5}
+                        disabled={props.isSavingGcNote}
+                        placeholder='Contenu de la note Geocaching.com en Markdown (vide pour effacer)...'
+                        textareaStyle={textareaStyle}
+                        previewKeyPrefix='gc-note-edit'
+                        footer={
+                            <div style={rowBetweenStyle}>
+                                <span style={metaTextStyle}>
+                                    {props.editingGcNoteContent.length} / 2500 caractères
+                                </span>
+                                <div style={editButtonsRowStyle}>
+                                    <button
+                                        onClick={props.onCancelEditGcNote}
+                                        style={cancelButtonStyle}
+                                    >
+                                        Annuler
+                                    </button>
+                                    <button
+                                        onClick={props.onSaveGcNote}
+                                        disabled={props.isSavingGcNote || props.editingGcNoteContent.length > 2500}
+                                        style={(props.isSavingGcNote || props.editingGcNoteContent.length > 2500) ? saveButtonDisabledStyle : saveButtonStyle}
+                                    >
+                                        <i className={`fa ${props.isSavingGcNote ? 'fa-spinner fa-spin' : 'fa-upload'}`} aria-hidden='true' />
+                                        {props.isSavingGcNote ? 'Envoi...' : 'Envoyer vers GC.com'}
+                                    </button>
+                                </div>
                             </div>
-                        </div>
-                    </div>
+                        }
+                    />
                 ) : (
                     <>
                         <div style={gcNoteBoxStyle} data-gc-note='true'>
                             {props.gcPersonalNote && props.gcPersonalNote.trim().length > 0
-                                ? props.gcPersonalNote
+                                ? renderLogMarkdown(props.gcPersonalNote, 'gc-note')
                                 : 'Aucune note personnelle trouvée sur Geocaching.com.'}
                         </div>
                         {personalNoteTimestamp && (
