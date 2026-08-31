@@ -80,6 +80,13 @@ def _is_prime(value: int) -> bool:
     if value % 2 == 0:
         return False
 
+    # Garde anti-stall : au-delà de 10^12, la trial division jusqu'à sqrt
+    # devient trop coûteuse (>500k itérations). On refuse de tester — la
+    # détection de séquences de nombres premiers n'a pas de sens sur des
+    # nombres aussi grands dans le contexte géocache.
+    if value > 10 ** 12:
+        return False
+
     divisor = 3
     while divisor * divisor <= value:
         if value % divisor == 0:
