@@ -115,10 +115,11 @@ def update_note(note_id: int):
 
         db.session.commit()
 
-        # Sync archive for all geocaches linked to this note
-        for link in GeocacheNote.query.filter_by(note_id=note_id).all():
-            gc = Geocache.query.get(link.geocache_id)
-            if gc:
+        # Sync archive for all geocaches linked to this note (batch load).
+        linked_ids = [link.geocache_id for link in GeocacheNote.query.filter_by(note_id=note_id).all()]
+        if linked_ids:
+            linked_geocaches = Geocache.query.filter(Geocache.id.in_(linked_ids)).all()
+            for gc in linked_geocaches:
                 ArchiveService.sync_from_geocache(gc)
 
         return jsonify({"note": note.to_dict()})
@@ -147,9 +148,11 @@ def delete_note(note_id: int):
         db.session.delete(note)
         db.session.commit()
 
-        for geocache_id in linked_geocache_ids:
-            gc = Geocache.query.get(geocache_id)
-            if gc:
+        # Batch load des geocaches liees (evite un N+1 si une note est lieee
+        # a plusieurs geocaches).
+        if linked_geocache_ids:
+            linked_geocaches = Geocache.query.filter(Geocache.id.in_(linked_geocache_ids)).all()
+            for gc in linked_geocaches:
                 ArchiveService.sync_from_geocache(gc)
 
         return jsonify({"deleted": True})

@@ -545,7 +545,7 @@ class Note(db.Model):
     note_type = db.Column(db.String(50), nullable=False)
     source = db.Column(db.String(50), nullable=False, default='user')
     source_plugin = db.Column(db.String(100))
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     geocaches = db.relationship('Geocache', secondary='geocache_note', back_populates='notes')
@@ -566,7 +566,7 @@ class GeocacheNote(db.Model):
     __tablename__ = 'geocache_note'
 
     geocache_id = db.Column(db.Integer, db.ForeignKey('geocache.id'), primary_key=True)
-    note_id = db.Column(db.Integer, db.ForeignKey('note.id'), primary_key=True)
+    note_id = db.Column(db.Integer, db.ForeignKey('note.id'), primary_key=True, index=True)
     added_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
 
