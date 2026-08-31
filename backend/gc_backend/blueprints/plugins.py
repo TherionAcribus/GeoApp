@@ -6152,7 +6152,6 @@ def metasolver_execute_stream():
         POST /api/plugins/metasolver/execute-stream
         {"inputs": {"text": "URYYB", "mode": "decode", "preset": "all"}}
     """
-    import json as _json
     from flask import Response, stream_with_context
 
     try:
@@ -6175,6 +6174,31 @@ def metasolver_execute_stream():
             "error": "Requête invalide",
             "message": "Le champ 'inputs' doit être un objet JSON"
         }), 400
+
+    # ── Validation des champs optionnels ──────────────────────────────
+    # On valide tôt pour renvoyer une 400 claire au lieu de laisser
+    # execute_streaming émettre un événement SSE d'erreur (qui arrive
+    # trop tard pour un client qui n'a pas encore ouvert le stream).
+    raw_mode = inputs.get('mode')
+    if raw_mode is not None:
+        mode_str = str(raw_mode).lower()
+        if mode_str not in {'decode', 'detect'}:
+            return jsonify({
+                "error": "Mode invalide",
+                "message": f"Le mode doit être 'decode' ou 'detect', reçu: {raw_mode!r}"
+            }), 400
+
+    raw_max_plugins = inputs.get('max_plugins')
+    if raw_max_plugins is not None and raw_max_plugins != '':
+        try:
+            mp_val = int(raw_max_plugins)
+            if mp_val <= 0:
+                raise ValueError("doit être positif")
+        except (TypeError, ValueError):
+            return jsonify({
+                "error": "max_plugins invalide",
+                "message": f"max_plugins doit être un entier positif, reçu: {raw_max_plugins!r}"
+            }), 400
 
     manager = get_plugin_manager()
 
@@ -6200,18 +6224,17 @@ def metasolver_execute_stream():
     # une déconnexion client (le générateur Flask est fermé → finally ci-dessous)
     # pour que le metasolver arrête d'attendre les workers et renvoie une
     # réponse partielle au lieu de fuiter en arrière-plan.
-    import threading as _threading
-    cancel_event = _threading.Event()
+    cancel_event = threading.Event()
 
     def generate():
         try:
             for event in raw_instance.execute_streaming(inputs, cancel_event=cancel_event):
                 event_type = event.get('event', 'message')
                 try:
-                    event_data = _json.dumps(event.get('data', {}), ensure_ascii=False)
+                    event_data = json.dumps(event.get('data', {}), ensure_ascii=False)
                 except Exception as serial_exc:
                     logger.error(f"[streaming] JSON serialization error on event '{event_type}': {serial_exc}", exc_info=True)
-                    event_data = _json.dumps({"error": f"Serialization error: {serial_exc}"}, ensure_ascii=False)
+                    event_data = json.dumps({"error": f"Serialization error: {serial_exc}"}, ensure_ascii=False)
                 logger.debug(f"[streaming] Yielding event: {event_type}")
                 yield f"event: {event_type}\ndata: {event_data}\n\n"
             logger.info("[streaming] execute_streaming generator exhausted — all events sent")
@@ -6223,7 +6246,7 @@ def metasolver_execute_stream():
             raise
         except Exception as exc:
             logger.error(f"[streaming] Unhandled exception in generate(): {exc}", exc_info=True)
-            error_data = _json.dumps({
+            error_data = json.dumps({
                 "error": str(exc),
                 "type": type(exc).__name__
             }, ensure_ascii=False)

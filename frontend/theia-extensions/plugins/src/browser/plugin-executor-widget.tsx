@@ -415,7 +415,6 @@ export class PluginExecutorWidget extends ReactWidget implements StatefulWidget 
         };
         this.title.label = `Plugin: ${pluginName}`;
         this.title.iconClass = 'fa fa-puzzle-piece';
-        console.log(`[Plugin Executor] Initialized in PLUGIN mode:`, pluginName);
         this.setupMinOpenTimeTimer();
         this.update();
     }
@@ -436,7 +435,6 @@ export class PluginExecutorWidget extends ReactWidget implements StatefulWidget 
         };
         this.title.label = `Analyse: ${context.gcCode}`;
         this.title.iconClass = 'fa fa-search';
-        console.log(`[PluginExecutor] Initialized in GEOCACHE mode: ${context.gcCode}`);
         this.setupMinOpenTimeTimer();
         this.update();
     }
@@ -483,7 +481,6 @@ const PluginExecutorComponent: React.FC<{
         const canSelectPlugin = config.mode === 'geocache';
         const canChangeMode = config.mode === 'plugin' && config.allowModeSelection !== false;
         
-        console.log(`[Plugin Executor Component] Initializing in ${config.mode} mode. Initial plugin: ${initialPlugin}`);
         
         return {
             plugins: [],
@@ -530,7 +527,6 @@ const PluginExecutorComponent: React.FC<{
     
     // Réinitialiser l'état quand la config change (changement de plugin ou de mode)
     React.useEffect(() => {
-        console.log('[Plugin Executor] Config changed, reinitializing state');
         const initialPlugin = config.pluginName || null;
         const canSelectPlugin = config.mode === 'geocache';
         const canChangeMode = config.mode === 'plugin' && config.allowModeSelection !== false;
@@ -571,7 +567,6 @@ const PluginExecutorComponent: React.FC<{
 
     // Chargement initial des plugins
     React.useEffect(() => {
-        console.log('[Plugin Executor] Chargement de la liste des plugins');
         loadPlugins();
     }, []);
 
@@ -579,7 +574,6 @@ const PluginExecutorComponent: React.FC<{
     React.useEffect(() => {
         if (config.pluginName) {
             setIsLoadingInitial(true);
-            console.log('[Plugin Executor] Chargement du plugin initial:', config.pluginName);
             loadPluginDetails(config.pluginName).finally(() => {
                 setIsLoadingInitial(false);
             });
@@ -589,22 +583,10 @@ const PluginExecutorComponent: React.FC<{
     // Charger les détails du plugin sélectionné (mode GEOCACHE uniquement)
     React.useEffect(() => {
         if (config.mode === 'geocache' && state.selectedPlugin) {
-            console.log('[Plugin Executor] Sélection du plugin (mode geocache):', state.selectedPlugin);
             loadPluginDetails(state.selectedPlugin);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [state.selectedPlugin, config.mode]);
-
-    // Debug: Logger quand le résultat change
-    React.useEffect(() => {
-        if (state.result) {
-            console.log('=== STATE.RESULT UPDATED ===');
-            console.log('Result object:', state.result);
-            console.log('Has results array:', !!state.result.results);
-            console.log('Results length:', state.result.results?.length);
-            console.log('First result:', state.result.results?.[0]);
-        }
-    }, [state.result]);
 
     // Exécuter automatiquement si configuré
     React.useEffect(() => {
@@ -616,7 +598,6 @@ const PluginExecutorComponent: React.FC<{
             && !state.isExecuting
             && !state.result
         ) {
-            console.log('[Plugin Executor] Exécution automatique déclenchée');
             // Petit délai pour laisser le rendu se faire
             setTimeout(() => {
                 handleExecute();
@@ -626,14 +607,9 @@ const PluginExecutorComponent: React.FC<{
 
     const loadPluginDetails = async (pluginName: string): Promise<void> => {
         try {
-            console.log('[Plugin Executor] Chargement du plugin:', pluginName);
             const details = await pluginsService.getPlugin(pluginName);
-            console.log('[Plugin Executor] Détails reçus:', details);
-            console.log('[Plugin Executor] input_schema:', details.input_schema);
-            console.log('[Plugin Executor] metadata:', details.metadata);
             
             const initialInputs = generateInitialInputs(details);
-            console.log('[Plugin Executor] Inputs initiaux générés:', initialInputs);
 
             // Correction de robustesse : pour analysis_web_page, si le champ 'text' est vide
             // alors que le contexte contient une description, on force l'utilisation de cette description.
@@ -643,7 +619,6 @@ const PluginExecutorComponent: React.FC<{
                 (!patchedInputs.text || String(patchedInputs.text).trim() === '') &&
                 context.description
             ) {
-                console.log("[Plugin Executor] Forcing geocache description into 'text' for analysis_web_page");
                 patchedInputs.text = context.description;
             }
             
@@ -661,7 +636,6 @@ const PluginExecutorComponent: React.FC<{
                     error: null
                 };
             });
-            console.log('[Plugin Executor] État mis à jour avec pluginDetails');
         } catch (error) {
             console.error('[Plugin Executor] Erreur lors du chargement:', error);
             messageService.error(`Erreur lors du chargement du plugin: ${error}`);
@@ -683,12 +657,7 @@ const PluginExecutorComponent: React.FC<{
      */
     const generateInitialInputs = (details: PluginDetails): Record<string, any> => {
         const inputs: Record<string, any> = {};
-        
-        console.log('!!! [Plugin Executor] GENERATING INPUTS V2 !!! for', details.name);
-        console.log('[Plugin Executor] Context available:', context);
-        console.log('[Plugin Executor] Context description present?', !!context.description);
-        console.log('[Plugin Executor] Context description length:', context.description?.length);
-        
+
         if (!details.input_schema?.properties) {
             return inputs;
         }
@@ -703,35 +672,26 @@ const PluginExecutorComponent: React.FC<{
             const metadataInputType = details.metadata?.input_types?.[key];
             const defaultValueSource = prop.default_value_source || metadataInputType?.default_value_source;
 
-            console.log(`[Plugin Executor] Processing field '${key}'`, { propSchema: prop, metadataInputType, defaultValueSource });
-            
             // 1. Priorité aux sources explicites définies dans le plugin.json
             if (defaultValueSource) {
-                console.log(`[Plugin Executor] Champ '${key}' utilise source: ${defaultValueSource}`);
                 if (defaultValueSource === 'geocache_id' && context.gcCode) {
                     inputs[key] = context.gcCode;
                 } else if (defaultValueSource === 'geocache_description' && context.description) {
-                    console.log(`[Plugin Executor] Injecting description into '${key}'`);
                     inputs[key] = context.description;
-                } else {
-                     console.log(`[Plugin Executor] Source '${defaultValueSource}' not found in context or empty`);
                 }
             }
             // 2. Fallback sur les comportements legacy hardcodés
             // Pour le champ 'text', on préfère la description (sans HTML pour les plugins standards) si elle existe, sinon les coordonnées
             else if (key === 'text') {
                 if (context.description) {
-                    console.log(`[Plugin Executor] Fallback for 'text': using STRIPPED geocache description`);
                     inputs[key] = stripHtml(context.description);
                 } else if (context.coordinates?.coordinatesRaw) {
-                    console.log(`[Plugin Executor] Fallback for 'text': using coordinates`);
                     inputs[key] = context.coordinates.coordinatesRaw;
                 }
             }
             // Pour les plugins qui attendent explicitement une coordonnée d'origine (ex: coordinate_projection)
             else if (key === 'origin_coords') {
                 if (context.coordinates?.coordinatesRaw) {
-                    console.log(`[Plugin Executor] Fallback for 'origin_coords': using geocache coordinatesRaw`);
                     inputs[key] = context.coordinates.coordinatesRaw;
                 }
             }
@@ -876,7 +836,6 @@ const PluginExecutorComponent: React.FC<{
 
         for (let i = 0; i < uniqueTexts.length; i += CHUNK_SIZE) {
             if (signal?.aborted) {
-                console.log('[Coordinates Detection] Annulé à', processed, '/', totalToAnalyze);
                 break;
             }
             if (isPausedRef.current) {
@@ -974,7 +933,6 @@ const PluginExecutorComponent: React.FC<{
         if (items.length === 0) {
             return;
         }
-        console.log('[AI Scorer] Analyse de', items.length, '/', allCandidates.length, 'résultat(s) (top par confiance) via LLM');
 
         // Créer un AbortController pour cette session de scoring
         const abortController = new AbortController();
@@ -1000,7 +958,6 @@ const PluginExecutorComponent: React.FC<{
             });
 
             if (abortController.signal.aborted) {
-                console.log('[AI Scorer] Scoring annulé par l\'utilisateur');
                 return;
             }
 
@@ -1045,11 +1002,8 @@ const PluginExecutorComponent: React.FC<{
                     target.coordinates = scored.coordinates;
                 }
             });
-            console.log('[AI Scorer] Scoring terminé —', aiResult.provider, '/', aiResult.model);
         } catch (error: any) {
-            if (error?.name === 'AbortError' || error?.message?.includes('aborted')) {
-                console.log('[AI Scorer] Scoring annulé par l\'utilisateur');
-            } else {
+            if (!(error?.name === 'AbortError' || error?.message?.includes('aborted'))) {
                 console.error('[AI Scorer] Erreur:', error);
             }
         } finally {
@@ -1218,7 +1172,6 @@ const PluginExecutorComponent: React.FC<{
         
         // Si on est en mode geocache, ajouter les waypoints au contexte envoyé
         if (config.mode === 'geocache' && config.geocacheContext?.waypoints) {
-            console.log('[Plugin Executor] Ajout des waypoints aux inputs:', config.geocacheContext.waypoints.length);
             inputsToSend = {
                 ...inputsToSend,
                 waypoints: config.geocacheContext.waypoints
@@ -1253,13 +1206,6 @@ const PluginExecutorComponent: React.FC<{
             return;
         }
 
-        console.log('=== DEBUG Plugin Executor ===');
-        console.log('Plugin sélectionné:', state.selectedPlugin);
-        console.log('Plugin details name:', state.pluginDetails.name);
-        console.log('Inputs du formulaire:', state.formInputs);
-        console.log('Inputs envoyés au backend:', inputsToSend);
-        console.log('Schéma du plugin:', state.pluginDetails.input_schema);
-        
         // Vérification de cohérence
         if (state.selectedPlugin !== state.pluginDetails.name) {
             console.error('INCOHÉRENCE: selectedPlugin !== pluginDetails.name');
@@ -1288,7 +1234,6 @@ const PluginExecutorComponent: React.FC<{
             // Metasolver en mode sync → streaming SSE
             const isMetasolver = state.selectedPlugin === 'metasolver';
             if (state.executionMode === 'sync' && isMetasolver) {
-                console.log('[Metasolver Streaming] Démarrage SSE avec inputs:', inputsToSend);
                 setState(prev => ({ ...prev, isStreaming: true }));
 
                 const response = await fetch(
@@ -1407,7 +1352,6 @@ const PluginExecutorComponent: React.FC<{
                                         timestamp: Date.now(),
                                     };
 
-                                    console.log(`[Metasolver SSE] ${currentEventType}:`, parsed);
 
                                     if (currentEventType === 'progress') {
                                         // On ne garde que le dernier progress : les
@@ -1452,7 +1396,6 @@ const PluginExecutorComponent: React.FC<{
                 }
 
                 if (abortController.signal.aborted) {
-                    console.log('[Metasolver Streaming] Exécution annulée par l\'utilisateur');
                     setState(prev => ({
                         ...prev,
                         isExecuting: false,
@@ -1500,15 +1443,12 @@ const PluginExecutorComponent: React.FC<{
                 }
 
             } else if (state.executionMode === 'sync') {
-                console.log('Exécution synchrone avec inputs:', inputsToSend);
                 const result = await pluginsService.executePlugin(
                     state.selectedPlugin, inputsToSend, abortController.signal
                 );
-                console.log('Résultat reçu:', result);
                 
                 // Détecter les coordonnées si l'option est activée
                 if (state.formInputs.detect_coordinates && result.results) {
-                    console.log('[Coordinates Detection] Détection activée, analyse des résultats...');
                     await detectCoordinatesInResults(result, abortController.signal);
                 }
                 // Scoring IA si l'option est activée
@@ -1524,16 +1464,13 @@ const PluginExecutorComponent: React.FC<{
                 setState(prev => ({ ...prev, result, isExecuting: false }));
                 messageService.info('Plugin exécuté avec succès');
             } else {
-                console.log('Création de tâche asynchrone avec inputs:', state.formInputs);
                 const task = await tasksService.createTask(state.selectedPlugin, inputsToSend);
-                console.log('Tâche créée:', task);
                 setState(prev => ({ ...prev, task, isExecuting: false }));
                 messageService.info(`Tâche créée: ${task.task_id}`);
                 // TODO: Ouvrir le Tasks Monitor ou afficher le suivi ici
             }
         } catch (error: any) {
             if (error.name === 'AbortError' || abortController.signal.aborted) {
-                console.log('[Plugin Executor] Exécution annulée par l\'utilisateur');
                 setState(prev => ({ ...prev, error: 'Exécution annulée', isExecuting: false, isStreaming: false }));
                 messageService.warn('Exécution annulée');
                 return;
@@ -1559,7 +1496,6 @@ const PluginExecutorComponent: React.FC<{
      */
     const handleStop = () => {
         if (abortControllerRef.current) {
-            console.log('[Plugin Executor] Arrêt demandé par l\'utilisateur');
             abortControllerRef.current.abort();
             // Résoudre aussi la pause si en pause pour débloquer la boucle
             isPausedRef.current = false;
@@ -1583,12 +1519,10 @@ const PluginExecutorComponent: React.FC<{
                 pauseResolverRef.current();
                 pauseResolverRef.current = null;
             }
-            console.log('[Plugin Executor] Reprise de l\'exécution');
         } else {
             // Mettre en pause — la boucle s'arrêtera à la prochaine itération
             isPausedRef.current = true;
             setIsPaused(true);
-            console.log('[Plugin Executor] Pause demandée');
         }
     };
 
@@ -1597,7 +1531,6 @@ const PluginExecutorComponent: React.FC<{
      */
     const handleStopAIScoring = () => {
         if (aiScoringAbortControllerRef.current) {
-            console.log('[AI Scorer] Arrêt demandé par l\'utilisateur');
             aiScoringAbortControllerRef.current.abort();
             setState(prev => ({
                 ...prev,
@@ -1630,7 +1563,6 @@ const PluginExecutorComponent: React.FC<{
             return;
         }
         
-        console.log('[Plugin Executor] Enchaînement avec texte:', resultText);
         
         // Archiver le résultat actuel dans l'historique
         setState(prev => ({
@@ -1948,7 +1880,6 @@ const PluginExecutorComponent: React.FC<{
             .replace(/\s+/g, ' ')     // Normaliser les espaces multiples
             .trim();
 
-        console.log('[Plugin Executor] Correcting coordinates:', { original: gcCoords, sanitized: sanitizedCoords });
 
         try {
             const response = await fetch(`${backendBaseUrl}/api/geocaches/${geocacheId}/coordinates`, {

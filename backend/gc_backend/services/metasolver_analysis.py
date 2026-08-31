@@ -10,8 +10,9 @@ Ce module contient la logique de :
 
 import json
 import re
+import time
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 
 from ..plugins import PluginManager
 
@@ -533,14 +534,37 @@ def score_metasolver_candidate(candidate: Dict[str, Any], signature: Dict[str, A
 # Collection des candidats et presets
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Cache mtime pour presets.json : évite de relire et reparser le fichier à
+# chaque appel. Invalidation automatique quand le mtime change (ex. édition
+# du fichier pendant le développement).
+_presets_cache: Dict[str, Any] = {}  # {path_str: (mtime, presets_dict)}
+
+
 def load_metasolver_presets(manager: PluginManager) -> Dict[str, Any]:
-    """Charge les presets depuis le fichier presets.json du plugin metasolver."""
+    """Charge les presets depuis le fichier presets.json du plugin metasolver.
+
+    Utilise un cache basé sur le mtime du fichier : si le fichier n'a pas
+    changé depuis la dernière lecture, on retourne la version en cache.
+    """
     presets_path = Path(manager.plugins_dir) / 'official' / 'metasolver' / 'presets.json'
+    path_str = str(presets_path)
     try:
-        with presets_path.open('r', encoding='utf-8') as handle:
-            return json.load(handle).get('presets') or {}
+        current_mtime = presets_path.stat().st_mtime
     except Exception:
         return {}
+
+    cached = _presets_cache.get(path_str)
+    if cached and cached[0] == current_mtime:
+        return cached[1]
+
+    try:
+        with presets_path.open('r', encoding='utf-8') as handle:
+            presets = json.load(handle).get('presets') or {}
+    except Exception:
+        return {}
+
+    _presets_cache[path_str] = (current_mtime, presets)
+    return presets
 
 
 def matches_metasolver_filter(metasolver_meta: Dict[str, Any], preset_filter: Optional[Dict[str, Any]]) -> bool:
@@ -595,6 +619,15 @@ def extract_metasolver_key_fields(metadata: Dict[str, Any]) -> List[str]:
     return key_fields
 
 
+# Cache TTL court pour collect_metasolver_candidates : évite de re-interroger
+# la DB et re-parser tous les metadata_json à chaque appel. Le TTL de 5s est
+# un compromis : assez court pour refléter un redémarrage ou un changement de
+# plugins, assez long pour absorber les appels multiples dans une même requête
+# (ex. /recommend + /eligible enchaînés par le frontend).
+_CANDIDATES_TTL_S = 5.0
+_candidates_cache: Dict[Tuple, Tuple[float, List[Dict[str, Any]]]] = {}
+
+
 def collect_metasolver_candidates(
     *,
     preset_filter: Optional[Dict[str, Any]] = None,
@@ -604,7 +637,19 @@ def collect_metasolver_candidates(
     Collecte tous les plugins éligibles au metasolver depuis la base de données,
     filtrés par preset et mode. Chaque candidat est enrichi avec key_fields
     et requires_key dérivé des input_types.
+
+    Un cache TTL de 5 secondes évite les requêtes DB répétées dans la même
+    fenêtre temporelle (ex. /recommend + /eligible enchaînés).
     """
+    # Clé de cache : (preset_filter figé, mode). preset_filter est un dict
+    # potentiellement mutable → on le sérialise pour avoir une clé hashable.
+    cache_key = (json.dumps(preset_filter, sort_keys=True) if preset_filter else None, mode)
+    now = time.time()
+    cached = _candidates_cache.get(cache_key)
+    if cached and (now - cached[0]) < _CANDIDATES_TTL_S:
+        # Retourner une copie pour éviter que l'appelant ne mute le cache.
+        return [dict(c) for c in cached[1]]
+
     from ..plugins.models import Plugin as PluginModel
 
     all_plugins = PluginModel.query.filter_by(enabled=True).all()
@@ -657,6 +702,10 @@ def collect_metasolver_candidates(
         })
 
     candidates.sort(key=lambda item: (-item['priority'], item['name']))
+
+    # Mettre en cache le résultat pour les appels suivants dans la fenêtre TTL.
+    _candidates_cache[cache_key] = (time.time(), candidates)
+
     return candidates
 
 

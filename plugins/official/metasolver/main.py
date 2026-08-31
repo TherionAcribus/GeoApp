@@ -176,22 +176,35 @@ class MetaSolverPlugin:
         start_time = time.time()
         deadline = start_time + STREAMING_GLOBAL_TIMEOUT_S
 
+        # ── Hardening des inputs ───────────────────────────────────────
+        # Coercion systématique en str pour éviter les AttributeError si
+        # l'utilisateur envoie un int/list/None pour text, mode, preset ou
+        # plugin_list. Sans cela, .strip() / .lower() / .split() lèveraient
+        # une exception non gérée qui ferait planter le générateur.
+        if not isinstance(inputs, dict):
+            yield {"event": "result", "data": self._error_response("inputs doit être un dictionnaire", start_time)}
+            return
+
         if not self._plugin_manager:
             yield {"event": "result", "data": self._error_response("PluginManager non initialisé", start_time)}
             return
 
-        text = (inputs.get("text") or "").strip()
+        raw_text = inputs.get("text")
+        text = (str(raw_text) if raw_text is not None else "").strip()
         if not text:
             yield {"event": "result", "data": self._error_response("Aucun texte fourni", start_time)}
             return
 
-        mode = (inputs.get("mode") or "decode").lower()
+        raw_mode = inputs.get("mode")
+        mode = (str(raw_mode) if raw_mode is not None else "decode").lower()
         if mode not in {"detect", "decode"}:
             yield {"event": "result", "data": self._error_response(f"Mode non supporté: {mode}", start_time)}
             return
 
-        preset = (inputs.get("preset") or "all").lower()
-        plugin_list_raw = inputs.get("plugin_list") or ""
+        raw_preset = inputs.get("preset")
+        preset = (str(raw_preset) if raw_preset is not None else "all").lower()
+        raw_plugin_list = inputs.get("plugin_list")
+        plugin_list_raw = str(raw_plugin_list) if raw_plugin_list is not None else ""
         enable_bruteforce = bool(inputs.get("enable_bruteforce", True))
         detect_coordinates = bool(inputs.get("detect_coordinates", True))
         key_entries = self._parse_key_entries(inputs)
