@@ -9,7 +9,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict
 
-from flask import Blueprint, jsonify, request, send_file
+from flask import Blueprint, Response, jsonify, request, send_file
 from PIL import Image
 from werkzeug.utils import secure_filename
 
@@ -797,6 +797,42 @@ def get_geocache_image_content(image_id: int):
         return send_file(full_path, mimetype=image.mime_type or None)
     except ValueError:
         return jsonify({'error': 'Invalid stored path'}), 400
+
+
+@bp.get('/api/geocache-images/<int:image_id>/raw')
+def get_geocache_image_raw(image_id: int):
+    """Proxy endpoint that returns the raw image bytes.
+
+    Serves stored images from disk (same as /content) and downloads remote
+    original images server-side, avoiding CORS issues when the frontend needs
+    to fetch image bytes (e.g. for cloud OCR).
+    """
+    image = GeocacheImage.query.get(image_id)
+    if not image:
+        return jsonify({'error': 'Image not found'}), 404
+
+    # Stored image: serve from disk.
+    if image.stored and image.stored_path:
+        try:
+            full_path = _safe_resolve_stored_file(image.stored_path)
+            if not full_path.exists():
+                return jsonify({'error': 'Stored file missing'}), 404
+            return send_file(full_path, mimetype=image.mime_type or None)
+        except ValueError:
+            return jsonify({'error': 'Invalid stored path'}), 400
+
+    # Remote original: download server-side (avoids browser CORS).
+    if not _can_download_source(image):
+        return jsonify({'error': 'Image has no downloadable source'}), 404
+
+    try:
+        content, content_type, status_code = download_image(image.source_url)
+        if status_code >= 400:
+            return jsonify({'error': f'Failed to download image (HTTP {status_code})'}), 502
+        return Response(content, mimetype=(content_type or image.mime_type or 'application/octet-stream'))
+    except Exception as exc:
+        logger.warning('raw proxy failed for image %s: %s', image_id, exc)
+        return jsonify({'error': f'Failed to download image: {exc}'}), 502
 
 
 @bp.post('/api/geocaches/<int:geocache_id>/images/cleanup')

@@ -561,9 +561,9 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
         return url;
     }, [backendBaseUrl]);
 
-    const loadImages = React.useCallback(async () => {
+    const loadImages = React.useCallback(async (): Promise<GeocacheImageV2Dto[]> => {
         if (!geocacheId) {
-            return;
+            return [];
         }
         setIsLoading(true);
         try {
@@ -572,12 +572,15 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                 throw new Error(`HTTP ${res.status}`);
             }
             const data = (await res.json()) as GeocacheImageV2Dto[];
-            setImages(Array.isArray(data) ? data : []);
-            setSelectedId(prev => (prev && data.some(x => x.id === prev) ? prev : null));
+            const safeData = Array.isArray(data) ? data : [];
+            setImages(safeData);
+            setSelectedId(prev => (prev && safeData.some(x => x.id === prev) ? prev : null));
+            return safeData;
         } catch (e) {
             console.error('[GeocacheImagesPanel] load images error', e);
             setImages([]);
             setSelectedId(null);
+            return [];
         } finally {
             setIsLoading(false);
         }
@@ -1054,12 +1057,21 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                     createdIds.push(created.id);
                 }
             }
-            await loadImages();
+            const loadedImages = await loadImages();
             if (createdIds.length) {
                 setSelectedId(createdIds[createdIds.length - 1]);
                 setDetailsMode('fields');
+                // Calculer le set sélectionnable à partir des données fraîchement
+                // chargées, pas depuis la closure périmée (selectableChatImageIds
+                // capturé au moment de l'appel, avant que loadImages ne mette à
+                // jour le state).
+                const freshSelectableIds = new Set(
+                    loadedImages
+                        .filter(img => Boolean(img.url))
+                        .map(img => img.id)
+                );
                 setChatImageIds(prev => {
-                    const current = prev.filter(id => selectableChatImageIds.has(id));
+                    const current = prev.filter(id => freshSelectableIds.has(id));
                     const next = [...current, ...createdIds.filter(id => !current.includes(id))];
                     warnIfChatSelectionIsHeavy(next.length);
                     persistChatImageIds(next);
@@ -1345,10 +1357,14 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
                         const storedImage = (await storeRes.json()) as GeocacheImageV2Dto;
                         imageUrlForFetch = resolveImageUrl(storedImage.url);
                     } else {
-                        imageUrlForFetch = resolveImageUrl((img.source_url || img.url) as string);
+                        // Store échoué : utiliser le proxy backend /raw qui
+                        // télécharge l'image côté serveur (évite les erreurs
+                        // CORS d'un fetch direct d'URL distante depuis le
+                        // navigateur).
+                        imageUrlForFetch = `${backendBaseUrl}/api/geocache-images/${imageId}/raw`;
                     }
                 } catch {
-                    imageUrlForFetch = resolveImageUrl((img.source_url || img.url) as string);
+                    imageUrlForFetch = `${backendBaseUrl}/api/geocache-images/${imageId}/raw`;
                 }
             }
 
