@@ -15,6 +15,8 @@ Routes API :
 - GET  /api/friends/finds/suggestions → caches trouvées par ≥N amis mais pas par moi
 - GET  /api/friends/stats             → statistiques croisées par ami (trouvailles, activité, commun)
 - GET  /api/friends/freshness          → état de fraîcheur de toutes les sources (timestamps + compteurs)
+- GET  /api/friends/notifications      → nouvelles trouvailles d'amis depuis la dernière visite
+- POST /api/friends/notifications/seen → marque les notifications comme lues
 """
 from __future__ import annotations
 
@@ -50,8 +52,10 @@ from ..services.geocaching_friend_finds import (
     get_friend_finds_client,
     get_or_create_friends_zone,
     list_codes_to_import,
+    mark_notifications_seen,
     query_freshness,
     query_friend_stats,
+    query_notifications,
     query_suggestions,
     store_finds,
 )
@@ -770,5 +774,36 @@ def friend_freshness():
     d'œil si une synchro est nécessaire.
     """
     return jsonify({"success": True, **query_freshness()})
+
+
+@bp.get("/notifications")
+def friend_notifications():
+    """
+    Notifications de nouvelles trouvailles d'amis depuis la dernière visite.
+
+    Query params : ``min_friends`` (défaut lu depuis les préférences, sinon 1),
+    ``limit`` (défaut 50, max 200).
+
+    Les notifications sont désactivées par défaut : le frontend ne consulte
+    cette route que si ``geoApp.friends.notifications.enabled`` est vrai.
+    """
+    from ..utils.preferences import get_value_or_default
+
+    default_min = int(get_value_or_default('geoApp.friends.notifications.minFriends', 1))
+    min_friends = request.args.get('min_friends', default=default_min, type=int)
+    min_friends = max(1, min(50, min_friends))
+    limit = request.args.get('limit', 50, type=int)
+    limit = max(1, min(200, limit))
+
+    result = query_notifications(min_friends=min_friends, limit=limit)
+    return jsonify({"success": True, **result})
+
+
+@bp.post("/notifications/seen")
+def friend_notifications_seen():
+    """Marque toutes les notifications actuelles comme lues."""
+    seen_at = mark_notifications_seen()
+    return jsonify({"success": True, "last_seen_at": seen_at})
+
 
 

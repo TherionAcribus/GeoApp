@@ -1718,6 +1718,62 @@
         "activity"
       ]
     },
+    "geoApp.friends.notifications.enabled": {
+      "type": "boolean",
+      "default": false,
+      "title": "Notifications de nouvelles trouvailles d'amis",
+      "description": "Affiche un badge sur le widget « Activité des amis » quand des amis trouvent de nouvelles caches depuis votre dernière visite. Les notifications sont calculées à partir des trouvailles déduites (flux d'activité et déduction par zone). Désactivé par défaut.",
+      "x-ui": {
+        "section": "Amis",
+        "label": "Notifications de trouvailles",
+        "order": 40,
+        "keywords": [
+          "amis",
+          "notifications",
+          "nouveautés",
+          "badge",
+          "trouvailles"
+        ]
+      },
+      "x-category": "friends",
+      "x-targets": [
+        "frontend",
+        "backend"
+      ],
+      "x-tags": [
+        "friends",
+        "notifications"
+      ]
+    },
+    "geoApp.friends.notifications.minFriends": {
+      "type": "integer",
+      "default": 1,
+      "minimum": 1,
+      "maximum": 50,
+      "title": "Seuil minimal d'amis pour notifier",
+      "description": "Nombre minimal d'amis ayant trouvé une même cache pour déclencher une notification. À 1, chaque nouvelle trouvaille est notifiée ; à 3, seules les caches populaires parmi vos amis le sont.",
+      "x-ui": {
+        "section": "Amis",
+        "label": "Seuil minimal d'amis",
+        "order": 41,
+        "advanced": true,
+        "keywords": [
+          "amis",
+          "notifications",
+          "seuil",
+          "minimum"
+        ]
+      },
+      "x-category": "friends",
+      "x-targets": [
+        "frontend",
+        "backend"
+      ],
+      "x-tags": [
+        "friends",
+        "notifications"
+      ]
+    },
     "geoApp.map.defaultProvider": {
       "type": "string",
       "enum": [

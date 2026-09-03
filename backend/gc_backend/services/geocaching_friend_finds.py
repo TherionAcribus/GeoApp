@@ -1059,4 +1059,125 @@ def _is_stale(last: datetime | None, now: datetime, hours: int = 1) -> bool:
     return (now - last).total_seconds() >= hours * 3600
 
 
+# ---------------------------------------------------------- Notifications
+
+NOTIFICATIONS_SEEN_KEY = 'friends.notifications.last_seen_at'
+
+
+def query_notifications(min_friends: int = 1, limit: int = 50) -> dict:
+    """
+    Notifications de nouvelles trouvailles d'amis depuis la dernière visite.
+
+    Compare le timestamp ``NOTIFICATIONS_SEEN_KEY`` (dernière fois que
+    l'utilisateur a vu les notifications) avec les ``first_seen_at`` des lignes
+    de ``friend_find``. Les trouvailles plus récentes que ce timestamp sont
+    « non lues » et agrégées par cache.
+
+    Au premier appel (pas de timestamp), toutes les trouvailles sont considérées
+    comme nouvelles — mais le frontend ne montre le badge qu'après la première
+    visite, donc le timestamp est posé immédiatement par ``mark_notifications_seen``.
+
+    Retourne un dict avec :
+
+    - ``items`` : liste de notifications (par cache), triées par nombre d'amis
+      décroissant puis par date ;
+    - ``count`` : nombre de notifications (caches distinctes) ;
+    - ``total_new_finds`` : nombre total de nouvelles lignes ``friend_find`` ;
+    - ``last_seen_at`` : timestamp de la dernière visite.
+    """
+    from ..database import db
+    from ..geocaches.models import Geocache
+    from ..models import AppConfig, FriendFind
+
+    last_seen_str = AppConfig.get_value(NOTIFICATIONS_SEEN_KEY)
+    last_seen = _parse_iso_config(last_seen_str)
+
+    query = (
+        db.session.query(
+            FriendFind.gc_code,          # 0
+            FriendFind.friend_username,  # 1
+            FriendFind.first_seen_at,    # 2
+            FriendFind.cache_name,       # 3
+            FriendFind.cache_type,       # 4
+            FriendFind.latitude,         # 5
+            FriendFind.longitude,        # 6
+            Geocache.id,                 # 7
+            Geocache.name,               # 8
+            Geocache.type,               # 9
+            Geocache.difficulty,         # 10
+            Geocache.terrain,            # 11
+            Geocache.latitude,           # 12
+            Geocache.longitude,          # 13
+            Geocache.found,              # 14
+            Geocache.zone_id,            # 15
+            Geocache.status,             # 16
+            Geocache.favorites_count,    # 17
+        )
+        .outerjoin(Geocache, FriendFind.gc_code == Geocache.gc_code)
+    )
+
+    if last_seen is not None:
+        query = query.filter(FriendFind.first_seen_at > last_seen)
+
+    rows = query.all()
+
+    # Regroupement par gc_code
+    by_code: dict[str, dict] = {}
+    total_new_finds = 0
+    for row in rows:
+        gc_code = row[0]
+        entry = by_code.get(gc_code)
+        if entry is None:
+            geocache_id = row[7]
+            entry = {
+                'gc_code': gc_code,
+                'name': (row[8] if row[8] else row[3]) or gc_code,
+                'cache_type': (row[9] if row[9] else row[4]),
+                'latitude': row[12] if row[12] is not None else row[5],
+                'longitude': row[13] if row[13] is not None else row[6],
+                'difficulty': row[10],
+                'terrain': row[11],
+                'geocache_id': geocache_id if geocache_id else 0,
+                'found': bool(row[14]) if row[14] else False,
+                'zone_id': row[15],
+                'status': row[16],
+                'favorites_count': row[17] or 0,
+                'friends': set(),
+                'first_seen_at': row[2],
+            }
+            by_code[gc_code] = entry
+        entry['friends'].add(row[1])
+        total_new_finds += 1
+
+    # Filtrage par min_friends et tri
+    items = []
+    for entry in by_code.values():
+        entry['friends'] = sorted(entry['friends'], key=str.casefold)
+        entry['friends_count'] = len(entry['friends'])
+        if entry['friends_count'] >= min_friends:
+            items.append(entry)
+
+    items.sort(key=lambda s: (-s['friends_count'], s['name'].casefold()))
+    items = items[:limit]
+
+    return {
+        'items': items,
+        'count': len(items),
+        'total_new_finds': total_new_finds,
+        'last_seen_at': last_seen_str,
+    }
+
+
+def mark_notifications_seen() -> str:
+    """Marque toutes les notifications actuelles comme lues. Retourne le timestamp."""
+    from ..database import db
+    from ..models import AppConfig
+
+    now = datetime.now(timezone.utc).isoformat()
+    AppConfig.set_value(NOTIFICATIONS_SEEN_KEY, now)
+    db.session.commit()
+    return now
+
+
+
 

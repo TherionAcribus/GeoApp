@@ -4,7 +4,7 @@
 > **(1) la liste d'amis** (§3-7), **(2) le flux d'activité** (§9),
 > **(3) les logs d'amis sur une cache** (§10), **(4) « qui a trouvé quoi »**
 > (§11) et **(5) la carte des découvertes** (§12-13).
-> Dernière mise à jour : septembre 2026 (pagination, synchro auto, suggestions, stats, fraîcheur, throttling adaptatif).
+> Dernière mise à jour : septembre 2026 (pagination, synchro auto, suggestions, stats, fraîcheur, throttling adaptatif, notifications).
 
 ---
 
@@ -126,6 +126,7 @@ backend/tests/
 ├── test_friend_stats.py            # Statistiques croisées entre amis (§13.6)
 ├── test_friend_freshness.py        # Tableau de bord de fraîcheur (§13.7)
 ├── test_friend_finds_throttling.py # Throttling 429 adaptatif (§11.3)
+├── test_friend_notifications.py    # Notifications de nouvelles trouvailles (§13.8)
 ├── test_friend_activity_map.py     # Agrégation cartographique du flux (§12)
 └── test_friend_finds_map.py        # Coordonnées déduites, zone « Amis », import (§13)
 
@@ -1044,7 +1045,44 @@ lecture (sans réseau) l'état de toutes les sources de données « amis » :
 affiche les timestamps en temps relatif (« il y a 12 min ») et un icône
 ⚠️ quand une source est stale. Un bouton rafraîchit le panneau à la demande.
 
-### 13.8 Interface
+### 13.8 Notifications de nouvelles trouvailles
+
+`query_notifications()` (dans `geocaching_friend_finds.py`) détecte les
+trouvailles d'amis apparues dans `friend_find` depuis la dernière visite de
+l'utilisateur. Le timestamp de dernière visite est stocké dans AppConfig sous
+la clé `friends.notifications.last_seen_at`.
+
+**Fonctionnement** :
+
+- au premier appel (pas de timestamp), toutes les trouvailles sont considérées
+  comme nouvelles ;
+- `mark_notifications_seen()` pose le timestamp courant, ce qui « vide » les
+  notifications ;
+- les trouvailles sont agrégées par cache (comme les suggestions), avec le
+  nombre d'amis, les métadonnées de la géocache importée si elle existe ;
+- filtrage par `min_friends` et `limit`.
+
+**Routes REST** :
+
+| Route | Rôle |
+|-------|------|
+| `GET /api/friends/notifications` | Nouvelles trouvailles depuis la dernière visite |
+| `POST /api/friends/notifications/seen` | Marquer les notifications comme lues |
+
+**Préférences** (désactivées par défaut) :
+
+- `geoApp.friends.notifications.enabled` (boolean, défaut `false`) : active ou
+  désactive les notifications. Le frontend ne consulte la route que si cette
+  préférence est vraie ;
+- `geoApp.friends.notifications.minFriends` (integer, défaut 1, 1–50) : nombre
+  minimal d'amis ayant trouvé une même cache pour déclencher une notification.
+
+**Frontend** : un badge rouge avec le compte de notifications apparaît sur le
+titre du widget « Activité des amis ». Une section repliable liste les
+notifications (cache, amis, métadonnées) avec un bouton « Marquer comme lu ».
+Si la préférence est désactivée, rien ne s'affiche.
+
+### 13.9 Interface
 
 Un sélecteur de source dans la barre d'outils du widget « Activité des amis » :
 **Activité récente** (§12) · **Toutes les trouvailles** (`friend_find`) ·
@@ -1075,7 +1113,7 @@ widget**, indépendamment de la carte.
 
 ## 14. Tests
 
-**166 tests**, aucun ne touche le réseau : le parsing est exposé en méthodes de
+**181 tests**, aucun ne touche le réseau : le parsing est exposé en méthodes de
 classe pures, la synchronisation accepte un client injecté, et les routes qui
 vérifient l'authentification reçoivent un service simulé (sans quoi elles
 tentent une vraie connexion à geocaching.com — piège vérifié).
@@ -1178,6 +1216,16 @@ tentent une vraie connexion à geocaching.com — piège vérifié).
 - décroissance de l'interval après 3 succès consécutifs, jamais sous le nominal ;
 - épuisement des tentatives → `RateLimitedError` ;
 - rétrocompatibilité : `retry_delays` injecté utilise toujours les paliers fixes.
+
+`test_friend_notifications.py` (15 tests) — notifications de nouvelles trouvailles :
+
+- liste vide sans données, toutes les trouvailles nouvelles sans timestamp ;
+- seules les trouvailles postérieures au timestamp sont notifiées ;
+- regroupement par cache (plusieurs amis = une notification) ;
+- tri par nombre d'amis décroissant, filtre `min_friends`, plafond `limit` ;
+- métadonnées de la géocache importée ou fallback sur `friend_find` ;
+- `mark_notifications_seen` pose le timestamp et vide les notifications ;
+- routes REST : lecture, paramètre `min_friends`, liste vide, marquer comme lu.
 
 `test_friend_activity_map.py` (21 tests) — carte des amis :
 

@@ -175,6 +175,35 @@ interface FreshnessResponse {
     error_message?: string;
 }
 
+/** Une notification de nouvelle trouvaille d'ami. */
+interface FriendNotification {
+    gc_code: string;
+    name: string;
+    cache_type: string | null;
+    latitude: number | null;
+    longitude: number | null;
+    difficulty: number | null;
+    terrain: number | null;
+    geocache_id: number;
+    found: boolean;
+    zone_id: number | null;
+    status: string | null;
+    favorites_count: number;
+    friends: string[];
+    friends_count: number;
+    first_seen_at: string;
+}
+
+interface FriendNotificationsResponse {
+    success: boolean;
+    items?: FriendNotification[];
+    count?: number;
+    total_new_finds?: number;
+    last_seen_at?: string | null;
+    error?: string;
+    error_message?: string;
+}
+
 /**
  * Ce que la carte affiche.
  *
@@ -304,6 +333,12 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
     protected freshness: FreshnessResponse | null = null;
     protected freshnessLoading: boolean = false;
 
+    /** Notifications de nouvelles trouvailles d'amis. */
+    protected notifications: FriendNotification[] = [];
+    protected notificationsCount: number = 0;
+    protected notificationsLoading: boolean = false;
+    protected notificationsVisible: boolean = false;
+
     @postConstruct()
     protected init(): void {
         this.id = GeocachingFriendActivityWidget.ID;
@@ -317,7 +352,8 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
         this.loadActivities()
             .then(() => this.autoSyncIfStale())
             .then(() => this.autoOpenMapIfEnabled())
-            .then(() => this.refreshImportableCount());
+            .then(() => this.refreshImportableCount())
+            .then(() => this.refreshNotifications());
     }
 
     /** Ouverture automatique de la carte, réglable par préférence (activée par défaut). */
@@ -944,6 +980,23 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
                             {`(${this.total})`}
                         </span>
                     )}
+                    {this.notificationsCount > 0 && (
+                        <span
+                            style={{
+                                fontSize: '0.75em',
+                                fontWeight: 'bold',
+                                color: 'white',
+                                backgroundColor: 'var(--theia-charts-red)',
+                                borderRadius: '10px',
+                                padding: '1px 8px',
+                                minWidth: '20px',
+                                textAlign: 'center',
+                            }}
+                            title={`${this.notificationsCount} nouvelle(s) trouvaille(s) d'ami(s) depuis votre dernière visite`}
+                        >
+                            {this.notificationsCount}
+                        </span>
+                    )}
                 </h2>
 
                 {this.renderToolbar()}
@@ -952,6 +1005,7 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
                 {this.renderSuggestions()}
                 {this.renderStats()}
                 {this.renderFreshness()}
+                {this.renderNotifications()}
             </div>
         );
     }
@@ -1443,6 +1497,182 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
                         </span>
                     </div>
                 ))}
+            </div>
+        );
+    }
+
+    // -------------------------------------------------- Notifications
+
+    protected async refreshNotifications(): Promise<void> {
+        const enabled = this.preferenceService.get<boolean>('geoApp.friends.notifications.enabled', false);
+        if (!enabled) {
+            this.notifications = [];
+            this.notificationsCount = 0;
+            return;
+        }
+
+        const minFriends = this.preferenceService.get<number>('geoApp.friends.notifications.minFriends', 1);
+        try {
+            const params = new URLSearchParams({ min_friends: String(minFriends), limit: '50' });
+            const response = await fetch(`${this.getApiBaseUrl()}/api/friends/notifications?${params}`);
+            const contentType = response.headers.get('content-type') || '';
+            if (!contentType.includes('application/json')) {
+                return;
+            }
+            const result: FriendNotificationsResponse = await response.json();
+            if (result.success) {
+                this.notifications = result.items || [];
+                this.notificationsCount = result.count || 0;
+            }
+        } catch {
+            // Silencieux : les notifications sont un bonus.
+        }
+        this.update();
+    }
+
+    protected async markNotificationsSeen(): Promise<void> {
+        try {
+            await fetch(`${this.getApiBaseUrl()}/api/friends/notifications/seen`, { method: 'POST' });
+            this.notifications = [];
+            this.notificationsCount = 0;
+            this.update();
+        } catch {
+            // Silencieux.
+        }
+    }
+
+    protected renderNotifications(): React.ReactNode {
+        const enabled = this.preferenceService.get<boolean>('geoApp.friends.notifications.enabled', false);
+        if (!enabled) {
+            return null;
+        }
+
+        if (this.notificationsCount === 0 && !this.notificationsVisible) {
+            return null;
+        }
+
+        return (
+            <div style={{ marginTop: '16px', borderTop: '1px solid var(--theia-panel-border)', paddingTop: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                    <span className="codicon codicon-bell"></span>
+                    <strong>Notifications</strong>
+                    {this.notificationsCount > 0 && (
+                        <span style={{
+                            fontSize: '0.75em',
+                            fontWeight: 'bold',
+                            color: 'white',
+                            backgroundColor: 'var(--theia-charts-red)',
+                            borderRadius: '10px',
+                            padding: '1px 8px',
+                        }}>
+                            {this.notificationsCount}
+                        </span>
+                    )}
+                    <div style={{ flex: 1 }}></div>
+                    {this.notificationsCount > 0 && (
+                        <button
+                            className="theia-button secondary"
+                            onClick={() => this.markNotificationsSeen()}
+                            title="Marquer toutes les notifications comme lues"
+                        >
+                            <span className="codicon codicon-check"></span>
+                            {' Marquer comme lu'}
+                        </button>
+                    )}
+                    <button
+                        className="theia-button secondary"
+                        onClick={() => { this.notificationsVisible = !this.notificationsVisible; this.update(); }}
+                        title={this.notificationsVisible ? 'Replier' : 'Déplier'}
+                    >
+                        <span className={`codicon codicon-chevron-${this.notificationsVisible ? 'up' : 'down'}`}></span>
+                    </button>
+                </div>
+
+                {this.notificationsVisible && (
+                    <>
+                        {this.notificationsLoading && (
+                            <div style={{ color: 'var(--theia-descriptionForeground)' }}>Chargement…</div>
+                        )}
+
+                        {!this.notificationsLoading && this.notifications.length === 0 && (
+                            <div style={{ color: 'var(--theia-descriptionForeground)' }}>
+                                Aucune nouvelle trouvaille d'ami depuis votre dernière visite.
+                            </div>
+                        )}
+
+                        {this.notifications.length > 0 && (
+                            <div>
+                                {this.notifications.map(n => this.renderNotification(n))}
+                            </div>
+                        )}
+                    </>
+                )}
+            </div>
+        );
+    }
+
+    protected renderNotification(n: FriendNotification): React.ReactNode {
+        const cacheUrl = n.geocache_id > 0
+            ? undefined
+            : `https://www.geocaching.com/geocache/${n.gc_code}`;
+
+        return (
+            <div
+                key={n.gc_code}
+                style={{
+                    display: 'flex',
+                    gap: '10px',
+                    padding: '10px 0',
+                    borderBottom: '1px solid var(--theia-panel-border)'
+                }}
+            >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                        <span
+                            className="codicon codicon-people"
+                            style={{ color: 'var(--theia-charts-blue)', fontSize: '0.9em' }}
+                        ></span>
+                        <strong style={{ color: 'var(--theia-charts-blue)' }}>{n.friends_count}</strong>
+                        {cacheUrl ? (
+                            <a href={cacheUrl} target="_blank" rel="noreferrer" title="Ouvrir sur geocaching.com">
+                                {n.name}
+                            </a>
+                        ) : (
+                            <span>{n.name}</span>
+                        )}
+                        <span style={{ color: 'var(--theia-descriptionForeground)', fontSize: '0.85em' }}>
+                            {n.gc_code}
+                        </span>
+                    </div>
+
+                    <div style={{
+                        fontSize: '0.8em',
+                        color: 'var(--theia-descriptionForeground)',
+                        display: 'flex',
+                        gap: '10px',
+                        flexWrap: 'wrap',
+                        marginTop: '2px'
+                    }}>
+                        {n.cache_type && <span>{n.cache_type}</span>}
+                        {n.difficulty !== null && n.terrain !== null && (
+                            <span>{`D ${n.difficulty} / T ${n.terrain}`}</span>
+                        )}
+                        {n.favorites_count > 0 && (
+                            <span title="Points favoris" style={{ color: 'var(--theia-charts-red)' }}>
+                                <span className="codicon codicon-heart-filled" style={{ fontSize: '0.9em' }}></span>
+                                {` ${n.favorites_count}`}
+                            </span>
+                        )}
+                    </div>
+
+                    <div style={{
+                        fontSize: '0.8em',
+                        color: 'var(--theia-descriptionForeground)',
+                        marginTop: '2px'
+                    }}>
+                        {n.friends.join(', ')}
+                    </div>
+                </div>
             </div>
         );
     }
