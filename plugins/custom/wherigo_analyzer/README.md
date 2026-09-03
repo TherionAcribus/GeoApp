@@ -119,12 +119,33 @@ Si Java ou unluac.jar n'est pas trouvé, le plugin fonctionne en mode dégradé 
 - Extraction des métadonnées et médias du `.gwc`
 - Analyse possible d'un fichier `.lua` déjà décompilé
 
-## Limitations (MVP)
+## Désobfuscation Urwigo
 
-- Analyse Lua basée sur des expressions régulières (pas de parser complet)
-- Détection des réponses limitée aux patterns courants
-- Désobfuscation non implémentée (détection uniquement)
-- Hash Urwigo non cracké
+Le plugin détecte et décode automatiquement les chaînes obfusquées par Urwigo :
+
+1. **Détection de la fonction de décodage** : identifie la fonction Urwigo (ex: `_NsWY`, `_pJ4N`) et sa table de substitution (`dtable`).
+2. **Extraction de la dtable** : parse la chaîne Lua avec ses séquences d'échappement (décimal `\ddd`, hexadécimal `\xNN`, et escapes simples `\a\b\f\n\r\t\v`).
+3. **Décodage par substitution** : applique le mapping `dtable[byte]` pour chaque byte 1-127, en préservant les bytes > 127.
+4. **Remplacement dans le source** : remplace tous les appels `func("...")` par leur valeur décodée.
+
+### Séquences d'échappement Lua
+
+**Important** : Lua utilise des escapes **décimaux** (`\ddd`), contrairement au C qui utilise de l'octal. Par exemple `\019` est valide en Lua (décimal 19) mais invalide en octal C. Le décodeur gère correctement cette spécificité.
+
+### Réponses hashées Urwigo
+
+Les réponses protégées par `_Urwigo.Hash(string.lower(input)) == valeur` sont :
+- Détectées dans les callbacks `OnGetInput`
+- Comparées avec les choices de l'input pour trouver une correspondance directe
+- Si une correspondance est trouvée, la réponse est marquée avec `confidence: "high"` et `method: "urwigo_hash_matched_choice"`
+- Sinon, un brute-force est effectué et les candidats sont fournis avec `confidence: "low"`
+
+## Limitations
+
+- Analyse Lua basée sur des expressions régulières (pas de parser Lua complet)
+- Les concaténations de variables (`Text = var1 .. var2 .. ...`) ne sont pas résolues
+- Les long-bracket strings `[[...]]` ne sont pas supportés
+- Détection des réponses limitée aux patterns courants (comparaisons directes, NoCaseEquals, hash Urwigo)
 
 ## Tests
 
@@ -132,6 +153,18 @@ Si Java ou unluac.jar n'est pas trouvé, le plugin fonctionne en mode dégradé 
 cd plugins/custom/wherigo_analyzer
 python -m pytest tests/ -v
 ```
+
+Les tests incluent :
+- `test_lua_analyzer.py` : tests unitaires sur un fixture Lua simple
+- `test_wherigo_analyzer.py` : tests d'intégration du plugin complet
+- `test_urwigo_deobfuscation.py` : tests de désobfuscation Urwigo avec fixtures réelles (mozarts_salzburg, i_love_salzburg)
+
+### Fixtures de test
+
+Les fixtures `tests/fixtures/mozarts_salzburg.lua` et `tests/fixtures/i_love_salzburg.lua` sont générées à partir de cartouches réelles via `unluac`. Elles permettent de valider :
+- Le décodage Urwigo (127 bytes dtable, strings lisibles)
+- L'extraction des zones, médias, inputs, messages
+- La résolution des réponses hashées par comparaison avec les choices
 
 ## Licence
 

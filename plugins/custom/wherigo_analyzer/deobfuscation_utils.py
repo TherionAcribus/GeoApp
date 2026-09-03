@@ -25,6 +25,149 @@ FRENCH_COMMON_WORDS = {
 WWB_TABLE = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@.-~"
 
 
+# Single-character Lua escape sequences
+_LUA_SIMPLE_ESCAPES = {
+    'a': '\x07', 'b': '\x08', 'f': '\x0c', 'n': '\x0a',
+    'r': '\x0d', 't': '\x09', 'v': '\x0b', '\\': '\\',
+    '"': '"', "'": "'",
+}
+
+
+def decode_lua_escapes(s: str) -> str:
+    """Decode Lua escape sequences in a string literal.
+
+    Supports:
+    - Single-char escapes: \\a \\b \\f \\n \\r \\t \\v \\\\ \\" \\'
+    - Hex escapes: \\xNN (exactly 2 hex digits)
+    - Decimal escapes: \\ddd (up to 3 DECIMAL digits, value 0-255)
+      Note: Lua uses DECIMAL, not octal like C.
+    - UTF-8 multi-byte sequences are preserved.
+
+    Args:
+        s: String content (without surrounding quotes)
+
+    Returns:
+        Decoded string
+    """
+    if not s:
+        return s
+
+    result = []
+    i = 0
+    while i < len(s):
+        if s[i] == '\\' and i + 1 < len(s):
+            next_char = s[i + 1]
+
+            # \xNN - hex escape (exactly 2 hex digits)
+            if next_char == 'x' and i + 3 < len(s):
+                hex_val = s[i+2:i+4]
+                if all(c in '0123456789abcdefABCDEF' for c in hex_val):
+                    result.append(chr(int(hex_val, 16)))
+                    i += 4
+                    continue
+
+            # Single character escapes
+            if next_char in _LUA_SIMPLE_ESCAPES:
+                result.append(_LUA_SIMPLE_ESCAPES[next_char])
+                i += 2
+                continue
+
+            # \ddd - decimal escape (up to 3 decimal digits, value <= 255)
+            # Note: Lua uses DECIMAL escapes, not octal like C
+            if next_char in '0123456789':
+                dec_digits = [next_char]
+                j = i + 2
+                while j < len(s) and s[j] in '0123456789' and len(dec_digits) < 3:
+                    dec_digits.append(s[j])
+                    j += 1
+                try:
+                    val = int(''.join(dec_digits))
+                    if val <= 255:
+                        result.append(chr(val))
+                        i = j
+                        continue
+                except:
+                    pass
+
+            # Unknown escape - keep backslash and char as-is
+            result.append(s[i])
+            i += 1
+            continue
+
+        result.append(s[i])
+        i += 1
+
+    return ''.join(result)
+
+
+def decode_lua_escapes_to_bytes(s: str) -> bytes:
+    """Decode Lua escape sequences and return as raw bytes.
+
+    Same as decode_lua_escapes but returns bytes, preserving byte values
+    exactly (useful for dtable extraction where byte-level accuracy matters).
+
+    Args:
+        s: String content (without surrounding quotes)
+
+    Returns:
+        Decoded bytes
+    """
+    if not s:
+        return b''
+
+    result = []
+    i = 0
+    while i < len(s):
+        if s[i] == '\\' and i + 1 < len(s):
+            next_char = s[i + 1]
+
+            # \xNN - hex escape
+            if next_char == 'x' and i + 3 < len(s):
+                hex_val = s[i+2:i+4]
+                if all(c in '0123456789abcdefABCDEF' for c in hex_val):
+                    result.append(int(hex_val, 16))
+                    i += 4
+                    continue
+
+            # Single character escapes
+            if next_char in _LUA_SIMPLE_ESCAPES:
+                result.append(ord(_LUA_SIMPLE_ESCAPES[next_char]))
+                i += 2
+                continue
+
+            # \ddd - decimal escape (Lua uses DECIMAL, not octal)
+            if next_char in '0123456789':
+                dec_digits = [next_char]
+                j = i + 2
+                while j < len(s) and s[j] in '0123456789' and len(dec_digits) < 3:
+                    dec_digits.append(s[j])
+                    j += 1
+                try:
+                    val = int(''.join(dec_digits))
+                    if val <= 255:
+                        result.append(val)
+                        i = j
+                        continue
+                except:
+                    pass
+
+            # Unknown escape - keep backslash byte
+            result.append(ord(s[i]))
+            i += 1
+            continue
+
+        # Regular character - encode as UTF-8 bytes
+        char = s[i]
+        if ord(char) < 128:
+            result.append(ord(char))
+        else:
+            for b in char.encode('utf-8'):
+                result.append(b)
+        i += 1
+
+    return bytes(result)
+
+
 @dataclass
 class DeobfuscationContext:
     """Context for deobfuscation operations."""
@@ -62,49 +205,8 @@ class TextDecoder:
         self.warnings: List[str] = []
 
     def _decode_lua_escapes(self, s: str) -> str:
-        """Decode Lua escape sequences in a string."""
-        if not s:
-            return s
-
-        result = []
-        i = 0
-        while i < len(s):
-            if s[i] == '\\' and i + 1 < len(s):
-                next_char = s[i + 1]
-                if next_char == 'n':
-                    result.append('\n')
-                    i += 2
-                elif next_char == 'r':
-                    result.append('\r')
-                    i += 2
-                elif next_char == 't':
-                    result.append('\t')
-                    i += 2
-                elif next_char == '"':
-                    result.append('"')
-                    i += 2
-                elif next_char == "'":
-                    result.append("'")
-                    i += 2
-                elif next_char == '\\':
-                    result.append('\\')
-                    i += 2
-                elif next_char == 'x' and i + 3 < len(s):
-                    try:
-                        hex_val = int(s[i+2:i+4], 16)
-                        result.append(chr(hex_val))
-                        i += 4
-                    except:
-                        result.append(s[i])
-                        i += 1
-                else:
-                    result.append(s[i])
-                    i += 1
-            else:
-                result.append(s[i])
-                i += 1
-
-        return ''.join(result)
+        """Decode Lua escape sequences in a string. Delegates to module function."""
+        return decode_lua_escapes(s)
 
     def _is_suspicious(self, text: str) -> Tuple[bool, str]:
         """

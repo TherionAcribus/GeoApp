@@ -10,6 +10,11 @@ import re
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass, field
 
+try:
+    from .deobfuscation_utils import decode_lua_escapes, decode_lua_escapes_to_bytes
+except ImportError:
+    from deobfuscation_utils import decode_lua_escapes, decode_lua_escapes_to_bytes
+
 
 @dataclass
 class DeobfuscationResult:
@@ -206,6 +211,7 @@ class UrwigoDeobfuscationReport:
     strings_decoded_by_best_effort: int = 0
     samples: List[Dict[str, Any]] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
+    errors: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -216,7 +222,8 @@ class UrwigoDeobfuscationReport:
             "strings_decoded_by_function": self.strings_decoded_by_function,
             "strings_decoded_by_best_effort": self.strings_decoded_by_best_effort,
             "samples": self.samples[:10],
-            "warnings": self.warnings
+            "warnings": self.warnings,
+            "errors": self.errors
         }
 
 
@@ -248,63 +255,12 @@ class UrwigoDeobfuscator:
         self.report = UrwigoDeobfuscationReport()
 
     def _decode_lua_escapes(self, s: str) -> str:
-        """
-        Decode Lua escape sequences in a string.
-        Supports: newline, carriage return, tab, bell, backspace,
-        form feed, vertical tab, backslash, quotes, hex (xNN), octal.
-        Properly handles UTF-8 multi-byte sequences.
-        """
-        bytes_array = []
-        i = 0
-        while i < len(s):
-            if s[i] == '\\' and i + 1 < len(s):
-                next_char = s[i + 1]
+        """Decode Lua escape sequences. Delegates to unified function."""
+        return decode_lua_escapes(s)
 
-                # \\xNN - hex escape (exactly 2 hex digits)
-                if next_char == 'x' and i + 3 < len(s):
-                    hex_val = s[i+2:i+4]
-                    if all(c in '0123456789abcdefABCDEF' for c in hex_val):
-                        bytes_array.append(int(hex_val, 16))
-                        i += 4
-                        continue
-
-                # Single character escapes (\n, \r, \t, etc.)
-                if next_char in self.LUA_ESCAPES:
-                    bytes_array.append(ord(self.LUA_ESCAPES[next_char]))
-                    i += 2
-                    continue
-
-                # \\0-\7 - octal escape (up to 3 octal digits, value <= 255)
-                if next_char in '01234567':
-                    oct_digits = [next_char]
-                    j = i + 2
-                    while j < len(s) and s[j] in '01234567' and len(oct_digits) < 3:
-                        oct_digits.append(s[j])
-                        j += 1
-                    try:
-                        val = int(''.join(oct_digits), 8)
-                        if val <= 255:
-                            bytes_array.append(val)
-                            i += len(oct_digits) + 1
-                            continue
-                    except:
-                        pass
-
-            # Regular character - encode as UTF-8 bytes
-            char = s[i]
-            if ord(char) < 128:
-                bytes_array.append(ord(char))
-            else:
-                # Multi-byte UTF-8 character
-                for b in char.encode('utf-8'):
-                    bytes_array.append(b)
-            i += 1
-
-        # Decode bytes as UTF-8
-        try:
-            return bytes(bytes_array).decode('utf-8', errors='replace')
-        except:
-            return bytes(bytes_array).decode('latin-1', errors='replace')
+    def _decode_lua_escapes_to_bytes(self, s: str) -> bytes:
+        """Decode Lua escape sequences to raw bytes. Delegates to unified function."""
+        return decode_lua_escapes_to_bytes(s)
 
     def _find_obfuscation_function(self, lua_content: str) -> Optional[Tuple[str, str]]:
         """
@@ -317,10 +273,12 @@ class UrwigoDeobfuscator:
         # Match function declaration, then any content until dtable=, then until 'end'
         # More flexible: allows any whitespace after function declaration
         # dtable string can contain actual newlines (from decompiler)
+        # Note: \\[\s\S]|[^"\\] order is critical - escape must be tried first,
+        # and alternatives must be non-overlapping to avoid catastrophic backtracking
         func_pattern = re.compile(
             r'function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)\s*'  # function name(params) + whitespace
-            r'(?:local\s+\w+\s*=\s*"[^"]*"\s*)*'  # optional local declarations with strings
-            r'local\s+dtable\s*=\s*"((?:[^"]|\\.)*)"'  # local dtable = "..." (can have newlines)
+            r'(?:local\s+\w+\s*=\s*"(?:\\[\s\S]|[^"\\])*"\s*)*'  # optional local declarations with strings
+            r'local\s+dtable\s*=\s*"((?:\\[\s\S]|[^"\\])*)"'  # local dtable = "..." (can have newlines)
             r'[\s\S]*?\bend\b',  # rest until 'end'
             re.IGNORECASE
         )
@@ -339,7 +297,7 @@ class UrwigoDeobfuscator:
         # Pattern 2: Simpler fallback - just find function name and dtable
         simple_pattern = re.compile(
             r'function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)'
-            r'[\s\S]*?local\s+dtable\s*=\s*"((?:[^"\\]|\\.)*)"',
+            r'[\s\S]*?local\s+dtable\s*=\s*"((?:\\[\s\S]|[^"\\])*)"',
             re.DOTALL | re.IGNORECASE
         )
 
@@ -353,7 +311,7 @@ class UrwigoDeobfuscator:
 
         # Pattern 3: Find dtable by string pattern alone (fallback)
         dtable_only_pattern = re.compile(
-            r'local\s+dtable\s*=\s*"((?:[^"\\]|\\.){64,200})"',
+            r'local\s+dtable\s*=\s*"((?:\\[\s\S]|[^"\\]){64,200})"',
             re.IGNORECASE
         )
         for match in dtable_only_pattern.finditer(lua_content):
@@ -421,13 +379,13 @@ class UrwigoDeobfuscator:
 
         # Pattern for WWB_deobf("...") or WWB_deobf('...')
         wwb_pattern = re.compile(
-            r'WWB_deobf\s*\(\s*(["\'])((?:(?!\1).|\\.)*)\1\s*\)',
+            r'WWB_deobf\s*\(\s*(["\'])((?:\\[\s\S]|(?!\1).)*)\1\s*\)',
             re.IGNORECASE
         )
 
         # Pattern for gsub_wig("...") or gsub_wig('...')
         gsub_pattern = re.compile(
-            r'gsub_wig\s*\(\s*(["\'])((?:(?!\1).|\\.)*)\1\s*\)',
+            r'gsub_wig\s*\(\s*(["\'])((?:\\[\s\S]|(?!\1).)*)\1\s*\)',
             re.IGNORECASE
         )
 
@@ -478,8 +436,9 @@ class UrwigoDeobfuscator:
         # Step 2: Find and replace all obfuscated string calls
         # Pattern: function_name("encoded_string") or function_name('encoded_string')
         # Handles both single and double quotes, with escaped quotes inside
+        # Note: \\[\s\S]|(?!\1) order is critical - escape must be tried first
         call_pattern = re.compile(
-            rf'{re.escape(self.function_name)}\s*\(\s*(["\'])((?:(?!\1).|\\.)*)\1\s*\)'
+            rf'{re.escape(self.function_name)}\s*\(\s*(["\'])((?:\\[\s\S]|(?!\1).)*)\1\s*\)'
         )
 
         result = lua_content

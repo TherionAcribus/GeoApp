@@ -17,11 +17,17 @@ logger = logging.getLogger(__name__)
 try:
     from .deobfuscators import UrwigoDeobfuscator
     from .urwigo_hash import brute_force_urwigo_common
-    from .deobfuscation_utils import DeobfuscationContext, TextDecoder, decode_all_text_properties, is_internal_identifier
+    from .deobfuscation_utils import (
+        DeobfuscationContext, TextDecoder, decode_all_text_properties,
+        is_internal_identifier, decode_lua_escapes, decode_lua_escapes_to_bytes,
+    )
 except ImportError:
     from deobfuscators import UrwigoDeobfuscator
     from urwigo_hash import brute_force_urwigo_common
-    from deobfuscation_utils import DeobfuscationContext, TextDecoder, decode_all_text_properties, is_internal_identifier
+    from deobfuscation_utils import (
+        DeobfuscationContext, TextDecoder, decode_all_text_properties,
+        is_internal_identifier, decode_lua_escapes, decode_lua_escapes_to_bytes,
+    )
 
 try:
     from .models import (
@@ -64,58 +70,17 @@ class UrwigoDecoder:
 
     @staticmethod
     def _decode_lua_escapes(s: str) -> str:
-        """Convert Lua escape sequences in a string to actual characters."""
-        result = []
-        i = 0
-        while i < len(s):
-            if s[i] == '\\' and i + 1 < len(s):
-                next_char = s[i + 1]
+        """Convert Lua escape sequences in a string to actual characters.
 
-                # \xNN - hex escape (exactly 2 hex digits)
-                if next_char == 'x' and i + 3 < len(s):
-                    hex_val = s[i+2:i+4]
-                    if all(c in '0123456789abcdefABCDEF' for c in hex_val):
-                        result.append(chr(int(hex_val, 16)))
-                        i += 4
-                        continue
-
-                # \a, \b, \f, \n, \r, \t, \v, \\, \", \' - single char escapes
-                elif next_char in 'abfnrtv\\"\'':
-                    escape_map = {
-                        'a': '\x07', 'b': '\x08', 'f': '\x0c',
-                        'n': '\x0a', 'r': '\x0d', 't': '\t', 'v': '\x0b',
-                        '\\': '\\', '"': '"', "'": "'",
-                    }
-                    result.append(escape_map[next_char])
-                    i += 2
-                    continue
-
-                # \0-\7 - octal escape (up to 3 octal digits, value <= 255)
-                elif next_char in '01234567':
-                    oct_digits = [next_char]
-                    j = i + 2
-                    while j < len(s) and s[j] in '01234567' and len(oct_digits) < 3:
-                        oct_digits.append(s[j])
-                        j += 1
-                    try:
-                        val = int(''.join(oct_digits), 8)
-                        if val <= 255:
-                            result.append(chr(val))
-                            i += len(oct_digits) + 1
-                            continue
-                    except:
-                        pass
-
-            result.append(s[i])
-            i += 1
-
-        return ''.join(result)
+        Delegates to the unified decode_lua_escapes function.
+        """
+        return decode_lua_escapes(s)
 
     @classmethod
     def extract_table(cls, lua_content: str) -> str:
         """Extract and decode the deobfuscation table from Lua content."""
         # Find the dtable definition
-        table_match = re.search(r'dtable\s*=\s*"([^"]+)"', lua_content)
+        table_match = re.search(r'dtable\s*=\s*"((?:\\[\s\S]|[^"\\])*)"', lua_content)
         if table_match:
             raw_table = table_match.group(1)
             return cls._decode_lua_escapes(raw_table)
@@ -246,13 +211,14 @@ class LuaAnalyzer:
     }
 
     # Message patterns - simplified, just to find the start of calls
+    # Supports both Wherigo.MessageBox and _Urwigo.MessageBox (and Dialog variants)
     MESSAGE_PATTERNS = {
         'messagebox': re.compile(
-            r'Wherigo\.MessageBox\s*\(\s*\{',
+            r'(?:Wherigo|_Urwigo)\.MessageBox\s*\(\s*\{',
             re.IGNORECASE
         ),
         'dialog': re.compile(
-            r'Wherigo\.Dialog\s*\(\s*\{',
+            r'(?:Wherigo|_Urwigo)\.Dialog\s*\(\s*(?:true\s*,\s*)?\{',
             re.IGNORECASE
         ),
     }
@@ -261,19 +227,30 @@ class LuaAnalyzer:
     # Patterns handle escaped quotes \" within strings
     MESSAGE_PROPERTY_PATTERNS = {
         'text': re.compile(
-            r'(?:^|,|\{)\s*Text\s*=\s*"((?:[^"\\]|\\.)*)"',
+            r'(?:^|,|\{)\s*Text\s*=\s*"((?:\\[\s\S]|[^"\\])*)"',
             re.IGNORECASE
         ),
+        # tostring("...") - after deobfuscation, tostring(_pJ4N("...")) becomes tostring("decoded")
+        'text_tostring': re.compile(
+            r'(?:^|,|\{)\s*Text\s*=\s*tostring\s*\(\s*"((?:\\[\s\S]|[^"\\])*)"\s*\)',
+            re.IGNORECASE
+        ),
+        # Generic obfuscated: Text = <func>("...") or Text = tostring(<func>("..."))
+        # Used to catch calls that weren't replaced by the deobfuscator
         'text_obfuscated': re.compile(
-            r'(?:^|,|\{)\s*Text\s*=\s*_m9REO\s*\(\s*"([^"]+)"\s*\)',
+            r'(?:^|,|\{)\s*Text\s*=\s*(?:tostring\s*\(\s*)?([A-Za-z_]\w*)\s*\(\s*"((?:\\[\s\S]|[^"\\])*)"\s*\)\s*\)?',
             re.IGNORECASE
         ),
         'title': re.compile(
-            r'(?:^|,|\{)\s*Title\s*=\s*"((?:[^"\\]|\\.)*)"',
+            r'(?:^|,|\{)\s*Title\s*=\s*"((?:\\[\s\S]|[^"\\])*)"',
+            re.IGNORECASE
+        ),
+        'title_tostring': re.compile(
+            r'(?:^|,|\{)\s*Title\s*=\s*tostring\s*\(\s*"((?:\\[\s\S]|[^"\\])*)"\s*\)',
             re.IGNORECASE
         ),
         'title_obfuscated': re.compile(
-            r'(?:^|,|\{)\s*Title\s*=\s*_m9REO\s*\(\s*"([^"]+)"\s*\)',
+            r'(?:^|,|\{)\s*Title\s*=\s*(?:tostring\s*\(\s*)?([A-Za-z_]\w*)\s*\(\s*"((?:\\[\s\S]|[^"\\])*)"\s*\)\s*\)?',
             re.IGNORECASE
         ),
         'media': re.compile(
@@ -454,84 +431,79 @@ class LuaAnalyzer:
         return objects
 
     def _find_object_end(self, lines: List[str], start_idx: int) -> int:
-        """Find the end of an object definition block."""
-        brace_count = 0
-        in_braces = False
-        has_braces = False
+        """Find the end of an object definition block.
 
-        for i in range(start_idx, len(lines)):
-            line = lines[i]
-            for char in line:
-                if char == '{':
-                    brace_count += 1
-                    has_braces = True
-                    in_braces = True
-                elif char == '}':
-                    brace_count -= 1
-                    if brace_count == 0 and in_braces:
-                        in_braces = False
-
-        # For Urwigo-style objects: find where properties for THIS object end
-        # Get the object name from the start line
+        Handles two styles:
+        1. Brace style: obj = Wherigo.Zone({...})  -- ends when braces balance
+        2. Urwigo style: obj = Wherigo.Zone(cartridge) followed by obj.Prop = ...
+           -- ends when a new object/function/non-property statement appears
+        """
         start_line = lines[start_idx]
         obj_name_match = re.match(r'^(\w+)\s*=', start_line.strip())
         if not obj_name_match:
-            return len(lines)
-
+            return min(start_idx + 1, len(lines))
         obj_name = obj_name_match.group(1)
 
-        # For Urwigo-style: properties are obj_name.Property = ...
-        # Continue until we find a new object definition that doesn't start with obj_name.
+        # Detect brace style: the start line (or nearby) contains '{'
+        has_open_brace = '{' in start_line
+
+        if has_open_brace:
+            # Brace style: count braces, skipping string literals
+            brace_count = 0
+            in_string = False
+            string_quote = None
+            for i in range(start_idx, len(lines)):
+                line = lines[i]
+                j = 0
+                while j < len(line):
+                    ch = line[j]
+                    if in_string:
+                        if ch == '\\' and j + 1 < len(line):
+                            j += 2
+                            continue
+                        if ch == string_quote:
+                            in_string = False
+                            string_quote = None
+                        j += 1
+                        continue
+                    if ch in ('"', "'"):
+                        in_string = True
+                        string_quote = ch
+                        j += 1
+                        continue
+                    if ch == '{':
+                        brace_count += 1
+                    elif ch == '}':
+                        brace_count -= 1
+                        if brace_count == 0:
+                            return i + 1
+                    j += 1
+            return len(lines)
+
+        # Urwigo style: properties are obj_name.Property = ...
+        # Continue until we find a new object definition, function, or non-property line
         last_prop_line = start_idx
-
         for i in range(start_idx + 1, len(lines)):
-            line = lines[i]
-            stripped = line.strip()
-
-            # Check for property assignment (obj_name.xxx = ...)
-            if re.match(rf'^{re.escape(obj_name)}\.', stripped):
+            stripped = lines[i].strip()
+            if not stripped or stripped.startswith('--'):
+                continue
+            # Property assignment for this object
+            if re.match(rf'^{re.escape(obj_name)}[.:]', stripped):
                 last_prop_line = i
                 continue
-
-            # Check for empty line - might be end of object
-            if stripped == '':
-                continue
-
-            # Check for new object definition (different name = Wherigo.xxx)
-            new_obj_match = re.match(r'^(\w+)\s*=\s*Wherigo\.\w+', stripped)
-            if new_obj_match:
-                new_name = new_obj_match.group(1)
-                if not new_name.startswith(obj_name):
-                    return last_prop_line + 1 if last_prop_line > start_idx else i
-
-            # Check for function definition
+            # New object definition or function
+            if re.match(r'^(\w+)\s*=\s*(?:Wherigo|_Urwigo)\.\w+', stripped):
+                return last_prop_line + 1
             if re.match(r'^function\s+\w+', stripped):
-                return last_prop_line + 1 if last_prop_line > start_idx else i
+                return last_prop_line + 1
+            # Cartridge table or other top-level assignment
+            if re.match(r'^(\w+)\s*=\s*\{', stripped):
+                return last_prop_line + 1
+            # If it's a property of a different object, we're done
+            if re.match(r'^\w+\.', stripped):
+                return last_prop_line + 1
 
-            # Check for closing braces at start of line
-            # BUT only return if next non-empty line is NOT a property of this object
-            if stripped == '}' and has_braces:
-                # Look ahead to see if there's a property for this object after the closing brace
-                for j in range(i + 1, min(i + 5, len(lines))):
-                    next_line = lines[j].strip()
-                    if next_line == '':
-                        continue
-                    if re.match(rf'^{re.escape(obj_name)}\.', next_line):
-                        # It's a property of this object, continue
-                        last_prop_line = j
-                        break
-                    if re.match(r'^(\w+)\s*=\s*Wherigo\.\w+', next_line):
-                        new_name_match = re.match(r'^(\w+)\s*=\s*Wherigo\.\w+', next_line)
-                        if new_name_match and not new_name_match.group(1).startswith(obj_name):
-                            # It's a new object, we're done
-                            return last_prop_line + 1 if last_prop_line > start_idx else i
-                        break
-                    if re.match(r'^function\s+\w+', next_line):
-                        return last_prop_line + 1 if last_prop_line > start_idx else i
-                    break
-                continue
-
-        return len(lines)
+        return last_prop_line + 1
 
     def _decode_obfuscated(self, content: str, encoded: str) -> str:
         """Decode an obfuscated string using the _m9REO table from content."""
@@ -548,15 +520,12 @@ class LuaAnalyzer:
         for prop_name, pattern in self.PROPERTY_PATTERNS.items():
             match = pattern.search(content)
             if match:
-                # For name/description, group(1) is obfuscated, group(2) is plain
-                if prop_name in ('name', 'description'):
-                    value = match.group(1) if match.group(1) else match.group(2)
-                else:
-                    value = match.group(1)
+                value = self._extract_property_value(match, prop_name)
+                if value is None:
+                    continue
 
-                # Decode if obfuscated
+                # Decode if obfuscated (group(1) was the obfuscated value)
                 if prop_name in ('name', 'description') and match.group(1):
-                    # Use full Lua content to access the deobfuscation table
                     decode_source = full_lua_content if full_lua_content else content
                     value = self._decode_obfuscated(decode_source, match.group(1))
 
@@ -626,6 +595,17 @@ class LuaAnalyzer:
 
         return zone
 
+    def _extract_property_value(self, match, prop_name: str) -> str:
+        """Extract a property value from a regex match.
+
+        For name/description patterns, group(1) is obfuscated, group(2) is plain.
+        For other patterns, group(1) is the value.
+        """
+        if prop_name in ('name', 'description'):
+            # group(1) = obfuscated, group(2) = plain text
+            return match.group(1) if match.group(1) else (match.group(2) if match.lastindex >= 2 else None)
+        return match.group(1)
+
     def _parse_media(self, name: str, content: str) -> Optional[WherigoMedia]:
         """Parse a Media object from its content."""
         media = WherigoMedia(internal_name=name, raw=content[:500])
@@ -633,7 +613,9 @@ class LuaAnalyzer:
         for prop_name, pattern in self.PROPERTY_PATTERNS.items():
             match = pattern.search(content)
             if match:
-                value = match.group(1)
+                value = self._extract_property_value(match, prop_name)
+                if value is None:
+                    continue
                 if prop_name == 'id':
                     media.id = value
                 elif prop_name == 'name':
@@ -652,7 +634,9 @@ class LuaAnalyzer:
         for prop_name, pattern in self.PROPERTY_PATTERNS.items():
             match = pattern.search(content)
             if match:
-                value = match.group(1)
+                value = self._extract_property_value(match, prop_name)
+                if value is None:
+                    continue
                 if prop_name == 'id':
                     char.id = value
                 elif prop_name == 'name':
@@ -675,7 +659,9 @@ class LuaAnalyzer:
         for prop_name, pattern in self.PROPERTY_PATTERNS.items():
             match = pattern.search(content)
             if match:
-                value = match.group(1)
+                value = self._extract_property_value(match, prop_name)
+                if value is None:
+                    continue
                 if prop_name == 'id':
                     item.id = value
                 elif prop_name == 'name':
@@ -698,7 +684,9 @@ class LuaAnalyzer:
         for prop_name, pattern in self.PROPERTY_PATTERNS.items():
             match = pattern.search(content)
             if match:
-                value = match.group(1)
+                value = self._extract_property_value(match, prop_name)
+                if value is None:
+                    continue
                 if prop_name == 'id':
                     task.id = value
                 elif prop_name == 'name':
@@ -719,7 +707,9 @@ class LuaAnalyzer:
         for prop_name, pattern in self.PROPERTY_PATTERNS.items():
             match = pattern.search(content)
             if match:
-                value = match.group(1)
+                value = self._extract_property_value(match, prop_name)
+                if value is None:
+                    continue
                 if prop_name == 'id':
                     timer.id = value
                 elif prop_name == 'name':
@@ -739,13 +729,11 @@ class LuaAnalyzer:
         for prop_name, pattern in self.PROPERTY_PATTERNS.items():
             match = pattern.search(content)
             if match:
-                # For name/description, group(1) is obfuscated, group(2) is plain
-                if prop_name in ('name', 'description'):
-                    value = match.group(1) if match.group(1) else match.group(2)
-                else:
-                    value = match.group(1)
+                value = self._extract_property_value(match, prop_name)
+                if value is None:
+                    continue
 
-                # Decode if obfuscated
+                # Decode if obfuscated (group(1) was the obfuscated value)
                 if prop_name in ('name', 'description') and match.group(1):
                     value = self._decode_obfuscated(full_content, match.group(1))
 
@@ -766,25 +754,42 @@ class LuaAnalyzer:
         inp.handler = f"{name}:OnGetInput"
 
         # Extract answers from the handler
-        inp.answers = self._extract_answers_from_handler(full_content, name)
+        inp.answers = self._extract_answers_from_handler(full_content, name, inp.choices)
 
         return inp
 
     def _parse_choices(self, choices_str: str) -> List[str]:
-        """Parse a Lua choices string into a list."""
+        """Parse a Lua choices string into a list.
+
+        Handles both single and double quoted strings, including strings
+        that contain escaped quotes or the other quote type.
+        """
         choices = []
-        # Match quoted strings in the choices list
-        for match in re.finditer(r'["\']([^"\']+)["\']', choices_str):
-            choices.append(match.group(1))
+        # Match quoted strings with proper quote handling
+        # Pattern: "..." or '...' where the content can contain escaped quotes
+        for match in re.finditer(r'"((?:\\[\s\S]|[^"\\])*)"|\'((?:\\[\s\S]|[^\'\\])*)\'', choices_str):
+            # group(1) = double-quoted content, group(2) = single-quoted content
+            raw = match.group(1) if match.group(1) is not None else match.group(2)
+            choices.append(decode_lua_escapes(raw))
         return choices
 
-    def _extract_answers_from_handler(self, content: str, input_name: str) -> List[DetectedAnswer]:
-        """Extract probable answers from an OnGetInput handler."""
+    def _extract_answers_from_handler(self, content: str, input_name: str,
+                                        choices: List[str] = None) -> List[DetectedAnswer]:
+        """Extract probable answers from an OnGetInput handler.
+
+        Supports both colon syntax (function name:OnGetInput) and underscore syntax
+        (function name_OnGetInput).
+
+        Args:
+            content: Full Lua content
+            input_name: Internal name of the input object
+            choices: List of choices for this input (to match against hashes)
+        """
         answers = []
 
-        # Find the handler function (format: function input_name:OnGetInput(input) ... end)
+        # Find the handler function - support both : and _ separators
         handler_pattern = re.compile(
-            rf'function\s+{re.escape(input_name)}:OnGetInput\s*\(\s*input\s*\)(.+?)(?=function\s+\w+[:\.]\w+\s*\(|function\s+\w+\s*\(|$)',
+            rf'function\s+{re.escape(input_name)}[:_]\s*OnGetInput\s*\(\s*input\s*\)(.+?)(?=function\s+\w+[:\.]\w+\s*\(|function\s+\w+\s*\(|$)',
             re.IGNORECASE | re.DOTALL
         )
         handler_match = handler_pattern.search(content)
@@ -822,6 +827,7 @@ class LuaAnalyzer:
             ))
 
         # Extract Urwigo hash comparisons (hash protected)
+        from urwigo_hash import urwigo_hash
         for match in self.ANSWER_PATTERNS['urwigo_hash'].finditer(handler_content):
             hash_value_str = match.group(1)
             try:
@@ -831,13 +837,30 @@ class LuaAnalyzer:
             except (ValueError, TypeError):
                 candidates = {}
 
-            answers.append(DetectedAnswer(
-                value=f"[HASH:{hash_value_str}]",
-                method="urwigo_hash",
-                confidence="low",  # Hash cannot be reversed easily
-                source=f"{input_name}:OnGetInput: Urwigo.Hash protected",
-                candidates=candidates
-            ))
+            # Check if any of the input's choices match the hash
+            matched_choice = None
+            if choices:
+                for choice in choices:
+                    if urwigo_hash(choice) == hash_int:
+                        matched_choice = choice
+                        break
+
+            if matched_choice:
+                answers.append(DetectedAnswer(
+                    value=matched_choice,
+                    method="urwigo_hash_matched_choice",
+                    confidence="high",
+                    source=f"{input_name}:OnGetInput: Urwigo.Hash matched choice",
+                    candidates=candidates
+                ))
+            else:
+                answers.append(DetectedAnswer(
+                    value=f"[HASH:{hash_value_str}]",
+                    method="urwigo_hash",
+                    confidence="low",  # Hash cannot be reversed easily
+                    source=f"{input_name}:OnGetInput: Urwigo.Hash protected",
+                    candidates=candidates
+                ))
 
         return answers
 
@@ -914,99 +937,11 @@ class LuaAnalyzer:
         return buttons
 
     def _decode_lua_string(self, s: str) -> str:
+        """Decode a Lua string literal, handling escape sequences.
+
+        Delegates to the unified decode_lua_escapes function.
         """
-        Decode a Lua string literal, handling escape sequences.
-
-        Supports: \\n, \\r, \\t, \\a, \\b, \\f, \\v, \\\\, \", \\xNN, \\NNN
-        Also handles UTF-8 multi-byte sequences properly.
-        """
-        import re
-
-        # Build a bytes array first to properly handle UTF-8 sequences
-        bytes_array = []
-        i = 0
-        while i < len(s):
-            if s[i] == '\\' and i + 1 < len(s):
-                next_char = s[i + 1]
-
-                # \" -> "
-                if next_char == '"':
-                    bytes_array.append(ord('"'))
-                    i += 2
-                    continue
-                # \\ -> \
-                elif next_char == '\\':
-                    bytes_array.append(ord('\\'))
-                    i += 2
-                    continue
-                # \n -> newline
-                elif next_char == 'n':
-                    bytes_array.append(ord('\n'))
-                    i += 2
-                    continue
-                # \r -> carriage return
-                elif next_char == 'r':
-                    bytes_array.append(ord('\r'))
-                    i += 2
-                    continue
-                # \t -> tab
-                elif next_char == 't':
-                    bytes_array.append(ord('\t'))
-                    i += 2
-                    continue
-                # \a -> bell (0x07)
-                elif next_char == 'a':
-                    bytes_array.append(0x07)
-                    i += 2
-                    continue
-                # \b -> backspace (0x08)
-                elif next_char == 'b':
-                    bytes_array.append(0x08)
-                    i += 2
-                    continue
-                # \f -> form feed (0x0c)
-                elif next_char == 'f':
-                    bytes_array.append(0x0c)
-                    i += 2
-                    continue
-                # \v -> vertical tab (0x0b)
-                elif next_char == 'v':
-                    bytes_array.append(0x0b)
-                    i += 2
-                    continue
-                # \xNN -> hex byte
-                elif next_char == 'x' and i + 3 < len(s):
-                    hex_val = s[i+2:i+4]
-                    if all(c in '0123456789abcdefABCDEF' for c in hex_val):
-                        bytes_array.append(int(hex_val, 16))
-                        i += 4
-                        continue
-                # \NNN -> octal byte (up to 3 digits, value <= 255)
-                elif next_char in '01234567':
-                    oct_digits = [next_char]
-                    j = i + 2
-                    while j < len(s) and s[j] in '01234567' and len(oct_digits) < 3:
-                        oct_digits.append(s[j])
-                        j += 1
-                    try:
-                        val = int(''.join(oct_digits), 8)
-                        if val <= 255:
-                            bytes_array.append(val)
-                            i += len(oct_digits) + 1
-                            continue
-                    except:
-                        pass
-
-            # Regular character
-            bytes_array.append(ord(s[i]))
-            i += 1
-
-        # Decode bytes as UTF-8
-        try:
-            return bytes(bytes_array).decode('utf-8', errors='replace')
-        except:
-            # Fallback: decode as latin-1 (never fails, 1:1 mapping)
-            return bytes(bytes_array).decode('latin-1', errors='replace')
+        return decode_lua_escapes(s)
 
     def _extract_dialog_entries(self, content: str) -> List[WherigoMessage]:
         """Extract dialog entry tables that define Text, Media, Buttons."""
@@ -1014,7 +949,7 @@ class LuaAnalyzer:
 
         # Find all Text = "..." occurrences and extract their containing table
         text_pattern = re.compile(
-            r'Text\s*=\s*"((?:[^"\\]|\\.)*)"',
+            r'Text\s*=\s*"((?:\\[\s\S]|[^"\\])*)"',
             re.DOTALL | re.IGNORECASE
         )
 
@@ -1077,6 +1012,34 @@ class LuaAnalyzer:
 
         return entries
 
+    def _extract_message_property(self, msg_content: str, full_content: str,
+                                     prop: str) -> Optional[str]:
+        """Extract a text property (Text/Title) from a message body.
+
+        Handles plain strings, tostring("..."), obfuscated calls
+        (<func>("...")), and tostring(<func>("...")).
+        """
+        # Try plain string first
+        plain_match = self.MESSAGE_PROPERTY_PATTERNS[prop].search(msg_content)
+        if plain_match:
+            return self._decode_lua_string(plain_match.group(1))
+
+        # Try tostring("...") - string already decoded, just extract it
+        tostring_match = self.MESSAGE_PROPERTY_PATTERNS[f'{prop}_tostring'].search(msg_content)
+        if tostring_match:
+            return self._decode_lua_string(tostring_match.group(1))
+
+        # Try obfuscated: group(1)=func_name, group(2)=encoded string
+        # Only decode if the function name is NOT a standard Lua function
+        obf_match = self.MESSAGE_PROPERTY_PATTERNS[f'{prop}_obfuscated'].search(msg_content)
+        if obf_match:
+            func_name = obf_match.group(1)
+            # Skip standard Lua functions that aren't decoders
+            if func_name not in ('tostring', 'tonumber', 'string', 'print', 'type'):
+                encoded = obf_match.group(2)
+                return self._decode_obfuscated(full_content, encoded)
+        return None
+
     def _extract_messages(self, content: str) -> List[WherigoMessage]:
         """Extract MessageBox and Dialog calls using balanced brace parsing."""
         messages = []
@@ -1088,30 +1051,8 @@ class LuaAnalyzer:
         # Extract MessageBox calls
         for start_pos, end_pos, msg_content in self._find_wherigo_calls(content, "MessageBox"):
             msg = WherigoMessage(type="messagebox", raw=content[start_pos:end_pos][:200])
-
-            # Extract Text (plain or obfuscated)
-            text_match = self.MESSAGE_PROPERTY_PATTERNS['text'].search(msg_content)
-            if text_match:
-                raw_text = text_match.group(1)
-                msg.text = self._decode_lua_string(raw_text)
-            else:
-                text_obf_match = self.MESSAGE_PROPERTY_PATTERNS['text_obfuscated'].search(msg_content)
-                if text_obf_match:
-                    encoded = text_obf_match.group(1)
-                    decoded = self._decode_obfuscated(content, encoded)
-                    msg.text = decoded
-
-            # Extract Title (plain or obfuscated)
-            title_match = self.MESSAGE_PROPERTY_PATTERNS['title'].search(msg_content)
-            if title_match:
-                raw_title = title_match.group(1)
-                msg.title = self._decode_lua_string(raw_title)
-            else:
-                title_obf_match = self.MESSAGE_PROPERTY_PATTERNS['title_obfuscated'].search(msg_content)
-                if title_obf_match:
-                    encoded = title_obf_match.group(1)
-                    decoded = self._decode_obfuscated(content, encoded)
-                    msg.title = decoded
+            msg.text = self._extract_message_property(msg_content, content, 'text')
+            msg.title = self._extract_message_property(msg_content, content, 'title')
 
             # Extract Media
             media_match = self.MESSAGE_PROPERTY_PATTERNS['media'].search(msg_content)
@@ -1128,30 +1069,8 @@ class LuaAnalyzer:
         # Extract Dialog calls
         for start_pos, end_pos, msg_content in self._find_wherigo_calls(content, "Dialog"):
             msg = WherigoMessage(type="dialog", raw=content[start_pos:end_pos][:200])
-
-            # Extract Text (plain or obfuscated)
-            text_match = self.MESSAGE_PROPERTY_PATTERNS['text'].search(msg_content)
-            if text_match:
-                raw_text = text_match.group(1)
-                msg.text = self._decode_lua_string(raw_text)
-            else:
-                text_obf_match = self.MESSAGE_PROPERTY_PATTERNS['text_obfuscated'].search(msg_content)
-                if text_obf_match:
-                    encoded = text_obf_match.group(1)
-                    decoded = self._decode_obfuscated(content, encoded)
-                    msg.text = decoded
-
-            # Extract Title (plain or obfuscated)
-            title_match = self.MESSAGE_PROPERTY_PATTERNS['title'].search(msg_content)
-            if title_match:
-                raw_title = title_match.group(1)
-                msg.title = self._decode_lua_string(raw_title)
-            else:
-                title_obf_match = self.MESSAGE_PROPERTY_PATTERNS['title_obfuscated'].search(msg_content)
-                if title_obf_match:
-                    encoded = title_obf_match.group(1)
-                    decoded = self._decode_obfuscated(content, encoded)
-                    msg.title = decoded
+            msg.text = self._extract_message_property(msg_content, content, 'text')
+            msg.title = self._extract_message_property(msg_content, content, 'title')
 
             # Extract Media
             media_match = self.MESSAGE_PROPERTY_PATTERNS['media'].search(msg_content)
