@@ -33,10 +33,12 @@ Limites connues, communes aux deux chemins :
 from __future__ import annotations
 
 import logging
+import random
 import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Callable, Iterable, Optional
 
 import requests
@@ -145,12 +147,22 @@ class GeocachingFriendFindsClient:
     MAX_PLAUSIBLE_FINDS = 500000
     BASELINE_TTL = 10 * 60
 
-    # Cette API est fortement limitée en débit (429 « Too many requests », sans
-    # en-tête Retry-After : impossible de savoir quand réessayer). c:geo ne
-    # retente rien et se contente d'avertir l'utilisateur ; ici on s'auto-limite
-    # à ~10 requêtes/minute, puis on retente avec des paliers croissants.
+    # Cette API est fortement limitée en débit (429 « Too many requests »).
+    # L'en-tête Retry-After est parfois absent, parfois présent : on le lit quand
+    # il est là, et on retombe sur un backoff exponentiel avec jitter sinon.
+    # c:geo ne retente rien et se contente d'avertir l'utilisateur ; ici on
+    # s'auto-limite à ~10 requêtes/minute, puis on retente avec un backoff
+    # exponentiel. Après un 429, l'interval de base est augmenté (adaptatif) puis
+    # décroît progressivement après des succès consécutifs.
     MIN_INTERVAL_SECONDS = 6.0
-    RETRY_DELAYS = (15.0, 30.0, 60.0)
+    RETRY_DELAYS = (15.0, 30.0, 60.0)  # legacy, utilisé si injecté explicitement
+    MAX_RETRY_ATTEMPTS = 5
+    BACKOFF_BASE = 10.0  # secondes, premier délai du backoff exponentiel
+    BACKOFF_FACTOR = 2.0  # multiplicateur par tentative
+    BACKOFF_MAX = 300.0  # plafond (5 min)
+    BACKOFF_JITTER = 5.0  # jitter aléatoire ajouté (secondes)
+    ADAPTIVE_INTERVAL_MAX = 60.0  # plafond de l'interval adaptatif après 429
+    ADAPTIVE_INTERVAL_DECAY = 0.9  # décroissance de l'interval après un succès
 
     def __init__(
         self,
@@ -165,8 +177,11 @@ class GeocachingFriendFindsClient:
         self._request_lock = threading.Lock()
         self._last_request_at = 0.0
         self._min_interval = self.MIN_INTERVAL_SECONDS if min_interval is None else min_interval
+        self._nominal_interval = self._min_interval  # valeur de référence pour la décroissance
         self._retry_delays = self.RETRY_DELAYS if retry_delays is None else retry_delays
+        self._use_legacy_delays = retry_delays is not None  # paliers fixes injectés (tests)
         self._sleep = sleep
+        self._consecutive_successes = 0  # pour la décroissance de l'interval adaptatif
 
     @property
     def session(self) -> requests.Session:
@@ -174,9 +189,90 @@ class GeocachingFriendFindsClient:
             return self._explicit_session
         return get_auth_service().get_session()
 
+    def _parse_retry_after(self, response: requests.Response) -> float | None:
+        """
+        Lit l'en-tête ``Retry-After`` si présent.
+
+        Deux formats possibles (RFC 7231) :
+
+        - un nombre de secondes : ``Retry-After: 120``
+        - une date HTTP : ``Retry-After: Wed, 21 Oct 2026 07:28:00 GMT``
+
+        Retourne le délai en secondes (plafonné à ``BACKOFF_MAX``), ou ``None``
+        si l'en-tête est absent ou illisible.
+        """
+        value = response.headers.get('Retry-After')
+        if not value:
+            return None
+        # Format 1 : nombre de secondes
+        try:
+            seconds = float(value)
+            return min(seconds, self.BACKOFF_MAX)
+        except ValueError:
+            pass
+        # Format 2 : date HTTP
+        try:
+            target = parsedate_to_datetime(value)
+            if target is None:
+                return None
+            now = datetime.now(timezone.utc)
+            if target.tzinfo is None:
+                target = target.replace(tzinfo=timezone.utc)
+            delay = (target - now).total_seconds()
+            return max(0.0, min(delay, self.BACKOFF_MAX))
+        except (TypeError, ValueError):
+            return None
+
+    def _compute_backoff_delay(self, attempt: int) -> float:
+        """
+        Délai de backoff exponentiel avec jitter pour la tentative ``attempt``.
+
+        ``base * factor^attempt + jitter`` plafonné à ``BACKOFF_MAX``.
+        Le jitter évite que tous les clients réessayent en même temps.
+        """
+        delay = self.BACKOFF_BASE * (self.BACKOFF_FACTOR ** attempt)
+        delay += random.uniform(0, self.BACKOFF_JITTER)
+        return min(delay, self.BACKOFF_MAX)
+
+    def _increase_interval(self) -> None:
+        """Après un 429, augmente l'interval de base (adaptatif)."""
+        new_interval = self._min_interval * 2.0
+        self._min_interval = min(new_interval, self.ADAPTIVE_INTERVAL_MAX)
+        self._consecutive_successes = 0
+        logger.info("Adaptive interval increased to %.1fs after 429", self._min_interval)
+
+    def _decrease_interval(self) -> None:
+        """Après un succès, décroît l'interval vers sa valeur nominale."""
+        if self._min_interval <= self._nominal_interval:
+            return
+        self._consecutive_successes += 1
+        # Après quelques succès consécutifs, on décroît l'interval.
+        if self._consecutive_successes >= 3:
+            self._min_interval = max(
+                self._nominal_interval,
+                self._min_interval * self.ADAPTIVE_INTERVAL_DECAY,
+            )
+            self._consecutive_successes = 0
+            logger.debug("Adaptive interval decreased to %.1fs after successes", self._min_interval)
+
     def _request(self, params: dict) -> dict:
-        """Une requête de recherche, auto-limitée en débit et retentée sur 429."""
-        for attempt in range(len(self._retry_delays) + 1):
+        """
+        Une requête de recherche, auto-limitée en débit et retentée sur 429.
+
+        Stratégie de retry :
+
+        1. Lire l'en-tête ``Retry-After`` si présent (secondes ou date HTTP) ;
+        2. Sinon, backoff exponentiel avec jitter : ``base * 2^attempt + jitter`` ;
+        3. Après un 429, l'interval de base est augmenté (adaptatif) ;
+        4. Après des succès consécutifs, l'interval décroît vers sa valeur nominale.
+
+        Si ``retry_delays`` a été injecté explicitement (pour les tests), les
+        paliers fixes sont utilisés à la place du backoff exponentiel.
+        """
+        use_legacy_delays = self._use_legacy_delays
+        max_attempts = len(self._retry_delays) if use_legacy_delays else self.MAX_RETRY_ATTEMPTS
+
+        for attempt in range(max_attempts + 1):
             with self._request_lock:
                 elapsed = time.time() - self._last_request_at
                 if elapsed < self._min_interval:
@@ -194,9 +290,18 @@ class GeocachingFriendFindsClient:
                 raise FriendFindsError(f"Erreur réseau vers geocaching.com : {exc}") from exc
 
             if response.status_code == 429:
-                if attempt < len(self._retry_delays):
-                    delay = self._retry_delays[attempt]
-                    logger.warning("Search throttled (429), retrying in %.0fs", delay)
+                self._increase_interval()
+                if attempt < max_attempts:
+                    # Priorité au Retry-After du serveur, sinon backoff exponentiel
+                    if use_legacy_delays:
+                        delay = self._retry_delays[attempt]
+                    else:
+                        retry_after = self._parse_retry_after(response)
+                        delay = retry_after if retry_after is not None else self._compute_backoff_delay(attempt)
+                    logger.warning(
+                        "Search throttled (429), retrying in %.1fs (attempt %d/%d, interval=%.1fs)",
+                        delay, attempt + 1, max_attempts, self._min_interval,
+                    )
                     self._sleep(delay)
                     continue
                 raise RateLimitedError(
@@ -211,6 +316,8 @@ class GeocachingFriendFindsClient:
                 raise FriendFindsError(
                     f"Réponse inattendue de la recherche geocaching.com (HTTP {response.status_code})"
                 )
+
+            self._decrease_interval()
 
             try:
                 return response.json()

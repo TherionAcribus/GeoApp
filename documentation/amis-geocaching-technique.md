@@ -4,7 +4,7 @@
 > **(1) la liste d'amis** (§3-7), **(2) le flux d'activité** (§9),
 > **(3) les logs d'amis sur une cache** (§10), **(4) « qui a trouvé quoi »**
 > (§11) et **(5) la carte des découvertes** (§12-13).
-> Dernière mise à jour : septembre 2026 (pagination, synchro auto, suggestions, stats, fraîcheur).
+> Dernière mise à jour : septembre 2026 (pagination, synchro auto, suggestions, stats, fraîcheur, throttling adaptatif).
 
 ---
 
@@ -125,6 +125,7 @@ backend/tests/
 ├── test_friend_finds_suggestions.py # Suggestions « caches à faire » (§13.5)
 ├── test_friend_stats.py            # Statistiques croisées entre amis (§13.6)
 ├── test_friend_freshness.py        # Tableau de bord de fraîcheur (§13.7)
+├── test_friend_finds_throttling.py # Throttling 429 adaptatif (§11.3)
 ├── test_friend_activity_map.py     # Agrégation cartographique du flux (§12)
 └── test_friend_finds_map.py        # Coordonnées déduites, zone « Amis », import (§13)
 
@@ -676,14 +677,24 @@ bandeau de condensation dès qu'un ami est sélectionné dans le filtre.
 
 ### 11.4 Le débit est la vraie contrainte
 
-Cette API renvoie **429 « Too many requests »** très vite, **sans en-tête
-`Retry-After`** : impossible de savoir quand réessayer. c:geo ne retente rien et
-se contente d'avertir l'utilisateur.
+Cette API renvoie **429 « Too many requests »** très vite. L'en-tête
+`Retry-After` est parfois absent, parfois présent (en secondes ou en date HTTP) :
+le client le lit quand il est là, et retombe sur un backoff exponentiel avec
+jitter sinon. c:geo ne retente rien et se contente d'avertir l'utilisateur.
 
 Le client s'auto-limite donc à ~10 requêtes/minute (`MIN_INTERVAL_SECONDS = 6`)
-et retente sur 429 avec des paliers croissants (15 s, 30 s, 60 s) avant de lever
-`RateLimitedError` → **HTTP 429** côté API, que l'interface traduit par un arrêt
-propre de l'analyse en conservant ce qui a déjà été collecté.
+et retente sur 429 avec une stratégie adaptative à trois niveaux :
+
+1. **Retry-After** : si le serveur indique un délai (secondes ou date HTTP), il
+   est respecté (plafonné à 5 min) ;
+2. **Backoff exponentiel avec jitter** : `base × 2^attempt + jitter` (base 10 s,
+   jitter 0–5 s, plafond 5 min), jusqu'à 5 tentatives ;
+3. **Interval adaptatif** : après un 429, l'interval de base est doublé (plafond
+   60 s) ; après 3 succès consécutifs, il décroît vers sa valeur nominale (×0.9).
+
+Après épuisement des tentatives, `RateLimitedError` → **HTTP 429** côté API, que
+l'interface traduit par un arrêt propre de l'analyse en conservant ce qui a déjà
+été collecté.
 
 La référence de zone (la recherche sans filtre) est mise en cache 10 minutes :
 elle est identique pour tous les amis d'une même passe. Coût réel mesuré :
@@ -1064,7 +1075,7 @@ widget**, indépendamment de la carte.
 
 ## 14. Tests
 
-**150 tests**, aucun ne touche le réseau : le parsing est exposé en méthodes de
+**166 tests**, aucun ne touche le réseau : le parsing est exposé en méthodes de
 classe pures, la synchronisation accepte un client injecté, et les routes qui
 vérifient l'authentification reçoivent un service simulé (sans quoi elles
 tentent une vraie connexion à geocaching.com — piège vérifié).
@@ -1120,8 +1131,8 @@ tentent une vraie connexion à geocaching.com — piège vérifié).
 - boîte englobante (marge, coordonnées manquantes, zone vide) ;
 - déduction par complément de `nfb`, référence récupérée **une seule fois** pour
   plusieurs amis, pagination complète et garde-fou de zone démesurée ;
-- 429 retenté puis remonté, throttle entre requêtes (aucun test n'attend
-  réellement : `min_interval`, `retry_delays` et `sleep` sont injectés) ;
+- 429 retenté puis remonté (paliers fixes injectés pour les tests, le
+  throttling adaptatif est testé séparément dans `test_friend_finds_throttling.py`) ;
 - `store_finds` idempotent, normalisation des codes, suppression des lignes
   périmées **limitée à la même source** ;
 - routes de lecture et rejet des paramètres invalides.
@@ -1157,6 +1168,16 @@ tentent une vraie connexion à geocaching.com — piège vérifié).
 - indicateurs `is_stale` : True si ancien ou absent, False si récent ;
 - timestamp de vérification toujours présent ;
 - routes REST : lecture de l'état, état vide sans données.
+
+`test_friend_finds_throttling.py` (16 tests) — throttling 429 adaptatif :
+
+- backoff exponentiel avec jitter (délais croissants, plafond 5 min) ;
+- lecture de l'en-tête `Retry-After` (secondes et date HTTP), plafonné ;
+- `Retry-After` prioritaire sur le backoff, fallback si absent ou illisible ;
+- interval adaptatif : augmente après un 429, plafonné à 60 s ;
+- décroissance de l'interval après 3 succès consécutifs, jamais sous le nominal ;
+- épuisement des tentatives → `RateLimitedError` ;
+- rétrocompatibilité : `retry_delays` injecté utilise toujours les paliers fixes.
 
 `test_friend_activity_map.py` (21 tests) — carte des amis :
 
