@@ -102,6 +102,12 @@ export class MapLayerManager {
      * des features en est dérivée, y compris pour celles créées plus tard).
      */
     private listSelectedIds = new globalThis.Set<number>();
+    /**
+     * Cercles de regroupement « cache + ses waypoints » (id de géocache → couleur).
+     * Source de vérité : la propriété `groupColor` des features (géocache et
+     * waypoints) en est dérivée, y compris pour celles créées plus tard.
+     */
+    private groupColors = new globalThis.Map<number, string>();
     /** Pulsations en cours (anneau qui s'élargit sur une cache qu'on vient de cocher). */
     private selectionPulses: Array<{ coordinate: Coordinate; start: number }> = [];
     /** Abonnement `postrender` actif tant qu'une pulsation est en cours. */
@@ -558,7 +564,8 @@ export class MapLayerManager {
             found: geocache.found,
             friendsNote: geocache.friendsNote,
             selected: feature.get('selected') === true,
-            listSelected: this.listSelectedIds.has(geocache.id)
+            listSelected: this.listSelectedIds.has(geocache.id),
+            groupColor: this.groupColors.get(geocache.id)
         } as GeocacheFeatureProperties);
     }
 
@@ -598,6 +605,7 @@ export class MapLayerManager {
                 geocache.original_longitude,
                 geocache.original_latitude,
                 {
+                    geocacheId: geocache.id,
                     geocacheName: geocache.name,
                     gcCode: geocache.gc_code,
                     cacheType: geocache.cache_type
@@ -619,6 +627,7 @@ export class MapLayerManager {
                         waypoint.longitude,
                         waypoint.latitude,
                         {
+                            geocacheId: geocache.id,
                             geocacheName: geocache.name,
                             gcCode: geocache.gc_code,
                             cacheType: geocache.cache_type
@@ -751,6 +760,49 @@ export class MapLayerManager {
     }
 
     /**
+     * Applique les cercles de regroupement « cache + ses waypoints ».
+     *
+     * La couleur est portée par la géocache et par chacun de ses waypoints, sur
+     * deux couches distinctes : c'est ce qui donne l'impression d'un seul et même
+     * groupe. Indépendant de la sélection (anneau noir), avec lequel il cohabite.
+     */
+    setGroupHighlights(colorsByGeocacheId: ReadonlyMap<number, string>): void {
+        const unchanged = colorsByGeocacheId.size === this.groupColors.size &&
+            [...colorsByGeocacheId].every(([id, color]) => this.groupColors.get(id) === color);
+        if (unchanged) {
+            return;
+        }
+        this.groupColors = new globalThis.Map(colorsByGeocacheId);
+
+        for (const feature of this.geocacheVectorSource.getFeatures()) {
+            const id = feature.getId();
+            if (typeof id !== 'number') {
+                continue;
+            }
+            const color = this.groupColors.get(id);
+            if (feature.get('groupColor') === color) {
+                continue;
+            }
+            feature.set('groupColor', color);
+            feature.changed();
+        }
+
+        for (const feature of this.waypointVectorSource.getFeatures()) {
+            const parentId = feature.get('parentGeocacheId');
+            const color = typeof parentId === 'number' ? this.groupColors.get(parentId) : undefined;
+            if (feature.get('groupColor') === color) {
+                continue;
+            }
+            feature.set('groupColor', color);
+            feature.changed();
+        }
+
+        if (this.clusteringEnabled) {
+            this.geocacheClusterSource.changed();
+        }
+    }
+
+    /**
      * Diffère la décision « qui vient d'être coché ».
      *
      * Une sélection venue de la carte fait un aller-retour par le tableau, qui en
@@ -873,7 +925,7 @@ export class MapLayerManager {
         name: string,
         lon: number,
         lat: number,
-        parent?: { geocacheName: string; gcCode: string; cacheType: string }
+        parent?: { geocacheId?: number; geocacheName: string; gcCode: string; cacheType: string }
     ): Feature<Point> {
         const coordinate = lonLatToMapCoordinate(lon, lat);
         
@@ -887,6 +939,8 @@ export class MapLayerManager {
             name: name,
             waypointLabel: parent ? `${parent.geocacheName} (${parent.gcCode}) - ${name}` : name,
             parentCacheType: parent?.cacheType,
+            parentGeocacheId: parent?.geocacheId,
+            groupColor: parent?.geocacheId !== undefined ? this.groupColors.get(parent.geocacheId) : undefined,
             gc_code: parent?.gcCode,
             cache_type: parent?.cacheType || 'Waypoint',
             showLabel: this.shouldShowWaypointLabels(),

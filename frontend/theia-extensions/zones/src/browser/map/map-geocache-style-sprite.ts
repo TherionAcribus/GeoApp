@@ -27,7 +27,31 @@ export interface GeocacheFeatureProperties {
     showLabel?: boolean;
     friendsNote?: string;   // Ligne « Trouvée par … » de la carte des amis
     bruteForceId?: string; // ✅ ID pour les points brute force (suppression)
+    /**
+     * Couleur du cercle de regroupement « cache + ses waypoints » (menu contextuel).
+     * Portée aussi bien par la géocache que par chacun de ses waypoints.
+     */
+    groupColor?: string;
+    /** Géocache parente d'un waypoint (rattachement des cercles de regroupement). */
+    parentGeocacheId?: number;
 }
+
+/**
+ * Palette des cercles de regroupement. Teintes franches et bien séparées les unes
+ * des autres, choisies pour rester lisibles sur un fond de carte et pour ne pas se
+ * confondre avec l'anneau noir « cochée dans la liste » ni avec le halo bleu de la
+ * géocache sélectionnée sur la carte.
+ */
+export const GROUP_HIGHLIGHT_COLORS: Array<{ label: string; color: string }> = [
+    { label: 'Rouge', color: '#e03131' },
+    { label: 'Orange', color: '#f76707' },
+    { label: 'Vert', color: '#2f9e44' },
+    { label: 'Violet', color: '#7048e8' },
+    { label: 'Rose', color: '#d6336c' },
+    { label: 'Turquoise', color: '#0ca678' },
+    { label: 'Brun', color: '#a1662f' },
+    { label: 'Bleu nuit', color: '#1864ab' }
+];
 
 /**
  * Options pour le style des géocaches
@@ -56,12 +80,18 @@ const iconCache = new Map<string, Icon>();
 const geocacheStyleCache = new Map<string, Style | Style[]>();
 /** Cache des bulles de cluster, par taille + échelle. */
 const clusterBubbleCache = new Map<string, Style>();
+/** Cache des bulles de cluster incluant leurs cercles de regroupement. */
+const clusterGroupStyleCache = new Map<string, Style[]>();
 /** Cache des styles de secours sans label. */
 const fallbackStyleCache = new Map<string, Style>();
 /** Cache des styles de waypoint sans label, par couleur + sélection. */
 const waypointStyleCache = new Map<string, Style>();
+/** Cache des styles de waypoint sans label incluant le cercle de regroupement. */
+const waypointGroupStyleCache = new Map<string, Style[]>();
 /** Cache des anneaux « cochée dans la liste », par échelle d'icône. */
 const listSelectionRingCache = new Map<string, Style>();
+/** Cache des cercles de regroupement, par couleur + rayon. */
+const groupRingCache = new Map<string, Style>();
 
 /** Sérialise un nombre en clé de cache stable (évite les flottants verbeux). */
 function numKey(value: number): string {
@@ -103,6 +133,41 @@ function getSelectionHighlightStyle(): Style {
 }
 
 /**
+ * Cercle de couleur entourant une géocache et ses waypoints regroupés.
+ *
+ * Son rayon est volontairement plus grand que celui de l'anneau « cochée dans la
+ * liste » pour que les deux cohabitent sans se recouvrir : une cache peut être à
+ * la fois regroupée et sélectionnée.
+ */
+function getGroupRingStyle(color: string, radius: number): Style {
+    const key = `${color}|${numKey(radius)}`;
+    let style = groupRingCache.get(key);
+    if (!style) {
+        style = new Style({
+            image: new Circle({
+                radius,
+                stroke: new Stroke({ color, width: 4 })
+            }),
+            zIndex: 997
+        });
+        groupRingCache.set(key, style);
+    }
+    return style;
+}
+
+/**
+ * Rayon du cercle de regroupement autour d'une icône de géocache.
+ *
+ * Il doit rester à l'extérieur des deux autres décorations possibles : l'anneau
+ * noir « cochée dans la liste » (25 × échelle + 4) et le halo bleu de la géocache
+ * sélectionnée sur la carte (rayon fixe de 30, trait de 3).
+ */
+function geocacheGroupRingRadius(scale: number, isSelected: boolean): number {
+    const radius = Math.max(16, 25 * scale + 10);
+    return isSelected ? Math.max(radius, 37) : radius;
+}
+
+/**
  * Anneau noir entourant une géocache cochée dans la liste.
  * Le rayon suit l'échelle de l'icône pour rester collé au sprite (50x50 px).
  */
@@ -122,9 +187,15 @@ function getListSelectionRingStyle(scale: number): Style {
     return style;
 }
 
-/** Empile les décorations (sélection carte, cochée dans la liste) sous le style principal. */
-function composeGeocacheStyles(main: Style, isSelected: boolean, isListSelected: boolean, scale: number): Style | Style[] {
-    if (!isSelected && !isListSelected) {
+/** Empile les décorations (sélection carte, cochée dans la liste, regroupement) sous le style principal. */
+function composeGeocacheStyles(
+    main: Style,
+    isSelected: boolean,
+    isListSelected: boolean,
+    scale: number,
+    groupColor?: string
+): Style | Style[] {
+    if (!isSelected && !isListSelected && !groupColor) {
         return main;
     }
     const styles: Style[] = [];
@@ -133,6 +204,9 @@ function composeGeocacheStyles(main: Style, isSelected: boolean, isListSelected:
     }
     if (isListSelected) {
         styles.push(getListSelectionRingStyle(scale));
+    }
+    if (groupColor) {
+        styles.push(getGroupRingStyle(groupColor, geocacheGroupRingRadius(scale, isSelected)));
     }
     styles.push(main);
     return styles;
@@ -145,6 +219,7 @@ export function createGeocacheStyleFromSprite(feature: Feature<Geometry>, resolu
     const properties = feature.getProperties() as GeocacheFeatureProperties;
     const isSelected = properties.selected === true;
     const isListSelected = properties.listSelected === true;
+    const groupColor = properties.groupColor;
     const foundDisplayMode = options?.foundDisplayMode || 'transparent';
 
     if (properties.found && foundDisplayMode === 'hidden') {
@@ -165,7 +240,7 @@ export function createGeocacheStyleFromSprite(feature: Feature<Geometry>, resolu
     if (!iconDef) {
         // Fallback vers un style par défaut si le type n'est pas trouvé
         const fallback = createFallbackStyle(isSelected, properties.found, options, label);
-        return isListSelected ? [getListSelectionRingStyle(scale), fallback] : fallback;
+        return composeGeocacheStyles(fallback, false, isListSelected, scale, groupColor);
     }
 
     // Chemin avec label : le texte est propre à chaque feature. On réutilise l'Icon
@@ -176,19 +251,19 @@ export function createGeocacheStyleFromSprite(feature: Feature<Geometry>, resolu
             text: createLabelStyle(label, -30),
             zIndex: isSelected ? 1000 : 1
         });
-        return composeGeocacheStyles(labeledStyle, isSelected, isListSelected, scale);
+        return composeGeocacheStyles(labeledStyle, isSelected, isListSelected, scale, groupColor);
     }
 
     // Chemin sans label (cas par défaut) : style entièrement mis en cache et
     // réutilisé tel quel entre toutes les features et tous les frames.
-    const cacheKey = `${iconDef.key}|${numKey(scale)}|${numKey(opacity)}|${isSelected ? 1 : 0}|${isListSelected ? 1 : 0}`;
+    const cacheKey = `${iconDef.key}|${numKey(scale)}|${numKey(opacity)}|${isSelected ? 1 : 0}|${isListSelected ? 1 : 0}|${groupColor || ''}`;
     let cached = geocacheStyleCache.get(cacheKey);
     if (!cached) {
         const iconStyle = new Style({
             image: getCachedIcon(iconDef, scale, opacity),
             zIndex: isSelected ? 1000 : 1
         });
-        cached = composeGeocacheStyles(iconStyle, isSelected, isListSelected, scale);
+        cached = composeGeocacheStyles(iconStyle, isSelected, isListSelected, scale, groupColor);
         geocacheStyleCache.set(cacheKey, cached);
     }
     return cached;
@@ -219,13 +294,26 @@ export function createClusterStyleFromSprite(feature: Feature<Geometry>, resolut
     // sans quoi cocher une cache d'une zone dense n'aurait aucun effet visible.
     const scale = options?.scale ?? 1;
     const containsListSelected = innerFeatures!.some(inner => inner.get('listSelected') === true);
-    const cacheKey = `${size}|${numKey(scale)}|${containsListSelected ? 1 : 0}`;
+    // Un cluster peut avaler plusieurs caches regroupées : on dessine un cercle par
+    // couleur présente, concentriques, pour qu'aucun regroupement ne disparaisse au
+    // dézoom. Le tri rend l'ordre des anneaux — et la clé de cache — stables d'un
+    // frame à l'autre, l'ordre des membres du cluster ne l'étant pas.
+    const groupColors: string[] = [];
+    for (const inner of innerFeatures!) {
+        const color = inner.get('groupColor') as string | undefined;
+        if (color && !groupColors.includes(color)) {
+            groupColors.push(color);
+        }
+    }
+    groupColors.sort();
+
+    const bubbleRadius = Math.min(14 + Math.log(size) * 5, 28) * Math.max(0.6, scale);
+    const cacheKey = `${size}|${numKey(scale)}|${containsListSelected ? 1 : 0}|${groupColors.join(',')}`;
     let bubble = clusterBubbleCache.get(cacheKey);
     if (!bubble) {
-        const radius = Math.min(14 + Math.log(size) * 5, 28) * Math.max(0.6, scale);
         bubble = new Style({
             image: new Circle({
-                radius,
+                radius: bubbleRadius,
                 fill: new Fill({
                     color: 'rgba(0, 122, 204, 0.85)'
                 }),
@@ -244,7 +332,18 @@ export function createClusterStyleFromSprite(feature: Feature<Geometry>, resolut
         });
         clusterBubbleCache.set(cacheKey, bubble);
     }
-    return bubble;
+
+    if (groupColors.length === 0) {
+        return bubble;
+    }
+
+    let grouped = clusterGroupStyleCache.get(cacheKey);
+    if (!grouped) {
+        grouped = groupColors.map((color, index) => getGroupRingStyle(color, bubbleRadius + 5 + index * 5));
+        grouped.push(bubble);
+        clusterGroupStyleCache.set(cacheKey, grouped);
+    }
+    return grouped;
 }
 
 /**
@@ -294,9 +393,10 @@ function createFallbackStyle(isSelected: boolean, found?: boolean, options?: Geo
 /**
  * Style pour les waypoints (à utiliser dans le futur)
  */
-export function createWaypointStyleFromSprite(feature: Feature<Geometry>, resolution: number): Style {
+export function createWaypointStyleFromSprite(feature: Feature<Geometry>, resolution: number): Style | Style[] {
     const properties = feature.getProperties();
     const isSelected = properties.selected === true;
+    const groupColor = properties.groupColor as string | undefined;
     const fillColor = getWaypointColor(properties.parentCacheType);
     const label = properties.showLabel ? (properties.waypointLabel || properties.name || 'WP') : undefined;
 
@@ -315,9 +415,14 @@ export function createWaypointStyleFromSprite(feature: Feature<Geometry>, resolu
         zIndex: isSelected ? 1000 : 5
     });
 
+    // Le cercle de regroupement suit la taille du point de waypoint, plus petit que
+    // celui d'une géocache : il reste ainsi visuellement rattaché à son point.
+    const withGroupRing = (main: Style): Style | Style[] =>
+        groupColor ? [getGroupRingStyle(groupColor, isSelected ? 15 : 13), main] : main;
+
     // Avec label : style frais (texte propre à la feature).
     if (label) {
-        return buildStyle(createLabelStyle(label, -18));
+        return withGroupRing(buildStyle(createLabelStyle(label, -18)));
     }
 
     // Sans label : style mis en cache, par couleur + sélection.
@@ -327,7 +432,19 @@ export function createWaypointStyleFromSprite(feature: Feature<Geometry>, resolu
         cached = buildStyle(undefined);
         waypointStyleCache.set(cacheKey, cached);
     }
-    return cached;
+    if (!groupColor) {
+        return cached;
+    }
+
+    // Le tableau lui aussi est mis en cache : la fonction de style est appelée à
+    // chaque frame et par feature.
+    const groupCacheKey = `${cacheKey}|${groupColor}`;
+    let grouped = waypointGroupStyleCache.get(groupCacheKey);
+    if (!grouped) {
+        grouped = withGroupRing(cached) as Style[];
+        waypointGroupStyleCache.set(groupCacheKey, grouped);
+    }
+    return grouped;
 }
 
 // Sous-objets constants partagés entre tous les Text (immuables → réutilisables).

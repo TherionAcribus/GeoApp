@@ -13,7 +13,7 @@ import { MapService, DetectedCoordinateHighlight, FormulaSolverPreviewOverlay } 
 import { lonLatToMapCoordinate, calculateExtent, mapCoordinateToLonLat, formatGeocachingCoordinates } from './map-utils';
 import { TILE_PROVIDERS } from './map-tile-providers';
 import { fromLonLat } from 'ol/proj';
-import { GeocacheFeatureProperties } from './map-geocache-style-sprite';
+import { GeocacheFeatureProperties, GROUP_HIGHLIGHT_COLORS } from './map-geocache-style-sprite';
 import { FoundGeocacheDisplayMode } from './map-geocache-style-sprite';
 import { ContextMenu, ContextMenuItem } from '../context-menu';
 import type { ImportAroundCenter } from '../import-around-dialog';
@@ -40,6 +40,101 @@ export interface MapViewPreferences {
 }
 
 export type MapNotifyKind = 'info' | 'warn' | 'error';
+
+/**
+ * Points rattachés à une géocache : ses waypoints géolocalisés, plus ses
+ * coordonnées d'origine lorsqu'elle est corrigée (elles apparaissent sur la carte
+ * comme un point supplémentaire). Sans aucun point lié, entourer la cache n'aurait
+ * rien à unifier : l'option n'est alors pas proposée.
+ */
+function countLinkedPoints(geocache: MapGeocache | undefined): number {
+    if (!geocache) {
+        return 0;
+    }
+    let count = (geocache.waypoints || []).filter(wp => wp.latitude != null && wp.longitude != null).length;
+    if (geocache.is_corrected && geocache.original_latitude != null && geocache.original_longitude != null) {
+        count++;
+    }
+    return count;
+}
+
+/**
+ * Choisit la prochaine couleur de regroupement : la première de la palette qui
+ * n'est pas déjà utilisée, sinon on repart au début (au-delà de 8 groupes,
+ * distinguer les teintes n'a de toute façon plus de sens).
+ */
+function pickNextGroupColor(used: ReadonlyMap<number, string>): string {
+    const taken = new globalThis.Set(used.values());
+    const free = GROUP_HIGHLIGHT_COLORS.find(entry => !taken.has(entry.color));
+    return (free ?? GROUP_HIGHLIGHT_COLORS[used.size % GROUP_HIGHLIGHT_COLORS.length]).color;
+}
+
+/**
+ * Entrées de menu contextuel pour entourer une géocache et ses waypoints d'un
+ * cercle de couleur. Utilisées aussi bien depuis le point de la cache que depuis
+ * l'un de ses waypoints : dans les deux cas, c'est le groupe entier qui est visé.
+ */
+function buildGroupHighlightMenuItems(
+    geocacheId: number,
+    current: ReadonlyMap<number, string>,
+    apply: (next: ReadonlyMap<number, string>) => void
+): ContextMenuItem[] {
+    const activeColor = current.get(geocacheId);
+
+    const setColor = (color: string | undefined): void => {
+        const next = new globalThis.Map(current);
+        if (color) {
+            next.set(geocacheId, color);
+        } else {
+            next.delete(geocacheId);
+        }
+        apply(next);
+    };
+
+    const colorSubmenu: ContextMenuItem[] = GROUP_HIGHLIGHT_COLORS.map(entry => ({
+        label: entry.label,
+        icon: '⬤',
+        checked: activeColor === entry.color,
+        action: () => setColor(entry.color)
+    }));
+
+    const items: ContextMenuItem[] = [{ separator: true }];
+
+    if (activeColor) {
+        items.push({
+            label: 'Changer la couleur du cercle',
+            icon: '🎨',
+            submenu: colorSubmenu
+        });
+        items.push({
+            label: 'Retirer le cercle',
+            icon: '⭕',
+            danger: true,
+            action: () => setColor(undefined)
+        });
+    } else {
+        items.push({
+            label: 'Entourer la cache et ses waypoints',
+            icon: '⭕',
+            action: () => setColor(pickNextGroupColor(current))
+        });
+        items.push({
+            label: 'Entourer avec la couleur…',
+            icon: '🎨',
+            submenu: colorSubmenu
+        });
+    }
+
+    if (current.size > 0) {
+        items.push({
+            label: `Retirer tous les cercles (${current.size})`,
+            icon: '🧹',
+            action: () => apply(new globalThis.Map())
+        });
+    }
+
+    return items;
+}
 
 export interface MapViewProps {
     mapId?: string;
@@ -101,6 +196,12 @@ export const MapView: React.FC<MapViewProps> = ({
     // refs pour ne pas capturer des valeurs périmées.
     const onChangeListSelectionRef = React.useRef<MapViewProps['onChangeListSelection']>(onChangeListSelection);
     const selectedGeocacheIdsRef = React.useRef<Set<number>>(new Set());
+    /**
+     * Cercles de regroupement posés depuis le menu contextuel (id de géocache →
+     * couleur). Purement visuel et local à la carte : rien n'est persisté.
+     */
+    const [groupHighlights, setGroupHighlights] = React.useState<ReadonlyMap<number, string>>(() => new globalThis.Map());
+    const groupHighlightsRef = React.useRef<ReadonlyMap<number, string>>(groupHighlights);
     const fittedGeocacheKeyRef = React.useRef<string | null>(null);
     const [isInitialized, setIsInitialized] = React.useState(false);
     const initialZoomRef = React.useRef(preferences?.defaultZoom ?? 6);
@@ -274,6 +375,10 @@ export const MapView: React.FC<MapViewProps> = ({
     React.useEffect(() => {
         selectedGeocacheIdsRef.current = new Set(selectedGeocacheIds ?? []);
     }, [selectedGeocacheIds]);
+
+    React.useEffect(() => {
+        groupHighlightsRef.current = groupHighlights;
+    }, [groupHighlights]);
 
     React.useEffect(() => {
         if (layerManagerRef.current) {
@@ -667,7 +772,17 @@ export const MapView: React.FC<MapViewProps> = ({
                             }
                         });
                     }
-                    
+
+                    // Regroupement : depuis un waypoint, c'est la cache parente et
+                    // tous ses points frères que l'on entoure.
+                    if (props.parentGeocacheId !== undefined) {
+                        items.push(...buildGroupHighlightMenuItems(
+                            props.parentGeocacheId,
+                            groupHighlightsRef.current,
+                            setGroupHighlights
+                        ));
+                    }
+
                     setContextMenu({
                         items,
                         x: event.clientX,
@@ -874,6 +989,18 @@ export const MapView: React.FC<MapViewProps> = ({
                                 }
                             });
                         }
+                    }
+
+                    // Regroupement visuel : réservé aux caches qui ont effectivement
+                    // des points liés à rassembler.
+                    const groupGeocacheId = props.id;
+                    if (groupGeocacheId !== undefined &&
+                        countLinkedPoints(geocachesRef.current.find(gc => gc.id === groupGeocacheId)) > 0) {
+                        items.push(...buildGroupHighlightMenuItems(
+                            groupGeocacheId,
+                            groupHighlightsRef.current,
+                            setGroupHighlights
+                        ));
                     }
 
                     setContextMenu({
@@ -1236,6 +1363,28 @@ export const MapView: React.FC<MapViewProps> = ({
         }
         layerManagerRef.current.setListSelection(selectedGeocacheIds ?? []);
     }, [selectedGeocacheIds, geocaches, isInitialized]);
+
+    // Cercles de regroupement. Réappliqués après chaque synchronisation : les
+    // waypoints sont recréés dès que leur cache change, et repartiraient sans couleur.
+    React.useEffect(() => {
+        layerManagerRef.current?.setGroupHighlights(groupHighlights);
+    }, [groupHighlights, geocaches, isInitialized]);
+
+    // Une géocache retirée de la carte emporte son cercle avec elle.
+    React.useEffect(() => {
+        const presentIds = new globalThis.Set(geocaches.map(gc => gc.id));
+        setGroupHighlights(previous => {
+            const stale = [...previous.keys()].filter(id => !presentIds.has(id));
+            if (stale.length === 0) {
+                return previous;
+            }
+            const next = new globalThis.Map(previous);
+            for (const id of stale) {
+                next.delete(id);
+            }
+            return next;
+        });
+    }, [geocaches]);
 
     // Gestion de l'affichage des géocaches voisines
     React.useEffect(() => {
