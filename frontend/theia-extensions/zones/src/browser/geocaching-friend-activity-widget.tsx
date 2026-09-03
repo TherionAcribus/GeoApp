@@ -110,6 +110,29 @@ interface FriendSuggestionsResponse {
     error_message?: string;
 }
 
+/** Statistiques d'un ami : trouvailles, activité, caches en commun. */
+interface FriendStat {
+    username: string;
+    finds_count: number;
+    activity_count: number;
+    shared_with_me: number;
+}
+
+interface FriendStatsSummary {
+    friends_count: number;
+    total_distinct_finds: number;
+    total_shared_with_me: number;
+    most_active_friend: string | null;
+}
+
+interface FriendStatsResponse {
+    success: boolean;
+    friends?: FriendStat[];
+    summary?: FriendStatsSummary;
+    error?: string;
+    error_message?: string;
+}
+
 /**
  * Ce que la carte affiche.
  *
@@ -228,6 +251,12 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
     protected suggestionsLoading: boolean = false;
     protected suggestionsVisible: boolean = false;
     protected suggestionsMinFriends: number = 1;
+
+    /** Statistiques croisées entre amis. */
+    protected stats: FriendStat[] = [];
+    protected statsSummary: FriendStatsSummary | null = null;
+    protected statsLoading: boolean = false;
+    protected statsVisible: boolean = false;
 
     @postConstruct()
     protected init(): void {
@@ -875,6 +904,7 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
                 {this.renderNotices()}
                 {this.renderFeed()}
                 {this.renderSuggestions()}
+                {this.renderStats()}
             </div>
         );
     }
@@ -1083,6 +1113,161 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
                         {s.friends.join(', ')}
                     </div>
                 </div>
+            </div>
+        );
+    }
+
+    // -------------------------------------------------- Statistiques croisées
+
+    protected async loadStats(): Promise<void> {
+        this.statsLoading = true;
+        this.update();
+
+        try {
+            const response = await fetch(`${this.getApiBaseUrl()}/api/friends/stats`);
+            const contentType = response.headers.get('content-type') || '';
+            if (!contentType.includes('application/json')) {
+                this.stats = [];
+                this.statsSummary = null;
+                return;
+            }
+
+            const result: FriendStatsResponse = await response.json();
+            if (result.success) {
+                this.stats = result.friends || [];
+                this.statsSummary = result.summary || null;
+            } else {
+                this.stats = [];
+                this.statsSummary = null;
+            }
+        } catch {
+            this.stats = [];
+            this.statsSummary = null;
+        } finally {
+            this.statsLoading = false;
+            this.update();
+        }
+    }
+
+    protected toggleStats(): void {
+        this.statsVisible = !this.statsVisible;
+        if (this.statsVisible && this.stats.length === 0 && !this.statsLoading) {
+            this.loadStats();
+        }
+        this.update();
+    }
+
+    protected renderStats(): React.ReactNode {
+        if (!this.statsVisible) {
+            return (
+                <div style={{ marginTop: '16px' }}>
+                    <button
+                        className="theia-button secondary"
+                        onClick={() => this.toggleStats()}
+                        title="Statistiques croisées sur vos amis"
+                    >
+                        <span className="codicon codicon-graph"></span>
+                        {' Statistiques'}
+                    </button>
+                </div>
+            );
+        }
+
+        return (
+            <div style={{ marginTop: '16px', borderTop: '1px solid var(--theia-panel-border)', paddingTop: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                    <span className="codicon codicon-graph"></span>
+                    <strong>Statistiques</strong>
+                    <div style={{ flex: 1 }}></div>
+                    <button
+                        className="theia-button secondary"
+                        onClick={() => this.toggleStats()}
+                        title="Replier la section"
+                    >
+                        <span className="codicon codicon-chevron-up"></span>
+                    </button>
+                    <button
+                        className="theia-button secondary"
+                        onClick={() => this.loadStats()}
+                        disabled={this.statsLoading}
+                        title="Rafraîchir les statistiques"
+                    >
+                        <span className="codicon codicon-refresh"></span>
+                    </button>
+                </div>
+
+                {this.statsLoading && (
+                    <div style={{ color: 'var(--theia-descriptionForeground)' }}>Chargement des statistiques…</div>
+                )}
+
+                {!this.statsLoading && this.statsSummary && this.stats.length > 0 && (
+                    <>
+                        <div style={{
+                            display: 'flex',
+                            gap: '16px',
+                            marginBottom: '12px',
+                            flexWrap: 'wrap',
+                            fontSize: '0.9em',
+                            color: 'var(--theia-descriptionForeground)'
+                        }}>
+                            <span title="Nombre d'amis avec au moins une trouvaille ou un log">
+                                <strong>{this.statsSummary.friends_count}</strong> ami(s)
+                            </span>
+                            <span title="Caches distinctes trouvées par au moins un ami">
+                                <strong>{this.statsSummary.total_distinct_finds}</strong> cache(s) trouvée(s)
+                            </span>
+                            <span title="Caches que j'ai trouvées et qu'un ami a aussi trouvées">
+                                <strong>{this.statsSummary.total_shared_with_me}</strong> en commun
+                            </span>
+                            {this.statsSummary.most_active_friend && (
+                                <span title="Ami avec le plus de trouvailles connues">
+                                    Plus actif : <strong>{this.statsSummary.most_active_friend}</strong>
+                                </span>
+                            )}
+                        </div>
+
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85em' }}>
+                            <thead>
+                                <tr style={{ borderBottom: '1px solid var(--theia-panel-border)', textAlign: 'left' }}>
+                                    <th style={{ padding: '4px 8px' }}>Ami</th>
+                                    <th style={{ padding: '4px 8px', textAlign: 'right' }} title="Trouvailles connues (friend_find)">Trouvailles</th>
+                                    <th style={{ padding: '4px 8px', textAlign: 'right' }} title="Logs dans le flux d'activité">Activité</th>
+                                    <th style={{ padding: '4px 8px', textAlign: 'right' }} title="Caches que j'ai aussi trouvées">En commun</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {this.stats.map(stat => (
+                                    <tr key={stat.username} style={{ borderBottom: '1px solid var(--theia-panel-border)' }}>
+                                        <td style={{ padding: '4px 8px' }}>
+                                            <a
+                                                onClick={() => { this.authorFilter = stat.username; this.applyFilters(); }}
+                                                style={{ cursor: 'pointer' }}
+                                                title={`Filtrer le flux sur ${stat.username}`}
+                                            >
+                                                {stat.username}
+                                            </a>
+                                        </td>
+                                        <td style={{ padding: '4px 8px', textAlign: 'right' }}>{stat.finds_count}</td>
+                                        <td style={{ padding: '4px 8px', textAlign: 'right' }}>{stat.activity_count}</td>
+                                        <td style={{ padding: '4px 8px', textAlign: 'right' }}>
+                                            {stat.shared_with_me > 0 ? (
+                                                <span style={{ color: 'var(--theia-charts-blue)' }}>{stat.shared_with_me}</span>
+                                            ) : (
+                                                <span style={{ color: 'var(--theia-descriptionForeground)' }}>0</span>
+                                            )}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </>
+                )}
+
+                {!this.statsLoading && this.stats.length === 0 && (
+                    <div style={{ color: 'var(--theia-descriptionForeground)' }}>
+                        Aucune statistique disponible : synchronisez le flux d'activité ou déduisez les trouvailles d'une zone.
+                    </div>
+                )}
             </div>
         );
     }

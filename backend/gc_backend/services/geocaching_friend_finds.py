@@ -713,3 +713,105 @@ def query_suggestions(
     suggestions.sort(key=lambda s: (-s['friends_count'], s['name'].casefold()))
     return suggestions[:limit]
 
+
+# ---------------------------------------------------------- Statistiques croisées
+
+def query_friend_stats() -> dict:
+    """
+    Statistiques croisées sur les amis.
+
+    Croise trois sources pour chaque ami :
+
+    - **``friend_find``** : nombre de trouvailles connues (déduction par zone,
+      flux d'activité, logs de cache) ;
+    - **``FriendActivity``** : nombre de logs capturés dans le flux d'activité
+      récent (tous types confondus) ;
+    - **``Geocache.found``** : nombre de caches que j'ai trouvées et que cet ami
+      a aussi trouvées (« en commun avec moi »).
+
+    Retourne un dict avec :
+
+    - ``friends`` : liste triée par nombre de trouvailles décroissant, chaque
+      entrée contenant ``username``, ``finds_count``, ``activity_count`` et
+      ``shared_with_me`` ;
+    - ``summary`` : totaux globaux (nombre d'amis, total de trouvailles
+      distinctes, total de caches en commun, ami le plus actif).
+    """
+    from ..database import db
+    from ..geocaches.models import Geocache
+    from ..models import FriendFind, FriendActivity
+
+    # 1. Trouvailles par ami (friend_find)
+    finds_rows = (
+        db.session.query(
+            FriendFind.friend_username,
+            db.func.count(FriendFind.id),
+        )
+        .group_by(FriendFind.friend_username)
+        .all()
+    )
+    finds_by_friend: dict[str, int] = {username: count for username, count in finds_rows}
+
+    # 2. Logs du flux d'activité par ami (excluant mes propres logs)
+    activity_rows = (
+        db.session.query(
+            FriendActivity.author_username,
+            db.func.count(FriendActivity.id),
+        )
+        .filter(FriendActivity.activity_type == 2)  # ACTIVITY_TYPE_FRIENDS
+        .filter(db.or_(FriendActivity.is_self.is_(False), FriendActivity.is_self.is_(None)))
+        .group_by(FriendActivity.author_username)
+        .all()
+    )
+    activity_by_friend: dict[str, int] = {username: count for username, count in activity_rows}
+
+    # 3. Caches en commun : caches que j'ai trouvées (Geocache.found=True) et
+    #    que cet ami a aussi trouvées (FriendFind).
+    my_found_codes = {
+        code for (code,) in db.session.query(Geocache.gc_code).filter(Geocache.found.is_(True)).all()
+    }
+    shared_by_friend: dict[str, int] = {}
+    if my_found_codes:
+        shared_rows = (
+            db.session.query(
+                FriendFind.friend_username,
+                db.func.count(db.distinct(FriendFind.gc_code)),
+            )
+            .filter(FriendFind.gc_code.in_(my_found_codes))
+            .group_by(FriendFind.friend_username)
+            .all()
+        )
+        shared_by_friend = {username: count for username, count in shared_rows}
+
+    # 4. Fusion des trois sources : un ami peut apparaître dans l'une sans les autres.
+    all_friends = set(finds_by_friend) | set(activity_by_friend) | set(shared_by_friend)
+
+    friends = []
+    for username in all_friends:
+        friends.append({
+            'username': username,
+            'finds_count': finds_by_friend.get(username, 0),
+            'activity_count': activity_by_friend.get(username, 0),
+            'shared_with_me': shared_by_friend.get(username, 0),
+        })
+
+    friends.sort(key=lambda f: (-f['finds_count'], f['username'].casefold()))
+
+    # 5. Résumé global
+    total_distinct_finds = (
+        db.session.query(db.func.count(db.distinct(FriendFind.gc_code))).scalar() or 0
+    )
+    total_shared = sum(f['shared_with_me'] for f in friends)
+    most_active = friends[0]['username'] if friends else None
+
+    return {
+        'friends': friends,
+        'summary': {
+            'friends_count': len(friends),
+            'total_distinct_finds': total_distinct_finds,
+            'total_shared_with_me': total_shared,
+            'most_active_friend': most_active,
+        },
+    }
+
+

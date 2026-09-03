@@ -4,7 +4,7 @@
 > **(1) la liste d'amis** (§3-7), **(2) le flux d'activité** (§9),
 > **(3) les logs d'amis sur une cache** (§10), **(4) « qui a trouvé quoi »**
 > (§11) et **(5) la carte des découvertes** (§12-13).
-> Dernière mise à jour : septembre 2026 (pagination, synchro auto, suggestions).
+> Dernière mise à jour : septembre 2026 (pagination, synchro auto, suggestions, stats).
 
 ---
 
@@ -123,6 +123,7 @@ backend/tests/
 ├── test_geocache_friend_logs.py    # Logs d'amis par cache + routes
 ├── test_friend_finds.py            # Déduction par zone, rate limit, stockage
 ├── test_friend_finds_suggestions.py # Suggestions « caches à faire » (§13.5)
+├── test_friend_stats.py            # Statistiques croisées entre amis (§13.6)
 ├── test_friend_activity_map.py     # Agrégation cartographique du flux (§12)
 └── test_friend_finds_map.py        # Coordonnées déduites, zone « Amis », import (§13)
 
@@ -976,7 +977,37 @@ liste des amis. Un filtre « min. N ami(s) » permet de monter le seuil pour ne
 voir que les caches les plus populaires auprès du cercle d'amis. Les caches non
 importées ont un lien direct vers geocaching.com.
 
-### 13.6 Interface
+### 13.6 Statistiques croisées entre amis
+
+`query_friend_stats()` (dans `geocaching_friend_finds.py`) croise trois sources
+pour chaque ami :
+
+- **``friend_find``** : nombre de trouvailles connues (déduction par zone, flux
+  d'activité, logs de cache) ;
+- **``FriendActivity``** : nombre de logs capturés dans le flux d'activité
+  récent (tous types confondus, hors mes propres logs) ;
+- **``Geocache.found``** : nombre de caches que j'ai trouvées et que cet ami a
+  aussi trouvées (« en commun avec moi »).
+
+Un ami présent dans une seule source (par exemple, vu dans le flux mais sans
+trouvaille déduite) apparaît quand même, avec des compteurs à 0 pour les autres
+sources.
+
+**Route REST** :
+
+| Route | Rôle |
+|-------|------|
+| `GET /api/friends/stats` | Statistiques par ami + résumé global |
+
+Réponse : `friends` (liste triée par trouvailles décroissantes) + `summary`
+(nombre d'amis, total de trouvailles distinctes, total de caches en commun, ami
+le plus actif).
+
+**Frontend** : section repliable « Statistiques » en bas du widget, avec un
+tableau par ami (trouvailles, activité, en commun) et un résumé global. Cliquer
+sur un pseudo filtre le flux d'activité sur cet ami.
+
+### 13.7 Interface
 
 Un sélecteur de source dans la barre d'outils du widget « Activité des amis » :
 **Activité récente** (§12) · **Toutes les trouvailles** (`friend_find`) ·
@@ -1007,7 +1038,7 @@ widget**, indépendamment de la carte.
 
 ## 14. Tests
 
-**128 tests**, aucun ne touche le réseau : le parsing est exposé en méthodes de
+**138 tests**, aucun ne touche le réseau : le parsing est exposé en méthodes de
 classe pures, la synchronisation accepte un client injecté, et les routes qui
 vérifient l'authentification reçoivent un service simulé (sans quoi elles
 tentent une vraie connexion à geocaching.com — piège vérifié).
@@ -1077,6 +1108,16 @@ tentent une vraie connexion à geocaching.com — piège vérifié).
 - filtres `min_friends`, `zone_id`, `limit`, `include_found` ;
 - liste vide sans trouvailles, coordonnées préférées de la géocache importée ;
 - routes REST : lecture des suggestions, paramètres de requête, liste vide.
+
+`test_friend_stats.py` (10 tests) — statistiques croisées entre amis :
+
+- compteurs par ami (trouvailles, activité, caches en commun) ;
+- exclusion de mes propres logs du compteur d'activité ;
+- fusion d'amis présents dans une seule source (flux sans trouvaille déduite) ;
+- tri par nombre de trouvailles décroissant ;
+- résumé global (nombre d'amis, total distinct, total en commun, plus actif) ;
+- liste vide sans données ;
+- routes REST : lecture des stats, résumé vide.
 
 `test_friend_activity_map.py` (21 tests) — carte des amis :
 

@@ -13,6 +13,7 @@ Routes API :
 - POST /api/friends/finds/import    → importe les caches manquantes dans la zone « Amis »
 - GET  /api/friends/finds/geocache/<id> → amis ayant trouvé une géocache
 - GET  /api/friends/finds/suggestions → caches trouvées par ≥N amis mais pas par moi
+- GET  /api/friends/stats             → statistiques croisées par ami (trouvailles, activité, commun)
 """
 from __future__ import annotations
 
@@ -48,6 +49,7 @@ from ..services.geocaching_friend_finds import (
     get_friend_finds_client,
     get_or_create_friends_zone,
     list_codes_to_import,
+    query_friend_stats,
     query_suggestions,
     store_finds,
 )
@@ -736,3 +738,20 @@ def finds_suggestions():
         "suggestions": suggestions,
         "count": len(suggestions),
     })
+
+
+@bp.get("/stats")
+def friend_stats():
+    """
+    Statistiques croisées sur les amis.
+
+    Pour chaque ami : nombre de trouvailles connues (``friend_find``), nombre de
+    logs dans le flux d'activité (``FriendActivity``), et nombre de caches en
+    commun avec moi (caches que j'ai trouvées et que cet ami a aussi trouvées).
+
+    Résumé global : nombre d'amis, total de trouvailles distinctes, total de
+    caches en commun, ami le plus actif.
+    """
+    stats = query_friend_stats()
+    return jsonify({"success": True, **stats})
+
