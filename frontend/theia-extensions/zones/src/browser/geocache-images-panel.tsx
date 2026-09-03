@@ -258,6 +258,8 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     // toute la galerie. L'OCR a son propre état (ocrInProgressById) car il est
     // annulable.
     const [busyImageIds, setBusyImageIds] = React.useState<Record<number, true>>({});
+    const [ocrInProgressById, setOcrInProgressById] = React.useState<Record<number, true>>({});
+    const ocrAbortControllersRef = React.useRef<Record<number, AbortController>>({});
     const setBusyImage = React.useCallback((imageId: number, busy: boolean): void => {
         setBusyImageIds(prev => {
             const next = { ...prev };
@@ -272,9 +274,6 @@ export const GeocacheImagesPanel: React.FC<GeocacheImagesPanelProps> = ({
     const isImageBusy = React.useCallback((imageId: number): boolean => {
         return Boolean(busyImageIds[imageId]) || Boolean(ocrInProgressById[imageId]);
     }, [busyImageIds, ocrInProgressById]);
-
-    const [ocrInProgressById, setOcrInProgressById] = React.useState<Record<number, true>>({});
-    const ocrAbortControllersRef = React.useRef<Record<number, AbortController>>({});
 
     const setOcrInProgress = React.useCallback((imageId: number, inProgress: boolean): void => {
         setOcrInProgressById(prev => {

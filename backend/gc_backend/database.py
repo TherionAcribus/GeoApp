@@ -52,10 +52,12 @@ def init_db(app):
                 'description_override_html': 'TEXT',
                 'description_override_raw': 'TEXT',
                 'description_override_updated_at': 'DATETIME',
+                'description_override_source': 'VARCHAR(20)',
                 'hints': 'TEXT',
                 'hints_decoded': 'TEXT',
                 'hints_decoded_override': 'TEXT',
                 'hints_decoded_override_updated_at': 'DATETIME',
+                'hints_decoded_override_source': 'VARCHAR(20)',
                 'attributes': 'JSON',
                 'favorites_count': 'INTEGER',
                 'logs_count': 'INTEGER',
@@ -87,6 +89,7 @@ def init_db(app):
             to_add: dict[str, str] = {
                 'note_override': 'TEXT',
                 'note_override_updated_at': 'DATETIME',
+                'note_override_source': 'VARCHAR(20)',
             }
 
             for col, col_type in to_add.items():
@@ -96,6 +99,27 @@ def init_db(app):
             db.session.commit()
         except Exception as error:
             logger.error('SQLite migration error (geocache_waypoint): %s', error)
+            db.session.rollback()
+
+        try:
+            logger.info('Running lightweight SQLite migrations for geocache_image columns...')
+            existing_cols = set()
+            res = db.session.execute(text("PRAGMA table_info('geocache_image')"))
+            for row in res:
+                existing_cols.add(row[1])
+
+            to_add: dict[str, str] = {
+                'editor_state_json': 'TEXT',
+                'image_type': 'VARCHAR(20)',
+            }
+
+            for col, col_type in to_add.items():
+                if col not in existing_cols:
+                    logger.info('Adding missing column geocache_image.%s (%s)', col, col_type)
+                    db.session.execute(text(f'ALTER TABLE geocache_image ADD COLUMN {col} {col_type}'))
+            db.session.commit()
+        except Exception as error:
+            logger.error('SQLite migration error (geocache_image): %s', error)
             db.session.rollback()
 
         try:
