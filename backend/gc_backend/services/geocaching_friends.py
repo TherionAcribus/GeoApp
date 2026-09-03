@@ -20,7 +20,7 @@ import threading
 import time
 from dataclasses import dataclass, asdict
 from datetime import datetime, date
-from typing import Optional
+from typing import Iterator, Optional
 
 import requests
 from bs4 import BeautifulSoup
@@ -71,6 +71,7 @@ class FriendsResult:
     reported_count: int | None      # `window.friendsCount` annoncé par la page
     pending_requests: int | None    # onglet "Pending Friend Requests (n)"
     truncated: bool                 # moins d'amis parsés que le compteur annoncé
+    pages_fetched: int = 1          # nombre de pages parcourues (pagination ASP.NET)
 
     def to_dict(self) -> dict:
         return {
@@ -79,6 +80,7 @@ class FriendsResult:
             "reported_count": self.reported_count,
             "pending_requests": self.pending_requests,
             "truncated": self.truncated,
+            "pages_fetched": self.pages_fetched,
             "fetched_at": self.fetched_at.isoformat(),
         }
 
@@ -90,11 +92,17 @@ class GeocachingFriendsClient:
     Le résultat est mis en cache en mémoire (`CACHE_TTL`) : la liste d'amis
     bouge très rarement et la page pèse ~90 Ko, inutile de la retélécharger à
     chaque ouverture du widget.
+
+    Au-delà d'un certain nombre d'amis, la page ASP.NET pagine via
+    ``__doPostBack`` (contrôle ``FriendPager``). Le client parcourt
+    automatiquement toutes les pages en rejouant le postback ASP.NET
+    (``__VIEWSTATE`` etc.), avec une limite de sécurité (`MAX_PAGES`).
     """
 
     FRIENDS_URL = 'https://www.geocaching.com/my/myfriends.aspx'
     PROFILE_URL = 'https://www.geocaching.com/p/?guid={guid}'
     CACHE_TTL = 15 * 60  # secondes
+    MAX_PAGES = 50  # garde-fou : ~50 × 50 = 2500 amis maximum
 
     # Sur la page, l'avatar par défaut n'apporte aucune information.
     _DEFAULT_AVATAR_MARKER = 'default_avatar'
@@ -117,6 +125,9 @@ class GeocachingFriendsClient:
         """
         Retourne la liste des amis du compte connecté.
 
+        Parcourt automatiquement toutes les pages si la liste est paginée
+        (postback ASP.NET sur le contrôle ``FriendPager``).
+
         Lève NotAuthenticatedError si la session n'est pas connectée, et
         GeocachingFriendsError en cas d'erreur réseau ou de page inattendue.
         """
@@ -125,14 +136,13 @@ class GeocachingFriendsClient:
                 logger.debug("Friends list served from cache (%d entries)", len(self._cache.friends))
                 return self._cache
 
-            html = self._fetch_friends_page()
-            result = self.parse_friends_page(html)
+            result = self._fetch_all_pages()
 
             self._cache = result
             self._cache_time = time.time()
             logger.info(
-                "Fetched %d friends from geocaching.com (reported: %s)",
-                len(result.friends), result.reported_count
+                "Fetched %d friends from geocaching.com (reported: %s, pages: %d)",
+                len(result.friends), result.reported_count, result.pages_fetched
             )
             return result
 
@@ -164,6 +174,261 @@ class GeocachingFriendsClient:
             )
 
         return response.text
+
+    # ----------------------------------------------------- Pagination ASP.NET
+
+    def _fetch_all_pages(self) -> FriendsResult:
+        """
+        Parcourt toutes les pages de la liste d'amis.
+
+        Page 1 : GET simple. Pages suivantes : POST avec les champs cachés
+        ASP.NET (``__VIEWSTATE`` etc.) et les arguments du postback du pager.
+        """
+        html = self._fetch_friends_page()
+        result = self.parse_friends_page(html)
+
+        all_friends = list(result.friends)
+        seen = {f.username for f in all_friends}
+        pages = 1
+
+        while pages < self.MAX_PAGES:
+            postback = self._extract_next_page_postback(html)
+            if postback is None:
+                break
+
+            event_target, event_argument = postback
+            try:
+                html = self._post_back(html, event_target, event_argument)
+            except GeocachingFriendsError as exc:
+                logger.warning("Pagination stopped at page %d: %s", pages + 1, exc)
+                break
+
+            pages += 1
+            page_result = self.parse_friends_page(html)
+            # Déduplication par pseudo : un ami pourrait apparaître sur deux
+            # pages si le pager est mal conçu ou si la liste change entre deux
+            # requêtes.
+            new_count = 0
+            for friend in page_result.friends:
+                if friend.username not in seen:
+                    all_friends.append(friend)
+                    seen.add(friend.username)
+                    new_count += 1
+            logger.debug("Page %d: %d friends (%d new)", pages, len(page_result.friends), new_count)
+
+        # ``truncated`` ne devrait plus être vrai si la pagination a fonctionné.
+        # On le garde uniquement si on a atteint la limite de sécurité.
+        truncated = result.reported_count is not None and len(all_friends) < result.reported_count
+        if truncated and pages >= self.MAX_PAGES:
+            logger.warning(
+                "Friends list still truncated after %d pages (reported: %s, got: %d)",
+                pages, result.reported_count, len(all_friends)
+            )
+        elif truncated:
+            # On a moins d'amis que le compteur annoncé mais on n'a pas atteint
+            # la limite : la pagination a probablement échoué silencieusement.
+            logger.warning(
+                "Friends list truncated: got %d of %s (pages fetched: %d)",
+                len(all_friends), result.reported_count, pages
+            )
+
+        return FriendsResult(
+            friends=all_friends,
+            fetched_at=datetime.now(),
+            reported_count=result.reported_count,
+            pending_requests=result.pending_requests,
+            truncated=truncated,
+            pages_fetched=pages,
+        )
+
+    def _post_back(self, html: str, event_target: str, event_argument: str) -> str:
+        """
+        Rejoue un postback ASP.NET pour charger la page suivante.
+
+        POST vers la même URL avec les champs cachés du formulaire plus
+        ``__EVENTTARGET`` et ``__EVENTARGUMENT``.
+        """
+        form_fields = self._extract_aspnet_form_fields(html)
+        form_fields['__EVENTTARGET'] = event_target
+        form_fields['__EVENTARGUMENT'] = event_argument
+
+        try:
+            response = self.session.post(
+                self.FRIENDS_URL,
+                data=form_fields,
+                timeout=30,
+                allow_redirects=True,
+            )
+        except requests.RequestException as exc:
+            raise GeocachingFriendsError(f"Erreur réseau lors du postback : {exc}") from exc
+
+        if 'account/signin' in response.url or 'account/login' in response.url:
+            raise NotAuthenticatedError(
+                "Session Geocaching.com expirée pendant la pagination."
+            )
+
+        if response.status_code != 200:
+            raise GeocachingFriendsError(
+                f"Postback a renvoyé HTTP {response.status_code}"
+            )
+
+        return response.text
+
+    @staticmethod
+    def _extract_aspnet_form_fields(html: str) -> dict[str, str]:
+        """
+        Extrait les champs cachés du formulaire ASP.NET.
+
+        ``__VIEWSTATE``, ``__VIEWSTATEGENERATOR``, ``__EVENTVALIDATION`` et
+        tout autre ``<input type="hidden">`` du formulaire principal.
+        """
+        soup = BeautifulSoup(html, _BS4_PARSER)
+        fields: dict[str, str] = {}
+
+        # Le formulaire ASP.NET est généralement le premier <form> de la page.
+        form = soup.find('form')
+        if form is None:
+            return fields
+
+        for inp in form.find_all('input', attrs={'type': 'hidden'}):
+            name = inp.get('name') or inp.get('id')
+            if name:
+                fields[name] = inp.get('value', '')
+
+        # Certains champs peuvent être hors <form> dans des cas rares ;
+        # on complète avec les champs standards s'ils manquent.
+        for required in ('__VIEWSTATE', '__VIEWSTATEGENERATOR', '__EVENTVALIDATION'):
+            if required not in fields:
+                inp = soup.find('input', attrs={'name': required})
+                if inp:
+                    fields[required] = inp.get('value', '')
+
+        return fields
+
+    @classmethod
+    def _extract_next_page_postback(cls, html: str) -> tuple[str, str] | None:
+        """
+        Détecte le postback vers la page suivante dans le pager ASP.NET.
+
+        Retourne ``(event_target, event_argument)`` ou ``None`` si aucune page
+        suivante n'est disponible.
+
+        Stratégie défensive (la structure exacte du pager n'a pas pu être
+        observée — compte de test : 16 amis, pager vide) :
+
+        1. Chercher un lien « Next » dans le pager (``__doPostBack(..., 'Next')``).
+        2. Sinon, identifier la page courante (le numéro non cliquable) et
+           chercher un postback vers ``courant + 1``.
+        3. Sinon, chercher n'importe quel postback dans le pager dont l'argument
+           est un nombre supérieur à la page courante.
+        """
+        soup = BeautifulSoup(html, _BS4_PARSER)
+
+        # Le pager peut avoir différentes classes / ids selon la version du site.
+        pager = (
+            soup.find('div', class_=re.compile(r'FriendPager', re.I))
+            or soup.find('div', class_=re.compile(r'pager', re.I))
+            or soup.find('div', id=re.compile(r'Pager', re.I))
+        )
+        if pager is None:
+            return None
+
+        # Tous les __doPostBack du pager : (event_target, event_argument)
+        postbacks = list(cls._find_postbacks_in_element(pager))
+        if not postbacks:
+            return None
+
+        current_page = cls._detect_current_page_number(pager)
+
+        # 1. Lien « Next »
+        for target, arg in postbacks:
+            if arg.lower() in ('next', '>', 'suivant', 'nextpage'):
+                return target, arg
+
+        # 2. Page courante + 1
+        if current_page is not None:
+            wanted = str(current_page + 1)
+            for target, arg in postbacks:
+                if arg == wanted:
+                    return target, arg
+
+        # 3. N'importe quel postback avec un argument numérique > page courante
+        if current_page is not None:
+            candidates = []
+            for target, arg in postbacks:
+                try:
+                    page_num = int(arg)
+                except ValueError:
+                    continue
+                if page_num > current_page:
+                    candidates.append((page_num, target, arg))
+            if candidates:
+                candidates.sort(key=lambda c: c[0])
+                _, target, arg = candidates[0]
+                return target, arg
+
+        # 4. Dernier recours : s'il n'y a qu'un seul postback et qu'on n'a pas
+        # pu déterminer la page courante, le suivre. Si on connaît la page
+        # courante, les stratégies 1-3 sont suffisantes et suivre un postback
+        # unique risquerait de revenir en arrière.
+        if current_page is None and len(postbacks) == 1:
+            return postbacks[0]
+
+        return None
+
+    @staticmethod
+    def _find_postbacks_in_element(element) -> Iterator[tuple[str, str]]:
+        """
+        Extrait tous les ``__doPostBack('target','arg')`` d'un élément HTML.
+
+        Gère les variantes d'échappement : apostrophes simples et entité HTML
+        ``&#39;`` (utilisée par ASP.NET dans les ``href="javascript:..."``).
+        """
+        # On cherche dans le HTML brut plutôt que dans le texte parsé, car
+        # __doPostBack est dans des attributs href="javascript:...".
+        raw = str(element)
+        # Apostrophes simples : __doPostBack('target','arg')
+        for match in re.finditer(
+            r"__doPostBack\s*\(\s*'([^']*)'\s*,\s*'([^']*)'\s*\)",
+            raw,
+        ):
+            yield match.group(1), match.group(2)
+        # Entité HTML &#39; : __doPostBack(&#39;target&#39;,&#39;arg&#39;)
+        for match in re.finditer(
+            r"__doPostBack\s*\(\s*&#39;([^&]*)&#39;\s*,\s*&#39;([^&]*)&#39;\s*\)",
+            raw,
+        ):
+            yield match.group(1), match.group(2)
+
+    @staticmethod
+    def _detect_current_page_number(pager) -> int | None:
+        """
+        Détecte le numéro de la page courante dans le pager.
+
+        Le numéro courant est généralement un ``<span>`` (non cliquable) tandis
+        que les autres pages sont des ``<a>``.
+        """
+        # Chercher un <span> contenant un nombre dans le pager
+        for span in pager.find_all('span'):
+            text = span.get_text(strip=True)
+            if text.isdigit():
+                return int(text)
+
+        # Parfois c'est un <b> ou un <strong>
+        for tag in pager.find_all(['b', 'strong']):
+            text = tag.get_text(strip=True)
+            if text.isdigit():
+                return int(text)
+
+        # Dernier recours : un <a> avec une classe "Active" ou "Current"
+        for link in pager.find_all('a'):
+            classes = link.get('class') or []
+            if any(c.lower() in ('active', 'current', 'selected') for c in classes):
+                text = link.get_text(strip=True)
+                if text.isdigit():
+                    return int(text)
+
+        return None
 
     # ---------------------------------------------------------- Parsing HTML
 

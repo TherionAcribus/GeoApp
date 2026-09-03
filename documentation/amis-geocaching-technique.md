@@ -4,7 +4,7 @@
 > **(1) la liste d'amis** (§3-7), **(2) le flux d'activité** (§9),
 > **(3) les logs d'amis sur une cache** (§10), **(4) « qui a trouvé quoi »**
 > (§11) et **(5) la carte des découvertes** (§12-13).
-> Dernière mise à jour : juillet 2026.
+> Dernière mise à jour : septembre 2026.
 
 ---
 
@@ -214,6 +214,7 @@ class FriendsResult:
     reported_count: int | None     # compteur annoncé par la page
     pending_requests: int | None
     truncated: bool                # moins d'amis parsés que le compteur annoncé
+    pages_fetched: int = 1         # nombre de pages parcourues (pagination ASP.NET)
 ```
 
 Tous les champs autres que `username` sont optionnels : un profil incomplet ne
@@ -238,6 +239,10 @@ doit jamais faire échouer la récupération de toute la liste.
 - **Cache mémoire** : `CACHE_TTL = 15 min`. La liste d'amis bouge très rarement
   et la page pèse ~90 Ko : inutile de la retélécharger à chaque ouverture du
   widget. Mesure réelle : 1,2 s au premier appel, 0,3 ms ensuite.
+- **Pagination ASP.NET** : au-delà d'un certain nombre d'amis, la page pagine
+  via `__doPostBack` (contrôle `FriendPager`). Le client parcourt
+  automatiquement toutes les pages en rejouant le postback (`__VIEWSTATE` etc.),
+  avec une limite de sécurité `MAX_PAGES = 50`. Déduplication par pseudo.
 - **Verrou** : `threading.Lock` autour de la lecture/écriture du cache — le
   backend Flask est multi-thread.
 - **`invalidate_cache()`** : à appeler si l'app venait un jour à modifier la
@@ -280,6 +285,7 @@ Réponse 200 :
   "reported_count": 16,
   "pending_requests": 0,
   "truncated": false,
+  "pages_fetched": 1,
   "fetched_at": "2026-07-27T17:58:11.461886"
 }
 ```
@@ -327,12 +333,19 @@ ouvert dans la zone principale.
 
 ## 8. Pièges et points d'attention
 
-- **Pagination non gérée.** Au-delà d'un certain nombre d'amis, la page ASP.NET
-  pagine via `__doPostBack` (contrôle `FriendPager`). Le cas n'a pas pu être
-  observé (compte de test : 16 amis, pager vide). Le code le **détecte** —
-  `truncated = len(friends) < reported_count`, plus un `logger.warning` et un
-  bandeau dans l'UI — mais ne franchit pas les pages. C'est le premier point à
-  traiter si un utilisateur signale des amis manquants.
+- **Pagination ASP.NET gérée par postback.** Au-delà d'un certain nombre
+  d'amis, la page pagine via `__doPostBack` (contrôle `FriendPager`). Le client
+  parcourt automatiquement toutes les pages en rejouant le postback
+  (`__VIEWSTATE`, `__EVENTTARGET`, `__EVENTARGUMENT`). La structure exacte du
+  pager n'a pas pu être observée (compte de test : 16 amis, pager vide) : la
+  détection du postback « page suivante » est donc **défensive** et essaie,
+  dans l'ordre : un lien « Next », un lien vers `page courante + 1`, un lien
+  vers n'importe quelle page supérieure, et en dernier recours un postback
+  unique si la page courante n'a pas pu être identifiée. Limite de sécurité
+  `MAX_PAGES = 50` ; déduplication par pseudo. Si le postback échoue (HTTP
+  non-200, session expirée), on conserve ce qui a déjà été collecté. Le
+  bandeau `truncated` de l'UI ne devrait plus apparaître sauf si la limite
+  de sécurité est atteinte ou si la pagination échoue silencieusement.
 - **`window.friendsCount` n'est pas sur la page amis** (seulement sur le
   dashboard) : le compteur vient de l'onglet `lnkMyFriends`. Piège vérifié en
   conditions réelles.
@@ -933,7 +946,7 @@ widget**, indépendamment de la carte.
 
 ## 14. Tests
 
-**88 tests**, aucun ne touche le réseau : le parsing est exposé en méthodes de
+**100 tests**, aucun ne touche le réseau : le parsing est exposé en méthodes de
 classe pures, la synchronisation accepte un client injecté, et les routes qui
 vérifient l'authentification reçoivent un service simulé (sans quoi elles
 tentent une vraie connexion à geocaching.com — piège vérifié).
@@ -942,13 +955,18 @@ tentent une vraie connexion à geocaching.com — piège vérifié).
 > grid-puzzle-solver), sans rapport avec les amis. Comparer à un baseline
 > (`git stash`) avant de conclure à une régression.
 
-`test_geocaching_friends.py` (5 tests) — liste d'amis :
+`test_geocaching_friends.py` (17 tests) — liste d'amis :
 
 - parsing complet de deux amis, dont les conversions de dates/nombres ;
 - détection de pagination (`truncated`) ;
 - liste vide valide ;
 - page inconnue → `GeocachingFriendsError` ;
-- champs optionnels absents → parsing dégradé mais non bloquant.
+- champs optionnels absents → parsing dégradé mais non bloquant ;
+- **pagination ASP.NET** : collecte de deux pages, arrêt sur dernière page,
+  déduplication par pseudo, lien « Next » préféré, repli sur numéro de page,
+  arrêt propre sur erreur HTTP, extraction des champs `__VIEWSTATE` etc.,
+  détection du postback « page suivante » (avec et sans lien « Next »),
+  détection du numéro de page courant, sérialisation `pages_fetched`.
 
 `test_friend_activity.py` (12 tests) — flux d'activité :
 
