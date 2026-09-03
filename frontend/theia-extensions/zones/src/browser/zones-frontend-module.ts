@@ -39,6 +39,10 @@ import { GeoAppCodexLanguageModelsContribution } from './geoapp-codex-language-m
 import { GeoAppOpenRouterLanguageModelsContribution } from './geoapp-openrouter-language-models';
 import { GeoAppTranslateDescriptionAgentContribution } from './geoapp-translate-description-agent';
 import { GeoAppLogsAnalyzerAgentContribution } from './geoapp-logs-analyzer-agent';
+import {
+    GeoAppOutingAnalyzerAgent,
+    GeoAppOutingAnalyzerAgentContribution,
+} from './geoapp-outing-analyzer-agent';
 import { GeoAppLogWriterAgentContribution } from './geoapp-log-writer-agent';
 import { GeoAppChatBridge } from './geoapp-chat-bridge';
 import { GeoAppAiToolCatalog } from './geoapp-chat-tool-catalog';
@@ -317,6 +321,13 @@ export default new ContainerModule(bind => {
 
     bind(GeoAppChatWebAgent).toSelf().inSingletonScope();
     bind(ChatAgent).toService(GeoAppChatWebAgent);
+
+    // Analyse de sortie : agent chat à part entière, avec son propre prompt système et
+    // son propre modèle assignable dans les réglages IA de Theia.
+    bind(GeoAppOutingAnalyzerAgent).toSelf().inSingletonScope();
+    bind(ChatAgent).toService(GeoAppOutingAnalyzerAgent);
+    bind(GeoAppOutingAnalyzerAgentContribution).toSelf().inSingletonScope();
+    bind(FrontendApplicationContribution).toService(GeoAppOutingAnalyzerAgentContribution);
 
     // Widget d'authentification Geocaching.com
     bind(GeocachingAuthWidget).toSelf().inSingletonScope();

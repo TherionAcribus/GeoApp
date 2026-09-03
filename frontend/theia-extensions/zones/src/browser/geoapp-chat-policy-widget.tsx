@@ -108,6 +108,7 @@ const AGENT_MODEL_ROWS: GeoAppChatAgentModelRow[] = [
     { id: 'geoapp-chat-fast', label: 'GeoApp Chat (Fast)', kind: 'chat', purpose: 'chat' },
     { id: 'geoapp-chat-strong', label: 'GeoApp Chat (Strong)', kind: 'chat', purpose: 'chat' },
     { id: 'geoapp-chat-web', label: 'GeoApp Chat (Web)', kind: 'chat', purpose: 'chat' },
+    { id: 'geoapp-outing-analyzer', label: 'Analyse de sortie', kind: 'chat', purpose: 'chat' },
     { id: 'geoapp-ocr', label: 'OCR vision (galerie)', kind: 'internal', purpose: 'vision-ocr' },
     { id: 'geoapp-translate-description', label: 'Traduction descriptions', kind: 'internal', purpose: 'chat' },
     { id: 'geoapp-logs-analyzer', label: 'Analyse des logs', kind: 'internal', purpose: 'chat' },

@@ -483,6 +483,51 @@ async function testBridgeReusesSessionAcrossGeoappEntryPoints(): Promise<void> {
     assert.equal(chatService.sessions[0].title, 'CHAT IA - GC77000 [Fast]');
 }
 
+/**
+ * Session d'analyse de sortie : ni `geocacheId` ni `gcCode`, donc l'appariement repose
+ * entièrement sur le titre. C'est ce qui fait qu'une seconde analyse le même jour reprend
+ * la conversation au lieu d'en ouvrir une deuxième.
+ */
+async function testOutingSessionIsPinnedAndMatchedByTitle(): Promise<void> {
+    const { bridge, chatService } = createBridge({
+        agents: [
+            { id: 'GeoApp', name: 'GeoApp' },
+            { id: 'geoapp-outing-analyzer', name: 'GeoApp Analyse de sortie' },
+        ],
+        readyAgentIds: ['geoapp-outing-analyzer'],
+    });
+
+    const detail = {
+        sessionTitle: 'SORTIE - Vosges - 2026-09-05 (3 caches)',
+        prompt: 'Analyse ces geocaches.',
+        workflowKind: 'general',
+        sessionKind: 'libre' as const,
+        preferredAgentId: 'geoapp-outing-analyzer',
+    };
+
+    await triggerOpenChat(bridge, detail);
+
+    assert.equal(chatService.createCalls.length, 1);
+    assert.equal(chatService.sessions[0].pinnedAgent?.id, 'geoapp-outing-analyzer');
+    assert.ok(chatService.sessions[0].title.startsWith('SORTIE - Vosges - 2026-09-05'));
+
+    // Même titre : la session existante est reprise, pas dupliquée.
+    await triggerOpenChat(bridge, detail);
+
+    assert.equal(chatService.createCalls.length, 1);
+    assert.equal(chatService.sessions.length, 1);
+    assert.equal(chatService.sentRequests.length, 2);
+
+    // Titre différent (lendemain) : nouvelle session.
+    await triggerOpenChat(bridge, {
+        ...detail,
+        sessionTitle: 'SORTIE - Vosges - 2026-09-06 (3 caches)',
+    });
+
+    assert.equal(chatService.createCalls.length, 2);
+    assert.equal(chatService.sessions.length, 2);
+}
+
 async function run(): Promise<void> {
     await testCreatesSessionWithWorkflowProfileAndPrompt();
     await testReusesExistingSessionByGcCode();
@@ -492,6 +537,7 @@ async function run(): Promise<void> {
     await testBridgeRemovesSessionMetadataOnDeletedEvent();
     await testBridgeAcceptsGeocacheDetailsPayloadBuilder();
     await testBridgeReusesSessionAcrossGeoappEntryPoints();
+    await testOutingSessionIsPinnedAndMatchedByTitle();
     // eslint-disable-next-line no-console
     console.log('geoapp-chat-bridge tests passed');
 }

@@ -22,8 +22,15 @@ export const GEOAPP_OUTING_ANALYZER_AGENT_ID = 'geoapp-outing-analyzer';
  */
 export const MAX_OUTING_ANALYSIS_GEOCACHES = 60;
 
+export const OUTING_DETAIL_LEVEL_PREF = 'geoApp.outing.analysis.detailLevel';
+export const OUTING_RECENT_LOGS_PREF = 'geoApp.outing.analysis.recentLogsCount';
+export const OUTING_GEAR_LOGS_PREF = 'geoApp.outing.analysis.gearLogsCount';
+export const OUTING_WARN_ABOVE_PREF = 'geoApp.outing.analysis.warnAboveCount';
+
 /** Niveau de détail demandé : pilote la troncature du listing et le nombre de logs. */
 export type OutingDetailLevel = 'light' | 'standard' | 'full';
+
+export const OUTING_DETAIL_LEVELS: OutingDetailLevel[] = ['light', 'standard', 'full'];
 
 export type OutingHealthLevel = 'ok' | 'watch' | 'risky' | 'very_risky' | 'unknown';
 

@@ -18,6 +18,13 @@ import {
     GEOAPP_CHAT_TOOL_POLICY_OVERRIDES_PREF,
     GEOAPP_CHAT_SKILL_POLICY_OVERRIDES_PREF,
 } from './geoapp-chat-shared';
+import {
+    OUTING_DETAIL_LEVEL_PREF,
+    OUTING_DETAIL_LEVELS,
+    OUTING_GEAR_LOGS_PREF,
+    OUTING_RECENT_LOGS_PREF,
+    OUTING_WARN_ABOVE_PREF,
+} from './outing-analysis-types';
 
 // Profils modele et overrides de workflow (choix du modele selon le type d'enigme).
 const MODEL_PROFILE_ENUM = ['local', 'fast', 'strong', 'web'];
@@ -55,6 +62,33 @@ export const geoAppPreferenceSchema: PreferenceSchema = {
             minimum: 1,
             maximum: 50,
             description: 'Nombre d images conseille pour les envois Chat IA depuis la galerie GeoApp. Cette valeur pilote la preselection; l utilisateur peut depasser cette limite avec un avertissement.',
+        },
+        [OUTING_DETAIL_LEVEL_PREF]: {
+            type: 'string',
+            enum: [...OUTING_DETAIL_LEVELS],
+            default: 'standard',
+            description: "Analyse IA de sortie : niveau de detail propose par defaut. 'light' n envoie pas le listing, 'full' envoie un extrait long et davantage de logs.",
+        },
+        [OUTING_RECENT_LOGS_PREF]: {
+            type: 'number',
+            default: 5,
+            minimum: 0,
+            maximum: 20,
+            description: 'Analyse IA de sortie : nombre de logs recents transmis par geocache.',
+        },
+        [OUTING_GEAR_LOGS_PREF]: {
+            type: 'number',
+            default: 8,
+            minimum: 0,
+            maximum: 20,
+            description: "Analyse IA de sortie : nombre maximum de logs mentionnant du materiel transmis par geocache. Ces logs sont selectionnes sur tout l historique, pas seulement les plus recents.",
+        },
+        [OUTING_WARN_ABOVE_PREF]: {
+            type: 'number',
+            default: 25,
+            minimum: 1,
+            maximum: 60,
+            description: 'Analyse IA de sortie : au-dela de ce nombre de geocaches, un avertissement signale le volume envoye au modele.',
         },
         'geoApp.zones.sort': {
             type: 'object',

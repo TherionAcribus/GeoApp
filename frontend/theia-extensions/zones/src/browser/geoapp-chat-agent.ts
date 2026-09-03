@@ -114,7 +114,7 @@ const geoAppChatAgentConfigurations: Agent[] = [
 ];
 
 @injectable()
-abstract class BaseGeoAppChatAgent extends AbstractStreamParsingChatAgent {
+export abstract class BaseGeoAppChatAgent extends AbstractStreamParsingChatAgent {
 
     readonly abstract id: string;
     readonly abstract name: string;

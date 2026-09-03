@@ -29,14 +29,13 @@ import {
     GEOAPP_OUTING_ANALYZER_AGENT_ID,
     MAX_OUTING_ANALYSIS_GEOCACHES,
     OUTING_DETAIL_PRESETS,
+    OUTING_DETAIL_LEVEL_PREF,
+    OUTING_GEAR_LOGS_PREF,
+    OUTING_RECENT_LOGS_PREF,
+    OUTING_WARN_ABOVE_PREF,
     OutingAnalysisBundle,
     OutingDetailLevel,
 } from './outing-analysis-types';
-
-export const OUTING_DETAIL_LEVEL_PREF = 'geoApp.outing.analysis.detailLevel';
-export const OUTING_RECENT_LOGS_PREF = 'geoApp.outing.analysis.recentLogsCount';
-export const OUTING_GEAR_LOGS_PREF = 'geoApp.outing.analysis.gearLogsCount';
-export const OUTING_WARN_ABOVE_PREF = 'geoApp.outing.analysis.warnAboveCount';
 
 export interface OutingAnalysisRequest {
     /** Nom de zone ou de contexte, repris dans le titre de session. */

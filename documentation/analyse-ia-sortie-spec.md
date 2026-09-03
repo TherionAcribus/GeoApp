@@ -690,6 +690,21 @@ export const GeoAppOutingAnalyzerAgentId = 'geoapp-outing-analyzer';
 - `id`, `name: 'GeoApp Analyse de sortie'`, description explicite.
 - `systemPromptId = GEOAPP_OUTING_SYSTEM_PROMPT_ID` (cf. 4.2) — c'est le seul écart
   notable avec les agents de profil, qui partagent `GEOAPP_CHAT_SYSTEM_PROMPT_ID`.
+
+  **Écart constaté à l'implémentation** — poser `systemPromptId` **ne suffit pas**.
+  `BaseGeoAppChatAgent` surcharge `getSystemMessageDescription()` et y choisit sa variante
+  via `GeoAppChatPromptVariantByPack[policy.promptPack]`, sans jamais lire
+  `systemPromptId`. L'agent de sortie doit donc surcharger cette méthode à son tour pour
+  résoudre `GEOAPP_OUTING_SYSTEM_PROMPT_VARIANT_ID`. Il conserve l'ajout de
+  `describePolicyForPrompt(policy)` : sans elle, le modèle ignorerait quels tools il peut
+  appeler pour les questions de suivi. Si le prompt de sortie est introuvable, on retombe
+  sur `super` plutôt que de partir sans consigne (cas couvert par un test).
+
+  **Second écart** — l'agent est enregistré par sa **propre**
+  `GeoAppOutingAnalyzerAgentContribution`, pas par `GeoAppChatAgentContribution` : cette
+  dernière vit dans `geoapp-chat-agent.ts`, que le fichier de l'agent de sortie importe
+  déjà pour `BaseGeoAppChatAgent` — l'inverse créerait un cycle. C'est aussi le motif des
+  autres agents GeoApp. `BaseGeoAppChatAgent` a dû être exporté.
 - `languageModelRequirements` : `[{ purpose: 'chat', identifier: 'default/universal' }]`,
   identique aux autres — c'est Theia qui résout le modèle concret.
 - Enregistrement : ajouter l'agent à `GeoAppChatAgentContribution.onStart()`
@@ -766,6 +781,11 @@ son modèle effectif s'affiche dans le panneau de diagnostic.
 
 **Fichier** : `frontend/theia-extensions/zones/src/browser/geoapp-preference-contribution.ts`
 (constantes dans `geoapp-chat-shared.ts`, comme les préférences existantes)
+
+Les constantes vivent dans `outing-analysis-types.ts` (le module de contrat de la
+fonctionnalité) et non dans le contrôleur : le schéma de préférences peut ainsi les
+importer sans dépendre d'un contrôleur. Même raison pour
+`GEOAPP_OUTING_ANALYZER_AGENT_ID` et `MAX_OUTING_ANALYSIS_GEOCACHES`.
 
 | Préférence | Type | Défaut | Description |
 |---|---|---|---|
