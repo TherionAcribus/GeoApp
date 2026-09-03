@@ -185,6 +185,15 @@ class Plugin(db.Model):
             elif field_type == 'textarea':
                 prop['type'] = 'string'
                 prop['format'] = 'multiline'
+            elif field_type == 'file':
+                # Champ fichier : la valeur transmise au plugin est le contenu
+                # encodé en base64. Le front affiche un sélecteur / zone de
+                # glisser-déposer au lieu d'un champ texte.
+                prop['type'] = 'string'
+                prop['format'] = 'file'
+                for extra in ('accept', 'filename_field', 'clear_fields', 'max_size_mb'):
+                    if extra in field_def:
+                        prop[extra] = field_def[extra]
             else:  # string par défaut
                 prop['type'] = 'string'
             
@@ -197,6 +206,10 @@ class Plugin(db.Model):
                 prop['default'] = field_def['default']
             if 'placeholder' in field_def:
                 prop['placeholder'] = field_def['placeholder']
+            if field_def.get('hidden', False):
+                # Champ technique renseigné par un autre champ (ex: filename
+                # alimenté par le sélecteur de fichier) : masqué dans le formulaire.
+                prop['hidden'] = True
             
             schema['properties'][key] = prop
             

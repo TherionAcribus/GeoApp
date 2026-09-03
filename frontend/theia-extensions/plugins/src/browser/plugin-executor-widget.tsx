@@ -668,7 +668,10 @@ const PluginExecutorComponent: React.FC<{
                 setState(prev => ({ ...prev, task: updated }));
                 // Si la tâche est terminée, afficher le résultat
                 if (updated.status === 'completed' && updated.result) {
-                    setState(prev => ({ ...prev, result: updated.result }));
+                    // Capturé hors de la closure : le narrowing de `updated.result`
+                    // (optionnel) ne survit pas au callback de setState.
+                    const taskResult = updated.result;
+                    setState(prev => ({ ...prev, result: taskResult }));
                     messageService.info(`Tâche ${taskId} terminée avec succès`);
                 } else if (updated.status === 'failed') {
                     messageService.error(`Tâche ${taskId} échouée: ${updated.error || 'erreur inconnue'}`);

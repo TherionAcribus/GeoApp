@@ -247,14 +247,21 @@ class WherigoAnalyzerPlugin:
         import base64
 
         try:
-            # Try to detect if content is base64 encoded
+            # Le selecteur de fichier de l'UI envoie du base64, mais un appel API
+            # direct peut fournir du texte brut (script .lua colle tel quel).
+            payload = content.strip()
+            if payload.startswith('data:') and ',' in payload:
+                # Data URL (data:application/octet-stream;base64,....)
+                payload = payload.split(',', 1)[1]
+            payload = ''.join(payload.split())
+
             try:
-                decoded = base64.b64decode(content)
-                is_base64 = True
+                # validate=True : refuse le texte brut au lieu d'en supprimer
+                # silencieusement les caracteres hors alphabet base64.
+                decoded = base64.b64decode(payload, validate=True)
                 logger.info(f"Content decoded as base64, size: {len(decoded)} bytes")
             except Exception:
                 decoded = content.encode('utf-8')
-                is_base64 = False
                 logger.info(f"Content treated as plain text, size: {len(decoded)} bytes")
 
             # Determine file extension

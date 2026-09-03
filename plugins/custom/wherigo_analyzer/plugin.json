@@ -26,24 +26,29 @@
     "include_in_decode": false
   },
   "input_types": {
-    "file_path": {
-      "type": "string",
-      "label": "Chemin du fichier",
-      "required": false,
-      "description": "Chemin vers le fichier .gwc ou .lua"
-    },
     "file_content": {
-      "type": "string",
-      "label": "Contenu du fichier (base64)",
+      "type": "file",
+      "label": "Cartouche Wherigo",
+      "accept": ".gwc,.lua,.luac",
+      "filename_field": "filename",
+      "clear_fields": ["file_path"],
+      "max_size_mb": 50,
       "required": false,
-      "hidden": true,
-      "description": "Contenu encodé en base64 (alternatif au chemin)"
+      "description": "Sélectionnez ou glissez-déposez un fichier .gwc ou .lua"
     },
     "filename": {
       "type": "string",
       "label": "Nom du fichier",
       "required": false,
-      "description": "Nom original du fichier (avec extension)"
+      "hidden": true,
+      "description": "Nom original du fichier (renseigné automatiquement)"
+    },
+    "file_path": {
+      "type": "string",
+      "label": "Chemin du fichier (optionnel)",
+      "required": false,
+      "placeholder": "/chemin/vers/cartouche.gwc",
+      "description": "Alternative au sélecteur : chemin d'un fichier accessible par le serveur"
     },
     "analyze_mode": {
       "type": "select",

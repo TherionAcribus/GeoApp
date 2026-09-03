@@ -110,6 +110,11 @@ class PluginManager:
     def _discover_plugins_batched(self) -> List[Dict]:
         self._load_schema()
 
+        # Repartir d'une ardoise vierge : sans ça, une erreur corrigée depuis
+        # (plugin.json réparé, schéma élargi) reste remontée par /discover et
+        # /status indéfiniment.
+        self._loading_errors.clear()
+
         discovered_plugins: List[Dict] = []
         discovered_paths = set()
 

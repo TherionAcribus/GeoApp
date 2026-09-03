@@ -167,7 +167,7 @@
           "properties": {
             "type": {
               "type": "string",
-              "enum": ["string", "number", "float", "select", "checkbox", "boolean", "textarea"]
+              "enum": ["string", "number", "float", "select", "checkbox", "boolean", "textarea", "file"]
             },
             "label": {
               "type": "string",
@@ -249,6 +249,28 @@
             "step": {
               "type": "number",
               "description": "Pas pour les champs numériques"
+            },
+            "accept": {
+              "type": "string",
+              "description": "Champs 'file' : filtre du sélecteur natif (ex: '.gwc,.lua')"
+            },
+            "filename_field": {
+              "type": "string",
+              "pattern": "^[a-z_]+$",
+              "description": "Champs 'file' : clé du champ où recopier le nom du fichier sélectionné"
+            },
+            "clear_fields": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z_]+$"
+              },
+              "description": "Champs 'file' : champs à vider lors de la sélection d'un fichier"
+            },
+            "max_size_mb": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Champs 'file' : taille maximale acceptée en Mo (défaut 25)"
             }
           }
         }

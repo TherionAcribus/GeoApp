@@ -217,7 +217,7 @@ Fichier : `backend/gc_backend/plugins/models.py` — table `plugins`.
 Méthodes clés :
 
 - `to_dict(include_metadata=False)` : sérialisation pour l'API. Avec `include_metadata=True`, ajoute le `plugin.json` complet et **convertit** `input_types` en **JSON Schema** standard (`_convert_input_types_to_json_schema`).
-- Conversion des types : `select` → `string` + `enum`, `checkbox` → `boolean`, `number`/`integer` avec `minimum`/`maximum`/`multipleOf`, etc.
+- Conversion des types : `select` → `string` + `enum`, `checkbox` → `boolean`, `number`/`integer` avec `minimum`/`maximum`/`multipleOf`, `file` → `string` + `format: "file"` (voir 6.3), etc. Le drapeau `hidden` est propagé au schéma pour que le front masque le champ.
 
 ---
 
@@ -289,9 +289,34 @@ Le schéma de référence est `backend/gc_backend/plugins/schemas/plugin.schema.
 
 ### 6.3 `input_types` — définition des formulaires
 
-Chaque clé (`^[a-z_]+$`) décrit un champ. Types supportés : `string`, `number`, `float`, `select`, `checkbox`, `boolean`, `textarea`.
+Chaque clé (`^[a-z_]+$`) décrit un champ. Types supportés : `string`, `number`, `float`, `select`, `checkbox`, `boolean`, `textarea`, `file`.
 
-Propriétés : `label` (requis), `required`, `hidden`, `placeholder`, `default`, `description`, `options` (pour `select`, valeurs simples ou `{value, label}`), `min`/`max`/`step` (numériques), et **`default_value_source`** (pré-remplissage automatique en contexte géocache, ex. `geocache_id`, `geocache_description`, `geocache_coordinates`).
+Propriétés : `label` (requis), `required`, `hidden` (champ exclu du formulaire), `placeholder`, `default`, `description`, `options` (pour `select`, valeurs simples ou `{value, label}`), `min`/`max`/`step` (numériques), et **`default_value_source`** (pré-remplissage automatique en contexte géocache, ex. `geocache_id`, `geocache_description`, `geocache_coordinates`).
+
+#### Type `file`
+
+Affiche un sélecteur de fichier (clic ou glisser-déposer) au lieu d'un champ texte. La valeur envoyée au plugin est le **contenu du fichier encodé en base64**.
+
+| Propriété | Description |
+|---|---|
+| `accept` | Filtre du sélecteur natif (ex. `".gwc,.lua"`) |
+| `filename_field` | Clé d'un autre champ où recopier le nom du fichier (à marquer `hidden`) |
+| `clear_fields` | Champs à vider lors de la sélection (ex. un chemin saisi manuellement) |
+| `max_size_mb` | Taille maximale acceptée (défaut : 25) |
+
+```json
+"file_content": {
+  "type": "file",
+  "label": "Cartouche Wherigo",
+  "accept": ".gwc,.lua",
+  "filename_field": "filename",
+  "clear_fields": ["file_path"],
+  "max_size_mb": 50
+},
+"filename": { "type": "string", "label": "Nom du fichier", "hidden": true }
+```
+
+Côté plugin, décoder avec `base64.b64decode(value, validate=True)` et se rabattre sur du texte brut si le décodage échoue (un appel API direct peut envoyer le contenu non encodé).
 
 ### 6.4 `text_handling` — normalisation
 

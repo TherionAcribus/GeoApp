@@ -1033,7 +1033,13 @@ const BatchPluginExecutorComponent: React.FC<{
                         {state.pluginDetails.input_schema && Object.entries(state.pluginDetails.input_schema.properties || {}).map(([key, schema]) => {
                             const prop = schema as any;
                             const value = state.formInputs[key] || '';
-                            
+
+                            // Champs techniques (hidden) et fichiers : pas de saisie manuelle
+                            // pertinente en mode batch, on ne les affiche pas.
+                            if (prop.hidden === true || prop.format === 'file') {
+                                return undefined;
+                            }
+
                             return (
                                 <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                                     <label style={{ fontSize: '13px', fontWeight: 500 }}>{prop.title || key}</label>

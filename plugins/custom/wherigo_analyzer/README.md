@@ -26,6 +26,12 @@ Pour la décompilation Lua optionnelle :
 
 ## Utilisation
 
+### Via l'interface
+
+Dans le Plugin Executor, le champ **Cartouche Wherigo** propose une zone de dépôt : cliquez dessus pour ouvrir le sélecteur de fichiers, ou glissez-déposez directement un `.gwc` / `.lua` (50 Mo max). Le nom du fichier est repris automatiquement.
+
+Le champ **Chemin du fichier (optionnel)** reste disponible pour analyser un fichier déjà présent sur le serveur ; il est ignoré dès qu'un fichier est déposé.
+
 ### Via l'API
 
 ```json
