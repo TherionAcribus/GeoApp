@@ -12,6 +12,7 @@ Routes API :
 - GET  /api/friends/finds/map       → toutes les trouvailles cartographiables
 - POST /api/friends/finds/import    → importe les caches manquantes dans la zone « Amis »
 - GET  /api/friends/finds/geocache/<id> → amis ayant trouvé une géocache
+- GET  /api/friends/finds/suggestions → caches trouvées par ≥N amis mais pas par moi
 """
 from __future__ import annotations
 
@@ -47,6 +48,7 @@ from ..services.geocaching_friend_finds import (
     get_friend_finds_client,
     get_or_create_friends_zone,
     list_codes_to_import,
+    query_suggestions,
     store_finds,
 )
 from ..services.geocaching_friends import (
@@ -699,4 +701,38 @@ def geocache_finds(geocache_id: int):
             for username in usernames
         ],
         "count": len(usernames),
+    })
+
+
+@bp.get("/finds/suggestions")
+def finds_suggestions():
+    """
+    Caches trouvées par vos amis mais pas (encore) par vous.
+
+    Croise ``friend_find`` et ``Geocache`` : regroupe les trouvailles d'amis par
+    code GC, joint les caches importées pour les métadonnées, et exclut celles
+    que vous avez déjà trouvées. Tri par popularité (nombre d'amis) décroissant.
+
+    Query params:
+        zone_id : restreint à une zone donnée (défaut : toutes zones)
+        min_friends : nombre minimum d'amis (défaut : 1)
+        limit : nombre maximum de suggestions (défaut : 50, max : 200)
+        include_found : inclure les caches déjà trouvées (défaut : false)
+    """
+    zone_id = request.args.get("zone_id", type=int)
+    min_friends = request.args.get("min_friends", default=1, type=int)
+    limit = request.args.get("limit", default=50, type=int)
+    include_found = request.args.get("include_found", "false").lower() in ("true", "1", "yes")
+
+    suggestions = query_suggestions(
+        zone_id=zone_id,
+        min_friends=max(1, min(min_friends, 50)),
+        limit=limit,
+        include_found=include_found,
+    )
+
+    return jsonify({
+        "success": True,
+        "suggestions": suggestions,
+        "count": len(suggestions),
     })

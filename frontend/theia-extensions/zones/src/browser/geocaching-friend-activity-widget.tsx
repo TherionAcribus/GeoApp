@@ -84,6 +84,32 @@ interface FriendFindsMapResponse {
     error_message?: string;
 }
 
+/** Une suggestion de cache à faire, trouvée par des amis mais pas par moi. */
+interface FriendSuggestion {
+    gc_code: string;
+    name: string;
+    cache_type: string | null;
+    latitude: number | null;
+    longitude: number | null;
+    difficulty: number | null;
+    terrain: number | null;
+    geocache_id: number;
+    found: boolean;
+    zone_id: number | null;
+    status: string | null;
+    favorites_count: number;
+    friends: string[];
+    friends_count: number;
+}
+
+interface FriendSuggestionsResponse {
+    success: boolean;
+    suggestions?: FriendSuggestion[];
+    count?: number;
+    error?: string;
+    error_message?: string;
+}
+
 /**
  * Ce que la carte affiche.
  *
@@ -196,6 +222,12 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
     protected importAbort: AbortController | undefined;
 
     protected profileSyncing: boolean = false;
+
+    /** Suggestions de caches à faire, trouvées par des amis mais pas par moi. */
+    protected suggestions: FriendSuggestion[] = [];
+    protected suggestionsLoading: boolean = false;
+    protected suggestionsVisible: boolean = false;
+    protected suggestionsMinFriends: number = 1;
 
     @postConstruct()
     protected init(): void {
@@ -842,6 +874,215 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
                 {this.renderToolbar()}
                 {this.renderNotices()}
                 {this.renderFeed()}
+                {this.renderSuggestions()}
+            </div>
+        );
+    }
+
+    // -------------------------------------------------- Suggestions de caches
+
+    protected async loadSuggestions(): Promise<void> {
+        this.suggestionsLoading = true;
+        this.update();
+
+        try {
+            const params = new URLSearchParams({
+                min_friends: String(this.suggestionsMinFriends),
+                limit: '50',
+            });
+            const response = await fetch(
+                `${this.getApiBaseUrl()}/api/friends/finds/suggestions?${params}`
+            );
+
+            const contentType = response.headers.get('content-type') || '';
+            if (!contentType.includes('application/json')) {
+                this.suggestions = [];
+                return;
+            }
+
+            const result: FriendSuggestionsResponse = await response.json();
+            if (result.success) {
+                this.suggestions = result.suggestions || [];
+            } else {
+                this.suggestions = [];
+            }
+        } catch {
+            this.suggestions = [];
+        } finally {
+            this.suggestionsLoading = false;
+            this.update();
+        }
+    }
+
+    protected toggleSuggestions(): void {
+        this.suggestionsVisible = !this.suggestionsVisible;
+        if (this.suggestionsVisible && this.suggestions.length === 0 && !this.suggestionsLoading) {
+            this.loadSuggestions();
+        }
+        this.update();
+    }
+
+    protected renderSuggestions(): React.ReactNode {
+        if (!this.suggestionsVisible) {
+            return (
+                <div style={{ marginTop: '24px', borderTop: '1px solid var(--theia-panel-border)', paddingTop: '16px' }}>
+                    <button
+                        className="theia-button secondary"
+                        onClick={() => this.toggleSuggestions()}
+                        title="Caches trouvées par vos amis mais pas encore par vous"
+                    >
+                        <span className="codicon codicon-lightbulb"></span>
+                        {' Suggestions de caches à faire'}
+                    </button>
+                </div>
+            );
+        }
+
+        return (
+            <div style={{ marginTop: '24px', borderTop: '1px solid var(--theia-panel-border)', paddingTop: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                    <span className="codicon codicon-lightbulb"></span>
+                    <strong>Suggestions de caches à faire</strong>
+                    <label
+                        style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.85em' }}
+                        title="Nombre minimum d'amis ayant trouvé la cache"
+                    >
+                        min.
+                        <input
+                            type="number"
+                            className="theia-input"
+                            min={1}
+                            max={50}
+                            value={this.suggestionsMinFriends}
+                            onChange={e => {
+                                this.suggestionsMinFriends = Math.max(1, Math.min(50, Number(e.target.value) || 1));
+                                this.loadSuggestions();
+                            }}
+                            style={{ width: '3em' }}
+                        />
+                        ami(s)
+                    </label>
+                    <div style={{ flex: 1 }}></div>
+                    <button
+                        className="theia-button secondary"
+                        onClick={() => this.toggleSuggestions()}
+                        title="Replier la section"
+                    >
+                        <span className="codicon codicon-chevron-up"></span>
+                    </button>
+                    <button
+                        className="theia-button secondary"
+                        onClick={() => this.loadSuggestions()}
+                        disabled={this.suggestionsLoading}
+                        title="Rafraîchir les suggestions"
+                    >
+                        <span className="codicon codicon-refresh"></span>
+                    </button>
+                </div>
+
+                {this.suggestionsLoading && (
+                    <div style={{ color: 'var(--theia-descriptionForeground)' }}>Chargement des suggestions…</div>
+                )}
+
+                {!this.suggestionsLoading && this.suggestions.length === 0 && (
+                    <div style={{ color: 'var(--theia-descriptionForeground)' }}>
+                        Aucune suggestion pour ce filtre. Vos amis n'ont pas encore trouvé de cache que vous n'auriez pas faite,
+                        ou la base est vide : synchronisez le flux ou déduisez les trouvailles d'une zone.
+                    </div>
+                )}
+
+                {!this.suggestionsLoading && this.suggestions.length > 0 && (
+                    <div>
+                        {this.suggestions.map(s => this.renderSuggestion(s))}
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    protected renderSuggestion(s: FriendSuggestion): React.ReactNode {
+        const cacheUrl = s.geocache_id > 0
+            ? undefined
+            : `https://www.geocaching.com/geocache/${s.gc_code}`;
+
+        return (
+            <div
+                key={s.gc_code}
+                style={{
+                    display: 'flex',
+                    gap: '10px',
+                    padding: '10px 0',
+                    borderBottom: '1px solid var(--theia-panel-border)'
+                }}
+            >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                        <span
+                            className="codicon codicon-people"
+                            style={{ color: 'var(--theia-charts-blue)', fontSize: '0.9em' }}
+                            title={`${s.friends_count} ami(s) ont trouvé cette cache`}
+                        ></span>
+                        <strong style={{ color: 'var(--theia-charts-blue)' }}>{s.friends_count}</strong>
+                        {cacheUrl ? (
+                            <a href={cacheUrl} target="_blank" rel="noreferrer" title="Ouvrir sur geocaching.com">
+                                {s.name}
+                            </a>
+                        ) : (
+                            <span>{s.name}</span>
+                        )}
+                        <span style={{ color: 'var(--theia-descriptionForeground)', fontSize: '0.85em' }}>
+                            {s.gc_code}
+                        </span>
+                        {s.found && (
+                            <span style={{
+                                fontSize: '0.75em',
+                                padding: '0 6px',
+                                borderRadius: '8px',
+                                backgroundColor: 'var(--theia-charts-green)',
+                                color: 'white'
+                            }}>
+                                trouvée
+                            </span>
+                        )}
+                        {s.status === 'archived' && (
+                            <span style={{ color: 'var(--theia-errorForeground)', fontSize: '0.85em' }}>archivée</span>
+                        )}
+                    </div>
+
+                    <div style={{
+                        fontSize: '0.8em',
+                        color: 'var(--theia-descriptionForeground)',
+                        display: 'flex',
+                        gap: '10px',
+                        flexWrap: 'wrap',
+                        marginTop: '2px'
+                    }}>
+                        {s.cache_type && <span>{s.cache_type}</span>}
+                        {s.difficulty !== null && s.terrain !== null && (
+                            <span>{`D ${s.difficulty} / T ${s.terrain}`}</span>
+                        )}
+                        {s.favorites_count > 0 && (
+                            <span title="Points favoris" style={{ color: 'var(--theia-charts-red)' }}>
+                                <span className="codicon codicon-heart-filled" style={{ fontSize: '0.9em' }}></span>
+                                {` ${s.favorites_count}`}
+                            </span>
+                        )}
+                        {s.latitude !== null && s.longitude !== null && (
+                            <span>
+                                <span className="codicon codicon-location" style={{ fontSize: '0.9em' }}></span>
+                                {` ${s.latitude.toFixed(4)}, ${s.longitude.toFixed(4)}`}
+                            </span>
+                        )}
+                    </div>
+
+                    <div style={{
+                        fontSize: '0.8em',
+                        color: 'var(--theia-descriptionForeground)',
+                        marginTop: '2px'
+                    }}>
+                        {s.friends.join(', ')}
+                    </div>
+                </div>
             </div>
         );
     }

@@ -4,7 +4,7 @@
 > **(1) la liste d'amis** (§3-7), **(2) le flux d'activité** (§9),
 > **(3) les logs d'amis sur une cache** (§10), **(4) « qui a trouvé quoi »**
 > (§11) et **(5) la carte des découvertes** (§12-13).
-> Dernière mise à jour : septembre 2026.
+> Dernière mise à jour : septembre 2026 (pagination, synchro auto, suggestions).
 
 ---
 
@@ -122,6 +122,7 @@ backend/tests/
 ├── test_friend_activity_scheduler.py # Synchro auto + projection incrémentale (§9.5)
 ├── test_geocache_friend_logs.py    # Logs d'amis par cache + routes
 ├── test_friend_finds.py            # Déduction par zone, rate limit, stockage
+├── test_friend_finds_suggestions.py # Suggestions « caches à faire » (§13.5)
 ├── test_friend_activity_map.py     # Agrégation cartographique du flux (§12)
 └── test_friend_finds_map.py        # Coordonnées déduites, zone « Amis », import (§13)
 
@@ -941,7 +942,41 @@ n'en a plus besoin (§13.1).
 > annoncée, et un bouton d'arrêt (`AbortController`) qui conserve ce qui a déjà
 > été importé.
 
-### 13.5 Interface
+### 13.5 Suggestions « caches à faire »
+
+`query_suggestions()` (dans `geocaching_friend_finds.py`) croise `friend_find`
+et `Geocache` pour proposer des caches que vos amis ont trouvées mais que vous
+n'avez pas (encore) faites. C'est l'utilisation naturelle de la table
+`friend_find` : au lieu de cartographier passivement les trouvailles, on en tire
+une recommandation active.
+
+**Logique** :
+
+- regroupement des trouvailles par code GC, avec comptage du nombre d'amis
+  distincts ;
+- jointure `LEFT JOIN` avec `Geocache` pour récupérer nom, type, D/T,
+  coordonnées, drapeau `found` et `favorites_count` ;
+- exclusion des caches déjà trouvées par moi (`found IS NULL` ou `found = False`)
+  sauf si `include_found=True` ;
+- tri par popularité décroissante (nombre d'amis), puis par nom.
+
+**Route REST** :
+
+| Route | Rôle |
+|-------|------|
+| `GET /api/friends/finds/suggestions` | Caches trouvées par ≥N amis mais pas par moi |
+
+Query params : `zone_id` (filtre par zone), `min_friends` (défaut 1, max 50),
+`limit` (défaut 50, max 200), `include_found` (défaut false).
+
+**Frontend** : une section repliable « Suggestions de caches à faire » en bas du
+widget « Activité des amis ». Affiche pour chaque suggestion le nombre d'amis,
+le nom, le code GC, le type, D/T, les favoris, les coordonnées (si connues) et la
+liste des amis. Un filtre « min. N ami(s) » permet de monter le seuil pour ne
+voir que les caches les plus populaires auprès du cercle d'amis. Les caches non
+importées ont un lien direct vers geocaching.com.
+
+### 13.6 Interface
 
 Un sélecteur de source dans la barre d'outils du widget « Activité des amis » :
 **Activité récente** (§12) · **Toutes les trouvailles** (`friend_find`) ·
@@ -972,7 +1007,7 @@ widget**, indépendamment de la carte.
 
 ## 14. Tests
 
-**112 tests**, aucun ne touche le réseau : le parsing est exposé en méthodes de
+**128 tests**, aucun ne touche le réseau : le parsing est exposé en méthodes de
 classe pures, la synchronisation accepte un client injecté, et les routes qui
 vérifient l'authentification reçoivent un service simulé (sans quoi elles
 tentent une vraie connexion à geocaching.com — piège vérifié).
@@ -1033,6 +1068,15 @@ tentent une vraie connexion à geocaching.com — piège vérifié).
 - `store_finds` idempotent, normalisation des codes, suppression des lignes
   périmées **limitée à la même source** ;
 - routes de lecture et rejet des paramètres invalides.
+
+`test_friend_finds_suggestions.py` (16 tests) — suggestions « caches à faire » :
+
+- exclusion des caches déjà trouvées par moi, inclusion des non trouvées ;
+- caches non importées affichées avec les métadonnées du flux ;
+- tri par nombre d'amis décroissant, déduplication des amis ;
+- filtres `min_friends`, `zone_id`, `limit`, `include_found` ;
+- liste vide sans trouvailles, coordonnées préférées de la géocache importée ;
+- routes REST : lecture des suggestions, paramètres de requête, liste vide.
 
 `test_friend_activity_map.py` (21 tests) — carte des amis :
 

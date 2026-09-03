@@ -606,3 +606,110 @@ def store_finds(
     if removed:
         logger.info("Removed %d stale finds for %s", removed, friend_username)
     return created, known
+
+
+# ---------------------------------------------------------- Suggestions
+
+def query_suggestions(
+    zone_id: Optional[int] = None,
+    min_friends: int = 1,
+    limit: int = 50,
+    include_found: bool = False,
+) -> list[dict]:
+    """
+    Caches trouvées par ≥ ``min_friends`` amis mais **pas (encore) par moi**.
+
+    Croisement naturel de ``friend_find`` et ``Geocache`` : on regroupe les
+    trouvailles d'amis par code GC, on joint les caches importées pour récupérer
+    nom, type, D/T et le drapeau ``found``, et on exclut celles que j'ai déjà
+    trouvées (sauf si ``include_found=True``).
+
+    Args:
+        zone_id: restreint aux caches d'une zone donnée. Si ``None``, toutes
+            zones confondues.
+        min_friends: nombre minimum d'amis distincts ayant trouvé la cache.
+        limit: nombre maximum de suggestions (1-200).
+        include_found: inclure les caches déjà trouvées par moi (utile pour
+            « mes amis ont aussi trouvé ce que j'ai trouvé »).
+
+    Retourne une liste triée par nombre d'amis décroissant, puis par nom. Chaque
+    entrée contient les métadonnées de la cache et la liste des amis.
+    """
+    from ..database import db
+    from ..geocaches.models import Geocache
+    from ..models import FriendFind
+
+    limit = max(1, min(limit, 200))
+
+    # Jointure friend_find ↔ Geocache (LEFT JOIN : une cache trouvée par un ami
+    # n'est pas forcément importée dans GeoApp).
+    query = db.session.query(
+        FriendFind.gc_code,
+        FriendFind.friend_username,
+        FriendFind.latitude,
+        FriendFind.longitude,
+        FriendFind.cache_name,
+        FriendFind.cache_type,
+        Geocache.id,
+        Geocache.name,
+        Geocache.type,
+        Geocache.difficulty,
+        Geocache.terrain,
+        Geocache.latitude,
+        Geocache.longitude,
+        Geocache.found,
+        Geocache.zone_id,
+        Geocache.status,
+        Geocache.favorites_count,
+    ).outerjoin(
+        Geocache, Geocache.gc_code == FriendFind.gc_code
+    )
+
+    if zone_id is not None:
+        query = query.filter(Geocache.zone_id == zone_id)
+
+    if not include_found:
+        # Pas trouvée par moi : found IS NULL ou found = False.
+        query = query.filter(db.or_(Geocache.found.is_(False), Geocache.found.is_(None)))
+
+    rows = query.all()
+
+    # Regroupement par gc_code
+    by_code: dict[str, dict] = {}
+    for row in rows:
+        gc_code = row[0]
+        entry = by_code.get(gc_code)
+        if entry is None:
+            geocache_id = row[6]
+            latitude = row[11] if row[11] is not None else row[2]
+            longitude = row[12] if row[12] is not None else row[3]
+            entry = {
+                'gc_code': gc_code,
+                'name': (row[7] if row[7] else row[4]) or gc_code,
+                'cache_type': (row[8] if row[8] else row[5]),
+                'latitude': latitude,
+                'longitude': longitude,
+                'difficulty': row[9],
+                'terrain': row[10],
+                'geocache_id': geocache_id if geocache_id else 0,
+                'found': bool(row[13]) if row[13] else False,
+                'zone_id': row[14],
+                'status': row[15],
+                'favorites_count': row[16] or 0,
+                'friends': set(),
+            }
+            by_code[gc_code] = entry
+        entry['friends'].add(row[1])
+
+    # Filtrage par min_friends + tri
+    suggestions = []
+    for entry in by_code.values():
+        entry['friends_count'] = len(entry['friends'])
+        if entry['friends_count'] < min_friends:
+            continue
+        entry['friends'] = sorted(entry['friends'], key=str.casefold)
+        suggestions.append(entry)
+
+    suggestions.sort(key=lambda s: (-s['friends_count'], s['name'].casefold()))
+    return suggestions[:limit]
+
