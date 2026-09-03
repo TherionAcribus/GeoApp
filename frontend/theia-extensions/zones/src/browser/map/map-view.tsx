@@ -1521,6 +1521,12 @@ export const MapView: React.FC<MapViewProps> = ({
     };
 
     const canOpenPopupGeocache = Boolean(popupData && popupData.id > 0 && !(popupData as GeocacheFeatureProperties).isWaypoint);
+    /**
+     * Le bloc « note » sert deux usages : la note d'un waypoint (de la prose, qu'on
+     * rend dans la police courante et sous un intitulé) et les valeurs d'un point
+     * détecté en brute force (des colonnes alignées, qui exigent une chasse fixe).
+     */
+    const isWaypointPopup = Boolean(popupData && (popupData as GeocacheFeatureProperties).isWaypoint);
 
     return (
         <div className="geoapp-map-view">
@@ -1791,20 +1797,34 @@ export const MapView: React.FC<MapViewProps> = ({
                                 {popupData.cache_type}
                             </div>
 
-                            {/* Note / valeurs brute force (pour les points détectés) */}
+                            {/* Note du waypoint / valeurs brute force (pour les points détectés) */}
                             {(popupData as any).note && (
-                                <div style={{
-                                    fontSize: '11px',
-                                    color: 'var(--theia-foreground)',
-                                    marginTop: '8px',
-                                    padding: '6px 8px',
-                                    backgroundColor: 'var(--theia-input-background)',
-                                    borderRadius: '3px',
-                                    whiteSpace: 'pre-wrap',
-                                    fontFamily: 'var(--theia-code-font-family)',
-                                    lineHeight: '1.4'
-                                }}>
-                                    {(popupData as any).note}
+                                <div style={{ marginTop: '8px' }}>
+                                    {isWaypointPopup && (
+                                        <div style={{
+                                            fontSize: '10px',
+                                            textTransform: 'uppercase',
+                                            letterSpacing: '0.04em',
+                                            color: 'var(--theia-descriptionForeground)',
+                                            marginBottom: '3px'
+                                        }}>
+                                            📝 Note
+                                        </div>
+                                    )}
+                                    <div style={{
+                                        fontSize: '11px',
+                                        color: 'var(--theia-foreground)',
+                                        padding: '6px 8px',
+                                        backgroundColor: 'var(--theia-input-background)',
+                                        borderRadius: '3px',
+                                        whiteSpace: 'pre-wrap',
+                                        fontFamily: isWaypointPopup ? undefined : 'var(--theia-code-font-family)',
+                                        lineHeight: '1.4',
+                                        maxHeight: '160px',
+                                        overflowY: 'auto'
+                                    }}>
+                                        {(popupData as any).note}
+                                    </div>
                                 </div>
                             )}
                         </div>

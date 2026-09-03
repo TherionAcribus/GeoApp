@@ -32,6 +32,11 @@ export interface MapWaypoint {
     longitude: number | null;
     gc_coords: string | null;
     note: string | null;
+    /**
+     * Note retouchée à la main ou traduite. Prend le pas sur `note` partout dans
+     * l'application (cf. l'éditeur de waypoints).
+     */
+    note_override?: string | null;
 }
 
 /**
@@ -531,7 +536,7 @@ export class MapLayerManager {
      */
     private computeGeocacheSignature(geocache: MapGeocache): string {
         const waypoints = (geocache.waypoints || [])
-            .map(w => `${w.id}:${w.latitude}:${w.longitude}:${w.name || w.lookup || ''}:${w.type || ''}`)
+            .map(w => `${w.id}:${w.latitude}:${w.longitude}:${w.name || w.lookup || ''}:${w.type || ''}:${w.note_override ?? w.note ?? ''}`)
             .join(';');
         return [
             geocache.latitude,
@@ -631,7 +636,8 @@ export class MapLayerManager {
                             geocacheName: geocache.name,
                             gcCode: geocache.gc_code,
                             cacheType: geocache.cache_type
-                        }
+                        },
+                        waypoint.note_override ?? waypoint.note
                     );
                     const id = feature.getId();
                     if (id !== undefined) {
@@ -925,7 +931,8 @@ export class MapLayerManager {
         name: string,
         lon: number,
         lat: number,
-        parent?: { geocacheId?: number; geocacheName: string; gcCode: string; cacheType: string }
+        parent?: { geocacheId?: number; geocacheName: string; gcCode: string; cacheType: string },
+        note?: string | null
     ): Feature<Point> {
         const coordinate = lonLatToMapCoordinate(lon, lat);
         
@@ -944,6 +951,8 @@ export class MapLayerManager {
             gc_code: parent?.gcCode,
             cache_type: parent?.cacheType || 'Waypoint',
             showLabel: this.shouldShowWaypointLabels(),
+            // Une note vide ne doit pas ouvrir un bloc vide dans le popup.
+            note: note || undefined,
             type: 'waypoint',
             selected: false,
             isWaypoint: true,  // ✅ Marquer comme waypoint pour le menu contextuel
