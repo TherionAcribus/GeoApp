@@ -4,7 +4,7 @@
 > **(1) la liste d'amis** (§3-7), **(2) le flux d'activité** (§9),
 > **(3) les logs d'amis sur une cache** (§10), **(4) « qui a trouvé quoi »**
 > (§11) et **(5) la carte des découvertes** (§12-13).
-> Dernière mise à jour : septembre 2026 (pagination, synchro auto, suggestions, stats, fraîcheur, throttling adaptatif, notifications).
+> Dernière mise à jour : septembre 2026 (pagination, synchro auto, suggestions, stats, fraîcheur, throttling adaptatif, notifications, events).
 
 ---
 
@@ -127,6 +127,7 @@ backend/tests/
 ├── test_friend_freshness.py        # Tableau de bord de fraîcheur (§13.7)
 ├── test_friend_finds_throttling.py # Throttling 429 adaptatif (§11.3)
 ├── test_friend_notifications.py    # Notifications de nouvelles trouvailles (§13.8)
+├── test_friend_events.py           # Events geocaching (log types 9/10) (§13.9)
 ├── test_friend_activity_map.py     # Agrégation cartographique du flux (§12)
 └── test_friend_finds_map.py        # Coordonnées déduites, zone « Amis », import (§13)
 
@@ -1082,7 +1083,35 @@ titre du widget « Activité des amis ». Une section repliable liste les
 notifications (cache, amis, métadonnées) avec un bouton « Marquer comme lu ».
 Si la préférence est désactivée, rien ne s'affiche.
 
-### 13.9 Interface
+### 13.9 Events geocaching
+
+`query_events()` (dans `friend_activity_store.py`) extrait les events du flux
+d'activité stocké. Les events correspondent aux log types :
+
+- **9** : « participera à » (will attend) → event à venir ;
+- **10** : « a participé à » (attended) → event passé.
+
+**Fonctionnement** :
+
+- les events sont agrégés par cache (un event = une cache de type Event) ;
+- pour chaque event, on collecte la liste des amis qui y participent, la date
+  de l'event (log_date), les coordonnées, la location, le D/T ;
+- tri : à venir d'abord (du plus proche au plus lointain), puis passés (du plus
+  récent au plus ancien) ;
+- filtres : `upcoming`, `past`, `author`, `include_self`, `limit`.
+
+**Route REST** :
+
+| Route | Rôle |
+|-------|------|
+| `GET /api/friends/events` | Events (log types 9/10) agrégés par cache |
+
+**Frontend** : une section « Events » dédiée dans le widget affiche un badge
+vert avec le nombre d'events à venir, et une liste repliable des events (nom,
+date, location, amis participants). Les events passés sont aussi affichés mais
+sans badge vert.
+
+### 13.10 Interface
 
 Un sélecteur de source dans la barre d'outils du widget « Activité des amis » :
 **Activité récente** (§12) · **Toutes les trouvailles** (`friend_find`) ·
@@ -1113,7 +1142,7 @@ widget**, indépendamment de la carte.
 
 ## 14. Tests
 
-**181 tests**, aucun ne touche le réseau : le parsing est exposé en méthodes de
+**200 tests**, aucun ne touche le réseau : le parsing est exposé en méthodes de
 classe pures, la synchronisation accepte un client injecté, et les routes qui
 vérifient l'authentification reçoivent un service simulé (sans quoi elles
 tentent une vraie connexion à geocaching.com — piège vérifié).
@@ -1226,6 +1255,16 @@ tentent une vraie connexion à geocaching.com — piège vérifié).
 - métadonnées de la géocache importée ou fallback sur `friend_find` ;
 - `mark_notifications_seen` pose le timestamp et vide les notifications ;
 - routes REST : lecture, paramètre `min_friends`, liste vide, marquer comme lu.
+
+`test_friend_events.py` (19 tests) — events geocaching (log types 9/10) :
+
+- liste vide sans données, exclusion des log types non-event (2, 3, 4) ;
+- log type 9 (à venir) et 10 (passé) inclus, regroupement par cache ;
+- tri : à venir d'abord (proximité), passés ensuite (récence) ;
+- filtres `upcoming`, `past`, `author`, `include_self`, `limit` ;
+- exclusion de mes propres logs par défaut, inclusion avec `include_self` ;
+- métadonnées (coordonnées, location, D/T) ;
+- routes REST : lecture, `upcoming=false`, `author`, liste vide.
 
 `test_friend_activity_map.py` (21 tests) — carte des amis :
 

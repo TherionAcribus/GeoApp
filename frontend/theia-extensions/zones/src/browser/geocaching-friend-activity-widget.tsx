@@ -204,6 +204,34 @@ interface FriendNotificationsResponse {
     error_message?: string;
 }
 
+/** Un event geocaching (log type 9/10) auquel des amis participent. */
+interface FriendEvent {
+    gc_code: string | null;
+    name: string;
+    cache_type_id: number | null;
+    latitude: number | null;
+    longitude: number | null;
+    location_name: string | null;
+    difficulty: number | null;
+    terrain: number | null;
+    is_archived: boolean;
+    action_url: string | null;
+    friends: string[];
+    friends_count: number;
+    is_upcoming: boolean;
+    event_date: string | null;
+}
+
+interface FriendEventsResponse {
+    success: boolean;
+    items?: FriendEvent[];
+    count?: number;
+    upcoming_count?: number;
+    past_count?: number;
+    error?: string;
+    error_message?: string;
+}
+
 /**
  * Ce que la carte affiche.
  *
@@ -339,6 +367,14 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
     protected notificationsLoading: boolean = false;
     protected notificationsVisible: boolean = false;
 
+    /** Events geocaching auxquels des amis participent. */
+    protected events: FriendEvent[] = [];
+    protected eventsCount: number = 0;
+    protected eventsUpcomingCount: number = 0;
+    protected eventsPastCount: number = 0;
+    protected eventsLoading: boolean = false;
+    protected eventsVisible: boolean = false;
+
     @postConstruct()
     protected init(): void {
         this.id = GeocachingFriendActivityWidget.ID;
@@ -353,7 +389,8 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
             .then(() => this.autoSyncIfStale())
             .then(() => this.autoOpenMapIfEnabled())
             .then(() => this.refreshImportableCount())
-            .then(() => this.refreshNotifications());
+            .then(() => this.refreshNotifications())
+            .then(() => this.refreshEvents());
     }
 
     /** Ouverture automatique de la carte, réglable par préférence (activée par défaut). */
@@ -1006,6 +1043,7 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
                 {this.renderStats()}
                 {this.renderFreshness()}
                 {this.renderNotifications()}
+                {this.renderEvents()}
             </div>
         );
     }
@@ -1671,6 +1709,164 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
                         marginTop: '2px'
                     }}>
                         {n.friends.join(', ')}
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // -------------------------------------------------- Events
+
+    protected async refreshEvents(): Promise<void> {
+        this.eventsLoading = true;
+        this.update();
+        try {
+            const response = await fetch(`${this.getApiBaseUrl()}/api/friends/events?limit=100`);
+            const contentType = response.headers.get('content-type') || '';
+            if (!contentType.includes('application/json')) {
+                return;
+            }
+            const result: FriendEventsResponse = await response.json();
+            if (result.success) {
+                this.events = result.items || [];
+                this.eventsCount = result.count || 0;
+                this.eventsUpcomingCount = result.upcoming_count || 0;
+                this.eventsPastCount = result.past_count || 0;
+            }
+        } catch {
+            // Silencieux.
+        } finally {
+            this.eventsLoading = false;
+            this.update();
+        }
+    }
+
+    protected renderEvents(): React.ReactNode {
+        if (this.eventsCount === 0 && !this.eventsVisible) {
+            return null;
+        }
+
+        return (
+            <div style={{ marginTop: '16px', borderTop: '1px solid var(--theia-panel-border)', paddingTop: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                    <span className="codicon codicon-calendar"></span>
+                    <strong>Events</strong>
+                    {this.eventsUpcomingCount > 0 && (
+                        <span style={{
+                            fontSize: '0.75em',
+                            fontWeight: 'bold',
+                            color: 'white',
+                            backgroundColor: 'var(--theia-charts-green)',
+                            borderRadius: '10px',
+                            padding: '1px 8px',
+                        }} title="Events à venir">
+                            {this.eventsUpcomingCount}
+                        </span>
+                    )}
+                    {this.eventsPastCount > 0 && (
+                        <span style={{
+                            fontSize: '0.75em',
+                            color: 'var(--theia-descriptionForeground)',
+                        }}>
+                            {`${this.eventsPastCount} passé(s)`}
+                        </span>
+                    )}
+                    <div style={{ flex: 1 }}></div>
+                    <button
+                        className="theia-button secondary"
+                        onClick={() => { this.eventsVisible = !this.eventsVisible; this.update(); }}
+                        title={this.eventsVisible ? 'Replier' : 'Déplier'}
+                    >
+                        <span className={`codicon codicon-chevron-${this.eventsVisible ? 'up' : 'down'}`}></span>
+                    </button>
+                </div>
+
+                {this.eventsVisible && (
+                    <>
+                        {this.eventsLoading && (
+                            <div style={{ color: 'var(--theia-descriptionForeground)' }}>Chargement…</div>
+                        )}
+
+                        {!this.eventsLoading && this.events.length === 0 && (
+                            <div style={{ color: 'var(--theia-descriptionForeground)' }}>
+                                Aucun event d'ami dans le flux d'activité.
+                            </div>
+                        )}
+
+                        {this.events.length > 0 && (
+                            <div>
+                                {this.events.map(e => this.renderEvent(e))}
+                            </div>
+                        )}
+                    </>
+                )}
+            </div>
+        );
+    }
+
+    protected renderEvent(e: FriendEvent): React.ReactNode {
+        const cacheUrl = e.gc_code
+            ? `https://www.geocaching.com/geocache/${e.gc_code}`
+            : undefined;
+
+        const formattedDate = e.event_date
+            ? new Date(e.event_date).toLocaleDateString('fr-FR', {
+                weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+            })
+            : 'Date inconnue';
+
+        return (
+            <div
+                key={(e.gc_code || '') + (e.name || '')}
+                style={{
+                    display: 'flex',
+                    gap: '10px',
+                    padding: '10px 0',
+                    borderBottom: '1px solid var(--theia-panel-border)'
+                }}
+            >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                        <span
+                            className="codicon codicon-people"
+                            style={{ color: 'var(--theia-charts-blue)', fontSize: '0.9em' }}
+                        ></span>
+                        <strong style={{ color: 'var(--theia-charts-blue)' }}>{e.friends_count}</strong>
+                        {cacheUrl ? (
+                            <a href={cacheUrl} target="_blank" rel="noreferrer" title="Ouvrir sur geocaching.com">
+                                {e.name}
+                            </a>
+                        ) : (
+                            <span>{e.name}</span>
+                        )}
+                        {e.gc_code && (
+                            <span style={{ color: 'var(--theia-descriptionForeground)', fontSize: '0.85em' }}>
+                                {e.gc_code}
+                            </span>
+                        )}
+                    </div>
+
+                    <div style={{
+                        fontSize: '0.8em',
+                        color: 'var(--theia-descriptionForeground)',
+                        display: 'flex',
+                        gap: '10px',
+                        flexWrap: 'wrap',
+                        marginTop: '2px'
+                    }}>
+                        <span style={{ color: e.is_upcoming ? 'var(--theia-charts-green)' : 'var(--theia-descriptionForeground)' }}>
+                            {e.is_upcoming ? 'À venir' : 'Passé'}
+                        </span>
+                        <span>{formattedDate}</span>
+                        {e.location_name && <span>{e.location_name}</span>}
+                    </div>
+
+                    <div style={{
+                        fontSize: '0.8em',
+                        color: 'var(--theia-descriptionForeground)',
+                        marginTop: '2px'
+                    }}>
+                        {e.friends.join(', ')}
                     </div>
                 </div>
             </div>

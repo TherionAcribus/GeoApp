@@ -17,6 +17,7 @@ Routes API :
 - GET  /api/friends/freshness          → état de fraîcheur de toutes les sources (timestamps + compteurs)
 - GET  /api/friends/notifications      → nouvelles trouvailles d'amis depuis la dernière visite
 - POST /api/friends/notifications/seen → marque les notifications comme lues
+- GET  /api/friends/events            → events (log types 9/10) du flux d'activité
 """
 from __future__ import annotations
 
@@ -43,6 +44,7 @@ from ..services.geocaching_friend_activity import (
     LOG_TYPE_LABELS,
     FriendActivityError,
 )
+from ..services.friend_activity_store import query_events
 from ..services.geocaching_friend_finds import (
     FRIENDS_ZONE_NAME,
     FilterIgnoredError,
@@ -804,6 +806,37 @@ def friend_notifications_seen():
     """Marque toutes les notifications actuelles comme lues."""
     seen_at = mark_notifications_seen()
     return jsonify({"success": True, "last_seen_at": seen_at})
+
+
+@bp.get("/events")
+def friend_events():
+    """
+    Events (log types 9/10) du flux d'activité des amis.
+
+    Les events sont agrégés par cache, avec la liste des amis qui y participent.
+    Triés par date d'event : à venir d'abord (du plus proche au plus lointain),
+    puis passés (du plus récent au plus ancien).
+
+    Query params : ``upcoming`` (défaut true), ``past`` (défaut true),
+    ``author`` (filtre par ami), ``include_self`` (défaut false),
+    ``limit`` (défaut 100, max 200).
+    """
+    upcoming = request.args.get('upcoming', 'true').lower() not in ('false', '0', 'no')
+    past = request.args.get('past', 'true').lower() not in ('false', '0', 'no')
+    author = request.args.get('author') or None
+    include_self = request.args.get('include_self', 'false').lower() in ('true', '1', 'yes')
+    limit = request.args.get('limit', 100, type=int)
+    limit = max(1, min(200, limit))
+
+    result = query_events(
+        upcoming=upcoming,
+        past=past,
+        author=author,
+        include_self=include_self,
+        limit=limit,
+    )
+    return jsonify({"success": True, **result})
+
 
 
 

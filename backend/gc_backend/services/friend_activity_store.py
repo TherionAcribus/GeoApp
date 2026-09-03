@@ -541,3 +541,133 @@ def _parse_iso(value: str | None) -> datetime | None:
     except ValueError:
         logger.debug("Unparsable stored date: %r", value)
         return None
+
+
+# ---------------------------------------------------------- Events
+
+# Log types pour les events geocaching.com :
+# 9 = "participera à" (will attend), 10 = "a participé à" (attended)
+EVENT_LOG_TYPE_IDS = (9, 10)
+
+
+def query_events(
+    upcoming: bool = True,
+    past: bool = True,
+    author: Optional[str] = None,
+    include_self: bool = False,
+    limit: int = 100,
+) -> dict:
+    """
+    Liste les events (log types 9 et 10) du flux d'activité des amis.
+
+    Les events sont agrégés par cache (un event = une cache de type Event),
+    avec la liste des amis qui y participent et la date de l'event (log_date).
+
+    - ``upcoming`` : inclure les events à venir (log_type_id = 9, "participera à") ;
+    - ``past`` : inclure les events passés (log_type_id = 10, "a participé à") ;
+    - ``author`` : filtrer par ami ;
+    - ``include_self`` : inclure mes propres logs ;
+    - ``limit`` : nombre maximum d'events retournés.
+
+    Retourne un dict avec :
+
+    - ``items`` : liste d'events triés par date d'event (les à venir en premier,
+      du plus proche au plus lointain, puis les passés du plus récent au plus
+      ancien) ;
+    - ``count`` : nombre d'events retournés ;
+    - ``upcoming_count`` : nombre d'events à venir ;
+    - ``past_count`` : nombre d'events passés.
+    """
+    from datetime import datetime as _dt, timezone as _tz
+
+    type_ids: list[int] = []
+    if upcoming:
+        type_ids.append(9)
+    if past:
+        type_ids.append(10)
+    if not type_ids:
+        return {'items': [], 'count': 0, 'upcoming_count': 0, 'past_count': 0}
+
+    query = (
+        FriendActivity.query
+        .filter(FriendActivity.activity_type == ACTIVITY_TYPE_FRIENDS)
+        .filter(FriendActivity.log_type_id.in_(type_ids))
+    )
+
+    if author:
+        query = query.filter(FriendActivity.author_username == author)
+
+    if not include_self:
+        query = query.filter(db.or_(FriendActivity.is_self.is_(False), FriendActivity.is_self.is_(None)))
+
+    rows = query.order_by(FriendActivity.log_date.desc()).all()
+
+    # Regroupement par cache_reference_code (ou cache_name si pas de code)
+    by_cache: dict[str, dict] = {}
+    for row in rows:
+        key = row.cache_reference_code or row.cache_name or f'unknown-{row.id}'
+        entry = by_cache.get(key)
+        if entry is None:
+            entry = {
+                'gc_code': row.cache_reference_code,
+                'name': row.cache_name or row.cache_reference_code or 'Event',
+                'cache_type_id': row.cache_type_id,
+                'latitude': row.latitude,
+                'longitude': row.longitude,
+                'location_name': row.location_name,
+                'difficulty': row.difficulty,
+                'terrain': row.terrain,
+                'is_archived': row.is_archived,
+                'action_url': row.action_url,
+                'friends': set(),
+                'log_dates': [],
+                'log_types': set(),
+            }
+            by_cache[key] = entry
+        entry['friends'].add(row.author_username)
+        if row.log_date:
+            entry['log_dates'].append(row.log_date)
+        if row.log_type_id:
+            entry['log_types'].add(row.log_type_id)
+
+    # Détermine la date de l'event (la plus pertinente parmi les logs)
+    items = []
+    for entry in by_cache.values():
+        entry['friends'] = sorted(entry['friends'], key=str.casefold)
+        entry['friends_count'] = len(entry['friends'])
+        entry['is_upcoming'] = 9 in entry['log_types']
+        # Date de l'event : le log_date le plus récent
+        entry['event_date'] = max(entry['log_dates']) if entry['log_dates'] else None
+        # Convertir le set en liste pour la sérialisation JSON
+        entry['log_types'] = sorted(entry['log_types'])
+        items.append(entry)
+
+    # Tri : à venir d'abord (date croissante = du plus proche au plus lointain),
+    # puis passés (date décroissante = du plus récent au plus ancien)
+    def sort_key(item: dict) -> tuple:
+        event_date = item.get('event_date')
+        if event_date is None:
+            return (1, _dt.min.replace(tzinfo=_tz.utc).isoformat())
+        if item['is_upcoming']:
+            # À venir : tri croissant (plus proche en premier)
+            return (0, event_date.isoformat() if isinstance(event_date, str) else event_date.isoformat())
+        # Passé : tri décroissant (plus récent en premier)
+        return (1, '' )  # placeholder, on trie différemment
+
+    # Tri manuel pour gérer à venir vs passé
+    upcoming_items = [i for i in items if i['is_upcoming']]
+    past_items = [i for i in items if not i['is_upcoming']]
+
+    upcoming_items.sort(key=lambda i: i['event_date'] or _dt.max.replace(tzinfo=_tz.utc))
+    past_items.sort(key=lambda i: i['event_date'] or _dt.min.replace(tzinfo=_tz.utc), reverse=True)
+
+    items = upcoming_items + past_items
+    items = items[:limit]
+
+    return {
+        'items': items,
+        'count': len(items),
+        'upcoming_count': len(upcoming_items),
+        'past_count': len(past_items),
+    }
+
