@@ -34,6 +34,14 @@ Le système a été conçu pour rester compatible avec Theia. GeoApp ne remplace
 | `frontend/theia-extensions/zones/src/browser/geoapp-chat-policy-widget.tsx` | Interface de diagnostic et de configuration avancée. |
 | `frontend/theia-extensions/zones/src/browser/geoapp-chat-bridge.ts` | Ouvre/reprend les sessions Chat IA depuis les widgets GeoApp ; télécharge et redimensionne les images en parallèle. |
 | `frontend/theia-extensions/zones/src/browser/geocache-listing-tools-manager.ts` | Enregistre le tool read-only `get_geocache_listing` (listing complet d'une géocache). |
+| `frontend/theia-extensions/zones/src/browser/geoapp-outing-analyzer-agent.ts` | Agent chat `geoapp-outing-analyzer` et son enregistrement Theia. |
+| `frontend/theia-extensions/zones/src/browser/outing-analysis-types.ts` | Contrat du bundle d'analyse de sortie, préréglages de détail, constantes partagées. |
+| `frontend/theia-extensions/zones/src/browser/outing-analysis-prompt.ts` | Mise en forme du bundle en prompt Markdown et estimation de sa taille. |
+| `frontend/theia-extensions/zones/src/browser/outing-analysis-controller.ts` | Enchaînement de l'analyse, partagé par la table de zone et le log-editor. |
+| `backend/gc_backend/services/outing_analysis_service.py` | Construction du bundle : listing, hint, attributs, waypoints, santé, logs. |
+| `backend/gc_backend/services/outing_health.py` | Santé d'une géocache calculée depuis ses logs locaux. |
+| `backend/gc_backend/services/outing_gear_signals.py` | Traduction des attributs Geocaching.com en signaux matériel. |
+| `backend/gc_backend/services/outing_lexicons.py` | Lexiques matériel et « recherche longue », FR + EN. |
 | `frontend/theia-extensions/zones/src/browser/zones-frontend-module.ts` | Wiring Inversify/Theia des services, widgets et agents. |
 | `frontend/theia-extensions/documentation/src/browser/doc-action-tools.ts` | Tools `aide_*` propres à l'agent documentaire `@Aide`, dont les actions de gestion des zones. |
 | `frontend/theia-extensions/documentation/src/browser/doc-agent.ts` | Agent `@Aide`, prompt documentaire et injection directe des tools `aide_*`. |
@@ -96,8 +104,16 @@ Agents disponibles :
 | Fast | `geoapp-chat-fast` | Réponses rapides. |
 | Strong | `geoapp-chat-strong` | Raisonnement plus robuste. |
 | Web | `geoapp-chat-web` | Cas pouvant utiliser un modèle connecté. |
+| Analyse de sortie | `geoapp-outing-analyzer` | Rapport de préparation de sortie sur un lot de géocaches (voir § 31). |
 
 Chaque agent partage la même base technique via `BaseGeoAppChatAgent`.
+
+`geoapp-outing-analyzer` est le seul à ne pas utiliser le prompt système du chat : il a le
+sien (`GEOAPP_OUTING_SYSTEM_PROMPT_ID`) et surcharge `getSystemMessageDescription()` pour
+l'imposer. Il est déclaré dans `geoapp-outing-analyzer-agent.ts`, avec sa propre
+`FrontendApplicationContribution` d'enregistrement — le faire enregistrer par
+`GeoAppChatAgentContribution` créerait un cycle d'import, puisqu'il importe déjà
+`BaseGeoAppChatAgent` depuis `geoapp-chat-agent.ts`.
 
 ### Agents internes spécialisés (non-chat)
 
@@ -941,6 +957,19 @@ Tests exécutés :
 | `geoapp-chat-configuration-service.test.ts` | Import/export complet, preview d'import, compat legacy. |
 | `geoapp-chat-agent.test.ts` | Tools envoyés au modèle et prompt final agent. |
 | `geoapp-chat-bridge.test.ts` | Ouverture/reprise de sessions Chat IA. |
+| `outing-analysis-prompt.test.ts` | Mise en forme du prompt de sortie, sections omises, niveaux de détail. |
+| `outing-analysis-controller.test.ts` | Plafond, déduplication, titre de session, avertissements, préférences. |
+| `geoapp-outing-analyzer-agent.test.ts` | Identité de l'agent, contenu du prompt système, repli. |
+
+Backend :
+
+```bash
+cd backend && python -m pytest tests/test_outing_analysis.py -q
+```
+
+| Test | Couverture |
+|---|---|
+| `test_outing_analysis.py` | Santé, signaux matériel, extraction lexicale, validation de l'endpoint. |
 
 Build :
 
@@ -1108,7 +1137,161 @@ Validation manuelle :
 13. Personnaliser une skill, l'exporter seule, puis la réimporter.
 14. Tester une question réelle sur une cache.
 
-## 31. Résumé technique
+## 31. Analyse de sortie
+
+L'analyse de sortie répond à une question différente de la résolution d'énigme : non pas
+« où est la cache ? », mais « qu'est-ce que j'emporte et combien de temps ça va prendre ? ».
+Elle porte sur un **lot** de géocaches et produit un rapport dans le Chat.
+
+### Points d'entrée
+
+| Point d'entrée | Portée |
+|---|---|
+| Barre d'actions de `geocaches-table.tsx` (bouton « Analyser IA ») | La sélection cochée |
+| En-tête du log-editor (bouton « Analyser la sortie ») | **Toute** la liste à loguer |
+
+Le log-editor n'a pas de sélection de lignes : sa liste *est* la sortie du jour, ce qui en
+fait le point d'entrée le plus direct.
+
+### Flux
+
+```text
+Table de zone / log-editor
+        |
+        v
+OutingAnalysisController.runInteractive()      choix du détail, progression, messages
+        |
+        v
+OutingAnalysisController.analyze()             sans UI, testable seul
+        |
+        +--> GeocachesService.fetchAnalysisBundle()
+        |            |
+        |            v
+        |    POST /api/geocaches/analysis-bundle
+        |            |
+        |            v
+        |    outing_analysis_service.build_analysis_bundle()
+        |            +--> outing_gear_signals.build_gear_signals()
+        |            +--> outing_health.compute_health()
+        |            +--> outing_lexicons.find_gear_mentions()
+        |
+        +--> buildOutingAnalysisPrompt()
+        |
+        v
+GeoAppChatBridge (session `libre`, agent `geoapp-outing-analyzer`)
+```
+
+### Principe : déterministe d'abord, IA ensuite
+
+Tout ce qui est calculable est calculé côté Python et transmis comme un fait ; l'IA ne
+fait que ce qu'elle seule sait faire, lire du texte libre.
+
+| Calculé (backend) | Déduit (IA) |
+|---|---|
+| Santé : DNF consécutifs, ancienneté de la trouvaille, maintenance en attente | Nature précise de l'outil requis |
+| Drapeaux matériel issus des attributs | Type de matériel de grimpe |
+| Sélection des logs pertinents par lexique | Durée réaliste, priorisation |
+| Mystery non résolue, waypoints, statut | Contraintes implicites du listing |
+
+### Signaux matériel : l'attribut est une question, pas une réponse
+
+`build_gear_signals()` produit trois natures d'entrées :
+
+| Nature | `resolved` | Exemple | Rôle |
+|---|---|---|---|
+| Matériel auto-suffisant | `true` | `flashlight`, `uv_light`, `scuba` | L'attribut dit tout |
+| Matériel **non résolu** | `false` | `special_tool`, `climbing`, `field_puzzle` | Pose une question à l'IA |
+| Contexte | `true` | `fee`, `stealth`, `not_available_24h` | Organisation, pas équipement |
+
+L'attribut « Outil spécial requis » ne dit pas *quel* outil : canne à pêche, aimant,
+crochet, matériel de crochetage… De même `climbing` ne distingue pas l'échelle du matériel
+arboricole ou spéléo. Le backend lève donc un drapeau, que le prompt rend comme
+`(NON RÉSOLU)`, et le prompt système impose à l'IA de le résoudre en trois niveaux :
+**confirmé** (avec citation de la source), **probable** (avec le faisceau d'indices), ou
+**non identifié** (réponse valide, qui recommande la trousse polyvalente).
+
+Ce marqueur `(NON RÉSOLU)` est un **contrat entre deux fichiers** :
+`outing-analysis-prompt.ts` l'écrit, `geoapp-chat-system-prompts.ts` le cherche. Il doit
+correspondre au caractère près, accents compris — c'est pourquoi le prompt système de
+sortie est accentué, contrairement à ses voisins. Un test verrouille la correspondance.
+
+**Résolution du slug d'attribut** — `Geocache.attributes` est hétérogène :
+
+1. `base_filename` (scraping) : slug stable, **suffixe `-yes`/`-no` inclus**
+   (`flashlight-yes`, `UV-no`, `s-tool-yes`) ;
+2. `gc_attribute_id` (import GPX) ;
+3. `name` en dernier recours, par mots-clés distinctifs FR + EN.
+
+`name` est un libellé **localisé** (« Flashlight required » ou « Lampe torche requise »
+selon la langue du compte au moment du scraping) : il ne peut jamais servir de clé
+primaire.
+
+### Sélection des logs : deux listes, deux questions
+
+- `recent_logs` : les N derniers, pour l'état actuel de la cache ;
+- `gear_logs` : ceux qui mentionnent du matériel, **sur tout l'historique local**.
+
+La seconde est le cœur du dispositif. Un log de 2019 disant « il faut une canne à pêche »
+ne sortirait jamais d'une troncature aux N plus récents, et c'est pourtant l'information
+la plus utile de la fiche. Le filtrage passe par `GEAR_LEXICON` (FR + EN, comparaison sur
+texte normalisé sans accents), le classement par nombre de mentions puis par date.
+
+`search_effort_logs` applique la même mécanique avec `SEARCH_EFFORT_LEXICON`, pour repérer
+les caches qui font perdre du temps sur place.
+
+**Faux positifs** : plusieurs termes ont été retirés du lexique après confrontation aux
+logs réels (« perche » ↔ « perché » une fois les accents retirés, « pile » ↔ « à midi
+pile », « combinaison » ↔ celle d'un cadenas). Règle retenue : mieux vaut manquer une
+mention que noyer l'IA sous des extraits hors sujet.
+
+### Santé
+
+`compute_health()` renvoie un niveau (`ok`, `watch`, `risky`, `very_risky`, `unknown`) et
+les raisons qui l'expliquent, depuis les logs locaux uniquement.
+
+Le cas important est `unknown` : sans log local — la géocache n'a jamais été rafraîchie —
+la santé n'est **pas** bonne, elle est inconnue. Le bundle liste ces caches dans
+`without_local_logs`, le prompt les nomme dans une section « Fiabilité des données »
+placée **avant** les données, et le prompt système interdit d'en tirer une conclusion.
+Aucun rafraîchissement n'est déclenché : on signale, on n'agit pas.
+
+### Sessions
+
+Le contrôleur ouvre une session `libre` sans `geocacheId` ni `gcCode` : l'appariement du
+bridge repose donc entièrement sur le titre,
+`SORTIE - <zone> - <AAAA-MM-JJ> (<n> caches)`. Deux analyses de la même zone le même jour
+reprennent la même conversation ; le lendemain, une session neuve s'ouvre.
+
+### Préférences
+
+| Préférence | Défaut | Rôle |
+|---|---|---|
+| `geoApp.outing.analysis.detailLevel` | `standard` | Niveau proposé en premier dans le sélecteur |
+| `geoApp.outing.analysis.recentLogsCount` | `5` | Logs récents par cache |
+| `geoApp.outing.analysis.gearLogsCount` | `8` | Logs « matériel » par cache |
+| `geoApp.outing.analysis.warnAboveCount` | `25` | Seuil d'avertissement sur le volume |
+
+Les préréglages `OUTING_DETAIL_PRESETS` fixent la troncature : `light` n'envoie **aucun**
+listing (`listing_chars = 0`, valeur acceptée par l'endpoint), `standard` 1800 caractères,
+`full` 4000.
+
+### Garde-fous
+
+- Plafond de 60 géocaches, vérifié côté front avant l'appel réseau
+  (`MAX_OUTING_ANALYSIS_GEOCACHES`) et côté backend
+  (`MAX_ANALYSIS_GEOCACHE_IDS`).
+- Ordre de grandeur observé : 3 caches en mode standard ≈ 7 600 caractères, soit ~2 100
+  tokens estimés.
+- Une géocache introuvable ne fait pas échouer l'appel : elle ressort dans `missing`.
+
+### Limite connue
+
+Sur une partie du parc, les colonnes `hints` et `hints_decoded` sont **inversées** en base
+(le clair dans `hints`, son ROT13 dans `hints_decoded`). `_resolve_hint()` contourne le
+problème en retenant le candidat qui ressemble le plus à de la langue naturelle. La donnée
+elle-même n'est pas corrigée : `to_dict()` et la page de détails restent affectés.
+
+## 32. Résumé technique
 
 Le Chat IA GeoApp moderne repose sur une séparation claire :
 

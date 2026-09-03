@@ -4,6 +4,11 @@
 > l'IA » sur un lot de géocaches (préparation d'une sortie). Organisé en 5 lots
 > indépendants, implémentables et commitables séparément.
 >
+> **État : les 5 lots sont livrés (2026-09-03).** Les blocs « Écart constaté à
+> l'implémentation » signalent les endroits où le code s'écarte de la spec initiale, et
+> pourquoi. La documentation de référence est désormais le § 31 de
+> `documentation/chat-ia-geoapp-technique.md` ; ce document reste le journal de conception.
+>
 > Conventions du dépôt : messages de commit en français au format
 > `Domaine > description` (voir `git log`).
 > Tests backend : `cd backend && python -m pytest tests/ -x -q`.
@@ -54,6 +59,16 @@ hint et surtout **les logs**, où l'information se trouve le plus souvent.
 | 3 | P1 | UI : bouton dans les deux tables + dialogue d'options | Faible |
 | 4 | P1 | Agent `geoapp-outing-analyzer`, prompt système, préférences, configuration du modèle | Faible |
 | 5 | P2 | Documentation | Nul |
+
+Tous livrés. Récapitulatif des fichiers produits :
+
+| Lot | Fichiers |
+|---|---|
+| 1 | `outing_lexicons.py`, `outing_gear_signals.py`, `outing_health.py`, `outing_analysis_service.py`, endpoint dans `blueprints/geocaches.py`, `tests/test_outing_analysis.py` (46 tests) |
+| 2 | `outing-analysis-types.ts`, `outing-analysis-prompt.ts`, `fetchAnalysisBundle()`, `tests/outing-analysis-prompt.test.ts` (18 tests) |
+| 3 | `outing-analysis-controller.ts`, boutons dans `geocaches-table.tsx` et `log-editor/log-editor-header.tsx`, câblage des deux widgets, binding Inversify, `tests/outing-analysis-controller.test.ts` (15 tests) |
+| 4 | `geoapp-outing-analyzer-agent.ts`, prompt système, 4 préférences, ligne du panneau Policy, `tests/geoapp-outing-analyzer-agent.test.ts` (7 tests) + 1 test de bridge |
+| 5 | § 31 de `chat-ia-geoapp-technique.md`, `docs/ia/analyse-sortie.md` |
 
 Ordre imposé : 1 → 2 → 3 → 4 → 5. Le lot 3 n'est testable de bout en bout qu'après le
 lot 4 (sans agent dédié, la session s'ouvre sur l'agent GeoApp par défaut, ce qui reste
