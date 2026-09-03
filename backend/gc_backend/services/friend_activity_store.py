@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 LAST_SYNC_KEY = 'friends.activity.last_sync_at'
+LAST_PROJECTION_KEY = 'friends.activity.last_projection_at'
 
 # « a trouvé » dans window.logFormats. Seul ce type alimente `friend_find`.
 FOUND_LOG_TYPE_ID = 2
@@ -175,18 +176,35 @@ def project_finds() -> int:
       zone : la déduction `nfb` est aveugle aux caches archivées, elle ne doit
       pas supprimer une trouvaille avérée (cf. `replace_scope`).
 
-    Le balayage porte sur toute la table, pas seulement sur les entrées qui
-    viennent d'arriver : c'est ce qui rattrape l'historique déjà accumulé.
+    **Incremental** : ne balaie que les lignes dont ``last_seen_at`` est plus
+    récent que la dernière projection (``LAST_PROJECTION_KEY``). Au premier
+    appel (pas de timestamp), balaie toute la table pour rattraper l'historique.
+    ``store_finds()`` étant idempotent (upsert), projeter deux fois la même
+    trouvaille est inoffensif — l'incrémental ne sert qu'à éviter de re-scanner
+    des milliers de lignes à chaque synchro.
     """
     from .geocaching_friend_finds import CacheSummary, store_finds
 
-    rows = (
+    last_projection_str = AppConfig.get_value(LAST_PROJECTION_KEY)
+    last_projection = _parse_iso(last_projection_str) if last_projection_str else None
+
+    query = (
         FriendActivity.query
         .filter(FriendActivity.log_type_id == FOUND_LOG_TYPE_ID)
         .filter(db.or_(FriendActivity.is_self.is_(False), FriendActivity.is_self.is_(None)))
         .filter(FriendActivity.cache_reference_code.isnot(None))
-        .all()
     )
+    if last_projection is not None:
+        query = query.filter(FriendActivity.last_seen_at > last_projection)
+
+    rows = query.all()
+
+    # Pas de lignes nouvelles : on ne met pas à jour le timestamp de projection,
+    # pour ne pas rater des lignes qui arriveraient entre-temps avec un
+    # last_seen_at antérieur (cas d'une horloge skew ou d'un log édité).
+    if not rows:
+        logger.debug("project_finds: no new rows since last projection")
+        return 0
 
     by_friend: dict[str, dict[str, CacheSummary]] = {}
     for row in rows:
@@ -210,6 +228,12 @@ def project_finds() -> int:
             summaries=summaries,
         )
         created += friend_created
+
+    # On enregistre le timestamp de projection après le traitement, pour ne
+    # marquer comme « projetées » que les lignes effectivement vues.
+    now = datetime.now(timezone.utc)
+    AppConfig.set_value(LAST_PROJECTION_KEY, now.isoformat())
+    db.session.commit()
 
     if created:
         logger.info("Projected %d friend finds from the activity feed", created)

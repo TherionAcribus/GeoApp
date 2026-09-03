@@ -168,6 +168,14 @@ def create_app() -> Flask:
 
     app.task_manager = task_manager
 
+    # Synchronisation automatique du flux d'activité des amis en arrière-plan.
+    # Le flux distant est plafonné (~100 entrées, fenêtre ~60 j) : sans synchro
+    # régulière, les entrées qui sortent de la fenêtre sont perdues. Le scheduler
+    # ne tourne pas pendant les tests ni les migrations.
+    if not is_testing and not is_migration:
+        from .services.friend_activity_scheduler import start_scheduler
+        start_scheduler(app)
+
     @app.errorhandler(Exception)
     def handle_global_error(error):
         if isinstance(error, HTTPException):

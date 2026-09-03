@@ -1633,6 +1633,91 @@
         "friends"
       ]
     },
+    "geoApp.friends.activity.autoSync": {
+      "type": "boolean",
+      "default": true,
+      "title": "Synchroniser le flux d'activité automatiquement",
+      "description": "Le flux d'activité des amis est plafonné par geocaching.com (~100 entrées, fenêtre ~60 jours). Une synchronisation régulière en arrière-plan accumule les entrées localement avant qu'elles ne sortent de la fenêtre. Désactivez si vous préférez tout contrôler manuellement.",
+      "x-ui": {
+        "section": "Amis",
+        "label": "Synchro auto du flux",
+        "order": 30,
+        "advanced": true,
+        "keywords": [
+          "amis",
+          "activité",
+          "sync",
+          "auto",
+          "arrière-plan"
+        ]
+      },
+      "x-category": "friends",
+      "x-targets": [
+        "backend"
+      ],
+      "x-tags": [
+        "friends",
+        "activity"
+      ]
+    },
+    "geoApp.friends.activity.autoSyncIntervalHours": {
+      "type": "integer",
+      "default": 1,
+      "minimum": 1,
+      "maximum": 24,
+      "title": "Intervalle de synchro auto (heures)",
+      "description": "Nombre d'heures entre deux synchronisations automatiques du flux d'activité. Plus l'intervalle est court, moins on risque de perdre des entrées sorties de la fenêtre distante, mais plus on sollicite geocaching.com.",
+      "x-ui": {
+        "section": "Amis",
+        "label": "Intervalle synchro auto (h)",
+        "order": 31,
+        "advanced": true,
+        "keywords": [
+          "amis",
+          "activité",
+          "sync",
+          "intervalle",
+          "heures"
+        ]
+      },
+      "x-category": "friends",
+      "x-targets": [
+        "backend"
+      ],
+      "x-tags": [
+        "friends",
+        "activity"
+      ]
+    },
+    "geoApp.friends.activity.autoSyncDays": {
+      "type": "integer",
+      "default": 7,
+      "minimum": 1,
+      "maximum": 30,
+      "title": "Profondeur de synchro auto (jours)",
+      "description": "Fenêtre en jours de chaque synchronisation automatique. Une petite fenêtre (7 jours) reste sous le plafond serveur (~100 entrées) ; une plus grande (30 jours) rattrape les synchros manquées mais risque la troncature.",
+      "x-ui": {
+        "section": "Amis",
+        "label": "Profondeur synchro auto (j)",
+        "order": 32,
+        "advanced": true,
+        "keywords": [
+          "amis",
+          "activité",
+          "sync",
+          "profondeur",
+          "jours"
+        ]
+      },
+      "x-category": "friends",
+      "x-targets": [
+        "backend"
+      ],
+      "x-tags": [
+        "friends",
+        "activity"
+      ]
+    },
     "geoApp.map.defaultProvider": {
       "type": "string",
       "enum": [

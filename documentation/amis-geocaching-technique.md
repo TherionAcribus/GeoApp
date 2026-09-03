@@ -99,6 +99,7 @@ backend/gc_backend/services/
 ├── geocaching_friends.py           # Liste d'amis : client + parsing + cache mémoire
 ├── geocaching_friend_activity.py   # Flux d'activité : client HTTP + parsing (sans base)
 ├── friend_activity_store.py        # Flux d'activité : persistance incrémentale (sans réseau)
+├── friend_activity_scheduler.py    # Flux d'activité : synchro auto en arrière-plan (§9.5)
 ├── geocaching_logs.py              # get_logs_with_friends() : logs d'amis par cache (§10)
 └── geocaching_friend_finds.py      # Trouvailles : déduction par zone (§11), recherche
                                     #   par profil (§11.2), zone « Amis » (§13.4)
@@ -118,6 +119,7 @@ backend/migrations/versions/
 backend/tests/
 ├── test_geocaching_friends.py      # Parser de la liste d'amis (fixture synthétique)
 ├── test_friend_activity.py         # Parser du flux + stockage + routes
+├── test_friend_activity_scheduler.py # Synchro auto + projection incrémentale (§9.5)
 ├── test_geocache_friend_logs.py    # Logs d'amis par cache + routes
 ├── test_friend_finds.py            # Déduction par zone, rate limit, stockage
 ├── test_friend_activity_map.py     # Agrégation cartographique du flux (§12)
@@ -141,7 +143,10 @@ frontend/theia-extensions/zones/src/browser/
 
 shared/preferences/geo-preferences-schema.json
 ├── geoApp.friends.map.autoLoad             # Ouvrir la carte des amis automatiquement (§12.4)
-└── geoApp.friends.zone.visible             # Afficher la zone « Amis » dans l'arbre (§13.4)
+├── geoApp.friends.zone.visible             # Afficher la zone « Amis » dans l'arbre (§13.4)
+├── geoApp.friends.activity.autoSync        # Synchro auto du flux en arrière-plan (§9.5)
+├── geoApp.friends.activity.autoSyncIntervalHours  # Intervalle entre deux syncs auto (§9.5)
+└── geoApp.friends.activity.autoSyncDays    # Profondeur de chaque sync auto en jours (§9.5)
 ```
 
 Le blueprint est enregistré dans `gc_backend/__init__.py`, à côté de `auth_bp`.
@@ -480,7 +485,7 @@ distant finit par oublier.
   modifie pas une table existante, elle est aussi gérée par les
   **micro-migrations SQLite** de `database.py`, comme le reste du projet.
 
-### 9.5 API REST
+### 9.5 API REST et synchronisation automatique
 
 | Route | Rôle |
 |-------|------|
@@ -490,7 +495,23 @@ distant finit par oublier.
 Query params de la lecture : `limit` (max 200), `offset`, `author`,
 `log_types` (ids séparés par des virgules), `include_self`.
 La réponse joint `authors` (pour peupler le filtre), `log_type_labels` et
-`last_sync_at`. La synchro retourne un bilan `{fetched, created, updated}`.
+`last_sync_at`. La synchro retourne un bilan `{fetched, created, updated,
+finds_projected}`.
+
+**Synchronisation automatique en arrière-plan** (`friend_activity_scheduler.py`) :
+le flux distant est plafonné (~100 entrées, fenêtre ~60 j) — sans synchro
+régulière, les entrées qui sortent de la fenêtre sont perdues. Un thread daemon
+démarré au lancement du backend (hors tests/migrations) vérifie toutes les 5 min
+si une synchro est nécessaire et la déclenche le cas échéant. Conditions :
+
+- l'utilisateur est connecté à Geocaching.com ;
+- la préférence `geoApp.friends.activity.autoSync` est activée (défaut : oui) ;
+- la dernière synchro date de plus que `autoSyncIntervalHours` (défaut : 1 h) ;
+- fenêtre de synchro : `autoSyncDays` (défaut : 7 jours).
+
+Une synchro échouée (session expirée, réseau…) est journalisée et le thread
+continue : le prochain cycle réessaiera. Le scheduler ne tourne pas pendant les
+tests (`is_testing`) ni les migrations (`is_migration`).
 
 ### 9.6 Frontend — widget « Activité des amis »
 
@@ -854,8 +875,13 @@ GeoApp — donc invisibles de l'import.
 
 `friend_activity_store.project_finds()`, appelée à chaque synchronisation,
 reporte les trouvailles du flux dans `friend_find` avec `source='activity'`.
-Elle balaie **toute** la table et pas seulement les entrées qui viennent
-d'arriver : c'est ce qui rattrape l'historique déjà accumulé.
+Elle est **incrémentale** : ne balaie que les lignes dont `last_seen_at` est plus
+récent que la dernière projection (`LAST_PROJECTION_KEY` dans `AppConfig`). Au
+premier appel (pas de timestamp), elle balaie toute la table pour rattraper
+l'historique. `store_finds()` étant idempotent (upsert), projeter deux fois la
+même trouvaille est inoffensif — l'incrémental évite juste de re-scanner des
+milliers de lignes à chaque synchro, surtout maintenant que la synchro tourne
+en arrière-plan toutes les heures.
 
 Trois restrictions, chacune pour une raison précise :
 
@@ -946,7 +972,7 @@ widget**, indépendamment de la carte.
 
 ## 14. Tests
 
-**100 tests**, aucun ne touche le réseau : le parsing est exposé en méthodes de
+**112 tests**, aucun ne touche le réseau : le parsing est exposé en méthodes de
 classe pures, la synchronisation accepte un client injecté, et les routes qui
 vérifient l'authentification reçoivent un service simulé (sans quoi elles
 tentent une vraie connexion à geocaching.com — piège vérifié).
@@ -978,6 +1004,16 @@ tentent une vraie connexion à geocaching.com — piège vérifié).
 - marquage `is_self` et son backfill ;
 - filtres, tri, pagination, `list_authors()` ;
 - routes REST : lecture du flux stocké et rejet des paramètres invalides.
+
+`test_friend_activity_scheduler.py` (12 tests) — synchro auto + projection incrémentale :
+
+- **projection incrémentale** : premier appel balaie tout, second ne balaie que
+  les nouvelles lignes, retour 0 sans nouvelles lignes, timestamp de projection
+  persisté dans `AppConfig` ;
+- **scheduler** : pas de synchro si non connecté, pas de synchro si préférence
+  désactivée, synchro déclenchée si connecté + jamais synchronisé, pas de synchro
+  si récente, synchro si ancienne, continuation après erreur, démarrage/arrêt
+  propres, idempotence du démarrage.
 
 `test_geocache_friend_logs.py` (5 tests) — logs d'amis par cache :
 
