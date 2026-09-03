@@ -1,0 +1,812 @@
+# Analyse IA d'une sortie — Spécification
+
+> Document de travail destiné à l'implémentation de la fonctionnalité « Analyser avec
+> l'IA » sur un lot de géocaches (préparation d'une sortie). Organisé en 5 lots
+> indépendants, implémentables et commitables séparément.
+>
+> Conventions du dépôt : messages de commit en français au format
+> `Domaine > description` (voir `git log`).
+> Tests backend : `cd backend && python -m pytest tests/ -x -q`.
+> Tests front : `cd frontend/theia-extensions/zones && npm run test:geoapp`
+> (chaque nouveau fichier de test doit être ajouté à la chaîne du script `test:geoapp`).
+
+---
+
+## Objectif fonctionnel
+
+Depuis une sélection de géocaches (table de zone) ou depuis la liste complète du
+log-editor, l'utilisateur déclenche une analyse IA qui produit, dans le Chat Theia, un
+**rapport de préparation de sortie** :
+
+1. une **checklist matériel consolidée** en tête (l'union dédupliquée de tout ce qu'il
+   faut emporter) ;
+2. le **détail par cache** : matériel, temps à prévoir, contraintes ;
+3. les **alertes** : caches en mauvaise santé, mysteries non résolues, contraintes
+   horaires ou saisonnières, autorisations ;
+4. une **priorisation** si le temps manque.
+
+### Principe directeur : déterministe d'abord, IA ensuite
+
+Tout ce qui est **calculable** est calculé côté Python et fourni à l'IA comme un fait.
+Tout ce qui demande de **lire du texte libre** est laissé à l'IA. La frontière :
+
+| Calculé (backend) | Déduit (IA) |
+|---|---|
+| Santé de la cache (DNF consécutifs, ancienneté de la dernière trouvaille, maintenance) | Nature précise de l'outil requis |
+| Drapeaux matériel issus des attributs | Type de matériel de grimpe (échelle / corde / arbo / spéléo) |
+| Sélection des logs pertinents (lexique matériel) | Durée réaliste, ordre de visite, priorisation |
+| Mystery non résolue, waypoints, statut | Contraintes implicites du listing (horaires, marée, autorisation) |
+
+**L'attribut n'est pas la réponse, c'est la question.** « Outil spécial requis » (`s-tool`)
+ne dit pas *quel* outil : canne à pêche, aimant, crochet, pince, bouteille d'eau, matériel
+de crochetage… De même `climbing` ne distingue pas l'échelle du matériel arboricole ou
+spéléo. Le backend lève un **drapeau non résolu** ; l'IA le résout depuis le listing, le
+hint et surtout **les logs**, où l'information se trouve le plus souvent.
+
+---
+
+## Vue d'ensemble des lots
+
+| Lot | Priorité | Contenu | Risque de régression |
+|---|---|---|---|
+| 1 | P0 | Backend : service d'analyse, endpoint bundle, santé, drapeaux matériel, extraction lexicale | Nul (code neuf) |
+| 2 | P0 | Front : client de service + construction du prompt | Nul (code neuf) |
+| 3 | P1 | UI : bouton dans les deux tables + dialogue d'options | Faible |
+| 4 | P1 | Agent `geoapp-outing-analyzer`, prompt système, préférences, configuration du modèle | Faible |
+| 5 | P2 | Documentation | Nul |
+
+Ordre imposé : 1 → 2 → 3 → 4 → 5. Le lot 3 n'est testable de bout en bout qu'après le
+lot 4 (sans agent dédié, la session s'ouvre sur l'agent GeoApp par défaut, ce qui reste
+fonctionnel).
+
+**Hors périmètre (décidé)** : aucun rafraîchissement forcé des logs. Quand les logs
+locaux manquent, on le **signale** (bandeau UI + mention explicite dans le prompt) et on
+analyse avec ce que l'on a. Un système de rafraîchissement global sera traité à part.
+
+---
+
+## LOT 1 — Backend : bundle d'analyse (P0)
+
+### 1.1 Module de lexiques
+
+**Fichier (nouveau)** : `backend/gc_backend/services/outing_lexicons.py`
+
+**Rôle** : centraliser les listes de mots-clés, éditables sans toucher à la logique.
+
+**Contenu** :
+
+```python
+# Vocabulaire matériel, FR + EN : les listings et les logs sont souvent en anglais.
+GEAR_LEXICON: dict[str, tuple[str, ...]] = {
+    'fishing_rod': ('canne à pêche', 'fishing rod', 'fishing pole', 'telescopic pole', 'perche'),
+    'magnet':      ('aimant', 'magnet', 'néodyme'),
+    'hook':        ('crochet', 'hook', 'grappin', 'grappling'),
+    'pliers':      ('pince', 'pliers', 'tweezers', 'pince à épiler'),
+    'screwdriver': ('tournevis', 'screwdriver', 'clé allen', 'allen key', 'hex key'),
+    'ladder':      ('échelle', 'ladder', 'escabeau', 'step stool'),
+    'rope':        ('corde', 'rope', 'cordelette', 'sangle', 'webbing'),
+    'harness':     ('baudrier', 'harness', 'mousqueton', 'carabiner', 'descendeur', 'rappel'),
+    'caving':      ('spéléo', 'caving', 'casque', 'helmet'),
+    'tree_gear':   ('arboricole', 'arbo', 'tree climbing', "grimpe d'arbre", 'éperons'),
+    'flashlight':  ('lampe', 'torche', 'flashlight', 'frontale', 'headlamp'),
+    'uv_light':    ('uv', 'ultraviolet', 'blacklight', 'black light', 'lampe uv'),
+    'battery':     ('pile', 'piles', 'battery', 'batteries', 'powerbank', 'power bank'),
+    'water':       ("bouteille d'eau", "verser de l'eau", 'pour water', 'add water', "remplir d'eau"),
+    'straw_tube':  ('paille', 'straw', 'tube', 'seringue', 'syringe', 'pipette'),
+    'gloves':      ('gants', 'gloves'),
+    'cutter':      ('cutter', 'couteau', 'knife'),
+    'waders':      ('cuissardes', 'waders', 'bottes', 'boots', 'wellies'),
+    'wetsuit':     ('combinaison', 'wetsuit', 'palmes', 'fins', 'tuba', 'snorkel', 'masque'),
+    'boat':        ('bateau', 'boat', 'kayak', 'canoë', 'canoe', 'paddle', 'barque', 'packraft'),
+    'snow_gear':   ('raquettes', 'snowshoes', 'crampons', 'piolet', 'ice axe'),
+    'lockpick':    ('crochetage', 'lockpick', 'lock pick', 'crochète', 'trombone', 'paperclip'),
+    'mirror':      ('miroir', 'mirror', 'endoscope', 'caméra endoscopique', 'inspection camera'),
+    'magnifier':   ('loupe', 'magnifier', 'magnifying'),
+}
+
+# Indices de « recherche longue sur place » : sert à estimer le temps.
+SEARCH_EFFORT_LEXICON: tuple[str, ...] = (
+    'bien cachée', 'sournoise', 'vicieuse', 'camouflage', 'camouflée',
+    "j'ai cherché", 'longtemps', 'plusieurs passages', 'revenu', 'deuxième visite',
+    'well hidden', 'sneaky', 'evil', 'took me ages', 'took a while', 'second visit',
+    'came back', 'searched for', 'needle in a haystack',
+)
+```
+
+**Notes d'implémentation** :
+- La recherche se fait sur du texte **normalisé** : minuscules + suppression des accents
+  (`unicodedata.normalize('NFD', …)` puis filtrage des combinantes). Les entrées du
+  lexique sont normalisées de la même façon **au chargement du module**, pas à chaque
+  appel. Un log écrit « canne a peche » sans accent doit matcher comme « canne à pêche ».
+- Prévoir `find_gear_mentions(text: str) -> list[str]` renvoyant les clés du lexique
+  trouvées, et `has_search_effort_hint(text: str) -> bool`.
+- Éviter les faux positifs sur les mots courts : appliquer une frontière de mot (`\b`)
+  pour les entrées de moins de 5 caractères (`uv`, `tube`, `pince`) — « uv » doit matcher,
+  « uvea » non.
+
+**Écart constaté à l'implémentation** — la frontière de mot ne suffit pas : passé sur les
+logs réels, le lexique initial produisait des faux positifs systématiques que seule la
+suppression de termes ambigus corrige. Termes retirés et leurs remplaçants :
+
+| Terme retiré | Se confond avec | Remplacé par |
+|---|---|---|
+| `perche` | « perché » (accents retirés avant comparaison) | `perche télescopique`, `canne télescopique` |
+| `pile` | « à midi pile » | `piles`, `pile de rechange`, `pile neuve` |
+| `combinaison` | la combinaison d'un cadenas ou d'une énigme | `combinaison de plongée`, `combinaison néoprène` |
+| `casque`, `masque` | casque de vélo, masque quelconque | `casque de spéléo` |
+| `rappel` | « pour rappel », « rappel : … » | `descente en rappel`, `abseil` |
+| `botte` | « botte de foin » | `bottes` |
+
+Règle générale : **mieux vaut manquer une mention que noyer l'IA sous des extraits hors
+sujet.** Un peu de bruit reste acceptable — l'IA voit l'extrait et peut l'écarter — mais
+il doit rester l'exception. Après correction, sur un échantillon réel de logs, les
+mentions retenues étaient toutes pertinentes sauf une (l'idiome « j'en pince pour »).
+
+---
+
+### 1.2 Mapping attributs → drapeaux matériel
+
+**Fichier (nouveau)** : `backend/gc_backend/services/outing_gear_signals.py`
+
+**Constat** : `Geocache.attributes` est une liste de `{name, is_negative, base_filename?}`
+(scraper, `backend/gc_backend/geocaches/scraper.py` ~ligne 528) ou
+`{name, is_negative, gc_attribute_id?}` (GPX, `backend/gc_backend/geocaches/gpx_parser.py`
+~ligne 142).
+
+**Piège à ne pas rater** : `name` est un **libellé localisé** repris du `title`/`alt` de
+la page Geocaching.com — il vaut « Lampe torche requise » ou « Flashlight required »
+selon la langue du compte au moment du scraping. **Ne jamais faire de mapping sur `name`
+en premier.** Ordre de résolution imposé :
+
+1. `base_filename` (slug stable : `flashlight`, `UV`, `s-tool`, `climbing`, …) ;
+2. `gc_attribute_id` (source GPX) ;
+3. `name` normalisé, **en dernier recours** et pour les seuls libellés FR/EN connus.
+
+**Slugs `base_filename` réellement présents** (extraits de
+`frontend/theia-extensions/zones/src/browser/geocache-attributes-icons-data.ts`) :
+
+```
+AbandonedBuilding UV available bicycles boat bonuscache campfires camping challengecache
+cliff climbing cow danger dangerousanimals dogs fee field_puzzle firstaid flashlight food
+frontyard fuel geotour hike_long hike_med hike_short hiking horses hqsolutionchecker
+hunting jeeps kids landf mine motorcycles night nightcache onehour parking parkngrab
+partnership phone picnic poisonoak powertrail public quads rappelling restrooms rv s-tool
+scenic scuba seasonal skiis snowmobiles snowshoes stealth stroller swimming teamwork
+thorn ticks touristOK treeclimbing wading water wheelchair winter wirelessbeacon
+```
+
+**Table de mapping** — trois catégories distinctes :
+
+*(a) Drapeaux **auto-suffisants*** (l'attribut dit tout, `resolved: true`) :
+
+| Slug | Signal | Matériel déduit |
+|---|---|---|
+| `flashlight` | `flashlight` | lampe / frontale |
+| `UV` | `uv_light` | lampe UV |
+| `nightcache`, `night` | `night` | lampe + cache de nuit |
+| `scuba` | `scuba` | matériel de plongée |
+| `wading` | `wading` | cuissardes / bottes |
+| `swimming` | `swimming` | de quoi nager |
+| `boat` | `boat` | embarcation |
+| `snowshoes` | `snow_gear` | raquettes |
+| `winter`, `seasonal` | `seasonal` | contrainte saisonnière |
+| `thorn`, `poisonoak`, `ticks` | `protection` | gants / manches longues |
+| `wirelessbeacon` | `beacon` | récepteur / téléphone (chirp) |
+
+*(b) Drapeaux **non résolus*** (`resolved: false` — l'IA doit trouver quoi) :
+
+| Slug | Signal | Question posée à l'IA |
+|---|---|---|
+| `s-tool` | `special_tool` | **quel** outil ? |
+| `climbing`, `rappelling` | `climbing` | échelle, corde+baudrier, arbo ou spéléo ? |
+| `treeclimbing` | `tree_climbing` | quel matériel d'arbre ? |
+| `field_puzzle` | `field_puzzle` | quelle recherche/résolution sur place ? |
+| `teamwork` | `teamwork` | combien de personnes, pour quoi ? |
+
+*(c) Signaux **contextuels*** (ni matériel ni non résolus, mais utiles au rapport) :
+`fee` (frais d'entrée), `available` négatif (pas accessible 24 h), `stealth` (discrétion),
+`onehour`/`parkngrab` (rapide), `hike_long`/`hike_med`/`hike_short` (marche),
+`dangerousanimals`/`cliff`/`mine`/`danger` (risque), `kids`/`stroller`/`wheelchair`
+(accessibilité), `parking` (waypoint de parking).
+
+**Attention `is_negative`** : un attribut négatif inverse le sens (`dogs` négatif = chiens
+interdits). Un signal matériel n'est levé **que** si `is_negative` est faux. Les attributs
+négatifs pertinents (`available-no`, `dogs-no`, `kids-no`) sont reversés dans les signaux
+contextuels avec une mention explicite « interdit / non ».
+
+**Signature** :
+
+```python
+def build_gear_signals(attributes: list[dict] | None) -> list[dict]:
+    """Renvoie [{signal, source: 'attribute', slug, resolved: bool, label}]."""
+```
+
+---
+
+### 1.3 Calcul de santé
+
+**Fichier (nouveau)** : `backend/gc_backend/services/outing_health.py`
+
+**Entrée** : la géocache et ses logs locaux (`GeocacheLog`, déjà triés `date desc` par la
+relation, `backend/gc_backend/geocaches/models.py` ligne 66).
+
+**Types de logs normalisés** présents en base : `Found it`, `Didn't find it`,
+`Write note`, `Owner Maintenance`, `Needs Maintenance`, `Temporarily Disable Listing`,
+`Enable Listing`, `Publish Listing`, `Archive` (cf. `_LOG_TYPE_LABELS`,
+`backend/gc_backend/blueprints/logs.py` ligne 171, et la table de normalisation
+`backend/gc_backend/blueprints/geocaches.py` ~ligne 179). **Comparer en insensible à la
+casse et en tolérant les variantes** (`did not find`, `didn't find it`).
+
+**Sortie** :
+
+```python
+{
+  'level': 'ok' | 'watch' | 'risky' | 'very_risky' | 'unknown',
+  'reasons': ['3 DNF consécutifs depuis la dernière trouvaille', ...],
+  'logs_available': bool,              # False si aucun log local
+  'local_logs_count': int,
+  'last_found_date': str | None,       # ISO
+  'days_since_last_found': int | None,
+  'consecutive_dnf': int,              # DNF depuis la dernière trouvaille
+  'dnf_ratio_recent': float | None,    # DNF / (DNF + Found) sur les 10 derniers
+  'needs_maintenance_pending': bool,   # NM postérieur au dernier OM
+  'listing_status': str | None,        # Geocache.status
+}
+```
+
+**Règles de niveau** (dans cet ordre, la première qui matche gagne) :
+
+1. `logs_available is False` → `unknown`, raison « aucun log local : cache jamais
+   rafraîchie, santé non évaluable ».
+2. `listing_status` archivé/désactivé → `very_risky`, raison explicite.
+3. `consecutive_dnf >= 3` **ou** (`consecutive_dnf >= 2` **et**
+   `needs_maintenance_pending`) → `very_risky`.
+4. `consecutive_dnf == 2` **ou** `days_since_last_found > 365` **ou**
+   (`needs_maintenance_pending` **et** `days_since_last_found > 180`) → `risky`.
+5. `consecutive_dnf == 1` **ou** `days_since_last_found > 180` **ou**
+   `needs_maintenance_pending` **ou** `dnf_ratio_recent >= 0.4` → `watch`.
+6. Sinon → `ok`.
+
+**Seuils** : constantes de module (`DNF_VERY_RISKY = 3`, `STALE_DAYS_RISKY = 365`,
+`STALE_DAYS_WATCH = 180`, `DNF_RATIO_WATCH = 0.4`) pour que le lot 4 puisse les exposer
+en préférences si le besoin s'en fait sentir.
+
+**Pièges** :
+- `GeocacheLog.date` peut être `None` : ces logs sont ignorés du calcul temporel mais
+  comptent dans les types.
+- Comparer avec `datetime.now(timezone.utc)` et gérer les dates naïves stockées en base
+  (les traiter comme UTC plutôt que de lever).
+- Une cache jamais trouvée (aucun `Found it`) mais avec des logs : `last_found_date` à
+  `None`, `days_since_last_found` à `None` ; utiliser `placed_at` dans la raison
+  (« jamais trouvée depuis sa publication le … »).
+
+---
+
+### 1.4 Service de bundle
+
+**Fichier (nouveau)** : `backend/gc_backend/services/outing_analysis_service.py`
+
+**Signature** :
+
+```python
+def build_analysis_bundle(
+    geocache_ids: list[int],
+    *,
+    listing_chars: int = 1800,
+    recent_logs_count: int = 5,
+    gear_logs_count: int = 8,
+) -> dict:
+```
+
+**Pour chaque géocache** (dans l'ordre demandé, sans doublon — même contrat que
+`GET /api/geocaches/batch`, `backend/gc_backend/blueprints/geocaches.py` ligne 1114) :
+
+```python
+{
+  'id', 'gc_code', 'name', 'type', 'size', 'owner',
+  'difficulty', 'terrain', 'status',
+  'coordinates': str | None,          # coordinates_raw, ou original si non corrigées
+  'is_corrected': bool,
+  'solved': str,                      # not_solved | in_progress | solved
+  'unsolved_mystery': bool,           # type Mystery/Unknown ET solved != 'solved' ET pas de coords corrigées
+  'favorites_count', 'logs_count',
+  'placed_at': str | None,
+  'hint': str | None,                 # hints_decoded_override > hints_decoded > rot13(hints)
+  'listing_excerpt': str,             # texte brut tronqué
+  'listing_truncated': bool,
+  'attributes': [{'label', 'is_negative'}],
+  'gear_signals': [...],              # cf. 1.2
+  'waypoints': [{'name', 'type', 'prefix', 'note_excerpt'}],
+  'waypoints_count': int,
+  'health': {...},                    # cf. 1.3
+  'recent_logs': [{'type', 'date', 'author', 'text_excerpt'}],
+  'gear_logs': [{'date', 'author', 'matched': [...], 'text_excerpt'}],
+  'search_effort_logs': [{'date', 'author', 'text_excerpt'}],
+}
+```
+
+**Règles de construction** :
+
+- **Hint** : priorité `hints_decoded_override` → `hints_decoded` →
+  `Geocache.decode_hint_rot13(hints)`.
+
+  **Écart constaté à l'implémentation** — sur une partie du parc réel, `hints` et
+  `hints_decoded` sont **inversés en base** : `hints` contient le texte en clair et
+  `hints_decoded` son ROT13 (vérifié sur `GCB7C9X` et `GCB7C3Y`). Suivre l'ordre nominal
+  y renverrait du ROT13, que l'IA tenterait d'interpréter — pire qu'un hint absent.
+  `_resolve_hint` choisit donc, parmi les candidats, celui qui ressemble le plus à de la
+  langue naturelle : nombre de mots courants FR/EN reconnus d'abord, proportion de
+  voyelles en départage. En cas d'égalité, l'ordre nominal est conservé.
+
+  Cette inversion affecte aussi `to_dict()` et donc la page de détails : **bug de données
+  à traiter séparément**, hors périmètre de ce chantier.
+- **Listing** : partir de `description_override_raw` s'il existe, sinon `description_raw`,
+  sinon strip HTML de `description_html`. Normaliser les blancs, tronquer à
+  `listing_chars` sur une frontière de mot, positionner `listing_truncated`.
+- **`gear_logs`** : parcourir **tous** les logs de la cache (pas seulement les récents) et
+  retenir ceux dont le texte matche `GEAR_LEXICON`. C'est le cœur de la fonctionnalité :
+  un log de 2019 disant « prévoir une canne à pêche » ne sortirait jamais des N derniers
+  logs. Trier par pertinence (nombre de clés matchées) puis par date décroissante,
+  plafonner à `gear_logs_count`. Extrait centré sur la première occurrence, ~300 c.
+- **`search_effort_logs`** : même mécanique avec `SEARCH_EFFORT_LEXICON`, plafonné à 3.
+- **Déduplication** : un log peut apparaître à la fois dans `recent_logs` et `gear_logs`.
+  C'est **voulu** — les deux blocs répondent à des questions différentes — mais l'extrait
+  doit être identique pour ne pas donner l'illusion de deux logs distincts.
+- **Performance** : une seule requête pour les caches
+  (`Geocache.query.filter(Geocache.id.in_(ids))`) et **une seule** pour les logs
+  (`GeocacheLog.query.filter(GeocacheLog.geocache_id.in_(ids)).order_by(date.desc())`),
+  puis regroupement en mémoire. Ne pas déclencher le lazy-loading cache par cache.
+
+**Bloc global renvoyé** :
+
+```python
+{
+  'generated_at': str,                   # ISO, UTC
+  'requested_count': int,
+  'geocaches': [...],
+  'missing': [ids introuvables],
+  'without_local_logs': [gc_code, ...],  # alimente le bandeau UI et la mention du prompt
+  'stats': {
+     'by_type': {...}, 'by_health_level': {...},
+     'unsolved_mysteries': int,
+     'unresolved_gear_signals': int,
+  },
+}
+```
+
+---
+
+### 1.5 Endpoint
+
+**Fichier** : `backend/gc_backend/blueprints/geocaches.py` (blueprint déjà enregistré,
+`backend/gc_backend/__init__.py` ligne 111 — rien à ajouter côté wiring).
+
+```
+POST /api/geocaches/analysis-bundle
+Body: {"ids": [1,2,3], "listing_chars": 1800, "recent_logs_count": 5, "gear_logs_count": 8}
+```
+
+- Réutiliser la validation d'ids de `get_geocaches_batch` (entiers, dédoublonnage, ordre
+  conservé). **Plafond distinct et plus bas** : `MAX_ANALYSIS_GEOCACHE_IDS = 60` (le
+  bundle est bien plus lourd que `to_summary()`), erreur 400 au-delà.
+- Borner les paramètres : `listing_chars` dans [200, 6000], `recent_logs_count` dans
+  [0, 20], `gear_logs_count` dans [0, 20].
+- Un id introuvable ne fait pas échouer l'appel (il part dans `missing`).
+
+### 1.6 Tests (lot 1)
+
+**Fichier (nouveau)** : `backend/tests/test_outing_analysis.py`
+
+- **Santé** : aucun log → `unknown` ; 3 DNF consécutifs → `very_risky` ; 1 DNF puis un
+  Found plus récent → `consecutive_dnf == 0` ; NM postérieur au dernier OM →
+  `needs_maintenance_pending` ; dernière trouvaille il y a 400 jours → `risky` ; cache
+  archivée → `very_risky` ; log sans date → pas de crash.
+- **Drapeaux** : `base_filename='s-tool'` → signal `special_tool` **non résolu** ;
+  `base_filename='flashlight'` → signal résolu ; `is_negative=True` → aucun signal
+  matériel ; attribut sans `base_filename` mais `name='Flashlight required'` → résolu par
+  le fallback ; `name` en français → résolu par le fallback FR.
+- **Lexique** : un log contenant « il faut une canne à pêche » remonte dans `gear_logs`
+  avec `matched=['fishing_rod']` ; un log de 2019 matché sort bien alors qu'il n'est pas
+  dans les 5 récents ; « UV » isolé matche, « uvea » non (frontière de mot) ;
+  « canne a peche » sans accent matche aussi (normalisation).
+- **Endpoint** : 200 avec ordre conservé et `missing` peuplé ; 400 au-delà du plafond ;
+  400 sur ids invalides ; `without_local_logs` correctement rempli.
+
+---
+
+## LOT 2 — Front : client et construction du prompt (P0)
+
+### 2.1 Types et client de service
+
+**Fichier (nouveau)** : `frontend/theia-extensions/zones/src/browser/outing-analysis-types.ts`
+
+`OutingAnalysisBundle`, `OutingAnalysisGeocache`, `OutingHealth`, `OutingGearSignal`,
+`OutingDetailLevel`. Fichier séparé pour être importable par la table, les widgets et le
+constructeur de prompt sans dépendance circulaire.
+
+**Fichier** : `frontend/theia-extensions/zones/src/browser/geocaches-service.ts`
+
+Ajouter, dans le style des méthodes existantes (`exportGpx` ligne 32, `get` ligne 83) :
+
+```ts
+async fetchAnalysisBundle(
+    geocacheIds: number[],
+    options?: { listingChars?: number; recentLogsCount?: number; gearLogsCount?: number },
+    signal?: AbortSignal
+): Promise<OutingAnalysisBundle>
+```
+
+### 2.2 Construction du prompt
+
+**Fichier (nouveau)** : `frontend/theia-extensions/zones/src/browser/outing-analysis-prompt.ts`
+
+S'aligner sur le style de `geocache-chat-prompt-shared.ts` : fonctions pures, testables,
+sans dépendance Theia.
+
+```ts
+export function buildOutingAnalysisPrompt(
+    bundle: OutingAnalysisBundle,
+    context: { zoneName?: string; outingDate?: string; detailLevel: OutingDetailLevel }
+): string
+```
+
+**Structure du prompt produit** (Markdown, ordre imposé) :
+
+```
+# Analyse de sortie — <zone> — <n> géocaches
+Date de la sortie : <date>
+Données générées le : <generated_at>
+
+## Fiabilité des données
+- <n> cache(s) sans logs locaux : GC..., GC... — leur santé n'est PAS évaluable et
+  aucune information de log n'est disponible pour elles. Ne conclus rien à leur sujet.
+- <n> mystery(s) non résolue(s) : GC...
+
+## Géocaches
+
+### 1. GC1234 — Nom de la cache
+- Type : Mystery | Taille : Micro | D 3.5 / T 4.0 | Favoris : 42 | Logs : 118
+- Statut : active | Résolue : non | Coordonnées : N.. E.. (non corrigées)
+- Santé : risky — 2 DNF consécutifs ; dernière trouvaille il y a 214 jours
+- Attributs : Outil spécial requis, Grimpe, Nécessite une lampe
+- Signaux matériel : special_tool (NON RÉSOLU), climbing (NON RÉSOLU), flashlight (lampe)
+- Waypoints : 3 (Parking, Stage 1, Stage 2)
+- Hint : <hint décodé>
+- Listing (extrait, tronqué) :
+  > ...
+- Logs mentionnant du matériel :
+  > [2019-06-12, Toto] « ... il faut une canne à pêche ... » (matched: fishing_rod)
+- Logs suggérant une recherche longue :
+  > [2023-04-01, Titi] « ... bien cachée, j'ai cherché 40 minutes ... »
+- Logs récents :
+  > [2024-03-02] Didn't find it — Titi : « ... »
+```
+
+**Règles** :
+- **Sections vides omises**, jamais rendues comme « aucun ». Un bloc absent est plus
+  lisible qu'un bloc vide, et coûte moins de tokens.
+- Les drapeaux non résolus sont écrits en toutes lettres **`(NON RÉSOLU)`** : c'est le
+  marqueur que le prompt système exploite.
+- `detailLevel` pilote la troncature : `light` (pas de listing, 3 logs récents),
+  `standard` (listing 1800 c., 5 logs), `full` (listing 4000 c., 10 logs).
+- **Estimation de taille** : exporter
+  `estimateOutingPromptSize(prompt): { chars: number; approxTokens: number }`
+  avec `approxTokens ≈ chars / 3.6` (ratio français, marge conservatrice). Consommé par
+  l'UI du lot 3 pour avertir avant l'envoi.
+- L'**instruction de tâche** n'est *pas* dans ce prompt : elle vit dans le prompt système
+  de l'agent (lot 4). Ce fichier ne produit que des **données mises en forme**. Une seule
+  exception, la dernière ligne, qui rappelle la commande :
+  `« Produis le rapport de préparation de sortie selon ton format. »`
+
+### 2.3 Tests (lot 2)
+
+**Fichier (nouveau)** : `frontend/theia-extensions/zones/src/browser/tests/outing-analysis-prompt.test.ts`
+**À ajouter à la chaîne `test:geoapp` de `package.json`.**
+
+- Bundle vide → prompt cohérent, pas de crash.
+- Une cache sans hint / sans listing / sans logs → sections correspondantes absentes.
+- Un signal `resolved: false` → mention `(NON RÉSOLU)` présente.
+- `without_local_logs` non vide → section « Fiabilité des données » présente avec les
+  codes GC listés.
+- `detailLevel: 'light'` → aucun extrait de listing dans la sortie.
+- `estimateOutingPromptSize` croît avec le nombre de caches.
+
+---
+
+## LOT 3 — UI : déclenchement depuis les deux tables (P1)
+
+### 3.1 Table de zone (sélection multiple)
+
+**Fichier** : `frontend/theia-extensions/zones/src/browser/geocaches-table.tsx`
+
+1. Ajouter les props, dans le bloc des props d'action (~ligne 73) :
+   ```ts
+   onAnalyzeWithAiSelected?: (ids: number[]) => void;
+   /** Vrai pendant la collecte du bundle : désactive le bouton. */
+   analyzingWithAi?: boolean;
+   ```
+2. Ajouter le bouton dans la barre d'actions (~ligne 1232, **après `Plugin`, avant
+   `Exporter GPX`**), en copiant le motif à spinner de `Exporter GPX` (lignes 1250-1268)
+   pour l'état occupé :
+   ```tsx
+   {onAnalyzeWithAiSelected && (
+       <button
+           onClick={() => onAnalyzeWithAiSelected(selectedIds)}
+           className="geoapp-gc-action-btn geoapp-gc-action-btn--primary"
+           disabled={analyzingWithAi}
+           aria-busy={analyzingWithAi}
+           title="Analyser la sélection avec l'IA (préparation de sortie)"
+       >
+           <span className="geoapp-gc-action-btn__icon" aria-hidden="true">🧠</span>
+           {analyzingWithAi ? 'Analyse en cours…' : 'Analyser IA'}
+       </button>
+   )}
+   ```
+
+**Fichier** : `frontend/theia-extensions/zones/src/browser/zone-geocaches-widget.tsx`
+
+3. Câbler `onAnalyzeWithAiSelected={ids => this.handleAnalyzeWithAiSelected(ids)}` dans
+   le bloc de props existant (~ligne 1812).
+4. Implémenter `handleAnalyzeWithAiSelected(ids)` en suivant le motif de
+   `handleExportGpxSelected` (ligne 519) : garde sur sélection vide, garde de réentrance,
+   `messages.showProgress` annulable via `AbortController`, drapeau `analyzingWithAi` +
+   `this.update()`.
+
+**Fichier** : `frontend/theia-extensions/zones/src/browser/zone-geocaches-view.tsx`
+
+5. Faire transiter les deux nouvelles props (ce fichier ne fait que relayer).
+
+### 3.2 Log-editor (liste complète, pas de sélection)
+
+**Constat** : `log-editor/geocaches-table.tsx` n'a **aucune sélection de lignes** — la
+table affiche la totalité des caches à loguer. C'est en réalité le cas d'usage cible
+(« les géocaches du jour ») : le bouton porte donc sur **toute la liste**, pas sur une
+sélection. Ne pas ajouter de cases à cocher à cette table.
+
+**Fichier** : `frontend/theia-extensions/zones/src/browser/log-editor/log-editor-header.tsx`
+
+6. Ajouter deux props (`onAnalyzeWithAi: () => void`, `analyzingWithAi: boolean`) et un
+   bouton à côté de « Copier les field notes » / « Télécharger » (~lignes 95-104), avec
+   le même `disabled={isLoading || loadedCount === 0}` que ses voisins, plus
+   `|| analyzingWithAi`. Libellé : `🧠 Analyser la sortie`.
+
+**Fichier** : `frontend/theia-extensions/zones/src/browser/geocache-log-editor-widget.tsx`
+
+7. Passer les props au `<LogEditorHeader>` (~ligne 2093) et implémenter
+   `analyzeOutingWithAi()`, qui appelle le **même** contrôleur que la table de zone avec
+   `this.geocaches.map(gc => gc.id)`.
+
+### 3.3 Contrôleur partagé
+
+**Fichier (nouveau)** : `frontend/theia-extensions/zones/src/browser/outing-analysis-controller.ts`
+
+Pour ne pas dupliquer la logique entre les deux widgets :
+
+```ts
+@injectable()
+export class OutingAnalysisController {
+    async analyze(
+        geocacheIds: number[],
+        context: { zoneName?: string; detailLevel?: OutingDetailLevel },
+        signal?: AbortSignal
+    ): Promise<{ warnings: string[] }>
+}
+```
+
+Enchaîne : garde sur liste vide → garde de plafond (au-delà de 60, message d'erreur
+explicite) → `fetchAnalysisBundle` → `buildOutingAnalysisPrompt` →
+`estimateOutingPromptSize` → `dispatchGeoAppOpenChatRequest`. Renvoie les avertissements
+(caches sans logs, ids manquants, prompt volumineux) pour que l'appelant les affiche via
+son propre `MessageService`.
+
+**Binding** : `zones-frontend-module.ts`, en `inSingletonScope()`, comme les autres
+services du dossier.
+
+### 3.4 Ouverture de la session Chat
+
+Dans le contrôleur :
+
+```ts
+dispatchGeoAppOpenChatRequest(window, CustomEvent, {
+    sessionTitle: `SORTIE — ${zoneName ?? 'sélection'} — ${dateIso} (${count} caches)`,
+    prompt,
+    focus: true,
+    workflowKind: 'general',
+    sessionKind: 'libre',
+    preferredAgentId: GeoAppOutingAnalyzerAgentId,   // lot 4
+});
+```
+
+**Points d'attention vérifiés dans le code** :
+- Ne **pas** passer `geocacheId` ni `gcCode` : la session ne porte pas sur une cache.
+  `findExistingSession` (`geoapp-chat-bridge.ts` ligne 139) retombe alors sur le
+  `baseSessionTitle`, ce qui est exactement le comportement voulu.
+- Le titre contient la **date du jour** : deux analyses le même jour sur la même zone
+  réutilisent la session (utile) ; le lendemain, une session neuve s'ouvre.
+- `sessionKind: 'libre'` évite toute collision avec les sessions par cache (`'auto'`),
+  le tri se faisant d'abord sur ce champ.
+- `preferredAgentId` est bien honoré **en premier** par `resolveDefaultChatAgent`
+  (`geoapp-chat-bridge.ts` ligne 408) ; si l'agent n'est pas prêt, Theia retombe
+  proprement sur la chaîne de candidats existante.
+
+### 3.5 Dialogue d'options
+
+Petit dialogue avant le lancement (motif de `move-geocache-dialog.tsx` /
+`import-dialog-shell.tsx`) :
+- niveau de détail : Léger / **Standard** (défaut) / Complet ;
+- nombre de logs récents par cache (défaut : préférence du lot 4) ;
+- avertissement au-delà du seuil de caches (préférence `warnAboveCount`), **sans
+  blocage**.
+
+Les caches sans logs locaux ne sont connues **qu'après** la récupération du bundle. Deux
+ordres possibles ; **retenir celui-ci** : dialogue d'options d'abord, puis récupération,
+puis avertissements via `MessageService` (« X cache(s) sans logs locaux : l'analyse sera
+partielle pour celles-ci. »). Il évite un aller-retour réseau si l'utilisateur annule.
+**Aucun bouton de rafraîchissement** dans ce bandeau — décision explicite, cf. périmètre.
+
+---
+
+## LOT 4 — Agent dédié et configuration du modèle (P1)
+
+### 4.1 Agent chat
+
+**Fichier (nouveau)** : `frontend/theia-extensions/zones/src/browser/geoapp-outing-analyzer-agent.ts`
+
+Contrairement aux agents *internes* (`geoapp-logs-analyzer` et consorts, qui sont de
+simples `Agent` appelés via `LanguageModelService`), celui-ci doit être un **`ChatAgent`**
+puisque la restitution passe par le Chat Theia. Le dériver de `BaseGeoAppChatAgent`
+(`geoapp-chat-agent.ts` ligne 117), comme `GeoAppChatStrongAgent` (ligne 213) :
+
+```ts
+export const GeoAppOutingAnalyzerAgentId = 'geoapp-outing-analyzer';
+```
+
+- `id`, `name: 'GeoApp Analyse de sortie'`, description explicite.
+- `systemPromptId = GEOAPP_OUTING_SYSTEM_PROMPT_ID` (cf. 4.2) — c'est le seul écart
+  notable avec les agents de profil, qui partagent `GEOAPP_CHAT_SYSTEM_PROMPT_ID`.
+- `languageModelRequirements` : `[{ purpose: 'chat', identifier: 'default/universal' }]`,
+  identique aux autres — c'est Theia qui résout le modèle concret.
+- Enregistrement : ajouter l'agent à `GeoAppChatAgentContribution.onStart()`
+  (`geoapp-chat-agent.ts` ligne 231), qui désenregistre puis réenregistre chaque agent.
+- Binding Inversify dans `zones-frontend-module.ts`, aligné sur les autres agents chat :
+  le bind doit couvrir `ChatAgent` **et** `Agent` pour que Theia l'expose dans ses
+  réglages IA.
+
+### 4.2 Prompt système
+
+**Fichier** : `frontend/theia-extensions/zones/src/browser/geoapp-chat-system-prompts.ts`
+
+Ajouter `GEOAPP_OUTING_SYSTEM_PROMPT_ID = 'geoapp-outing-system'` et un `PromptVariantSet`
+dédié (une seule variante au départ ; la structure du fichier en supporte plusieurs — cf.
+`GeoAppChatSystemPromptVariants` ligne 53).
+
+**Contenu du prompt — les règles non négociables** :
+
+1. **Ne jamais inventer un outil.** Pour chaque signal marqué `(NON RÉSOLU)`, produire
+   l'un des trois niveaux :
+
+   | Niveau | Condition | Rendu attendu |
+   |---|---|---|
+   | **Confirmé** | l'outil est nommé dans le listing, le hint ou un log | « canne à pêche — log de *Toto*, 12/04/2023 » |
+   | **Probable** | déduction d'un faisceau (T5 + « en hauteur » + attribut grimpe) | « échelle ou perche — le listing mentionne 3 m » |
+   | **Non identifié** | drapeau levé, textes muets | « outil requis, nature inconnue → prévoir la trousse polyvalente » |
+
+   « Non identifié » est une **réponse valide et utile**, pas un échec.
+
+2. **Toujours citer la source** d'un matériel confirmé (listing / hint / log daté).
+
+3. **Préciser la grimpe** quand l'information existe : échelle, corde + baudrier,
+   matériel arboricole, spéléo — ce sont des sorties différentes ; un « matériel de
+   grimpe » générique n'aide pas.
+
+4. **Ne rien conclure sur les caches sans logs locaux**, listées en tête du prompt.
+
+5. **Signaler les mystery non résolues comme bloquantes** : sans coordonnées corrigées,
+   le déplacement est inutile.
+
+**Plan de rapport imposé** :
+
+```
+## 1. Checklist matériel          (union dédupliquée, groupée par niveau de certitude)
+## 2. Alertes                     (santé, mysteries non résolues, horaires, autorisations, risques)
+## 3. Détail par cache            (matériel, temps estimé, points d'attention)
+## 4. Temps et priorisation       (caches chronophages, ce qu'on garde si le temps manque)
+## 5. Points à vérifier avant de partir
+```
+
+**Grille d'analyse à couvrir** (liste explicite dans le prompt, pour ne rien oublier) :
+matériel et outils ; recherche/résolution sur place (`field_puzzle`) ; caches
+chronophages (multi à étapes, D élevée, longue marche) ; contraintes horaires (cache de
+nuit, lieu fermé, commerce, accès non 24 h) ; saison et météo (marée, crue, végétation,
+neige) ; accès et autorisation (parking, frais, propriété privée, zone réglementée) ;
+risques (ronces, tiques, animaux, falaise, mine, terrain instable) ; discrétion
+(`stealth`, muggles) ; travail d'équipe (`teamwork`) ; santé des caches ; mysteries non
+résolues ; priorisation par favoris et D/T.
+
+### 4.3 Configuration du modèle
+
+**Fichier** : `frontend/theia-extensions/zones/src/browser/geoapp-chat-policy-widget.tsx`
+
+Ajouter la ligne dans `AGENT_MODEL_ROWS` (ligne 104), après les agents de profil :
+
+```ts
+{ id: 'geoapp-outing-analyzer', label: 'Analyse de sortie', kind: 'chat', purpose: 'chat' },
+```
+
+L'agent devient dès lors assignable à un modèle précis dans les réglages IA de Theia, et
+son modèle effectif s'affiche dans le panneau de diagnostic.
+
+### 4.4 Préférences
+
+**Fichier** : `frontend/theia-extensions/zones/src/browser/geoapp-preference-contribution.ts`
+(constantes dans `geoapp-chat-shared.ts`, comme les préférences existantes)
+
+| Préférence | Type | Défaut | Description |
+|---|---|---|---|
+| `geoApp.outing.analysis.detailLevel` | enum `light`/`standard`/`full` | `standard` | Niveau de détail par défaut |
+| `geoApp.outing.analysis.recentLogsCount` | number [0,20] | `5` | Logs récents par cache |
+| `geoApp.outing.analysis.gearLogsCount` | number [0,20] | `8` | Logs « matériel » par cache |
+| `geoApp.outing.analysis.warnAboveCount` | number | `25` | Seuil d'avertissement sur le volume |
+
+### 4.5 Tests (lot 4)
+
+- `tests/geoapp-chat-agent.test.ts` : l'agent `geoapp-outing-analyzer` est bien
+  enregistré par la contribution et porte le bon `systemPromptId`.
+- `tests/geoapp-chat-bridge.test.ts` : un détail portant
+  `preferredAgentId: 'geoapp-outing-analyzer'` et **sans** `geocacheId` ouvre une session
+  `libre` épinglée sur cet agent ; une seconde requête au même titre **réutilise** la
+  session au lieu d'en créer une nouvelle.
+
+---
+
+## LOT 5 — Documentation (P2)
+
+**Fichier** : `documentation/chat-ia-geoapp-technique.md`
+
+1. Ajouter `geoapp-outing-analyzer` au tableau des agents (§ 4) — dans la table des
+   agents **chat**, pas dans celle des agents internes, avec une note expliquant
+   pourquoi il a son propre `systemPromptId`.
+2. Ajouter les fichiers neufs au tableau du § 2.
+3. Nouvelle section « Analyse de sortie » : le flux
+   `table → OutingAnalysisController → POST /api/geocaches/analysis-bundle →
+   outing_analysis_service → prompt → GeoAppChatBridge → session Chat`, la frontière
+   déterministe / IA, et le contrat des `gear_signals`.
+4. Documenter les **choix de conception** : pourquoi des drapeaux non résolus plutôt
+   qu'une liste de matériel, et pourquoi les logs sont filtrés par lexique plutôt que
+   tronqués à la date.
+
+**Fichier** : `frontend/theia-extensions/documentation/src/browser/docs/ia/` — note
+utilisateur courte : à quoi sert le bouton, ce que l'IA sait et ne sait pas, pourquoi
+certaines caches sont marquées « données incomplètes ».
+
+---
+
+## Récapitulatif des vérifications avant de commencer chaque lot
+
+- **Lot 1** : `cd backend && python -m pytest tests/ -x -q` au vert avant et après.
+  Vérifier sur une vraie base que `base_filename` est bien renseigné pour les caches
+  scrapées — les caches importées par GPX n'en ont pas, c'est précisément le cas d'usage
+  du fallback `gc_attribute_id` puis `name`.
+- **Lot 2** : `cd frontend/theia-extensions/zones && npm run test:geoapp`. Ne pas oublier
+  d'ajouter le nouveau fichier de test à la chaîne du script.
+- **Lot 3** : `npm run build` sur l'extension `zones` ; vérifier à la main que la barre
+  d'actions ne change pas de hauteur (le commentaire ligne 1222 de `geocaches-table.tsx`
+  signale que la hauteur est réservée exprès pour éviter un décalage du tableau).
+- **Lot 4** : vérifier dans les réglages IA de Theia que l'agent apparaît et qu'un modèle
+  peut lui être assigné ; vérifier dans le panneau Policy que la ligne « Analyse de
+  sortie » affiche le modèle effectif.
+- **Lot 5** : relire le § 2 de `chat-ia-geoapp-technique.md` pour que la liste des
+  fichiers reste exhaustive.
+
+---
+
+## Points laissés ouverts (hors périmètre, à traiter plus tard)
+
+- **Rafraîchissement global des logs** avant analyse : décidé hors périmètre. Le bundle
+  expose déjà `without_local_logs`, qui sera le point d'accroche naturel.
+- **Ordre de visite / optimisation d'itinéraire** : les coordonnées sont dans le bundle,
+  l'IA peut donner un ordre indicatif, mais aucun calcul d'itinéraire n'est prévu.
+- **Persistance du rapport** : le rapport vit dans la session Chat. Un export vers les
+  notes de zone pourrait venir plus tard.
+- **Seuils de santé configurables** : constantes de module au lot 1 ; les exposer en
+  préférences seulement si l'usage montre que les défauts ne conviennent pas.

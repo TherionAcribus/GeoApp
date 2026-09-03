@@ -23,6 +23,7 @@ from ..geocaches.image_sync import ensure_images_v2_for_geocache
 from ..geocaches.bookmark_list_importer import BookmarkListImporter
 from ..geocaches.pocket_query_importer import PocketQueryImporter
 from ..geocaches.gpx_parser import parse_gpx_caches
+from ..services.outing_analysis_service import build_analysis_bundle
 from ..utils.preferences import get_value_or_default
 
 bp = Blueprint('geocaches', __name__)
@@ -30,6 +31,10 @@ logger = logging.getLogger(__name__)
 
 #: Garde-fou sur `/api/geocaches/batch` : borne la clause IN et la longueur de l'URL.
 MAX_BATCH_GEOCACHE_IDS = 500
+
+#: Garde-fou propre à `/api/geocaches/analysis-bundle`, bien plus bas : chaque entrée y
+#: embarque listing, hint, attributs et logs, là où `/batch` ne renvoie qu'un résumé.
+MAX_ANALYSIS_GEOCACHE_IDS = 60
 
 
 def _new_import_counts() -> dict:
@@ -1159,6 +1164,68 @@ def get_geocaches_batch():
 
     except Exception as e:
         logger.error(f"Error fetching geocaches batch: {e}")
+        raise
+
+
+def _parse_bounded_int(data: dict, key: str, default: int, minimum: int, maximum: int) -> int:
+    """Entier de payload borné : une valeur hors bornes est ramenée, pas rejetée."""
+    raw = data.get(key, default)
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, min(maximum, value))
+
+
+@bp.post('/api/geocaches/analysis-bundle')
+def get_geocaches_analysis_bundle():
+    """
+    Bundle d'analyse de sortie pour un lot de géocaches.
+
+    Rassemble en un seul appel ce qu'une IA doit lire pour préparer une sortie : listing,
+    hint décodé, attributs traduits en signaux matériel, santé calculée depuis les logs
+    locaux, et les logs qui mentionnent du matériel quelle que soit leur date.
+
+    Body : `{ids: [1,2,3], listing_chars?, recent_logs_count?, gear_logs_count?}`.
+    Un identifiant introuvable ne fait pas échouer l'appel : il ressort dans `missing`.
+    """
+    data = request.get_json(silent=True) or {}
+    raw_ids = data.get('ids')
+
+    if not isinstance(raw_ids, list) or not raw_ids:
+        return jsonify({'error': 'Missing ids parameter'}), 400
+
+    requested: list[int] = []
+    seen: set[int] = set()
+    for token in raw_ids:
+        try:
+            geocache_id = int(token)
+        except (TypeError, ValueError):
+            return jsonify({'error': f'Invalid geocache id: {token}'}), 400
+        if geocache_id not in seen:
+            seen.add(geocache_id)
+            requested.append(geocache_id)
+
+    if not requested:
+        return jsonify({'error': 'Missing ids parameter'}), 400
+    if len(requested) > MAX_ANALYSIS_GEOCACHE_IDS:
+        return jsonify({'error': f'Too many ids (max {MAX_ANALYSIS_GEOCACHE_IDS})'}), 400
+
+    try:
+        bundle = build_analysis_bundle(
+            requested,
+            listing_chars=_parse_bounded_int(data, 'listing_chars', 1800, 200, 6000),
+            recent_logs_count=_parse_bounded_int(data, 'recent_logs_count', 5, 0, 20),
+            gear_logs_count=_parse_bounded_int(data, 'gear_logs_count', 8, 0, 20),
+        )
+        logger.info(
+            "Bundle d'analyse : %s géocache(s), %s sans logs locaux",
+            len(bundle['geocaches']), len(bundle['without_local_logs']),
+        )
+        return jsonify(bundle)
+
+    except Exception as e:
+        logger.error(f"Error building analysis bundle: {e}", exc_info=True)
         raise
 
 
