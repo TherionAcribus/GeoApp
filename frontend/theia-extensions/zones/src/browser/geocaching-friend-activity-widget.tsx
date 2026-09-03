@@ -133,6 +133,48 @@ interface FriendStatsResponse {
     error_message?: string;
 }
 
+/** État de fraîcheur d'une source de données. */
+interface FreshnessActivity {
+    last_sync_at: string | null;
+    last_projection_at: string | null;
+    logs_stored: number;
+    authors_in_feed: number;
+    latest_log_date: string | null;
+    is_stale: boolean;
+}
+
+interface FreshnessFinds {
+    total_rows: number;
+    distinct_caches: number;
+    distinct_friends: number;
+    is_stale: boolean;
+}
+
+interface FreshnessFriendsList {
+    fetched_at: string | null;
+    count: number;
+    reported_count: number | null;
+    truncated: boolean;
+    pages_fetched: number;
+}
+
+interface FreshnessGeocaches {
+    total: number;
+    found: number;
+    in_friends_zone: number;
+}
+
+interface FreshnessResponse {
+    success: boolean;
+    checked_at: string;
+    activity?: FreshnessActivity;
+    finds?: FreshnessFinds;
+    friends_list?: FreshnessFriendsList;
+    geocaches?: FreshnessGeocaches;
+    error?: string;
+    error_message?: string;
+}
+
 /**
  * Ce que la carte affiche.
  *
@@ -257,6 +299,10 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
     protected statsSummary: FriendStatsSummary | null = null;
     protected statsLoading: boolean = false;
     protected statsVisible: boolean = false;
+
+    /** État de fraîcheur des données. */
+    protected freshness: FreshnessResponse | null = null;
+    protected freshnessLoading: boolean = false;
 
     @postConstruct()
     protected init(): void {
@@ -905,6 +951,7 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
                 {this.renderFeed()}
                 {this.renderSuggestions()}
                 {this.renderStats()}
+                {this.renderFreshness()}
             </div>
         );
     }
@@ -1268,6 +1315,134 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
                         Aucune statistique disponible : synchronisez le flux d'activité ou déduisez les trouvailles d'une zone.
                     </div>
                 )}
+            </div>
+        );
+    }
+
+    // -------------------------------------------------- Panneau de fraîcheur
+
+    protected async loadFreshness(): Promise<void> {
+        this.freshnessLoading = true;
+        this.update();
+
+        try {
+            const response = await fetch(`${this.getApiBaseUrl()}/api/friends/freshness`);
+            const contentType = response.headers.get('content-type') || '';
+            if (!contentType.includes('application/json')) {
+                this.freshness = null;
+                return;
+            }
+            const result: FreshnessResponse = await response.json();
+            this.freshness = result.success ? result : null;
+        } catch {
+            this.freshness = null;
+        } finally {
+            this.freshnessLoading = false;
+            this.update();
+        }
+    }
+
+    protected formatRelativeTime(iso: string | null): string {
+        if (!iso) return 'jamais';
+        const date = new Date(iso);
+        const diffMs = Date.now() - date.getTime();
+        const diffMin = Math.floor(diffMs / 60000);
+        if (diffMin < 1) return 'à l\'instant';
+        if (diffMin < 60) return `il y a ${diffMin} min`;
+        const diffHours = Math.floor(diffMin / 60);
+        if (diffHours < 24) return `il y a ${diffHours} h`;
+        const diffDays = Math.floor(diffHours / 24);
+        return `il y a ${diffDays} j`;
+    }
+
+    protected renderFreshness(): React.ReactNode {
+        return (
+            <div style={{ marginTop: '16px', borderTop: '1px solid var(--theia-panel-border)', paddingTop: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                    <span className="codicon codicon-dashboard"></span>
+                    <strong>Fraîcheur des données</strong>
+                    <div style={{ flex: 1 }}></div>
+                    <button
+                        className="theia-button secondary"
+                        onClick={() => this.loadFreshness()}
+                        disabled={this.freshnessLoading}
+                        title="Rafraîchir l'état des données"
+                    >
+                        <span className="codicon codicon-refresh"></span>
+                    </button>
+                </div>
+
+                {this.freshnessLoading && !this.freshness && (
+                    <div style={{ color: 'var(--theia-descriptionForeground)' }}>Chargement…</div>
+                )}
+
+                {this.freshness && (
+                    <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '0.85em' }}>
+                        {this.renderFreshnessCard('Flux d\'activité', [
+                            { label: 'Dernière synchro', value: this.formatRelativeTime(this.freshness.activity?.last_sync_at ?? null), stale: this.freshness.activity?.is_stale },
+                            { label: 'Logs stockés', value: String(this.freshness.activity?.logs_stored ?? 0) },
+                            { label: 'Amis dans le flux', value: String(this.freshness.activity?.authors_in_feed ?? 0) },
+                            { label: 'Dernier log', value: this.formatRelativeTime(this.freshness.activity?.latest_log_date ?? null) },
+                        ])}
+                        {this.renderFreshnessCard('Trouvailles déduites', [
+                            { label: 'Dernière projection', value: this.formatRelativeTime(this.freshness.activity?.last_projection_at ?? null), stale: this.freshness.finds?.is_stale },
+                            { label: 'Lignes', value: String(this.freshness.finds?.total_rows ?? 0) },
+                            { label: 'Caches distinctes', value: String(this.freshness.finds?.distinct_caches ?? 0) },
+                            { label: 'Amis distincts', value: String(this.freshness.finds?.distinct_friends ?? 0) },
+                        ])}
+                        {this.renderFreshnessCard('Liste d\'amis', [
+                            { label: 'Récupérée', value: this.formatRelativeTime(this.freshness.friends_list?.fetched_at ?? null) },
+                            { label: 'Amis', value: String(this.freshness.friends_list?.count ?? 0) },
+                            { label: 'Pages', value: String(this.freshness.friends_list?.pages_fetched ?? 1) },
+                            { label: 'Tronquée', value: this.freshness.friends_list?.truncated ? 'oui' : 'non', stale: this.freshness.friends_list?.truncated },
+                        ])}
+                        {this.renderFreshnessCard('Géocaches', [
+                            { label: 'Total importé', value: String(this.freshness.geocaches?.total ?? 0) },
+                            { label: 'Trouvées', value: String(this.freshness.geocaches?.found ?? 0) },
+                            { label: 'Zone « Amis »', value: String(this.freshness.geocaches?.in_friends_zone ?? 0) },
+                        ])}
+                    </div>
+                )}
+
+                {!this.freshnessLoading && !this.freshness && (
+                    <div style={{ color: 'var(--theia-descriptionForeground)' }}>
+                        Cliquez sur le bouton pour charger l'état des données.
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    protected renderFreshnessCard(
+        title: string,
+        items: { label: string; value: string; stale?: boolean }[]
+    ): React.ReactNode {
+        return (
+            <div style={{
+                flex: '1 1 200px',
+                padding: '10px',
+                border: '1px solid var(--theia-panel-border)',
+                borderRadius: '4px',
+            }}>
+                <div style={{ fontWeight: 'bold', marginBottom: '6px', fontSize: '0.9em' }}>{title}</div>
+                {items.map((item, i) => (
+                    <div key={i} style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        gap: '8px',
+                        marginBottom: '2px',
+                        color: 'var(--theia-descriptionForeground)',
+                    }}>
+                        <span>{item.label}</span>
+                        <span style={{
+                            color: item.stale ? 'var(--theia-errorForeground)' : 'var(--theia-foreground)',
+                            fontWeight: item.stale ? 'bold' : 'normal',
+                        }}>
+                            {item.stale && <span className="codicon codicon-warning" style={{ fontSize: '0.85em', marginRight: '4px' }}></span>}
+                            {item.value}
+                        </span>
+                    </div>
+                ))}
             </div>
         );
     }

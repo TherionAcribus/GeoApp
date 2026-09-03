@@ -36,6 +36,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Callable, Iterable, Optional
 
 import requests
@@ -542,7 +543,6 @@ def store_finds(
     """
     from ..database import db
     from ..models import FriendFind
-    from datetime import datetime, timezone
 
     gc_codes = {code.upper() for code in gc_codes}
     summaries = summaries or {}
@@ -813,5 +813,143 @@ def query_friend_stats() -> dict:
             'most_active_friend': most_active,
         },
     }
+
+
+# ---------------------------------------------------------- Tableau de bord fraîcheur
+
+def query_freshness() -> dict:
+    """
+    État de fraîcheur de toutes les sources de données « amis ».
+
+    Rassemble en une seule lecture (sans réseau) les timestamps et compteurs
+    clés pour que l'utilisateur puisse repérer d'un coup d'œil si ses données
+    sont à jour ou si une synchro est nécessaire.
+
+    Sources interrogées :
+
+    - **Flux d'activité** : dernière synchro (``LAST_SYNC_KEY``), dernière
+      projection de trouvailles (``LAST_PROJECTION_KEY``), nombre de logs
+      stockés, nombre d'amis distincts dans le flux, date du log le plus récent ;
+    - **Trouvailles déduites** (``friend_find``) : nombre de lignes, nombre de
+      caches distinctes, nombre d'amis distincts ;
+    - **Liste d'amis** : dernière récupération (cache mémoire), nombre d'amis,
+      troncature de la pagination ;
+    - **Géocaches** : total importé, nombre trouvées, nombre dans la zone
+      « Amis ».
+    """
+    from ..database import db
+    from ..geocaches.models import Geocache
+    from ..models import AppConfig, FriendActivity, FriendFind
+    from . import friend_activity_store
+    from .geocaching_friends import get_friends_client
+
+    now = datetime.now(timezone.utc)
+
+    # --- Flux d'activité ---
+    last_sync_str = friend_activity_store.get_last_sync_at()
+    last_sync = _parse_iso_config(last_sync_str)
+    last_projection_str = AppConfig.get_value(friend_activity_store.LAST_PROJECTION_KEY)
+    last_projection = _parse_iso_config(last_projection_str)
+
+    activity_count = db.session.query(db.func.count(FriendActivity.id)).scalar() or 0
+    activity_authors = (
+        db.session.query(db.func.count(db.distinct(FriendActivity.author_username)))
+        .filter(FriendActivity.activity_type == 2)
+        .scalar() or 0
+    )
+    latest_log = (
+        db.session.query(db.func.max(FriendActivity.log_date))
+        .filter(FriendActivity.activity_type == 2)
+        .scalar()
+    )
+
+    # --- Trouvailles déduites ---
+    finds_count = db.session.query(db.func.count(FriendFind.id)).scalar() or 0
+    finds_distinct_caches = (
+        db.session.query(db.func.count(db.distinct(FriendFind.gc_code))).scalar() or 0
+    )
+    finds_distinct_friends = (
+        db.session.query(db.func.count(db.distinct(FriendFind.friend_username))).scalar() or 0
+    )
+
+    # --- Liste d'amis (cache mémoire, pas de réseau) ---
+    friends_fetched_at: str | None = None
+    friends_count: int = 0
+    friends_reported_count: int | None = None
+    friends_truncated: bool = False
+    friends_pages_fetched: int = 1
+    try:
+        result = get_friends_client().get_friends()
+        friends_fetched_at = result.fetched_at.isoformat() if result.fetched_at else None
+        friends_count = len(result.friends)
+        friends_reported_count = result.reported_count
+        friends_truncated = result.truncated
+        friends_pages_fetched = result.pages_fetched
+    except Exception:
+        # Pas connecté ou cache vide : on ne bloque pas le tableau de bord.
+        pass
+
+    # --- Géocaches ---
+    geocaches_total = db.session.query(db.func.count(Geocache.id)).scalar() or 0
+    geocaches_found = db.session.query(db.func.count(Geocache.id)).filter(Geocache.found.is_(True)).scalar() or 0
+    friends_zone = get_or_create_friends_zone()
+    geocaches_in_friends_zone = (
+        db.session.query(db.func.count(Geocache.id))
+        .filter(Geocache.zone_id == friends_zone.id)
+        .scalar() or 0
+    )
+
+    # --- Indicateurs de staleness ---
+    activity_stale = _is_stale(last_sync, now, hours=1)
+    finds_stale = _is_stale(last_projection, now, hours=1)
+
+    return {
+        'checked_at': now.isoformat(),
+        'activity': {
+            'last_sync_at': last_sync_str,
+            'last_projection_at': last_projection_str,
+            'logs_stored': activity_count,
+            'authors_in_feed': activity_authors,
+            'latest_log_date': latest_log.isoformat() if latest_log else None,
+            'is_stale': activity_stale,
+        },
+        'finds': {
+            'total_rows': finds_count,
+            'distinct_caches': finds_distinct_caches,
+            'distinct_friends': finds_distinct_friends,
+            'is_stale': finds_stale,
+        },
+        'friends_list': {
+            'fetched_at': friends_fetched_at,
+            'count': friends_count,
+            'reported_count': friends_reported_count,
+            'truncated': friends_truncated,
+            'pages_fetched': friends_pages_fetched,
+        },
+        'geocaches': {
+            'total': geocaches_total,
+            'found': geocaches_found,
+            'in_friends_zone': geocaches_in_friends_zone,
+        },
+    }
+
+
+def _parse_iso_config(value: str | None) -> datetime | None:
+    """Parse une valeur ISO stockée dans AppConfig, tolérant aux None."""
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value)
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def _is_stale(last: datetime | None, now: datetime, hours: int = 1) -> bool:
+    """True si ``last`` est None ou plus ancien que ``hours`` heures."""
+    if last is None:
+        return True
+    return (now - last).total_seconds() >= hours * 3600
+
 
 

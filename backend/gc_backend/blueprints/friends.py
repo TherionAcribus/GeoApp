@@ -14,6 +14,7 @@ Routes API :
 - GET  /api/friends/finds/geocache/<id> → amis ayant trouvé une géocache
 - GET  /api/friends/finds/suggestions → caches trouvées par ≥N amis mais pas par moi
 - GET  /api/friends/stats             → statistiques croisées par ami (trouvailles, activité, commun)
+- GET  /api/friends/freshness          → état de fraîcheur de toutes les sources (timestamps + compteurs)
 """
 from __future__ import annotations
 
@@ -49,6 +50,7 @@ from ..services.geocaching_friend_finds import (
     get_friend_finds_client,
     get_or_create_friends_zone,
     list_codes_to_import,
+    query_freshness,
     query_friend_stats,
     query_suggestions,
     store_finds,
@@ -754,4 +756,19 @@ def friend_stats():
     """
     stats = query_friend_stats()
     return jsonify({"success": True, **stats})
+
+
+@bp.get("/freshness")
+def friend_freshness():
+    """
+    État de fraîcheur de toutes les sources de données « amis ».
+
+    Retourne en une seule lecture (sans réseau) les timestamps et compteurs
+    clés : dernière synchro du flux, dernière projection de trouvailles, nombre
+    de logs stockés, nombre de trouvailles déduites, nombre d'amis, nombre de
+    géocaches, etc. Avec des indicateurs ``is_stale`` pour repérer d'un coup
+    d'œil si une synchro est nécessaire.
+    """
+    return jsonify({"success": True, **query_freshness()})
+
 

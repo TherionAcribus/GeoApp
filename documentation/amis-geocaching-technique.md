@@ -4,7 +4,7 @@
 > **(1) la liste d'amis** (§3-7), **(2) le flux d'activité** (§9),
 > **(3) les logs d'amis sur une cache** (§10), **(4) « qui a trouvé quoi »**
 > (§11) et **(5) la carte des découvertes** (§12-13).
-> Dernière mise à jour : septembre 2026 (pagination, synchro auto, suggestions, stats).
+> Dernière mise à jour : septembre 2026 (pagination, synchro auto, suggestions, stats, fraîcheur).
 
 ---
 
@@ -124,6 +124,7 @@ backend/tests/
 ├── test_friend_finds.py            # Déduction par zone, rate limit, stockage
 ├── test_friend_finds_suggestions.py # Suggestions « caches à faire » (§13.5)
 ├── test_friend_stats.py            # Statistiques croisées entre amis (§13.6)
+├── test_friend_freshness.py        # Tableau de bord de fraîcheur (§13.7)
 ├── test_friend_activity_map.py     # Agrégation cartographique du flux (§12)
 └── test_friend_finds_map.py        # Coordonnées déduites, zone « Amis », import (§13)
 
@@ -1007,7 +1008,32 @@ le plus actif).
 tableau par ami (trouvailles, activité, en commun) et un résumé global. Cliquer
 sur un pseudo filtre le flux d'activité sur cet ami.
 
-### 13.7 Interface
+### 13.7 Tableau de bord de fraîcheur
+
+`query_freshness()` (dans `geocaching_friend_finds.py`) rassemble en une seule
+lecture (sans réseau) l'état de toutes les sources de données « amis » :
+
+- **Flux d'activité** : `last_sync_at`, `last_projection_at`, nombre de logs
+  stockés, nombre d'amis distincts dans le flux, date du log le plus récent,
+  indicateur `is_stale` (> 1 h) ;
+- **Trouvailles déduites** (`friend_find`) : nombre de lignes, caches
+  distinctes, amis distincts, indicateur `is_stale` ;
+- **Liste d'amis** : `fetched_at`, nombre d'amis, `reported_count`,
+  `truncated`, `pages_fetched` ;
+- **Géocaches** : total importé, nombre trouvées, nombre dans la zone « Amis ».
+
+**Route REST** :
+
+| Route | Rôle |
+|-------|------|
+| `GET /api/friends/freshness` | État de fraîcheur de toutes les sources |
+
+**Frontend** : panneau « Fraîcheur des données » en bas du widget, avec 4 cartes
+(Flux d'activité, Trouvailles déduites, Liste d'amis, Géocaches). Chaque carte
+affiche les timestamps en temps relatif (« il y a 12 min ») et un icône
+⚠️ quand une source est stale. Un bouton rafraîchit le panneau à la demande.
+
+### 13.8 Interface
 
 Un sélecteur de source dans la barre d'outils du widget « Activité des amis » :
 **Activité récente** (§12) · **Toutes les trouvailles** (`friend_find`) ·
@@ -1038,7 +1064,7 @@ widget**, indépendamment de la carte.
 
 ## 14. Tests
 
-**138 tests**, aucun ne touche le réseau : le parsing est exposé en méthodes de
+**150 tests**, aucun ne touche le réseau : le parsing est exposé en méthodes de
 classe pures, la synchronisation accepte un client injecté, et les routes qui
 vérifient l'authentification reçoivent un service simulé (sans quoi elles
 tentent une vraie connexion à geocaching.com — piège vérifié).
@@ -1118,6 +1144,19 @@ tentent une vraie connexion à geocaching.com — piège vérifié).
 - résumé global (nombre d'amis, total distinct, total en commun, plus actif) ;
 - liste vide sans données ;
 - routes REST : lecture des stats, résumé vide.
+
+`test_friend_freshness.py` (12 tests) — tableau de bord de fraîcheur :
+
+- compteurs vides sans données (tous à 0, timestamps à None, stale=True) ;
+- compteurs du flux d'activité (logs stockés, auteurs distincts, date du dernier
+  log) ;
+- compteurs des trouvailles déduites (lignes, caches distinctes, amis
+  distincts) ;
+- compteurs des géocaches (total, trouvées) ;
+- lecture des timestamps depuis AppConfig (synchro, projection) ;
+- indicateurs `is_stale` : True si ancien ou absent, False si récent ;
+- timestamp de vérification toujours présent ;
+- routes REST : lecture de l'état, état vide sans données.
 
 `test_friend_activity_map.py` (21 tests) — carte des amis :
 
