@@ -1214,7 +1214,8 @@ def get_geocaches_analysis_bundle():
     try:
         bundle = build_analysis_bundle(
             requested,
-            listing_chars=_parse_bounded_int(data, 'listing_chars', 1800, 200, 6000),
+            # 0 est une valeur utile ici : le mode léger ne demande aucun listing.
+            listing_chars=_parse_bounded_int(data, 'listing_chars', 1800, 0, 6000),
             recent_logs_count=_parse_bounded_int(data, 'recent_logs_count', 5, 0, 20),
             gear_logs_count=_parse_bounded_int(data, 'gear_logs_count', 8, 0, 20),
         )

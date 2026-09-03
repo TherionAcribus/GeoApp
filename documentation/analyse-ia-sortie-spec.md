@@ -389,8 +389,13 @@ Body: {"ids": [1,2,3], "listing_chars": 1800, "recent_logs_count": 5, "gear_logs
 - Réutiliser la validation d'ids de `get_geocaches_batch` (entiers, dédoublonnage, ordre
   conservé). **Plafond distinct et plus bas** : `MAX_ANALYSIS_GEOCACHE_IDS = 60` (le
   bundle est bien plus lourd que `to_summary()`), erreur 400 au-delà.
-- Borner les paramètres : `listing_chars` dans [200, 6000], `recent_logs_count` dans
+- Borner les paramètres : `listing_chars` dans **[0, 6000]**, `recent_logs_count` dans
   [0, 20], `gear_logs_count` dans [0, 20].
+
+  **Écart constaté au lot 2** : la borne basse est 0, pas 200. Le niveau de détail
+  « léger » ne demande aucun listing ; le plancher initial aurait fait transférer 200
+  caractères par cache pour les jeter ensuite côté prompt. `_resolve_listing` traite
+  donc `listing_chars = 0` comme « pas de listing du tout ».
 - Un id introuvable ne fait pas échouer l'appel (il part dans `missing`).
 
 ### 1.6 Tests (lot 1)

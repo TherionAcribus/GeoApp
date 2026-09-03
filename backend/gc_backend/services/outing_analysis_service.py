@@ -184,7 +184,15 @@ def _resolve_hint(geocache: Geocache) -> str | None:
 
 
 def _resolve_listing(geocache: Geocache, listing_chars: int) -> tuple[str, bool]:
-    """Extrait de listing en texte brut, tronqué sur une frontière de mot."""
+    """
+    Extrait de listing en texte brut, tronqué sur une frontière de mot.
+
+    `listing_chars = 0` signifie « pas de listing du tout » : c'est le mode léger, qui
+    s'appuie sur les attributs, le hint et les logs. Autant ne rien transférer.
+    """
+    if listing_chars <= 0:
+        return '', False
+
     for candidate in (
         geocache.description_override_raw,
         geocache.description_raw,

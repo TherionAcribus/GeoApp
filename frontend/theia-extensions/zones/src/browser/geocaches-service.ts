@@ -1,5 +1,6 @@
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { BackendApiClient } from './backend-api-client';
+import { OutingAnalysisBundle, OutingAnalysisOptions } from './outing-analysis-types';
 
 export interface CreateWaypointInput {
     name: string;
@@ -172,6 +173,30 @@ export class GeocachesService {
             `/api/geocaches/${geocacheId}/coordinates`,
             this.apiClient.createJsonInit('PUT', { coordinates_raw: coordinatesRaw }),
             'Erreur lors de la mise à jour des coordonnées'
+        );
+    }
+
+    /**
+     * Bundle d'analyse de sortie pour un lot de géocaches.
+     *
+     * Un seul aller-retour là où il faudrait sinon deux appels par cache (détails puis
+     * logs) : le serveur assemble listing, hint, attributs, santé et logs pertinents, et
+     * applique lui-même les troncatures.
+     */
+    async fetchAnalysisBundle(
+        geocacheIds: number[],
+        options: OutingAnalysisOptions = {},
+        signal?: AbortSignal
+    ): Promise<OutingAnalysisBundle> {
+        return this.apiClient.requestJson<OutingAnalysisBundle>(
+            '/api/geocaches/analysis-bundle',
+            this.apiClient.createJsonInit('POST', {
+                ids: geocacheIds,
+                listing_chars: options.listingChars,
+                recent_logs_count: options.recentLogsCount,
+                gear_logs_count: options.gearLogsCount,
+            }, { signal }),
+            'Erreur lors de la préparation de l\'analyse IA'
         );
     }
 }
