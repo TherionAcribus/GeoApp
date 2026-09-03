@@ -7,6 +7,21 @@
  * Le contrat est celui de `backend/gc_backend/services/outing_analysis_service.py`.
  */
 
+/**
+ * Agent chat dédié à l'analyse de sortie.
+ *
+ * Déclaré ici plutôt que dans le fichier de l'agent : le contrôleur en a besoin pour
+ * épingler la session, et ce module de contrat est le seul que tous les intervenants
+ * importent déjà. L'agent du lot 4 reprend cette constante.
+ */
+export const GEOAPP_OUTING_ANALYZER_AGENT_ID = 'geoapp-outing-analyzer';
+
+/**
+ * Plafond de géocaches par analyse, aligné sur `MAX_ANALYSIS_GEOCACHE_IDS` côté backend.
+ * Vérifié côté front pour expliquer le refus avant de payer l'aller-retour.
+ */
+export const MAX_OUTING_ANALYSIS_GEOCACHES = 60;
+
 /** Niveau de détail demandé : pilote la troncature du listing et le nombre de logs. */
 export type OutingDetailLevel = 'light' | 'standard' | 'full';
 

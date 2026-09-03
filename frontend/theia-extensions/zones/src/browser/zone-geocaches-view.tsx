@@ -36,6 +36,9 @@ export interface ZoneGeocachesViewProps {
     onCopySelected: (ids: number[]) => void | Promise<void>;
     onMoveSelected: (ids: number[]) => void | Promise<void>;
     onApplyPluginSelected: (ids: number[]) => void | Promise<void>;
+    onAnalyzeWithAiSelected: (ids: number[]) => void | Promise<void>;
+    /** Une analyse IA est en cours : le bouton de la barre d'actions passe en attente. */
+    analyzingWithAi?: boolean;
     onExportGpxSelected: (ids: number[]) => void | Promise<void>;
     /** Un export GPX est en cours : le bouton de la barre d'actions passe en attente. */
     exportingGpx?: boolean;
@@ -177,6 +180,8 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
                 onCopySelected={props.onCopySelected}
                 onMoveSelected={props.onMoveSelected}
                 onApplyPluginSelected={props.onApplyPluginSelected}
+                onAnalyzeWithAiSelected={props.onAnalyzeWithAiSelected}
+                analyzingWithAi={props.analyzingWithAi}
                 onExportGpxSelected={props.onExportGpxSelected}
                 exportingGpx={props.exportingGpx}
                 onDelete={geocache => props.onDelete(geocache)}

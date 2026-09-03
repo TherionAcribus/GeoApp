@@ -32,6 +32,7 @@ import { getErrorMessage } from './backend-api-client';
 import { ZoneGeocachesView } from './zone-geocaches-view';
 import { ImportAroundCenter, ImportAroundRequest } from './import-around-dialog';
 import { ImportAroundService } from './import-around-service';
+import { OutingAnalysisController } from './outing-analysis-controller';
 
 interface SerializedZoneGeocachesState {
     zoneId: number;
@@ -70,6 +71,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     protected isImporting = false;
     /** Vrai pendant la génération puis le téléchargement d'un export GPX. */
     protected exportingGpx = false;
+    protected analyzingWithAi = false;
     protected importAbortController?: AbortController;
     protected copySelectedDialog: { geocacheIds: number[] } | null = null;
     protected moveSelectedDialog: { geocacheIds: number[] } | null = null;
@@ -141,6 +143,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         @inject(ZonesService) protected readonly zonesService: ZonesService,
         @inject(GeoAppWidgetEventsService) protected readonly widgetEventsService: GeoAppWidgetEventsService,
         @inject(MapService) protected readonly mapService: MapService,
+        @inject(OutingAnalysisController) protected readonly outingAnalysisController: OutingAnalysisController,
     ) {
         super();
         this.id = ZoneGeocachesWidget.ID;
@@ -605,6 +608,32 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         } finally {
             progress.cancel();
             this.exportingGpx = false;
+            this.update();
+        }
+    }
+
+    /**
+     * Analyse IA de la sélection : préparation de sortie.
+     *
+     * Toute la logique vit dans `OutingAnalysisController`, partagé avec le log-editor.
+     * Le widget ne gère que son indicateur d'attente.
+     */
+    protected async handleAnalyzeWithAiSelected(geocacheIds: number[]): Promise<void> {
+        if (this.analyzingWithAi) {
+            // Une analyse est déjà en cours : on ignore le clic plutôt que d'en lancer
+            // une seconde, qui viendrait écraser la première dans la même session.
+            return;
+        }
+
+        this.analyzingWithAi = true;
+        this.update();
+
+        try {
+            await this.outingAnalysisController.runInteractive(geocacheIds, {
+                zoneName: this.zoneName,
+            });
+        } finally {
+            this.analyzingWithAi = false;
             this.update();
         }
     }
@@ -1813,6 +1842,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 onCopySelected={ids => this.handleCopySelected(ids)}
                 onMoveSelected={ids => this.handleMoveSelected(ids)}
                 onApplyPluginSelected={ids => this.handleApplyPluginSelected(ids)}
+                onAnalyzeWithAiSelected={ids => this.handleAnalyzeWithAiSelected(ids)}
+                analyzingWithAi={this.analyzingWithAi}
                 onExportGpxSelected={ids => this.handleExportGpxSelected(ids)}
                 onDelete={geocache => this.handleDelete(geocache.id, geocache.gc_code)}
                 onRefresh={id => this.handleRefresh(id)}

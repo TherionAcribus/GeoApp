@@ -9,6 +9,7 @@ import { GeoAppLogWriterAgentId } from './geoapp-log-writer-agent';
 import { AiGenerationPanel } from './log-editor/ai-generation-panel';
 import { DraftBanner } from './log-editor/draft-banner';
 import { GeocacheLogEditorGeocachesTable } from './log-editor/geocaches-table';
+import { OutingAnalysisController } from './outing-analysis-controller';
 import {
     buildFieldNotes as buildFieldNotesPure,
     buildSubmissionSummaryNode as buildSubmissionSummaryNodePure,
@@ -189,6 +190,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     protected previewUrlByFile = new Map<File, string>();
 
     protected isSubmitting = false;
+    /** Vrai pendant la préparation de l'analyse IA de la sortie. */
+    protected analyzingWithAi = false;
     /** Empêche un second envoi tant que le récapitulatif de confirmation est ouvert. */
     protected isConfirmingSubmit = false;
     protected lastSubmitSummary: { ok: number; failed: number } | undefined;
@@ -277,6 +280,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         @inject(LanguageModelService) protected readonly languageModelService: LanguageModelService,
         @inject(StorageService) protected readonly storageService: StorageService,
         @inject(PreferenceService) protected readonly preferenceService: PreferenceService,
+        @inject(OutingAnalysisController) protected readonly outingAnalysisController: OutingAnalysisController,
     ) {
         super();
         this.title.label = 'Logs';
@@ -1882,6 +1886,32 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         );
     }
 
+    /**
+     * Analyse IA de la sortie entière.
+     *
+     * Contrairement à la table de zone, il n'y a pas de sélection ici : la liste des
+     * géocaches à loguer *est* la sortie du jour, ce qui en fait le point d'entrée le
+     * plus naturel de la fonctionnalité.
+     */
+    protected async analyzeOutingWithAi(): Promise<void> {
+        if (this.analyzingWithAi) {
+            return;
+        }
+
+        this.analyzingWithAi = true;
+        this.update();
+
+        try {
+            await this.outingAnalysisController.runInteractive(
+                this.geocaches.map(geocache => geocache.id),
+                { zoneName: 'sortie du jour' }
+            );
+        } finally {
+            this.analyzingWithAi = false;
+            this.update();
+        }
+    }
+
     protected async copyFieldNotes(): Promise<void> {
         try {
             const content = this.buildFieldNotes();
@@ -2109,6 +2139,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                     onRequestStop={() => this.requestSubmitStop()}
                     onCopyFieldNotes={() => { void this.copyFieldNotes(); }}
                     onDownloadFieldNotes={() => this.downloadFieldNotes()}
+                    onAnalyzeWithAi={() => { void this.analyzeOutingWithAi(); }}
+                    analyzingWithAi={this.analyzingWithAi}
                 />
 
                 {this.submitProgress && (

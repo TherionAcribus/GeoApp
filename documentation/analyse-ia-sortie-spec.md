@@ -600,9 +600,23 @@ export class OutingAnalysisController {
 
 Enchaîne : garde sur liste vide → garde de plafond (au-delà de 60, message d'erreur
 explicite) → `fetchAnalysisBundle` → `buildOutingAnalysisPrompt` →
-`estimateOutingPromptSize` → `dispatchGeoAppOpenChatRequest`. Renvoie les avertissements
-(caches sans logs, ids manquants, prompt volumineux) pour que l'appelant les affiche via
-son propre `MessageService`.
+`estimateOutingPromptSize` → `dispatchGeoAppOpenChatRequest`.
+
+**Écart constaté à l'implémentation** — le contrôleur expose finalement **deux** niveaux
+au lieu d'un :
+
+- `analyze()` ne touche à aucune UI et renvoie ses avertissements ;
+- `runInteractive()` ajoute le choix du niveau de détail, la progression annulable et
+  l'affichage des messages.
+
+La séparation initiale (« le contrôleur ne connaît pas `MessageService`, chaque widget
+affiche ») aurait fait dupliquer une quarantaine de lignes de glue dans les deux widgets
+— d'autant que `geocache-log-editor-widget.tsx` n'a **pas** de `QuickInputService`
+injecté et aurait fallu en ajouter un. `analyze()` reste sans UI, donc testable seul ;
+c'est lui que couvrent les tests.
+
+`openChatSession()` isole l'appel à `dispatchGeoAppOpenChatRequest` : les tests
+l'interceptent sans avoir à simuler `window` ni `CustomEvent`.
 
 **Binding** : `zones-frontend-module.ts`, en `inSingletonScope()`, comme les autres
 services du dossier.
@@ -648,6 +662,13 @@ ordres possibles ; **retenir celui-ci** : dialogue d'options d'abord, puis récu
 puis avertissements via `MessageService` (« X cache(s) sans logs locaux : l'analyse sera
 partielle pour celles-ci. »). Il évite un aller-retour réseau si l'utilisateur annule.
 **Aucun bouton de rafraîchissement** dans ce bandeau — décision explicite, cf. périmètre.
+
+**Écart constaté à l'implémentation** — le dialogue est un `QuickInputService.pick`, pas
+un composant React. Trois entrées (Standard / Léger / Complet, le défaut des préférences
+en tête et marqué comme tel), ce qui suffit à couvrir le besoin sans introduire un
+composant de dialogue partagé entre deux widgets. Le nombre de logs reste piloté par les
+préférences ; l'exposer dans le picker aurait demandé un vrai formulaire pour un réglage
+qu'on change rarement.
 
 ---
 

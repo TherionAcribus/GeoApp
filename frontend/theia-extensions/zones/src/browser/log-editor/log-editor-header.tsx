@@ -24,12 +24,16 @@ export interface LogEditorHeaderProps {
     onRequestStop: () => void;
     onCopyFieldNotes: () => void;
     onDownloadFieldNotes: () => void;
+    /** Analyse IA de la sortie : porte sur toute la liste, cette table n'a pas de sélection. */
+    onAnalyzeWithAi: () => void;
+    analyzingWithAi: boolean;
 }
 
 export const LogEditorHeader: React.FC<LogEditorHeaderProps> = ({
     geocacheCount, loadedCount, isLoading, isLoadingHistory, canPrev, canNext,
     isSubmitting, submitProgress, canSubmit, submitTitle, stopRequested,
     onNavigateHistory, onSubmit, onRequestStop, onCopyFieldNotes, onDownloadFieldNotes,
+    onAnalyzeWithAi, analyzingWithAi,
 }) => (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
         <div style={{ display: 'grid', gap: 8 }}>
@@ -89,6 +93,15 @@ export const LogEditorHeader: React.FC<LogEditorHeaderProps> = ({
                     {stopRequested ? '⏹️ Arrêt demandé…' : '⏹️ Stop après la cache en cours'}
                 </button>
             )}
+            <button
+                className='theia-button secondary'
+                onClick={onAnalyzeWithAi}
+                disabled={isLoading || loadedCount === 0 || analyzingWithAi}
+                title="Analyser toute la sortie avec l'IA : matériel à emporter, temps à prévoir, alertes"
+                style={{ fontSize: 12, padding: '4px 12px' }}
+            >
+                {analyzingWithAi ? '⏳ Analyse…' : '🧠 Analyser la sortie'}
+            </button>
             <button
                 className='theia-button secondary'
                 onClick={onCopyFieldNotes}

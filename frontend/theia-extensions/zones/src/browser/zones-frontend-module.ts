@@ -61,6 +61,7 @@ import { BackendApiClient } from './backend-api-client';
 import { ZonesService } from './zones-service';
 import { GeocachesService } from './geocaches-service';
 import { ImportAroundService } from './import-around-service';
+import { OutingAnalysisController } from './outing-analysis-controller';
 import { GeoAppWidgetEventsService } from './geoapp-widget-events-service';
 import { GeocacheDetailsService } from './geocache-details-service';
 import { GeocacheDetailsArchiveController } from './geocache-details-archive-controller';
@@ -92,6 +93,7 @@ export default new ContainerModule(bind => {
     bind(ZonesService).toSelf().inSingletonScope();
     bind(GeocachesService).toSelf().inSingletonScope();
     bind(ImportAroundService).toSelf().inSingletonScope();
+    bind(OutingAnalysisController).toSelf().inSingletonScope();
     bind(GeocacheDetailsService).toSelf().inSingletonScope();
     bind(GeocacheNotesService).toSelf().inSingletonScope();
     bind(ArchiveManagerService).toSelf().inSingletonScope();

@@ -79,6 +79,9 @@ interface GeocachesTableProps {
     onCopySelected?: (ids: number[]) => void;
     onMoveSelected?: (ids: number[]) => void;
     onApplyPluginSelected?: (ids: number[]) => void;
+    onAnalyzeWithAiSelected?: (ids: number[]) => void;
+    /** Vrai pendant la collecte du bundle d'analyse : le bouton passe en attente. */
+    analyzingWithAi?: boolean;
     onExportGpxSelected?: (ids: number[]) => void;
     /** Vrai pendant la génération/le téléchargement de l'export GPX. */
     exportingGpx?: boolean;
@@ -389,6 +392,8 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
     onCopySelected,
     onMoveSelected,
     onApplyPluginSelected,
+    onAnalyzeWithAiSelected,
+    analyzingWithAi = false,
     onExportGpxSelected,
     exportingGpx = false,
     onDelete,
@@ -1247,6 +1252,22 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                                 >
                                     <span className="geoapp-gc-action-btn__icon" aria-hidden="true">🔧</span>
                                     Plugin
+                                </button>
+                            )}
+                            {onAnalyzeWithAiSelected && (
+                                <button
+                                    onClick={() => onAnalyzeWithAiSelected(selectedIds)}
+                                    className="geoapp-gc-action-btn geoapp-gc-action-btn--primary"
+                                    disabled={analyzingWithAi}
+                                    aria-busy={analyzingWithAi}
+                                    title="Analyser la sélection avec l'IA (préparation de sortie : matériel, temps, alertes)"
+                                >
+                                    {analyzingWithAi ? (
+                                        <span className="geoapp-gc-action-btn__spinner" aria-hidden="true" />
+                                    ) : (
+                                        <span className="geoapp-gc-action-btn__icon" aria-hidden="true">🧠</span>
+                                    )}
+                                    {analyzingWithAi ? 'Analyse en cours…' : 'Analyser IA'}
                                 </button>
                             )}
                             {onExportGpxSelected && (
