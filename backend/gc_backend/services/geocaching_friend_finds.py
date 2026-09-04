@@ -105,6 +105,96 @@ class ZoneBox:
         )
 
 
+# ------------------------------------------------------- Clustering de zones
+
+# Distance (km) en dessous de laquelle deux caches appartiennent au même
+# cluster. Au-delà, on crée une boîte séparée : la recherche geocaching.com
+# est limitée en débit, et une boîte qui balaye 1400 caches pour 5 caches de
+# zone dispersées coûte 14 pages par ami au lieu de 1-2.
+DEFAULT_CLUSTER_RADIUS_KM = 5.0
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Distance à vol d'oiseau entre deux points, en km."""
+    from math import radians, sin, cos, asin, sqrt
+    rlat1, rlon1, rlat2, rlon2 = map(radians, (lat1, lon1, lat2, lon2))
+    dlat = rlat2 - rlat1
+    dlon = rlon2 - rlon1
+    a = sin(dlat / 2) ** 2 + cos(rlat1) * cos(rlat2) * sin(dlon / 2) ** 2
+    return 6371.0 * 2 * asin(sqrt(a))
+
+
+def cluster_coordinates(
+    coordinates: list[tuple[float, float]],
+    radius_km: float = DEFAULT_CLUSTER_RADIUS_KM,
+) -> list[list[tuple[float, float]]]:
+    """
+    Regroupe des coordonnées en clusters par proximité.
+
+    Algorithme glouton : on prend un point non assigné comme graine, on y
+    rattache tous les points à moins de ``radius_km``, puis on recommence.
+    Ce n'est pas optimal (DBSCAN le serait) mais c'est déterministe, simple,
+    et suffisant pour le cas d'usage : éviter qu'une zone dispersée produise
+    une boîte démesurée.
+
+    Retourne une liste de clusters, chacun étant une liste de ``(lat, lon)``.
+    """
+    if not coordinates:
+        return []
+
+    assigned = [False] * len(coordinates)
+    clusters: list[list[tuple[float, float]]] = []
+
+    for i, (lat, lon) in enumerate(coordinates):
+        if assigned[i]:
+            continue
+        # Nouvelle graine.
+        cluster = [(lat, lon)]
+        assigned[i] = True
+        # On rattache tous les points non assignés à moins de radius_km.
+        # On itère car les points rattachés peuvent en attirer d'autres
+        # (effet de chaîne, comme DBSCAN avec un seul voisin).
+        changed = True
+        while changed:
+            changed = False
+            for j, (lat2, lon2) in enumerate(coordinates):
+                if assigned[j]:
+                    continue
+                # Distance à n'importe quel point du cluster.
+                for clat, clon in cluster:
+                    if _haversine_km(clat, clon, lat2, lon2) <= radius_km:
+                        cluster.append((lat2, lon2))
+                        assigned[j] = True
+                        changed = True
+                        break
+
+        clusters.append(cluster)
+
+    return clusters
+
+
+def zone_boxes_from_coordinates(
+    coordinates: list[tuple[float, float]],
+    radius_km: float = DEFAULT_CLUSTER_RADIUS_KM,
+    margin: float = 0.01,
+) -> list[ZoneBox]:
+    """
+    Découpe une zone en boîtes englobantes par clustering géographique.
+
+    Retourne une liste de ``ZoneBox`` : une seule si les caches sont proches,
+    plusieurs si elles sont dispersées. Chaque boîte est plus petite que la
+    boîte globale, ce qui réduit le nombre de caches balayées par la recherche
+    geocaching.com.
+    """
+    clusters = cluster_coordinates(coordinates, radius_km=radius_km)
+    boxes: list[ZoneBox] = []
+    for cluster in clusters:
+        box = ZoneBox.from_coordinates(cluster, margin=margin)
+        if box is not None:
+            boxes.append(box)
+    return boxes
+
+
 @dataclass
 class CacheSummary:
     """
@@ -658,6 +748,57 @@ class GeocachingFriendFindsClient:
 
         # --- Fallback : complément nfb ---
         return self._find_via_nfb(friend_username, box, baseline, truncated_baseline)
+
+    def find_codes_found_by_multi(
+        self,
+        friend_username: str,
+        boxes: list[ZoneBox],
+    ) -> FriendFindsResult:
+        """
+        Déduit les trouvailles d'un ami sur plusieurs boîtes (clusters).
+
+        Pour une zone dispersée, on découpe en plusieurs boîtes plus petites
+        (cf. ``zone_boxes_from_coordinates``) : chaque boîte balaye moins de
+        caches côté geocaching.com, et le total des trouvailles est l'union
+        des résultats par boîte.
+
+        - Les ``found_codes`` sont l'union des trouvailles de chaque boîte.
+        - Les ``summaries`` sont fusionnées (les doublons écrasent).
+        - ``zone_codes_count`` est la somme des baselines (sans double-compte
+          des codes communs à plusieurs boîtes).
+        - ``truncated`` est vrai si au moins une boîte est tronquée.
+        """
+        if not boxes:
+            return FriendFindsResult(
+                friend_username=friend_username,
+                found_codes=set(),
+                zone_codes_count=0,
+                truncated=False,
+                summaries={},
+            )
+
+        all_found: set[str] = set()
+        all_summaries: dict[str, CacheSummary] = {}
+        all_baseline_codes: set[str] = set()
+        any_truncated = False
+
+        for box in boxes:
+            result = self.find_codes_found_by(friend_username, box)
+            all_found |= result.found_codes
+            all_summaries.update(result.summaries)
+            # Les baselines peuvent se chevaucher : on dédoublonne par code.
+            all_baseline_codes |= {s.gc_code for s in result.summaries.values()}
+            # zone_codes_count du résultat = len(baseline) de cette boîte.
+            # On l'ajoute au total, mais on dédoublonne à la fin.
+            any_truncated = any_truncated or result.truncated
+
+        return FriendFindsResult(
+            friend_username=friend_username,
+            found_codes=all_found,
+            zone_codes_count=len(all_baseline_codes),
+            truncated=any_truncated,
+            summaries=all_summaries,
+        )
 
     def _find_via_fb_box(
         self,

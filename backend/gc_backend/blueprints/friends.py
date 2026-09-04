@@ -66,6 +66,7 @@ from ..services.geocaching_friend_finds import (
     get_zone_scans,
     filter_friends_to_scan,
     store_finds,
+    zone_boxes_from_coordinates,
 )
 from ..services.geocaching_friends import (
     GeocachingFriendsError,
@@ -279,6 +280,25 @@ def _zone_box(zone_id: int):
     return ZoneBox.from_coordinates(rows)
 
 
+def _zone_boxes(zone_id: int) -> list[ZoneBox]:
+    """
+    Boîtes englobantes d'une zone, découpées par clustering géographique.
+
+    Pour une zone compacte, retourne une seule boîte (équivalent à
+    ``_zone_box``). Pour une zone dispersée, retourne plusieurs boîtes plus
+    petites, chacune balayant moins de caches côté geocaching.com.
+
+    Retourne une liste vide si la zone n'a aucune géocache géolocalisée.
+    """
+    rows = (
+        db.session.query(Geocache.latitude, Geocache.longitude)
+        .filter(Geocache.zone_id == zone_id)
+        .filter(Geocache.latitude.isnot(None), Geocache.longitude.isnot(None))
+        .all()
+    )
+    return zone_boxes_from_coordinates(rows)
+
+
 @bp.post("/finds/sync-zone")
 def sync_zone_finds():
     """
@@ -413,8 +433,8 @@ def sync_zone_finds_stream():
             "error_message": "Vous devez être connecté à Geocaching.com pour cette recherche.",
         }), 401
 
-    box = _zone_box(zone_id)
-    if box is None:
+    boxes = _zone_boxes(zone_id)
+    if not boxes:
         return jsonify({"success": False, "error": "empty_zone",
                         "error_message": "Cette zone ne contient aucune géocache géolocalisée."}), 400
 
@@ -442,10 +462,13 @@ def sync_zone_finds_stream():
             return
 
         # Scan incrémental : skip les amis dont le scan est frais.
+        # On utilise la première boîte comme signature pour la détection
+        # d'obsolescence (si la zone change, la signature change).
+        signature_box = boxes[0]
         to_scan = all_friends
         skipped = 0
         if not force_all:
-            to_scan, fresh = filter_friends_to_scan(zone_id, all_friends, box)
+            to_scan, fresh = filter_friends_to_scan(zone_id, all_friends, signature_box)
             skipped = len(fresh)
 
         total_to_scan = len(to_scan)
@@ -454,6 +477,7 @@ def sync_zone_finds_stream():
             'total': len(all_friends),
             'skipped': skipped,
             'to_scan': total_to_scan,
+            'clusters': len(boxes),
         }) + '\n'
 
         if total_to_scan == 0:
@@ -469,6 +493,13 @@ def sync_zone_finds_stream():
         scanned = 0
         rate_limited = False
 
+        # Les codes de la zone, pour filtrer les trouvailles qui tombent dans
+        # la boîte mais n'appartiennent pas à la zone (boîte > zone).
+        zone_codes = {
+            code for (code,) in db.session.query(Geocache.gc_code)
+            .filter(Geocache.zone_id == zone_id).all()
+        }
+
         for index, friend in enumerate(to_scan):
             # Détection de déconnexion : si le client a fermé la connexion,
             # on s'arrête proprement sans perdre ce qui a déjà été collecté.
@@ -477,25 +508,23 @@ def sync_zone_finds_stream():
                 break
 
             try:
-                result = client.find_codes_found_by(friend, box)
-                baseline, _ = client.get_zone_baseline(box)
+                result = client.find_codes_found_by_multi(friend, boxes)
+                # Le replace_scope est l'union des baselines de tous les
+                # clusters : on récupère les codes depuis les summaries.
+                baseline_codes = list(result.summaries.keys())
                 created, known = store_finds(
                     friend,
                     result.found_codes,
-                    replace_scope=baseline,
+                    replace_scope=baseline_codes,
                     summaries=result.summaries,
                 )
 
-                zone_codes = {
-                    code for (code,) in db.session.query(Geocache.gc_code)
-                    .filter(Geocache.zone_id == zone_id).all()
-                }
                 zone_matches = len(zone_codes & result.found_codes)
 
                 record_scan(
                     friend_username=friend,
                     zone_id=zone_id,
-                    box=box,
+                    box=signature_box,
                     found_count=len(result.found_codes),
                     baseline_total=result.zone_codes_count,
                     zone_matches=zone_matches,
@@ -686,35 +715,50 @@ def estimate_zone_finds(zone_id: int):
     """
     Coût prévisible d'une analyse : nombre de caches à balayer et durée estimée.
 
-    Une seule requête vers geocaching.com, pour éviter de lancer à l'aveugle une
-    analyse de vingt minutes sur une zone géographiquement dispersée.
+    Une seule requête vers geocaching.com par cluster, pour éviter de lancer à
+    l'aveugle une analyse de vingt minutes sur une zone géographiquement
+    dispersée. Le clustering découpe la zone en boîtes plus petites : le total
+    balayé est la somme des caches de chaque boîte (sans double-compte des
+    caches communes à plusieurs boîtes, mais l'estimation reste prudente).
     """
     if not get_auth_service().is_logged_in():
         return jsonify({"success": False, "error": "not_authenticated",
                         "error_message": "Vous devez être connecté à Geocaching.com."}), 401
 
-    box = _zone_box(zone_id)
-    if box is None:
+    boxes = _zone_boxes(zone_id)
+    if not boxes:
         return jsonify({"success": False, "error": "empty_zone",
                         "error_message": "Cette zone ne contient aucune géocache géolocalisée."}), 400
 
+    client = get_friend_finds_client()
+    total_searched = 0
+    cluster_details: list[dict] = []
+
     try:
-        searched = get_friend_finds_client().estimate_box_size(box)
+        for box in boxes:
+            searched = client.estimate_box_size(box)
+            total_searched += searched
+            cluster_details.append({
+                'box': box.box_param,
+                'searched_caches': searched,
+            })
     except RateLimitedError as exc:
         return jsonify({"success": False, "error": "rate_limited", "error_message": str(exc)}), 429
     except FriendFindsError as exc:
         return jsonify({"success": False, "error": "fetch_failed", "error_message": str(exc)}), 502
 
     zone_caches = Geocache.query.filter_by(zone_id=zone_id).count()
-    pages = max(1, -(-searched // get_friend_finds_client().PAGE_SIZE))
+    pages = max(1, -(-total_searched // client.PAGE_SIZE))
 
     return jsonify({
         "success": True,
         "zone_id": zone_id,
         "zone_caches": zone_caches,
-        "searched_caches": searched,
+        "searched_caches": total_searched,
+        "clusters": len(boxes),
+        "cluster_details": cluster_details,
         # Une pagination par ami, au débit auto-limité du client.
-        "seconds_per_friend": round(pages * get_friend_finds_client().MIN_INTERVAL_SECONDS),
+        "seconds_per_friend": round(pages * client.MIN_INTERVAL_SECONDS),
     })
 
 
