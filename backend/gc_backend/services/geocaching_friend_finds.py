@@ -1223,10 +1223,24 @@ def store_finds(
     summaries = summaries or {}
     now = datetime.now(timezone.utc)
 
-    existing = {
-        row.gc_code: row
-        for row in FriendFind.query.filter_by(friend_username=friend_username).all()
-    }
+    # Optimisation : ne charger que les lignes pertinentes (gc_codes ∪
+    # replace_scope) au lieu de toutes les trouvailles de l'ami, qui peuvent
+    # être des milliers. Sans cette restriction, chaque appel store_finds
+    # chargeait l'intégralité de l'historique de l'ami en mémoire.
+    relevant_codes = set(gc_codes)
+    if replace_scope is not None:
+        relevant_codes |= {code.upper() for code in replace_scope}
+
+    if relevant_codes:
+        existing = {
+            row.gc_code: row
+            for row in FriendFind.query.filter(
+                FriendFind.friend_username == friend_username,
+                FriendFind.gc_code.in_(relevant_codes),
+            ).all()
+        }
+    else:
+        existing = {}
 
     created = 0
     known = 0
