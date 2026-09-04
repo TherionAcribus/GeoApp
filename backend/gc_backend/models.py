@@ -101,6 +101,57 @@ class FriendFind(db.Model):
         }
 
 
+class FriendZoneScan(db.Model):
+    """
+    Mémoire des analyses « qui a trouvé quoi » sur une zone.
+
+    Sans cette table, « absent de ``friend_find`` » est indiscernable de
+    « jamais analysé » : un re-scan repaginerait intégralement la boîte pour
+    chaque ami, même ceux dont on sait déjà qu'ils n'ont rien trouvé la
+    semaine précédente. Ici, on enregistre le résultat de chaque scan (ami ×
+    zone), ce qui permet :
+
+    - d'afficher « vérifié le 12/08, 0/43 » à côté de chaque ami ;
+    - de ne re-scanner que les amis dont le scan est ancien ou dont la boîte a
+      changé (``box_signature``) ;
+    - de reprendre un scan interrompu (429) sans tout reprendre depuis le
+      début.
+    """
+    __tablename__ = 'friend_zone_scan'
+
+    id = db.Column(db.Integer, primary_key=True)
+    friend_username = db.Column(db.String(150), nullable=False, index=True)
+    zone_id = db.Column(db.Integer, nullable=False, index=True)
+
+    # Signature de la boîte englobante au moment du scan : si des caches sont
+    # ajoutées à la zone, la boîte change et le scan est considéré comme obsolète.
+    box_signature = db.Column(db.String(100))
+
+    # Compteurs relevés au moment du scan, pour l'affichage sans re-scanner.
+    baseline_total = db.Column(db.Integer, default=0)
+    found_count = db.Column(db.Integer, default=0)
+    zone_matches = db.Column(db.Integer, default=0)
+    truncated = db.Column(db.Boolean, default=False)
+
+    scanned_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        db.UniqueConstraint('friend_username', 'zone_id', name='unique_scan_per_friend_zone'),
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            'friend_username': self.friend_username,
+            'zone_id': self.zone_id,
+            'box_signature': self.box_signature,
+            'baseline_total': self.baseline_total,
+            'found_count': self.found_count,
+            'zone_matches': self.zone_matches,
+            'truncated': bool(self.truncated),
+            'scanned_at': self.scanned_at.isoformat() if self.scanned_at else None,
+        }
+
+
 class FriendActivity(db.Model):
     """
     Un log d'un ami, capturé depuis le flux d'activité de geocaching.com.

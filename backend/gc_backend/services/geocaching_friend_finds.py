@@ -994,6 +994,137 @@ def store_finds(
     return created, known
 
 
+# ------------------------------------------------------- Mémoire des scans
+
+# Une boîte dont la signature change invalide les scans précédents : on
+# considère qu'un scan est « frais » s'il date de moins de cette durée ET que
+# la boîte n'a pas changé.
+DEFAULT_SCAN_FRESHNESS_HOURS = 24 * 7  # 7 jours
+
+
+def _is_after(dt: datetime, threshold: datetime) -> bool:
+    """
+    Compare deux datetimes en gérant le cas naive (SQLite) vs aware (UTC).
+
+    SQLite ne stocke pas le fuseau horaire : les datetimes lues depuis la base
+    sont « naive ». Les comparaisons directes avec des datetimes « aware »
+    lèvent une ``TypeError`` en Python.
+    """
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt > threshold
+
+
+def record_scan(
+    friend_username: str,
+    zone_id: int,
+    box: ZoneBox,
+    found_count: int,
+    baseline_total: int,
+    zone_matches: int,
+    truncated: bool,
+) -> None:
+    """
+    Enregistre ou met à jour le résultat d'un scan (ami × zone).
+
+    Upsert sur ``(friend_username, zone_id)`` : un re-scan écrase le résultat
+    précédent. La signature de la boîte est stockée pour détecter les
+    changements de périmètre (caches ajoutées → boîte différente → scan
+    obsolète).
+    """
+    from ..database import db
+    from ..models import FriendZoneScan
+
+    now = datetime.now(timezone.utc)
+    row = FriendZoneScan.query.filter_by(
+        friend_username=friend_username, zone_id=zone_id
+    ).first()
+
+    if row is None:
+        db.session.add(FriendZoneScan(
+            friend_username=friend_username,
+            zone_id=zone_id,
+            box_signature=box.box_param,
+            baseline_total=baseline_total,
+            found_count=found_count,
+            zone_matches=zone_matches,
+            truncated=truncated,
+            scanned_at=now,
+        ))
+    else:
+        row.box_signature = box.box_param
+        row.baseline_total = baseline_total
+        row.found_count = found_count
+        row.zone_matches = zone_matches
+        row.truncated = truncated
+        row.scanned_at = now
+
+    db.session.commit()
+
+
+def get_zone_scans(zone_id: int) -> dict[str, dict]:
+    """
+    État des scans pour une zone, indexé par pseudo d'ami.
+
+    Retourne ``{username: {scanned_at, found_count, zone_matches, ...}}``.
+    Les amis jamais scannés sont absents du dict : l'appelant les croise avec
+    la liste d'amis pour distinguer « jamais analysé » de « analysé, 0 ».
+    """
+    from ..models import FriendZoneScan
+
+    rows = FriendZoneScan.query.filter_by(zone_id=zone_id).all()
+    return {row.friend_username: row.to_dict() for row in rows}
+
+
+def filter_friends_to_scan(
+    zone_id: int,
+    friends: list[str],
+    box: ZoneBox,
+    max_age_hours: float = DEFAULT_SCAN_FRESHNESS_HOURS,
+) -> tuple[list[str], list[str]]:
+    """
+    Sépare les amis à scanner de ceux dont le scan est encore frais.
+
+    Retourne ``(to_scan, fresh)`` :
+
+    - ``to_scan`` : amis jamais scannés, scannés avec une boîte différente,
+      ou scannés depuis plus de ``max_age_hours`` ;
+    - ``fresh`` : amis dont le scan est récent et dont la boîte n'a pas
+      changé — on peut les skip.
+
+    Pour les amis « frais » avec ``found_count == 0``, on sait déjà qu'ils
+    n'ont rien trouvé : aucun intérêt à les re-scanner.
+    """
+    from datetime import timedelta
+    from ..models import FriendZoneScan
+
+    now = datetime.now(timezone.utc)
+    threshold = now - timedelta(hours=max_age_hours)
+    box_sig = box.box_param
+
+    existing = {
+        row.friend_username: row
+        for row in FriendZoneScan.query.filter_by(zone_id=zone_id).all()
+    }
+
+    to_scan: list[str] = []
+    fresh: list[str] = []
+
+    for friend in friends:
+        row = existing.get(friend)
+        if row is None:
+            to_scan.append(friend)
+        elif row.box_signature != box_sig:
+            # La boîte a changé : le scan est obsolète.
+            to_scan.append(friend)
+        elif row.scanned_at is not None and _is_after(row.scanned_at, threshold):
+            fresh.append(friend)
+        else:
+            to_scan.append(friend)
+
+    return to_scan, fresh
+
+
 # ---------------------------------------------------------- Suggestions
 
 def query_suggestions(

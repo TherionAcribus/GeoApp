@@ -66,7 +66,11 @@ export interface ZoneGeocachesViewProps {
     friendFinds?: Record<string, string[]>;
     /** Progression de l'analyse des amis (null = inactive). */
     friendFindsProgress?: { done: number; total: number; friend?: string } | null;
-    onAnalyzeFriendFinds?: () => void | Promise<void>;
+    onAnalyzeFriendFinds?: (forceAll: boolean) => void | Promise<void>;
+    /** Nombre d'amis dont le scan est frais (vérifié récemment). */
+    friendScansFreshCount?: number;
+    /** Nombre total d'amis dans la liste. */
+    friendScansTotalCount?: number;
     showImportAroundDialog: boolean;
     importAroundDialogInitialCenter?: ImportAroundCenter;
     onImportAroundDialogImport: (request: ImportAroundRequest, onProgress?: (percentage: number, message: string) => void) => Promise<void>;
@@ -145,13 +149,18 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
                 {props.onAnalyzeFriendFinds && (
                     <button
                         className='theia-button secondary'
-                        onClick={props.onAnalyzeFriendFinds}
+                        onClick={e => props.onAnalyzeFriendFinds?.(e.shiftKey)}
                         disabled={!!props.friendFindsProgress}
-                        title="Déterminer, pour chaque cache de la zone, lesquels de vos amis l'ont trouvée (sur tout leur historique)"
+                        title={
+                            "Déterminer, pour chaque cache de la zone, lesquels de vos amis l'ont trouvée "
+                            + '(sur tout leur historique). Maj+clic pour forcer une réanalyse complète.'
+                        }
                     >
                         {props.friendFindsProgress
                             ? `👥 ${props.friendFindsProgress.done}/${props.friendFindsProgress.total}…`
-                            : '👥 Amis'}
+                            : props.friendScansTotalCount && props.friendScansTotalCount > 0
+                                ? `👥 Amis ${props.friendScansFreshCount}/${props.friendScansTotalCount}`
+                                : '👥 Amis'}
                     </button>
                 )}
             </div>

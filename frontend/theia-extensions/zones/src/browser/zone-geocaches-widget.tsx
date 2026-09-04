@@ -81,6 +81,19 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     /** « Qui a trouvé quoi » dans cette zone : code GC -> pseudos d'amis. */
     protected friendFinds: Record<string, string[]> = {};
     protected friendFindsProgress: { done: number; total: number; friend?: string } | null = null;
+    /** État des scans par ami sur cette zone (vérifié le…, obsolète…). */
+    protected friendScans: Array<{
+        friend: string; scanned: boolean; is_stale: boolean;
+        found_count: number | null; zone_matches: number | null;
+        scanned_at: string | null;
+    }> = [];
+    /** Nombre d'amis dont le scan est frais (affiché dans le bouton). */
+    protected get friendScansFreshCount(): number {
+        return this.friendScans.filter(s => s.scanned && !s.is_stale).length;
+    }
+    protected get friendScansTotalCount(): number {
+        return this.friendScans.length;
+    }
 
     protected interactionTimerId: number | undefined;
     private lastAccessTimestamp: number = Date.now();
@@ -1183,13 +1196,40 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     }
 
     /**
+     * Charge l'état des scans par ami depuis la base locale.
+     *
+     * Permet d'afficher « 5/16 vérifiés » dans le bouton et de skip les amis
+     * dont le scan est frais lors d'un re-scan incrémental.
+     */
+    protected async loadFriendScans(): Promise<void> {
+        if (!this.zoneId) {
+            return;
+        }
+        try {
+            const data = await this.apiClient.requestJson<{
+                success: boolean; scans: Array<{
+                    friend: string; scanned: boolean; is_stale: boolean;
+                    found_count: number | null; zone_matches: number | null;
+                    scanned_at: string | null;
+                }>;
+            }>(`/api/friends/finds/zone/${this.zoneId}/scans`);
+            if (data?.success) {
+                this.friendScans = data.scans ?? [];
+                this.update();
+            }
+        } catch (error) {
+            console.debug('[ZoneGeocaches] friend scans indisponibles:', error);
+        }
+    }
+
+    /**
      * Détermine, ami par ami, quelles caches de la zone il a trouvées.
      *
-     * Séquentiel et volontairement lent : la recherche geocaching.com est
-     * fortement limitée en débit (429). On s'arrête net au premier signal de
-     * throttling plutôt que d'insister, en gardant ce qui a déjà été collecté.
+     * Scan incrémental : les amis dont le scan est frais (récent + boîte
+     * inchangée) sont skip, sauf si ``forceAll`` est vrai. On s'arrête net au
+     * premier signal de throttling (429), en gardant ce qui a déjà été collecté.
      */
-    protected analyzeFriendFinds = async (): Promise<void> => {
+    protected analyzeFriendFinds = async (forceAll: boolean = false): Promise<void> => {
         if (!this.zoneId || this.friendFindsProgress) {
             return;
         }
@@ -1234,13 +1274,34 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             return;
         }
 
-        this.friendFindsProgress = { done: 0, total: friends.length };
+        // Scan incrémental : filtrer les amis dont le scan est frais.
+        const freshSet = new Set(
+            this.friendScans
+                .filter(s => s.scanned && !s.is_stale)
+                .map(s => s.friend)
+        );
+        let toScan = friends;
+        let skipped = 0;
+        if (!forceAll && freshSet.size > 0) {
+            toScan = friends.filter(f => !freshSet.has(f.username));
+            skipped = friends.length - toScan.length;
+        }
+
+        if (toScan.length === 0) {
+            this.messages.info(
+                `Tous vos amis ont déjà été analysés récemment (${freshSet.size}). `
+                + 'Utilisez Maj+clic pour forcer une réanalyse complète.'
+            );
+            return;
+        }
+
+        this.friendFindsProgress = { done: 0, total: toScan.length };
         this.update();
 
         let analyzed = 0;
         try {
-            for (const friend of friends) {
-                this.friendFindsProgress = { done: analyzed, total: friends.length, friend: friend.username };
+            for (const friend of toScan) {
+                this.friendFindsProgress = { done: analyzed, total: toScan.length, friend: friend.username };
                 this.update();
 
                 const response = await this.apiClient.request('/api/friends/finds/sync-zone', {
@@ -1266,13 +1327,15 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         } finally {
             this.friendFindsProgress = null;
             await this.loadFriendFinds();
+            await this.loadFriendScans();
             this.update();
         }
 
         if (analyzed > 0) {
             const withFriends = Object.keys(this.friendFinds).length;
+            const skipMsg = skipped > 0 ? ` (${skipped} skip, scan récent)` : '';
             this.messages.info(
-                `${analyzed} ami(s) analysé(s) : ${withFriends} cache(s) de la zone trouvée(s) par au moins un ami.`
+                `${analyzed} ami(s) analysé(s)${skipMsg} : ${withFriends} cache(s) de la zone trouvée(s) par au moins un ami.`
             );
         }
     };
@@ -1287,6 +1350,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
 
             // « Qui a trouvé quoi » : lecture locale, sans réseau geocaching.com.
             void this.loadFriendFinds();
+            // État des scans (vérifié le…, obsolète…) : lecture locale.
+            void this.loadFriendScans();
 
             // NB : la liste des zones (cibles copy/move) n'est PAS rechargée ici.
             // Elle est chargée une fois dans setZone() puis tenue à jour via
@@ -1831,6 +1896,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 friendFinds={this.friendFinds}
                 friendFindsProgress={this.friendFindsProgress}
                 onAnalyzeFriendFinds={this.analyzeFriendFinds}
+                friendScansFreshCount={this.friendScansFreshCount}
+                friendScansTotalCount={this.friendScansTotalCount}
                 showImportAroundDialog={this.importAroundDialogOpen}
                 importAroundDialogInitialCenter={this.importAroundDialogInitialCenter}
                 onImportAroundDialogImport={(req, onProgress) => this.handleImportAroundDialogImport(req, onProgress)}

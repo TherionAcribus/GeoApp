@@ -9,6 +9,7 @@ Routes API :
 - POST /api/friends/finds/sync-zone → déduit les trouvailles d'un ami sur une zone
 - POST /api/friends/finds/sync-friend → trouvailles d'un ami depuis son profil (sans zone)
 - GET  /api/friends/finds/zone/<id> → « qui a trouvé quoi » pour une zone
+- GET  /api/friends/finds/zone/<id>/scans → état des analyses par ami (vérifié le…, obsolète…)
 - GET  /api/friends/finds/map       → toutes les trouvailles cartographiables
 - POST /api/friends/finds/import    → importe les caches manquantes dans la zone « Amis »
 - GET  /api/friends/finds/geocache/<id> → amis ayant trouvé une géocache
@@ -24,6 +25,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, Response, jsonify, request, stream_with_context
 
@@ -59,6 +61,9 @@ from ..services.geocaching_friend_finds import (
     query_friend_stats,
     query_notifications,
     query_suggestions,
+    record_scan,
+    get_zone_scans,
+    filter_friends_to_scan,
     store_finds,
 )
 from ..services.geocaching_friends import (
@@ -336,6 +341,17 @@ def sync_zone_finds():
     }
     zone_matches = len(zone_codes & result.found_codes)
 
+    # Mémorise le scan pour permettre un re-scan incrémental et l'affichage « vérifié le… ».
+    record_scan(
+        friend_username=friend,
+        zone_id=zone_id,
+        box=box,
+        found_count=len(result.found_codes),
+        baseline_total=result.zone_codes_count,
+        zone_matches=zone_matches,
+        truncated=result.truncated,
+    )
+
     return jsonify({
         "success": True,
         "friend": friend,
@@ -514,6 +530,109 @@ def zone_finds(zone_id: int):
         "zone_id": zone_id,
         "finds": finds,
         "caches_with_friend_finds": len(finds),
+    })
+
+
+@bp.get("/finds/zone/<int:zone_id>/scans")
+def zone_scans(zone_id: int):
+    """
+    État des analyses « qui a trouvé quoi » pour chaque ami sur cette zone.
+
+    Lecture purement locale : croise la liste d'amis avec les scans
+    enregistrés (``friend_zone_scan``) pour distinguer :
+
+    - **jamais analysé** : ami présent dans la liste mais absent des scans ;
+    - **analysé, 0 trouvaille** : scan récent avec ``found_count == 0`` ;
+    - **analysé, N trouvailles** : scan récent avec ``found_count > 0`` ;
+    - **scan obsolète** : boîte changée ou scan ancien (``is_stale = true``).
+
+    Query params:
+        fresh_only : 'true' pour ne retourner que les amis dont le scan est
+                     frais (utile pour skip côté frontend). Défaut : false.
+    """
+    from ..services.geocaching_friend_finds import DEFAULT_SCAN_FRESHNESS_HOURS
+
+    fresh_only = request.args.get("fresh_only", "false").lower() in ("true", "1", "yes")
+
+    # La liste d'amis vient du cache mémoire (pas de réseau) ; si elle
+    # échoue, on retourne quand même les scans connus.
+    friends_list: list[str] = []
+    try:
+        if get_auth_service().is_logged_in():
+            result = get_friends_client().get_friends()
+            friends_list = [f.username for f in result.friends]
+    except Exception as exc:
+        logger.debug("Friends list unavailable for zone scans: %s", exc)
+
+    scans = get_zone_scans(zone_id)
+
+    # Box actuelle de la zone, pour détecter les scans obsolètes.
+    box = _zone_box(zone_id)
+    box_sig = box.box_param if box else None
+
+    now = datetime.now(timezone.utc)
+    threshold = now - timedelta(hours=DEFAULT_SCAN_FRESHNESS_HOURS)
+
+    entries = []
+    for username in friends_list:
+        scan = scans.get(username)
+        if scan is None:
+            entries.append({
+                "friend": username,
+                "scanned": False,
+                "is_stale": True,
+                "found_count": None,
+                "zone_matches": None,
+                "scanned_at": None,
+                "truncated": None,
+            })
+        else:
+            scanned_at_str = scan.get("scanned_at")
+            scanned_at_dt = None
+            if scanned_at_str:
+                try:
+                    scanned_at_dt = datetime.fromisoformat(scanned_at_str)
+                except (ValueError, TypeError):
+                    pass
+            is_stale = (
+                (box_sig is not None and scan["box_signature"] != box_sig)
+                or (scanned_at_dt is not None and scanned_at_dt < threshold)
+            )
+            entries.append({
+                "friend": username,
+                "scanned": True,
+                "is_stale": is_stale,
+                "found_count": scan["found_count"],
+                "zone_matches": scan["zone_matches"],
+                "scanned_at": scan["scanned_at"],
+                "truncated": scan["truncated"],
+            })
+
+    if fresh_only:
+        entries = [e for e in entries if e["scanned"] and not e["is_stale"]]
+
+    # Aussi les amis scannés mais plus dans la liste (compte supprimé, etc.)
+    scanned_only = set(scans) - set(friends_list)
+    for username in sorted(scanned_only, key=str.casefold):
+        scan = scans[username]
+        entries.append({
+            "friend": username,
+            "scanned": True,
+            "is_stale": True,
+            "found_count": scan["found_count"],
+            "zone_matches": scan["zone_matches"],
+            "scanned_at": scan["scanned_at"],
+            "truncated": scan["truncated"],
+            "not_in_friends_list": True,
+        })
+
+    return jsonify({
+        "success": True,
+        "zone_id": zone_id,
+        "scans": entries,
+        "scanned_count": sum(1 for e in entries if e["scanned"] and not e.get("not_in_friends_list")),
+        "fresh_count": sum(1 for e in entries if e["scanned"] and not e["is_stale"]),
+        "total_friends": len(friends_list),
     })
 
 
