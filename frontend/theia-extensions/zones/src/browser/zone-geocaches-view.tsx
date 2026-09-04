@@ -377,6 +377,7 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
                 onSelectionChange={props.onSelectionChange}
                 selectedGeocacheIds={props.selectedGeocacheIds}
                 friendFinds={props.friendFinds}
+                friendScans={props.friendScans}
                 missingForFriend={props.missingForFriend}
                 outingFlags={props.outingFlags}
             />

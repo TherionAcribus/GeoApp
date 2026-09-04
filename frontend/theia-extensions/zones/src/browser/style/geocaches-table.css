@@ -79,6 +79,45 @@
     background: var(--theia-list-activeSelectionBackground);
 }
 
+/*
+ * Codes couleur « amis » sur les lignes.
+ * Ces états ne s'appliquent que quand des données d'amis sont disponibles.
+ * La sélection prend le dessus sur la couleur d'arrière-plan (voir ci-dessus).
+ */
+.geoapp-gc-table__row--friends-none {
+    background: rgba(76, 175, 80, 0.08); /* vert clair — personne ne l'a trouvée */
+}
+
+.geoapp-gc-table__row--friends-none:hover {
+    background: rgba(76, 175, 80, 0.16);
+}
+
+.geoapp-gc-table__row--friends-partial {
+    background: rgba(255, 152, 0, 0.08); /* orange clair — certains l'ont trouvée */
+}
+
+.geoapp-gc-table__row--friends-partial:hover {
+    background: rgba(255, 152, 0, 0.16);
+}
+
+.geoapp-gc-table__row--friends-all {
+    background: rgba(128, 128, 128, 0.08); /* gris — tous l'ont trouvée */
+    opacity: 0.75;
+}
+
+.geoapp-gc-table__row--friends-all:hover {
+    background: rgba(128, 128, 128, 0.16);
+    opacity: 1;
+}
+
+.geoapp-gc-table__row--friends-unknown {
+    border-left: 3px dotted rgba(255, 152, 0, 0.5); /* bordure pointillée — donnée manquante */
+}
+
+.geoapp-gc-table__row--friends-unknown:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
 .geoapp-gc-table__cell {
     padding: 6px;
     border-bottom: 1px solid var(--theia-panel-border);

@@ -12,6 +12,7 @@ import {
 import { ContextMenu, ContextMenuItem } from './context-menu';
 import { MoveGeocacheDialog } from './move-geocache-dialog';
 import { GeocacheIcon } from './geocache-icon';
+import type { FriendZoneScanEntry } from './friends-types';
 import { GeocacheFilterBar } from './geocache-filter-bar';
 import {
     AdvancedFilterClause,
@@ -112,6 +113,8 @@ interface GeocachesTableProps {
     selectedGeocacheIds?: number[];
     /** « Qui a trouvé quoi » : code GC -> pseudos d'amis (colonne `friends_found`). */
     friendFinds?: Record<string, string[]>;
+    /** État des scans par ami (pour détecter les caches non analysées). */
+    friendScans?: FriendZoneScanEntry[];
     /**
      * Si renseigné, la table ne montre que les caches que cet ami **n'a pas**
      * trouvées. Vide = pas de filtre.
@@ -432,6 +435,7 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
     onSelectionChange,
     selectedGeocacheIds,
     friendFinds,
+    friendScans,
     missingForFriend,
     outingFlags
 }) => {
@@ -908,6 +912,80 @@ ${origin}`}
             return true;
         });
     }, [data, globalFilter, advancedClauses, missingForFriend, friendFinds]);
+
+    // --- États « amis » pour le code couleur des lignes ---
+    // Pour chaque cache, on calcule un état parmi :
+    //   - 'none'    : aucun ami connu ne l'a trouvée (vert clair — on peut y aller)
+    //   - 'partial' : certains amis l'ont trouvée (orange — certains déjà passés)
+    //   - 'all'     : tous les amis l'ont trouvée (gris — pas intéressant)
+    //   - 'unknown' : pas assez de données pour au moins un ami (bordure pointillée)
+    // Les amis "connus" sont l'union des pseudos dans friendFinds et friendScans.
+    const knownFriends = React.useMemo(() => {
+        const names = new Set<string>();
+        if (friendFinds) {
+            for (const list of Object.values(friendFinds)) {
+                for (const name of list) { names.add(name); }
+            }
+        }
+        if (friendScans) {
+            for (const scan of friendScans) { names.add(scan.friend); }
+        }
+        return names;
+    }, [friendFinds, friendScans]);
+
+    const friendRowState = React.useMemo(() => {
+        const map = new Map<string, 'none' | 'partial' | 'all' | 'unknown'>(); // gc_code -> état
+        if (knownFriends.size === 0) { return map; }
+        const scannedFriends = new Set<string>();
+        if (friendScans) {
+            for (const scan of friendScans) {
+                if (scan.scanned) { scannedFriends.add(scan.friend); }
+            }
+        }
+        for (const gc of data) {
+            const finders = friendFinds?.[gc.gc_code] ?? [];
+            const findersSet = new Set(finders);
+            const total = knownFriends.size;
+            const foundCount = finders.filter(f => knownFriends.has(f)).length;
+            // Si au moins un ami scanné n'a pas de données pour cette cache,
+            // c'est qu'elle n'était pas dans sa zone de scan → 'unknown'.
+            const hasUnknown = Array.from(knownFriends).some(
+                f => scannedFriends.has(f) && !findersSet.has(f) && (friendFinds?.[gc.gc_code] === undefined)
+            );
+            if (hasUnknown) {
+                map.set(gc.gc_code, 'unknown');
+            } else if (foundCount === 0) {
+                map.set(gc.gc_code, 'none');
+            } else if (foundCount >= total) {
+                map.set(gc.gc_code, 'all');
+            } else {
+                map.set(gc.gc_code, 'partial');
+            }
+        }
+        return map;
+    }, [data, friendFinds, friendScans, knownFriends]);
+
+    // Libellés pour le title des lignes.
+    const friendRowTitle = React.useMemo(() => {
+        const map = new Map<string, string>(); // gc_code -> title
+        if (knownFriends.size === 0) { return map; }
+        for (const gc of data) {
+            const finders = friendFinds?.[gc.gc_code] ?? [];
+            const found = finders.filter(f => knownFriends.has(f));
+            const missing = Array.from(knownFriends).filter(f => !found.includes(f));
+            const parts: string[] = [];
+            if (found.length > 0) {
+                parts.push(`Trouvée par ${found.join(', ')}`);
+            }
+            if (missing.length > 0) {
+                parts.push(`Manquante pour ${missing.join(', ')}`);
+            }
+            if (parts.length > 0) {
+                map.set(gc.gc_code, parts.join(' · '));
+            }
+        }
+        return map;
+    }, [data, friendFinds, knownFriends]);
 
     React.useEffect(() => {
         onFilteredDataChange?.(filteredData);
@@ -1513,7 +1591,15 @@ ${origin}`}
                                     }
                                 }}
                                 onContextMenu={(e) => showContextMenu(row.original, e)}
-                                className={row.getIsSelected() ? 'geoapp-gc-table__row geoapp-gc-table__row--selected' : 'geoapp-gc-table__row'}
+                                className={
+                                    (row.getIsSelected()
+                                        ? 'geoapp-gc-table__row geoapp-gc-table__row--selected'
+                                        : 'geoapp-gc-table__row')
+                                    + (friendRowState.get(row.original.gc_code)
+                                        ? ` geoapp-gc-table__row--friends-${friendRowState.get(row.original.gc_code)}`
+                                        : '')
+                                }
+                                title={friendRowTitle.get(row.original.gc_code) ?? undefined}
                             >
                                 {row.getVisibleCells().map(cell => (
                                     <td
