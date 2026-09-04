@@ -111,6 +111,11 @@ interface GeocachesTableProps {
     /** « Qui a trouvé quoi » : code GC -> pseudos d'amis (colonne `friends_found`). */
     friendFinds?: Record<string, string[]>;
     /**
+     * Si renseigné, la table ne montre que les caches que cet ami **n'a pas**
+     * trouvées. Vide = pas de filtre.
+     */
+    missingForFriend?: string | null;
+    /**
      * Ce que la dernière analyse IA a signalé, par code GC (colonne `outing_flags`).
      *
      * Ces drapeaux ne sont pas des faits calculés par GeoApp mais les conclusions d'un
@@ -424,6 +429,7 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
     onSelectionChange,
     selectedGeocacheIds,
     friendFinds,
+    missingForFriend,
     outingFlags
 }) => {
     const [sorting, setSorting] = React.useState<SortingState>([]);
@@ -663,16 +669,52 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                     if (names.length === 0) {
                         return <span style={{ opacity: 0.35 }}>—</span>;
                     }
+                    // Puces d'initiales : bien plus lisible qu'un simple nombre,
+                    // et le survol donne le pseudo complet.
+                    const maxVisible = 3;
+                    const visible = names.slice(0, maxVisible);
+                    const extra = names.length - visible.length;
                     return (
                         <span
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 2,
+                                flexWrap: 'wrap',
+                                cursor: 'help',
+                            }}
                             title={`Trouvée par : ${names.join(', ')}`}
-                            style={{ cursor: 'help' }}
                         >
-                            {names.length}
+                            {visible.map(name => (
+                                <span
+                                    key={name}
+                                    title={name}
+                                    style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        minWidth: 18,
+                                        height: 18,
+                                        borderRadius: 9,
+                                        padding: '0 4px',
+                                        fontSize: '0.7em',
+                                        fontWeight: 'bold',
+                                        backgroundColor: 'var(--theia-charts-blue)',
+                                        color: 'white',
+                                    }}
+                                >
+                                    {name.charAt(0).toUpperCase()}
+                                </span>
+                            ))}
+                            {extra > 0 && (
+                                <span style={{ fontSize: '0.7em', opacity: 0.6 }}>
+                                    +{extra}
+                                </span>
+                            )}
                         </span>
                     );
                 },
-                size: 60,
+                size: 80,
             },
             {
                 id: 'outing_flags',
@@ -852,9 +894,17 @@ ${origin}`}
                     return false;
                 }
             }
+            // Filtre « manquantes pour X » : ne garder que les caches que cet
+            // ami n'a pas trouvées.
+            if (missingForFriend) {
+                const finders = friendFinds?.[geocache.gc_code] ?? [];
+                if (finders.includes(missingForFriend)) {
+                    return false;
+                }
+            }
             return true;
         });
-    }, [data, globalFilter, advancedClauses]);
+    }, [data, globalFilter, advancedClauses, missingForFriend, friendFinds]);
 
     React.useEffect(() => {
         onFilteredDataChange?.(filteredData);

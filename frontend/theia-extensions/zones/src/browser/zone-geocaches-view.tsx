@@ -66,10 +66,25 @@ export interface ZoneGeocachesViewProps {
     onCancelMoveSelected: () => void;
     /** « Qui a trouvé quoi » : code GC -> pseudos d'amis. */
     friendFinds?: Record<string, string[]>;
+    /** Liste des pseudos d'amis connus (pour le filtre « manquantes pour X »). */
+    friendNames?: string[];
+    /** Ami sélectionné pour le filtre « manquantes pour X » (null = aucun filtre). */
+    missingForFriend?: string | null;
+    /** Callback quand l'utilisateur change le filtre « manquantes pour X ». */
+    onMissingForFriendChange?: (friend: string | null) => void;
     /** Signaux de la dernière analyse IA de sortie, par code GC (colonne « Sortie »). */
     outingFlags?: Record<string, OutingPlanCacheFlags>;
     /** Progression de l'analyse des amis (null = inactive). */
     friendFindsProgress?: FriendFindsProgress | null;
+    /** Résumé persistant de la dernière analyse terminée. */
+    lastAnalysisSummary?: {
+        scanned: number;
+        skipped: number;
+        withFriends: number;
+        rateLimited: boolean;
+        cancelled: boolean;
+        at: string;
+    } | null;
     onAnalyzeFriendFinds?: (forceAll: boolean) => void | Promise<void>;
     /** Interrompt l'analyse streaming en cours. */
     onCancelAnalyzeFriendFinds?: () => void;
@@ -166,6 +181,22 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
                 >
                     📍 Importer autour…
                 </button>
+                {props.onMissingForFriendChange && props.friendNames && props.friendNames.length > 0 && (
+                    <select
+                        className='theia-select'
+                        value={props.missingForFriend ?? ''}
+                        onChange={e => props.onMissingForFriendChange?.(e.target.value || null)}
+                        title="Filtrer : caches que cet ami n'a pas encore trouvées"
+                        style={{ maxWidth: 140 }}
+                    >
+                        <option value=''>Tous les amis</option>
+                        {props.friendNames.map(name => (
+                            <option key={name} value={name}>
+                                Pas {name}
+                            </option>
+                        ))}
+                    </select>
+                )}
                 {props.onAnalyzeFriendFinds && (
                     <>
                         <button
@@ -207,6 +238,87 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
             </div>
         </div>
 
+        {/* Barre d'état de l'analyse des amis : progression live + résumé persistant. */}
+        {(props.friendFindsProgress || props.lastAnalysisSummary) && (
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: '6px 10px',
+                marginBottom: 8,
+                borderRadius: 4,
+                border: '1px solid var(--theia-panel-border)',
+                background: 'var(--theia-editor-background)',
+                fontSize: '0.85em',
+            }}>
+                {props.friendFindsProgress ? (
+                    <>
+                        <span className='codicon codicon-loading codicon-spin' style={{ fontSize: '1em' }} />
+                        <span style={{ fontWeight: 'bold' }}>
+                            Analyse en cours : {props.friendFindsProgress.done}/{props.friendFindsProgress.total}
+                        </span>
+                        {props.friendFindsProgress.friend && (
+                            <span style={{ color: 'var(--theia-descriptionForeground)' }}>
+                                ({props.friendFindsProgress.friend})
+                            </span>
+                        )}
+                        {props.friendFindsProgress.total > 0 && (
+                            <div style={{
+                                flex: 1,
+                                height: 4,
+                                borderRadius: 2,
+                                backgroundColor: 'var(--theia-panel-border)',
+                                overflow: 'hidden',
+                            }}>
+                                <div style={{
+                                    width: `${Math.round(100 * props.friendFindsProgress.done / props.friendFindsProgress.total)}%`,
+                                    height: '100%',
+                                    backgroundColor: 'var(--theia-charts-blue)',
+                                    transition: 'width 0.3s',
+                                }} />
+                            </div>
+                        )}
+                        {props.onCancelAnalyzeFriendFinds && (
+                            <button
+                                className='theia-button secondary'
+                                onClick={props.onCancelAnalyzeFriendFinds}
+                                title='Interrompre'
+                                style={{ padding: '2px 8px', fontSize: '0.9em' }}
+                            >
+                                ✕
+                            </button>
+                        )}
+                    </>
+                ) : props.lastAnalysisSummary && (
+                    <>
+                        <span
+                            className={`codicon ${props.lastAnalysisSummary.cancelled ? 'codicon-debug-stop' : 'codicon-check'}`}
+                            style={{
+                                color: props.lastAnalysisSummary.cancelled
+                                    ? 'var(--theia-descriptionForeground)'
+                                    : 'var(--theia-charts-green)',
+                            }}
+                        />
+                        <span>
+                            {props.lastAnalysisSummary.cancelled
+                                ? `Interrompue après ${props.lastAnalysisSummary.scanned} ami(s)`
+                                : `${props.lastAnalysisSummary.scanned} ami(s) analysé(s)`}
+                            {props.lastAnalysisSummary.skipped > 0
+                                && ` (${props.lastAnalysisSummary.skipped} skip)`}
+                            {' — '}
+                            <strong>{props.lastAnalysisSummary.withFriends}</strong>
+                            {` cache(s) trouvée(s) par au moins un ami`}
+                            {props.lastAnalysisSummary.rateLimited
+                                && <span style={{ color: 'var(--theia-charts-orange)' }}> — throttling geocaching.com</span>}
+                        </span>
+                        <span style={{ color: 'var(--theia-descriptionForeground)', marginLeft: 'auto' }}>
+                            {new Date(props.lastAnalysisSummary.at).toLocaleTimeString('fr-FR')}
+                        </span>
+                    </>
+                )}
+            </div>
+        )}
+
         {props.loading ? (
             <div style={{ display: 'flex', flex: 1 }}>
                 <LoadingState fullHeight />
@@ -247,6 +359,7 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
                 onSelectionChange={props.onSelectionChange}
                 selectedGeocacheIds={props.selectedGeocacheIds}
                 friendFinds={props.friendFinds}
+                missingForFriend={props.missingForFriend}
                 outingFlags={props.outingFlags}
             />
         )}

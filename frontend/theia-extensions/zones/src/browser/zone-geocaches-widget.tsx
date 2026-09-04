@@ -89,6 +89,15 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     protected friendFindsProgress: FriendFindsProgress | null = null;
     /** AbortController pour interrompre l'analyse streaming en cours. */
     protected analyzeAbortController?: AbortController;
+    /** Résumé persistant de la dernière analyse terminée (pas un toast éphémère). */
+    protected lastAnalysisSummary: {
+        scanned: number;
+        skipped: number;
+        withFriends: number;
+        rateLimited: boolean;
+        cancelled: boolean;
+        at: string;
+    } | null = null;
     /** État des scans par ami sur cette zone (vérifié le…, obsolète…). */
     protected friendScans: FriendZoneScanEntry[] = [];
     /** Dialogue de sélection d'amis à scanner (null = fermé). */
@@ -97,12 +106,27 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     protected friendSelectionChecked: Set<string> = new Set();
     /** Checkbox « forcer une réanalyse complète » dans le dialogue. */
     protected friendSelectionForceAll = false;
+    /** Filtre « manquantes pour X » : null = aucun filtre, sinon un pseudo d'ami. */
+    protected missingForFriend: string | null = null;
     /** Nombre d'amis dont le scan est frais (affiché dans le bouton). */
     protected get friendScansFreshCount(): number {
         return this.friendScans.filter(s => s.scanned && !s.is_stale).length;
     }
     protected get friendScansTotalCount(): number {
         return this.friendScans.length;
+    }
+    /** Liste triée des pseudos d'amis connus (union de friendFinds et friendScans). */
+    protected get friendNames(): string[] {
+        const names = new Set<string>();
+        for (const list of Object.values(this.friendFinds)) {
+            for (const name of list) {
+                names.add(name);
+            }
+        }
+        for (const scan of this.friendScans) {
+            names.add(scan.friend);
+        }
+        return Array.from(names).sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }));
     }
 
     protected interactionTimerId: number | undefined;
@@ -1404,11 +1428,20 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             handleLine(buffer);
 
         } catch (error) {
-            if (error instanceof DOMException && error.name === 'AbortError') {
+            const cancelled = error instanceof DOMException && error.name === 'AbortError';
+            if (cancelled) {
                 this.messages.info(`Analyse interrompue après ${scanned} ami(s).`);
             } else {
                 this.messages.error("Erreur pendant l'analyse : " + error);
             }
+            this.lastAnalysisSummary = {
+                scanned,
+                skipped,
+                withFriends,
+                rateLimited,
+                cancelled,
+                at: new Date().toISOString(),
+            };
         } finally {
             this.friendFindsProgress = null;
             this.analyzeAbortController = undefined;
@@ -1417,6 +1450,16 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             this.update();
         }
 
+        // Résumé persistant (pas juste un toast) : reste affiché jusqu'à la
+        // prochaine analyse, pour que l'utilisateur puisse le relire.
+        this.lastAnalysisSummary = {
+            scanned,
+            skipped,
+            withFriends,
+            rateLimited,
+            cancelled: false,
+            at: new Date().toISOString(),
+        };
         if (scanned > 0 && !rateLimited) {
             const skipMsg = skipped > 0 ? ` (${skipped} skip, scan récent)` : '';
             this.messages.info(
@@ -2030,8 +2073,12 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 onOpenPocketQueryDialog={() => this.openPocketQueryDialog()}
                 onStartImportAround={() => this.startImportAroundWizard()}
                 friendFinds={this.friendFinds}
+                friendNames={this.friendNames}
+                missingForFriend={this.missingForFriend}
+                onMissingForFriendChange={(f: string | null) => { this.missingForFriend = f; this.update(); }}
                 outingFlags={this.outingFlags}
                 friendFindsProgress={this.friendFindsProgress}
+                lastAnalysisSummary={this.lastAnalysisSummary}
                 onAnalyzeFriendFinds={this.analyzeFriendFinds}
                 onCancelAnalyzeFriendFinds={this.cancelAnalyzeFriendFinds}
                 friendScansFreshCount={this.friendScansFreshCount}
