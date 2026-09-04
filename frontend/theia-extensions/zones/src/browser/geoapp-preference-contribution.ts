@@ -19,9 +19,12 @@ import {
     GEOAPP_CHAT_SKILL_POLICY_OVERRIDES_PREF,
 } from './geoapp-chat-shared';
 import {
+    OUTING_ADAPTIVE_BUDGET_PREF,
+    OUTING_DEFAULT_MAX_PROMPT_TOKENS,
     OUTING_DETAIL_LEVEL_PREF,
     OUTING_DETAIL_LEVELS,
     OUTING_GEAR_LOGS_PREF,
+    OUTING_MAX_PROMPT_TOKENS_PREF,
     OUTING_RECENT_LOGS_PREF,
     OUTING_WARN_ABOVE_PREF,
 } from './outing-analysis-types';
@@ -89,6 +92,18 @@ export const geoAppPreferenceSchema: PreferenceSchema = {
             minimum: 1,
             maximum: 60,
             description: 'Analyse IA de sortie : au-dela de ce nombre de geocaches, un avertissement signale le volume envoye au modele.',
+        },
+        [OUTING_ADAPTIVE_BUDGET_PREF]: {
+            type: 'boolean',
+            default: true,
+            description: "Analyse IA de sortie : budget adaptatif. Actif, le listing n est transmis que pour les caches qui posent une question (drapeau materiel non resolu, sante degradee, etapes, questions sur place, terrain eleve) ; les caches saines sans particularite se contentent de leurs attributs, de leur hint et du materiel repere par balayage. Inactif, le niveau de detail s applique uniformement a toute la selection.",
+        },
+        [OUTING_MAX_PROMPT_TOKENS_PREF]: {
+            type: 'number',
+            default: OUTING_DEFAULT_MAX_PROMPT_TOKENS,
+            minimum: 2000,
+            maximum: 400000,
+            description: 'Analyse IA de sortie : plafond dur du prompt, en tokens estimes, prompt systeme compris. Au-dela, le contenu est reduit automatiquement (listings d abord, logs ensuite) et la reduction est annoncee au modele comme a l utilisateur. Mettre 0 pour desactiver le plafond.',
         },
         'geoApp.zones.sort': {
             type: 'object',

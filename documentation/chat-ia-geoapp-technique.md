@@ -1184,7 +1184,10 @@ OutingAnalysisController.analyze()             sans UI, testable seul
         |            +--> outing_time_estimate.estimate_geocache_time()   par cache
         |            +--> outing_time_estimate.build_time_budget()        sortie entière
         |
-        +--> buildOutingAnalysisPrompt()
+        +--> buildBudgetedOutingPrompt()          palier par cache + plafond de tokens
+        |            +--> decideTiers()            rich / lean, cache par cache
+        |            +--> buildOutingAnalysisPrompt()
+        |            +--> estimateOutingPromptSize()   prompt système compris
         |
         v
 GeoAppChatBridge (session `libre`, agent `geoapp-outing-analyzer`)
@@ -1507,11 +1510,81 @@ conversation, même préparées à deux jours d'intervalle.
 | `geoApp.outing.analysis.recentLogsCount` | `5` | Logs récents par cache |
 | `geoApp.outing.analysis.gearLogsCount` | `8` | Logs « matériel » par cache |
 | `geoApp.outing.analysis.warnAboveCount` | `25` | Seuil d'avertissement sur le volume |
+| `geoApp.outing.analysis.adaptiveBudget` | `true` | Palier de détail décidé cache par cache |
+| `geoApp.outing.analysis.maxPromptTokens` | `30000` | Plafond dur du prompt, prompt système compris |
 
-Les préréglages `OUTING_DETAIL_PRESETS` fixent la troncature : `light` n'envoie **aucun**
-listing (`listing_chars = 0`, valeur acceptée par l'endpoint), `standard` 1800 caractères,
-`full` 4000. Le mode léger n'est pas pour autant aveugle au listing : il en reçoit le
-balayage lexical et les drapeaux que ce balayage a refermés.
+### Budget de tokens adaptatif
+
+Le niveau de détail ne décide plus « listing ou pas » pour tout le lot, mais **combien on
+paie pour une cache qui le mérite**. L'information n'est pas répartie uniformément : une
+traditionnelle D1/T1 saine n'a rien à dire que ses attributs ne disent déjà, tandis qu'une
+T5 à drapeau `special_tool` NON RÉSOLU ne se prépare pas sans son texte. Un régime uniforme
+choisit donc toujours mal : trop cher pour les unes, trop pauvre pour les autres.
+
+`outing-analysis-budget.ts` sépare deux décisions.
+
+**1. Le palier, cache par cache** (`decideTier`). Une cache passe au palier `rich` —
+listing et logs — dès qu'une règle se déclenche ; sinon elle reste `lean` : attributs,
+hint, santé, temps estimé et matériel repéré par balayage, sans listing.
+
+| Règle | Poids | Pourquoi le texte est nécessaire |
+|---|---|---|
+| Drapeau matériel non résolu | 100 | Sans texte, la réponse est impossible, pas seulement moins fine |
+| Santé très risquée / risquée | 70 / 55 | Comprendre ce qui casse |
+| Questions à répondre sur place | 50 | Les questions d'EarthCache vivent dans le listing |
+| Aucun log local | 45 | Le listing est la seule source qui reste |
+| Cache à étapes (multi, letterbox, Wherigo, EarthCache) | 40 | Le déroulé est dans le texte |
+| Santé à surveiller | 30 | |
+| Contexte contraignant (`challenge`, `partnership`, `not_available_24h`, `fee`, `risk`, `bonus`, `hike_long`) | 30 | L'énoncé de la condition n'existe que dans le texte |
+| Terrain ≥ 3,5 / difficulté ≥ 3,5 | 25 / 20 | |
+| Estimation de temps peu fiable | 15 | |
+
+Les poids ne sont pas des probabilités : ils ne servent qu'à **ordonner les
+rétrogradations**. Une mystery non résolue n'est volontairement pas un motif — on n'ira
+pas, et son listing est le plus long et le moins exploitable du lot.
+
+Le palier `lean` n'est acceptable que grâce au balayage lexical du lot 7 : le matériel
+nommé dans le listing **complet** remonte de toute façon, et les drapeaux qu'il referme
+aussi.
+
+**2. Le plafond dur** (`buildBudgetedOutingPrompt`). Le prompt est estimé prompt système
+compris, puis rétrogradé par étapes tant qu'il dépasse `maxPromptTokens` :
+
+1. listing retiré des caches sans particularité (mode complet uniquement) ;
+2. listing des caches signalées raccourci à 900 caractères ;
+3. rétrogradation `rich → lean`, **par priorité croissante** : la cache la moins signalée
+   perd son listing en premier ;
+4. logs récents ramenés à 2 par cache ;
+5. logs matériel ramenés à 4 ;
+6. plus aucun log récent ;
+7. un seul log matériel par cache signalée.
+
+L'ordre suit une règle : on sacrifie d'abord le redondant, jamais l'unique. Le listing est
+le poste le plus lourd et le plus redondant — son matériel a déjà été extrait — donc il
+part le premier. Attributs, santé, géographie et temps estimés ne sont jamais touchés.
+
+Si le plafond reste dépassé après toutes les étapes, l'analyse **part quand même** avec un
+avertissement : refuser après que l'utilisateur a attendu la collecte serait le pire des
+deux mondes, et le levier restant — réduire la sélection — lui est dit.
+
+**Collecte.** Le serveur ignore les paliers : `collectionOptionsForPlan()` lui demande le
+maximum dont le plan pourra avoir besoin (`listing_chars` du palier `rich`), et la coupe
+par cache se fait à la rédaction. C'est ce qui permet de rétrograder sans second
+aller-retour. Le mode léger demande donc désormais 1200 caractères de listing au serveur,
+là où il en demandait zéro.
+
+**La section « Couverture des données ».** Elle est la contrepartie obligatoire de la
+stratégie mixte, et le prompt système en fait sa règle 12. Sans elle, une cache sans
+listing se lirait comme une cache dont l'information manque, alors que c'est l'inverse :
+GeoApp l'a lue et n'y a rien trouvé. La section écrit cette différence, annonce combien de
+caches ont reçu leur listing, et nomme les rétrogradations subies. Elle disparaît quand
+`adaptiveBudget` est désactivé, puisqu'il n'y a alors rien d'inégal à expliquer.
+
+**Estimation de taille.** `estimateOutingPromptSize(prompt, { systemPromptChars })` compte
+désormais le message système — prompt de l'agent **et** description de policy, qui partent
+dans la même requête. La première version ne comptait que les données et sous-évaluait
+l'envoi de plusieurs milliers de tokens. `OutingPromptSize` distingue `chars` (données),
+`systemPromptChars` et `totalChars` ; `approxTokens` porte sur le total.
 
 ### Garde-fous
 

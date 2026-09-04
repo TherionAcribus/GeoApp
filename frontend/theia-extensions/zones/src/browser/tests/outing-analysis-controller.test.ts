@@ -272,14 +272,30 @@ async function testCachesWithoutCoordinatesAreWarned(): Promise<void> {
     assert.ok(!warning!.includes('GC8'));
 }
 
+/**
+ * Le niveau ne décide plus « listing ou pas », mais **combien** pour une cache qui le
+ * mérite. Même en mode léger, la collecte rapporte donc un listing : c'est le plan de
+ * rédaction, et lui seul, qui décide ensuite à qui il est transmis.
+ */
 async function testDetailLevelDrivesTheCollectionOptions(): Promise<void> {
     const controller = new TestableController(createBundle());
 
     await controller.analyze([1], { detailLevel: 'light' });
-    assert.equal(controller.fetchCalls[0].options.listingChars, 0);
+    assert.equal(controller.fetchCalls[0].options.listingChars, 1200);
 
     await controller.analyze([1], { detailLevel: 'full' });
     assert.equal(controller.fetchCalls[1].options.listingChars, 4000);
+}
+
+/** Budget adaptatif désactivé : on retombe sur l'ancien contrat, listing compris. */
+async function testUniformModeRestoresTheOldCollectionOptions(): Promise<void> {
+    const controller = new TestableController(createBundle(), {
+        'geoApp.outing.analysis.adaptiveBudget': false,
+    });
+
+    await controller.analyze([1], { detailLevel: 'light' });
+    assert.equal(controller.fetchCalls[0].options.listingChars, 1200);
+    assert.equal(controller.fetchCalls[0].options.recentLogsCount, 3);
 }
 
 async function testPreferencesOverrideThePresetLogCounts(): Promise<void> {
@@ -308,7 +324,7 @@ async function testInvalidPreferenceFallsBackToStandard(): Promise<void> {
     });
     await controller.analyze([1]);
 
-    assert.equal(controller.fetchCalls[0].options.listingChars, 1800);
+    assert.equal(controller.fetchCalls[0].options.listingChars, 2500);
 }
 
 async function testCachesWithoutLogsAreReportedAsWarnings(): Promise<void> {
@@ -387,6 +403,7 @@ async function run(): Promise<void> {
     await testTypedDatesAreValidatedInLocalTime();
     await testCachesWithoutCoordinatesAreWarned();
     await testDetailLevelDrivesTheCollectionOptions();
+    await testUniformModeRestoresTheOldCollectionOptions();
     await testPreferencesOverrideThePresetLogCounts();
     await testDefaultDetailLevelComesFromPreferences();
     await testInvalidPreferenceFallsBackToStandard();

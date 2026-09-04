@@ -8,7 +8,7 @@ import {
     OutingAnalysisGeocache,
     OutingGeography,
     OutingTimeBudget,
-    OUTING_DETAIL_PRESETS,
+    OUTING_TIER_PRESETS,
 } from '../outing-analysis-types';
 
 function createGeocacheFixture(overrides: Partial<OutingAnalysisGeocache> = {}): OutingAnalysisGeocache {
@@ -796,15 +796,45 @@ function testPromptSizeGrowsWithGeocacheCount(): void {
     assert.ok(five.chars > one.chars);
     assert.ok(five.approxTokens > one.approxTokens);
     assert.ok(one.approxTokens > 0);
+    // Sans prompt système fourni, le total se confond avec les données.
+    assert.equal(one.totalChars, one.chars);
+    assert.equal(one.systemPromptChars, 0);
+}
+
+/**
+ * Le prompt système part dans la même requête que les données.
+ *
+ * L'estimation d'origine ne comptait que les données : elle annonçait donc un envoi plus
+ * léger qu'il ne l'était, de plusieurs milliers de tokens.
+ */
+function testSystemPromptIsCountedInTheEstimate(): void {
+    const prompt = buildOutingAnalysisPrompt(createBundleFixture(), STANDARD);
+    const withSystem = estimateOutingPromptSize(prompt, { systemPromptChars: 9000 });
+
+    assert.equal(withSystem.chars, prompt.length);
+    assert.equal(withSystem.totalChars, prompt.length + 9000);
+    assert.equal(withSystem.approxTokens, Math.ceil((prompt.length + 9000) / 3.6));
 }
 
 function testDetailPresetsAreOrdered(): void {
+    const { light, standard, full } = OUTING_TIER_PRESETS;
+
     // Les préréglages doivent rester monotones : léger ⊂ standard ⊂ complet.
-    assert.ok(OUTING_DETAIL_PRESETS.light.listingChars < OUTING_DETAIL_PRESETS.standard.listingChars);
-    assert.ok(OUTING_DETAIL_PRESETS.standard.listingChars < OUTING_DETAIL_PRESETS.full.listingChars);
-    assert.ok(OUTING_DETAIL_PRESETS.light.recentLogsCount < OUTING_DETAIL_PRESETS.full.recentLogsCount);
-    // Le mode léger ne demande aucun listing au serveur.
-    assert.equal(OUTING_DETAIL_PRESETS.light.listingChars, 0);
+    assert.ok(light.listingChars.rich < standard.listingChars.rich);
+    assert.ok(standard.listingChars.rich < full.listingChars.rich);
+    assert.ok(light.recentLogs.rich < full.recentLogs.rich);
+
+    // Dans chaque niveau, une cache signalée reçoit toujours au moins autant qu'une autre.
+    [light, standard, full].forEach(preset => {
+        assert.ok(preset.listingChars.rich >= preset.listingChars.lean);
+        assert.ok(preset.recentLogs.rich >= preset.recentLogs.lean);
+        assert.ok(preset.gearLogs.rich >= preset.gearLogs.lean);
+    });
+
+    // Seul le mode complet paie un listing pour une cache sans particularité.
+    assert.equal(light.listingChars.lean, 0);
+    assert.equal(standard.listingChars.lean, 0);
+    assert.ok(full.listingChars.lean > 0);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -948,6 +978,7 @@ function run(): void {
     testNegativeAttributeIsPrefixed();
     testInstructionLineClosesThePrompt();
     testPromptSizeGrowsWithGeocacheCount();
+    testSystemPromptIsCountedInTheEstimate();
     testDetailPresetsAreOrdered();
     testTimeEstimateIsRenderedWithItsBreakdown();
     testTimeEstimateSaysWhyConfidenceIsLow();

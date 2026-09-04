@@ -26,6 +26,8 @@ export const OUTING_DETAIL_LEVEL_PREF = 'geoApp.outing.analysis.detailLevel';
 export const OUTING_RECENT_LOGS_PREF = 'geoApp.outing.analysis.recentLogsCount';
 export const OUTING_GEAR_LOGS_PREF = 'geoApp.outing.analysis.gearLogsCount';
 export const OUTING_WARN_ABOVE_PREF = 'geoApp.outing.analysis.warnAboveCount';
+export const OUTING_ADAPTIVE_BUDGET_PREF = 'geoApp.outing.analysis.adaptiveBudget';
+export const OUTING_MAX_PROMPT_TOKENS_PREF = 'geoApp.outing.analysis.maxPromptTokens';
 
 /** Niveau de détail demandé : pilote la troncature du listing et le nombre de logs. */
 export type OutingDetailLevel = 'light' | 'standard' | 'full';
@@ -368,19 +370,89 @@ export interface OutingAnalysisOptions {
     outingDate?: string;
 }
 
-/**
- * Ce qu'un niveau de détail décide, et lui seul : le volume de texte demandé au serveur.
- *
- * La date de sortie n'en fait pas partie — elle vient de l'utilisateur, jamais d'un
- * préréglage — d'où un type dédié plutôt qu'un `Required<OutingAnalysisOptions>`.
- */
-export type OutingDetailPreset = Required<
-    Pick<OutingAnalysisOptions, 'listingChars' | 'recentLogsCount' | 'gearLogsCount'>
->;
 
-/** Paramètres de collecte associés à chaque niveau de détail. */
-export const OUTING_DETAIL_PRESETS: Record<OutingDetailLevel, OutingDetailPreset> = {
-    light: { listingChars: 0, recentLogsCount: 3, gearLogsCount: 6 },
-    standard: { listingChars: 1800, recentLogsCount: 5, gearLogsCount: 8 },
-    full: { listingChars: 4000, recentLogsCount: 10, gearLogsCount: 12 },
+// ─────────────────────────────────────────────────────────────────────────────
+// Budget adaptatif
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Palier de détail appliqué à **une** géocache.
+ *
+ * Le niveau global (`light` / `standard` / `full`) décidait jusqu'ici du volume de la même
+ * façon pour toute la sélection : soit on payait un listing pour les quarante caches, soit
+ * on n'en avait pour aucune. Or l'information n'est pas répartie uniformément — une
+ * traditionnelle saine à D1/T1 n'a rien à dire que ses attributs ne disent déjà, tandis
+ * qu'une T5 avec un drapeau « outil spécial » NON RÉSOLU ne se prépare pas sans son texte.
+ *
+ * D'où deux paliers, décidés cache par cache :
+ *
+ * - `rich` : la cache pose une question (drapeau ouvert, santé dégradée, étapes, questions
+ *   sur place). On paie son listing et ses logs.
+ * - `lean` : rien à signaler. Attributs, hint, matériel repéré par balayage — pas de
+ *   listing. Le balayage lexical du lot 7 est justement ce qui rend ce palier acceptable :
+ *   le matériel nommé dans le listing complet remonte de toute façon.
+ */
+export type OutingCacheTier = 'rich' | 'lean';
+
+export const OUTING_CACHE_TIERS: OutingCacheTier[] = ['rich', 'lean'];
+
+/** Ce que le niveau global décide désormais : la générosité de chacun des deux paliers. */
+export interface OutingTierPreset {
+    listingChars: Record<OutingCacheTier, number>;
+    recentLogs: Record<OutingCacheTier, number>;
+    gearLogs: Record<OutingCacheTier, number>;
+}
+
+/**
+ * Réglages par palier et par niveau de détail.
+ *
+ * Le niveau ne dit plus « listing ou pas », il dit **combien on paie pour une cache qui le
+ * mérite**. En `light`, seules les caches signalées ont un listing, et court. En `full`,
+ * même les caches saines en reçoivent un extrait, parce que l'utilisateur a explicitement
+ * demandé à ne rien rater.
+ */
+export const OUTING_TIER_PRESETS: Record<OutingDetailLevel, OutingTierPreset> = {
+    light: {
+        listingChars: { rich: 1200, lean: 0 },
+        recentLogs: { rich: 3, lean: 2 },
+        gearLogs: { rich: 6, lean: 3 },
+    },
+    standard: {
+        listingChars: { rich: 2500, lean: 0 },
+        recentLogs: { rich: 5, lean: 3 },
+        gearLogs: { rich: 8, lean: 4 },
+    },
+    full: {
+        listingChars: { rich: 4000, lean: 800 },
+        recentLogs: { rich: 10, lean: 5 },
+        gearLogs: { rich: 12, lean: 6 },
+    },
 };
+
+/**
+ * Plan de rédaction du prompt : qui reçoit quoi.
+ *
+ * Séparé du niveau de détail parce qu'il en est le **résultat**, pas la cause : il sort de
+ * la décision par cache, puis des rétrogradations qu'impose le plafond de tokens. Le
+ * constructeur de prompt ne connaît que lui.
+ */
+export interface OutingPromptPlan {
+    /** Palier retenu, par code GC. Une cache absente est traitée comme `rich`. */
+    tiers: Record<string, OutingCacheTier>;
+    listingChars: Record<OutingCacheTier, number>;
+    recentLogs: Record<OutingCacheTier, number>;
+    gearLogs: Record<OutingCacheTier, number>;
+    /** Étapes de rétrogradation appliquées, dans l'ordre. Vide quand le plafond tenait. */
+    degraded: string[];
+    /** Faux quand la stratégie mixte est désactivée : tout le lot est traité pareil. */
+    adaptive: boolean;
+}
+
+/**
+ * Plafond dur, en tokens estimés, prompt système compris.
+ *
+ * 30 000 laisse largement la place au rapport et à quelques questions de suivi dans une
+ * fenêtre de 128 k, tout en coupant court aux sélections de soixante caches en mode
+ * complet — là où le prompt devient plus cher que ce qu'il apporte.
+ */
+export const OUTING_DEFAULT_MAX_PROMPT_TOKENS = 30000;

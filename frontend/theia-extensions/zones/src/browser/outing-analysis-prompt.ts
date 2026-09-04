@@ -28,6 +28,7 @@ import {
     OutingLogExcerpt,
     OutingLoggingTask,
     OutingNote,
+    OutingPromptPlan,
     OutingRoute,
     OutingSunTimes,
     OutingTimeBudget,
@@ -41,10 +42,28 @@ export interface OutingPromptContext {
     /** Date de la sortie, au format lisible. Par défaut, la date du jour. */
     outingDate?: string;
     detailLevel: OutingDetailLevel;
+    /**
+     * Plan de rédaction : qui reçoit son listing, combien de logs, ce qui a été rétrogradé.
+     *
+     * Absent, le prompt retombe sur le comportement historique — un seul régime pour tout
+     * le lot, décidé par `detailLevel`. C'est `outing-analysis-budget.ts` qui construit un
+     * plan mixte et le fait rétrograder sous le plafond de tokens.
+     */
+    plan?: OutingPromptPlan;
 }
 
+/**
+ * Taille du prompt envoyé au modèle.
+ *
+ * `chars` ne compte que les données ; `totalChars` y ajoute le prompt système, qui part
+ * dans la même requête et pèse plusieurs milliers de caractères. C'est `approxTokens`,
+ * calculé sur le total, qui se compare à la fenêtre du modèle : l'estimation d'origine,
+ * qui ignorait le prompt système, sous-évaluait systématiquement l'envoi.
+ */
 export interface OutingPromptSize {
     chars: number;
+    systemPromptChars: number;
+    totalChars: number;
     approxTokens: number;
 }
 
@@ -402,14 +421,69 @@ function formatLogSection(
     return [`- ${title} :`, ...logs.map(log => formatLogLine(log, options))].join('\n');
 }
 
+/**
+ * Plan par défaut : un seul régime pour tout le lot, celui du niveau de détail.
+ *
+ * C'est le comportement d'avant le budget adaptatif, conservé pour les appelants qui ne
+ * fournissent pas de plan. `Infinity` signifie « ce que le backend a envoyé, sans y
+ * retoucher » : c'est déjà lui qui a tronqué le listing et borné les logs.
+ */
+function uniformPlan(detailLevel: OutingDetailLevel): OutingPromptPlan {
+    const listing = detailLevel === 'light' ? 0 : Number.POSITIVE_INFINITY;
+    return {
+        tiers: {},
+        listingChars: { rich: listing, lean: listing },
+        recentLogs: {
+            rich: RECENT_LOGS_IN_PROMPT[detailLevel],
+            lean: RECENT_LOGS_IN_PROMPT[detailLevel],
+        },
+        gearLogs: { rich: Number.POSITIVE_INFINITY, lean: Number.POSITIVE_INFINITY },
+        degraded: [],
+        adaptive: false,
+    };
+}
+
+/**
+ * Recoupe l'extrait de listing au plafond du palier.
+ *
+ * Le backend a servi le texte au format du palier le plus généreux — il ne sait pas, lui,
+ * quelles caches méritent leur listing. La coupe finale se fait donc ici, sur un mot
+ * entier, et le marqueur de troncature vaut pour les deux coupes : celle du serveur comme
+ * celle-ci. Un « extrait tronqué » est une information ; un extrait coupé en silence est
+ * un piège.
+ */
+function clampListing(
+    text: string,
+    limit: number,
+    alreadyTruncated: boolean
+): { text: string; truncated: boolean } {
+    if (limit <= 0 || text === '') {
+        return { text: '', truncated: false };
+    }
+    if (!Number.isFinite(limit) || text.length <= limit) {
+        return { text, truncated: alreadyTruncated };
+    }
+    const cut = text.slice(0, limit);
+    const lastSpace = cut.lastIndexOf(' ');
+    return {
+        text: (lastSpace > limit * 0.6 ? cut.slice(0, lastSpace) : cut).trimEnd(),
+        truncated: true,
+    };
+}
+
 function formatGeocacheBlock(
     geocache: OutingAnalysisGeocache,
     index: number,
-    detailLevel: OutingDetailLevel
+    plan: OutingPromptPlan
 ): string {
-    const listing = geocache.listing_excerpt.trim();
-    const showListing = detailLevel !== 'light' && listing !== '';
-    const recentLimit = RECENT_LOGS_IN_PROMPT[detailLevel];
+    const tier = plan.tiers[geocache.gc_code] || 'rich';
+    const listing = clampListing(
+        geocache.listing_excerpt.trim(),
+        plan.listingChars[tier],
+        geocache.listing_truncated
+    );
+    const showListing = listing.text !== '';
+    const recentLimit = plan.recentLogs[tier];
 
     const lines: Array<string | undefined> = [
         `### ${index}. ${geocache.gc_code} — ${geocache.name}`,
@@ -433,9 +507,13 @@ function formatGeocacheBlock(
         formatNotes(geocache),
         formatLoggingTasks(geocache),
         showListing
-            ? `- Listing${geocache.listing_truncated ? ' (extrait tronqué)' : ''} :\n${quoteBlock(listing)}`
+            ? `- Listing${listing.truncated ? ' (extrait tronqué)' : ''} :\n${quoteBlock(listing.text)}`
             : undefined,
-        formatLogSection('Logs mentionnant du matériel', geocache.gear_logs, { withMatched: true }),
+        formatLogSection(
+            'Logs mentionnant du matériel',
+            geocache.gear_logs.slice(0, plan.gearLogs[tier]),
+            { withMatched: true }
+        ),
         formatLogSection('Logs suggérant une recherche longue', geocache.search_effort_logs),
         formatLogSection('Logs récents', geocache.recent_logs.slice(0, recentLimit), { withType: true }),
     ];
@@ -756,6 +834,55 @@ function formatTimeBudgetSection(bundle: OutingAnalysisBundle): string | undefin
     return ['## Temps estimé', ...(lines.filter(Boolean) as string[])].join('\n');
 }
 
+/**
+ * Section « Couverture des données ».
+ *
+ * Indispensable dès lors que le lot n'est plus traité uniformément : sans elle, une cache
+ * sans listing se lit comme une cache dont on n'a pas le listing, alors que c'est
+ * l'inverse — GeoApp l'a lu, n'y a rien trouvé de notable, et a décidé de ne pas le payer.
+ * La différence n'est pas cosmétique : elle sépare « information manquante » de « rien à
+ * signaler », et c'est exactement ce que le rapport doit savoir avant de nuancer.
+ *
+ * Les rétrogradations sont dites au même endroit, pour la même raison.
+ */
+function formatCoverageSection(
+    bundle: OutingAnalysisBundle,
+    plan: OutingPromptPlan
+): string | undefined {
+    if (!plan.adaptive || bundle.geocaches.length === 0) {
+        return undefined;
+    }
+
+    const total = bundle.geocaches.length;
+    const rich = bundle.geocaches.filter(
+        geocache => (plan.tiers[geocache.gc_code] || 'rich') === 'rich'
+    ).length;
+    const withListing = plan.listingChars.lean > 0 ? total : rich;
+
+    const lines = [
+        `- Le détail transmis varie d'une cache à l'autre : listing transmis pour `
+        + `${withListing} cache(s) sur ${total}, celles qui posent une question — drapeau `
+        + `matériel non résolu, santé dégradée, étapes, questions sur place, terrain élevé. `
+        + `Les autres n'ont que leurs attributs, leur hint, leur santé, leur temps estimé et `
+        + `le matériel repéré par balayage du listing complet.`,
+        `- Un listing absent ne veut donc PAS dire « information manquante » : il vaut « GeoApp a `
+        + `lu ce texte et n'y a rien trouvé qui change la préparation ». Ne réclame pas ce `
+        + `listing et ne bâtis aucune réserve dessus. À l'inverse, une cache SANS logs locaux `
+        + `est un vrai trou de données : la section « Fiabilité des données » les nomme.`,
+    ];
+
+    if (plan.degraded.length > 0) {
+        lines.push(
+            `- Plafond de tokens atteint : le contenu a été réduit — ${plan.degraded.join(' ; ')}. `
+            + `Les caches concernées gardent leurs attributs, leur santé et leur temps estimé. `
+            + `Signale en fin de rapport qu'une analyse plus fine passe par une sélection plus `
+            + `courte.`
+        );
+    }
+
+    return ['## Couverture des données', ...lines].join('\n');
+}
+
 function formatHeader(bundle: OutingAnalysisBundle, context: OutingPromptContext): string {
     const zone = context.zoneName?.trim() || 'sélection';
     const count = bundle.geocaches.length;
@@ -781,8 +908,10 @@ export function buildOutingAnalysisPrompt(
     bundle: OutingAnalysisBundle,
     context: OutingPromptContext
 ): string {
+    const plan = context.plan ?? uniformPlan(context.detailLevel);
     const sections: Array<string | undefined> = [
         formatHeader(bundle, context),
+        formatCoverageSection(bundle, plan),
         formatReliabilitySection(bundle),
         formatGeographySection(bundle),
         formatTimeBudgetSection(bundle),
@@ -791,7 +920,7 @@ export function buildOutingAnalysisPrompt(
     if (bundle.geocaches.length > 0) {
         sections.push('## Géocaches');
         bundle.geocaches.forEach((geocache, position) => {
-            sections.push(formatGeocacheBlock(geocache, position + 1, context.detailLevel));
+            sections.push(formatGeocacheBlock(geocache, position + 1, plan));
         });
     } else {
         sections.push('## Géocaches\n\nAucune géocache exploitable dans cette sélection.');
@@ -803,12 +932,27 @@ export function buildOutingAnalysisPrompt(
 }
 
 /**
- * Taille du prompt, pour avertir avant l'envoi.
+ * Taille du prompt, pour avertir avant l'envoi et pour piloter le plafond.
  *
  * L'estimation de tokens est approximative par construction — chaque modèle a son
  * tokenizer. Elle sert à repérer un ordre de grandeur problématique, pas à décider.
+ *
+ * `systemPromptChars` compte le prompt système et la description de policy, qui partent
+ * dans la même requête. Les ignorer, comme le faisait la première version, revenait à
+ * sous-évaluer l'envoi de plusieurs milliers de tokens — soit largement de quoi faire
+ * passer pour confortable un prompt qui ne l'est pas.
  */
-export function estimateOutingPromptSize(prompt: string): OutingPromptSize {
+export function estimateOutingPromptSize(
+    prompt: string,
+    options: { systemPromptChars?: number } = {}
+): OutingPromptSize {
     const chars = prompt.length;
-    return { chars, approxTokens: Math.ceil(chars / CHARS_PER_TOKEN) };
+    const systemPromptChars = Math.max(0, Math.floor(options.systemPromptChars || 0));
+    const totalChars = chars + systemPromptChars;
+    return {
+        chars,
+        systemPromptChars,
+        totalChars,
+        approxTokens: Math.ceil(totalChars / CHARS_PER_TOKEN),
+    };
 }

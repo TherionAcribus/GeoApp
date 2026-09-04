@@ -24,13 +24,18 @@ import {
     dispatchGeoAppOpenChatRequest,
     GeoAppOpenChatRequestDetailPayload,
 } from './geoapp-chat-shared';
-import { buildOutingAnalysisPrompt, estimateOutingPromptSize } from './outing-analysis-prompt';
+import { GeoAppChatPolicyService } from './geoapp-chat-policy-service';
+import { GeoAppOutingSystemPromptVariants } from './geoapp-chat-system-prompts';
+import { buildBudgetedOutingPrompt, collectionOptionsForPlan } from './outing-analysis-budget';
+import { OutingPromptSize } from './outing-analysis-prompt';
 import {
     GEOAPP_OUTING_ANALYZER_AGENT_ID,
     MAX_OUTING_ANALYSIS_GEOCACHES,
-    OUTING_DETAIL_PRESETS,
+    OUTING_ADAPTIVE_BUDGET_PREF,
+    OUTING_DEFAULT_MAX_PROMPT_TOKENS,
     OUTING_DETAIL_LEVEL_PREF,
     OUTING_GEAR_LOGS_PREF,
+    OUTING_MAX_PROMPT_TOKENS_PREF,
     OUTING_RECENT_LOGS_PREF,
     OUTING_WARN_ABOVE_PREF,
     OutingAnalysisBundle,
@@ -58,8 +63,15 @@ export interface OutingAnalysisOutcome {
     analyzed: number;
     /** À afficher par l'appelant : données manquantes, volume, identifiants introuvables. */
     warnings: string[];
-    /** Absent quand `started` est faux. */
-    promptSize?: { chars: number; approxTokens: number };
+    /** Absent quand `started` est faux. Le prompt système est compté dans l'estimation. */
+    promptSize?: OutingPromptSize;
+    /** Ce que le budget adaptatif a décidé. Absent quand `started` est faux. */
+    coverage?: {
+        rich: number;
+        lean: number;
+        degradations: string[];
+        overBudget: boolean;
+    };
 }
 
 @injectable()
@@ -76,6 +88,16 @@ export class OutingAnalysisController {
 
     @inject(QuickInputService)
     protected readonly quickInputService!: QuickInputService;
+
+    /**
+     * Uniquement pour estimer la taille du prompt système.
+     *
+     * La description de policy part dans le même message système que le prompt de l'agent :
+     * l'ignorer sous-évaluait l'envoi de plusieurs milliers de caractères, et c'est ce
+     * chiffre-là que le plafond de tokens doit comparer.
+     */
+    @inject(GeoAppChatPolicyService)
+    protected readonly chatPolicyService!: GeoAppChatPolicyService;
 
     /**
      * Parcours complet depuis un widget : choix du détail, progression, avertissements.
@@ -135,9 +157,14 @@ export class OutingAnalysisController {
             outcome.warnings.forEach(warning => this.messages.warn(warning));
 
             if (outcome.started) {
+                const coverage = outcome.coverage;
+                const detail = coverage && coverage.lean > 0
+                    ? ` — listing transmis pour ${coverage.rich} d'entre elles`
+                    : '';
                 this.messages.info(
                     `Analyse envoyée au Chat IA : ${outcome.analyzed} géocache(s), `
-                    + `~${outcome.promptSize?.approxTokens} tokens.`
+                    + `~${outcome.promptSize?.approxTokens} tokens (prompt système compris)`
+                    + `${detail}.`
                 );
             }
 
@@ -251,17 +278,17 @@ export class OutingAnalysisController {
             {
                 level: 'standard',
                 label: 'Standard',
-                description: 'Listing tronqué, 5 logs récents — le bon compromis',
+                description: 'Listing des caches signalées (2500 car.), 5 logs — le bon compromis',
             },
             {
                 level: 'light',
                 label: 'Léger',
-                description: 'Sans listing : attributs, hint et logs seulement',
+                description: 'Listing court et réservé aux caches signalées, 3 logs',
             },
             {
                 level: 'full',
                 label: 'Complet',
-                description: 'Listing long, 10 logs récents — réponse plus lente et coûteuse',
+                description: 'Listing long partout, 10 logs récents — plus lent et plus coûteux',
             },
         ];
 
@@ -304,15 +331,18 @@ export class OutingAnalysisController {
         }
 
         const detailLevel = request.detailLevel ?? this.readDetailLevel();
-        const preset = OUTING_DETAIL_PRESETS[detailLevel];
+        const adaptive = this.readBoolean(OUTING_ADAPTIVE_BUDGET_PREF, true);
+        // Le serveur ignore les paliers : on lui demande le maximum dont le plan pourra
+        // avoir besoin, et la coupe par cache se fait à la rédaction du prompt.
+        const collection = collectionOptionsForPlan(detailLevel, adaptive);
         const outingDate = this.formatDate(request.outingDate);
 
         const bundle = await this.geocachesService.fetchAnalysisBundle(
             ids,
             {
-                listingChars: preset.listingChars,
-                recentLogsCount: this.readNumber(OUTING_RECENT_LOGS_PREF, preset.recentLogsCount),
-                gearLogsCount: this.readNumber(OUTING_GEAR_LOGS_PREF, preset.gearLogsCount),
+                listingChars: collection.listingChars,
+                recentLogsCount: this.readNumber(OUTING_RECENT_LOGS_PREF, collection.recentLogsCount),
+                gearLogsCount: this.readNumber(OUTING_GEAR_LOGS_PREF, collection.gearLogsCount),
                 // Le serveur en a besoin autant que le prompt : c'est lui qui calcule
                 // l'heure du coucher du soleil à cette date.
                 outingDate,
@@ -320,16 +350,22 @@ export class OutingAnalysisController {
             signal
         );
 
-        const prompt = buildOutingAnalysisPrompt(bundle, {
-            zoneName: request.zoneName,
-            outingDate,
-            detailLevel,
-        });
-        const promptSize = estimateOutingPromptSize(prompt);
+        const budget = buildBudgetedOutingPrompt(
+            bundle,
+            { zoneName: request.zoneName, outingDate, detailLevel },
+            {
+                adaptive,
+                maxTokens: this.readNumber(
+                    OUTING_MAX_PROMPT_TOKENS_PREF,
+                    OUTING_DEFAULT_MAX_PROMPT_TOKENS
+                ),
+                systemPromptChars: this.estimateSystemPromptChars(),
+            }
+        );
 
         this.openChatSession({
             sessionTitle: this.buildSessionTitle(bundle, outingDate, request.zoneName),
-            prompt,
+            prompt: budget.prompt,
             focus: true,
             workflowKind: 'general',
             sessionKind: 'libre',
@@ -339,9 +375,61 @@ export class OutingAnalysisController {
         return {
             started: true,
             analyzed: bundle.geocaches.length,
-            warnings: this.collectWarnings(bundle),
-            promptSize,
+            warnings: [...this.collectWarnings(bundle), ...this.collectBudgetWarnings(budget)],
+            promptSize: budget.size,
+            coverage: {
+                rich: budget.richCount,
+                lean: budget.leanCount,
+                degradations: budget.degradations,
+                overBudget: budget.overBudget,
+            },
         };
+    }
+
+    /**
+     * Taille du message système, prompt de l'agent et description de policy comprises.
+     *
+     * Approximation assumée : c'est la variante par défaut qui est mesurée, alors que
+     * l'utilisateur peut l'avoir personnalisée dans Theia. L'écart se compte en dizaines
+     * de tokens, là où ignorer le message système en coûtait quelques milliers.
+     */
+    protected estimateSystemPromptChars(): number {
+        const template = GeoAppOutingSystemPromptVariants.defaultVariant.template || '';
+        let policy = '';
+        try {
+            policy = this.chatPolicyService.describePolicyForPrompt(
+                this.chatPolicyService.resolvePolicy(undefined)
+            );
+        } catch {
+            // Policy indisponible (tests, démarrage partiel) : le prompt de l'agent suffit
+            // à rendre l'estimation représentative.
+        }
+        return template.length + policy.length;
+    }
+
+    /** Avertissements propres au budget : ce que l'utilisateur n'a pas envoyé sans le savoir. */
+    protected collectBudgetWarnings(budget: {
+        degradations: string[];
+        overBudget: boolean;
+        size: { approxTokens: number };
+    }): string[] {
+        const warnings: string[] = [];
+
+        if (budget.degradations.length > 0) {
+            warnings.push(
+                `Plafond de tokens atteint : contenu réduit (${budget.degradations.join(' ; ')}).`
+            );
+        }
+
+        if (budget.overBudget) {
+            warnings.push(
+                `Le prompt reste au-dessus du plafond après réduction maximale `
+                + `(~${budget.size.approxTokens} tokens) : il part quand même, mais une `
+                + `sélection plus courte donnera un meilleur rapport.`
+            );
+        }
+
+        return warnings;
     }
 
     /**
@@ -440,6 +528,11 @@ export class OutingAnalysisController {
     protected readNumber(preference: string, fallback: number): number {
         const raw = this.preferenceService.get<number>(preference, fallback);
         return typeof raw === 'number' && Number.isFinite(raw) ? raw : fallback;
+    }
+
+    protected readBoolean(preference: string, fallback: boolean): boolean {
+        const raw = this.preferenceService.get<boolean>(preference, fallback);
+        return typeof raw === 'boolean' ? raw : fallback;
     }
 
     /** Date au format ISO court : stable, donc appariable d'une session à l'autre. */

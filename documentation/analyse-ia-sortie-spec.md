@@ -5,7 +5,8 @@
 > indépendants, implémentables et commitables séparément.
 >
 > **État : les 5 lots sont livrés (2026-09-03), plus un lot 6 d'enrichissement du bundle,
-> un lot 7 de balayage lexical du listing et un lot 8 de géographie (2026-09-04).**
+> un lot 7 de balayage lexical du listing, un lot 8 de géographie, un lot 9 d'estimation de
+> temps et un lot 10 de budget de tokens adaptatif (2026-09-04).**
 > Les blocs « Écart constaté à l'implémentation » signalent les endroits où le code
 > s'écarte de la spec initiale, et pourquoi.
 > La documentation de référence est désormais le § 31 de
@@ -66,6 +67,7 @@ hint et surtout **les logs**, où l'information se trouve le plus souvent.
 | 7 | P1 | Lexique matériel appliqué au listing complet et au hint, pré-résolution des drapeaux | Faible |
 | 8 | P1 | Géographie : étendue, ordre de visite, groupes de marche, coucher du soleil, date de sortie | Faible |
 | 9 | P1 | Estimation de temps déterministe : temps sur place par cache, trajet, budget de la sortie | Faible |
+| 10 | P1 | Budget de tokens adaptatif : palier de détail par cache, plafond dur avec rétrogradation, prompt système compté | Moyen (le niveau de détail change de sens) |
 
 Tous livrés. Récapitulatif des fichiers produits :
 
@@ -80,6 +82,7 @@ Tous livrés. Récapitulatif des fichiers produits :
 | 7 | `outing_lexicons.py`, `outing_gear_signals.py`, `outing_analysis_service.py`, `outing-analysis-prompt.ts`, `geoapp-chat-system-prompts.ts` (voir § LOT 7 en fin de document) |
 | 8 | `outing_geography.py`, `outing_sun.py`, `tests/test_outing_geography.py`, endpoint, `outing_analysis_service.py`, les trois fichiers `outing-analysis-*.ts`, `geocaches-service.ts`, `geoapp-chat-system-prompts.ts` |
 | 9 | `outing_time_estimate.py`, `tests/test_outing_time_estimate.py`, `outing_analysis_service.py`, `outing-analysis-types.ts`, `outing-analysis-prompt.ts`, `geoapp-chat-system-prompts.ts` (voir § LOT 9 en fin de document) |
+| 10 | `outing-analysis-budget.ts`, `tests/outing-analysis-budget.test.ts` (27 tests), `outing-analysis-types.ts`, `outing-analysis-prompt.ts`, `outing-analysis-controller.ts`, `geoapp-preference-contribution.ts`, `geoapp-chat-system-prompts.ts` (voir § LOT 10 en fin de document) |
 
 Ordre imposé : 1 → 2 → 3 → 4 → 5. Le lot 3 n'est testable de bout en bout qu'après le
 lot 4 (sans agent dédié, la session s'ouvre sur l'agent GeoApp par défaut, ce qui reste
@@ -1121,6 +1124,131 @@ franc.
 - **Le barème n'est pas paramétrable.** Constantes de module, comme les seuils de santé du
   lot 1. À exposer en préférences seulement si l'usage montre que les défauts ne conviennent
   pas.
+
+---
+
+## LOT 10 — Budget de tokens adaptatif (P1, livré le 2026-09-04)
+
+**Le constat.** Le niveau de détail s'appliquait uniformément à toute la sélection. C'est le
+mauvais découpage : l'information n'est pas répartie uniformément dans un lot de géocaches.
+Une traditionnelle D1/T1 saine, trouvée la semaine dernière, n'a rien à dire que ses
+attributs ne disent déjà — son listing coûte huit cents tokens pour confirmer qu'il n'y a
+rien à confirmer. La T5 voisine, avec un drapeau `special_tool` NON RÉSOLU, ne se prépare
+pas sans son texte. Un budget uniforme choisit donc **toujours mal** : trop cher pour les
+unes, trop pauvre pour les autres.
+
+### Ce qui change
+
+| Avant | Après |
+|---|---|
+| `light` = aucun listing, `standard` = 1800 car., `full` = 4000, pour toutes les caches | Le niveau fixe la générosité de **deux paliers** ; le palier est décidé cache par cache |
+| Aucun plafond en tokens | Plafond dur (`maxPromptTokens`, défaut 30 000) avec rétrogradation automatique |
+| `estimateOutingPromptSize()` ne comptait que les données | Le prompt système et la policy sont comptés dans l'estimation |
+
+### 10.1 Le palier, cache par cache
+
+**Fichier (nouveau)** : `frontend/theia-extensions/zones/src/browser/outing-analysis-budget.ts`
+
+`decideTier()` applique une table de règles pondérées. Une seule règle qui se déclenche
+suffit à passer au palier `rich` — listing et logs ; sinon la cache reste `lean` :
+attributs, hint, santé, temps estimé et matériel repéré par balayage, sans listing. Le
+tableau des règles et de leurs poids est reproduit au § 31 de
+`chat-ia-geoapp-technique.md`.
+
+Les poids ne sont pas des probabilités : ils ne servent qu'à **ordonner les
+rétrogradations** quand le plafond force à sacrifier des listings.
+
+Deux choix explicites :
+
+- **la mystery non résolue n'est pas un motif** : on n'ira pas, et son listing est le plus
+  long et le moins exploitable du lot. Le rapport doit dire « résous-la d'abord », ce qu'il
+  sait sans lire l'énigme ;
+- **un drapeau déjà refermé par le balayage du lot 7 n'est pas un motif** non plus :
+  l'objet est nommé, la question est close.
+
+Le palier `lean` n'est acceptable que grâce à ce même lot 7 : le matériel nommé dans le
+listing **complet** remonte de toute façon dans `gear_mentions_in_listing`.
+
+### 10.2 Le plafond dur
+
+`buildBudgetedOutingPrompt()` rend le prompt, l'estime prompt système compris, puis applique
+des étapes de rétrogradation tant que le plafond est dépassé :
+
+1. listing retiré des caches sans particularité (mode complet uniquement) ;
+2. listing des caches signalées raccourci à 900 caractères ;
+3. rétrogradation `rich → lean`, par priorité croissante ;
+4. logs récents ramenés à 2 par cache ;
+5. logs matériel ramenés à 4 ;
+6. plus aucun log récent ;
+7. un seul log matériel par cache signalée.
+
+L'ordre suit une règle unique : **on sacrifie d'abord le redondant, jamais l'unique.** Le
+listing part avant les logs parce que son matériel a déjà été extrait par balayage.
+Attributs, santé, géographie et temps estimés ne sont jamais touchés : ils coûtent peu et
+portent l'essentiel.
+
+**Le plafond ne bloque pas.** S'il reste dépassé après toutes les étapes, `overBudget` passe
+à vrai, l'utilisateur est averti et l'analyse part quand même. Refuser d'analyser après que
+l'utilisateur a attendu la collecte serait le pire des deux mondes ; le levier restant —
+réduire la sélection — lui est dit en clair.
+
+### 10.3 La collecte demande le maximum
+
+Le serveur ne connaît pas les paliers. `collectionOptionsForPlan()` lui demande donc les
+réglages du palier le plus généreux, et la coupe par cache se fait à la rédaction du prompt.
+C'est ce qui rend la rétrogradation possible **sans second aller-retour** — l'autre
+solution, redemander le listing d'une cache après coup, coûterait un appel par cache.
+
+Conséquence visible : le mode léger demande désormais 1200 caractères de listing au serveur,
+là où il en demandait zéro. Le surcoût est un transfert localhost.
+
+### 10.4 La section « Couverture des données »
+
+Contrepartie obligatoire de la stratégie mixte, et règle 12 du prompt système. Sans elle,
+une cache sans listing se lirait comme une cache dont l'information manque, alors que c'est
+l'inverse : GeoApp l'a lue et n'y a rien trouvé qui change la préparation. La section écrit
+cette différence, dit combien de caches ont reçu leur listing, et nomme les rétrogradations
+subies. Elle disparaît quand `adaptiveBudget` est désactivé : il n'y a alors rien d'inégal
+à expliquer.
+
+### 10.5 Le prompt système dans l'estimation
+
+`estimateOutingPromptSize(prompt, { systemPromptChars })` compte le message système — prompt
+de l'agent **et** description de policy, qui partent dans la même requête. Le contrôleur le
+mesure via `GeoAppChatPolicyService`, injecté pour cela seul.
+
+`OutingPromptSize` distingue désormais `chars` (données), `systemPromptChars` et
+`totalChars` ; `approxTokens` porte sur le total. L'estimation d'origine, en ignorant le
+message système, sous-évaluait l'envoi de plusieurs milliers de tokens.
+
+### Préférences ajoutées
+
+| Préférence | Défaut | Rôle |
+|---|---|---|
+| `geoApp.outing.analysis.adaptiveBudget` | `true` | Palier décidé cache par cache ; faux pour revenir au régime uniforme |
+| `geoApp.outing.analysis.maxPromptTokens` | `30000` | Plafond dur, prompt système compris ; `0` le désactive |
+
+### Écart constaté à l'implémentation
+
+- `OUTING_DETAIL_PRESETS` est **supprimé** au profit de `OUTING_TIER_PRESETS` : le premier
+  n'avait plus de consommateur une fois le palier introduit, et son `light.listingChars = 0`
+  décrivait un comportement qui n'existe plus.
+- Le plafond par défaut (30 000 tokens) n'est presque jamais atteint sur une sortie
+  ordinaire. Il vaut pour les grandes sélections en mode complet, là où le prompt devient
+  plus cher que ce qu'il apporte.
+- Aucune modification backend : le budget est entièrement une décision de rédaction.
+
+### Limites assumées
+
+- **Le ratio caractères/token reste une approximation** (3,6), et le prompt système mesuré
+  est celui de la variante par défaut, pas d'une variante personnalisée par l'utilisateur.
+  L'écart se compte en dizaines de tokens, là où ignorer le message système en coûtait
+  quelques milliers.
+- **Les poids des règles ne sont pas paramétrables** : constantes de module, comme les
+  seuils de santé du lot 1 et le barème du lot 9.
+- **Aucune boucle de retour depuis le modèle** : si le rapport se plaint d'un listing
+  manquant, rien ne le renvoie le chercher. La règle 12 du prompt système est le seul
+  garde-fou, et il est textuel.
 
 ---
 
