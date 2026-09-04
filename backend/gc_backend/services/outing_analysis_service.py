@@ -59,6 +59,8 @@ from .outing_gear_signals import (
     build_waypoint_signals,
     count_resolved_from_text,
     count_unresolved,
+    covered_attribute_slugs,
+    resolve_attribute_slug,
     resolve_signals_from_text,
 )
 from .outing_health import compute_health
@@ -102,6 +104,17 @@ MAX_LOGGING_TASKS = 12
 #: Types de géocaches dont les coordonnées publiées ne sont pas les bonnes tant que
 #: l'énigme n'est pas résolue.
 _MYSTERY_TYPES = ('mystery', 'unknown', 'puzzle')
+
+#: Types dont les coordonnées publiées sont un **départ** valable, mais dont le final se
+#: trouve ailleurs : multi, letterbox, wherigo. S'y rendre a du sens — c'est ce qui les
+#: sépare d'une mystery non résolue — mais le point d'arrivée reste inconnu tant qu'une
+#: étape n'a pas été faite sur place, et la journée ne peut pas être bouclée sur le papier.
+_MULTI_STEP_TYPES = ('multi', 'letterbox', 'wherigo')
+
+#: Ce qui, dans un type de waypoint, désigne le point final. Geocaching.com l'intitule
+#: « Final Location » ; la comparaison porte sur le type en minuscules, ce qui couvre
+#: aussi les variantes localisées (« Final »).
+_FINAL_WAYPOINT_TERMS = ('final',)
 
 _TAG_RE = re.compile(r'<[^>]+>')
 _WHITESPACE_RE = re.compile(r'\s+')
@@ -312,7 +325,46 @@ def _is_unsolved_mystery(geocache: Geocache) -> bool:
     return not bool(geocache.is_corrected)
 
 
-def _serialize_attributes(geocache: Geocache) -> list[dict]:
+def _has_final_waypoint(geocache: Geocache) -> bool:
+    """Un waypoint « Final Location » avec des coordonnées exploitables."""
+    for waypoint in geocache.waypoints or []:
+        raw_type = _clean_whitespace(waypoint.type).lower()
+        if any(term in raw_type for term in _FINAL_WAYPOINT_TERMS):
+            if _waypoint_coordinates(waypoint):
+                return True
+    return False
+
+
+def _is_final_unknown(geocache: Geocache) -> bool:
+    """
+    Multi, letterbox ou wherigo dont le point final n'est connu de personne ici.
+
+    Volontairement disjoint de `unsolved_mystery`, qui dit autre chose : là, les
+    coordonnées publiées **mentent** et s'y déplacer ne sert à rien ; ici elles disent
+    vrai, mais elles ne disent que le départ. La conséquence pour la sortie n'est pas la
+    même — l'une se retire de la sélection, l'autre se planifie avec une marge — d'où deux
+    drapeaux plutôt qu'un seul rendu deux fois.
+
+    Un final déjà résolu se voit de trois façons : coordonnées corrigées, `solved`, ou un
+    waypoint « Final Location » coté. Chacune suffit.
+    """
+    cache_type = (geocache.type or '').lower()
+    if not any(token in cache_type for token in _MULTI_STEP_TYPES):
+        return False
+    if geocache.solved == 'solved' or bool(geocache.is_corrected):
+        return False
+    return not _has_final_waypoint(geocache)
+
+
+def _serialize_attributes(geocache: Geocache, covered: set[str] | None = None) -> list[dict]:
+    """
+    Attributs bruts, chacun marqué selon qu'un signal le dit déjà.
+
+    `covered` porte les slugs absorbés par `gear_signals` : le prompt s'en sert pour ne
+    garder que les attributs qu'aucun signal ne rend, et cesser de payer deux fois la même
+    information — une fois en français dans les signaux, une fois en libellé
+    geocaching.com dans les attributs.
+    """
     attributes = geocache.attributes if isinstance(geocache.attributes, list) else []
     serialized = []
     for attribute in attributes:
@@ -321,7 +373,13 @@ def _serialize_attributes(geocache: Geocache) -> list[dict]:
         label = _clean_whitespace(attribute.get('name'))
         if not label:
             continue
-        serialized.append({'label': label, 'is_negative': bool(attribute.get('is_negative'))})
+        slug = resolve_attribute_slug(attribute)
+        serialized.append({
+            'label': label,
+            'is_negative': bool(attribute.get('is_negative')),
+            'slug': slug,
+            'covered_by_signal': bool(slug and slug in (covered or ())),
+        })
     return serialized
 
 
@@ -647,6 +705,8 @@ def _build_geocache_entry(
         'is_corrected': bool(geocache.is_corrected),
         'solved': geocache.solved,
         'unsolved_mystery': _is_unsolved_mystery(geocache),
+        # Multi / letterbox / wherigo sans final connu : le départ est bon, l'arrivée non.
+        'final_unknown': _is_final_unknown(geocache),
         'favorites_count': geocache.favorites_count,
         'logs_count': geocache.logs_count,
         'placed_at': geocache.placed_at.isoformat() if geocache.placed_at else None,
@@ -666,7 +726,7 @@ def _build_geocache_entry(
         # suppression pure et simple du listing.
         'gear_mentions_in_listing': gear_mentions_in_listing,
         'gear_mentions_in_hint': gear_mentions_in_hint,
-        'attributes': _serialize_attributes(geocache),
+        'attributes': _serialize_attributes(geocache, covered_attribute_slugs(gear_signals)),
         'gear_signals': gear_signals,
         'waypoints': _serialize_waypoints(geocache),
         'waypoints_count': len(geocache.waypoints or []),
@@ -700,6 +760,7 @@ def _build_stats(entries: list[dict]) -> dict:
         'by_type': by_type,
         'by_health_level': by_health,
         'unsolved_mysteries': sum(1 for entry in entries if entry.get('unsolved_mystery')),
+        'unknown_finals': sum(1 for entry in entries if entry.get('final_unknown')),
         'unresolved_gear_signals': sum(
             count_unresolved(entry.get('gear_signals')) for entry in entries
         ),

@@ -39,6 +39,7 @@ Le système a été conçu pour rester compatible avec Theia. GeoApp ne remplace
 | `frontend/theia-extensions/zones/src/browser/outing-analysis-prompt.ts` | Mise en forme du bundle en prompt Markdown et estimation de sa taille. |
 | `frontend/theia-extensions/zones/src/browser/outing-analysis-controller.ts` | Enchaînement de l'analyse, partagé par la table de zone et le log-editor. |
 | `backend/gc_backend/services/outing_analysis_service.py` | Construction du bundle : listing, hint, attributs, waypoints, santé, logs. |
+| `backend/gc_backend/services/outing_bundle_cache.py` | Mémo du bundle et ETag : empreinte (sélection, options, fraîcheur des tables). |
 | `backend/gc_backend/services/outing_health.py` | Santé d'une géocache calculée depuis ses logs locaux. |
 | `backend/gc_backend/services/outing_gear_signals.py` | Traduction des attributs Geocaching.com en signaux matériel. |
 | `backend/gc_backend/services/outing_lexicons.py` | Lexiques matériel et « recherche longue », FR + EN. |
@@ -959,8 +960,8 @@ Tests exécutés :
 | `geoapp-chat-configuration-service.test.ts` | Import/export complet, preview d'import, compat legacy. |
 | `geoapp-chat-agent.test.ts` | Tools envoyés au modèle et prompt final agent. |
 | `geoapp-chat-bridge.test.ts` | Ouverture/reprise de sessions Chat IA. |
-| `outing-analysis-prompt.test.ts` | Mise en forme du prompt de sortie, sections omises, niveaux de détail. |
-| `outing-analysis-controller.test.ts` | Plafond, déduplication, titre de session, avertissements, préférences, pré-vol de fraîcheur des logs, ordre rafraîchissement/collecte, relance actionnable. |
+| `outing-analysis-prompt.test.ts` | Mise en forme du prompt de sortie, sections omises, attributs non redits après un signal, final inconnu, niveaux de détail. |
+| `outing-analysis-controller.test.ts` | Plafond partagé par les deux points d'entrée, déduplication, titre de session (stable quelle que soit la taille de la sélection), avertissements, préférences, pré-vol de fraîcheur des logs, ordre rafraîchissement/collecte, relance actionnable. |
 | `geoapp-outing-analyzer-agent.test.ts` | Identité de l'agent, contenu du prompt système, repli. |
 
 Backend :
@@ -971,7 +972,7 @@ cd backend && python -m pytest tests/test_outing_analysis.py tests/test_outing_g
 
 | Test | Couverture |
 |---|---|
-| `test_outing_analysis.py` | Santé, signaux matériel, extraction lexicale, validation de l'endpoint. |
+| `test_outing_analysis.py` | Santé, signaux matériel, attributs couverts, table des identifiants GPX, coordonnées finales, extraction lexicale, validation de l'endpoint, mémo du bundle et ETag. |
 | `test_outing_geography.py` | Haversine, étendue, ordre de visite, groupes de marche, éphémérides solaires. |
 | `test_outing_logs_status.py` | Verdicts du pré-vol, alignement des seuils sur `outing_health`, endpoint. |
 
@@ -1269,7 +1270,8 @@ déjà fait par l'utilisateur, qui est souvent la meilleure source disponible.
 
 | Source | Champs | Pourquoi elle compte |
 |---|---|---|
-| Listing, hint, attributs | `listing_excerpt`, `hint`, `attributes`, `gear_signals` | Le socle |
+| Listing, hint, attributs | `listing_excerpt`, `hint`, `attributes`, `gear_signals` | Le socle. Un attribut déjà porté par un signal est marqué `covered_by_signal` et disparaît du prompt : la même information en deux langues ne vaut pas deux fois son prix |
+| Coordonnées | `unsolved_mystery`, `final_unknown` | Deux problèmes distincts : les coordonnées publiées mentent, ou elles ne disent que le départ |
 | Balayage lexical du listing et du hint | `gear_mentions_in_listing`, `gear_mentions_in_hint` | Le matériel nommé dans le texte **complet**, pour quelques tokens : survit à la troncature de l'extrait comme à sa suppression |
 | Statut de trouvaille | `found`, `found_date` | Une cache déjà trouvée dans la sélection est presque toujours une erreur de sélection |
 | Note personnelle geocaching.com | `personal_note` | « Parking rue X », « prévoir 2 personnes », solutions partielles : aucune autre source ne les porte |
@@ -1290,6 +1292,16 @@ Trois conséquences dans le prompt :
 - un waypoint sans coordonnées est rendu « coordonnées absentes » plutôt qu'omis : c'est
   un point à récupérer avant de partir, pas un silence.
 
+**Deux drapeaux de coordonnées, pas un** — `unsolved_mystery` dit que les coordonnées
+publiées **mentent** : s'y déplacer ne sert à rien, la cache sort de l'ordre de visite et
+de tous les calculs de distance. `final_unknown` dit tout autre chose, pour une multi, une
+letterbox ou un wherigo : les coordonnées publiées sont un **départ valable**, on peut y
+aller, mais le final reste à trouver sur place. La conséquence pour la sortie n'est pas la
+même — l'une se retire de la sélection, l'autre se planifie avec une marge et pas en fin de
+journée — et le prompt n'en rend jamais qu'un seul par cache. Un final est considéré comme
+connu dès que l'une des trois preuves est là : coordonnées corrigées, `solved`, ou un
+waypoint « Final Location » **coté** (le `???` de geocaching.com ne compte pas).
+
 Deux nettoyages sont appliqués au passage, parce que le prompt est un format ligne à
 ligne : le type de waypoint arrive parfois du scraping avec un retour à la ligne et une
 parenthèse orpheline (`Parking Area)\n    `), et geocaching.com stocke `???` dans
@@ -1308,7 +1320,7 @@ fait que ce qu'elle seule sait faire, lire du texte libre.
 | Sélection des logs pertinents par lexique | Priorisation, arbitrages de journée |
 | Temps sur place par cache, trajet, budget de la sortie | Correction de ces durées quand le texte en dit plus |
 | Matériel nommé dans le listing et le hint, drapeaux pré-résolus | Ce qui n'est que suggéré, sous-entendu, ou dit autrement |
-| Mystery non résolue, cache déjà trouvée, waypoints, statut | Contraintes implicites du listing |
+| Mystery non résolue, final inconnu, cache déjà trouvée, waypoints, statut | Contraintes implicites du listing |
 | Fraîcheur de la collecte de logs | Ce qu'il faut en conclure sur la fiabilité |
 
 ### Signaux matériel : l'attribut est une question, pas une réponse
@@ -1358,6 +1370,16 @@ Deux limites assumées :
   auteur, ce qu'un compteur agrégé ne permettrait pas. Seuls le listing et le hint, écrits
   par le propriétaire, font autorité ici.
 
+**Les attributs déjà dits ne repartent pas** — le prompt rendait les signaux *et* la
+liste complète des attributs. « Lampe torche requise » partait donc deux fois : en libellé
+geocaching.com d'un côté, en français de l'autre, la seconde version portant en plus l'état
+du drapeau. Chaque signal déclare maintenant les slugs qu'il absorbe (`covers`, y compris
+ceux qu'une déduplication a fait disparaître — `rappelling` derrière `climbing`), le
+backend en marque les attributs (`covered_by_signal`) et la ligne du prompt, devenue
+« Autres attributs », ne garde que ce dont aucun signal ne sait rien dire : le décoratif,
+l'anecdotique, l'inconnu. C'est précisément ce qui gagne à être rendu brut — l'IA le lira,
+elle, sans table de correspondance.
+
 **Résolution du slug d'attribut** — `Geocache.attributes` est hétérogène :
 
 1. `base_filename` (scraping) : slug stable, **suffixe `-yes`/`-no` inclus**
@@ -1368,6 +1390,21 @@ Deux limites assumées :
 `name` est un libellé **localisé** (« Flashlight required » ou « Lampe torche requise »
 selon la langue du compte au moment du scraping) : il ne peut jamais servir de clé
 primaire.
+
+La table des identifiants GPX (`_ATTRIBUTE_ID_TO_SLUG`) est restée longtemps marquée « à
+valider sur un GPX réel ». Elle l'est maintenant **sans GPX**, par recoupement : les slugs
+viennent des noms d'icône du site, les mots-clés viennent des libellés, et
+`test_gpx_attribute_ids_agree_with_labels` passe l'intitulé anglais officiel de chaque
+identifiant dans la résolution par libellé en exigeant le même **signal** — pas le même
+slug, puisque `Climbing gear` (id 3, icône `rappelling`) et `Difficult climbing` (id 10)
+désignent deux slugs pour un seul signal. Vingt-huit identifiants sur quarante-sept sont
+ainsi croisés ; les autres n'ont pas de mot-clé, et un second test vérifie au moins qu'ils
+pointent vers un slug qui lève réellement un signal.
+
+Deux identifiants manquaient, et ils manquaient là où ça se voit le moins : `1` (chiens) et
+`32` (vélos) ne portent leur information qu'au **négatif** (« chiens interdits »). Sans eux,
+une cache importée par GPX perdait silencieusement une contrainte que le scraping, lui,
+voyait.
 
 ### Sélection des logs : deux listes, deux questions
 
@@ -1601,10 +1638,19 @@ d'écart doivent pouvoir se comparer, ou expliquer pourquoi elles divergent.
 ### Sessions
 
 Le contrôleur ouvre une session `libre` sans `geocacheId` ni `gcCode` : l'appariement du
-bridge repose donc entièrement sur le titre,
-`SORTIE - <zone> - <AAAA-MM-JJ> (<n> caches)`. La date est celle de la **sortie**, pas
-celle de la préparation : deux analyses visant le même samedi reprennent la même
-conversation, même préparées à deux jours d'intervalle.
+bridge repose donc entièrement sur le titre, `SORTIE - <zone> - <AAAA-MM-JJ>`. La date est
+celle de la **sortie**, pas celle de la préparation : deux analyses visant le même samedi
+reprennent la même conversation, même préparées à deux jours d'intervalle.
+
+Le titre portait aussi le nombre de caches, ce qui **démentait la règle qu'il servait** :
+retirer une cache de la sélection ouvrait une seconde conversation sur la même sortie,
+alors que `OutingPlanCaptureService`, lui, continuait de tout rattacher à « zone + date ».
+Le nombre était de l'affichage, pas de l'identité — il reste dans le message de
+confirmation — et les deux clés sont maintenant la même.
+
+Le log-editor n'a pas de zone : il passe `OUTING_LOG_EDITOR_ZONE_NAME` (« sortie du
+jour »), une constante partagée plutôt qu'une chaîne écrite dans le widget, puisque ce
+libellé est autant une clé d'identité qu'un titre.
 
 ### Préférences
 
@@ -1690,6 +1736,30 @@ désormais le message système — prompt de l'agent **et** description de polic
 dans la même requête. La première version ne comptait que les données et sous-évaluait
 l'envoi de plusieurs milliers de tokens. `OutingPromptSize` distingue `chars` (données),
 `systemPromptChars` et `totalChars` ; `approxTokens` porte sur le total.
+
+### Mémo du bundle et ETag
+
+Deux analyses successives de la même sélection reconstruisaient tout. `outing_bundle_cache`
+mémorise les trois derniers bundles, servis tant que leur **empreinte** est inchangée ;
+l'empreinte sort aussi en `ETag`, et un client qui la renvoie en `If-None-Match` reçoit un
+`304` sans corps.
+
+L'empreinte couvre la sélection, les options de collecte et la fraîcheur de chaque table
+lue : nombre de lignes et `max(updated_at)` pour `geocache`, `geocache_log`,
+`geocache_logging_task` et `note` ; nombre de lignes, `max(id)` et
+`max(note_override_updated_at)` pour `geocache_waypoint`, qui n'a pas d'horodatage propre.
+Cinq agrégats, là où le bundle ramène tous les logs et tous les listings du lot.
+
+`geocache.updated_at` **a été ajoutée pour ce calcul** : c'était la seule table du lot à ne
+pas en avoir, et c'est elle qui porte le listing, les attributs et les coordonnées
+corrigées. Sans elle, un cache aurait resservi l'ancienne analyse à celui qui venait
+justement de corriger des coordonnées — exactement le geste qui donne envie de relancer.
+Elle est tenue par l'ORM, par lequel passent toutes les écritures de cette table, et vaut
+`NULL` sur les lignes antérieures à son ajout (le compte de lignes prend alors le relais).
+
+Un TTL de cinq minutes s'y ajoute, pour une autre raison : l'empreinte date les **données**,
+le TTL date le **calcul**. La santé se lit en jours écoulés et `generated_at` figure dans le
+bundle — cinq minutes n'y changent rien, une nuit oui.
 
 ### Garde-fous
 

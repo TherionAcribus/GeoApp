@@ -24,6 +24,17 @@ class Geocache(db.Model):
     placed_at = db.Column(db.DateTime)
     status = db.Column(db.String(50), default='active')
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    # Dernière écriture sur la ligne, quelle qu'elle soit. Toutes les tables filles en
+    # avaient une ; la géocache elle-même, non — et c'est pourtant elle qui porte le
+    # listing, les attributs et les coordonnées corrigées. Sans ce marqueur, aucun cache
+    # de bundle d'analyse ne pouvait savoir qu'une correction de coordonnées venait
+    # d'avoir lieu (voir `services/outing_bundle_cache.py`). Tenue par l'ORM, par lequel
+    # passent toutes les écritures de cette table.
+    updated_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
     # Données enrichies (scraping)
     coordinates_raw = db.Column(db.String(100))  # Coordonnées affichées au format Geocaching (peuvent être corrigées)

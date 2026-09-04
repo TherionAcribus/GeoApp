@@ -19,8 +19,10 @@ if str(REPO_ROOT) not in sys.path:
 
 from gc_backend.services.outing_gear_signals import (  # noqa: E402
     build_gear_signals,
+    build_waypoint_signals,
     count_resolved_from_text,
     count_unresolved,
+    covered_attribute_slugs,
     resolve_attribute_slug,
     resolve_signals_from_text,
 )
@@ -243,6 +245,265 @@ def test_empty_attributes_are_safe():
     assert build_gear_signals(None) == []
     assert build_gear_signals([]) == []
     assert build_gear_signals(['pas un dict']) == []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Attributs absorbés par un signal : ne pas payer deux fois la même information
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_a_signal_covers_the_attribute_that_produced_it():
+    signals = build_gear_signals([
+        {'name': 'Lampe torche requise', 'is_negative': False, 'base_filename': 'flashlight-yes'},
+    ])
+    assert signals[0]['covers'] == ['flashlight']
+    assert covered_attribute_slugs(signals) == {'flashlight'}
+
+
+def test_a_deduplicated_attribute_is_covered_too():
+    """`rappelling` disparait des signaux, mais pas de la liste de ce qui est deja dit."""
+    signals = build_gear_signals([
+        {'name': 'Escalade', 'is_negative': False, 'base_filename': 'climbing-yes'},
+        {'name': 'Rappel', 'is_negative': False, 'base_filename': 'rappelling-yes'},
+    ])
+    assert [signal['signal'] for signal in signals] == ['climbing']
+    assert covered_attribute_slugs(signals) == {'climbing', 'rappelling'}
+
+
+def test_an_attribute_without_signal_is_not_covered():
+    """Un attribut decoratif n'a personne pour le dire : il doit rester dans le prompt."""
+    signals = build_gear_signals([
+        {'name': 'Point de vue', 'is_negative': False, 'base_filename': 'scenic-yes'},
+        {'name': 'Lampe torche requise', 'is_negative': False, 'base_filename': 'flashlight-yes'},
+    ])
+    assert covered_attribute_slugs(signals) == {'flashlight'}
+
+
+def test_a_negative_attribute_without_context_stays_visible():
+    """`flashlight-no` ne produit aucun signal : il ne doit donc pas etre marque couvert."""
+    signals = build_gear_signals([
+        {'name': 'Lampe torche', 'is_negative': True, 'base_filename': 'flashlight-no'},
+    ])
+    assert covered_attribute_slugs(signals) == set()
+
+
+def test_waypoint_signals_cover_no_attribute():
+    signals = build_waypoint_signals([SimpleNamespace(type='Parking Area')])
+    assert covered_attribute_slugs(signals) == set()
+
+
+def test_serialized_attributes_carry_their_slug_and_coverage():
+    from gc_backend.services.outing_analysis_service import _serialize_attributes
+
+    attributes = [
+        {'name': 'Lampe torche requise', 'is_negative': False, 'base_filename': 'flashlight-yes'},
+        {'name': 'Point de vue', 'is_negative': False, 'base_filename': 'scenic-yes'},
+    ]
+    geocache = SimpleNamespace(attributes=attributes)
+    signals = build_gear_signals(attributes)
+
+    serialized = _serialize_attributes(geocache, covered_attribute_slugs(signals))
+    assert [entry['covered_by_signal'] for entry in serialized] == [True, False]
+    assert [entry['slug'] for entry in serialized] == ['flashlight', 'scenic']
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Table des identifiants GPX
+# ─────────────────────────────────────────────────────────────────────────────
+
+#: Intitules anglais officiels des attributs Geocaching.com, pour les identifiants que la
+#: table couvre. Ils servent de **contre-epreuve** : la table part des noms d'icone, cette
+#: liste des libelles, et les deux doivent tomber sur le meme signal. Faute d'un GPX reel
+#: dans le depot, c'est ce croisement qui tient la dette ouverte depuis le lot 1.
+_OFFICIAL_ATTRIBUTE_LABELS = {
+    '1': 'Dogs',
+    '2': 'Access or parking fee',
+    '3': 'Climbing gear',
+    '4': 'Boat',
+    '5': 'Scuba gear',
+    '6': 'Recommended for kids',
+    '7': 'Takes less than an hour',
+    '9': 'Significant hike',
+    '10': 'Difficult climbing',
+    '11': 'May require wading',
+    '12': 'May require swimming',
+    '13': 'Available at all times',
+    '14': 'Recommended at night',
+    '15': 'Available during winter',
+    '17': 'Poison plants',
+    '18': 'Dangerous animals',
+    '19': 'Ticks',
+    '20': 'Abandoned mines',
+    '21': 'Cliff / falling rocks',
+    '22': 'Hunting',
+    '23': 'Dangerous area',
+    '24': 'Wheelchair accessible',
+    '25': 'Parking available',
+    '26': 'Public transportation',
+    '32': 'Bicycles',
+    '39': 'Thorns',
+    '40': 'Stealth required',
+    '41': 'Stroller accessible',
+    '44': 'Flashlight required',
+    '47': 'Field puzzle',
+    '48': 'UV light required',
+    '49': 'Snowshoes',
+    '50': 'Cross country skis',
+    '51': 'Special tool required',
+    '52': 'Night cache',
+    '53': 'Park and grab',
+    '54': 'Abandoned structure',
+    '55': 'Short hike (less than 1km)',
+    '56': 'Medium hike (1km-10km)',
+    '57': 'Long hike (+10km)',
+    '60': 'Wireless beacon',
+    '61': 'Partnership cache',
+    '62': 'Seasonal access',
+    '64': 'Tree climbing',
+    '66': 'Teamwork required',
+    '69': 'Bonus cache',
+    '70': 'Power trail',
+    '71': 'Challenge cache',
+}
+
+
+def _signal_of_slug(slug):
+    """Signal produit par un slug, au positif comme au negatif."""
+    from gc_backend.services.outing_gear_signals import _NEGATIVE_CONTEXT, _SLUG_SIGNALS
+
+    spec = _SLUG_SIGNALS.get(slug) or _NEGATIVE_CONTEXT.get(slug)
+    return spec[0] if spec else None
+
+
+def test_every_gpx_attribute_id_maps_to_a_known_slug():
+    """Un identifiant qui pointe vers un slug inconnu ne leverait jamais de signal."""
+    from gc_backend.services.outing_gear_signals import _ATTRIBUTE_ID_TO_SLUG
+
+    unknown = {
+        attribute_id: slug
+        for attribute_id, slug in _ATTRIBUTE_ID_TO_SLUG.items()
+        if _signal_of_slug(slug) is None
+    }
+    assert unknown == {}
+
+
+def test_gpx_attribute_ids_agree_with_labels():
+    """
+    Contre-epreuve de la table des identifiants, sans GPX.
+
+    Chaque intitule anglais officiel repasse par la resolution **par libelle**, qui est
+    une table independante. Quand elle reconnait l'intitule, le signal obtenu doit etre
+    celui de l'identifiant. La comparaison porte sur le signal et non sur le slug :
+    `Climbing gear` (id 3, icone `rappelling`) et `Difficult climbing` (id 10) sont deux
+    slugs distincts pour un meme signal `climbing`, et c'est le signal qui compte.
+    """
+    from gc_backend.services.outing_gear_signals import _ATTRIBUTE_ID_TO_SLUG, _slug_from_name
+
+    checked = 0
+    for attribute_id, label in _OFFICIAL_ATTRIBUTE_LABELS.items():
+        assert attribute_id in _ATTRIBUTE_ID_TO_SLUG, f'identifiant {attribute_id} absent'
+        from_name = _slug_from_name(label)
+        if from_name is None:
+            continue  # Aucun mot-cle pour cet intitule : rien a confronter.
+        checked += 1
+        assert _signal_of_slug(from_name) == _signal_of_slug(_ATTRIBUTE_ID_TO_SLUG[attribute_id]), (
+            f'identifiant {attribute_id} ({label}) : '
+            f'{_ATTRIBUTE_ID_TO_SLUG[attribute_id]} vs {from_name}'
+        )
+
+    # Garde-fou : si la table des mots-cles se vide, le test ne doit pas passer a vide.
+    assert checked >= 20
+
+
+def test_dogs_and_bicycles_survive_a_gpx_import():
+    """
+    Les deux attributs qui ne parlent qu'au negatif, et que le GPX portait sans slug.
+
+    Sans leur identifiant dans la table, « chiens interdits » et « velos interdits » ne
+    ressortaient d'un GPX ni par slug (absent) ni par libelle (aucun mot-cle) : la
+    contrainte disparaissait sans bruit, alors que le scraping, lui, la voyait.
+    """
+    signals = build_gear_signals([
+        {'name': 'Dogs', 'is_negative': True, 'gc_attribute_id': '1'},
+        {'name': 'Bicycles', 'is_negative': True, 'gc_attribute_id': '32'},
+    ])
+    assert {signal['signal'] for signal in signals} == {'dogs_forbidden', 'no_bicycles'}
+
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Coordonnées finales : deux problèmes distincts, deux drapeaux
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _final_waypoint(wp_type, gc_coords=None, latitude=None, longitude=None):
+    return SimpleNamespace(
+        type=wp_type, gc_coords=gc_coords, latitude=latitude, longitude=longitude,
+        prefix='FN', name='Final', note=None, note_override=None,
+    )
+
+
+def _cache(cache_type, *, solved='not_solved', is_corrected=False, waypoints=()):
+    return SimpleNamespace(
+        type=cache_type, solved=solved, is_corrected=is_corrected, waypoints=list(waypoints),
+    )
+
+
+def test_multi_without_final_waypoint_has_an_unknown_final():
+    from gc_backend.services.outing_analysis_service import _is_final_unknown, _is_unsolved_mystery
+
+    multi = _cache('Multi-cache', waypoints=[_final_waypoint('Parking Area', 'N 48° 00.000')])
+    assert _is_final_unknown(multi) is True
+    # Et surtout pas l'autre drapeau : ses coordonnees publiees, elles, sont bonnes.
+    assert _is_unsolved_mystery(multi) is False
+
+
+def test_letterbox_and_wherigo_are_treated_like_a_multi():
+    from gc_backend.services.outing_analysis_service import _is_final_unknown
+
+    assert _is_final_unknown(_cache('Letterbox Hybrid')) is True
+    assert _is_final_unknown(_cache('Wherigo Cache')) is True
+
+
+def test_a_coted_final_waypoint_closes_the_question():
+    from gc_backend.services.outing_analysis_service import _is_final_unknown
+
+    known = _cache('Multi-cache', waypoints=[_final_waypoint('Final Location', 'N 48° 12.345 E 007° 00.000')])
+    assert _is_final_unknown(known) is False
+
+
+def test_a_final_waypoint_without_coordinates_closes_nothing():
+    """Geocaching.com ecrit « ??? » quand le final n'est pas publie : c'est une absence."""
+    from gc_backend.services.outing_analysis_service import _is_final_unknown
+
+    masked = _cache('Multi-cache', waypoints=[_final_waypoint('Final Location', '???')])
+    assert _is_final_unknown(masked) is True
+
+
+def test_corrected_or_solved_coordinates_close_the_question():
+    from gc_backend.services.outing_analysis_service import _is_final_unknown
+
+    assert _is_final_unknown(_cache('Multi-cache', is_corrected=True)) is False
+    assert _is_final_unknown(_cache('Multi-cache', solved='solved')) is False
+
+
+def test_a_traditional_never_has_an_unknown_final():
+    from gc_backend.services.outing_analysis_service import _is_final_unknown
+
+    assert _is_final_unknown(_cache('Traditional Cache')) is False
+
+
+def test_a_mystery_keeps_its_own_flag_and_only_it():
+    """
+    Les deux drapeaux sont disjoints par construction.
+
+    Une mystery non resolue est deja dite par `unsolved_mystery`, qui porte une
+    consequence plus grave : ses coordonnees publiees mentent. La redire en « final
+    inconnu » couterait des tokens pour affaiblir l'alerte.
+    """
+    from gc_backend.services.outing_analysis_service import _is_final_unknown, _is_unsolved_mystery
+
+    mystery = _cache('Unknown Cache')
+    assert _is_unsolved_mystery(mystery) is True
+    assert _is_final_unknown(mystery) is False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1103,3 +1364,143 @@ def test_the_query_orders_logs_exactly_as_health_expects(db_app):
     # Deux DNF en tête, la trouvaille ferme la série : c'est ce que le tri garantit.
     assert entry['health']['consecutive_dnf'] == 2
     assert entry['health']['days_since_last_found'] == 400
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Mémo du bundle et ETag
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _seed_geocache(gc_code='GCMEMO'):
+    """Une geocache et son log, commites. Renvoie l'identifiant."""
+    from gc_backend.database import db
+    from gc_backend.geocaches.models import Geocache, GeocacheLog
+    from gc_backend.models import Zone
+
+    zone = Zone(name=f'Zone {gc_code}')
+    db.session.add(zone)
+    db.session.flush()
+
+    geocache = Geocache(gc_code=gc_code, name='Memo', type='Traditional', zone_id=zone.id)
+    db.session.add(geocache)
+    db.session.flush()
+    db.session.add(GeocacheLog(
+        geocache_id=geocache.id, log_type='Found it',
+        date=NOW - timedelta(days=2), text='trouve', author='Toto',
+    ))
+    db.session.commit()
+    return geocache.id
+
+
+_CACHE_OPTIONS = {'listing_chars': 1800, 'recent_logs_count': 5, 'gear_logs_count': 8}
+
+
+def test_the_second_identical_call_comes_from_the_memo(db_app):
+    from gc_backend.services.outing_bundle_cache import (
+        build_analysis_bundle_cached,
+        clear_bundle_cache,
+    )
+
+    clear_bundle_cache()
+    geocache_id = _seed_geocache()
+
+    first, first_etag, first_cached = build_analysis_bundle_cached([geocache_id], **_CACHE_OPTIONS)
+    second, second_etag, second_cached = build_analysis_bundle_cached([geocache_id], **_CACHE_OPTIONS)
+
+    assert first_cached is False
+    assert second_cached is True
+    assert first_etag == second_etag != ''
+    assert second is first
+
+
+def test_a_new_log_invalidates_the_memo(db_app):
+    """Le cas reel : le pre-vol rafraichit les logs, la relance doit les voir."""
+    from gc_backend.database import db
+    from gc_backend.geocaches.models import GeocacheLog
+    from gc_backend.services.outing_bundle_cache import (
+        build_analysis_bundle_cached,
+        clear_bundle_cache,
+    )
+
+    clear_bundle_cache()
+    geocache_id = _seed_geocache()
+    _, first_etag, _ = build_analysis_bundle_cached([geocache_id], **_CACHE_OPTIONS)
+
+    db.session.add(GeocacheLog(
+        geocache_id=geocache_id, log_type="Didn't find it",
+        date=NOW, text='rien vu', author='Titi',
+    ))
+    db.session.commit()
+
+    bundle, etag, from_cache = build_analysis_bundle_cached([geocache_id], **_CACHE_OPTIONS)
+    assert from_cache is False
+    assert etag != first_etag
+    assert bundle['geocaches'][0]['health']['consecutive_dnf'] == 1
+
+
+def test_editing_the_geocache_itself_invalidates_the_memo(db_app):
+    """
+    Le cas que `geocache.updated_at` a ete ajoutee pour couvrir.
+
+    Corriger des coordonnees ne touche ni les logs, ni les waypoints, ni les notes : sans
+    marqueur sur la ligne elle-meme, le memo aurait resservi l'ancienne analyse a celui
+    qui venait justement de resoudre l'enigme.
+    """
+    from gc_backend.database import db
+    from gc_backend.geocaches.models import Geocache
+    from gc_backend.services.outing_bundle_cache import (
+        build_analysis_bundle_cached,
+        clear_bundle_cache,
+    )
+
+    clear_bundle_cache()
+    geocache_id = _seed_geocache()
+    _, first_etag, _ = build_analysis_bundle_cached([geocache_id], **_CACHE_OPTIONS)
+
+    geocache = db.session.get(Geocache, geocache_id)
+    geocache.is_corrected = True
+    geocache.coordinates_raw = 'N 48° 12.345 E 007° 00.000'
+    db.session.commit()
+
+    bundle, etag, from_cache = build_analysis_bundle_cached([geocache_id], **_CACHE_OPTIONS)
+    assert from_cache is False
+    assert etag != first_etag
+    assert bundle['geocaches'][0]['is_corrected'] is True
+
+
+def test_different_options_are_different_bundles(db_app):
+    from gc_backend.services.outing_bundle_cache import (
+        build_analysis_bundle_cached,
+        clear_bundle_cache,
+    )
+
+    clear_bundle_cache()
+    geocache_id = _seed_geocache()
+
+    _, standard, _ = build_analysis_bundle_cached([geocache_id], **_CACHE_OPTIONS)
+    _, lean, from_cache = build_analysis_bundle_cached(
+        [geocache_id], **{**_CACHE_OPTIONS, 'listing_chars': 0}
+    )
+    assert lean != standard
+    assert from_cache is False
+
+
+def test_the_endpoint_answers_304_to_a_known_etag(db_app):
+    """L'ETag sert a quelque chose : le corps n'est pas renvoye deux fois pour rien."""
+    from gc_backend.services.outing_bundle_cache import clear_bundle_cache
+
+    clear_bundle_cache()
+    geocache_id = _seed_geocache()
+    client = db_app.test_client()
+
+    first = client.post('/api/geocaches/analysis-bundle', json={'ids': [geocache_id]})
+    assert first.status_code == 200
+    etag = first.headers.get('ETag')
+    assert etag
+
+    again = client.post(
+        '/api/geocaches/analysis-bundle',
+        json={'ids': [geocache_id]},
+        headers={'If-None-Match': etag},
+    )
+    assert again.status_code == 304
+    assert again.get_data() == b''

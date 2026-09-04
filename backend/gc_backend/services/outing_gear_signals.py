@@ -40,6 +40,15 @@ peut donc jamais servir de clé primaire. L'ordre de résolution est :
 3. `name`, en dernier recours, par **mots-clés distinctifs** FR + EN plutôt que par
    égalité stricte — les libellés varient trop d'une langue et d'une version à l'autre
    pour qu'une table de noms exacts tienne.
+
+## Attributs absorbés par un signal
+
+Chaque signal porte la liste des slugs d'attributs qui l'ont produit (`covers`). Elle ne
+sert pas au calcul : elle sert à **ne pas payer deux fois**. Le prompt rend les signaux
+*et* la liste des attributs ; sans elle, « Lampe torche requise » partait dans les deux
+lignes, en français dans l'une et en libellé geocaching.com dans l'autre. Les attributs
+qu'un signal couvre sont donc marqués, et la ligne « Autres attributs » ne garde que le reste —
+le décoratif (`scenic`) et l'inconnu, qui n'ont aucun signal pour les dire.
 """
 
 from __future__ import annotations
@@ -136,8 +145,17 @@ _NEGATIVE_CONTEXT: dict[str, _SignalSpec] = {
 # préparation d'une sortie y figurent. Un identifiant absent n'est pas une erreur, il
 # retombe simplement sur la résolution par libellé.
 #
-# À valider sur un GPX réel : voir `documentation/analyse-ia-sortie-spec.md`.
+# Les identifiants sont ceux de la numérotation Groundspeak (1 à 71), la même qui nomme
+# les icônes du site — c'est de ces noms d'icône que viennent les slugs de ce module, ce
+# qui rend les deux tables cohérentes par construction. Faute de GPX réel dans le dépôt,
+# la table est vérifiée **par les libellés** : `test_gpx_attribute_ids_agree_with_labels`
+# passe l'intitulé anglais officiel de chaque identifiant dans `_slug_from_name()` et
+# exige le même signal quand un mot-clé le reconnaît. Une ligne fausse s'y voit sans GPX.
 _ATTRIBUTE_ID_TO_SLUG: dict[str, str] = {
+    # `dogs` et `bicycles` ne portent leur information qu'au négatif (« chiens interdits »,
+    # « vélos interdits ») : sans eux ici, un GPX perdait une contrainte que le scraping,
+    # lui, voyait — c'est le seul cas où l'absence d'un identifiant coûtait quelque chose.
+    '1': 'dogs',
     '2': 'fee',
     '3': 'rappelling',
     '4': 'boat',
@@ -161,6 +179,7 @@ _ATTRIBUTE_ID_TO_SLUG: dict[str, str] = {
     '24': 'wheelchair',
     '25': 'parking',
     '26': 'public',
+    '32': 'bicycles',
     '39': 'thorn',
     '40': 'stealth',
     '41': 'stroller',
@@ -220,6 +239,10 @@ _NAME_KEYWORDS: tuple[tuple[tuple[str, ...], str], ...] = (
     (('chirp', 'wireless beacon'), 'wirelessbeacon'),
     (('saison', 'seasonal'), 'seasonal'),
     (('hiver', 'winter'), 'winter'),
+    # Les deux derniers ne servent qu'au négatif — « chiens interdits », « vélos
+    # interdits » — mais c'est justement là qu'ils portent une contrainte de sortie.
+    (('chien', 'dogs'), 'dogs'),
+    (('velo', 'bicycle', 'bike'), 'bicycles'),
 )
 
 
@@ -281,18 +304,20 @@ def build_gear_signals(attributes: list[dict] | None) -> list[dict]:
     Signaux matériel et contextuels déduits des attributs d'une géocache.
 
     Chaque entrée : `{signal, kind, resolved, resolved_from, label, slug, source,
-    is_negative}`. `resolved_from` vaut `'attribute'` quand l'attribut se suffit et `None`
-    tant que le drapeau reste ouvert — `resolve_signals_from_text()` peut le refermer
-    ensuite depuis le listing ou le hint.
+    is_negative, covers}`. `resolved_from` vaut `'attribute'` quand l'attribut se suffit
+    et `None` tant que le drapeau reste ouvert — `resolve_signals_from_text()` peut le
+    refermer ensuite depuis le listing ou le hint.
 
     Les doublons de signal sont écartés — deux attributs peuvent porter le même
-    (`climbing` et `rappelling` mènent tous deux à `climbing`).
+    (`climbing` et `rappelling` mènent tous deux à `climbing`). L'attribut écarté n'est
+    pas oublié pour autant : son slug rejoint le `covers` du signal qui l'absorbe, pour
+    que la ligne « Autres attributs » du prompt sache qu'il est déjà dit ailleurs.
     """
     if not attributes:
         return []
 
     signals: list[dict] = []
-    seen: set[str] = set()
+    by_signal: dict[str, dict] = {}
 
     for attribute in attributes:
         if not isinstance(attribute, dict):
@@ -312,11 +337,13 @@ def build_gear_signals(attributes: list[dict] | None) -> list[dict]:
             continue
 
         signal, kind, resolved, label = spec
-        if signal in seen:
+        existing = by_signal.get(signal)
+        if existing is not None:
+            if slug not in existing['covers']:
+                existing['covers'].append(slug)
             continue
-        seen.add(signal)
 
-        signals.append({
+        entry = {
             'signal': signal,
             'kind': kind,
             'resolved': resolved,
@@ -325,9 +352,29 @@ def build_gear_signals(attributes: list[dict] | None) -> list[dict]:
             'slug': slug,
             'source': 'attribute',
             'is_negative': is_negative,
-        })
+            # Le slug qui a produit le signal se couvre lui-même : c'est la forme
+            # complète, celle que `covered_attribute_slugs()` peut lire sans cas
+            # particulier pour le premier attribut.
+            'covers': [slug],
+        }
+        by_signal[signal] = entry
+        signals.append(entry)
 
     return signals
+
+
+def covered_attribute_slugs(signals: list[dict] | None) -> set[str]:
+    """
+    Slugs d'attributs dont un signal porte déjà l'information.
+
+    Sert au prompt, pas au calcul : un attribut couvert n'a rien à ajouter à la ligne des
+    signaux, où il est déjà rendu en français et souvent avec sa réponse. Le rendre une
+    seconde fois coûterait des tokens pour répéter la même chose dans une autre langue.
+    """
+    covered: set[str] = set()
+    for signal in signals or []:
+        covered.update(signal.get('covers') or ())
+    return covered
 
 
 #: Types de waypoint (libellé Geocaching.com) valant « il y a un parking renseigné ».
@@ -366,6 +413,9 @@ def build_waypoint_signals(waypoints: list | None, existing: list[dict] | None =
                 'slug': 'parking',
                 'source': 'waypoint',
                 'is_negative': False,
+                # Aucun attribut derrière ce signal : il ne couvre rien, et la clé reste
+                # présente pour que toutes les entrées aient la même forme.
+                'covers': [],
             }]
 
     return []

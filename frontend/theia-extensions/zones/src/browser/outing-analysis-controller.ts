@@ -74,6 +74,32 @@ export function describeMissingLogs(gcCodes: string[]): string {
         + `l'analyse sera partielle pour celles-ci.`;
 }
 
+/**
+ * Pourquoi une sélection ne peut pas partir en analyse, s'il y a une raison.
+ *
+ * Les deux points d'entrée partagent le verdict mais pas sa mise en scène :
+ * `runInteractive()` le montre — en avertissement pour une sélection vide, en erreur pour
+ * un plafond dépassé, parce que l'un est un geste manqué et l'autre une décision à
+ * prendre — tandis qu'`analyze()` le rend dans ses avertissements, pour un appelant qui
+ * n'a peut-être pas d'écran. Deux copies de la règle donnaient deux plafonds le jour où
+ * l'un des deux bougeait.
+ */
+export function describeSelectionRefusal(
+    ids: number[]
+): { message: string; severity: 'warn' | 'error' } | undefined {
+    if (ids.length === 0) {
+        return { message: 'Aucune géocache à analyser.', severity: 'warn' };
+    }
+    if (ids.length > MAX_OUTING_ANALYSIS_GEOCACHES) {
+        return {
+            message: `${ids.length} géocaches sélectionnées : l'analyse IA est limitée à `
+                + `${MAX_OUTING_ANALYSIS_GEOCACHES}. Réduis la sélection.`,
+            severity: 'error',
+        };
+    }
+    return undefined;
+}
+
 /** Le strict minimum de `Progress`, pour ne pas importer le protocole complet. */
 interface ProgressReporter {
     report(update: { message?: string }): void;
@@ -175,16 +201,15 @@ export class OutingAnalysisController {
     ): Promise<OutingAnalysisOutcome> {
         const ids = Array.from(new Set(geocacheIds || []));
 
-        if (ids.length === 0) {
-            this.messages.warn('Aucune géocache à analyser.');
-            return { started: false, analyzed: 0, warnings: [] };
-        }
-
-        if (ids.length > MAX_OUTING_ANALYSIS_GEOCACHES) {
-            this.messages.error(
-                `${ids.length} géocaches sélectionnées : l'analyse IA est limitée à `
-                + `${MAX_OUTING_ANALYSIS_GEOCACHES}. Réduis la sélection.`
-            );
+        // Même refus que `analyze()`, rendu à l'écran plutôt qu'en avertissement : c'est
+        // ici, et ici seulement, qu'il y a quelqu'un devant l'écran pour le lire.
+        const refusal = describeSelectionRefusal(ids);
+        if (refusal) {
+            if (refusal.severity === 'error') {
+                this.messages.error(refusal.message);
+            } else {
+                this.messages.warn(refusal.message);
+            }
             return { started: false, analyzed: 0, warnings: [] };
         }
 
@@ -581,19 +606,9 @@ export class OutingAnalysisController {
     ): Promise<OutingAnalysisOutcome> {
         const ids = Array.from(new Set(geocacheIds || []));
 
-        if (ids.length === 0) {
-            return { started: false, analyzed: 0, warnings: ['Aucune géocache à analyser.'] };
-        }
-
-        if (ids.length > MAX_OUTING_ANALYSIS_GEOCACHES) {
-            return {
-                started: false,
-                analyzed: 0,
-                warnings: [
-                    `${ids.length} géocaches sélectionnées : l'analyse IA est limitée à `
-                    + `${MAX_OUTING_ANALYSIS_GEOCACHES}. Réduis la sélection.`,
-                ],
-            };
+        const refusal = describeSelectionRefusal(ids);
+        if (refusal) {
+            return { started: false, analyzed: 0, warnings: [refusal.message] };
         }
 
         const detailLevel = request.detailLevel ?? this.readDetailLevel();
@@ -638,7 +653,7 @@ export class OutingAnalysisController {
         });
 
         this.openChatSession({
-            sessionTitle: this.buildSessionTitle(bundle, outingDate, request.zoneName),
+            sessionTitle: this.buildSessionTitle(outingDate, request.zoneName),
             prompt: budget.prompt,
             focus: true,
             workflowKind: 'general',
@@ -722,19 +737,18 @@ export class OutingAnalysisController {
     }
 
     /**
-     * Titre de session.
+     * Titre de session : `SORTIE - <zone> - <AAAA-MM-JJ>`, et rien d'autre.
      *
-     * Il porte la date : sans `geocacheId` ni `gcCode`, le bridge apparie les sessions
-     * sur ce titre. Deux analyses de la même zone le même jour reprennent donc la même
-     * conversation — ce qui est le comportement voulu — et le lendemain en ouvre une neuve.
+     * Sans `geocacheId` ni `gcCode`, le bridge apparie les sessions sur ce titre : tout ce
+     * qu'il porte devient donc une clé. Il portait aussi le nombre de caches, ce qui
+     * démentait la règle qu'il était censé servir — deux analyses du même samedi, l'une
+     * de douze caches et l'autre de treize, ouvraient deux conversations là où la
+     * documentation en promettait une. Le nombre était de l'affichage, pas de l'identité :
+     * il est déjà dans le message de confirmation, et la clé « zone + date » est
+     * maintenant exactement celle de `OutingPlanCaptureService`, qui rattache les plans.
      */
-    protected buildSessionTitle(
-        bundle: OutingAnalysisBundle,
-        outingDate: string,
-        zoneName?: string
-    ): string {
-        return `SORTIE - ${this.resolveZoneLabel(zoneName)} - ${outingDate} `
-            + `(${bundle.geocaches.length} caches)`;
+    protected buildSessionTitle(outingDate: string, zoneName?: string): string {
+        return `SORTIE - ${this.resolveZoneLabel(zoneName)} - ${outingDate}`;
     }
 
     /**

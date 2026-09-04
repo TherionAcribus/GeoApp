@@ -201,14 +201,33 @@ async function testSessionIsPinnedOnTheOutingAgent(): Promise<void> {
     assert.equal(detail.gcCode, undefined);
 }
 
-async function testSessionTitleCarriesZoneDateAndCount(): Promise<void> {
+async function testSessionTitleCarriesZoneAndDate(): Promise<void> {
     const bundle = createBundle({
         geocaches: [createGeocache('GC1'), createGeocache('GC2')],
     });
     const controller = new TestableController(bundle);
     await controller.analyze([1, 2], { zoneName: 'Vosges', outingDate: new Date(2026, 8, 5) });
 
-    assert.equal(controller.dispatched[0].sessionTitle, 'SORTIE - Vosges - 2026-09-05 (2 caches)');
+    assert.equal(controller.dispatched[0].sessionTitle, 'SORTIE - Vosges - 2026-09-05');
+}
+
+/**
+ * Le titre est une clé d'appariement : deux sélections du même samedi, une conversation.
+ *
+ * Il portait le nombre de caches, ce qui démentait la règle qu'il servait — retirer une
+ * cache de la sélection ouvrait une seconde session sur la même sortie, alors que la
+ * capture du plan, elle, continuait de tout rattacher à « zone + date ».
+ */
+async function testSessionTitleIgnoresTheSelectionSize(): Promise<void> {
+    const large = new TestableController(createBundle({
+        geocaches: [createGeocache('GC1'), createGeocache('GC2')],
+    }));
+    await large.analyze([1, 2], { zoneName: 'Vosges', outingDate: new Date(2026, 8, 5) });
+
+    const small = new TestableController(createBundle({ geocaches: [createGeocache('GC1')] }));
+    await small.analyze([1], { zoneName: 'Vosges', outingDate: new Date(2026, 8, 5) });
+
+    assert.equal(large.dispatched[0].sessionTitle, small.dispatched[0].sessionTitle);
 }
 
 async function testOutingContextIsRegisteredBeforeTheSessionOpens(): Promise<void> {
@@ -494,6 +513,7 @@ class InteractiveController extends TestableController {
     readonly calls: string[] = [];
     readonly refreshed: Array<{ id: number; count: number }> = [];
     readonly warnings: string[] = [];
+    readonly errors: string[] = [];
     readonly picks: Array<{ placeHolder?: string; values: unknown[] }> = [];
 
     /** Réponse du service d'état ; une `Error` simule un backend indisponible. */
@@ -532,7 +552,9 @@ class InteractiveController extends TestableController {
         (this as any).messages = {
             showProgress: async () => ({ report: () => undefined, cancel: () => undefined }),
             info: () => undefined,
-            error: () => undefined,
+            error: (message: string) => {
+                this.errors.push(message);
+            },
             warn: async (message: string, ...actions: string[]) => {
                 this.warnings.push(message);
                 return actions.length > 0 ? this.warnAnswer : undefined;
@@ -706,12 +728,44 @@ async function testNoRelaunchIsOfferedForACacheAlreadyRefreshed(): Promise<void>
     assert.ok(controller.warnings.some(warning => warning.includes('sans logs locaux')));
 }
 
+/**
+ * Les deux points d'entrée refusent les mêmes sélections, avec le même plafond.
+ *
+ * La règle vivait en double — une copie dans `analyze()`, une dans `runInteractive()` —
+ * et rien n'obligeait les deux plafonds à rester égaux. Elle est maintenant portée par
+ * `describeSelectionRefusal()`, que ce test regarde par les deux bouts : le verdict est
+ * commun, seule sa mise en scène diffère (avertissement contre erreur).
+ */
+async function testTheInteractiveEntryRefusesTheSameSelections(): Promise<void> {
+    const empty = new InteractiveController(createBundle());
+    const emptyOutcome = await empty.runInteractive([]);
+
+    assert.equal(emptyOutcome.started, false);
+    assert.deepEqual(empty.calls, []);
+    assert.ok(empty.warnings[0].includes('Aucune géocache'));
+    assert.deepEqual(empty.errors, []);
+
+    const tooMany = new InteractiveController(createBundle());
+    const ids = Array.from({ length: MAX_OUTING_ANALYSIS_GEOCACHES + 1 }, (_, index) => index + 1);
+    const cappedOutcome = await tooMany.runInteractive(ids);
+
+    assert.equal(cappedOutcome.started, false);
+    assert.deepEqual(tooMany.calls, []);
+    // Un plafond dépassé est une décision à prendre, pas un geste manqué : c'est une
+    // erreur à l'écran, et la même phrase que celle rendue par `analyze()`.
+    assert.ok(tooMany.errors[0].includes(String(MAX_OUTING_ANALYSIS_GEOCACHES)));
+    const fromAnalyze = await new TestableController(createBundle()).analyze(ids);
+    assert.equal(tooMany.errors[0], fromAnalyze.warnings[0]);
+}
+
 async function run(): Promise<void> {
     await testEmptySelectionDoesNotDispatch();
     await testCapIsEnforcedBeforeTheNetworkCall();
+    await testTheInteractiveEntryRefusesTheSameSelections();
     await testDuplicateIdsAreCollapsed();
     await testSessionIsPinnedOnTheOutingAgent();
-    await testSessionTitleCarriesZoneDateAndCount();
+    await testSessionTitleCarriesZoneAndDate();
+    await testSessionTitleIgnoresTheSelectionSize();
     await testOutingContextIsRegisteredBeforeTheSessionOpens();
     await testOutingContextUsesTheSameZoneLabelAsTheSessionTitle();
     await testAnalysisStillRunsWithoutACaptureService();

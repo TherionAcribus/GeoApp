@@ -23,7 +23,7 @@ from ..geocaches.image_sync import ensure_images_v2_for_geocache
 from ..geocaches.bookmark_list_importer import BookmarkListImporter
 from ..geocaches.pocket_query_importer import PocketQueryImporter
 from ..geocaches.gpx_parser import parse_gpx_caches
-from ..services.outing_analysis_service import build_analysis_bundle
+from ..services.outing_bundle_cache import build_analysis_bundle_cached
 from ..services.outing_logs_status import build_logs_status
 from ..utils.preferences import get_value_or_default
 
@@ -1279,6 +1279,11 @@ def get_geocaches_analysis_bundle():
     outing_date?}`. `outing_date` est au format `AAAA-MM-JJ` et ne pilote que le calcul
     solaire ; absente ou illisible, le jour même est retenu.
     Un identifiant introuvable ne fait pas échouer l'appel : il ressort dans `missing`.
+
+    La réponse porte un `ETag` qui résume la sélection, les options et la fraîcheur des
+    tables lues : un client qui le renvoie en `If-None-Match` reçoit un `304` tant que
+    rien n'a bougé, et le serveur se dispense de reconstruire le bundle dans tous les cas.
+    Voir `services/outing_bundle_cache.py`.
     """
     data = request.get_json(silent=True) or {}
     requested, error = _parse_analysis_ids(data)
@@ -1286,7 +1291,7 @@ def get_geocaches_analysis_bundle():
         return error
 
     try:
-        bundle = build_analysis_bundle(
+        bundle, etag, from_cache = build_analysis_bundle_cached(
             requested,
             # 0 est une valeur utile ici : le mode léger ne demande aucun listing.
             listing_chars=_parse_bounded_int(data, 'listing_chars', 1800, 0, 6000),
@@ -1295,10 +1300,19 @@ def get_geocaches_analysis_bundle():
             outing_date=_parse_outing_date(data),
         )
         logger.info(
-            "Bundle d'analyse : %s géocache(s), %s sans logs locaux",
+            "Bundle d'analyse : %s géocache(s), %s sans logs locaux%s",
             len(bundle['geocaches']), len(bundle['without_local_logs']),
+            ' (mémo)' if from_cache else '',
         )
-        return jsonify(bundle)
+
+        # Le corps n'est même pas sérialisé quand le client a déjà cette version-là.
+        if etag and request.if_none_match.contains(etag):
+            return '', 304, {'ETag': f'"{etag}"'}
+
+        response = jsonify(bundle)
+        if etag:
+            response.set_etag(etag)
+        return response
 
     except Exception as e:
         logger.error(f"Error building analysis bundle: {e}", exc_info=True)

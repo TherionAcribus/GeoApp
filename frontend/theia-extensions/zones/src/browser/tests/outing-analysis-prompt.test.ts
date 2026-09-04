@@ -51,8 +51,13 @@ function createGeocacheFixture(overrides: Partial<OutingAnalysisGeocache> = {}):
         gear_mentions_in_listing: [],
         gear_mentions_in_hint: [],
         attributes: [
-            { label: 'Outil special requis', is_negative: false },
-            { label: 'Chiens', is_negative: true },
+            // Le premier est dit par le signal `special_tool` ci-dessous : il ne doit plus
+            // ressortir dans la ligne des attributs. Le second n'a aucun signal.
+            {
+                label: 'Outil special requis', is_negative: false,
+                slug: 's-tool', covered_by_signal: true,
+            },
+            { label: 'Chiens', is_negative: true, slug: 'dogs', covered_by_signal: false },
         ],
         gear_signals: [
             {
@@ -645,6 +650,84 @@ function testNegativeAttributeIsPrefixed(): void {
     assert.ok(prompt.includes('NON Chiens'));
 }
 
+/**
+ * Un attribut déjà porté par un signal ne repart pas une seconde fois.
+ *
+ * C'était la redondance la plus coûteuse du prompt : le même besoin en deux lignes, une
+ * fois en libellé geocaching.com, une fois en français — et la version française portait
+ * en plus l'état du drapeau (« NON RÉSOLU », « résolu depuis le listing »).
+ */
+function testAttributesCoveredByASignalAreNotRepeated(): void {
+    const prompt = buildOutingAnalysisPrompt(createBundleFixture(), STANDARD);
+
+    assert.ok(!prompt.includes('Outil special requis,'));
+    assert.ok(!prompt.includes('Autres attributs : Outil special requis'));
+    // Le signal, lui, dit toujours la même chose — et mieux.
+    assert.ok(prompt.includes('special_tool (NON RÉSOLU'));
+    // Ce qu'aucun signal ne dit reste rendu tel quel.
+    assert.ok(prompt.includes('- Autres attributs : NON Chiens'));
+}
+
+function testTheAttributeLineDisappearsWhenSignalsSayEverything(): void {
+    const covered = createGeocacheFixture({
+        attributes: [
+            { label: 'Outil special requis', is_negative: false, slug: 's-tool', covered_by_signal: true },
+        ],
+    });
+    const prompt = buildOutingAnalysisPrompt(
+        createBundleFixture({ geocaches: [covered] }), STANDARD
+    );
+
+    assert.ok(!prompt.includes('Autres attributs'));
+}
+
+function testAnOlderBackendStillRendersEveryAttribute(): void {
+    const legacy = createGeocacheFixture({
+        attributes: [{ label: 'Outil special requis', is_negative: false }],
+    });
+    const prompt = buildOutingAnalysisPrompt(
+        createBundleFixture({ geocaches: [legacy] }), STANDARD
+    );
+
+    assert.ok(prompt.includes('- Autres attributs : Outil special requis'));
+}
+
+/**
+ * Multi / letterbox / wherigo sans final connu : signalé, mais pas comme une mystery.
+ *
+ * Les deux drapeaux disent des choses différentes — ici le point publié est un vrai
+ * départ — et le rapport doit pouvoir y aller quand même, avec une marge.
+ */
+function testUnknownFinalIsFlaggedWithoutBeingCalledAMystery(): void {
+    const multi = createGeocacheFixture({ type: 'Multi-cache', final_unknown: true });
+    const bundle = createBundleFixture({
+        geocaches: [multi],
+        stats: {
+            by_type: { 'Multi-cache': 1 }, by_health_level: { ok: 1 },
+            unsolved_mysteries: 0, unknown_finals: 1,
+            unresolved_gear_signals: 1, presolved_gear_signals: 0,
+            already_found: 0, stale_logs: 0, logging_tasks: 0,
+        },
+    });
+    const prompt = buildOutingAnalysisPrompt(bundle, STANDARD);
+
+    assert.ok(prompt.includes('1 cache(s) à étapes dont le final est inconnu : GC424242'));
+    assert.ok(prompt.includes('- ATTENTION : final inconnu.'));
+    assert.ok(!prompt.includes('mystery non résolue'));
+}
+
+function testAMysteryDoesNotGetBothAlerts(): void {
+    const mystery = createGeocacheFixture({
+        type: 'Mystery', unsolved_mystery: true, final_unknown: true,
+    });
+    const prompt = buildOutingAnalysisPrompt(
+        createBundleFixture({ geocaches: [mystery] }), STANDARD
+    );
+
+    assert.ok(prompt.includes('- ALERTE : mystery non résolue'));
+    assert.ok(!prompt.includes('- ATTENTION : final inconnu.'));
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Géographie et lumière du jour
 // ─────────────────────────────────────────────────────────────────────────────
@@ -976,6 +1059,11 @@ function run(): void {
     testEmptyBundleDoesNotCrash();
     testUnknownHealthIsSpelledOut();
     testNegativeAttributeIsPrefixed();
+    testAttributesCoveredByASignalAreNotRepeated();
+    testTheAttributeLineDisappearsWhenSignalsSayEverything();
+    testAnOlderBackendStillRendersEveryAttribute();
+    testUnknownFinalIsFlaggedWithoutBeingCalledAMystery();
+    testAMysteryDoesNotGetBothAlerts();
     testInstructionLineClosesThePrompt();
     testPromptSizeGrowsWithGeocacheCount();
     testSystemPromptIsCountedInTheEstimate();

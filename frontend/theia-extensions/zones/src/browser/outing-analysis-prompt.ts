@@ -285,14 +285,28 @@ function formatContextSignals(signals: OutingGearSignal[]): string | undefined {
     return `- Contexte : ${context.map(signal => signal.label).join(', ')}`;
 }
 
+/**
+ * Attributs restants : ceux qu'aucun signal ne dit déjà.
+ *
+ * « Lampe torche requise » partait deux fois — en libellé geocaching.com ici, en français
+ * dans la ligne des signaux, parfois avec sa réponse (« résolu depuis le listing ») — et
+ * la seconde était strictement meilleure. Le backend marque donc les attributs absorbés
+ * (`covered_by_signal`) et cette ligne ne garde que le reste : le décoratif (`scenic`),
+ * l'anecdotique, et tout ce dont GeoApp ne sait encore rien faire. C'est précisément ce
+ * qui a de la valeur à être rendu brut — l'IA le lira, elle, sans table de
+ * correspondance.
+ *
+ * Un backend antérieur ne marque rien : tous les attributs passent, comme avant.
+ */
 function formatAttributes(geocache: OutingAnalysisGeocache): string | undefined {
-    if (geocache.attributes.length === 0) {
+    const remaining = geocache.attributes.filter(attribute => attribute.covered_by_signal !== true);
+    if (remaining.length === 0) {
         return undefined;
     }
-    const rendered = geocache.attributes.map(
+    const rendered = remaining.map(
         attribute => (attribute.is_negative ? `NON ${attribute.label}` : attribute.label)
     );
-    return `- Attributs : ${rendered.join(', ')}`;
+    return `- Autres attributs : ${rendered.join(', ')}`;
 }
 
 /**
@@ -493,6 +507,13 @@ function formatGeocacheBlock(
         geocache.unsolved_mystery
             ? '- ALERTE : mystery non résolue, les coordonnées publiées ne sont pas les bonnes.'
             : undefined,
+        // Jamais les deux : une mystery non résolue a déjà tout dit ci-dessus, et son
+        // problème est plus grave — là, au moins, le point de départ est bon.
+        !geocache.unsolved_mystery && geocache.final_unknown
+            ? '- ATTENTION : final inconnu. Les coordonnées publiées sont le DÉPART ; '
+                + 'aucun waypoint final coté, aucune correction en base. La durée sur place '
+                + 'est une estimation ouverte et la fin de journée ne peut pas être promise.'
+            : undefined,
         formatFoundLine(geocache),
         formatHealthLine(geocache),
         formatAttributes(geocache),
@@ -550,6 +571,18 @@ function formatReliabilitySection(bundle: OutingAnalysisBundle): string | undefi
         lines.push(
             `- ${bundle.stats.unsolved_mysteries} mystery(s) non résolue(s) : ${unsolved.join(', ')}. `
             + `Sans coordonnées corrigées, s'y déplacer ne sert à rien.`
+        );
+    }
+
+    const unknownFinals = bundle.stats.unknown_finals || 0;
+    if (unknownFinals > 0) {
+        const codes = bundle.geocaches
+            .filter(geocache => geocache.final_unknown && !geocache.unsolved_mystery)
+            .map(geocache => geocache.gc_code);
+        lines.push(
+            `- ${unknownFinals} cache(s) à étapes dont le final est inconnu : ${codes.join(', ')}. `
+            + `Leurs coordonnées publiées sont un départ, pas une arrivée : garde une marge `
+            + `sur leur durée et ne les place pas en fin de journée.`
         );
     }
 

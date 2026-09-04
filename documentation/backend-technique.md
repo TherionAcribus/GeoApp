@@ -121,7 +121,7 @@ bases locales deja existantes.
 |---|---|---|
 | `Zone` | `gc_backend/models.py` | Groupe de geocaches. |
 | `AppConfig` | `gc_backend/models.py` | Stockage cle/valeur pour preferences backend. |
-| `Geocache` | `gc_backend/geocaches/models.py` | Cache principale, listing, coordonnees, statut, attributs. |
+| `Geocache` | `gc_backend/geocaches/models.py` | Cache principale, listing, coordonnees, statut, attributs. `updated_at` (ajoutee par migration legere, `NULL` sur les lignes existantes) date la derniere ecriture : c'est ce que lit le memo du bundle d'analyse de sortie pour savoir qu'une correction de coordonnees a eu lieu. |
 | `GeocacheWaypoint` | `gc_backend/geocaches/models.py` | Waypoints d'une cache. |
 | `GeocacheImage` | `gc_backend/geocaches/models.py` | Images originales, uploads et variantes editees. |
 | `UserObservation` | `gc_backend/geocaches/models.py` | Observations de terrain et liens images. |

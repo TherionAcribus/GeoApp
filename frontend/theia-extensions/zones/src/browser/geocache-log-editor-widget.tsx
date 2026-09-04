@@ -10,6 +10,7 @@ import { AiGenerationPanel } from './log-editor/ai-generation-panel';
 import { DraftBanner } from './log-editor/draft-banner';
 import { GeocacheLogEditorGeocachesTable } from './log-editor/geocaches-table';
 import { OutingAnalysisController } from './outing-analysis-controller';
+import { OUTING_LOG_EDITOR_ZONE_NAME } from './outing-analysis-types';
 import { OutingPlanService } from './outing-plan-service';
 import { OutingPlanCacheFlags } from './outing-plan-types';
 import {
@@ -1953,7 +1954,9 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         try {
             await this.outingAnalysisController.runInteractive(
                 this.geocaches.map(geocache => geocache.id),
-                { zoneName: 'sortie du jour' }
+                // Le libellé identifie la sortie autant qu'il la titre : il est aussi la
+                // clé sur laquelle le plan sera rattaché. D'où la constante partagée.
+                { zoneName: OUTING_LOG_EDITOR_ZONE_NAME }
             );
         } finally {
             this.analyzingWithAi = false;

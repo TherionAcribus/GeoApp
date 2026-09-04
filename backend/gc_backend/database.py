@@ -68,6 +68,9 @@ def init_db(app):
                 'gc_personal_note': 'TEXT',
                 'gc_personal_note_synced_at': 'DATETIME',
                 'gc_personal_note_last_pushed_at': 'DATETIME',
+                # NULL sur les lignes existantes : la première écriture la renseignera.
+                # Le cache de bundle ne s'y fie jamais seul, il compte aussi les lignes.
+                'updated_at': 'DATETIME',
             }
 
             for col, col_type in to_add.items():

@@ -22,6 +22,16 @@ export const GEOAPP_OUTING_ANALYZER_AGENT_ID = 'geoapp-outing-analyzer';
  */
 export const MAX_OUTING_ANALYSIS_GEOCACHES = 60;
 
+/**
+ * Libellé de « zone » du log-editor, qui n'en a pas.
+ *
+ * Là-bas, la sortie n'est pas une zone mais la liste des caches à loguer. Ce libellé
+ * devient la clé d'identité de la sortie — titre de session **et** clé de capture du plan
+ * — donc les deux endroits doivent lire la même chaîne : écrite en dur dans le widget,
+ * elle se serait désaccordée à la première reformulation.
+ */
+export const OUTING_LOG_EDITOR_ZONE_NAME = 'sortie du jour';
+
 export const OUTING_DETAIL_LEVEL_PREF = 'geoApp.outing.analysis.detailLevel';
 export const OUTING_RECENT_LOGS_PREF = 'geoApp.outing.analysis.recentLogsCount';
 export const OUTING_GEAR_LOGS_PREF = 'geoApp.outing.analysis.gearLogsCount';
@@ -57,6 +67,13 @@ export interface OutingGearSignal {
     slug: string;
     source: string;
     is_negative: boolean;
+    /**
+     * Slugs d'attributs que ce signal rend déjà, le sien compris.
+     *
+     * Sert au prompt à ne pas payer deux fois : un attribut couvert n'apparaît plus dans
+     * la ligne « Attributs ». Absent d'un backend antérieur.
+     */
+    covers?: string[];
 }
 
 export interface OutingHealth {
@@ -215,6 +232,14 @@ export interface OutingAnalysisGeocache {
     solved: string | null;
     /** Mystery sans coordonnées finales : se déplacer ne sert à rien en l'état. */
     unsolved_mystery: boolean;
+    /**
+     * Multi, letterbox ou wherigo dont le final n'est pas connu ici.
+     *
+     * Distinct de `unsolved_mystery` : les coordonnées publiées sont un départ valable,
+     * la sortie peut donc s'y rendre — mais elle ne peut pas prévoir où elle finit.
+     * Absent d'un backend antérieur au lot 19.
+     */
+    final_unknown?: boolean;
     favorites_count: number | null;
     logs_count: number | null;
     placed_at: string | null;
@@ -238,7 +263,16 @@ export interface OutingAnalysisGeocache {
     gear_mentions_in_listing: string[];
     /** Matériel nommé dans le hint décodé. */
     gear_mentions_in_hint: string[];
-    attributes: Array<{ label: string; is_negative: boolean }>;
+    /**
+     * Attributs bruts. `covered_by_signal` marque ceux qu'un signal dit déjà — le prompt
+     * ne rend que les autres. Les deux derniers champs sont absents d'un backend antérieur.
+     */
+    attributes: Array<{
+        label: string;
+        is_negative: boolean;
+        slug?: string | null;
+        covered_by_signal?: boolean;
+    }>;
     gear_signals: OutingGearSignal[];
     waypoints: OutingWaypoint[];
     waypoints_count: number;
@@ -332,6 +366,8 @@ export interface OutingAnalysisStats {
     by_type: Record<string, number>;
     by_health_level: Record<string, number>;
     unsolved_mysteries: number;
+    /** Multi / letterbox / wherigo sans final connu. Absent d'un backend antérieur. */
+    unknown_finals?: number;
     unresolved_gear_signals: number;
     /** Drapeaux refermés par le balayage du listing ou du hint, sans intervention de l'IA. */
     presolved_gear_signals: number;
