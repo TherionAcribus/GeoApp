@@ -1024,6 +1024,154 @@ def list_codes_to_import() -> list[str]:
     return sorted(wanted - known)
 
 
+# ----------------------------------------------- Heuristique logbook vs zone
+
+# Coût d'une cache via le logbook : 1 page HTML (userToken) + 1 appel logs
+# « tous » + 1 appel logs « amis » (sf=true) = 3 requêtes.
+LOGBOOK_COST_PER_CACHE = 3
+
+# Coût minimum d'un ami via la recherche par zone : 1 sonde fb+box. Avec
+# pagination, ça grandit (PAGE_SIZE caches par page).
+ZONE_SEARCH_COST_PER_FRIEND_MIN = 1
+
+
+def estimate_logbook_cost(nb_caches: int) -> int:
+    """
+    Nombre de requêtes pour scanner tous les amis via les logbooks.
+
+    Le logbook filtre par amis (sf=true) : on scanne toutes les caches de la
+    zone une par une, et pour chaque cache on récupère les logs d'amis en
+    une seule passe. Le coût est O(caches), indépendant du nombre d'amis.
+    """
+    return nb_caches * LOGBOOK_COST_PER_CACHE
+
+
+def estimate_zone_search_cost(nb_friends: int, searched_caches: int, page_size: int = 100) -> int:
+    """
+    Nombre de requêtes pour scanner tous les amis via la recherche par zone.
+
+    Chaque ami coûte au minimum 1 sonde (fb+box), plus la pagination si la
+    baseline est grande (nfb fallback). Le coût est O(amis × pages).
+    """
+    if nb_friends == 0:
+        return 0
+    pages_per_friend = max(1, -(-searched_caches // page_size))
+    return nb_friends * pages_per_friend
+
+
+def should_use_logbook(nb_caches: int, nb_friends: int, searched_caches: int) -> bool:
+    """
+    Heuristique : faut-il scanner via les logbooks plutôt que par zone ?
+
+    Le logbook est avantageux quand la zone a peu de caches mais beaucoup
+    d'amis : le coût est O(caches) au lieu de O(amis × pages).
+
+    Exemples :
+    - 20 caches, 16 amis, 100 caches balayées : logbook=60, zone=16 → zone gagne
+    - 5 caches, 16 amis, 1400 caches balayées : logbook=15, zone=224 → logbook gagne
+    - 10 caches, 16 amis, 500 caches balayées : logbook=30, zone=80 → logbook gagne
+    """
+    logbook_cost = estimate_logbook_cost(nb_caches)
+    zone_cost = estimate_zone_search_cost(nb_friends, searched_caches)
+    return logbook_cost < zone_cost
+
+
+# --------------------------------------------------- Scan via logbook (sf=true)
+
+def scan_finds_via_logbook(
+    zone_id: int,
+    gc_codes: list[str],
+    on_progress: Optional[Callable[[int, int, str], None]] = None,
+) -> dict:
+    """
+    Scanne les trouvailles d'amis sur une zone via les logbooks (sf=true).
+
+    Pour chaque cache de la zone, récupère les logs d'amis via le filtre
+    ``sf=true`` du logbook de geocaching.com. Les « Found » d'amis sont
+    enregistrés dans ``FriendFind`` avec ``source='cache_logs'``.
+
+    Contrairement à la recherche par zone (qui itère sur les amis), cette
+    méthode itère sur les **caches** : le coût est O(caches), indépendant du
+    nombre d'amis. C'est avantageux pour les zones avec peu de caches mais
+    beaucoup d'amis (cf. ``should_use_logbook``).
+
+    Args:
+        zone_id: identifiant de la zone (pour enregistrer les scans).
+        gc_codes: codes GC des caches à scanner.
+        on_progress: callback ``on_progress(done, total, gc_code)``.
+
+    Returns:
+        Un dictionnaire avec :
+        - ``scanned`` : nombre de caches scannées
+        - ``friend_finds`` : dict {friend: [gc_codes trouvés]}
+        - ``errors`` : liste des caches en échec
+        - ``rate_limited`` : bool (au moins un 429)
+    """
+    from ..services.geocaching_logs import (
+        GeocachingLogsClient,
+        GeocachingLogsError,
+        FriendLogsCheckFailedError,
+    )
+    from ..geocaches.models import GeocacheLog
+
+    total = len(gc_codes)
+    friend_finds: dict[str, list[str]] = {}
+    errors: list[str] = []
+    rate_limited = False
+    scanned = 0
+
+    client = GeocachingLogsClient()
+
+    for index, gc_code in enumerate(gc_codes):
+        try:
+            logs, friend_external_ids = client.get_logs_with_friends(gc_code, count=50)
+            scanned += 1
+
+            if friend_external_ids:
+                # Extraire les « Found » d'amis.
+                for log_data in logs:
+                    if (log_data.external_id in friend_external_ids
+                            and GeocacheLog.normalize_log_type(log_data.log_type) == 'Found'
+                            and log_data.author):
+                        friend_finds.setdefault(log_data.author, []).append(gc_code)
+
+        except FriendLogsCheckFailedError:
+            # Les logs « tous » ont été récupérés, mais sf=true a échoué.
+            # On ne peut pas déterminer les amis : on compte la cache comme
+            # scannée mais sans trouvailles d'amis.
+            scanned += 1
+            logger.warning("sf=true failed for %s, skipping friend detection", gc_code)
+
+        except GeocachingLogsError as exc:
+            logger.warning("Failed to fetch logs for %s: %s", gc_code, exc)
+            errors.append(gc_code)
+            # Détecter le rate limiting (message ou statut).
+            if '429' in str(exc) or 'rate' in str(exc).lower():
+                rate_limited = True
+
+        except LookupError:
+            # Cache supprimée ou inaccessible (404).
+            errors.append(gc_code)
+
+        except Exception as exc:  # pragma: no cover - garde-fou
+            logger.exception("Unexpected error scanning %s", gc_code)
+            errors.append(gc_code)
+
+        if on_progress is not None:
+            on_progress(index + 1, total, gc_code)
+
+    # Persistance : enregistrer les trouvailles par ami.
+    for friend, codes in friend_finds.items():
+        store_finds(friend, codes, source='cache_logs')
+
+    return {
+        'scanned': scanned,
+        'friend_finds': friend_finds,
+        'errors': errors,
+        'rate_limited': rate_limited,
+    }
+
+
 # --------------------------------------------------------------- Persistance
 
 _SOURCE_SEPARATOR = ','

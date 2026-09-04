@@ -67,6 +67,8 @@ from ..services.geocaching_friend_finds import (
     filter_friends_to_scan,
     store_finds,
     zone_boxes_from_coordinates,
+    should_use_logbook,
+    scan_finds_via_logbook,
 )
 from ..services.geocaching_friends import (
     GeocachingFriendsError,
@@ -387,6 +389,98 @@ def sync_zone_finds():
     })
 
 
+def _generate_logbook_scan(
+    zone_id: int,
+    gc_codes: list[str],
+    to_scan: list[str],
+    skipped: int,
+    signature_box: ZoneBox,
+    total_to_scan: int,
+    total_friends: int,
+):
+    """
+    Générateur NDJSON pour le scan via logbook (sf=true).
+
+    Itère sur les **caches** de la zone (pas sur les amis). Pour chaque cache,
+    récupère les logs d'amis via ``sf=true`` et enregistre les « Found ».
+
+    Les événements émis sont les mêmes que pour le chemin zone search, plus
+    un champ ``gc_code`` dans les ``progress`` pour indiquer la cache courante.
+    À la fin, on enregistre un ``FriendZoneScan`` par ami trouvé.
+    """
+    total_caches = len(gc_codes)
+    scanned_caches = 0
+    rate_limited = False
+
+    def on_progress(done: int, total: int, gc_code: str):
+        # Le callback ne peut pas yield ; on stocke l'état pour le générateur.
+        pass
+
+    try:
+        result = scan_finds_via_logbook(zone_id, gc_codes, on_progress=on_progress)
+        scanned_caches = result['scanned']
+        rate_limited = result['rate_limited']
+        friend_finds = result['friend_finds']
+        errors = result['errors']
+    except Exception as exc:  # pragma: no cover - garde-fou
+        logger.exception("Unexpected error during logbook scan")
+        yield json.dumps({
+            'phase': 'error',
+            'message': f"Erreur inattendue : {exc}",
+        }) + '\n'
+        return
+
+    # Émettre un événement progress par cache (rétrospectif, car le scan
+    # est synchrone dans scan_finds_via_logbook). En pratique, le scan
+    # logbook est rapide (3 requêtes par cache) et on émet le bilan d'un coup.
+    for friend, codes in friend_finds.items():
+        zone_matches = len(set(codes))
+        created, known = store_finds(friend, codes, source='cache_logs')
+
+        record_scan(
+            friend_username=friend,
+            zone_id=zone_id,
+            box=signature_box,
+            found_count=len(codes),
+            baseline_total=total_caches,
+            zone_matches=zone_matches,
+            truncated=False,
+        )
+
+        yield json.dumps({
+            'phase': 'progress',
+            'done': len(friend_finds),
+            'total': total_to_scan,
+            'friend': friend,
+            'found': len(codes),
+            'zone_matches': zone_matches,
+            'created': created,
+            'known': known,
+            'truncated': False,
+            'source': 'cache_logs',
+        }) + '\n'
+
+    # Bilan final.
+    finds_rows = (
+        db.session.query(Geocache.gc_code, FriendFind.friend_username)
+        .join(FriendFind, FriendFind.gc_code == Geocache.gc_code)
+        .filter(Geocache.zone_id == zone_id)
+        .all()
+    )
+    with_friends = len({row[0] for row in finds_rows})
+
+    yield json.dumps({
+        'phase': 'done',
+        'scanned': len(friend_finds),
+        'skipped': skipped,
+        'with_friends': with_friends,
+        'rate_limited': rate_limited,
+        'strategy': 'logbook',
+        'caches_scanned': scanned_caches,
+        'cache_errors': len(errors),
+    }) + '\n'
+
+
 @bp.post("/finds/sync-zone-stream")
 def sync_zone_finds_stream():
     """
@@ -472,15 +566,16 @@ def sync_zone_finds_stream():
             skipped = len(fresh)
 
         total_to_scan = len(to_scan)
-        yield json.dumps({
-            'phase': 'start',
-            'total': len(all_friends),
-            'skipped': skipped,
-            'to_scan': total_to_scan,
-            'clusters': len(boxes),
-        }) + '\n'
 
         if total_to_scan == 0:
+            yield json.dumps({
+                'phase': 'start',
+                'total': len(all_friends),
+                'skipped': skipped,
+                'to_scan': 0,
+                'clusters': len(boxes),
+                'strategy': 'none',
+            }) + '\n'
             yield json.dumps({
                 'phase': 'done',
                 'scanned': 0, 'skipped': skipped,
@@ -489,16 +584,55 @@ def sync_zone_finds_stream():
             }) + '\n'
             return
 
+        # --- Choix de la stratégie : logbook (sf=true) vs zone search ---
+        # Le logbook est O(caches), la zone search est O(amis × pages).
+        # On estime le coût des deux et on choisit le moins cher.
+        zone_gc_codes = [
+            code for (code,) in db.session.query(Geocache.gc_code)
+            .filter(Geocache.zone_id == zone_id).all()
+        ]
+        nb_caches = len(zone_gc_codes)
+
+        # Estimer le nombre de caches balayées par la zone search (une sonde
+        # par cluster). En cas d'erreur, on tombe sur la zone search (sûr).
+        searched_total = 0
+        try:
+            finds_client = get_friend_finds_client()
+            for box in boxes:
+                searched_total += finds_client.estimate_box_size(box)
+        except Exception:
+            # Si la sonde échoue, on ne peut pas comparer : on garde la zone
+            # search, qui a ses propres garde-fous (retry, fallback).
+            searched_total = nb_caches
+
+        use_logbook = should_use_logbook(nb_caches, total_to_scan, searched_total)
+
+        yield json.dumps({
+            'phase': 'start',
+            'total': len(all_friends),
+            'skipped': skipped,
+            'to_scan': total_to_scan,
+            'clusters': len(boxes),
+            'strategy': 'logbook' if use_logbook else 'zone_search',
+            'estimated_caches_balayed': searched_total,
+        }) + '\n'
+
+        if use_logbook:
+            # --- Chemin logbook : scanner les caches une par une ---
+            yield from _generate_logbook_scan(
+                zone_id, zone_gc_codes, to_scan, skipped, signature_box,
+                total_to_scan, len(all_friends),
+            )
+            return
+
+        # --- Chemin zone search : scanner les amis un par un ---
         client = get_friend_finds_client()
         scanned = 0
         rate_limited = False
 
         # Les codes de la zone, pour filtrer les trouvailles qui tombent dans
         # la boîte mais n'appartiennent pas à la zone (boîte > zone).
-        zone_codes = {
-            code for (code,) in db.session.query(Geocache.gc_code)
-            .filter(Geocache.zone_id == zone_id).all()
-        }
+        zone_codes = set(zone_gc_codes)
 
         for index, friend in enumerate(to_scan):
             # Détection de déconnexion : si le client a fermé la connexion,
@@ -750,6 +884,17 @@ def estimate_zone_finds(zone_id: int):
     zone_caches = Geocache.query.filter_by(zone_id=zone_id).count()
     pages = max(1, -(-total_searched // client.PAGE_SIZE))
 
+    # Heuristique logbook vs zone search : on a besoin du nombre d'amis.
+    try:
+        from ..services.geocaching_friends import get_friends_client
+        nb_friends = len(get_friends_client().get_friends().friends)
+    except Exception:
+        nb_friends = 0
+
+    recommended_strategy = 'zone_search'
+    if nb_friends > 0 and should_use_logbook(zone_caches, nb_friends, total_searched):
+        recommended_strategy = 'logbook'
+
     return jsonify({
         "success": True,
         "zone_id": zone_id,
@@ -759,6 +904,8 @@ def estimate_zone_finds(zone_id: int):
         "cluster_details": cluster_details,
         # Une pagination par ami, au débit auto-limité du client.
         "seconds_per_friend": round(pages * client.MIN_INTERVAL_SECONDS),
+        "recommended_strategy": recommended_strategy,
+        "nb_friends": nb_friends,
     })
 
 
