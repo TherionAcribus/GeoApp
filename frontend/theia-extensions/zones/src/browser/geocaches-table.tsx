@@ -87,6 +87,8 @@ interface GeocachesTableProps {
     onAnalyzeWithAiSelected?: (ids: number[]) => void;
     /** Vrai pendant la collecte du bundle d'analyse : le bouton passe en attente. */
     analyzingWithAi?: boolean;
+    /** Analyse les amis sur les caches sélectionnées (bouton « Amis »). */
+    onAnalyzeFriendsSelected?: (ids: number[]) => void;
     onExportGpxSelected?: (ids: number[]) => void;
     /** Vrai pendant la génération/le téléchargement de l'export GPX. */
     exportingGpx?: boolean;
@@ -414,6 +416,7 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
     onApplyPluginSelected,
     onAnalyzeWithAiSelected,
     analyzingWithAi = false,
+    onAnalyzeFriendsSelected,
     onExportGpxSelected,
     exportingGpx = false,
     onDelete,
@@ -1371,6 +1374,16 @@ ${origin}`}
                                         <span className="geoapp-gc-action-btn__icon" aria-hidden="true">🧠</span>
                                     )}
                                     {analyzingWithAi ? 'Analyse en cours…' : 'Analyser IA'}
+                                </button>
+                            )}
+                            {onAnalyzeFriendsSelected && (
+                                <button
+                                    onClick={() => onAnalyzeFriendsSelected(selectedIds)}
+                                    className="geoapp-gc-action-btn geoapp-gc-action-btn--primary"
+                                    title="Analyser les amis sur les géocaches sélectionnées (qui a trouvé quoi ?)"
+                                >
+                                    <span className="geoapp-gc-action-btn__icon" aria-hidden="true">👥</span>
+                                    Amis
                                 </button>
                             )}
                             {onExportGpxSelected && (

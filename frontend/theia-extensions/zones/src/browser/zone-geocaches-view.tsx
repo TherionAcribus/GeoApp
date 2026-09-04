@@ -42,6 +42,8 @@ export interface ZoneGeocachesViewProps {
     onAnalyzeWithAiSelected: (ids: number[]) => void | Promise<void>;
     /** Une analyse IA est en cours : le bouton de la barre d'actions passe en attente. */
     analyzingWithAi?: boolean;
+    /** Analyse les amis sur les caches sélectionnées (bouton « Amis »). */
+    onAnalyzeFriendsSelected?: (ids: number[]) => void | Promise<void>;
     onExportGpxSelected: (ids: number[]) => void | Promise<void>;
     /** Un export GPX est en cours : le bouton de la barre d'actions passe en attente. */
     exportingGpx?: boolean;
@@ -359,6 +361,7 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
                 onApplyPluginSelected={props.onApplyPluginSelected}
                 onAnalyzeWithAiSelected={props.onAnalyzeWithAiSelected}
                 analyzingWithAi={props.analyzingWithAi}
+                onAnalyzeFriendsSelected={props.onAnalyzeFriendsSelected}
                 onExportGpxSelected={props.onExportGpxSelected}
                 exportingGpx={props.exportingGpx}
                 onDelete={geocache => props.onDelete(geocache)}

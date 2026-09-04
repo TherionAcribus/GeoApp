@@ -314,6 +314,78 @@ def test_stream_selected_subset_ignores_fresh_scans(app, monkeypatch):
     assert done['skipped'] == 0
 
 
+def test_stream_gc_codes_subset_scans_only_selected(app, monkeypatch):
+    """Un sous-ensemble de gc_codes limite le scan aux caches sélectionnées."""
+    import gc_backend.blueprints.friends as blueprint
+    import gc_backend.services.geocaching_friend_finds as finds_module
+    import gc_backend.services.geocaching_friends as friends_module
+
+    monkeypatch.setattr(blueprint, 'get_auth_service', lambda: _LoggedInAuth())
+
+    session = _FakeSearchSession({
+        '*': ['GC1', 'GC2'],
+        'ami1': ['GC1'],
+        'ami2': ['GC2'],
+    })
+    monkeypatch.setattr(finds_module, '_client', _client(session))
+    monkeypatch.setattr(friends_module, 'get_friends_client',
+                        lambda: _FakeFriendsClient(['ami1', 'ami2']))
+
+    # Analyser seulement GC1.
+    response = app.test_client().post(
+        '/api/friends/finds/sync-zone-stream',
+        json={'zone_id': app.zone_id, 'gc_codes': ['GC1']},
+    )
+
+    events = _parse_ndjson(response)
+    start = events[0]
+    # Le scan porte sur tous les amis, mais seulement 1 cache.
+    assert start['total'] == 2
+    done = events[-1]
+    assert done['phase'] == 'done'
+    assert done['scanned'] >= 1
+
+    # Les zone_matches ne doivent compter que GC1 (la sélection).
+    progress_events = [e for e in events if e['phase'] == 'progress']
+    for pe in progress_events:
+        # zone_matches <= 1 car seule GC1 est dans la sélection.
+        assert pe['zone_matches'] <= 1
+
+
+def test_stream_gc_codes_subset_ignores_fresh_scans(app, monkeypatch):
+    """Un sous-ensemble de gc_codes désactive le skip (intention explicite)."""
+    import gc_backend.blueprints.friends as blueprint
+    import gc_backend.services.geocaching_friend_finds as finds_module
+    import gc_backend.services.geocaching_friends as friends_module
+
+    monkeypatch.setattr(blueprint, 'get_auth_service', lambda: _LoggedInAuth())
+
+    # Pré-enregistrer un scan frais pour ami1.
+    from gc_backend.services.geocaching_friend_finds import record_scan
+    real_box = _zone_box_for(app)
+    record_scan('ami1', app.zone_id, real_box, found_count=1, baseline_total=2,
+                zone_matches=1, truncated=False)
+
+    session = _FakeSearchSession({
+        '*': ['GC1', 'GC2'],
+        'ami1': ['GC1'],
+        'ami2': ['GC2'],
+    })
+    monkeypatch.setattr(finds_module, '_client', _client(session))
+    monkeypatch.setattr(friends_module, 'get_friends_client',
+                        lambda: _FakeFriendsClient(['ami1', 'ami2']))
+
+    # Analyser seulement GC1 avec gc_codes : ami1 (frais) ne doit pas être skip.
+    response = app.test_client().post(
+        '/api/friends/finds/sync-zone-stream',
+        json={'zone_id': app.zone_id, 'gc_codes': ['GC1']},
+    )
+
+    events = _parse_ndjson(response)
+    start = events[0]
+    assert start['skipped'] == 0  # pas de skip car gc_codes est explicite
+
+
 def test_stream_empty_friends_list(app, monkeypatch):
     import gc_backend.blueprints.friends as blueprint
     import gc_backend.services.geocaching_friend_finds as finds_module

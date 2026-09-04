@@ -256,7 +256,7 @@ export class FriendsService {
      */
     async startZoneScanStream(
         zoneId: number,
-        options: { force_all?: boolean; friends?: string[] } = {},
+        options: { force_all?: boolean; friends?: string[]; gc_codes?: string[] } = {},
         signal?: AbortSignal,
     ): Promise<Response> {
         const response = await this.apiClient.request(
@@ -265,6 +265,7 @@ export class FriendsService {
                 zone_id: zoneId,
                 force_all: options.force_all ?? false,
                 ...(options.friends ? { friends: options.friends } : {}),
+                ...(options.gc_codes ? { gc_codes: options.gc_codes } : {}),
             }, signal ? { signal } : {}),
         );
         await this.apiClient.ensureOk(response, 'Échec de l\'analyse des amis.');

@@ -1312,6 +1312,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     protected analyzeFriendFinds = async (
         forceAll: boolean = false,
         friends?: string[],
+        gcCodes?: string[],
     ): Promise<void> => {
         if (!this.zoneId || this.friendFindsProgress) {
             return;
@@ -1319,26 +1320,29 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
 
         // Estimation préalable (1 requête) : une zone dispersée produit une boîte
         // englobante démesurée, et l'analyse peut alors durer des dizaines de minutes.
-        try {
-            const estimate = await this.apiClient.requestJson<{
-                success: boolean; zone_caches: number; searched_caches: number; seconds_per_friend: number;
-            }>(`/api/friends/finds/zone/${this.zoneId}/estimate`);
+        // Skip l'estimation si on analyse un sous-ensemble de caches (c'est ciblé).
+        if (!gcCodes || gcCodes.length === 0) {
+            try {
+                const estimate = await this.apiClient.requestJson<{
+                    success: boolean; zone_caches: number; searched_caches: number; seconds_per_friend: number;
+                }>(`/api/friends/finds/zone/${this.zoneId}/estimate`);
 
-            if (estimate?.success && estimate.searched_caches > 10 * Math.max(estimate.zone_caches, 1)) {
-                const minutes = Math.ceil((estimate.seconds_per_friend * 16) / 60);
-                const confirmed = await new ConfirmDialog({
-                    title: 'Analyse longue',
-                    msg: `Les caches de cette zone sont dispersées : il faut balayer ${estimate.searched_caches} `
-                        + `caches pour ${estimate.zone_caches} dans la zone, soit environ ${minutes} min `
-                        + 'pour tous vos amis (geocaching.com limite fortement les recherches). Continuer ?',
-                    ok: 'Lancer', cancel: 'Annuler'
-                }).open();
-                if (!confirmed) {
-                    return;
+                if (estimate?.success && estimate.searched_caches > 10 * Math.max(estimate.zone_caches, 1)) {
+                    const minutes = Math.ceil((estimate.seconds_per_friend * 16) / 60);
+                    const confirmed = await new ConfirmDialog({
+                        title: 'Analyse longue',
+                        msg: `Les caches de cette zone sont dispersées : il faut balayer ${estimate.searched_caches} `
+                            + `caches pour ${estimate.zone_caches} dans la zone, soit environ ${minutes} min `
+                            + 'pour tous vos amis (geocaching.com limite fortement les recherches). Continuer ?',
+                        ok: 'Lancer', cancel: 'Annuler'
+                    }).open();
+                    if (!confirmed) {
+                        return;
+                    }
                 }
+            } catch (error) {
+                console.debug('[ZoneGeocaches] estimation indisponible:', error);
             }
-        } catch (error) {
-            console.debug('[ZoneGeocaches] estimation indisponible:', error);
         }
 
         this.analyzeAbortController = new AbortController();
@@ -1356,6 +1360,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 {
                     force_all: forceAll,
                     ...(friends && friends.length > 0 ? { friends } : {}),
+                    ...(gcCodes && gcCodes.length > 0 ? { gc_codes: gcCodes } : {}),
                 },
                 this.analyzeAbortController.signal,
             );
@@ -1515,6 +1520,24 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         this.friendSelectionDialogOpen = false;
         this.update();
         await this.analyzeFriendFinds(forceAll, selected);
+    };
+
+    /**
+     * Analyse les amis sur un sous-ensemble de caches sélectionnées dans la
+     * table (bouton « 👥 Amis » de la barre d'actions).
+     *
+     * Convertit les IDs de géocaches en codes GC, puis lance l'analyse
+     * ciblée — beaucoup plus rapide qu'une analyse de zone entière.
+     */
+    protected analyzeFriendsOnSelected = async (ids: number[]): Promise<void> => {
+        if (!this.rows || ids.length === 0) { return; }
+        const gcCodes = this.rows
+            .filter(r => ids.includes(r.id))
+            .map(r => r.gc_code);
+        if (gcCodes.length === 0) { return; }
+        // On lance l'analyse sur les caches sélectionnées avec tous les amis.
+        // Le skip est désactivé côté backend car gc_codes est explicite.
+        await this.analyzeFriendFinds(false, undefined, gcCodes);
     };
 
     protected async load(): Promise<void> {
@@ -2106,6 +2129,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 onApplyPluginSelected={ids => this.handleApplyPluginSelected(ids)}
                 onAnalyzeWithAiSelected={ids => this.handleAnalyzeWithAiSelected(ids)}
                 analyzingWithAi={this.analyzingWithAi}
+                onAnalyzeFriendsSelected={this.analyzeFriendsOnSelected}
                 onExportGpxSelected={ids => this.handleExportGpxSelected(ids)}
                 onDelete={geocache => this.handleDelete(geocache.id, geocache.gc_code)}
                 onRefresh={id => this.handleRefresh(id)}

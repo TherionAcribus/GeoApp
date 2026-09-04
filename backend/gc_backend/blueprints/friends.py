@@ -283,6 +283,22 @@ def _zone_box(zone_id: int):
     return ZoneBox.from_coordinates(rows)
 
 
+def _zone_boxes_for_codes(zone_id: int, codes: set[str] | None = None) -> list[ZoneBox]:
+    """
+    Boîtes englobantes d'une zone, optionnellement filtrées sur un sous-ensemble
+    de codes GC. Si ``codes`` est None, équivalent à ``_zone_boxes``.
+    """
+    query = (
+        db.session.query(Geocache.gc_code, Geocache.latitude, Geocache.longitude)
+        .filter(Geocache.zone_id == zone_id)
+        .filter(Geocache.latitude.isnot(None), Geocache.longitude.isnot(None))
+    )
+    if codes is not None:
+        query = query.filter(Geocache.gc_code.in_(codes))
+    rows = query.all()
+    return zone_boxes_from_coordinates([(r.latitude, r.longitude) for r in rows])
+
+
 def _zone_boxes(zone_id: int) -> list[ZoneBox]:
     """
     Boîtes englobantes d'une zone, découpées par clustering géographique.
@@ -502,7 +518,13 @@ def sync_zone_finds_stream():
       d'abandonner au premier 429 ;
     - un seul ``fetch`` au lieu de N, moins de overhead ;
 
-    Body JSON : { "zone_id": 1, "force_all": false }
+    Body JSON : { "zone_id": 1, "force_all": false, "friends": [...], "gc_codes": [...] }
+
+    - ``friends`` (optionnel) : liste de pseudos à scanner (sous-ensemble).
+    - ``gc_codes`` (optionnel) : liste de codes GC à analyser (sous-ensemble
+      des caches de la zone). La boîte englobante est recalculée sur ce
+      sous-ensemble. Le skip des scans frais est désactivé quand un
+      sous-ensemble explicite (amis ou caches) est fourni.
 
     Lignes émises :
 
@@ -527,6 +549,17 @@ def sync_zone_finds_stream():
         selected_set = {f.strip() for f in selected_friends}
     else:
         selected_set = None
+    # Filtrer sur un sous-ensemble de caches (optionnel). Si absent, on scanne
+    # toutes les caches de la zone. Les codes doivent être des chaînes non vides.
+    selected_gc_codes = data.get("gc_codes")
+    if selected_gc_codes is not None:
+        if not isinstance(selected_gc_codes, list):
+            return jsonify({"success": False, "error": "invalid_params",
+                            "error_message": "gc_codes doit être une liste de codes GC."}), 400
+        selected_gc_codes = [c for c in selected_gc_codes if isinstance(c, str) and c.strip()]
+        selected_codes_set = {c.strip() for c in selected_gc_codes}
+    else:
+        selected_codes_set = None
 
     if not isinstance(zone_id, int):
         return jsonify({"success": False, "error": "invalid_params",
@@ -539,7 +572,7 @@ def sync_zone_finds_stream():
             "error_message": "Vous devez être connecté à Geocaching.com pour cette recherche.",
         }), 401
 
-    boxes = _zone_boxes(zone_id)
+    boxes = _zone_boxes_for_codes(zone_id, selected_codes_set)
     if not boxes:
         return jsonify({"success": False, "error": "empty_zone",
                         "error_message": "Cette zone ne contient aucune géocache géolocalisée."}), 400
@@ -578,10 +611,9 @@ def sync_zone_finds_stream():
         skipped = 0
         # Le skip des scans frais ne s'applique que quand on analyse *tous* les
         # amis (comportement par défaut). Si l'utilisateur a sélectionné un
-        # sous-ensemble explicite, son intention est de (re)scanner ces amis :
-        # on ne skip pas, sinon l'action ne fait rien et l'utilisateur ne
-        # comprend pas pourquoi.
-        if not force_all and selected_friends is None:
+        # sous-ensemble explicite (amis ou caches), son intention est de
+        # (re)scanner : on ne skip pas, sinon l'action ne fait rien.
+        if not force_all and selected_friends is None and selected_codes_set is None:
             to_scan, fresh = filter_friends_to_scan(zone_id, all_friends, signature_box)
             skipped = len(fresh)
 
@@ -611,6 +643,9 @@ def sync_zone_finds_stream():
             code for (code,) in db.session.query(Geocache.gc_code)
             .filter(Geocache.zone_id == zone_id).all()
         ]
+        # Filtrer sur le sous-ensemble de caches sélectionnées (si présent).
+        if selected_codes_set is not None:
+            zone_gc_codes = [c for c in zone_gc_codes if c in selected_codes_set]
         nb_caches = len(zone_gc_codes)
 
         # Estimer le nombre de caches balayées par la zone search (une sonde
