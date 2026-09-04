@@ -198,3 +198,37 @@ def test_zone_scans_route_empty_when_no_scans(app):
     assert payload['fresh_count'] == 0
     # Les entrées existent (liste d'amis du cache) mais aucune n'est scannée.
     assert all(not s['scanned'] for s in payload['scans'])
+
+
+def test_zone_scans_route_handles_naive_datetime_from_sqlite(app):
+    """
+    SQLite stocke les datetimes sans fuseau horaire (naive).
+    La route doit comparer ces datetimes avec le threshold UTC sans lever
+    TypeError (cf. bug `can't compare offset-naive and offset-aware`).
+    """
+    # Enregistrer un scan avec une datetime naive (comme SQLite le ferait).
+    scan = FriendZoneScan(
+        friend_username='ami1',
+        zone_id=app.zone_id,
+        box_signature=BOX.box_param,
+        baseline_total=2,
+        found_count=1,
+        zone_matches=1,
+        truncated=False,
+        scanned_at=datetime.now(),  # naive, comme SQLite
+    )
+    db.session.add(scan)
+    db.session.commit()
+
+    # La route ne doit pas lever d'erreur 500.
+    response = app.test_client().get(
+        f'/api/friends/finds/zone/{app.zone_id}/scans'
+    )
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload['success'] is True
+    # Le scan apparaît dans la section « not_in_friends_list » (pas de mock
+    # d'auth ici), mais l'important est que la route ne crash pas.
+    ami1 = next(s for s in payload['scans'] if s['friend'] == 'ami1')
+    assert ami1['scanned'] is True
+    assert ami1.get('not_in_friends_list') is True

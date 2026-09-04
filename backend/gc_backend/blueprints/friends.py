@@ -69,6 +69,7 @@ from ..services.geocaching_friend_finds import (
     zone_boxes_from_coordinates,
     should_use_logbook,
     scan_finds_via_logbook,
+    _is_after,
 )
 from ..services.geocaching_friends import (
     GeocachingFriendsError,
@@ -1014,7 +1015,7 @@ def zone_scans(zone_id: int):
                     pass
             is_stale = (
                 (box_sig is not None and scan["box_signature"] != box_sig)
-                or (scanned_at_dt is not None and scanned_at_dt < threshold)
+                or (scanned_at_dt is not None and _is_after(threshold, scanned_at_dt))
             )
             entries.append({
                 "friend": username,
