@@ -105,6 +105,10 @@ function testPromptStatesTheNonNegotiableRules(): void {
     assert.ok(template.includes('sans logs locaux'));
     assert.ok(template.includes('MYSTERY NON RÉSOLUES COMME BLOQUANTES'));
     assert.ok(template.includes('injection'));
+    // Second contrat de chaîne : ce que le backend a déjà refermé est écrit ainsi par
+    // `outing-analysis-prompt.ts`, et le prompt système doit le reconnaître tel quel.
+    assert.ok(template.includes('résolu depuis le listing'));
+    assert.ok(template.includes('Matériel nommé dans le texte'));
 }
 
 function testPromptDefinesTheFiveReportSections(): void {

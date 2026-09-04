@@ -17,6 +17,11 @@ S'y ajoutent des signaux **contextuels** (`kind='context'`) : frais d'entrée, d
 accès non 24 h, risques, longueur de marche. Ils ne relèvent pas du matériel mais pèsent
 sur l'organisation de la sortie.
 
+Un drapeau non résolu peut ensuite l'être **sans l'IA** : si le listing ou le hint nomme
+un objet du lexique capable d'expliquer le drapeau, `resolve_signals_from_text()` le
+referme et note d'où vient la réponse (`resolved_from`). C'est ce qui rend le mode léger
+utilisable : le listing n'y est pas transmis, mais son balayage lexical, lui, l'est.
+
 ## Résolution du slug d'attribut
 
 `Geocache.attributes` contient des entrées hétérogènes selon la source :
@@ -275,7 +280,11 @@ def build_gear_signals(attributes: list[dict] | None) -> list[dict]:
     """
     Signaux matériel et contextuels déduits des attributs d'une géocache.
 
-    Chaque entrée : `{signal, kind, resolved, label, slug, source, is_negative}`.
+    Chaque entrée : `{signal, kind, resolved, resolved_from, label, slug, source,
+    is_negative}`. `resolved_from` vaut `'attribute'` quand l'attribut se suffit et `None`
+    tant que le drapeau reste ouvert — `resolve_signals_from_text()` peut le refermer
+    ensuite depuis le listing ou le hint.
+
     Les doublons de signal sont écartés — deux attributs peuvent porter le même
     (`climbing` et `rappelling` mènent tous deux à `climbing`).
     """
@@ -311,6 +320,7 @@ def build_gear_signals(attributes: list[dict] | None) -> list[dict]:
             'signal': signal,
             'kind': kind,
             'resolved': resolved,
+            'resolved_from': 'attribute' if resolved else None,
             'label': label,
             'slug': slug,
             'source': 'attribute',
@@ -351,6 +361,7 @@ def build_waypoint_signals(waypoints: list | None, existing: list[dict] | None =
                 'signal': 'parking',
                 'kind': 'context',
                 'resolved': True,
+                'resolved_from': 'waypoint',
                 'label': 'parking renseigné en waypoint',
                 'slug': 'parking',
                 'source': 'waypoint',
@@ -360,8 +371,94 @@ def build_waypoint_signals(waypoints: list | None, existing: list[dict] | None =
     return []
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Pré-résolution depuis le texte
+# ─────────────────────────────────────────────────────────────────────────────
+
+#: Ce qu'un mot du lexique matériel peut expliquer, drapeau par drapeau.
+#:
+#: Volontairement restreint. Un drapeau `special_tool` n'est pas refermé par « lampe » ni
+#: par « gants » : ces objets ont leur propre attribut, et les rattacher à « outil spécial
+#: requis » donnerait une réponse fausse avec l'assurance d'une réponse calculée. Ne sont
+#: retenus que les objets qui *sont* l'outil que l'attribut annonce sans le nommer.
+#:
+#: `field_puzzle` et `teamwork` n'y figurent pas : aucun mot du lexique ne dit quelle
+#: énigme ni combien de bras. Ces drapeaux restent ouverts, pour l'IA.
+_SIGNAL_GEAR_CANDIDATES: dict[str, tuple[str, ...]] = {
+    'special_tool': (
+        'fishing_rod', 'magnet', 'hook', 'pliers', 'screwdriver', 'lockpick',
+        'mirror', 'magnifier', 'straw_tube', 'water', 'cutter', 'ladder', 'rope',
+    ),
+    'climbing': ('rope', 'harness', 'ladder', 'caving', 'tree_gear'),
+    'tree_climbing': ('tree_gear', 'rope', 'harness', 'ladder'),
+}
+
+#: Sources de pré-résolution, de la plus fiable à la moins fiable.
+#:
+#: Le listing et le hint sont écrits par le propriétaire : quand ils nomment l'outil, ils
+#: font autorité. Les logs, eux, restent à l'IA — ils sont nombreux, contradictoires, et
+#: leur extrait est déjà transmis avec ses `matched`, donc citable et datable.
+RESOLUTION_SOURCES = ('listing', 'hint')
+
+
+def resolve_signals_from_text(
+    signals: list[dict] | None,
+    mentions_by_source: list[tuple[str, list[str]]] | None,
+) -> list[dict]:
+    """
+    Referme les drapeaux matériel que le texte suffit à expliquer.
+
+    `mentions_by_source` est une liste ordonnée `(source, clés du lexique repérées)`, la
+    source la plus fiable en premier. Un drapeau refermé ici garde son libellé mais gagne
+    `resolved=True`, `resolved_from=<source>` et `resolved_gear=<clés retenues>` : le
+    prompt peut alors citer la source, et l'IA n'a plus à chercher ce qui est déjà trouvé.
+
+    Le balayage est lexical, pas sémantique : il repère que le mot est écrit, pas qu'il
+    est écrit *en positif*. C'est le même risque que court l'IA en lisant le listing —
+    d'où le choix d'annoncer la source plutôt qu'un fait sans provenance.
+    """
+    if not signals:
+        return []
+
+    resolved_signals: list[dict] = []
+    for signal in signals:
+        candidates = (
+            () if signal.get('resolved') or signal.get('kind') != 'gear'
+            else _SIGNAL_GEAR_CANDIDATES.get(signal.get('signal') or '', ())
+        )
+
+        matched_source, matched_gear = None, []
+        for source, mentions in (mentions_by_source or []):
+            # L'ordre des candidats prime sur celui des mentions : il est stable d'une
+            # cache à l'autre, ce que l'ordre du texte n'est pas.
+            matched_gear = [key for key in candidates if key in (mentions or ())]
+            if matched_gear:
+                matched_source = source
+                break
+
+        if not matched_source:
+            resolved_signals.append(signal)
+            continue
+
+        resolved_signals.append({
+            **signal,
+            'resolved': True,
+            'resolved_from': matched_source,
+            'resolved_gear': matched_gear,
+        })
+
+    return resolved_signals
+
+
 def count_unresolved(signals: list[dict] | None) -> int:
     """Nombre de drapeaux que l'IA doit résoudre depuis le texte."""
     if not signals:
         return 0
     return sum(1 for signal in signals if not signal.get('resolved'))
+
+
+def count_resolved_from_text(signals: list[dict] | None) -> int:
+    """Nombre de drapeaux refermés par le balayage du listing ou du hint."""
+    if not signals:
+        return 0
+    return sum(1 for signal in signals if signal.get('resolved_from') in RESOLUTION_SOURCES)

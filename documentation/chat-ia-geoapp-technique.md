@@ -1174,7 +1174,8 @@ OutingAnalysisController.analyze()             sans UI, testable seul
         |            +--> outing_gear_signals.build_gear_signals()
         |            +--> outing_gear_signals.build_waypoint_signals()
         |            +--> outing_health.compute_health()
-        |            +--> outing_lexicons.find_gear_mentions()
+        |            +--> outing_lexicons.find_gear_mentions()   logs + listing + hint
+        |            +--> outing_gear_signals.resolve_signals_from_text()
         |
         +--> buildOutingAnalysisPrompt()
         |
@@ -1190,6 +1191,7 @@ déjà fait par l'utilisateur, qui est souvent la meilleure source disponible.
 | Source | Champs | Pourquoi elle compte |
 |---|---|---|
 | Listing, hint, attributs | `listing_excerpt`, `hint`, `attributes`, `gear_signals` | Le socle |
+| Balayage lexical du listing et du hint | `gear_mentions_in_listing`, `gear_mentions_in_hint` | Le matériel nommé dans le texte **complet**, pour quelques tokens : survit à la troncature de l'extrait comme à sa suppression |
 | Statut de trouvaille | `found`, `found_date` | Une cache déjà trouvée dans la sélection est presque toujours une erreur de sélection |
 | Note personnelle geocaching.com | `personal_note` | « Parking rue X », « prévoir 2 personnes », solutions partielles : aucune autre source ne les porte |
 | Notes GeoApp | `notes` (5 max, les plus récentes), `notes_count` | Repérages et solutions partielles saisis dans l'app |
@@ -1224,6 +1226,7 @@ fait que ce qu'elle seule sait faire, lire du texte libre.
 | Santé : DNF consécutifs, ancienneté de la trouvaille, maintenance en attente | Nature précise de l'outil requis |
 | Drapeaux matériel issus des attributs | Type de matériel de grimpe |
 | Sélection des logs pertinents par lexique | Durée réaliste, priorisation |
+| Matériel nommé dans le listing et le hint, drapeaux pré-résolus | Ce qui n'est que suggéré, sous-entendu, ou dit autrement |
 | Mystery non résolue, cache déjà trouvée, waypoints, statut | Contraintes implicites du listing |
 | Fraîcheur de la collecte de logs | Ce qu'il faut en conclure sur la fiabilité |
 
@@ -1231,11 +1234,12 @@ fait que ce qu'elle seule sait faire, lire du texte libre.
 
 `build_gear_signals()` produit trois natures d'entrées :
 
-| Nature | `resolved` | Exemple | Rôle |
-|---|---|---|---|
-| Matériel auto-suffisant | `true` | `flashlight`, `uv_light`, `scuba` | L'attribut dit tout |
-| Matériel **non résolu** | `false` | `special_tool`, `climbing`, `field_puzzle` | Pose une question à l'IA |
-| Contexte | `true` | `fee`, `stealth`, `not_available_24h` | Organisation, pas équipement |
+| Nature | `resolved` | `resolved_from` | Exemple | Rôle |
+|---|---|---|---|---|
+| Matériel auto-suffisant | `true` | `attribute` | `flashlight`, `uv_light`, `scuba` | L'attribut dit tout |
+| Matériel **non résolu** | `false` | `null` | `special_tool`, `climbing`, `field_puzzle` | Pose une question à l'IA |
+| Matériel **pré-résolu** | `true` | `listing` / `hint` | `special_tool` + « canne à pêche » dans le listing | Le backend a répondu à la question |
+| Contexte | `true` | `attribute` / `waypoint` | `fee`, `stealth`, `not_available_24h` | Organisation, pas équipement |
 
 L'attribut « Outil spécial requis » ne dit pas *quel* outil : canne à pêche, aimant,
 crochet, matériel de crochetage… De même `climbing` ne distingue pas l'échelle du matériel
@@ -1248,6 +1252,30 @@ Ce marqueur `(NON RÉSOLU)` est un **contrat entre deux fichiers** :
 `outing-analysis-prompt.ts` l'écrit, `geoapp-chat-system-prompts.ts` le cherche. Il doit
 correspondre au caractère près, accents compris — c'est pourquoi le prompt système de
 sortie est accentué, contrairement à ses voisins. Un test verrouille la correspondance.
+Même contrat pour le marqueur inverse, `résolu depuis le listing`.
+
+**Pré-résolution** — `resolve_signals_from_text()` referme un drapeau quand le balayage du
+listing ou du hint nomme un objet capable de l'expliquer. Le rendu change alors de nature :
+`special_tool (résolu depuis le listing : fishing_rod)` au lieu de `(NON RÉSOLU : …)`, et
+le libellé « nature à déterminer » disparaît, puisque la nature est déterminée.
+
+La correspondance drapeau → objets (`_SIGNAL_GEAR_CANDIDATES`) est **volontairement
+étroite** : une lampe ou des gants ne referment pas « outil spécial requis », parce que ces
+objets ont leur propre attribut et qu'une réponse fausse rendue avec l'assurance d'un
+calcul est pire qu'une question laissée ouverte. `climbing` ne se referme que sur du
+matériel de grimpe ; `field_puzzle` et `teamwork` ne se referment jamais — aucun mot du
+lexique ne dit quelle énigme ni combien de bras.
+
+Deux limites assumées :
+
+- le balayage est **lexical, pas sémantique** : il voit que le mot est écrit, pas qu'il est
+  écrit en positif. C'est exactement le risque que court l'IA en lisant le listing elle-même,
+  d'où le choix d'annoncer la source (`résolu depuis le listing`) plutôt qu'un fait sans
+  provenance ;
+- les **logs ne pré-résolvent rien**. Ils sont nombreux, parfois contradictoires, et leur
+  extrait est déjà transmis avec ses `matched` : l'IA peut les citer avec une date et un
+  auteur, ce qu'un compteur agrégé ne permettrait pas. Seuls le listing et le hint, écrits
+  par le propriétaire, font autorité ici.
 
 **Résolution du slug d'attribut** — `Geocache.attributes` est hétérogène :
 
@@ -1272,6 +1300,27 @@ texte normalisé sans accents), le classement par nombre de mentions puis par da
 
 `search_effort_logs` applique la même mécanique avec `SEARCH_EFFORT_LEXICON`, pour repérer
 les caches qui font perdre du temps sur place.
+
+### Le même lexique sur le listing et le hint
+
+`GEAR_LEXICON` ne sert pas qu'à trier les logs : il balaie aussi le **listing complet** et
+le **hint**, et les clés trouvées voyagent dans `gear_mentions_in_listing` et
+`gear_mentions_in_hint`.
+
+Trois propriétés en découlent :
+
+- le balayage porte sur le texte **entier**, pas sur l'extrait transmis. Une mention placée
+  après trois paragraphes d'histoire locale tombe hors de la troncature ; elle est repérée
+  quand même ;
+- il **coûte zéro token de listing** : ce qui part dans le prompt, c'est une liste de clés ;
+- en **mode léger**, où `listing_chars = 0` supprime purement le listing, c'est la seule
+  chose que l'IA saura du texte du propriétaire. Avant ce balayage, un drapeau « outil
+  spécial requis » y était insoluble dès lors que la réponse n'était pas dans les logs.
+
+Le prompt les rend sur une ligne unique, avant le contexte :
+`- Matériel nommé dans le texte (repérage GeoApp) — listing : fishing_rod, ladder ; hint : magnet`.
+Le prompt système la désigne comme une source citable au niveau **CONFIRMÉ**, au même titre
+que le listing lui-même.
 
 **Faux positifs** : plusieurs termes ont été retirés du lexique après confrontation aux
 logs réels (« perche » ↔ « perché » une fois les accents retirés, « pile » ↔ « à midi
@@ -1329,7 +1378,8 @@ reprennent la même conversation ; le lendemain, une session neuve s'ouvre.
 
 Les préréglages `OUTING_DETAIL_PRESETS` fixent la troncature : `light` n'envoie **aucun**
 listing (`listing_chars = 0`, valeur acceptée par l'endpoint), `standard` 1800 caractères,
-`full` 4000.
+`full` 4000. Le mode léger n'est pas pour autant aveugle au listing : il en reçoit le
+balayage lexical et les drapeaux que ce balayage a refermés.
 
 ### Garde-fous
 

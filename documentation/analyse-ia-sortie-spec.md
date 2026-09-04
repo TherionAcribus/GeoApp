@@ -914,6 +914,52 @@ même titre que l'inversion `hints` / `hints_decoded` du lot 1.
 
 ---
 
+## LOT 7 — Le lexique sur le listing et le hint (livré le 2026-09-04)
+
+`find_gear_mentions()` ne tournait que sur les logs. En mode léger, où le listing est
+purement supprimé (`listing_chars = 0`), un drapeau « outil spécial requis » était donc
+insoluble dès lors que la réponse était dans le listing plutôt que dans un log.
+
+| Apport | Correction | Fichiers |
+|---|---|---|
+| Balayage du listing **complet** et du hint | `gear_mentions_in_listing`, `gear_mentions_in_hint` dans chaque entrée ; rendus sur une ligne « Matériel nommé dans le texte (repérage GeoApp) » | `_listing_plain_text`, `_build_geocache_entry`, `formatGearMentions` |
+| Pré-résolution des drapeaux | `resolve_signals_from_text()` referme `special_tool`, `climbing` et `tree_climbing` quand le texte nomme l'objet ; le signal gagne `resolved_from` et `resolved_gear` | `outing_gear_signals.py`, `formatGearSignals` |
+| Comptage | `presolved_gear_signals` dans les stats, annoncé dans « Fiabilité des données » | `_build_stats`, `formatReliabilitySection` |
+| Consigne au modèle | Un signal « résolu depuis le listing » est du **CONFIRMÉ** avec sa source, y compris en mode léger | `geoapp-chat-system-prompts.ts` |
+
+### Trois décisions à retenir
+
+**Le balayage porte sur le texte complet, pas sur l'extrait transmis.** C'est le même
+principe que `gear_logs` : la mention utile est rarement au bon endroit. Elle arrive après
+l'histoire du lieu, donc hors troncature — et en mode léger, hors de tout.
+
+**La correspondance drapeau → objets est étroite.** Une lampe ou des gants ne referment pas
+« outil spécial requis » : ces objets ont leur propre attribut, et une réponse fausse rendue
+avec l'assurance d'un calcul est pire qu'une question laissée ouverte. `field_puzzle` et
+`teamwork` ne se referment jamais.
+
+**Les logs ne pré-résolvent rien.** Ils sont nombreux, parfois contradictoires, et leur
+extrait part déjà avec ses `matched`, sa date et son auteur : l'IA peut les citer, ce qu'un
+compteur agrégé ne permettrait pas. Seuls le listing et le hint, écrits par le
+propriétaire, font autorité — le listing d'abord.
+
+### Limite assumée
+
+Le balayage est lexical, pas sémantique : il voit que le mot est écrit, pas qu'il est écrit
+en positif (« aucun aimant nécessaire » referme le drapeau sur `magnet`). C'est le risque
+que court l'IA en lisant le listing elle-même ; d'où le choix d'annoncer la source plutôt
+qu'un fait sans provenance.
+
+### Tests
+
+- Backend : 85 tests dans `tests/test_outing_analysis.py` (13 ajoutés — balayage du
+  listing et du hint, pré-résolution, non-régression des drapeaux qui doivent rester
+  ouverts).
+- Front : `outing-analysis-prompt.test.ts` (29 tests), `geoapp-outing-analyzer-agent.test.ts`
+  verrouille le second marqueur de chaîne (`résolu depuis le listing`).
+
+---
+
 ## Points laissés ouverts (hors périmètre, à traiter plus tard)
 
 - **Rafraîchissement global des logs** avant analyse : décidé hors périmètre. Le bundle

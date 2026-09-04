@@ -15,6 +15,13 @@ Deux sélections de logs cohabitent, parce qu'elles répondent à des questions 
 Un même log peut apparaître dans les deux listes : c'est voulu, l'extrait est alors
 identique pour qu'on reconnaisse qu'il s'agit du même.
 
+Le lexique matériel ne sert pas qu'à trier les logs : il balaie aussi le **listing
+complet** et le **hint**. Ce balayage est fait une fois côté Python et transmis sous forme
+de clés (`gear_mentions_in_listing`, `gear_mentions_in_hint`), donc pour un coût nul en
+tokens de listing. C'est ce qui rend le mode léger honnête : le listing n'y est pas
+transmis, mais on sait quand même qu'il parle d'une canne à pêche — et un drapeau « outil
+spécial requis » peut être refermé avant même d'atteindre l'IA.
+
 S'y ajoutent trois sources qui ne viennent pas de geocaching.com mais du travail déjà
 fait par l'utilisateur, et qui valent souvent mieux que le listing : la **note
 personnelle** (« parking rue X », « prévoir deux personnes »), les **notes GeoApp**
@@ -31,7 +38,13 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import selectinload
 
 from ..geocaches.models import Geocache, GeocacheLog
-from .outing_gear_signals import build_gear_signals, build_waypoint_signals, count_unresolved
+from .outing_gear_signals import (
+    build_gear_signals,
+    build_waypoint_signals,
+    count_resolved_from_text,
+    count_unresolved,
+    resolve_signals_from_text,
+)
 from .outing_health import compute_health
 from .outing_lexicons import find_gear_mentions, find_search_effort_mentions, normalize
 
@@ -202,23 +215,24 @@ def _resolve_hint(geocache: Geocache) -> str | None:
     return max(candidates, key=_plaintext_score)
 
 
-def _resolve_listing(geocache: Geocache, listing_chars: int) -> tuple[str, bool]:
+def _listing_plain_text(geocache: Geocache) -> str:
     """
-    Extrait de listing en texte brut, tronqué sur une frontière de mot.
+    Listing complet en texte brut, sans troncature.
 
-    `listing_chars = 0` signifie « pas de listing du tout » : c'est le mode léger, qui
-    s'appuie sur les attributs, le hint et les logs. Autant ne rien transférer.
+    Toujours calculé, y compris en mode léger où rien n'en sera transmis : c'est le
+    support du balayage lexical, qui doit voir *tout* le listing. La mention d'une canne à
+    pêche se trouve souvent après l'histoire du lieu, donc au-delà de l'extrait.
+
+    La version corrigée par l'utilisateur prime, et le texte brut prime sur le HTML —
+    même ordre que l'affichage.
     """
-    if listing_chars <= 0:
-        return '', False
-
     for candidate in (
         geocache.description_override_raw,
         geocache.description_raw,
     ):
         cleaned = _clean_whitespace(candidate)
         if cleaned:
-            return _truncate_on_word(cleaned, listing_chars)
+            return cleaned
 
     for candidate in (
         geocache.description_override_html,
@@ -226,9 +240,22 @@ def _resolve_listing(geocache: Geocache, listing_chars: int) -> tuple[str, bool]
     ):
         cleaned = _strip_html(candidate)
         if cleaned:
-            return _truncate_on_word(cleaned, listing_chars)
+            return cleaned
 
-    return '', False
+    return ''
+
+
+def _resolve_listing(listing_text: str, listing_chars: int) -> tuple[str, bool]:
+    """
+    Extrait de listing transmis à l'IA, tronqué sur une frontière de mot.
+
+    `listing_chars = 0` signifie « pas de listing du tout » : c'est le mode léger, qui
+    s'appuie sur les attributs, le hint, les logs et les mentions déjà repérées. Autant ne
+    rien transférer.
+    """
+    if listing_chars <= 0 or not listing_text:
+        return '', False
+    return _truncate_on_word(listing_text, listing_chars)
 
 
 def _resolve_coordinates(geocache: Geocache) -> str | None:
@@ -494,11 +521,23 @@ def _build_geocache_entry(
     gear_logs_count: int,
     now: datetime,
 ) -> dict:
-    listing_excerpt, listing_truncated = _resolve_listing(geocache, listing_chars)
+    listing_text = _listing_plain_text(geocache)
+    listing_excerpt, listing_truncated = _resolve_listing(listing_text, listing_chars)
+    hint = _resolve_hint(geocache)
+
+    # Le balayage porte sur le listing entier et sur le hint, pas sur ce qui sera transmis :
+    # c'est justement quand le listing n'est pas transmis qu'il vaut le plus cher.
+    gear_mentions_in_listing = find_gear_mentions(listing_text)
+    gear_mentions_in_hint = find_gear_mentions(hint)
+
     gear_signals = build_gear_signals(
         geocache.attributes if isinstance(geocache.attributes, list) else []
     )
     gear_signals += build_waypoint_signals(geocache.waypoints, gear_signals)
+    gear_signals = resolve_signals_from_text(gear_signals, [
+        ('listing', gear_mentions_in_listing),
+        ('hint', gear_mentions_in_hint),
+    ])
     personal_note, personal_note_truncated = _serialize_personal_note(geocache)
     notes, notes_count = _serialize_notes(geocache)
     logging_tasks = _serialize_logging_tasks(geocache)
@@ -531,13 +570,17 @@ def _build_geocache_entry(
         # qu'elle peut aussi être volontaire (accompagner quelqu'un, refaire une multi).
         'found': bool(geocache.found),
         'found_date': geocache.found_date.isoformat() if geocache.found_date else None,
-        'hint': _resolve_hint(geocache),
+        'hint': hint,
         'personal_note': personal_note,
         'personal_note_truncated': personal_note_truncated,
         'notes': notes,
         'notes_count': notes_count,
         'listing_excerpt': listing_excerpt,
         'listing_truncated': listing_truncated,
+        # Repérées sur le texte complet : elles survivent à la troncature comme à la
+        # suppression pure et simple du listing.
+        'gear_mentions_in_listing': gear_mentions_in_listing,
+        'gear_mentions_in_hint': gear_mentions_in_hint,
         'attributes': _serialize_attributes(geocache),
         'gear_signals': gear_signals,
         'waypoints': _serialize_waypoints(geocache),
@@ -567,6 +610,9 @@ def _build_stats(entries: list[dict]) -> dict:
         'unsolved_mysteries': sum(1 for entry in entries if entry.get('unsolved_mystery')),
         'unresolved_gear_signals': sum(
             count_unresolved(entry.get('gear_signals')) for entry in entries
+        ),
+        'presolved_gear_signals': sum(
+            count_resolved_from_text(entry.get('gear_signals')) for entry in entries
         ),
         'already_found': sum(1 for entry in entries if entry.get('found')),
         'stale_logs': sum(1 for entry in entries if entry.get('health', {}).get('logs_stale')),

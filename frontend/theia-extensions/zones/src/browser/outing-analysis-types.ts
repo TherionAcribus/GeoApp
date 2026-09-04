@@ -38,12 +38,18 @@ export type OutingHealthLevel = 'ok' | 'watch' | 'risky' | 'very_risky' | 'unkno
  * Un signal déduit des attributs.
  *
  * `resolved: false` est le cas intéressant : l'attribut a levé un drapeau (« outil
- * spécial requis ») sans dire lequel. C'est à l'IA de le résoudre depuis le texte.
+ * spécial requis ») sans dire lequel. C'est à l'IA de le résoudre depuis le texte —
+ * sauf si le backend l'a déjà fait en balayant le listing ou le hint, auquel cas
+ * `resolved` repasse à `true` et `resolved_from` dit d'où vient la réponse.
  */
 export interface OutingGearSignal {
     signal: string;
     kind: 'gear' | 'context';
     resolved: boolean;
+    /** D'où vient la résolution : l'attribut lui-même, le waypoint, le listing, le hint. */
+    resolved_from?: 'attribute' | 'waypoint' | 'listing' | 'hint' | null;
+    /** Clés du lexique matériel qui ont refermé le drapeau (`resolved_from` textuel). */
+    resolved_gear?: string[];
     label: string;
     slug: string;
     source: string;
@@ -145,6 +151,15 @@ export interface OutingAnalysisGeocache {
     notes_count: number;
     listing_excerpt: string;
     listing_truncated: boolean;
+    /**
+     * Matériel nommé dans le listing **complet**, repéré côté backend.
+     *
+     * Survit à la troncature de l'extrait comme à sa suppression : en mode léger, c'est
+     * la seule trace du listing, et elle ne coûte rien.
+     */
+    gear_mentions_in_listing: string[];
+    /** Matériel nommé dans le hint décodé. */
+    gear_mentions_in_hint: string[];
     attributes: Array<{ label: string; is_negative: boolean }>;
     gear_signals: OutingGearSignal[];
     waypoints: OutingWaypoint[];
@@ -163,6 +178,8 @@ export interface OutingAnalysisStats {
     by_health_level: Record<string, number>;
     unsolved_mysteries: number;
     unresolved_gear_signals: number;
+    /** Drapeaux refermés par le balayage du listing ou du hint, sans intervention de l'IA. */
+    presolved_gear_signals: number;
     already_found: number;
     stale_logs: number;
     logging_tasks: number;

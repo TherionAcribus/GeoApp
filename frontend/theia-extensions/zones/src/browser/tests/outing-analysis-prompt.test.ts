@@ -44,6 +44,8 @@ function createGeocacheFixture(overrides: Partial<OutingAnalysisGeocache> = {}):
         notes_count: 1,
         listing_excerpt: 'Une balade agreable dans le bois, prevoyez de quoi atteindre la boite.',
         listing_truncated: true,
+        gear_mentions_in_listing: [],
+        gear_mentions_in_hint: [],
         attributes: [
             { label: 'Outil special requis', is_negative: false },
             { label: 'Chiens', is_negative: true },
@@ -144,6 +146,7 @@ function createBundleFixture(overrides: Partial<OutingAnalysisBundle> = {}): Out
             by_health_level: { risky: geocaches.length },
             unsolved_mysteries: 0,
             unresolved_gear_signals: 1,
+            presolved_gear_signals: 0,
             already_found: 0,
             stale_logs: 0,
             logging_tasks: 0,
@@ -238,7 +241,7 @@ function testReliabilitySectionIsOmittedWhenNothingToReport(): void {
     const bundle = createBundleFixture({
         stats: {
             by_type: {}, by_health_level: {},
-            unsolved_mysteries: 0, unresolved_gear_signals: 0,
+            unsolved_mysteries: 0, unresolved_gear_signals: 0, presolved_gear_signals: 0,
             already_found: 0, stale_logs: 0, logging_tasks: 0,
         },
     });
@@ -253,7 +256,7 @@ function testUnsolvedMysteryIsFlaggedTwice(): void {
         geocaches: [mystery],
         stats: {
             by_type: { Mystery: 1 }, by_health_level: { risky: 1 },
-            unsolved_mysteries: 1, unresolved_gear_signals: 1,
+            unsolved_mysteries: 1, unresolved_gear_signals: 1, presolved_gear_signals: 0,
             already_found: 0, stale_logs: 0, logging_tasks: 0,
         },
     });
@@ -271,7 +274,7 @@ function testAlreadyFoundIsFlaggedTwice(): void {
         already_found: ['GC424242'],
         stats: {
             by_type: { Traditional: 1 }, by_health_level: { risky: 1 },
-            unsolved_mysteries: 0, unresolved_gear_signals: 1,
+            unsolved_mysteries: 0, unresolved_gear_signals: 1, presolved_gear_signals: 0,
             already_found: 1, stale_logs: 0, logging_tasks: 0,
         },
     });
@@ -288,7 +291,7 @@ function testStaleLogsRelativizeHealth(): void {
         stale_logs: ['GC424242'],
         stats: {
             by_type: { Traditional: 1 }, by_health_level: { risky: 1 },
-            unsolved_mysteries: 0, unresolved_gear_signals: 1,
+            unsolved_mysteries: 0, unresolved_gear_signals: 1, presolved_gear_signals: 0,
             already_found: 0, stale_logs: 1, logging_tasks: 0,
         },
     });
@@ -385,6 +388,76 @@ function testLightLevelDropsTheListing(): void {
     assert.ok(prompt.includes('special_tool (NON RÉSOLU'));
 }
 
+/**
+ * Le cas qui justifie le balayage : en mode léger, le listing est supprimé, mais ce
+ * qu'il nomme doit survivre. Sans cette ligne, l'IA n'a aucun moyen de savoir que le
+ * propriétaire parle d'une canne à pêche.
+ */
+function testGearMentionsSurviveTheListingRemoval(): void {
+    const scanned = createGeocacheFixture({
+        gear_mentions_in_listing: ['fishing_rod', 'ladder'],
+        gear_mentions_in_hint: ['magnet'],
+    });
+    const prompt = buildOutingAnalysisPrompt(createBundleFixture({ geocaches: [scanned] }), {
+        ...STANDARD,
+        detailLevel: 'light',
+    });
+
+    assert.ok(!prompt.includes('Une balade agreable'));
+    assert.ok(prompt.includes(
+        '- Matériel nommé dans le texte (repérage GeoApp) — listing : fishing_rod, ladder ; hint : magnet'
+    ));
+}
+
+function testGearMentionsAreOmittedWhenTheTextNamesNothing(): void {
+    const prompt = buildOutingAnalysisPrompt(createBundleFixture(), STANDARD);
+
+    assert.ok(!prompt.includes('Matériel nommé dans le texte'));
+}
+
+/**
+ * Un drapeau refermé par le backend ne porte plus « NON RÉSOLU » : il annonce sa source,
+ * pour que le rapport la cite au lieu de rouvrir la question.
+ */
+function testPresolvedSignalCitesItsSource(): void {
+    const resolved = createGeocacheFixture({
+        gear_mentions_in_listing: ['fishing_rod'],
+        gear_signals: [
+            {
+                signal: 'special_tool',
+                kind: 'gear',
+                resolved: true,
+                resolved_from: 'listing',
+                resolved_gear: ['fishing_rod'],
+                label: 'outil special requis — nature a determiner',
+                slug: 's-tool',
+                source: 'attribute',
+                is_negative: false,
+            },
+        ],
+    });
+    const prompt = buildOutingAnalysisPrompt(createBundleFixture({ geocaches: [resolved] }), STANDARD);
+
+    assert.ok(prompt.includes('special_tool (résolu depuis le listing : fishing_rod)'));
+    assert.ok(!prompt.includes('special_tool (NON RÉSOLU'));
+    // Le libellé « nature à déterminer » n'a plus de sens une fois la nature connue.
+    assert.ok(!prompt.includes('nature a determiner'));
+}
+
+function testPresolvedSignalsAreAnnouncedInTheReliabilitySection(): void {
+    const bundle = createBundleFixture({
+        stats: {
+            by_type: { Traditional: 1 }, by_health_level: { risky: 1 },
+            unsolved_mysteries: 0, unresolved_gear_signals: 0, presolved_gear_signals: 2,
+            already_found: 0, stale_logs: 0, logging_tasks: 0,
+        },
+    });
+    const prompt = buildOutingAnalysisPrompt(bundle, STANDARD);
+
+    assert.ok(prompt.includes('2 drapeau(x) matériel déjà refermé(s) par GeoApp'));
+    assert.ok(prompt.includes('CONFIRMÉS'));
+}
+
 function testStandardLevelKeepsTheListing(): void {
     const prompt = buildOutingAnalysisPrompt(createBundleFixture(), STANDARD);
 
@@ -418,7 +491,7 @@ function testEmptyBundleDoesNotCrash(): void {
         geocaches: [],
         stats: {
             by_type: {}, by_health_level: {},
-            unsolved_mysteries: 0, unresolved_gear_signals: 0,
+            unsolved_mysteries: 0, unresolved_gear_signals: 0, presolved_gear_signals: 0,
             already_found: 0, stale_logs: 0, logging_tasks: 0,
         },
     });
@@ -511,6 +584,10 @@ function run(): void {
     testFriendAndFavoriteLogsAreMarked();
     testMissingIdsAreReported();
     testLightLevelDropsTheListing();
+    testGearMentionsSurviveTheListingRemoval();
+    testGearMentionsAreOmittedWhenTheTextNamesNothing();
+    testPresolvedSignalCitesItsSource();
+    testPresolvedSignalsAreAnnouncedInTheReliabilitySection();
     testStandardLevelKeepsTheListing();
     testDetailLevelBoundsRecentLogs();
     testEmptyBundleDoesNotCrash();

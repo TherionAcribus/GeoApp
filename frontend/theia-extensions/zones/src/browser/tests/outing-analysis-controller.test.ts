@@ -41,6 +41,8 @@ function createGeocache(gcCode: string): OutingAnalysisGeocache {
         notes_count: 0,
         listing_excerpt: '',
         listing_truncated: false,
+        gear_mentions_in_listing: [],
+        gear_mentions_in_hint: [],
         attributes: [],
         gear_signals: [],
         waypoints: [],
@@ -82,7 +84,7 @@ function createBundle(overrides: Partial<OutingAnalysisBundle> = {}): OutingAnal
         already_found: [],
         stats: {
             by_type: {}, by_health_level: {},
-            unsolved_mysteries: 0, unresolved_gear_signals: 0,
+            unsolved_mysteries: 0, unresolved_gear_signals: 0, presolved_gear_signals: 0,
             already_found: 0, stale_logs: 0, logging_tasks: 0,
         },
         ...overrides,

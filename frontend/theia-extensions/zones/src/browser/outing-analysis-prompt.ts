@@ -11,7 +11,9 @@
  *   tokens et n'apprend rien ;
  * - **les drapeaux non résolus sont écrits en toutes lettres** (`NON RÉSOLU`), parce que
  *   c'est ce marqueur que le prompt système va chercher pour déclencher la recherche de
- *   l'outil précis dans le listing, le hint et les logs.
+ *   l'outil précis dans le listing, le hint et les logs. Un drapeau que le backend a déjà
+ *   refermé en balayant le listing ou le hint ne le porte donc pas : il annonce sa source
+ *   à la place, pour que le rapport puisse la citer.
  *
  * Fonctions pures, sans dépendance Theia : testables telles quelles.
  */
@@ -141,21 +143,61 @@ function formatHealthLine(geocache: OutingAnalysisGeocache): string {
     return `- Santé : ${label}${detail}`;
 }
 
+/** D'où vient une pré-résolution, en toutes lettres pour que le rapport puisse la citer. */
+const RESOLUTION_SOURCE_LABELS: Record<string, string> = {
+    listing: 'le listing',
+    hint: 'le hint',
+};
+
 /**
  * Ligne des signaux matériel.
  *
- * Le suffixe `(NON RÉSOLU)` n'est pas cosmétique : c'est la consigne au modèle d'aller
- * chercher l'outil précis dans le texte plutôt que de se contenter du drapeau.
+ * Trois rendus, pour trois états :
+ *
+ * - résolu par l'attribut : `flashlight (lampe / frontale)` ;
+ * - résolu par le backend depuis le texte : `special_tool (résolu depuis le listing :
+ *   fishing_rod)`. Le libellé d'origine (« nature à déterminer ») est abandonné — la
+ *   nature *est* déterminée — mais la source est nommée, pour que l'IA la cite ;
+ * - toujours ouvert : `(NON RÉSOLU)`, qui n'est pas cosmétique. C'est la consigne au
+ *   modèle d'aller chercher l'outil précis dans le texte plutôt que de s'arrêter au
+ *   drapeau.
  */
 function formatGearSignals(signals: OutingGearSignal[]): string | undefined {
     const gear = signals.filter(signal => signal.kind === 'gear');
     if (gear.length === 0) {
         return undefined;
     }
-    const rendered = gear.map(signal =>
-        signal.resolved ? `${signal.signal} (${signal.label})` : `${signal.signal} (NON RÉSOLU : ${signal.label})`
-    );
+    const rendered = gear.map(signal => {
+        const source = RESOLUTION_SOURCE_LABELS[signal.resolved_from || ''];
+        if (source && signal.resolved_gear && signal.resolved_gear.length > 0) {
+            return `${signal.signal} (résolu depuis ${source} : ${signal.resolved_gear.join(', ')})`;
+        }
+        return signal.resolved
+            ? `${signal.signal} (${signal.label})`
+            : `${signal.signal} (NON RÉSOLU : ${signal.label})`;
+    });
     return `- Signaux matériel : ${rendered.join(', ')}`;
+}
+
+/**
+ * Matériel nommé dans le listing complet et dans le hint.
+ *
+ * Repérage lexical fait côté backend, sur le texte **entier** : il survit à la troncature
+ * de l'extrait, et surtout à sa suppression. En mode léger, où aucun listing n'est
+ * transmis, c'est la seule chose que l'IA saura du listing — pour quelques tokens.
+ */
+function formatGearMentions(geocache: OutingAnalysisGeocache): string | undefined {
+    // Tolérant à un bundle plus ancien que le front : les champs viennent du réseau.
+    const inListing = geocache.gear_mentions_in_listing || [];
+    const inHint = geocache.gear_mentions_in_hint || [];
+    const parts = [
+        inListing.length > 0 ? `listing : ${inListing.join(', ')}` : undefined,
+        inHint.length > 0 ? `hint : ${inHint.join(', ')}` : undefined,
+    ].filter(Boolean);
+    if (parts.length === 0) {
+        return undefined;
+    }
+    return `- Matériel nommé dans le texte (repérage GeoApp) — ${parts.join(' ; ')}`;
 }
 
 function formatContextSignals(signals: OutingGearSignal[]): string | undefined {
@@ -322,6 +364,7 @@ function formatGeocacheBlock(
         formatHealthLine(geocache),
         formatAttributes(geocache),
         formatGearSignals(geocache.gear_signals),
+        formatGearMentions(geocache),
         formatContextSignals(geocache.gear_signals),
         formatWaypoints(geocache),
         bullet('Hint', geocache.hint),
@@ -378,6 +421,15 @@ function formatReliabilitySection(bundle: OutingAnalysisBundle): string | undefi
             `- ${bundle.stats.unresolved_gear_signals} drapeau(x) matériel NON RÉSOLU(S) : `
             + `l'attribut signale un besoin sans dire lequel. Cherche l'objet précis dans le `
             + `listing, le hint et les logs, et dis-le clairement quand tu ne le trouves pas.`
+        );
+    }
+
+    if (bundle.stats.presolved_gear_signals > 0) {
+        lines.push(
+            `- ${bundle.stats.presolved_gear_signals} drapeau(x) matériel déjà refermé(s) par `
+            + `GeoApp : l'objet est nommé dans le listing ou le hint, repéré par balayage du `
+            + `texte complet. Reprends-les comme CONFIRMÉS en citant cette source — y compris `
+            + `en mode léger, où le listing lui-même ne t'est pas transmis.`
         );
     }
 

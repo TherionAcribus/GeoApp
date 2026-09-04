@@ -19,8 +19,10 @@ if str(REPO_ROOT) not in sys.path:
 
 from gc_backend.services.outing_gear_signals import (  # noqa: E402
     build_gear_signals,
+    count_resolved_from_text,
     count_unresolved,
     resolve_attribute_slug,
+    resolve_signals_from_text,
 )
 from gc_backend.services.outing_health import compute_health  # noqa: E402
 from gc_backend.services.outing_lexicons import (  # noqa: E402
@@ -615,6 +617,153 @@ def test_missing_flags_default_to_false_not_none():
     serialized = _serialize_recent_logs([log], 5)[0]
     assert serialized['is_friend_log'] is False
     assert serialized['is_favorite'] is False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Balayage du listing et du hint
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _geocache_with_listing(raw=None, html=None, override_raw=None, override_html=None):
+    return SimpleNamespace(
+        description_override_raw=override_raw,
+        description_raw=raw,
+        description_override_html=override_html,
+        description_html=html,
+    )
+
+
+def test_listing_is_scanned_beyond_the_transmitted_excerpt():
+    """La mention arrive souvent après l'histoire du lieu, donc hors de l'extrait."""
+    from gc_backend.services.outing_analysis_service import (
+        _listing_plain_text, _resolve_listing,
+    )
+
+    listing = 'blabla ' * 80 + 'et surtout, prévoyez une canne à pêche.'
+    text = _listing_plain_text(_geocache_with_listing(raw=listing))
+    excerpt, truncated = _resolve_listing(text, 100)
+
+    assert truncated is True
+    assert 'canne' not in excerpt
+    assert 'fishing_rod' in find_gear_mentions(text)
+
+
+def test_light_mode_drops_the_listing_but_not_its_mentions():
+    """Le mode léger ne transmet aucun listing : le balayage reste la seule trace."""
+    from gc_backend.services.outing_analysis_service import (
+        _listing_plain_text, _resolve_listing,
+    )
+
+    text = _listing_plain_text(_geocache_with_listing(raw='Il faut un aimant puissant.'))
+
+    assert _resolve_listing(text, 0) == ('', False)
+    assert 'magnet' in find_gear_mentions(text)
+
+
+def test_listing_html_is_scanned_as_plain_text():
+    from gc_backend.services.outing_analysis_service import _listing_plain_text
+
+    text = _listing_plain_text(_geocache_with_listing(html='<p>Prévoir une <b>échelle</b>.</p>'))
+
+    assert 'ladder' in find_gear_mentions(text)
+
+
+def test_corrected_listing_wins_over_the_original():
+    from gc_backend.services.outing_analysis_service import _listing_plain_text
+
+    geocache = _geocache_with_listing(raw='rien de spécial', override_raw='prévoir un aimant')
+
+    assert 'magnet' in find_gear_mentions(_listing_plain_text(geocache))
+
+
+def test_absent_listing_yields_no_mention():
+    from gc_backend.services.outing_analysis_service import _listing_plain_text
+
+    assert find_gear_mentions(_listing_plain_text(_geocache_with_listing())) == []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Pré-résolution des drapeaux
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _special_tool_signals():
+    return build_gear_signals([{'name': 'Outil spécial requis', 'base_filename': 's-tool-yes'}])
+
+
+def test_listing_closes_the_special_tool_flag():
+    signals = resolve_signals_from_text(_special_tool_signals(), [
+        ('listing', find_gear_mentions("L'aimant est indispensable pour la sortir.")),
+        ('hint', []),
+    ])
+
+    assert signals[0]['resolved'] is True
+    assert signals[0]['resolved_from'] == 'listing'
+    assert signals[0]['resolved_gear'] == ['magnet']
+    assert count_unresolved(signals) == 0
+    assert count_resolved_from_text(signals) == 1
+
+
+def test_hint_closes_the_flag_when_the_listing_is_silent():
+    signals = resolve_signals_from_text(_special_tool_signals(), [
+        ('listing', find_gear_mentions('Une jolie balade en forêt.')),
+        ('hint', find_gear_mentions('avec une canne à pêche')),
+    ])
+
+    assert signals[0]['resolved_from'] == 'hint'
+    assert signals[0]['resolved_gear'] == ['fishing_rod']
+
+
+def test_listing_wins_over_the_hint():
+    """Sources ordonnées : le listing est le texte de référence du propriétaire."""
+    signals = resolve_signals_from_text(_special_tool_signals(), [
+        ('listing', find_gear_mentions('prévoir un aimant')),
+        ('hint', find_gear_mentions('avec une canne à pêche')),
+    ])
+
+    assert signals[0]['resolved_from'] == 'listing'
+
+
+def test_climbing_is_resolved_by_climbing_gear_only():
+    """« Matériel de grimpe » ne se referme pas sur un aimant."""
+    signals = build_gear_signals([{'name': 'Escalade', 'base_filename': 'climbing-yes'}])
+
+    on_magnet = resolve_signals_from_text(signals, [('listing', ['magnet'])])
+    on_rope = resolve_signals_from_text(signals, [('listing', ['rope'])])
+
+    assert on_magnet[0]['resolved'] is False
+    assert on_rope[0]['resolved_gear'] == ['rope']
+
+
+def test_a_lamp_does_not_close_the_special_tool_flag():
+    """« Lampe » a son propre attribut : la rattacher à l'outil spécial serait faux."""
+    signals = resolve_signals_from_text(_special_tool_signals(), [
+        ('listing', find_gear_mentions('prenez une lampe et des gants')),
+    ])
+
+    assert signals[0]['resolved'] is False
+    assert signals[0]['resolved_from'] is None
+
+
+def test_field_puzzle_stays_open_for_the_ai():
+    """Aucun mot du lexique ne dit quelle énigme : le drapeau reste à l'IA."""
+    signals = build_gear_signals([
+        {'name': 'Énigme sur le terrain', 'base_filename': 'field_puzzle-yes'},
+    ])
+    resolved = resolve_signals_from_text(signals, [('listing', ['magnet', 'fishing_rod'])])
+
+    assert resolved[0]['resolved'] is False
+
+
+def test_resolved_attributes_are_left_untouched():
+    signals = build_gear_signals([{'name': 'Lampe torche', 'base_filename': 'flashlight-yes'}])
+    resolved = resolve_signals_from_text(signals, [('listing', ['flashlight'])])
+
+    assert resolved[0]['resolved_from'] == 'attribute'
+    assert count_resolved_from_text(resolved) == 0
+
+
+def test_resolution_is_safe_without_signals_or_mentions():
+    assert resolve_signals_from_text(None, [('listing', ['magnet'])]) == []
+    assert resolve_signals_from_text(_special_tool_signals(), None)[0]['resolved'] is False
 
 
 # ─────────────────────────────────────────────────────────────────────────────
