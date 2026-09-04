@@ -138,20 +138,32 @@ def compute_health(
     listing_status: str | None = None,
     placed_at: datetime | None = None,
     now: datetime | None = None,
+    presorted: bool = False,
 ) -> dict:
     """
     Bloc de santé d'une géocache.
 
-    `logs` : ses `GeocacheLog`, dans n'importe quel ordre (la fonction les retrie).
-    Les logs sans date participent au comptage par type mais pas aux calculs temporels.
+    `logs` : ses `GeocacheLog`, dans n'importe quel ordre (la fonction les retrie, sauf
+    `presorted`). Les logs sans date participent au comptage par type mais pas aux calculs
+    temporels.
+
+    `presorted` dit que l'appelant a déjà rangé les logs dans cet ordre — datés d'abord,
+    du plus récent au plus ancien, puis les non datés. Le bundle d'analyse le fait dans sa
+    requête, pour ses propres sélections : le tri qui suit était alors un second tri de la
+    même liste, par géocache et à chaque construction. La promesse est de l'appelant ; un
+    ordre annoncé à tort ne lève rien, il fausse le calcul, ce qui est exactement pourquoi
+    le défaut retrie.
     """
     now = now or datetime.now(timezone.utc)
 
-    ordered = sorted(
-        logs or [],
-        key=lambda log: (_as_utc(getattr(log, 'date', None)) or datetime.min.replace(tzinfo=timezone.utc)),
-        reverse=True,
-    )
+    if presorted:
+        ordered = list(logs or [])
+    else:
+        ordered = sorted(
+            logs or [],
+            key=lambda log: (_as_utc(getattr(log, 'date', None)) or datetime.min.replace(tzinfo=timezone.utc)),
+            reverse=True,
+        )
 
     health: dict = {
         'level': 'unknown',

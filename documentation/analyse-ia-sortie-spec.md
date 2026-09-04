@@ -1399,3 +1399,73 @@ rappelle que les recommandations viennent d'un modèle.
 - **La recherche par code GC balaie les 50 plans les plus récents** en Python : `gc_codes`
   est du JSON en colonne texte, que SQLite ne sait pas indexer. À l'échelle attendue (des
   dizaines de plans), c'est sans effet mesurable.
+
+---
+
+## LOT 18 — Performances du balayage des logs (2026-09-04)
+
+> **Livré.** Rien ne change dans ce que l'IA reçoit, sauf les logs vides qui n'y sont plus.
+> Documentation de référence : § 31 de `chat-ia-geoapp-technique.md`, sous-section « Coût du
+> balayage ».
+
+### Le problème
+
+Le bundle est construit à chaque analyse, sur soixante caches et leurs centaines de logs.
+Le texte d'un log y était nettoyé et normalisé deux à trois fois — une par question posée —
+et chaque question le parcourait terme à terme, une centaine de fois pour les seules clés
+matériel. Le travail était juste, il était seulement refait.
+
+### Ce qui change
+
+| | Avant | Après |
+|---|---|---|
+| Normalisation d'un log | 2 à 3 fois | 1 fois (`_PreparedLog`) |
+| Motifs matériel par log | ~110 `search()` | 23, un par clé |
+| Tri des logs | requête **puis** `compute_health` | requête seule (`presorted=True`) |
+| `bs4`, lexique | importés à chaque appel | au chargement du module |
+| Position de l'extrait | `str.find`, sans frontière de mot | les motifs de la détection |
+| Logs récents sans texte | occupent une des N places | écartés de la sélection |
+
+Sur un jeu synthétique de 60 caches × 200 logs, le balayage passe d'environ 18 s à 2,2 s.
+
+### Trois décisions à retenir
+
+**1. Le regroupement des motifs s'arrête à la clé.** Un motif unique pour tout le lexique
+serait plus rapide encore, mais l'alternance ne rend qu'un match par position : « lampe uv »
+sortirait `uv_light` **ou** `flashlight`, jamais les deux. À l'intérieur d'une clé, le
+regroupement est en revanche exactement équivalent — « ce groupe matche » vaut « un de ses
+termes matche », et la position rendue est celle du terme le plus à gauche, ce que cherchait
+déjà le minimum terme à terme. Un test paramétré rejoue chaque terme du lexique, un autre
+tient le cas « lampe uv ».
+
+**2. L'ordre des logs devient un contrat, écrit dans le `ORDER BY`.** `compute_health` ne
+retrie plus quand on le lui promet, donc une place de log qui bouge fausserait la santé sans
+rien lever. La requête dit donc l'ordre en toutes lettres — datés d'abord du plus récent au
+plus ancien, puis les non datés, l'identifiant décroissant départageant les dates égales —
+et un test sur base réelle le vérifie. SQLite y arrivait déjà seul (NULL y est la plus petite
+valeur, donc dernière en `DESC`), mais c'est une propriété du moteur, pas du contrat.
+
+**3. Un log récent sans texte est écarté, pas remplacé par du vide.** Il ne perd rien : sa
+date et son type nourrissent la santé, qui les rend mieux que ne le ferait
+`[12/03/2026, Toto] Found it — «  »`. La place libérée revient au log utile suivant, donc les
+N demandés restent N.
+
+### Limites assumées
+
+- **Le coût dominant reste le nombre de regex** : 23 par log, plus une pour l'effort de
+  recherche. Le réduire davantage supposerait un automate unique (type Aho-Corasick) et une
+  dépendance de plus, pour un gain qui n'est plus celui qu'on cherchait.
+- **`presorted` est une promesse, pas une vérification** : un appelant qui l'annonce à tort
+  obtient une santé fausse en silence. Le défaut retrie, et le seul appelant qui l'active est
+  celui qui a écrit le `ORDER BY`.
+- **Le renoncement au centrage de l'extrait est silencieux** : sur un texte dont la
+  normalisation change la longueur, l'extrait repart du début sans le dire. Le cas est rare
+  et la dégradation est du côté prudent.
+
+### Tests
+
+`backend/tests/test_outing_analysis.py` : équivalence terme à terme du regroupement (un test
+par entrée du lexique), « lampe uv » vaut deux clés, extrait ouvert sur la mention détectée
+et non sur `tuberculose`, logs vides écartés puis quota rempli au-delà, drapeau d'alignement
+sur un accent décomposé, `presorted` sans effet quand la promesse est tenue, et ordre des
+logs vérifié sur base en mémoire.

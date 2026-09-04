@@ -7,7 +7,9 @@ listing, waypoints, santé calculée et — surtout — les logs qui parlent de 
 
 Deux sélections de logs cohabitent, parce qu'elles répondent à des questions différentes :
 
-- `recent_logs` : les N derniers, pour l'état actuel de la cache ;
+- `recent_logs` : les N derniers qui portent du texte, pour l'état actuel de la cache.
+  Un log posté sans commentaire ne prend pas une des N places : sa date et son type
+  nourrissent la santé, qui les rend mieux qu'un extrait vide ;
 - `gear_logs` : ceux qui mentionnent du matériel, **quelle que soit leur date**. Un log
   de 2019 disant « il faut une canne à pêche » ne sortirait jamais des N derniers, et
   c'est pourtant l'information la plus utile de toute la fiche.
@@ -45,6 +47,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Sequence
 from datetime import date, datetime, timezone
 
 from sqlalchemy.orm import selectinload
@@ -59,8 +62,21 @@ from .outing_gear_signals import (
     resolve_signals_from_text,
 )
 from .outing_health import compute_health
-from .outing_lexicons import find_gear_mentions, find_search_effort_mentions, normalize
+from .outing_lexicons import (
+    find_gear_mentions,
+    find_gear_mentions_normalized,
+    first_gear_position,
+    has_search_effort_hint_normalized,
+    normalize,
+)
 from .outing_time_estimate import build_time_budget, estimate_geocache_time
+
+# Import au chargement plutôt qu'à chaque appel : `_strip_html` est appelée une à quatre
+# fois par géocache, et l'import manqué coûtait alors une levée d'exception par appel.
+try:  # pragma: no cover - dépend de l'environnement
+    from bs4 import BeautifulSoup
+except Exception:  # pragma: no cover - dépend de l'environnement
+    BeautifulSoup = None
 
 logger = logging.getLogger(__name__)
 
@@ -99,10 +115,13 @@ def _strip_html(html_text: str | None) -> str:
     """Texte brut d'un fragment HTML. BeautifulSoup si disponible, regex sinon."""
     if not html_text:
         return ''
-    try:
-        from bs4 import BeautifulSoup
-        text = BeautifulSoup(html_text, 'html.parser').get_text(' ')
-    except Exception:  # pragma: no cover - dépend de l'environnement
+    text = ''
+    if BeautifulSoup is not None:
+        try:
+            text = BeautifulSoup(html_text, 'html.parser').get_text(' ')
+        except Exception:  # pragma: no cover - dépend du fragment
+            text = ''
+    if not text:
         text = _TAG_RE.sub(' ', html_text)
     return _clean_whitespace(text)
 
@@ -124,28 +143,24 @@ def _truncate_on_word(text: str, limit: int) -> tuple[str, bool]:
     return cut.rstrip() + '…', True
 
 
-def _excerpt_around(text: str, needle_keys: list[str], size: int = LOG_EXCERPT_CHARS) -> str:
+def _excerpt_around(
+    prepared: _PreparedLog,
+    needle_keys: Sequence[str] = (),
+    size: int = LOG_EXCERPT_CHARS,
+) -> str:
     """
     Extrait centré sur la première mention de matériel.
 
     Sans mention repérable, on retombe sur le début du texte : c'est le cas des logs
     récents, retenus pour leur date et non pour leur contenu.
     """
-    cleaned = _clean_whitespace(text)
+    cleaned = prepared.text
     if len(cleaned) <= size:
         return cleaned
 
     position = -1
-    if needle_keys:
-        from .outing_lexicons import GEAR_LEXICON, normalize
-        haystack = normalize(cleaned)
-        for key in needle_keys:
-            for term in GEAR_LEXICON.get(key, ()):  # premier terme trouvé
-                found = haystack.find(normalize(term))
-                if found != -1 and (position == -1 or found < position):
-                    position = found
-            if position != -1:
-                break
+    if needle_keys and prepared.aligned:
+        position = first_gear_position(prepared.haystack, needle_keys)
 
     if position == -1:
         excerpt, _ = _truncate_on_word(cleaned, size)
@@ -460,22 +475,67 @@ def _log_date_key(log: GeocacheLog) -> datetime:
     return date if date.tzinfo else date.replace(tzinfo=timezone.utc)
 
 
-def _serialize_recent_logs(logs: list[GeocacheLog], count: int) -> list[dict]:
+class _PreparedLog:
+    """
+    Un log et son texte préparé **une seule fois**.
+
+    Le même texte servait à trois questions — quel matériel, quel effort de recherche, où
+    ouvrir l'extrait — et chacune le renettoyait puis le renormalisait pour son compte.
+    Sur une sortie de soixante caches et leurs centaines de logs, cela faisait quelques
+    milliers de passes de normalisation NFD pour quelques centaines de textes. Le nettoyage
+    et la normalisation sont donc faits ici, à l'entrée, et les trois sélections travaillent
+    ensuite sur des motifs déjà compilés.
+    """
+
+    __slots__ = ('log', 'text', 'haystack', 'aligned')
+
+    def __init__(self, log: GeocacheLog) -> None:
+        self.log = log
+        self.text = _clean_whitespace(getattr(log, 'text', None))
+        self.haystack = normalize(self.text)
+        # Une position trouvée dans le texte normalisé ne se reporte sur le texte
+        # d'origine que si la normalisation a conservé les longueurs. C'est le cas
+        # général — « é » décomposé puis dépouillé de son accent redonne un caractère —
+        # mais pas toujours : un accent déjà décomposé en base, ou un « İ » dont la
+        # minuscule tient sur deux caractères, décalent tout ce qui suit. On renonce
+        # alors à centrer l'extrait plutôt que de le couper au mauvais endroit.
+        self.aligned = len(self.haystack) == len(self.text)
+
+
+def prepare_logs(logs: list[GeocacheLog]) -> list[_PreparedLog]:
+    """Prépare une fois le texte de chaque log, dans l'ordre reçu."""
+    return [_PreparedLog(log) for log in logs or []]
+
+
+def _serialize_recent_logs(prepared: list[_PreparedLog], count: int) -> list[dict]:
+    """
+    Les N logs les plus récents **qui disent quelque chose**.
+
+    Un log sans texte — un « Found it » posté sans commentaire — se rend au prompt sous la
+    forme `[12/03/2026, Toto] Found it — «  »` : quelques dizaines de tokens pour une
+    information que la santé porte déjà, et mieux (dernier log, DNF consécutifs, ratio).
+    Il ne consomme donc pas une des N places, qui reviennent au log utile suivant.
+    """
     if count <= 0:
         return []
-    return [
-        {
-            'type': log.log_type,
-            'date': log.date.isoformat() if log.date else None,
-            'author': log.author,
-            'text_excerpt': _excerpt_around(log.text or '', []),
-            **_log_meta(log),
-        }
-        for log in logs[:count]
-    ]
+
+    selected: list[dict] = []
+    for item in prepared:
+        if not item.text:
+            continue
+        selected.append({
+            'type': item.log.log_type,
+            'date': item.log.date.isoformat() if item.log.date else None,
+            'author': item.log.author,
+            'text_excerpt': _excerpt_around(item),
+            **_log_meta(item.log),
+        })
+        if len(selected) >= count:
+            break
+    return selected
 
 
-def _serialize_gear_logs(logs: list[GeocacheLog], count: int) -> list[dict]:
+def _serialize_gear_logs(prepared: list[_PreparedLog], count: int) -> list[dict]:
     """
     Logs mentionnant du matériel, sur **tout** l'historique local.
 
@@ -486,37 +546,40 @@ def _serialize_gear_logs(logs: list[GeocacheLog], count: int) -> list[dict]:
         return []
 
     matched_logs = []
-    for log in logs:
-        matches = find_gear_mentions(log.text)
+    for item in prepared:
+        matches = find_gear_mentions_normalized(item.haystack)
         if matches:
-            matched_logs.append((log, matches))
+            matched_logs.append((item, matches))
 
-    matched_logs.sort(key=lambda item: (len(item[1]), _log_date_key(item[0])), reverse=True)
+    matched_logs.sort(
+        key=lambda entry: (len(entry[1]), _log_date_key(entry[0].log)),
+        reverse=True,
+    )
 
     return [
         {
-            'date': log.date.isoformat() if log.date else None,
-            'author': log.author,
+            'date': item.log.date.isoformat() if item.log.date else None,
+            'author': item.log.author,
             'matched': matches,
-            'text_excerpt': _excerpt_around(log.text or '', matches),
-            **_log_meta(log),
+            'text_excerpt': _excerpt_around(item, matches),
+            **_log_meta(item.log),
         }
-        for log, matches in matched_logs[:count]
+        for item, matches in matched_logs[:count]
     ]
 
 
-def _serialize_search_effort_logs(logs: list[GeocacheLog]) -> list[dict]:
+def _serialize_search_effort_logs(prepared: list[_PreparedLog]) -> list[dict]:
     """Logs suggérant que la recherche sur place a été longue."""
     selected = []
-    for log in logs:
-        matches = find_search_effort_mentions(log.text)
-        if matches:
-            selected.append({
-                'date': log.date.isoformat() if log.date else None,
-                'author': log.author,
-                'text_excerpt': _excerpt_around(log.text or '', []),
-                **_log_meta(log),
-            })
+    for item in prepared:
+        if not has_search_effort_hint_normalized(item.haystack):
+            continue
+        selected.append({
+            'date': item.log.date.isoformat() if item.log.date else None,
+            'author': item.log.author,
+            'text_excerpt': _excerpt_around(item),
+            **_log_meta(item.log),
+        })
         if len(selected) >= MAX_SEARCH_EFFORT_LOGS:
             break
     return selected
@@ -555,11 +618,14 @@ def _build_geocache_entry(
     personal_note, personal_note_truncated = _serialize_personal_note(geocache)
     notes, notes_count = _serialize_notes(geocache)
     logging_tasks = _serialize_logging_tasks(geocache)
+    # Une seule préparation du texte des logs pour les trois sélections qui suivent.
+    prepared_logs = prepare_logs(logs)
     health = compute_health(
         logs,
         listing_status=geocache.status,
         placed_at=geocache.placed_at,
         now=now,
+        presorted=True,
     )
 
     entry = {
@@ -608,9 +674,9 @@ def _build_geocache_entry(
         'logging_tasks_count': len(geocache.logging_tasks or []),
         'logging_tasks_photo_required': any(task['requires_photo'] for task in logging_tasks),
         'health': health,
-        'recent_logs': _serialize_recent_logs(logs, recent_logs_count),
-        'gear_logs': _serialize_gear_logs(logs, gear_logs_count),
-        'search_effort_logs': _serialize_search_effort_logs(logs),
+        'recent_logs': _serialize_recent_logs(prepared_logs, recent_logs_count),
+        'gear_logs': _serialize_gear_logs(prepared_logs, gear_logs_count),
+        'search_effort_logs': _serialize_search_effort_logs(prepared_logs),
     }
 
     # Calculée en dernier, et sur l'entrée elle-même : l'estimation lit le type, les D/T,
@@ -707,12 +773,27 @@ def build_analysis_bundle(
         .all()
     }
 
+    # L'ordre est fixé ici, une fois, et tout ce qui suit s'y fie : les sélections de logs
+    # comme le calcul de santé, qui retriait pour son compte une liste déjà triée. Il doit
+    # donc reproduire exactement l'ancien tri Python : les logs datés d'abord, du plus
+    # récent au plus ancien, puis les logs sans date.
+    #
+    # SQLite les y met déjà — NULL y est la plus petite valeur, donc dernière en `DESC` —
+    # mais c'est une propriété du moteur, pas du contrat : PostgreSQL fait l'inverse. Le
+    # booléen `date IS NULL`, faux (0) avant vrai (1), l'écrit noir sur blanc, et sans le
+    # `NULLS LAST` que SQLite ne connaît que depuis 3.30. L'identifiant décroissant, lui,
+    # ne départage que les dates égales, pour que deux constructions du même bundle
+    # donnent le même rapport.
     logs_by_geocache: dict[int, list[GeocacheLog]] = {}
     if found:
         all_logs = (
             GeocacheLog.query
             .filter(GeocacheLog.geocache_id.in_(list(found.keys())))
-            .order_by(GeocacheLog.date.desc())
+            .order_by(
+                GeocacheLog.date.is_(None),
+                GeocacheLog.date.desc(),
+                GeocacheLog.id.desc(),
+            )
             .all()
         )
         for log in all_logs:

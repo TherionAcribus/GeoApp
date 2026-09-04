@@ -26,6 +26,7 @@ from gc_backend.services.outing_gear_signals import (  # noqa: E402
 )
 from gc_backend.services.outing_health import compute_health  # noqa: E402
 from gc_backend.services.outing_lexicons import (  # noqa: E402
+    GEAR_LEXICON,
     find_gear_mentions,
     has_search_effort_hint,
     normalize,
@@ -282,6 +283,21 @@ def test_search_effort_hint():
     assert not has_search_effort_hint('TFTC, trouvée du premier coup')
 
 
+def test_search_effort_mentions_name_the_expressions():
+    """
+    Le seul appelant qui a besoin du détail, et le seul motif resté terme par terme.
+
+    Le drapeau et la liste doivent rester d'accord : c'est ce que ce test tient.
+    """
+    from gc_backend.services.outing_lexicons import find_search_effort_mentions
+
+    mentions = find_search_effort_mentions("bien cachée, j'ai cherché longtemps")
+    assert 'bien cachée' in mentions
+    assert "j'ai cherché" in mentions
+    assert find_search_effort_mentions('TFTC') == []
+    assert bool(mentions) is has_search_effort_hint("bien cachée, j'ai cherché longtemps")
+
+
 def test_normalize_strips_accents_and_case():
     assert normalize('Canne à Pêche') == 'canne a peche'
 
@@ -314,6 +330,32 @@ def test_real_world_hit_is_still_caught():
     """Le cas qui justifie tout le mécanisme, relevé tel quel dans un log de la base."""
     matches = find_gear_mentions('canne à pêche improvisée avec une grande branche')
     assert 'fishing_rod' in matches
+
+
+# Le balayage groupe les termes d'une clé en un seul motif, au lieu d'un motif par terme.
+# Les deux tests ci-dessous tiennent les deux bouts de ce regroupement : chaque terme doit
+# toujours être vu, et deux clés ne doivent pas se voler la vedette.
+
+@pytest.mark.parametrize('key,term', [
+    (key, term)
+    for key, terms in GEAR_LEXICON.items()
+    for term in terms
+])
+def test_every_lexicon_term_is_still_detected_and_located(key, term):
+    from gc_backend.services.outing_lexicons import first_gear_position
+
+    sentence = f'debut du log, {term} au milieu, puis la suite'
+    assert key in find_gear_mentions(sentence)
+    assert first_gear_position(normalize(sentence), [key]) == normalize(sentence).index(
+        normalize(term)
+    )
+
+
+def test_two_keys_can_match_the_same_words():
+    """Un motif par clé, pas un pour tout le lexique : « lampe uv » vaut les deux."""
+    matches = find_gear_mentions('prévoir une lampe uv')
+    assert 'flashlight' in matches
+    assert 'uv_light' in matches
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -591,16 +633,18 @@ def test_task_without_question_is_dropped():
 def test_friend_and_favorite_flags_reach_every_log_selection():
     from gc_backend.services.outing_analysis_service import (
         _serialize_gear_logs, _serialize_recent_logs, _serialize_search_effort_logs,
+        prepare_logs,
     )
 
     log = _log('Found it', 5, text="il faut une canne à pêche, j'ai cherché longtemps")
     log.is_friend_log = True
     log.is_favorite = True
+    prepared = prepare_logs([log])
 
     for serialized in (
-        _serialize_recent_logs([log], 5),
-        _serialize_gear_logs([log], 5),
-        _serialize_search_effort_logs([log]),
+        _serialize_recent_logs(prepared, 5),
+        _serialize_gear_logs(prepared, 5),
+        _serialize_search_effort_logs(prepared),
     ):
         assert serialized[0]['is_friend_log'] is True
         assert serialized[0]['is_favorite'] is True
@@ -608,15 +652,120 @@ def test_friend_and_favorite_flags_reach_every_log_selection():
 
 def test_missing_flags_default_to_false_not_none():
     """`None` en base signifie « vérification impossible » : le prompt n'y voit qu'un non."""
-    from gc_backend.services.outing_analysis_service import _serialize_recent_logs
+    from gc_backend.services.outing_analysis_service import (
+        _serialize_recent_logs, prepare_logs,
+    )
 
-    log = _log('Found it', 5)
+    log = _log('Found it', 5, text='TFTC')
     log.is_friend_log = None
     log.is_favorite = None
 
-    serialized = _serialize_recent_logs([log], 5)[0]
+    serialized = _serialize_recent_logs(prepare_logs([log]), 5)[0]
     assert serialized['is_friend_log'] is False
     assert serialized['is_favorite'] is False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Préparation du texte des logs
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_recent_logs_skip_the_ones_without_text():
+    """
+    Un « Found it » sans commentaire ne prend pas une des N places.
+
+    La santé porte déjà sa date et son type ; l'extrait vide, lui, ne coûterait que des
+    tokens.
+    """
+    from gc_backend.services.outing_analysis_service import (
+        _serialize_recent_logs, prepare_logs,
+    )
+
+    logs = [
+        _log('Found it', 1, text=''),
+        _log('Found it', 2, text='   '),
+        _log("Didn't find it", 3, text='rien vu, revenir avec une lampe'),
+    ]
+    serialized = _serialize_recent_logs(prepare_logs(logs), 2)
+
+    assert len(serialized) == 1
+    assert serialized[0]['text_excerpt'].startswith('rien vu')
+
+
+def test_recent_logs_still_fill_their_quota_past_the_empty_ones():
+    from gc_backend.services.outing_analysis_service import (
+        _serialize_recent_logs, prepare_logs,
+    )
+
+    logs = [_log('Found it', 1, text='')] + [
+        _log('Found it', day, text=f'log numero {day}') for day in range(2, 6)
+    ]
+    serialized = _serialize_recent_logs(prepare_logs(logs), 3)
+
+    assert [entry['text_excerpt'] for entry in serialized] == [
+        'log numero 2', 'log numero 3', 'log numero 4',
+    ]
+
+
+def test_excerpt_opens_on_the_mention_that_was_detected():
+    """
+    Le positionnement suit les mêmes motifs que la détection.
+
+    « tube » n'est pas retenu à l'intérieur de « tuberculose » : l'extrait doit s'ouvrir
+    sur le vrai tube, plus loin, et non sur le mot qui l'englobe.
+    """
+    from gc_backend.services.outing_analysis_service import (
+        _excerpt_around, prepare_logs,
+    )
+
+    text = 'tuberculose ' + ('blabla ' * 60) + 'il faut un tube ' + ('suite ' * 60)
+    excerpt = _excerpt_around(prepare_logs([_log('Found it', 1, text=text)])[0], ['straw_tube'])
+
+    assert 'il faut un tube' in excerpt
+    assert not excerpt.startswith('tuberculose')
+
+
+def test_excerpt_without_mention_falls_back_to_the_beginning():
+    from gc_backend.services.outing_analysis_service import (
+        _excerpt_around, prepare_logs,
+    )
+
+    text = 'debut du log ' + ('blabla ' * 100)
+    excerpt = _excerpt_around(prepare_logs([_log('Found it', 1, text=text)])[0])
+
+    assert excerpt.startswith('debut du log')
+    assert excerpt.endswith('…')
+
+
+def test_prepared_log_flags_a_normalisation_that_shifts_positions():
+    """
+    Accent déjà décomposé en base : le texte normalisé est plus court que l'original.
+
+    Reporter une position de l'un sur l'autre couperait l'extrait au mauvais endroit ;
+    `aligned` est le drapeau qui fait renoncer au centrage.
+    """
+    from gc_backend.services.outing_analysis_service import prepare_logs
+
+    aligned, shifted = prepare_logs([
+        _log('Found it', 1, text='canne à pêche'),
+        _log('Found it', 1, text='canne à pêche'),
+    ])
+
+    assert aligned.aligned is True
+    assert shifted.aligned is False
+    # La détection, elle, reste bonne dans les deux cas : elle n'a pas besoin des positions.
+    assert find_gear_mentions(shifted.text) == ['fishing_rod']
+
+
+def test_health_trusts_a_presorted_list():
+    """`presorted` ne change rien quand la promesse est tenue."""
+    logs = [
+        _log("Didn't find it", 3),
+        _log("Didn't find it", 10),
+        _log('Found it', 40),
+        _log('Write note', 0, dated=False),
+    ]
+
+    assert compute_health(logs, now=NOW, presorted=True) == compute_health(logs, now=NOW)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -891,3 +1040,66 @@ def test_empty_bundle_still_carries_its_date_and_geography():
     # Le budget temps aussi : un total nul est une réponse, pas une absence de réponse.
     assert bundle['time_budget']['geocaches_count'] == 0
     assert bundle['time_budget']['total_minutes'] == 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Ordre des logs : le contrat sur lequel `presorted` s'appuie
+# ─────────────────────────────────────────────────────────────────────────────
+
+@pytest.fixture
+def db_app():
+    """Application avec base en mémoire : le bundle complet, requête SQL comprise."""
+    from gc_backend import create_app
+    from gc_backend.database import db
+
+    app = create_app()
+    app.config['TESTING'] = True
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
+
+    with app.app_context():
+        db.create_all()
+        yield app
+        db.session.remove()
+        db.drop_all()
+
+
+def test_the_query_orders_logs_exactly_as_health_expects(db_app):
+    """
+    Les logs datés d'abord, du plus récent au plus ancien, puis les non datés.
+
+    C'est le tri que `compute_health` faisait pour son compte et qu'elle ne fait plus
+    quand on lui promet `presorted`. Le test pointe la promesse, pas la clause SQL qui la
+    tient : une place de log qui bouge décale le calcul de santé sans rien lever.
+    """
+    from gc_backend.database import db
+    from gc_backend.geocaches.models import Geocache, GeocacheLog
+    from gc_backend.models import Zone
+    from gc_backend.services.outing_analysis_service import build_analysis_bundle
+
+    zone = Zone(name='Zone de test')
+    db.session.add(zone)
+    db.session.flush()
+
+    geocache = Geocache(gc_code='GCTEST', name='Test', type='Traditional', zone_id=zone.id)
+    db.session.add(geocache)
+    db.session.flush()
+
+    db.session.add_all([
+        GeocacheLog(geocache_id=geocache.id, log_type='Write note',
+                    date=None, text='sans date', author='Anon'),
+        GeocacheLog(geocache_id=geocache.id, log_type='Found it',
+                    date=NOW - timedelta(days=400), text='vieille trouvaille', author='Toto'),
+        GeocacheLog(geocache_id=geocache.id, log_type="Didn't find it",
+                    date=NOW - timedelta(days=3), text='rien vu', author='Titi'),
+        GeocacheLog(geocache_id=geocache.id, log_type="Didn't find it",
+                    date=NOW - timedelta(days=1), text='rien vu non plus', author='Tata'),
+    ])
+    db.session.commit()
+
+    bundle = build_analysis_bundle([geocache.id], now=NOW)
+    entry = bundle['geocaches'][0]
+
+    assert [log['author'] for log in entry['recent_logs']] == ['Tata', 'Titi', 'Toto', 'Anon']
+    # Deux DNF en tête, la trouvaille ferme la série : c'est ce que le tri garantit.
+    assert entry['health']['consecutive_dnf'] == 2
+    assert entry['health']['days_since_last_found'] == 400

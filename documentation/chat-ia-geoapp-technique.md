@@ -1382,6 +1382,41 @@ texte normalisé sans accents), le classement par nombre de mentions puis par da
 `search_effort_logs` applique la même mécanique avec `SEARCH_EFFORT_LEXICON`, pour repérer
 les caches qui font perdre du temps sur place.
 
+**Les logs sans texte ne prennent pas de place dans `recent_logs`.** Un « Found it » posté
+sans commentaire arrivait au prompt sous la forme `[12/03/2026, Toto] Found it — «  »` :
+des tokens pour une information que le bloc de santé porte déjà, et mieux (date du dernier
+log, DNF consécutifs, ratio). La place revient donc au log utile suivant, et les N demandés
+sont N logs qui disent quelque chose. Les logs vides continuent, eux, de compter dans la
+santé : c'est là qu'ils sont à leur place.
+
+### Coût du balayage
+
+Le même texte de log servait à trois questions — quel matériel, quel effort de recherche,
+où ouvrir l'extrait — et chacune le renettoyait puis le renormalisait pour son compte. Sur
+soixante caches et leurs centaines de logs, cela faisait quelques milliers de passes de
+normalisation NFD pour quelques centaines de textes.
+
+Deux corrections, sans changement de résultat :
+
+- **une préparation par log** (`_PreparedLog`) : blancs nettoyés et texte normalisé une
+  fois, à l'entrée ; les trois sélections travaillent ensuite sur cette chaîne ;
+- **un motif compilé par clé matériel** au lieu d'un par terme : les vingt-trois clés du
+  lexique représentaient une centaine de parcours de la même chaîne, c'en est vingt-trois.
+  Le regroupement s'arrête à la clé : mettre tout le lexique dans une seule alternance
+  ferait que « lampe uv » masquerait « lampe », alors que les deux clés doivent sortir.
+
+Mesuré sur un jeu synthétique de 60 caches × 200 logs, le balayage passe d'environ 18 s à
+2,2 s. `compute_health`, de son côté, ne retrie plus une liste que la requête a déjà triée :
+l'ordre — logs datés d'abord du plus récent au plus ancien, puis les non datés — est fixé
+une seule fois dans le `ORDER BY`, et `presorted=True` dit à la fonction de s'y fier.
+
+**Positionnement de l'extrait.** `_excerpt_around` cherchait la mention par `str.find`,
+sans frontière de mot, alors que la détection utilise des regex : l'extrait pouvait s'ouvrir
+sur un « tube » de « tuberculose » que la détection, elle, n'avait pas retenu. Il utilise
+maintenant les mêmes motifs. Il renonce au centrage — et repart du début du texte — quand la
+normalisation n'a pas conservé les longueurs (accent déjà décomposé en base, « İ »), auquel
+cas une position ne serait pas reportable d'une chaîne à l'autre.
+
 ### Le même lexique sur le listing et le hint
 
 `GEAR_LEXICON` ne sert pas qu'à trier les logs : il balaie aussi le **listing complet** et
