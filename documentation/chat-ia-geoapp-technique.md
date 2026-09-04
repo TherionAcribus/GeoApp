@@ -1180,7 +1180,9 @@ OutingAnalysisController.analyze()             sans UI, testable seul
         |            +--> outing_lexicons.find_gear_mentions()   logs + listing + hint
         |            +--> outing_gear_signals.resolve_signals_from_text()
         |            +--> outing_geography.build_geography()
-        |                     +--> outing_sun.compute_sun_times()
+        |            |        +--> outing_sun.compute_sun_times()
+        |            +--> outing_time_estimate.estimate_geocache_time()   par cache
+        |            +--> outing_time_estimate.build_time_budget()        sortie entière
         |
         +--> buildOutingAnalysisPrompt()
         |
@@ -1203,6 +1205,7 @@ déjà fait par l'utilisateur, qui est souvent la meilleure source disponible.
 | Questions d'EarthCache | `logging_tasks`, `logging_tasks_photo_required` | La checklist terrain : oublier une observation oblige à revenir |
 | Waypoints | `prefix`, `name`, `type`, `coordinates`, `note_excerpt` | Un « Parking » sans coordonnées ne mène nulle part ; le type `Parking Area` lève lui-même un signal contextuel |
 | Logs | `is_friend_log`, `is_favorite` en plus du texte | Un log d'ami est une source identifiée, donc plus fiable |
+| Estimation de temps | `time_estimate` par cache, `time_budget` pour la sortie | Un chiffre cohérent d'une cache à l'autre, que l'IA ajuste au lieu de l'inventer |
 
 Trois conséquences dans le prompt :
 
@@ -1230,7 +1233,8 @@ fait que ce qu'elle seule sait faire, lire du texte libre.
 |---|---|
 | Santé : DNF consécutifs, ancienneté de la trouvaille, maintenance en attente | Nature précise de l'outil requis |
 | Drapeaux matériel issus des attributs | Type de matériel de grimpe |
-| Sélection des logs pertinents par lexique | Durée réaliste, priorisation |
+| Sélection des logs pertinents par lexique | Priorisation, arbitrages de journée |
+| Temps sur place par cache, trajet, budget de la sortie | Correction de ces durées quand le texte en dit plus |
 | Matériel nommé dans le listing et le hint, drapeaux pré-résolus | Ce qui n'est que suggéré, sous-entendu, ou dit autrement |
 | Mystery non résolue, cache déjà trouvée, waypoints, statut | Contraintes implicites du listing |
 | Fraîcheur de la collecte de logs | Ce qu'il faut en conclure sur la fiabilité |
@@ -1384,7 +1388,8 @@ calculable et le transmet en un bloc unique, `bundle.geography`, rendu dans la s
 **Toutes les distances sont à vol d'oiseau.** Aucun réseau routier n'est consulté, aucun
 dénivelé n'est connu. Le bloc porte `crow_flies: true`, le prompt le répète en clair sous
 la section, et le prompt système en fait une règle : les seules distances autorisées sont
-celles-là, et leur conversion en durée doit être annoncée comme une majoration.
+celles-là, et la seule conversion en durée est celle que GeoApp a faite lui-même dans la
+section « Temps estimé », avec son facteur de détour annoncé.
 
 **Une mystery non résolue est écartée du calcul**, au même titre qu'une cache sans
 coordonnées : ses coordonnées publiées sont un leurre placé jusqu'à trois kilomètres du
@@ -1422,6 +1427,69 @@ part au backend dans `outing_date`. Jusqu'ici elle valait toujours « aujourd'hu
 sortie préparée le mercredi pour le samedi recevait la mauvaise durée de journée. Une date
 illisible est ignorée plutôt que rejetée — elle ne pilote que le calcul solaire, et refuser
 l'analyse entière serait disproportionné.
+
+### Estimation de temps déterministe
+
+Le rapport parlait de « caches chronophages » sans jamais avancer un chiffre : l'IA n'avait
+aucune base pour en produire un. Or un modèle qui estime des durées au fil du texte se
+contredit d'une cache à l'autre — trente minutes pour une T4 ici, dix pour une T4 là, sans
+que rien ne les distingue. `outing_time_estimate.py` calcule donc les durées **avant**
+l'IA, avec la même grille pour toutes les caches.
+
+**Temps sur place** (`time_estimate` sur chaque géocache) — voiture garée à retour à la
+voiture, trajet exclu. Contributions additives, chacune nommée dans `components` :
+
+| Terme | Barème |
+|---|---|
+| Base par type | Traditional 10, Multi / Letterbox 15 (+ étapes), Wherigo 20, Mystery 15, EarthCache 15, Event 60, CITO 90, Mega 90, Giga 120 |
+| Étapes | 10 min par waypoint de type étape / final / question ; une multi sans waypoint publié en présume 2 |
+| Difficulté | 0 à 45 min selon la note (progression plus que linéaire) |
+| Terrain | 0 à 45 min selon la note |
+| Marche annoncée | `hike_short` 10, `hike_med` 35, `hike_long` 90, `hiking` 15 — un seul compte, le plus long |
+| Signaux | Plongée 30, embarcation 25, énigme sur place 15, grimpe 15, nage 15, gué 10, outil spécial 5, équipe 5, discrétion 5 |
+| Recherche longue | 10 / 15 / 20 min selon 1, 2 ou 3+ logs du lexique `search_effort` |
+| Questions sur place | 4 min par question non répondue (plafond 24), + 5 si une photo est exigée |
+
+Quatre décisions valent d'être connues :
+
+- **Sur une mystery, la difficulté note l'énigme, pas la fouille.** Elle est résolue à la
+  maison : le supplément de D est ramené à 40 % (`MYSTERY_DIFFICULTY_FACTOR`), sans quoi une
+  D5 déjà résolue coûterait une heure sur le terrain.
+- **Sans conteneur à trouver, pas de temps de recherche.** EarthCache, virtuelle, webcam et
+  événements ignorent la difficulté : leur temps est celui de l'observation.
+- **Une multi sans waypoint publié en présume deux** (`ASSUMED_STAGES`). Les étapes se
+  découvrent en chemin, donc l'absence de waypoints est la norme — et sous-estimer une multi
+  est l'erreur la plus fréquente d'une préparation de sortie. Connaître le final ne réduit
+  pas ce plancher : les étapes qui y mènent existent toujours.
+- **Une fourchette, pas un chiffre.** `low_minutes` / `high_minutes` encadrent l'estimation
+  à ±20 %, ±30 % ou ±50 % selon `confidence`, et `confidence_reasons` dit pourquoi :
+  drapeau matériel non résolu, énigme sur place, aucun log local, étapes présumées, D≥4.
+  Une confiance basse n'abaisse pas la durée, elle élargit l'incertitude. Seuls les signaux
+  qui pèsent sur la durée entament la confiance : une lampe frontale change le sac, pas
+  l'horaire.
+
+**Budget de la sortie** (`time_budget`) — somme des temps sur place, plus un temps de
+trajet déduit de `geography.route`. C'est le **seul endroit du projet** où une distance à
+vol d'oiseau devient une durée : une étape de moins de 400 m est marchée (3,5 km/h, détour
+×1,25), au-delà elle est roulée (45 km/h, détour ×1,3, plus 3 min d'arrêt). Toutes ces
+hypothèses partent dans `travel.assumptions` et sont écrites en clair dans le prompt, pour
+que le modèle puisse les discuter au lieu de les subir. Sans ordre de visite calculable,
+`travel` vaut `null` et le total le dit — un trajet inventé serait pire qu'un total franc.
+
+`already_found_minutes` et `unsolved_mystery_minutes` sont **offerts, pas retranchés** :
+refaire une multi avec quelqu'un est légitime, une mystery peut être résolue le soir même.
+Le rapport peut alors dire « 6 h 30, ou 5 h 15 si l'on retire les deux caches déjà
+trouvées » — ce que le calcul ne décide pas à la place de l'utilisateur.
+
+Le prompt rend le tout dans une section « Temps estimé », après la géographie et avant les
+fiches, et chaque fiche porte sa propre ligne avec le détail de son calcul. Ce détail n'est
+pas décoratif : c'est ce qui autorise le modèle à **corriger** le chiffre plutôt qu'à le
+recopier. Voir qu'une multi coûte quarante-cinq minutes dont vingt d'étapes présumées, c'est
+savoir exactement quel terme discuter quand le listing en annonce six. La règle 11 du prompt
+système lui demande d'ajuster en disant quel terme il corrige et pourquoi.
+
+`method` (`geoapp_heuristic_v1`) accompagne le budget : deux analyses du même lot à six mois
+d'écart doivent pouvoir se comparer, ou expliquer pourquoi elles divergent.
 
 ### Sessions
 

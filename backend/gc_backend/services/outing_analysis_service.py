@@ -28,6 +28,12 @@ retenue). Les coordonnées étaient en base depuis toujours ; faute de les explo
 prompt système devait interdire au modèle de parler de distances. Voir
 `outing_geography.py`.
 
+Du même esprit, et pour la même raison : chaque cache porte une **estimation de temps**
+calculée par heuristique (`time_estimate`), et la sortie un **budget** (`time_budget`).
+Une durée produite au fil du texte par un modèle est incohérente d'une cache à l'autre ;
+une durée calculée l'est par construction, et l'IA n'a plus qu'à la corriger en disant
+pourquoi. Voir `outing_time_estimate.py`.
+
 S'y ajoutent trois sources qui ne viennent pas de geocaching.com mais du travail déjà
 fait par l'utilisateur, et qui valent souvent mieux que le listing : la **note
 personnelle** (« parking rue X », « prévoir deux personnes »), les **notes GeoApp**
@@ -54,6 +60,7 @@ from .outing_gear_signals import (
 )
 from .outing_health import compute_health
 from .outing_lexicons import find_gear_mentions, find_search_effort_mentions, normalize
+from .outing_time_estimate import build_time_budget, estimate_geocache_time
 
 logger = logging.getLogger(__name__)
 
@@ -555,7 +562,7 @@ def _build_geocache_entry(
         now=now,
     )
 
-    return {
+    entry = {
         'id': geocache.id,
         'gc_code': geocache.gc_code,
         'name': geocache.name,
@@ -606,6 +613,13 @@ def _build_geocache_entry(
         'search_effort_logs': _serialize_search_effort_logs(logs),
     }
 
+    # Calculée en dernier, et sur l'entrée elle-même : l'estimation lit le type, les D/T,
+    # les signaux, les waypoints, les logs de recherche longue et les questions
+    # d'EarthCache — tout ce que les lignes ci-dessus viennent d'assembler. Ne rien lui
+    # passer d'autre garantit qu'elle ne chiffre que ce que l'IA lira.
+    entry['time_estimate'] = estimate_geocache_time(entry)
+    return entry
+
 
 def _build_stats(entries: list[dict]) -> dict:
     by_type: dict[str, int] = {}
@@ -629,6 +643,12 @@ def _build_stats(entries: list[dict]) -> dict:
         'already_found': sum(1 for entry in entries if entry.get('found')),
         'stale_logs': sum(1 for entry in entries if entry.get('health', {}).get('logs_stale')),
         'logging_tasks': sum(entry.get('logging_tasks_count') or 0 for entry in entries),
+        # Temps sur place uniquement : le trajet vit dans `time_budget`, qui est le seul à
+        # connaître l'ordre de visite. Reprendre ici le total complet ferait deux chiffres
+        # concurrents pour la même question.
+        'on_site_minutes': sum(
+            (entry.get('time_estimate') or {}).get('minutes') or 0 for entry in entries
+        ),
     }
 
 
@@ -668,6 +688,7 @@ def build_analysis_bundle(
             'stale_logs': [],
             'already_found': [],
             'geography': build_geography([], outing_date=outing_date),
+            'time_budget': build_time_budget([], None),
             'stats': _build_stats([]),
         }
 
@@ -726,6 +747,11 @@ def build_analysis_bundle(
             len(missing), len(requested),
         )
 
+    # Le budget temps s'appuie sur la géographie : c'est elle qui porte l'ordre de visite,
+    # donc les étapes dont on peut déduire un temps de trajet. D'où le calcul en deux
+    # temps plutôt qu'un appel imbriqué dans le dictionnaire de retour.
+    geography = build_geography(entries, outing_date=outing_date)
+
     return {
         'generated_at': now.isoformat(),
         'outing_date': outing_date.isoformat(),
@@ -735,6 +761,7 @@ def build_analysis_bundle(
         'without_local_logs': without_local_logs,
         'stale_logs': stale_logs,
         'already_found': already_found,
-        'geography': build_geography(entries, outing_date=outing_date),
+        'geography': geography,
+        'time_budget': build_time_budget(entries, geography),
         'stats': _build_stats(entries),
     }

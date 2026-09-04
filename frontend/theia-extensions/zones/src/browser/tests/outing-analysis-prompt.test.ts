@@ -7,6 +7,7 @@ import {
     OutingAnalysisBundle,
     OutingAnalysisGeocache,
     OutingGeography,
+    OutingTimeBudget,
     OUTING_DETAIL_PRESETS,
 } from '../outing-analysis-types';
 
@@ -130,6 +131,20 @@ function createGeocacheFixture(overrides: Partial<OutingAnalysisGeocache> = {}):
         search_effort_logs: [
             { date: '2023-04-01T00:00:00+00:00', author: 'Titi', text_excerpt: 'bien cachee, cherche 40 minutes' },
         ],
+        time_estimate: {
+            minutes: 55,
+            low_minutes: 30,
+            high_minutes: 80,
+            confidence: 'low',
+            confidence_reasons: ['drapeau materiel non resolu'],
+            type_key: 'traditional',
+            components: [
+                { label: 'base traditional', minutes: 10 },
+                { label: 'difficulte 3.5', minutes: 18 },
+                { label: 'terrain 4', minutes: 25 },
+            ],
+            capped_park_and_grab: false,
+        },
         ...overrides,
     };
 }
@@ -183,6 +198,48 @@ function createGeographyFixture(overrides: Partial<OutingGeography> = {}): Outin
     };
 }
 
+/**
+ * Budget temps par défaut : douze caches et un trajet, valeurs figées.
+ *
+ * Comme la géographie, le bloc arrive tel quel du backend — qui a ses propres tests de
+ * justesse. Le front n'a qu'à le rendre lisible.
+ */
+function createTimeBudgetFixture(overrides: Partial<OutingTimeBudget> = {}): OutingTimeBudget {
+    return {
+        method: 'geoapp_heuristic_v1',
+        geocaches_count: 2,
+        on_site_minutes: 110,
+        on_site_low_minutes: 70,
+        on_site_high_minutes: 150,
+        travel: {
+            legs_count: 1,
+            crow_flies_km: 2.66,
+            road_km_estimated: 3.5,
+            walking_km_estimated: 0,
+            driving_stops: 1,
+            driving_minutes: 10,
+            walking_minutes: 0,
+            minutes: 10,
+            assumptions: {
+                driving_speed_kmh: 45,
+                walking_speed_kmh: 3.5,
+                road_detour_factor: 1.3,
+                walk_detour_factor: 1.25,
+                stop_overhead_minutes: 3,
+                walking_threshold_km: 0.4,
+            },
+        },
+        includes_travel: true,
+        total_minutes: 120,
+        total_low_minutes: 80,
+        total_high_minutes: 160,
+        already_found_minutes: 0,
+        unsolved_mystery_minutes: 0,
+        heaviest: [{ gc_code: 'GC424242', name: 'Le vieux chene', minutes: 55 }],
+        ...overrides,
+    };
+}
+
 function createBundleFixture(overrides: Partial<OutingAnalysisBundle> = {}): OutingAnalysisBundle {
     const geocaches = overrides.geocaches ?? [createGeocacheFixture()];
     return {
@@ -195,6 +252,7 @@ function createBundleFixture(overrides: Partial<OutingAnalysisBundle> = {}): Out
         stale_logs: [],
         already_found: [],
         geography: createGeographyFixture(),
+        time_budget: createTimeBudgetFixture(),
         stats: {
             by_type: { Traditional: geocaches.length },
             by_health_level: { risky: geocaches.length },
@@ -204,6 +262,7 @@ function createBundleFixture(overrides: Partial<OutingAnalysisBundle> = {}): Out
             already_found: 0,
             stale_logs: 0,
             logging_tasks: 0,
+            on_site_minutes: 110,
         },
         ...overrides,
     };
@@ -748,6 +807,108 @@ function testDetailPresetsAreOrdered(): void {
     assert.equal(OUTING_DETAIL_PRESETS.light.listingChars, 0);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Temps estimé
+// ─────────────────────────────────────────────────────────────────────────────
+
+function testTimeEstimateIsRenderedWithItsBreakdown(): void {
+    const prompt = buildOutingAnalysisPrompt(createBundleFixture(), STANDARD);
+
+    assert.ok(prompt.includes('Temps sur place estimé (trajet exclu) : 55 min'));
+    assert.ok(prompt.includes('(30–80 min, confiance faible'));
+    // Le détail est ce qui autorise le modèle à corriger le chiffre plutôt qu'à le subir.
+    assert.ok(prompt.includes('calcul : base traditional 10 + difficulte 3.5 18 + terrain 4 25'));
+}
+
+function testTimeEstimateSaysWhyConfidenceIsLow(): void {
+    const prompt = buildOutingAnalysisPrompt(createBundleFixture(), STANDARD);
+
+    assert.ok(prompt.includes('drapeau materiel non resolu'));
+}
+
+function testTimeBudgetSectionCarriesTotalAndTravel(): void {
+    const prompt = buildOutingAnalysisPrompt(createBundleFixture(), STANDARD);
+
+    assert.ok(prompt.includes('## Temps estimé'));
+    assert.ok(prompt.includes('Temps sur place, 2 cache(s) : 1 h 50'));
+    assert.ok(prompt.includes('Trajet estimé : 10 min'));
+    assert.ok(prompt.includes('TOTAL : 2 h 00'));
+}
+
+function testTravelAssumptionsAreSpelledOut(): void {
+    // Une durée sans hypothèse ne se discute pas : elle se croit ou se jette.
+    const prompt = buildOutingAnalysisPrompt(createBundleFixture(), STANDARD);
+
+    assert.ok(prompt.includes("2.66 km à vol d'oiseau × 1.3"));
+    assert.ok(prompt.includes('45 km/h'));
+    assert.ok(prompt.includes('1 arrêt(s) à 3 min'));
+}
+
+function testTimeBudgetOffersDeductionsWithoutApplyingThem(): void {
+    const bundle = createBundleFixture({
+        time_budget: createTimeBudgetFixture({
+            already_found_minutes: 30,
+            unsolved_mystery_minutes: 20,
+        }),
+    });
+    const prompt = buildOutingAnalysisPrompt(bundle, STANDARD);
+
+    assert.ok(prompt.includes('Dont 30 min sur des caches déjà trouvées et 20 min sur des mystery'));
+    // Le total reste entier : c'est au lecteur de décider ce qu'il retire.
+    assert.ok(prompt.includes('TOTAL : 2 h 00'));
+}
+
+function testBudgetWithoutRouteSaysSoRatherThanInventingTravel(): void {
+    const bundle = createBundleFixture({
+        time_budget: createTimeBudgetFixture({
+            travel: null,
+            includes_travel: false,
+            total_minutes: 110,
+            total_low_minutes: 70,
+            total_high_minutes: 150,
+        }),
+    });
+    const prompt = buildOutingAnalysisPrompt(bundle, STANDARD);
+
+    assert.ok(!prompt.includes('Trajet estimé'));
+    assert.ok(prompt.includes("sans trajet — l'ordre de visite n'est pas calculable"));
+}
+
+function testHeaviestCachesAreNamed(): void {
+    const prompt = buildOutingAnalysisPrompt(createBundleFixture(), STANDARD);
+
+    assert.ok(prompt.includes('Les plus chronophages : GC424242 (55 min)'));
+}
+
+function testTimeBudgetSectionPrecedesTheGeocaches(): void {
+    const prompt = buildOutingAnalysisPrompt(createBundleFixture(), STANDARD);
+
+    assert.ok(prompt.indexOf('## Temps estimé') < prompt.indexOf('## Géocaches'));
+}
+
+function testOlderBackendWithoutTimeEstimateDoesNotCrash(): void {
+    // Le bloc vient du réseau : un backend antérieur au lot 9 n'en envoie pas.
+    const geocache = createGeocacheFixture();
+    delete (geocache as { time_estimate?: unknown }).time_estimate;
+    const bundle = createBundleFixture({ geocaches: [geocache] });
+    delete (bundle as { time_budget?: unknown }).time_budget;
+
+    const prompt = buildOutingAnalysisPrompt(bundle, STANDARD);
+
+    assert.ok(!prompt.includes('## Temps estimé'));
+    assert.ok(!prompt.includes('Temps sur place estimé'));
+    assert.ok(prompt.includes('## Géocaches'));
+}
+
+function testEmptySelectionHasNoTimeSection(): void {
+    const bundle = createBundleFixture({
+        geocaches: [],
+        time_budget: createTimeBudgetFixture({ geocaches_count: 0 }),
+    });
+
+    assert.ok(!buildOutingAnalysisPrompt(bundle, STANDARD).includes('## Temps estimé'));
+}
+
 function run(): void {
     testHeaderCarriesContext();
     testUnresolvedSignalIsMarked();
@@ -788,6 +949,16 @@ function run(): void {
     testInstructionLineClosesThePrompt();
     testPromptSizeGrowsWithGeocacheCount();
     testDetailPresetsAreOrdered();
+    testTimeEstimateIsRenderedWithItsBreakdown();
+    testTimeEstimateSaysWhyConfidenceIsLow();
+    testTimeBudgetSectionCarriesTotalAndTravel();
+    testTravelAssumptionsAreSpelledOut();
+    testTimeBudgetOffersDeductionsWithoutApplyingThem();
+    testBudgetWithoutRouteSaysSoRatherThanInventingTravel();
+    testHeaviestCachesAreNamed();
+    testTimeBudgetSectionPrecedesTheGeocaches();
+    testOlderBackendWithoutTimeEstimateDoesNotCrash();
+    testEmptySelectionHasNoTimeSection();
     // eslint-disable-next-line no-console
     console.log('outing-analysis-prompt tests passed');
 }

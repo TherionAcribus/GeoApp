@@ -888,3 +888,6 @@ def test_empty_bundle_still_carries_its_date_and_geography():
     # Le bloc est toujours là, même vide : son absence se lirait comme un oubli.
     assert bundle['geography']['points_count'] == 0
     assert bundle['geography']['sun'] is None
+    # Le budget temps aussi : un total nul est une réponse, pas une absence de réponse.
+    assert bundle['time_budget']['geocaches_count'] == 0
+    assert bundle['time_budget']['total_minutes'] == 0

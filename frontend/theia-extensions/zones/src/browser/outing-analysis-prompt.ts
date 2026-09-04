@@ -30,6 +30,8 @@ import {
     OutingNote,
     OutingRoute,
     OutingSunTimes,
+    OutingTimeBudget,
+    OutingTimeEstimate,
     OutingWalkingCluster,
     OutingWaypoint,
 } from './outing-analysis-types';
@@ -95,6 +97,22 @@ function bullet(label: string, value: unknown): string | undefined {
     return isFilled(value) ? `- ${label} : ${String(value).trim()}` : undefined;
 }
 
+/** Durée en heures et minutes : « 12 h 19 » se lit mieux que « 739 minutes ». */
+function formatDuration(minutes: number): string {
+    const hours = Math.floor(minutes / 60);
+    return `${hours} h ${`${minutes - hours * 60}`.padStart(2, '0')}`;
+}
+
+/**
+ * Durée courte : « 45 min » sous l'heure, « 2 h 35 » au-delà.
+ *
+ * Une estimation par cache se lit en minutes, un budget de journée en heures. Basculer au
+ * bon moment évite les « 395 min » qu'il faut diviser de tête devant son sac.
+ */
+function formatMinutes(minutes: number): string {
+    return minutes < 60 ? `${minutes} min` : formatDuration(minutes);
+}
+
 function quoteBlock(text: string): string {
     return text
         .split('\n')
@@ -115,6 +133,42 @@ function formatIdentityLine(geocache: OutingAnalysisGeocache): string {
         isFilled(geocache.logs_count) ? `Logs : ${geocache.logs_count}` : undefined,
     ].filter(Boolean);
     return `- ${parts.join(' | ')}`;
+}
+
+const CONFIDENCE_LABELS: Record<string, string> = {
+    high: 'confiance bonne',
+    medium: 'confiance moyenne',
+    low: 'confiance faible',
+};
+
+/**
+ * Temps sur place estimé, avec le détail de son calcul.
+ *
+ * Le détail n'est pas décoratif : c'est ce qui autorise le modèle à **corriger** le
+ * chiffre plutôt qu'à le recopier ou à l'ignorer. Voir qu'une multi coûte quarante-cinq
+ * minutes dont vingt d'étapes présumées, c'est savoir exactement quel terme discuter quand
+ * le listing dit que la multi en compte six.
+ *
+ * La ligne rappelle que le trajet n'y est pas : c'est la confusion la plus coûteuse d'un
+ * budget de journée, et elle passerait inaperçue si on ne l'écrivait pas.
+ */
+function formatTimeEstimate(estimate: OutingTimeEstimate | undefined): string | undefined {
+    // Tolérant à un backend plus ancien que le front : le bloc vient du réseau.
+    if (!estimate) {
+        return undefined;
+    }
+    const detail = (estimate.components || [])
+        .map(component => `${component.label} ${component.minutes}`)
+        .join(' + ');
+    const confidence = CONFIDENCE_LABELS[estimate.confidence] || estimate.confidence;
+    const why = estimate.confidence_reasons && estimate.confidence_reasons.length > 0
+        ? ` — ${estimate.confidence_reasons.join(' ; ')}`
+        : '';
+    const capped = estimate.capped_park_and_grab ? ', plafonné park & grab' : '';
+
+    return `- Temps sur place estimé (trajet exclu) : ${formatMinutes(estimate.minutes)} `
+        + `(${estimate.low_minutes}–${estimate.high_minutes} min, ${confidence}${why})`
+        + `${detail !== '' ? ` — calcul : ${detail}${capped}` : ''}`;
 }
 
 function formatStatusLine(geocache: OutingAnalysisGeocache): string {
@@ -360,6 +414,7 @@ function formatGeocacheBlock(
     const lines: Array<string | undefined> = [
         `### ${index}. ${geocache.gc_code} — ${geocache.name}`,
         formatIdentityLine(geocache),
+        formatTimeEstimate(geocache.time_estimate),
         formatStatusLine(geocache),
         geocache.unsolved_mystery
             ? '- ALERTE : mystery non résolue, les coordonnées publiées ne sont pas les bonnes.'
@@ -475,12 +530,6 @@ const EXCLUSION_LABELS: Record<string, string> = {
     no_coordinates: 'aucune coordonnée en base',
     unsolved_mystery: 'mystery non résolue, coordonnées publiées trompeuses',
 };
-
-/** Durée en heures et minutes : « 12 h 19 » se lit mieux que « 739 minutes ». */
-function formatDuration(minutes: number): string {
-    const hours = Math.floor(minutes / 60);
-    return `${hours} h ${`${minutes - hours * 60}`.padStart(2, '0')}`;
-}
 
 function formatExtent(geography: OutingGeography): string | undefined {
     const box = geography.bounding_box;
@@ -608,12 +657,103 @@ function formatGeographySection(bundle: OutingAnalysisBundle): string | undefine
     if (geography.route || geography.max_pair_distance_km !== null) {
         lines.push(
             "- Toutes ces distances sont à VOL D'OISEAU, calculées par GeoApp : ni route, ni "
-            + 'sentier, ni dénivelé. Le trajet réel est toujours plus long. Ne les convertis pas '
-            + "en durée sans le dire, et n'en invente aucune autre."
+            + 'sentier, ni dénivelé. Le trajet réel est toujours plus long. La seule conversion '
+            + "en durée est celle de la section « Temps estimé », qui applique un facteur de "
+            + "détour annoncé : reprends-la, n'en fabrique pas une autre."
         );
     }
 
     return ['## Géographie et lumière du jour', ...lines].join('\n');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Budget temps
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Ligne de trajet, avec ses hypothèses écrites.
+ *
+ * C'est le seul endroit du prompt où une distance à vol d'oiseau se transforme en durée.
+ * Le facteur de détour et les vitesses sont donnés en clair pour que le modèle puisse les
+ * discuter — « 45 km/h, c'est optimiste pour la montagne » est une remarque utile ; une
+ * durée sans hypothèse ne se discute pas, elle se croit ou se jette.
+ */
+function formatTravel(budget: OutingTimeBudget): string | undefined {
+    const travel = budget.travel;
+    if (!travel) {
+        return undefined;
+    }
+    const walking = travel.walking_minutes > 0
+        ? `, plus ${travel.walking_km_estimated} km à pied (${travel.walking_minutes} min)`
+        : '';
+    const { driving_speed_kmh, road_detour_factor, stop_overhead_minutes } = travel.assumptions;
+
+    return `- Trajet estimé : ${formatMinutes(travel.minutes)} pour ${travel.legs_count} étape(s) — `
+        + `${travel.road_km_estimated} km de route (${travel.crow_flies_km} km à vol d'oiseau `
+        + `× ${road_detour_factor}) à ${driving_speed_kmh} km/h, ${travel.driving_stops} arrêt(s) `
+        + `à ${stop_overhead_minutes} min${walking}.`;
+}
+
+/**
+ * Section « Temps estimé ».
+ *
+ * Elle existe parce qu'un modèle qui chiffre des durées au fil du texte se contredit d'une
+ * cache à l'autre : trente minutes pour une T4 ici, dix pour une T4 là. Les durées sont
+ * donc calculées avant, par la même grille pour toutes les caches, et le modèle n'a plus
+ * qu'à les ajuster — ce qu'on lui demande explicitement, à condition qu'il dise pourquoi.
+ *
+ * Placée après la géographie et avant les fiches : le budget de la journée décide de ce
+ * qu'on lit ensuite comme « faisable » ou « à sacrifier ».
+ */
+function formatTimeBudgetSection(bundle: OutingAnalysisBundle): string | undefined {
+    // Tolérant à un backend plus ancien que le front : le bloc vient du réseau.
+    const budget = bundle.time_budget;
+    if (!budget || budget.geocaches_count === 0) {
+        return undefined;
+    }
+
+    const lines: Array<string | undefined> = [
+        `- Temps sur place, ${budget.geocaches_count} cache(s) : ${formatMinutes(budget.on_site_minutes)} `
+        + `(fourchette ${formatMinutes(budget.on_site_low_minutes)} – `
+        + `${formatMinutes(budget.on_site_high_minutes)})`,
+        formatTravel(budget),
+        `- TOTAL : ${formatMinutes(budget.total_minutes)} `
+        + `(fourchette ${formatMinutes(budget.total_low_minutes)} – `
+        + `${formatMinutes(budget.total_high_minutes)})`
+        + `${budget.includes_travel ? '' : ", sans trajet — l'ordre de visite n'est pas calculable"}.`,
+    ];
+
+    // Retranchements proposés, jamais appliqués : c'est à l'utilisateur de décider s'il
+    // retire une cache déjà trouvée ou une mystery qu'il résoudra peut-être ce soir.
+    const deductions = [
+        budget.already_found_minutes > 0
+            ? `${formatMinutes(budget.already_found_minutes)} sur des caches déjà trouvées`
+            : undefined,
+        budget.unsolved_mystery_minutes > 0
+            ? `${formatMinutes(budget.unsolved_mystery_minutes)} sur des mystery non résolues`
+            : undefined,
+    ].filter(Boolean);
+    if (deductions.length > 0) {
+        lines.push(
+            `- Dont ${deductions.join(' et ')} : à retrancher si ces caches sortent de la sortie.`
+        );
+    }
+
+    if (budget.heaviest.length > 0) {
+        const rendered = budget.heaviest.map(
+            item => `${item.gc_code} (${formatMinutes(item.minutes)})`
+        );
+        lines.push(`- Les plus chronophages : ${rendered.join(', ')}`);
+    }
+
+    lines.push(
+        `- Ces durées viennent d'une heuristique GeoApp (${budget.method}) appliquée à toutes `
+        + 'les caches de la même façon : type, D/T, marche annoncée, étapes, logs de recherche '
+        + 'longue, questions sur place. Elles ne comptent ni pause, ni repas, ni imprévu, et '
+        + "ignorent le dénivelé. Ajuste-les quand tu as mieux, en disant sur quoi tu t'appuies."
+    );
+
+    return ['## Temps estimé', ...(lines.filter(Boolean) as string[])].join('\n');
 }
 
 function formatHeader(bundle: OutingAnalysisBundle, context: OutingPromptContext): string {
@@ -645,6 +785,7 @@ export function buildOutingAnalysisPrompt(
         formatHeader(bundle, context),
         formatReliabilitySection(bundle),
         formatGeographySection(bundle),
+        formatTimeBudgetSection(bundle),
     ];
 
     if (bundle.geocaches.length > 0) {

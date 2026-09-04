@@ -122,6 +122,78 @@ export interface OutingLoggingTask {
     answered: boolean;
 }
 
+/**
+ * Estimation de temps d'une géocache, calculée par heuristique côté backend.
+ *
+ * **Temps sur place uniquement** : voiture garée à retour à la voiture. Le trajet est
+ * compté une seule fois pour la sortie, dans `OutingTimeBudget`.
+ *
+ * `components` porte le détail du calcul : c'est lui qui rend le chiffre discutable
+ * plutôt qu'à prendre ou à laisser. `confidence_reasons` dit pourquoi la fourchette
+ * s'élargit — drapeau non résolu, énigme sur place, aucun log local.
+ */
+export interface OutingTimeEstimate {
+    minutes: number;
+    low_minutes: number;
+    high_minutes: number;
+    confidence: 'high' | 'medium' | 'low';
+    confidence_reasons: string[];
+    type_key: string;
+    components: Array<{ label: string; minutes: number }>;
+    /** Traditionnelle ramenée au plafond « park & grab ». */
+    capped_park_and_grab: boolean;
+}
+
+/**
+ * Temps de déplacement de la sortie, déduit de l'ordre de visite.
+ *
+ * Seul endroit du projet où une distance à vol d'oiseau devient une durée : les facteurs
+ * de détour et les vitesses retenues sont donnés dans `assumptions` pour que le rapport
+ * les cite au lieu de les subir.
+ */
+export interface OutingTravelEstimate {
+    legs_count: number;
+    crow_flies_km: number;
+    road_km_estimated: number;
+    walking_km_estimated: number;
+    driving_stops: number;
+    driving_minutes: number;
+    walking_minutes: number;
+    minutes: number;
+    assumptions: {
+        driving_speed_kmh: number;
+        walking_speed_kmh: number;
+        road_detour_factor: number;
+        walk_detour_factor: number;
+        stop_overhead_minutes: number;
+        walking_threshold_km: number;
+    };
+}
+
+/**
+ * Budget temps de la sortie entière.
+ *
+ * `already_found_minutes` et `unsolved_mystery_minutes` sont **offerts, pas retranchés** :
+ * refaire une multi avec quelqu'un est légitime, et une mystery peut être résolue le soir
+ * même. C'est au lecteur de décider ce qu'il retire.
+ */
+export interface OutingTimeBudget {
+    /** Version de l'heuristique : deux analyses du même lot doivent pouvoir se comparer. */
+    method: string;
+    geocaches_count: number;
+    on_site_minutes: number;
+    on_site_low_minutes: number;
+    on_site_high_minutes: number;
+    travel: OutingTravelEstimate | null;
+    includes_travel: boolean;
+    total_minutes: number;
+    total_low_minutes: number;
+    total_high_minutes: number;
+    already_found_minutes: number;
+    unsolved_mystery_minutes: number;
+    heaviest: Array<{ gc_code: string; name: string | null; minutes: number }>;
+}
+
 export interface OutingAnalysisGeocache {
     id: number;
     gc_code: string;
@@ -174,6 +246,8 @@ export interface OutingAnalysisGeocache {
     recent_logs: OutingLogExcerpt[];
     gear_logs: OutingLogExcerpt[];
     search_effort_logs: OutingLogExcerpt[];
+    /** Temps sur place estimé par GeoApp. Absent d'un backend antérieur au lot 9. */
+    time_estimate?: OutingTimeEstimate;
 }
 
 /** Une étape de l'ordre de visite indicatif. Les distances sont à vol d'oiseau. */
@@ -261,6 +335,8 @@ export interface OutingAnalysisStats {
     already_found: number;
     stale_logs: number;
     logging_tasks: number;
+    /** Somme des temps sur place, trajet exclu : le trajet vit dans `time_budget`. */
+    on_site_minutes?: number;
 }
 
 export interface OutingAnalysisBundle {
@@ -279,6 +355,8 @@ export interface OutingAnalysisBundle {
     already_found: string[];
     /** Toujours présent, même sans point exploitable : les exclusions sont une information. */
     geography: OutingGeography;
+    /** Budget temps de la sortie. Absent d'un backend antérieur au lot 9. */
+    time_budget?: OutingTimeBudget;
     stats: OutingAnalysisStats;
 }
 

@@ -49,7 +49,8 @@ conversation, même préparée un autre jour.
 2. **Alertes** — mystery non résolues, caches en mauvaise santé, contraintes horaires ou
    saisonnières, autorisations, risques.
 3. **Détail par cache** — matériel, temps à prévoir, points d'attention.
-4. **Temps et priorisation** — ce qui va être long, et ce qu'on garde si le temps manque.
+4. **Temps et priorisation** — le budget de la journée (temps sur place, trajet, total), ce
+   qui va être long, et ce qu'on garde si le temps manque.
 5. **À vérifier avant de partir** — ce qui reste à lever en amont.
 
 ## Comment GeoApp trouve le matériel
@@ -103,6 +104,38 @@ Deux points à connaître :
   final : les inclure fausserait tout le reste. Elles sont listées à part, et le rapport dit
   pourquoi elles n'apparaissent pas dans l'ordre de visite.
 
+## Combien de temps ça va prendre
+
+GeoApp chiffre lui-même la durée de chaque cache avant d'appeler l'IA, avec la **même
+grille pour toutes** : type de cache, difficulté et terrain, marche annoncée par les
+attributs, nombre d'étapes, logs qui parlent d'une recherche longue, questions à répondre
+sur place. C'est ce qui rend les durées comparables entre elles — une IA qui les estimerait
+au fil du texte donnerait trente minutes à une T4 ici et dix à une T4 là.
+
+Le rapport reçoit donc trois chiffres :
+
+- le **temps sur place** de chaque cache, voiture garée — avec le détail du calcul, pour
+  que vous voyiez d'où vient le total, et une fourchette qui s'élargit quand GeoApp sait
+  qu'il sait mal (drapeau matériel non résolu, étapes non publiées, aucun log local) ;
+- le **temps de trajet** de la sortie, déduit de l'ordre de visite : moins de 400 mètres se
+  fait à pied, au-delà en voiture, avec un facteur de détour parce que les routes ne volent
+  pas ;
+- le **total de la journée**, dont on vous dit ce qui reviendrait aux caches déjà trouvées
+  ou aux mystery non résolues — à retrancher si vous les sortez de la sortie, mais GeoApp
+  ne le décide pas à votre place.
+
+Deux avertissements valent d'être répétés :
+
+- **ces durées ne comptent ni les pauses, ni le repas, ni les imprévus.** C'est un temps
+  d'activité, pas une durée de journée ;
+- **elles ignorent le dénivelé.** Une montée sèche sera sous-estimée.
+
+L'IA a pour consigne de les **ajuster** quand elle en sait plus — un listing qui annonce six
+étapes là où GeoApp en présumait deux, un log qui parle de deux heures de recherche — en
+disant à chaque fois quel terme du calcul elle corrige et pourquoi. Vous pouvez lui demander
+de refaire le calcul avec vos propres hypothèses : « compte 5 km/h de marche », « on part à
+deux voitures », « je veux être rentré à 17 h ».
+
 ## Santé des caches
 
 GeoApp calcule lui-même l'état de chaque cache à partir des logs déjà téléchargés :
@@ -127,7 +160,8 @@ l'analyse.
 
 - L'IA lit ce qu'on lui donne. Un listing qui ne mentionne pas le matériel, des logs
   avares en détails, et elle n'aura rien de plus que vous.
-- Les durées et les priorités sont des estimations, pas des mesures.
+- Les durées sont calculées par une heuristique, pas mesurées sur le terrain : elles
+  situent un ordre de grandeur et comparent les caches entre elles, rien de plus.
 - Une mystery non résolue est signalée comme bloquante : sans coordonnées corrigées, s'y
   déplacer ne sert à rien.
 - L'analyse est limitée à 60 géocaches. Au-delà de 25, GeoApp vous prévient du volume :

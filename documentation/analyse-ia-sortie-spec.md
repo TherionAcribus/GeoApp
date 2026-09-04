@@ -65,6 +65,7 @@ hint et surtout **les logs**, où l'information se trouve le plus souvent.
 | 6 | P1 | Données manquantes dans le bundle : trouvaille, notes, EarthCache, waypoints, qualité et fraîcheur des logs | Faible |
 | 7 | P1 | Lexique matériel appliqué au listing complet et au hint, pré-résolution des drapeaux | Faible |
 | 8 | P1 | Géographie : étendue, ordre de visite, groupes de marche, coucher du soleil, date de sortie | Faible |
+| 9 | P1 | Estimation de temps déterministe : temps sur place par cache, trajet, budget de la sortie | Faible |
 
 Tous livrés. Récapitulatif des fichiers produits :
 
@@ -78,6 +79,7 @@ Tous livrés. Récapitulatif des fichiers produits :
 | 6 | `outing_analysis_service.py`, `outing_health.py`, `outing_gear_signals.py`, `outing-analysis-types.ts`, `outing-analysis-prompt.ts`, `outing-analysis-controller.ts`, `geoapp-chat-system-prompts.ts` (voir § LOT 6 en fin de document) |
 | 7 | `outing_lexicons.py`, `outing_gear_signals.py`, `outing_analysis_service.py`, `outing-analysis-prompt.ts`, `geoapp-chat-system-prompts.ts` (voir § LOT 7 en fin de document) |
 | 8 | `outing_geography.py`, `outing_sun.py`, `tests/test_outing_geography.py`, endpoint, `outing_analysis_service.py`, les trois fichiers `outing-analysis-*.ts`, `geocaches-service.ts`, `geoapp-chat-system-prompts.ts` |
+| 9 | `outing_time_estimate.py`, `tests/test_outing_time_estimate.py`, `outing_analysis_service.py`, `outing-analysis-types.ts`, `outing-analysis-prompt.ts`, `geoapp-chat-system-prompts.ts` (voir § LOT 9 en fin de document) |
 
 Ordre imposé : 1 → 2 → 3 → 4 → 5. Le lot 3 n'est testable de bout en bout qu'après le
 lot 4 (sans agent dédié, la session s'ouvre sur l'agent GeoApp par défaut, ce qui reste
@@ -1030,6 +1032,95 @@ solaire, et refuser l'analyse entière pour une saisie fautive serait disproport
   (parsing de `outing_date`, bundle vide).
 - Front : `outing-analysis-prompt.test.ts` (39 tests) et `outing-analysis-controller.test.ts`
   (20 tests).
+
+---
+
+## LOT 9 — Estimation de temps déterministe (livré le 2026-09-04)
+
+Le plan du rapport demandait depuis le lot 1 une section « Temps et priorisation », et la
+grille d'analyse un repérage des « caches chronophages ». Aucune donnée chiffrée n'arrivait
+pourtant jusqu'à l'IA : elle produisait donc des durées au fil du texte, incohérentes d'une
+cache à l'autre — trente minutes pour une T4 ici, dix pour une T4 là, sans que rien ne les
+distingue. Le lot applique à ces durées exactement le traitement que le lot 8 avait appliqué
+aux distances : les calculer avant, avec la même grille pour tout le monde.
+
+| Apport | Contenu | Fichiers |
+|---|---|---|
+| Temps sur place par cache | Base par type, étapes, D/T, marche annoncée, signaux, logs de recherche longue, questions sur place ; `components` détaille chaque terme | `outing_time_estimate.py` |
+| Fourchette et confiance | `low_minutes` / `high_minutes` à ±20 / 30 / 50 % selon `confidence`, avec `confidence_reasons` | `outing_time_estimate.py` |
+| Trajet de la sortie | Déduit de `geography.route` : marche sous 400 m, route au-delà, facteurs de détour et vitesses annoncés dans `assumptions` | `outing_time_estimate.py` |
+| Budget | `on_site_minutes`, `travel`, `total_minutes`, retranchements proposés, caches les plus lourdes | `outing_time_estimate.py` |
+| Branchement | `time_estimate` sur chaque entrée, `time_budget` sur le bundle, `stats.on_site_minutes` | `outing_analysis_service.py` |
+| Rendu | Ligne « Temps sur place estimé » par fiche, section « Temps estimé » avant les fiches | `outing-analysis-prompt.ts` |
+| Consignes au modèle | Règle 11 (ajuster, pas inventer), règle 9 amendée, plan du rapport § 3 et § 4 | `geoapp-chat-system-prompts.ts` |
+
+### Cinq décisions à retenir
+
+**Additif, jamais multiplicatif.** Chaque contribution est nommée et chiffrée dans
+`components`, et le prompt la rend en clair : « base multi 15 + 2 étape(s) présumée(s) 20 +
+terrain 3 12 ». C'est ce détail qui autorise le modèle à **corriger** le chiffre plutôt qu'à
+le recopier ou à l'ignorer — il sait quel terme discuter quand le listing annonce six
+étapes. Un produit de coefficients aurait donné le même total sans rien expliquer.
+
+**Le temps sur place et le trajet sont deux choses.** L'estimation par cache commence
+voiture garée et s'arrête au retour à la voiture ; le trajet est calculé une seule fois pour
+la sortie. Confondre les deux est l'erreur la plus coûteuse d'un budget de journée, et elle
+passerait inaperçue : la ligne de chaque fiche porte donc « (trajet exclu) ».
+
+**Sur une mystery, la difficulté note l'énigme, pas la fouille.** Elle est résolue à la
+maison. Le supplément de D y est ramené à 40 %, sans quoi une D5 déjà résolue coûterait une
+heure sur le terrain. Symétriquement, les types sans conteneur à trouver (EarthCache,
+virtuelle, webcam, événements) ignorent la difficulté : leur temps est celui de
+l'observation.
+
+**Une multi sans waypoint publié en présume deux étapes.** Les étapes se découvrent en
+chemin : leur absence des waypoints est la norme, pas une exception. Sous-estimer une multi
+est l'erreur la plus fréquente d'une préparation de sortie, et connaître le final ne réduit
+pas ce plancher — les étapes qui y mènent existent toujours. Le prompt écrit « présumée(s) »
+pour que le modèle sache que c'est là qu'il peut faire mieux.
+
+**Les retranchements sont proposés, pas appliqués.** `already_found_minutes` et
+`unsolved_mystery_minutes` sortent à part du total. Retirer d'office ces caches serait
+décider à la place de l'utilisateur : refaire une multi avec quelqu'un est légitime, et une
+mystery peut être résolue le soir même. Le rapport peut dire « 6 h 30, ou 5 h 15 si l'on
+retire les deux déjà trouvées ».
+
+### Ce que le lot 8 interdisait et que celui-ci autorise
+
+La règle 9 défendait de convertir une distance à vol d'oiseau en durée « sans le dire ».
+Elle est amendée plutôt que levée : la conversion existe désormais, mais elle est faite **une
+seule fois, par GeoApp**, avec ses hypothèses écrites dans le prompt (45 km/h, détour
+routier ×1,3, 3 min d'arrêt, marche à 3,5 km/h sous 400 m). Le modèle la reprend et n'en
+fabrique pas d'autre. Une durée sans hypothèse ne se discute pas : elle se croit ou se
+jette ; celle-ci se discute.
+
+Sans ordre de visite calculable — une seule cache exploitable, ou aucune — `travel` vaut
+`null` et le total le dit en toutes lettres. Un trajet inventé serait pire qu'un total
+franc.
+
+### Tests
+
+- Backend : `tests/test_outing_time_estimate.py` (40 tests). Deux natures d'assertions y
+  cohabitent volontairement : les **ordres** (une multi coûte plus qu'une traditionnelle,
+  une T5 plus qu'une T1, une longue marche plus qu'une courte), qui sont la promesse du
+  module et doivent tenir quel que soit le barème ; et quelques **valeurs** exactes, pour
+  qu'un changement de barème se voie sans figer toute la grille. Plus 2 assertions dans
+  `test_outing_analysis.py` (bundle vide).
+- Front : 10 tests de plus dans `outing-analysis-prompt.test.ts`, dont la tolérance à un
+  backend antérieur au lot 9 (ni `time_estimate`, ni `time_budget`).
+
+### Limites assumées
+
+- **Aucun dénivelé.** Le terrain et la marche annoncée en tiennent lieu, ce qui sous-estime
+  une montée sèche et surestime un faux plat.
+- **Aucune pause, aucun repas.** Le budget est un temps d'activité, jamais une durée de
+  journée. Le prompt le dit, et le prompt système demande de le rappeler.
+- **Le trajet part de la première cache.** Le point de départ utilisateur reste le point
+  ouvert du lot 8 : tant qu'il n'existe pas, le trajet domicile → première cache n'est pas
+  compté.
+- **Le barème n'est pas paramétrable.** Constantes de module, comme les seuils de santé du
+  lot 1. À exposer en préférences seulement si l'usage montre que les défauts ne conviennent
+  pas.
 
 ---
 
