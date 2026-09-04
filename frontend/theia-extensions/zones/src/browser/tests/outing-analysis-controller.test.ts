@@ -1,11 +1,16 @@
 import * as assert from 'assert/strict';
-import { OutingAnalysisController } from '../outing-analysis-controller';
+import { OutingAnalysisController, REFRESH_AND_RETRY_ACTION } from '../outing-analysis-controller';
 import { GeoAppOpenChatRequestDetailPayload } from '../geoapp-chat-shared';
 import {
     GEOAPP_OUTING_ANALYZER_AGENT_ID,
     MAX_OUTING_ANALYSIS_GEOCACHES,
+    OUTING_REFRESH_LOGS_COUNT_PREF,
     OutingAnalysisBundle,
     OutingAnalysisGeocache,
+    OutingDetailLevel,
+    OutingLogsFreshness,
+    OutingLogsStatus,
+    OutingLogsStatusEntry,
 } from '../outing-analysis-types';
 
 interface FetchCall {
@@ -445,6 +450,262 @@ async function testPromptSizeIsReported(): Promise<void> {
     assert.equal(controller.dispatched[0].prompt?.length, outcome.promptSize!.chars);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Pré-vol : la fraîcheur des logs, décidée avant la collecte du bundle
+// ─────────────────────────────────────────────────────────────────────────────
+
+function createLogsEntry(
+    id: number,
+    gcCode: string,
+    status: OutingLogsFreshness
+): OutingLogsStatusEntry {
+    return {
+        id,
+        gc_code: gcCode,
+        name: `Cache ${gcCode}`,
+        local_logs_count: status === 'none' ? 0 : 4,
+        logs_fetched_at: status === 'none' ? null : '2026-01-01T00:00:00+00:00',
+        days_since_logs_fetched: status === 'none' ? null : (status === 'stale' ? 400 : 2),
+        status,
+    };
+}
+
+function createLogsStatus(entries: OutingLogsStatusEntry[] = []): OutingLogsStatus {
+    return {
+        generated_at: '2026-09-04T10:00:00+00:00',
+        stale_after_days: 180,
+        requested_count: entries.length,
+        geocaches: entries,
+        missing: [],
+        without_local_logs: entries.filter(entry => entry.status === 'none'),
+        stale_logs: entries.filter(entry => entry.status === 'stale'),
+    };
+}
+
+/**
+ * Contrôleur instrumenté pour `runInteractive()`.
+ *
+ * `calls` retient l'**ordre** des appels réseau, qui est ici tout l'enjeu : un
+ * rafraîchissement lancé après la collecte du bundle ne servirait à rien. Le choix de la
+ * date et du niveau de détail est court-circuité — il est couvert plus haut — pour que le
+ * seul quick pick observé soit celui du pré-vol.
+ */
+class InteractiveController extends TestableController {
+    readonly calls: string[] = [];
+    readonly refreshed: Array<{ id: number; count: number }> = [];
+    readonly warnings: string[] = [];
+    readonly picks: Array<{ placeHolder?: string; values: unknown[] }> = [];
+
+    /** Réponse du service d'état ; une `Error` simule un backend indisponible. */
+    logsStatus: OutingLogsStatus | Error = createLogsStatus();
+    /** Choix au pré-vol ; `undefined` simule un échappement. */
+    preflightAnswer: string | undefined = 'skip';
+    /** Réponse à l'avertissement actionnable, quand il en propose une. */
+    warnAnswer: string | undefined = undefined;
+    /** Identifiants dont le rafraîchissement échoue. */
+    failingRefreshIds = new Set<number>();
+
+    constructor(bundle: OutingAnalysisBundle, preferences: Record<string, unknown> = {}) {
+        super(bundle, preferences);
+
+        const service = (this as any).geocachesService;
+        const fetchBundle = service.fetchAnalysisBundle;
+        service.fetchAnalysisBundle = async (ids: number[], options: FetchCall['options']) => {
+            this.calls.push('bundle');
+            return fetchBundle(ids, options);
+        };
+        service.fetchLogsStatus = async () => {
+            this.calls.push('status');
+            if (this.logsStatus instanceof Error) {
+                throw this.logsStatus;
+            }
+            return this.logsStatus;
+        };
+        service.refreshLogs = async (id: number, count: number) => {
+            this.calls.push(`refresh:${id}`);
+            if (this.failingRefreshIds.has(id)) {
+                throw new Error('Geocaching.com injoignable');
+            }
+            this.refreshed.push({ id, count });
+        };
+
+        (this as any).messages = {
+            showProgress: async () => ({ report: () => undefined, cancel: () => undefined }),
+            info: () => undefined,
+            error: () => undefined,
+            warn: async (message: string, ...actions: string[]) => {
+                this.warnings.push(message);
+                return actions.length > 0 ? this.warnAnswer : undefined;
+            },
+        };
+
+        (this as any).quickInputService = {
+            pick: async (items: Array<{ value: unknown }>, options: { placeHolder?: string }) => {
+                this.picks.push({
+                    placeHolder: options?.placeHolder,
+                    values: items.map(item => item.value),
+                });
+                return items.find(item => item.value === this.preflightAnswer);
+            },
+        };
+    }
+
+    protected override async pickOutingDate(): Promise<Date | undefined> {
+        return new Date(2026, 8, 5);
+    }
+
+    protected override async pickDetailLevel(): Promise<OutingDetailLevel | undefined> {
+        return 'standard';
+    }
+}
+
+async function testFreshLogsSkipThePreflightPrompt(): Promise<void> {
+    const controller = new InteractiveController(
+        createBundle({ geocaches: [createGeocache('GC1')] })
+    );
+    controller.logsStatus = createLogsStatus([createLogsEntry(1, 'GC1', 'fresh')]);
+
+    const outcome = await controller.runInteractive([1]);
+
+    assert.equal(outcome.started, true);
+    // Rien à rafraîchir : aucune question posée, l'analyse enchaîne.
+    assert.equal(controller.picks.length, 0);
+    assert.deepEqual(controller.calls, ['status', 'bundle']);
+}
+
+async function testTheRefreshRunsBeforeTheBundleIsCollected(): Promise<void> {
+    const controller = new InteractiveController(
+        createBundle({ geocaches: [createGeocache('GC1')] })
+    );
+    controller.logsStatus = createLogsStatus([
+        createLogsEntry(1, 'GC1', 'none'),
+        createLogsEntry(2, 'GC2', 'stale'),
+    ]);
+    controller.preflightAnswer = 'refresh';
+
+    await controller.runInteractive([1, 2]);
+
+    // Tout l'intérêt du pré-vol tient dans cet ordre : le bundle est collecté après le
+    // rafraîchissement, donc il voit les logs neufs.
+    assert.deepEqual(controller.calls, ['status', 'refresh:1', 'refresh:2', 'bundle']);
+    assert.ok(controller.picks[0].placeHolder?.includes('1 sans aucun log local'));
+    assert.ok(controller.picks[0].placeHolder?.includes('180 jours'));
+}
+
+async function testRefreshDepthComesFromThePreferences(): Promise<void> {
+    const controller = new InteractiveController(
+        createBundle({ geocaches: [createGeocache('GC1')] }),
+        { [OUTING_REFRESH_LOGS_COUNT_PREF]: 40 }
+    );
+    controller.logsStatus = createLogsStatus([createLogsEntry(1, 'GC1', 'none')]);
+    controller.preflightAnswer = 'refresh';
+
+    await controller.runInteractive([1]);
+
+    assert.deepEqual(controller.refreshed, [{ id: 1, count: 40 }]);
+}
+
+async function testDecliningTheRefreshStillAnalyses(): Promise<void> {
+    const controller = new InteractiveController(
+        createBundle({ geocaches: [createGeocache('GC1')] })
+    );
+    controller.logsStatus = createLogsStatus([createLogsEntry(1, 'GC1', 'none')]);
+    controller.preflightAnswer = 'skip';
+
+    const outcome = await controller.runInteractive([1]);
+
+    assert.equal(outcome.started, true);
+    assert.deepEqual(controller.calls, ['status', 'bundle']);
+}
+
+async function testEscapingThePreflightCancelsTheAnalysis(): Promise<void> {
+    const controller = new InteractiveController(
+        createBundle({ geocaches: [createGeocache('GC1')] })
+    );
+    controller.logsStatus = createLogsStatus([createLogsEntry(1, 'GC1', 'none')]);
+    controller.preflightAnswer = undefined;
+
+    const outcome = await controller.runInteractive([1]);
+
+    // Comme pour les deux autres pickers, échapper annule tout : ni collecte ni session.
+    assert.equal(outcome.started, false);
+    assert.deepEqual(controller.calls, ['status']);
+    assert.equal(controller.dispatched.length, 0);
+}
+
+async function testAnUnavailablePreflightNeverBlocksTheAnalysis(): Promise<void> {
+    const controller = new InteractiveController(
+        createBundle({ geocaches: [createGeocache('GC1')] })
+    );
+    controller.logsStatus = new Error('backend injoignable');
+
+    const outcome = await controller.runInteractive([1]);
+
+    assert.equal(outcome.started, true);
+    assert.equal(controller.picks.length, 0);
+    assert.deepEqual(controller.calls, ['status', 'bundle']);
+}
+
+async function testAFailedRefreshDoesNotAbortTheSeries(): Promise<void> {
+    const controller = new InteractiveController(
+        createBundle({ geocaches: [createGeocache('GC1')] })
+    );
+    controller.logsStatus = createLogsStatus([
+        createLogsEntry(1, 'GC1', 'none'),
+        createLogsEntry(2, 'GC2', 'none'),
+    ]);
+    controller.preflightAnswer = 'refresh';
+    controller.failingRefreshIds = new Set([1]);
+
+    const outcome = await controller.runInteractive([1, 2]);
+
+    assert.equal(outcome.started, true);
+    assert.deepEqual(controller.calls, ['status', 'refresh:1', 'refresh:2', 'bundle']);
+    assert.ok(controller.warnings.some(warning => warning.includes('Logs non rafraîchis')));
+}
+
+async function testTheResidualWarningOffersARefreshAndRelaunch(): Promise<void> {
+    const bundle = createBundle({
+        geocaches: [createGeocache('GC1')],
+        without_local_logs: ['GC1'],
+    });
+    const controller = new InteractiveController(bundle);
+    controller.logsStatus = createLogsStatus([createLogsEntry(1, 'GC1', 'none')]);
+    controller.preflightAnswer = 'skip';
+    controller.warnAnswer = REFRESH_AND_RETRY_ACTION;
+
+    const outcome = await controller.runInteractive([1]);
+    // La relance est détachée : `runInteractive` rend la main dès la première analyse,
+    // pour ne pas laisser le bouton « Analyser IA » suspendu à une notification.
+    assert.equal(outcome.started, true);
+    await controller.pendingRelaunch;
+
+    // Le rafraîchissement décliné au pré-vol reste rattrapable depuis l'avertissement.
+    assert.deepEqual(controller.calls, ['status', 'bundle', 'refresh:1', 'bundle']);
+    assert.equal(controller.dispatched.length, 2);
+}
+
+async function testNoRelaunchIsOfferedForACacheAlreadyRefreshed(): Promise<void> {
+    const bundle = createBundle({
+        geocaches: [createGeocache('GC1')],
+        without_local_logs: ['GC1'],
+    });
+    const controller = new InteractiveController(bundle);
+    controller.logsStatus = createLogsStatus([createLogsEntry(1, 'GC1', 'none')]);
+    controller.preflightAnswer = 'refresh';
+    // Serait acceptée si l'action était proposée : elle ne doit pas l'être.
+    controller.warnAnswer = REFRESH_AND_RETRY_ACTION;
+
+    await controller.runInteractive([1]);
+    await controller.pendingRelaunch;
+
+    // La cache n'a pas de logs sur geocaching.com non plus : reproposer le même geste
+    // ouvrirait une boucle sans fin.
+    assert.deepEqual(controller.calls, ['status', 'refresh:1', 'bundle']);
+    assert.equal(controller.dispatched.length, 1);
+    assert.ok(controller.warnings.some(warning => warning.includes('sans logs locaux')));
+}
+
 async function run(): Promise<void> {
     await testEmptySelectionDoesNotDispatch();
     await testCapIsEnforcedBeforeTheNetworkCall();
@@ -470,6 +731,15 @@ async function run(): Promise<void> {
     await testLongListOfCachesWithoutLogsIsAbbreviated();
     await testVolumeWarningUsesThePreferenceThreshold();
     await testPromptSizeIsReported();
+    await testFreshLogsSkipThePreflightPrompt();
+    await testTheRefreshRunsBeforeTheBundleIsCollected();
+    await testRefreshDepthComesFromThePreferences();
+    await testDecliningTheRefreshStillAnalyses();
+    await testEscapingThePreflightCancelsTheAnalysis();
+    await testAnUnavailablePreflightNeverBlocksTheAnalysis();
+    await testAFailedRefreshDoesNotAbortTheSeries();
+    await testTheResidualWarningOffersARefreshAndRelaunch();
+    await testNoRelaunchIsOfferedForACacheAlreadyRefreshed();
     // eslint-disable-next-line no-console
     console.log('outing-analysis-controller tests passed');
 }

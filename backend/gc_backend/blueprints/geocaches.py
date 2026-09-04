@@ -24,6 +24,7 @@ from ..geocaches.bookmark_list_importer import BookmarkListImporter
 from ..geocaches.pocket_query_importer import PocketQueryImporter
 from ..geocaches.gpx_parser import parse_gpx_caches
 from ..services.outing_analysis_service import build_analysis_bundle
+from ..services.outing_logs_status import build_logs_status
 from ..utils.preferences import get_value_or_default
 
 bp = Blueprint('geocaches', __name__)
@@ -1195,6 +1196,70 @@ def _parse_outing_date(data: dict) -> date | None:
         return None
 
 
+def _parse_analysis_ids(data: dict) -> tuple[list[int] | None, tuple]:
+    """
+    Liste d'identifiants d'un payload d'analyse, dédoublonnée et bornée.
+
+    Renvoie `(ids, None)` ou `(None, réponse d'erreur)`. Partagée par le bundle et par
+    l'état des logs : les deux endpoints décrivent le même lot, et un plafond qui
+    diffèrerait de l'un à l'autre laisserait passer un pré-vol pour une analyse qui
+    serait ensuite refusée.
+    """
+    raw_ids = data.get('ids')
+    if not isinstance(raw_ids, list) or not raw_ids:
+        return None, (jsonify({'error': 'Missing ids parameter'}), 400)
+
+    requested: list[int] = []
+    seen: set[int] = set()
+    for token in raw_ids:
+        try:
+            geocache_id = int(token)
+        except (TypeError, ValueError):
+            return None, (jsonify({'error': f'Invalid geocache id: {token}'}), 400)
+        if geocache_id not in seen:
+            seen.add(geocache_id)
+            requested.append(geocache_id)
+
+    if not requested:
+        return None, (jsonify({'error': 'Missing ids parameter'}), 400)
+    if len(requested) > MAX_ANALYSIS_GEOCACHE_IDS:
+        return None, (jsonify({'error': f'Too many ids (max {MAX_ANALYSIS_GEOCACHE_IDS})'}), 400)
+
+    return requested, None
+
+
+@bp.post('/api/geocaches/analysis-logs-status')
+def get_geocaches_analysis_logs_status():
+    """
+    Fraîcheur des logs locaux d'un lot, avant analyse.
+
+    Répond à la seule question qui se pose au moment de lancer une sortie : quelles
+    géocaches n'ont aucun log local, et lesquelles n'en ont que de périmés. Purement
+    local — deux requêtes SQL, aucun appel à geocaching.com — pour que le front puisse
+    proposer un rafraîchissement **avant** de payer la collecte du bundle.
+
+    Body : `{ids: [1,2,3]}`. Un identifiant introuvable ressort dans `missing`.
+    """
+    data = request.get_json(silent=True) or {}
+    requested, error = _parse_analysis_ids(data)
+    if error is not None:
+        return error
+
+    try:
+        status = build_logs_status(requested)
+        logger.info(
+            "État des logs : %s géocache(s), %s sans logs locaux, %s périmée(s)",
+            len(status['geocaches']),
+            len(status['without_local_logs']),
+            len(status['stale_logs']),
+        )
+        return jsonify(status)
+
+    except Exception as e:
+        logger.error(f"Error building logs status: {e}", exc_info=True)
+        raise
+
+
 @bp.post('/api/geocaches/analysis-bundle')
 def get_geocaches_analysis_bundle():
     """
@@ -1216,26 +1281,9 @@ def get_geocaches_analysis_bundle():
     Un identifiant introuvable ne fait pas échouer l'appel : il ressort dans `missing`.
     """
     data = request.get_json(silent=True) or {}
-    raw_ids = data.get('ids')
-
-    if not isinstance(raw_ids, list) or not raw_ids:
-        return jsonify({'error': 'Missing ids parameter'}), 400
-
-    requested: list[int] = []
-    seen: set[int] = set()
-    for token in raw_ids:
-        try:
-            geocache_id = int(token)
-        except (TypeError, ValueError):
-            return jsonify({'error': f'Invalid geocache id: {token}'}), 400
-        if geocache_id not in seen:
-            seen.add(geocache_id)
-            requested.append(geocache_id)
-
-    if not requested:
-        return jsonify({'error': 'Missing ids parameter'}), 400
-    if len(requested) > MAX_ANALYSIS_GEOCACHE_IDS:
-        return jsonify({'error': f'Too many ids (max {MAX_ANALYSIS_GEOCACHE_IDS})'}), 400
+    requested, error = _parse_analysis_ids(data)
+    if error is not None:
+        return error
 
     try:
         bundle = build_analysis_bundle(

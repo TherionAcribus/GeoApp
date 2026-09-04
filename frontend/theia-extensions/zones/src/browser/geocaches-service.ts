@@ -1,6 +1,6 @@
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { BackendApiClient } from './backend-api-client';
-import { OutingAnalysisBundle, OutingAnalysisOptions } from './outing-analysis-types';
+import { OutingAnalysisBundle, OutingAnalysisOptions, OutingLogsStatus } from './outing-analysis-types';
 
 export interface CreateWaypointInput {
     name: string;
@@ -198,6 +198,36 @@ export class GeocachesService {
                 outing_date: options.outingDate,
             }, { signal }),
             'Erreur lors de la préparation de l\'analyse IA'
+        );
+    }
+
+    /**
+     * Fraîcheur des logs locaux d'un lot, sans rien récupérer sur geocaching.com.
+     *
+     * Appelé avant le bundle : c'est ce qui permet de proposer un rafraîchissement au
+     * moment où il est encore utile, plutôt que de le regretter dans un avertissement
+     * une fois le rapport parti.
+     */
+    async fetchLogsStatus(geocacheIds: number[], signal?: AbortSignal): Promise<OutingLogsStatus> {
+        return this.apiClient.requestJson<OutingLogsStatus>(
+            '/api/geocaches/analysis-logs-status',
+            this.apiClient.createJsonInit('POST', { ids: geocacheIds }, { signal }),
+            'Erreur lors de la lecture de l\'état des logs'
+        );
+    }
+
+    /**
+     * Rafraîchit les logs d'une géocache depuis Geocaching.com.
+     *
+     * Une géocache à la fois : l'appel scrape le logbook, et paralléliser sur une
+     * sélection entière reviendrait à marteler geocaching.com. L'appelant boucle et
+     * affiche sa progression.
+     */
+    async refreshLogs(id: number, count: number, signal?: AbortSignal): Promise<void> {
+        await this.apiClient.requestVoid(
+            `/api/geocaches/${id}/logs/refresh?count=${encodeURIComponent(String(count))}`,
+            { method: 'POST', signal },
+            'Erreur lors du rafraîchissement des logs'
         );
     }
 }

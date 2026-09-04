@@ -26,6 +26,7 @@ import {
     OUTING_GEAR_LOGS_PREF,
     OUTING_MAX_PROMPT_TOKENS_PREF,
     OUTING_RECENT_LOGS_PREF,
+    OUTING_REFRESH_LOGS_COUNT_PREF,
     OUTING_WARN_ABOVE_PREF,
 } from './outing-analysis-types';
 
@@ -104,6 +105,13 @@ export const geoAppPreferenceSchema: PreferenceSchema = {
             minimum: 2000,
             maximum: 400000,
             description: 'Analyse IA de sortie : plafond dur du prompt, en tokens estimes, prompt systeme compris. Au-dela, le contenu est reduit automatiquement (listings d abord, logs ensuite) et la reduction est annoncee au modele comme a l utilisateur. Mettre 0 pour desactiver le plafond.',
+        },
+        [OUTING_REFRESH_LOGS_COUNT_PREF]: {
+            type: 'number',
+            default: 25,
+            minimum: 5,
+            maximum: 100,
+            description: "Analyse IA de sortie : nombre de logs recuperes par geocache lors du rafraichissement propose avant l analyse. Plus haut donne un historique plus long a la sante calculee, au prix d une collecte plus lente.",
         },
         'geoApp.zones.sort': {
             type: 'object',

@@ -92,6 +92,13 @@ fonctionnel).
 locaux manquent, on le **signale** (bandeau UI + mention explicite dans le prompt) et on
 analyse avec ce que l'on a. Un système de rafraîchissement global sera traité à part.
 
+**Levé après coup (lot 17)** — le rafraîchissement n'est toujours pas *forcé*, mais il
+est désormais **proposé avant l'analyse**, sur la foi d'un pré-vol purement local
+(`POST /api/geocaches/analysis-logs-status`). L'argument qui l'avait écarté était que les
+caches sans logs ne sont connues qu'après la collecte du bundle : c'est vrai du bundle,
+pas du fait lui-même, qui tient en une requête agrégée. Cf. § 31 de
+`chat-ia-geoapp-technique.md`.
+
 ---
 
 ## LOT 1 — Backend : bundle d'analyse (P0)
@@ -692,6 +699,14 @@ puis avertissements via `MessageService` (« X cache(s) sans logs locaux : l'ana
 partielle pour celles-ci. »). Il évite un aller-retour réseau si l'utilisateur annule.
 **Aucun bouton de rafraîchissement** dans ce bandeau — décision explicite, cf. périmètre.
 
+**Révisé au lot 17** — la prémisse était fausse : le *bundle* ne le sait qu'après, mais la
+question « cette cache a-t-elle des logs, et de quand datent-ils ? » se répond en une
+requête agrégée. Un pré-vol s'intercale donc entre le niveau de détail et la collecte, et
+propose le rafraîchissement pendant qu'il sert encore à quelque chose. Le bandeau final
+porte quant à lui l'action « Rafraîchir et relancer », mais seulement quand aucun
+rafraîchissement n'a été tenté en amont : le reproposer sur une cache qu'on vient de
+rafraîchir ouvrirait une boucle.
+
 **Écart constaté à l'implémentation** — le dialogue est un `QuickInputService.pick`, pas
 un composant React. Trois entrées (Standard / Léger / Complet, le défaut des préférences
 en tête et marqué comme tel), ce qui suffit à couvrir le besoin sans introduire un
@@ -1254,8 +1269,11 @@ message système, sous-évaluait l'envoi de plusieurs milliers de tokens.
 
 ## Points laissés ouverts (hors périmètre, à traiter plus tard)
 
-- **Rafraîchissement global des logs** avant analyse : décidé hors périmètre. Le bundle
-  expose déjà `without_local_logs`, qui sera le point d'accroche naturel.
+- ~~**Rafraîchissement global des logs** avant analyse~~ : traité par le lot 17. Le point
+  d'accroche n'a finalement pas été `without_local_logs` — il arrive trop tard — mais un
+  pré-vol dédié, interrogé entre le choix du niveau de détail et la collecte du bundle.
+  L'avertissement issu de `without_local_logs` reste, en filet : il porte l'action
+  « Rafraîchir et relancer » quand rien n'a été rafraîchi en amont.
 - **Point de départ de l'itinéraire** : le chemin est ouvert et part de la cache que
   l'heuristique retient. Un point de départ utilisateur (domicile, parking, position
   actuelle) fermerait la boucle et donnerait un vrai kilométrage de journée.

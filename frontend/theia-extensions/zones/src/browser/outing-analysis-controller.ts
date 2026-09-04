@@ -38,10 +38,46 @@ import {
     OUTING_GEAR_LOGS_PREF,
     OUTING_MAX_PROMPT_TOKENS_PREF,
     OUTING_RECENT_LOGS_PREF,
+    OUTING_REFRESH_LOGS_COUNT_PREF,
     OUTING_WARN_ABOVE_PREF,
     OutingAnalysisBundle,
     OutingDetailLevel,
+    OutingLogsStatusEntry,
 } from './outing-analysis-types';
+
+/** Libellé de l'action proposée quand des logs manquent encore après coup. */
+export const REFRESH_AND_RETRY_ACTION = 'Rafraîchir et relancer';
+
+/**
+ * Géocache transmise sans logs locaux, réduite à ce qu'il faut pour la rafraîchir.
+ *
+ * Le bundle ne renvoie que des codes GC dans `without_local_logs` ; l'identifiant, lui,
+ * est ce que réclame l'endpoint de rafraîchissement.
+ */
+export interface OutingLogsGap {
+    id: number;
+    gc_code: string;
+}
+
+/**
+ * Ce que l'utilisateur voit quand des logs manquent, formulé une seule fois.
+ *
+ * `analyze()` la met dans ses avertissements, `runInteractive()` s'en sert pour retrouver
+ * exactement cette ligne et la remplacer par une version actionnable. Une comparaison de
+ * chaînes exacte plutôt qu'une recherche de motif : le jour où la phrase change, les deux
+ * côtés changent ensemble ou pas du tout.
+ */
+export function describeMissingLogs(gcCodes: string[]): string {
+    const codes = gcCodes.slice(0, 5).join(', ');
+    const rest = gcCodes.length > 5 ? ` et ${gcCodes.length - 5} autre(s)` : '';
+    return `${gcCodes.length} géocache(s) sans logs locaux (${codes}${rest}) : `
+        + `l'analyse sera partielle pour celles-ci.`;
+}
+
+/** Le strict minimum de `Progress`, pour ne pas importer le protocole complet. */
+interface ProgressReporter {
+    report(update: { message?: string }): void;
+}
 
 export interface OutingAnalysisRequest {
     /** Nom de zone ou de contexte, repris dans le titre de session. */
@@ -66,6 +102,13 @@ export interface OutingAnalysisOutcome {
     warnings: string[];
     /** Absent quand `started` est faux. Le prompt système est compté dans l'estimation. */
     promptSize?: OutingPromptSize;
+    /**
+     * Géocaches transmises sans le moindre log local, identifiants compris.
+     *
+     * Doublon assumé du texte d'avertissement : c'est la seule forme exploitable pour
+     * proposer un rafraîchissement, et l'appelant ne voit jamais le bundle.
+     */
+    withoutLocalLogs?: OutingLogsGap[];
     /** Ce que le budget adaptatif a décidé. Absent quand `started` est faux. */
     coverage?: {
         rich: number;
@@ -111,10 +154,19 @@ export class OutingAnalysisController {
     protected readonly planCapture?: OutingPlanCaptureService;
 
     /**
-     * Parcours complet depuis un widget : choix du détail, progression, avertissements.
+     * Relance en attente, déclenchée depuis l'avertissement « Rafraîchir et relancer ».
+     *
+     * Volontairement hors du flux attendu par `runInteractive()` : voir `offerRelaunch()`.
+     * Sert de point d'attente aux tests, qui sans elle courraient après une promesse
+     * détachée.
+     */
+    pendingRelaunch: Promise<void> = Promise.resolve();
+
+    /**
+     * Parcours complet depuis un widget : date, détail, pré-vol, progression, avertissements.
      *
      * Renvoie l'issue pour que l'appelant puisse piloter son propre indicateur d'attente.
-     * Une annulation utilisateur — au choix du détail ou pendant la collecte — ressort
+     * Une annulation utilisateur — à l'un des trois choix ou pendant la collecte — ressort
      * comme un `started: false` sans avertissement : rien à signaler, c'est voulu.
      */
     async runInteractive(
@@ -148,6 +200,71 @@ export class OutingAnalysisController {
             return { started: false, analyzed: 0, warnings: [] };
         }
 
+        const resolved = { ...request, detailLevel, outingDate };
+
+        // Pré-vol : la question « faut-il rafraîchir ? » est posée pendant qu'elle a
+        // encore une réponse utile. La spec la plaçait après la collecte, faute de savoir
+        // avant ce qui manquait ; c'est faux depuis qu'un endpoint local répond en deux
+        // requêtes SQL, sans rien demander à geocaching.com.
+        const preflight = await this.decideLogsRefresh(ids);
+        if (preflight.cancelled) {
+            return { started: false, analyzed: 0, warnings: [] };
+        }
+
+        const outcome = await this.runWithProgress(ids, resolved, preflight.toRefresh);
+
+        // Une cache qu'on vient d'essayer de rafraîchir et qui reste sans logs n'en a pas
+        // sur geocaching.com, ou son rafraîchissement a échoué : reproposer le même geste
+        // ne servirait à rien, et ouvrirait une boucle.
+        const attempted = new Set(preflight.toRefresh);
+        const missing = outcome.withoutLocalLogs || [];
+        const actionable = missing.some(gap => attempted.has(gap.id)) ? [] : missing;
+
+        // Détaché à dessein. Une notification porteuse d'action reste affichée tant que
+        // personne ne la ferme, et les deux widgets appelants gardent leur bouton
+        // « Analyser IA » désactivé jusqu'au retour de cette méthode : l'attendre
+        // reviendrait à suspendre l'interface à un clic facultatif. Cette analyse-ci est
+        // terminée, elle peut le dire.
+        // Le `catch` n'est pas décoratif : plus personne n'attend cette promesse, donc
+        // plus personne ne verrait son rejet autrement.
+        this.pendingRelaunch = this.offerRelaunch(ids, resolved, outcome, actionable)
+            .catch(error => console.error('[OutingAnalysisController] Relance échouée', error));
+
+        return outcome;
+    }
+
+    /**
+     * Rafraîchissement et seconde analyse, si l'utilisateur les demande depuis l'avertissement.
+     *
+     * Exposée en promesse plutôt qu'attendue : les tests ont besoin d'un point d'attente,
+     * l'interface non. La seconde analyse rejoint la même session de chat que la première
+     * — le titre de session est identique — et s'y ajoute comme une mise à jour.
+     */
+    protected async offerRelaunch(
+        ids: number[],
+        request: OutingAnalysisRequest,
+        outcome: OutingAnalysisOutcome,
+        actionable: OutingLogsGap[]
+    ): Promise<void> {
+        if (!await this.reportWarnings(outcome, actionable)) {
+            return;
+        }
+
+        const second = await this.runWithProgress(ids, request, actionable.map(gap => gap.id));
+        await this.reportWarnings(second, []);
+    }
+
+    /**
+     * Une passe complète sous une même barre de progression : rafraîchissement puis analyse.
+     *
+     * Les deux partagent l'annulation : couper pendant la collecte des logs coupe aussi
+     * l'analyse qui devait suivre, ce qui est le comportement attendu d'un bouton unique.
+     */
+    protected async runWithProgress(
+        ids: number[],
+        request: OutingAnalysisRequest,
+        idsToRefresh: number[]
+    ): Promise<OutingAnalysisOutcome> {
         const abortController = new AbortController();
         const progress = await this.messages.showProgress(
             {
@@ -156,16 +273,24 @@ export class OutingAnalysisController {
             },
             () => abortController.abort()
         );
-        progress.report({ message: 'Collecte des listings, attributs et logs…' });
 
         try {
-            const outcome = await this.analyze(
-                ids,
-                { ...request, detailLevel, outingDate },
-                abortController.signal
-            );
+            if (idsToRefresh.length > 0) {
+                const failed = await this.refreshLogsFor(
+                    idsToRefresh,
+                    progress,
+                    abortController.signal
+                );
+                if (failed.length > 0) {
+                    this.messages.warn(
+                        `Logs non rafraîchis pour ${failed.length} géocache(s) sur `
+                        + `${idsToRefresh.length} : l'analyse part avec ce qui était déjà en base.`
+                    );
+                }
+            }
 
-            outcome.warnings.forEach(warning => this.messages.warn(warning));
+            progress.report({ message: 'Collecte des listings, attributs et logs…' });
+            const outcome = await this.analyze(ids, request, abortController.signal);
 
             if (outcome.started) {
                 const coverage = outcome.coverage;
@@ -193,6 +318,136 @@ export class OutingAnalysisController {
         } finally {
             progress.cancel();
         }
+    }
+
+    /**
+     * Faut-il rafraîchir les logs avant d'analyser, et lesquels.
+     *
+     * L'appel est purement local : il compte les logs en base et lit la date de leur
+     * collecte, rien de plus. Son échec ne bloque rien — les caches sans logs
+     * ressortiront de toute façon dans les avertissements finaux, avec leur action.
+     */
+    protected async decideLogsRefresh(
+        ids: number[]
+    ): Promise<{ cancelled: boolean; toRefresh: number[] }> {
+        let gaps: OutingLogsStatusEntry[];
+        let staleAfterDays = 180;
+
+        try {
+            const status = await this.geocachesService.fetchLogsStatus(ids);
+            // Les deux listes sont disjointes par construction : « aucun log » et « des
+            // logs périmés » sont deux verdicts exclusifs de la même cache.
+            gaps = [...status.without_local_logs, ...status.stale_logs];
+            staleAfterDays = status.stale_after_days;
+        } catch (error) {
+            console.warn('[OutingAnalysisController] État des logs indisponible', error);
+            return { cancelled: false, toRefresh: [] };
+        }
+
+        if (gaps.length === 0) {
+            return { cancelled: false, toRefresh: [] };
+        }
+
+        const none = gaps.filter(gap => gap.status === 'none').length;
+        const stale = gaps.length - none;
+        const parts = [
+            none > 0 ? `${none} sans aucun log local` : '',
+            stale > 0 ? `${stale} dont les logs datent de plus de ${staleAfterDays} jours` : '',
+        ].filter(Boolean);
+
+        const picked = await this.quickInputService.pick(
+            [
+                {
+                    label: `Rafraîchir les logs puis analyser (recommandé)`,
+                    description: `${gaps.length} géocache(s) — une requête Geocaching.com par cache, `
+                        + `annulable`,
+                    value: 'refresh',
+                },
+                {
+                    label: 'Analyser sans rafraîchir',
+                    description: 'La santé des géocaches concernées restera non évaluable',
+                    value: 'skip',
+                },
+            ],
+            {
+                title: `Analyser ${ids.length} géocache${ids.length > 1 ? 's' : ''} avec l'IA`,
+                placeHolder: `Logs à revoir : ${parts.join(', ')}`,
+            }
+        );
+
+        if (!picked) {
+            return { cancelled: true, toRefresh: [] };
+        }
+        return {
+            cancelled: false,
+            toRefresh: picked.value === 'refresh' ? gaps.map(gap => gap.id) : [],
+        };
+    }
+
+    /**
+     * Rafraîchissement séquentiel des logs, une géocache à la fois.
+     *
+     * Séquentiel à dessein : chaque appel scrape un logbook, et lancer soixante requêtes
+     * de front reviendrait à marteler geocaching.com. Un échec isolé n'interrompt pas la
+     * série — il vaut mieux analyser avec dix caches rafraîchies sur douze que pas du
+     * tout — mais une annulation, elle, remonte.
+     *
+     * Renvoie les identifiants dont le rafraîchissement a échoué.
+     */
+    protected async refreshLogsFor(
+        ids: number[],
+        progress: ProgressReporter,
+        signal: AbortSignal
+    ): Promise<number[]> {
+        const count = this.readNumber(OUTING_REFRESH_LOGS_COUNT_PREF, 25);
+        const failed: number[] = [];
+
+        for (let index = 0; index < ids.length; index++) {
+            progress.report({
+                message: `Rafraîchissement des logs ${index + 1}/${ids.length}…`,
+            });
+            try {
+                await this.geocachesService.refreshLogs(ids[index], count, signal);
+            } catch (error) {
+                if ((error as Error)?.name === 'AbortError') {
+                    throw error;
+                }
+                console.warn(
+                    `[OutingAnalysisController] Logs non rafraîchis pour ${ids[index]}`,
+                    error
+                );
+                failed.push(ids[index]);
+            }
+        }
+
+        return failed;
+    }
+
+    /**
+     * Affiche les avertissements, celui des logs manquants restant actionnable.
+     *
+     * Renvoie vrai quand l'utilisateur a demandé un rafraîchissement suivi d'une relance.
+     * L'avertissement d'origine est retiré du lot pour ne pas paraître deux fois : c'est
+     * la même phrase, `describeMissingLogs()` la produit des deux côtés.
+     */
+    protected async reportWarnings(
+        outcome: OutingAnalysisOutcome,
+        actionable: OutingLogsGap[]
+    ): Promise<boolean> {
+        const replaced = actionable.length > 0
+            ? describeMissingLogs(actionable.map(gap => gap.gc_code))
+            : undefined;
+
+        outcome.warnings
+            .filter(warning => warning !== replaced)
+            .forEach(warning => this.messages.warn(warning));
+
+        if (!replaced) {
+            return false;
+        }
+
+        const action = await this.messages.warn(replaced, REFRESH_AND_RETRY_ACTION);
+        return action === REFRESH_AND_RETRY_ACTION;
     }
 
     /**
@@ -395,6 +650,11 @@ export class OutingAnalysisController {
             started: true,
             analyzed: bundle.geocaches.length,
             warnings: [...this.collectWarnings(bundle), ...this.collectBudgetWarnings(budget)],
+            // Les identifiants, que `without_local_logs` ne porte pas : ce sont eux qui
+            // permettront de rafraîchir ces caches-là sans repasser par une recherche.
+            withoutLocalLogs: bundle.geocaches
+                .filter(geocache => bundle.without_local_logs.includes(geocache.gc_code))
+                .map(geocache => ({ id: geocache.id, gc_code: geocache.gc_code })),
             promptSize: budget.size,
             coverage: {
                 rich: budget.richCount,
@@ -493,14 +753,7 @@ export class OutingAnalysisController {
         const warnings: string[] = [];
 
         if (bundle.without_local_logs.length > 0) {
-            const codes = bundle.without_local_logs.slice(0, 5).join(', ');
-            const rest = bundle.without_local_logs.length > 5
-                ? ` et ${bundle.without_local_logs.length - 5} autre(s)`
-                : '';
-            warnings.push(
-                `${bundle.without_local_logs.length} géocache(s) sans logs locaux (${codes}${rest}) : `
-                + `l'analyse sera partielle pour celles-ci.`
-            );
+            warnings.push(describeMissingLogs(bundle.without_local_logs));
         }
 
         // Le seul avertissement sur lequel l'utilisateur peut encore agir avant l'envoi :

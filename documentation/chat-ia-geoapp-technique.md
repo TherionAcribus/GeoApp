@@ -960,19 +960,20 @@ Tests exécutés :
 | `geoapp-chat-agent.test.ts` | Tools envoyés au modèle et prompt final agent. |
 | `geoapp-chat-bridge.test.ts` | Ouverture/reprise de sessions Chat IA. |
 | `outing-analysis-prompt.test.ts` | Mise en forme du prompt de sortie, sections omises, niveaux de détail. |
-| `outing-analysis-controller.test.ts` | Plafond, déduplication, titre de session, avertissements, préférences. |
+| `outing-analysis-controller.test.ts` | Plafond, déduplication, titre de session, avertissements, préférences, pré-vol de fraîcheur des logs, ordre rafraîchissement/collecte, relance actionnable. |
 | `geoapp-outing-analyzer-agent.test.ts` | Identité de l'agent, contenu du prompt système, repli. |
 
 Backend :
 
 ```bash
-cd backend && python -m pytest tests/test_outing_analysis.py tests/test_outing_geography.py -q
+cd backend && python -m pytest tests/test_outing_analysis.py tests/test_outing_geography.py tests/test_outing_logs_status.py -q
 ```
 
 | Test | Couverture |
 |---|---|
 | `test_outing_analysis.py` | Santé, signaux matériel, extraction lexicale, validation de l'endpoint. |
 | `test_outing_geography.py` | Haversine, étendue, ordre de visite, groupes de marche, éphémérides solaires. |
+| `test_outing_logs_status.py` | Verdicts du pré-vol, alignement des seuils sur `outing_health`, endpoint. |
 
 Build :
 
@@ -1162,8 +1163,16 @@ fait le point d'entrée le plus direct.
 Table de zone / log-editor
         |
         v
-OutingAnalysisController.runInteractive()      choix du détail, progression, messages
+OutingAnalysisController.runInteractive()      date, détail, pré-vol, progression, messages
         |
+        +--> decideLogsRefresh()               POST /api/geocaches/analysis-logs-status
+        |            |                         (local : deux requêtes SQL, aucun scraping)
+        |            v
+        |    outing_logs_status.build_logs_status()
+        |            |
+        |            v
+        |    refreshLogsFor()                  POST /api/geocaches/<id>/logs/refresh
+        |                                      séquentiel, annulable, échec non bloquant
         v
 OutingAnalysisController.analyze()             sans UI, testable seul
         |
@@ -1192,6 +1201,66 @@ OutingAnalysisController.analyze()             sans UI, testable seul
         v
 GeoAppChatBridge (session `libre`, agent `geoapp-outing-analyzer`)
 ```
+
+### Le pré-vol : rafraîchir avant, pas regretter après
+
+Une santé calculée sur des logs absents ne vaut rien, et une santé calculée sur des logs
+vieux de deux ans décrit un passé arrêté. La spec initiale se contentait de le **signaler
+après coup** — « X cache(s) sans logs locaux » — au motif que ces caches ne sont connues
+qu'une fois le bundle collecté. La prémisse était juste pour le bundle, fausse pour le
+fait lui-même : *combien de logs a cette cache, et de quand date leur collecte* se lit en
+une requête agrégée, sans listing, sans logs, sans calcul solaire et sans le moindre appel
+à geocaching.com.
+
+D'où un endpoint séparé, `POST /api/geocaches/analysis-logs-status`
+(`services/outing_logs_status.py`), interrogé entre le choix du niveau de détail et la
+collecte :
+
+| Verdict | Condition | Ce qu'il coûte de l'ignorer |
+|---|---|---|
+| `none` | aucun log en base | Santé non évaluable, la cache est muette dans le rapport |
+| `stale` | dernière collecte > `LOGS_STALE_DAYS` (180 j) | Santé rassurante mais périmée — le pire des deux |
+| `fresh` | le reste | — |
+
+Deux propriétés tiennent tout le reste :
+
+- **Les seuils sont ceux d'`outing_health`**, importés et non recopiés (`LOGS_STALE_DAYS`,
+  `_as_utc`, `_days_since`). Le pré-vol et la santé du bundle doivent rendre le même
+  verdict sur la même cache, sinon on proposerait un rafraîchissement dont le rapport ne
+  dirait rien, ou l'inverse.
+- **La date de collecte est `max(updated_at, created_at)` sur les logs**, agrégée en SQL
+  plutôt que calculée après chargement : sur soixante caches et des milliers de lignes,
+  c'est la différence entre une requête et un transfert complet.
+
+Le dialogue qui s'ensuit ne s'ouvre que s'il y a quelque chose à dire — aucun `pick`
+quand tout est frais. Trois issues : rafraîchir puis analyser, analyser sans rafraîchir,
+ou échapper, ce qui annule tout comme sur les deux pickers précédents.
+
+Le rafraîchissement lui-même (`refreshLogsFor()`) est **séquentiel** : chaque appel scrape
+un logbook, et soixante requêtes de front reviendraient à marteler geocaching.com. Un
+échec isolé ne rompt pas la série et ressort en avertissement — analyser avec dix caches
+rafraîchies sur douze vaut mieux que ne pas analyser — mais une annulation, elle, remonte
+et coupe l'analyse qui devait suivre : c'est un seul bouton, donc un seul geste d'arrêt.
+La profondeur de collecte est réglable (`geoApp.outing.analysis.refreshLogsCount`, 25 par
+défaut).
+
+L'avertissement d'origine n'a pas disparu pour autant : il sert de filet quand le pré-vol
+a été décliné ou n'a pas pu s'exécuter, et porte alors l'action **« Rafraîchir et
+relancer »**, qui rafraîchit puis renvoie une seconde analyse dans la même session de
+chat. Cette relance est **détachée** du retour de `runInteractive()` : les deux widgets
+appelants gardent leur bouton « Analyser IA » désactivé jusqu'à ce retour, et une
+notification porteuse d'action reste affichée tant que personne ne la ferme — l'attendre
+suspendrait l'interface à un clic facultatif. La première analyse est terminée, elle le
+dit ; la seconde, si elle vient, ouvre sa propre barre de progression. Il ne la porte
+**que** si aucun rafraîchissement n'a été tenté sur ces caches-là :
+une cache qui n'a pas de logs sur geocaching.com non plus n'en aura pas davantage au
+second essai, et reproposer le geste ouvrirait une boucle. La phrase est produite par
+`describeMissingLogs()` des deux côtés, ce qui permet de retrouver l'avertissement à
+remplacer par comparaison exacte plutôt que par recherche de motif.
+
+Enfin, l'indisponibilité du pré-vol n'empêche jamais une analyse : l'appel est enveloppé,
+son échec journalisé, et le parcours reprend là où il était. C'est un confort, pas un
+verrou.
 
 ### Ce que contient le bundle
 
@@ -1512,6 +1581,7 @@ conversation, même préparées à deux jours d'intervalle.
 | `geoApp.outing.analysis.warnAboveCount` | `25` | Seuil d'avertissement sur le volume |
 | `geoApp.outing.analysis.adaptiveBudget` | `true` | Palier de détail décidé cache par cache |
 | `geoApp.outing.analysis.maxPromptTokens` | `30000` | Plafond dur du prompt, prompt système compris |
+| `geoApp.outing.analysis.refreshLogsCount` | `25` | Logs récupérés par cache au rafraîchissement du pré-vol |
 
 ### Budget de tokens adaptatif
 

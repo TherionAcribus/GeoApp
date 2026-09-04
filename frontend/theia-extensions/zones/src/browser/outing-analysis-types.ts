@@ -28,6 +28,7 @@ export const OUTING_GEAR_LOGS_PREF = 'geoApp.outing.analysis.gearLogsCount';
 export const OUTING_WARN_ABOVE_PREF = 'geoApp.outing.analysis.warnAboveCount';
 export const OUTING_ADAPTIVE_BUDGET_PREF = 'geoApp.outing.analysis.adaptiveBudget';
 export const OUTING_MAX_PROMPT_TOKENS_PREF = 'geoApp.outing.analysis.maxPromptTokens';
+export const OUTING_REFRESH_LOGS_COUNT_PREF = 'geoApp.outing.analysis.refreshLogsCount';
 
 /** Niveau de détail demandé : pilote la troncature du listing et le nombre de logs. */
 export type OutingDetailLevel = 'light' | 'standard' | 'full';
@@ -456,3 +457,33 @@ export interface OutingPromptPlan {
  * complet — là où le prompt devient plus cher que ce qu'il apporte.
  */
 export const OUTING_DEFAULT_MAX_PROMPT_TOKENS = 30000;
+
+/**
+ * État de fraîcheur des logs locaux, renvoyé par `POST /api/geocaches/analysis-logs-status`.
+ *
+ * Le contrat est celui de `backend/gc_backend/services/outing_logs_status.py`. Il ne dit
+ * rien du contenu des logs : uniquement combien il y en a et de quand date leur collecte,
+ * ce qui suffit à décider s'il faut rafraîchir avant d'analyser.
+ */
+export type OutingLogsFreshness = 'none' | 'stale' | 'fresh';
+
+export interface OutingLogsStatusEntry {
+    id: number;
+    gc_code: string;
+    name: string | null;
+    local_logs_count: number;
+    logs_fetched_at: string | null;
+    days_since_logs_fetched: number | null;
+    status: OutingLogsFreshness;
+}
+
+export interface OutingLogsStatus {
+    generated_at: string;
+    /** Seuil de péremption côté serveur, en jours. Repris tel quel dans les libellés. */
+    stale_after_days: number;
+    requested_count: number;
+    geocaches: OutingLogsStatusEntry[];
+    missing: number[];
+    without_local_logs: OutingLogsStatusEntry[];
+    stale_logs: OutingLogsStatusEntry[];
+}
