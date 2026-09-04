@@ -42,6 +42,8 @@ Le système a été conçu pour rester compatible avec Theia. GeoApp ne remplace
 | `backend/gc_backend/services/outing_health.py` | Santé d'une géocache calculée depuis ses logs locaux. |
 | `backend/gc_backend/services/outing_gear_signals.py` | Traduction des attributs Geocaching.com en signaux matériel. |
 | `backend/gc_backend/services/outing_lexicons.py` | Lexiques matériel et « recherche longue », FR + EN. |
+| `backend/gc_backend/services/outing_geography.py` | Étendue du lot, ordre de visite, groupes de marche. |
+| `backend/gc_backend/services/outing_sun.py` | Lever, coucher et crépuscules civils (NOAA, sans API). |
 | `frontend/theia-extensions/zones/src/browser/zones-frontend-module.ts` | Wiring Inversify/Theia des services, widgets et agents. |
 | `frontend/theia-extensions/documentation/src/browser/doc-action-tools.ts` | Tools `aide_*` propres à l'agent documentaire `@Aide`, dont les actions de gestion des zones. |
 | `frontend/theia-extensions/documentation/src/browser/doc-agent.ts` | Agent `@Aide`, prompt documentaire et injection directe des tools `aide_*`. |
@@ -964,12 +966,13 @@ Tests exécutés :
 Backend :
 
 ```bash
-cd backend && python -m pytest tests/test_outing_analysis.py -q
+cd backend && python -m pytest tests/test_outing_analysis.py tests/test_outing_geography.py -q
 ```
 
 | Test | Couverture |
 |---|---|
 | `test_outing_analysis.py` | Santé, signaux matériel, extraction lexicale, validation de l'endpoint. |
+| `test_outing_geography.py` | Haversine, étendue, ordre de visite, groupes de marche, éphémérides solaires. |
 
 Build :
 
@@ -1176,6 +1179,8 @@ OutingAnalysisController.analyze()             sans UI, testable seul
         |            +--> outing_health.compute_health()
         |            +--> outing_lexicons.find_gear_mentions()   logs + listing + hint
         |            +--> outing_gear_signals.resolve_signals_from_text()
+        |            +--> outing_geography.build_geography()
+        |                     +--> outing_sun.compute_sun_times()
         |
         +--> buildOutingAnalysisPrompt()
         |
@@ -1360,12 +1365,71 @@ La péremption est donc rendue comme un fait — une raison dans `health.reasons
 `stale_logs` en tête du bundle, un avertissement dans le dialogue — et le prompt système
 impose la même prudence que pour `unknown`.
 
+### Géographie, ordre de visite et lumière du jour
+
+Les coordonnées étaient en base depuis toujours et n'arrivaient jusqu'à l'IA que sous forme
+de texte par cache. Le prompt système lui interdisait donc — à raison — d'énoncer la
+moindre distance : elle n'aurait pu que l'inventer. `build_geography()` calcule ce qui est
+calculable et le transmet en un bloc unique, `bundle.geography`, rendu dans la section
+« Géographie et lumière du jour » du prompt, **avant** les fiches.
+
+| Champ | Contenu | À quoi il sert dans le rapport |
+|---|---|---|
+| `centroid`, `bounding_box`, `max_pair_distance_km` | Étendue du lot | Dire en une ligne si la sortie tient dans un village ou traverse un département |
+| `route` | Ordre de visite : `legs` avec `leg_km` et `cumulative_km`, `total_km`, `longest_leg_km` | Point de départ de la section « Temps et priorisation » |
+| `walking_clusters` | Groupes reliés par des sauts de moins de 400 m | Où se gare la voiture, et ce qui s'enchaîne à pied |
+| `sun` | Lever, coucher, crépuscules civils, durée du jour | La borne de la journée : nombre de caches réalisables, place des caches de nuit, statut de la frontale |
+| `excluded` | Caches hors du calcul, avec leur raison | Expliquer une absence de l'ordre de visite, qui passerait sinon pour un oubli |
+
+**Toutes les distances sont à vol d'oiseau.** Aucun réseau routier n'est consulté, aucun
+dénivelé n'est connu. Le bloc porte `crow_flies: true`, le prompt le répète en clair sous
+la section, et le prompt système en fait une règle : les seules distances autorisées sont
+celles-là, et leur conversion en durée doit être annoncée comme une majoration.
+
+**Une mystery non résolue est écartée du calcul**, au même titre qu'une cache sans
+coordonnées : ses coordonnées publiées sont un leurre placé jusqu'à trois kilomètres du
+vrai final. La faire entrer dans un centroïde ou dans un ordre de visite reviendrait à
+calculer soigneusement sur une donnée fausse — le seul cas où un chiffre est pire que pas
+de chiffre. Elle ressort dans `excluded` avec la raison `unsolved_mystery`, et ses
+coordonnées publiées restent visibles dans sa propre fiche.
+
+**Ordre de visite** — plus proche voisin relancé depuis *chaque* départ possible, puis
+amélioré par 2-opt sur chemin ouvert. À soixante points au maximum, le surcoût est
+invisible et cela supprime le choix arbitraire d'un point de départ, qui pèse lourd sur la
+qualité d'un chemin glouton. Le résultat n'est pas optimal et ne prétend pas l'être :
+`strategy` le nomme, le prompt l'annonce comme indicatif, et le prompt système invite
+explicitement à le réordonner dès qu'une contrainte le demande — cache de nuit à la tombée
+du jour, commerce fermé le midi, marée. Le chemin est **ouvert** : une sortie s'arrête à la
+dernière cache, et le bundle ne sait pas où est restée la voiture.
+
+**Groupes de marche** — lien simple sous `WALKING_CLUSTER_KM` (400 m, la séparation
+minimale imposée par geocaching.com entre deux caches). Le lien simple est le bon modèle :
+une série de caches le long d'un sentier forme une seule marche même si ses extrémités sont
+éloignées. Une cache isolée ne forme pas de groupe et n'est pas listée.
+
+**Éphémérides** — `outing_sun.compute_sun_times()` transcrit le *NOAA Solar Calculator* :
+pas d'API, pas de dépendance, une précision de l'ordre de la minute aux latitudes
+tempérées. Le calcul est fait au centroïde ; sur une zone de quelques kilomètres, l'écart
+entre deux caches se compte en secondes. Les heures locales sont celles **du poste**, avec
+le décalage calculé pour le jour de la sortie (l'heure d'été est donc prise en compte) ;
+les heures UTC partent aussi, pour qu'une sortie à l'étranger reste interprétable. Au-delà
+des cercles polaires, `polar_state` vaut `polar_day` ou `polar_night` : l'absence d'heure
+de coucher y est un fait, pas une donnée manquante.
+
+**La date de sortie est une entrée utilisateur.** `runInteractive()` la demande avant le
+niveau de détail (Aujourd'hui / Demain / Après-demain / saisie libre `AAAA-MM-JJ`), et elle
+part au backend dans `outing_date`. Jusqu'ici elle valait toujours « aujourd'hui » : une
+sortie préparée le mercredi pour le samedi recevait la mauvaise durée de journée. Une date
+illisible est ignorée plutôt que rejetée — elle ne pilote que le calcul solaire, et refuser
+l'analyse entière serait disproportionné.
+
 ### Sessions
 
 Le contrôleur ouvre une session `libre` sans `geocacheId` ni `gcCode` : l'appariement du
 bridge repose donc entièrement sur le titre,
-`SORTIE - <zone> - <AAAA-MM-JJ> (<n> caches)`. Deux analyses de la même zone le même jour
-reprennent la même conversation ; le lendemain, une session neuve s'ouvre.
+`SORTIE - <zone> - <AAAA-MM-JJ> (<n> caches)`. La date est celle de la **sortie**, pas
+celle de la préparation : deux analyses visant le même samedi reprennent la même
+conversation, même préparées à deux jours d'intervalle.
 
 ### Préférences
 

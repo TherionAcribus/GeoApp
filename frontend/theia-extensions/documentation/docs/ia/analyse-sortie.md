@@ -21,7 +21,12 @@ ce qui va prendre du temps, ce qui risque de mal tourner.
 Le second est le plus direct pour une sortie du jour : la liste des caches à loguer est
 déjà votre sortie.
 
-GeoApp vous demande ensuite un **niveau de détail** :
+GeoApp vous demande ensuite **quand vous partez** — aujourd'hui, demain, après-demain, ou
+une date saisie au format `AAAA-MM-JJ`. Ce n'est pas une formalité : c'est de cette date
+que dépend l'heure du coucher du soleil, donc le nombre de caches qui tiennent dans la
+journée. Une sortie préparée le mercredi pour le samedi n'a pas la même lumière.
+
+Puis un **niveau de détail** :
 
 | Niveau | Ce qui est envoyé | Quand l'utiliser |
 |---|---|---|
@@ -30,12 +35,12 @@ GeoApp vous demande ensuite un **niveau de détail** :
 | **Complet** | Listing long, 10 logs récents | Peu de caches, mais des listings touffus |
 
 Le rapport arrive dans le Chat IA, dans une conversation intitulée
-`SORTIE - <zone> - <date>`. Vous pouvez y rebondir librement : « et si je n'ai pas de
-lampe UV ? », « donne-moi un ordre de visite », « lesquelles sont faisables avec des
+`SORTIE - <zone> - <date de sortie>`. Vous pouvez y rebondir librement : « et si je n'ai
+pas de lampe UV ? », « inverse l'ordre de visite », « lesquelles sont faisables avec des
 enfants ? ».
 
-Relancer une analyse sur la même zone le même jour reprend la même conversation. Le
-lendemain, une nouvelle s'ouvre.
+Relancer une analyse sur la même zone pour la même date de sortie reprend la même
+conversation, même préparée un autre jour.
 
 ## Ce que contient le rapport
 
@@ -72,6 +77,31 @@ Le rapport classe chaque outil en trois niveaux :
 
 Ce dernier cas n'est pas un échec : savoir qu'il faut un outil sans savoir lequel reste
 utile pour faire son sac.
+
+## Distances, ordre de visite et coucher du soleil
+
+GeoApp calcule la géographie de la sortie avant de la transmettre à l'IA :
+
+- **l'étendue** de la zone — utile pour savoir d'emblée si tout tient dans un village ou
+  s'il faudra reprendre la voiture ;
+- un **ordre de visite** qui passe une fois par chaque cache en limitant les allers-retours.
+  C'est une proposition, pas un itinéraire : l'IA la réorganise dès qu'une contrainte le
+  demande (cache de nuit, commerce fermé le midi, marée), et vous pouvez lui demander autre
+  chose ;
+- les **groupes à faire à pied** : les caches distantes de moins de 400 mètres, qui
+  s'enchaînent depuis un même stationnement ;
+- l'**heure du coucher du soleil** à la date de votre sortie, avec la fin du crépuscule
+  civil — le moment où l'on ne cherche plus rien sans lampe — et la durée du jour.
+
+Deux points à connaître :
+
+- **toutes les distances sont à vol d'oiseau.** GeoApp ne connaît ni les routes, ni les
+  sentiers, ni le dénivelé : le trajet réel est toujours plus long. L'IA a pour consigne de
+  ne jamais les présenter comme des distances de marche ;
+- **les mystery non résolues sont exclues du calcul**, comme les caches sans coordonnées en
+  base. Leurs coordonnées publiées sont un leurre, parfois à plusieurs kilomètres du vrai
+  final : les inclure fausserait tout le reste. Elles sont listées à part, et le rapport dit
+  pourquoi elles n'apparaissent pas dans l'ordre de visite.
 
 ## Santé des caches
 

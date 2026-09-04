@@ -7,7 +7,7 @@ import xml.etree.ElementTree as ET
 import xml.dom.minidom as minidom
 import json
 import html
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import re
 
 from sqlalchemy.orm import selectinload
@@ -1177,6 +1177,24 @@ def _parse_bounded_int(data: dict, key: str, default: int, minimum: int, maximum
     return max(minimum, min(maximum, value))
 
 
+def _parse_outing_date(data: dict) -> date | None:
+    """
+    Date de sortie du payload, au format ISO court.
+
+    Une date illisible est ignorée plutôt que rejetée : le service retombe alors sur le
+    jour même. Refuser l'analyse entière pour une date mal saisie serait disproportionné —
+    elle ne pilote que le calcul solaire.
+    """
+    raw = (data.get('outing_date') or '').strip() if isinstance(data.get('outing_date'), str) else None
+    if not raw:
+        return None
+    try:
+        return date.fromisoformat(raw[:10])
+    except ValueError:
+        logger.warning("Date de sortie illisible dans le bundle d'analyse : %r", raw)
+        return None
+
+
 @bp.post('/api/geocaches/analysis-bundle')
 def get_geocaches_analysis_bundle():
     """
@@ -1189,7 +1207,12 @@ def get_geocaches_analysis_bundle():
     balayés par le lexique matériel, y compris quand `listing_chars = 0` les exclut du
     transfert : les mentions repérées, elles, partent toujours.
 
-    Body : `{ids: [1,2,3], listing_chars?, recent_logs_count?, gear_logs_count?}`.
+    S'y ajoute la géographie du lot : étendue, ordre de visite indicatif, groupes de
+    caches enchaînables à pied et heure du coucher du soleil à la date de sortie.
+
+    Body : `{ids: [1,2,3], listing_chars?, recent_logs_count?, gear_logs_count?,
+    outing_date?}`. `outing_date` est au format `AAAA-MM-JJ` et ne pilote que le calcul
+    solaire ; absente ou illisible, le jour même est retenu.
     Un identifiant introuvable ne fait pas échouer l'appel : il ressort dans `missing`.
     """
     data = request.get_json(silent=True) or {}
@@ -1221,6 +1244,7 @@ def get_geocaches_analysis_bundle():
             listing_chars=_parse_bounded_int(data, 'listing_chars', 1800, 0, 6000),
             recent_logs_count=_parse_bounded_int(data, 'recent_logs_count', 5, 0, 20),
             gear_logs_count=_parse_bounded_int(data, 'gear_logs_count', 8, 0, 20),
+            outing_date=_parse_outing_date(data),
         )
         logger.info(
             "Bundle d'analyse : %s géocache(s), %s sans logs locaux",

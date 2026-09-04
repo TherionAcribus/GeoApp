@@ -23,10 +23,14 @@ import {
     OutingAnalysisGeocache,
     OutingDetailLevel,
     OutingGearSignal,
+    OutingGeography,
     OutingHealthLevel,
     OutingLogExcerpt,
     OutingLoggingTask,
     OutingNote,
+    OutingRoute,
+    OutingSunTimes,
+    OutingWalkingCluster,
     OutingWaypoint,
 } from './outing-analysis-types';
 
@@ -463,10 +467,163 @@ function formatReliabilitySection(bundle: OutingAnalysisBundle): string | undefi
     return ['## Fiabilité des données', ...lines].join('\n');
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Géographie et lumière du jour
+// ─────────────────────────────────────────────────────────────────────────────
+
+const EXCLUSION_LABELS: Record<string, string> = {
+    no_coordinates: 'aucune coordonnée en base',
+    unsolved_mystery: 'mystery non résolue, coordonnées publiées trompeuses',
+};
+
+/** Durée en heures et minutes : « 12 h 19 » se lit mieux que « 739 minutes ». */
+function formatDuration(minutes: number): string {
+    const hours = Math.floor(minutes / 60);
+    return `${hours} h ${`${minutes - hours * 60}`.padStart(2, '0')}`;
+}
+
+function formatExtent(geography: OutingGeography): string | undefined {
+    const box = geography.bounding_box;
+    if (!box) {
+        return undefined;
+    }
+    const spread = geography.max_pair_distance_km;
+    const between = spread !== null && spread !== undefined
+        ? ` — ${spread} km entre les deux caches les plus éloignées`
+        : '';
+    return `- Étendue : ${box.width_km} km d'est en ouest sur ${box.height_km} km du nord au sud${between}`;
+}
+
+function formatExclusions(geography: OutingGeography): string | undefined {
+    if (geography.excluded.length === 0) {
+        return undefined;
+    }
+    const rendered = geography.excluded.map(
+        item => `${item.gc_code} (${EXCLUSION_LABELS[item.reason] || item.reason})`
+    );
+    return `- ${geography.excluded.length} géocache(s) hors du calcul géographique : ${rendered.join(', ')}`;
+}
+
+/**
+ * Ordre de visite.
+ *
+ * Rendu comme une proposition et non comme un itinéraire : l'heuristique est nommée, et
+ * la mention « à vol d'oiseau » revient. Le modèle est libre de le réordonner — il en
+ * sait plus que le calcul sur les contraintes horaires, la cache de nuit ou la marée —
+ * mais il part d'un ordre cohérent au lieu de l'ordre de sélection.
+ */
+function formatRoute(route: OutingRoute | null): string | undefined {
+    if (!route || route.legs.length === 0) {
+        return undefined;
+    }
+    const lines = route.legs.map(leg => {
+        const identity = [leg.gc_code, leg.name].filter(isFilled).join(' — ');
+        const step = leg.position === 1
+            ? 'départ'
+            : `+${leg.leg_km} km, cumul ${leg.cumulative_km} km`;
+        return `  > ${leg.position}. ${identity} (${step})`;
+    });
+    return [
+        `- Ordre de visite indicatif (plus proche voisin optimisé, ${route.total_km} km cumulés `
+        + `à vol d'oiseau, plus longue étape ${route.longest_leg_km} km) :`,
+        ...lines,
+    ].join('\n');
+}
+
+function formatWalkingClusters(clusters: OutingWalkingCluster[]): string | undefined {
+    if (!clusters || clusters.length === 0) {
+        return undefined;
+    }
+    const lines = clusters.map(
+        cluster => `  > ${cluster.gc_codes.join(', ')} (${cluster.count} caches, `
+            + `${cluster.span_km} km d'un bout à l'autre)`
+    );
+    return [
+        '- Groupes enchaînables à pied depuis un même stationnement (moins de 400 m entre voisines) :',
+        ...lines,
+    ].join('\n');
+}
+
+/**
+ * Lumière du jour.
+ *
+ * C'est la contrainte qui borne toute la sortie : elle décide du nombre de caches
+ * réalisables, de la place de la cache de nuit dans la journée, et du statut de la
+ * frontale — accessoire ou outil principal.
+ */
+function formatSun(sun: OutingSunTimes | null): string | undefined {
+    if (!sun) {
+        return undefined;
+    }
+    const zone = `heure locale, UTC${sun.utc_offset}`;
+
+    if (sun.polar_state) {
+        const phenomenon = sun.polar_state === 'polar_day'
+            ? 'le soleil ne se couche pas de la journée'
+            : 'le soleil ne se lève pas de la journée';
+        return `- Lumière du jour le ${sun.date} : ${phenomenon} à cette latitude.`;
+    }
+
+    const parts = [
+        isFilled(sun.sunrise_local) ? `lever ${sun.sunrise_local}` : undefined,
+        isFilled(sun.sunset_local) ? `COUCHER ${sun.sunset_local}` : undefined,
+        isFilled(sun.civil_dusk_local) ? `nuit noire vers ${sun.civil_dusk_local}` : undefined,
+    ].filter(Boolean);
+    const length = sun.day_length_minutes !== null && sun.day_length_minutes !== undefined
+        ? ` — ${formatDuration(sun.day_length_minutes)} de jour`
+        : '';
+
+    return `- Lumière du jour le ${sun.date} : ${parts.join(', ')} (${zone})${length}.`;
+}
+
+/**
+ * Section géographique.
+ *
+ * Elle passe avant les fiches : savoir que la sortie tient dans deux kilomètres carrés,
+ * ou au contraire qu'elle en traverse trente, change la lecture de chaque cache qui suit.
+ *
+ * La dernière ligne n'est pas une précaution de style. Une distance à vol d'oiseau prise
+ * pour une distance de marche fausse toute la planification, et c'est l'erreur que le
+ * modèle commettrait spontanément.
+ */
+function formatGeographySection(bundle: OutingAnalysisBundle): string | undefined {
+    // Tolérant à un backend plus ancien que le front : le bloc vient du réseau.
+    const geography = bundle.geography;
+    if (!geography) {
+        return undefined;
+    }
+
+    const lines = [
+        formatExtent(geography),
+        formatExclusions(geography),
+        formatRoute(geography.route),
+        formatWalkingClusters(geography.walking_clusters),
+        formatSun(geography.sun),
+    ].filter(Boolean) as string[];
+
+    if (lines.length === 0) {
+        return undefined;
+    }
+
+    if (geography.route || geography.max_pair_distance_km !== null) {
+        lines.push(
+            "- Toutes ces distances sont à VOL D'OISEAU, calculées par GeoApp : ni route, ni "
+            + 'sentier, ni dénivelé. Le trajet réel est toujours plus long. Ne les convertis pas '
+            + "en durée sans le dire, et n'en invente aucune autre."
+        );
+    }
+
+    return ['## Géographie et lumière du jour', ...lines].join('\n');
+}
+
 function formatHeader(bundle: OutingAnalysisBundle, context: OutingPromptContext): string {
     const zone = context.zoneName?.trim() || 'sélection';
     const count = bundle.geocaches.length;
-    const outingDate = context.outingDate?.trim() || formatDate(bundle.generated_at);
+    // La date retenue par le backend fait foi en second : c'est elle qui a servi au calcul
+    // solaire, et une divergence entre l'en-tête et le coucher du soleil serait illisible.
+    const outingDate = context.outingDate?.trim()
+        || bundle.outing_date
+        || formatDate(bundle.generated_at);
 
     return [
         `# Analyse de sortie — ${zone} — ${count} géocache(s)`,
@@ -487,6 +644,7 @@ export function buildOutingAnalysisPrompt(
     const sections: Array<string | undefined> = [
         formatHeader(bundle, context),
         formatReliabilitySection(bundle),
+        formatGeographySection(bundle),
     ];
 
     if (bundle.geocaches.length > 0) {

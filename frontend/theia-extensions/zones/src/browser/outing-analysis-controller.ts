@@ -41,7 +41,13 @@ export interface OutingAnalysisRequest {
     /** Nom de zone ou de contexte, repris dans le titre de session. */
     zoneName?: string;
     detailLevel?: OutingDetailLevel;
-    /** Date de la sortie ; par défaut le jour même. */
+    /**
+     * Date de la sortie ; par défaut le jour même.
+     *
+     * Elle ne sert pas qu'à titrer la session : le backend en tire l'heure du coucher du
+     * soleil, qui borne toute la planification. Une sortie préparée le mercredi pour le
+     * samedi n'a pas la même journée devant elle.
+     */
     outingDate?: Date;
 }
 
@@ -97,6 +103,13 @@ export class OutingAnalysisController {
             return { started: false, analyzed: 0, warnings: [] };
         }
 
+        // La date d'abord : c'est la question à laquelle l'utilisateur répond sans y
+        // penser, et celle qui change le plus le rapport (la lumière du jour en dépend).
+        const outingDate = request.outingDate ?? await this.pickOutingDate(ids.length);
+        if (!outingDate) {
+            return { started: false, analyzed: 0, warnings: [] };
+        }
+
         const detailLevel = request.detailLevel ?? await this.pickDetailLevel(ids.length);
         if (!detailLevel) {
             return { started: false, analyzed: 0, warnings: [] };
@@ -115,7 +128,7 @@ export class OutingAnalysisController {
         try {
             const outcome = await this.analyze(
                 ids,
-                { ...request, detailLevel },
+                { ...request, detailLevel, outingDate },
                 abortController.signal
             );
 
@@ -141,6 +154,88 @@ export class OutingAnalysisController {
             return { started: false, analyzed: 0, warnings: [] };
         } finally {
             progress.cancel();
+        }
+    }
+
+    /**
+     * Choix de la date de sortie.
+     *
+     * Trois raccourcis couvrent la quasi-totalité des cas — on prépare une sortie la
+     * veille au soir ou le matin même — et la saisie libre reste ouverte pour le week-end
+     * prochain. La date décide de l'heure du coucher du soleil : la laisser implicitement
+     * à « aujourd'hui », comme c'était le cas jusqu'ici, revenait à donner la mauvaise
+     * durée de journée à toute sortie préparée à l'avance.
+     */
+    protected async pickOutingDate(count: number): Promise<Date | undefined> {
+        const shortcuts = [0, 1, 2].map(offset => {
+            const day = this.addDays(new Date(), offset);
+            return {
+                label: ["Aujourd'hui", 'Demain', 'Après-demain'][offset],
+                description: this.describeDate(day),
+                value: offset,
+            };
+        });
+
+        const picked = await this.quickInputService.pick(
+            [...shortcuts, { label: 'Autre date…', description: 'Saisir une date au format AAAA-MM-JJ', value: -1 }],
+            {
+                title: `Analyser ${count} géocache${count > 1 ? 's' : ''} avec l'IA`,
+                placeHolder: 'Date de la sortie (elle décide de la lumière du jour disponible)',
+            }
+        );
+
+        if (!picked) {
+            return undefined;
+        }
+        if (picked.value >= 0) {
+            return this.addDays(new Date(), picked.value);
+        }
+
+        const raw = await this.quickInputService.input({
+            title: 'Date de la sortie',
+            prompt: 'Format AAAA-MM-JJ',
+            value: this.formatDate(new Date()),
+            ignoreFocusLost: true,
+            validateInput: async input =>
+                (this.parseDate(input) ? undefined : 'Date invalide (attendu : AAAA-MM-JJ)'),
+        });
+
+        return this.parseDate(raw);
+    }
+
+    /**
+     * Lecture d'une date saisie, en heure **locale**.
+     *
+     * `new Date('2026-09-05')` serait interprétée en UTC et pourrait retomber la veille
+     * une fois reformatée : on construit donc la date composant par composant. Le contrôle
+     * de cohérence attrape le 31 février, que le constructeur accepterait en glissant.
+     */
+    protected parseDate(raw: string | undefined): Date | undefined {
+        const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec((raw || '').trim());
+        if (!match) {
+            return undefined;
+        }
+        const [year, month, day] = match.slice(1).map(Number);
+        const parsed = new Date(year, month - 1, day);
+        const valid = parsed.getFullYear() === year
+            && parsed.getMonth() === month - 1
+            && parsed.getDate() === day;
+        return valid ? parsed : undefined;
+    }
+
+    protected addDays(from: Date, days: number): Date {
+        const shifted = new Date(from.getTime());
+        shifted.setDate(shifted.getDate() + days);
+        return shifted;
+    }
+
+    /** Libellé lisible d'une date, pour le picker : « samedi 5 septembre ». */
+    protected describeDate(date: Date): string {
+        try {
+            return date.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+        } catch {
+            // Environnement sans données de locale : la date ISO reste lisible.
+            return this.formatDate(date);
         }
     }
 
@@ -210,6 +305,7 @@ export class OutingAnalysisController {
 
         const detailLevel = request.detailLevel ?? this.readDetailLevel();
         const preset = OUTING_DETAIL_PRESETS[detailLevel];
+        const outingDate = this.formatDate(request.outingDate);
 
         const bundle = await this.geocachesService.fetchAnalysisBundle(
             ids,
@@ -217,19 +313,22 @@ export class OutingAnalysisController {
                 listingChars: preset.listingChars,
                 recentLogsCount: this.readNumber(OUTING_RECENT_LOGS_PREF, preset.recentLogsCount),
                 gearLogsCount: this.readNumber(OUTING_GEAR_LOGS_PREF, preset.gearLogsCount),
+                // Le serveur en a besoin autant que le prompt : c'est lui qui calcule
+                // l'heure du coucher du soleil à cette date.
+                outingDate,
             },
             signal
         );
 
         const prompt = buildOutingAnalysisPrompt(bundle, {
             zoneName: request.zoneName,
-            outingDate: this.formatDate(request.outingDate),
+            outingDate,
             detailLevel,
         });
         const promptSize = estimateOutingPromptSize(prompt);
 
         this.openChatSession({
-            sessionTitle: this.buildSessionTitle(bundle, request),
+            sessionTitle: this.buildSessionTitle(bundle, outingDate, request.zoneName),
             prompt,
             focus: true,
             workflowKind: 'general',
@@ -262,10 +361,13 @@ export class OutingAnalysisController {
      * sur ce titre. Deux analyses de la même zone le même jour reprennent donc la même
      * conversation — ce qui est le comportement voulu — et le lendemain en ouvre une neuve.
      */
-    protected buildSessionTitle(bundle: OutingAnalysisBundle, request: OutingAnalysisRequest): string {
-        const zone = request.zoneName?.trim() || 'sélection';
-        const date = this.formatDate(request.outingDate);
-        return `SORTIE - ${zone} - ${date} (${bundle.geocaches.length} caches)`;
+    protected buildSessionTitle(
+        bundle: OutingAnalysisBundle,
+        outingDate: string,
+        zoneName?: string
+    ): string {
+        const zone = zoneName?.trim() || 'sélection';
+        return `SORTIE - ${zone} - ${outingDate} (${bundle.geocaches.length} caches)`;
     }
 
     protected collectWarnings(bundle: OutingAnalysisBundle): string[] {
@@ -305,6 +407,18 @@ export class OutingAnalysisController {
 
         if (bundle.missing.length > 0) {
             warnings.push(`${bundle.missing.length} géocache(s) introuvable(s) en base, ignorée(s).`);
+        }
+
+        // Une cache sans coordonnées est un trou de données, pas un choix : elle disparaît
+        // de l'ordre de visite et des distances sans que rien ne le montre à l'écran.
+        const withoutCoordinates = (bundle.geography?.excluded || [])
+            .filter(item => item.reason === 'no_coordinates');
+        if (withoutCoordinates.length > 0) {
+            warnings.push(
+                `${withoutCoordinates.length} géocache(s) sans coordonnées en base `
+                + `(${withoutCoordinates.map(item => item.gc_code).join(', ')}) : absentes de `
+                + `l'ordre de visite et des distances.`
+            );
         }
 
         const warnAbove = this.readNumber(OUTING_WARN_ABOVE_PREF, 25);

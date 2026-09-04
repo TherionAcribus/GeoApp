@@ -854,3 +854,37 @@ def test_bounded_int_clamps_out_of_range_values():
     assert _parse_bounded_int({'listing_chars': -5}, 'listing_chars', 1800, 200, 6000) == 200
     assert _parse_bounded_int({'listing_chars': 'x'}, 'listing_chars', 1800, 200, 6000) == 1800
     assert _parse_bounded_int({}, 'listing_chars', 1800, 200, 6000) == 1800
+
+
+def test_outing_date_is_parsed_from_the_payload():
+    from datetime import date
+
+    from gc_backend.blueprints.geocaches import _parse_outing_date
+
+    assert _parse_outing_date({'outing_date': '2026-12-24'}) == date(2026, 12, 24)
+    # Datetime ISO complet : seule la partie calendaire nous intéresse.
+    assert _parse_outing_date({'outing_date': '2026-12-24T08:00:00'}) == date(2026, 12, 24)
+
+
+def test_unreadable_outing_date_falls_back_instead_of_failing():
+    from gc_backend.blueprints.geocaches import _parse_outing_date
+
+    # Elle ne pilote que le calcul solaire : refuser l'analyse entière serait
+    # disproportionné. Le service retombe alors sur le jour même.
+    assert _parse_outing_date({}) is None
+    assert _parse_outing_date({'outing_date': ''}) is None
+    assert _parse_outing_date({'outing_date': '24/12/2026'}) is None
+    assert _parse_outing_date({'outing_date': 42}) is None
+
+
+def test_empty_bundle_still_carries_its_date_and_geography():
+    from datetime import date
+
+    from gc_backend.services.outing_analysis_service import build_analysis_bundle
+
+    bundle = build_analysis_bundle([], outing_date=date(2026, 12, 24))
+
+    assert bundle['outing_date'] == '2026-12-24'
+    # Le bloc est toujours là, même vide : son absence se lirait comme un oubli.
+    assert bundle['geography']['points_count'] == 0
+    assert bundle['geography']['sun'] is None

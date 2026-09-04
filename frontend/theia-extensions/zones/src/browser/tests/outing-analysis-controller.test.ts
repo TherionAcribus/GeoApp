@@ -10,7 +10,12 @@ import {
 
 interface FetchCall {
     ids: number[];
-    options: { listingChars?: number; recentLogsCount?: number; gearLogsCount?: number };
+    options: {
+        listingChars?: number;
+        recentLogsCount?: number;
+        gearLogsCount?: number;
+        outingDate?: string;
+    };
 }
 
 /** Géocache complète mais minimale : le constructeur de prompt attend tous les champs. */
@@ -26,6 +31,8 @@ function createGeocache(gcCode: string): OutingAnalysisGeocache {
         terrain: 2,
         status: 'active',
         coordinates: 'N 48° 00.000 E 007° 00.000',
+        latitude: 48,
+        longitude: 7,
         is_corrected: false,
         solved: 'not_solved',
         unsolved_mystery: false,
@@ -76,12 +83,18 @@ function createGeocache(gcCode: string): OutingAnalysisGeocache {
 function createBundle(overrides: Partial<OutingAnalysisBundle> = {}): OutingAnalysisBundle {
     return {
         generated_at: '2026-09-03T10:00:00+00:00',
+        outing_date: '2026-09-03',
         requested_count: 1,
         geocaches: [],
         missing: [],
         without_local_logs: [],
         stale_logs: [],
         already_found: [],
+        geography: {
+            points_count: 0, excluded: [], crow_flies: true, centroid: null,
+            bounding_box: null, max_pair_distance_km: null, route: null,
+            walking_clusters: [], sun: null,
+        },
         stats: {
             by_type: {}, by_health_level: {},
             unsolved_mysteries: 0, unresolved_gear_signals: 0, presolved_gear_signals: 0,
@@ -194,6 +207,71 @@ async function testDifferentDaysOpenDistinctSessions(): Promise<void> {
     assert.notEqual(controller.dispatched[0].sessionTitle, controller.dispatched[1].sessionTitle);
 }
 
+async function testOutingDateReachesTheBackend(): Promise<void> {
+    const controller = new TestableController(createBundle());
+
+    await controller.analyze([1], { outingDate: new Date(2026, 11, 24) });
+
+    // Le serveur en a besoin autant que le prompt : c'est lui qui calcule le coucher du
+    // soleil, et une sortie du 24 décembre n'a pas la journée d'un 24 juin.
+    assert.equal(controller.fetchCalls[0].options.outingDate, '2026-12-24');
+    assert.ok(controller.dispatched[0].prompt?.includes('Date de la sortie : 2026-12-24'));
+}
+
+async function testOutingDateDefaultsToToday(): Promise<void> {
+    const controller = new TestableController(createBundle());
+
+    await controller.analyze([1]);
+
+    const today = new Date();
+    const expected = `${today.getFullYear()}-${`${today.getMonth() + 1}`.padStart(2, '0')}`
+        + `-${`${today.getDate()}`.padStart(2, '0')}`;
+    assert.equal(controller.fetchCalls[0].options.outingDate, expected);
+}
+
+async function testTypedDatesAreValidatedInLocalTime(): Promise<void> {
+    const controller = new TestableController(createBundle());
+    const parse = (raw: string | undefined) => (controller as any).parseDate(raw) as Date | undefined;
+
+    const parsed = parse('2026-09-05');
+    // Construite en heure locale : passer par `new Date('2026-09-05')` la ramènerait au 4
+    // à l'ouest de Greenwich, et la sortie changerait de jour.
+    assert.equal(parsed?.getFullYear(), 2026);
+    assert.equal(parsed?.getMonth(), 8);
+    assert.equal(parsed?.getDate(), 5);
+
+    assert.equal(parse('2026-02-31'), undefined);
+    assert.equal(parse('05/09/2026'), undefined);
+    assert.equal(parse(''), undefined);
+    assert.equal(parse(undefined), undefined);
+}
+
+async function testCachesWithoutCoordinatesAreWarned(): Promise<void> {
+    const bundle = createBundle({
+        geocaches: [createGeocache('GC1')],
+        geography: {
+            points_count: 1,
+            excluded: [
+                { gc_code: 'GC7', reason: 'no_coordinates' },
+                { gc_code: 'GC8', reason: 'unsolved_mystery' },
+            ],
+            crow_flies: true, centroid: { latitude: 48, longitude: 7 },
+            bounding_box: null, max_pair_distance_km: null, route: null,
+            walking_clusters: [], sun: null,
+        },
+    });
+    const controller = new TestableController(bundle);
+
+    const outcome = await controller.analyze([1]);
+    const warning = outcome.warnings.find(text => text.includes('sans coordonnées'));
+
+    // Le trou de données mérite un avertissement ; la mystery non résolue, non : son
+    // exclusion est un choix assumé, déjà signalé par ailleurs.
+    assert.ok(warning);
+    assert.ok(warning!.includes('GC7'));
+    assert.ok(!warning!.includes('GC8'));
+}
+
 async function testDetailLevelDrivesTheCollectionOptions(): Promise<void> {
     const controller = new TestableController(createBundle());
 
@@ -304,6 +382,10 @@ async function run(): Promise<void> {
     await testSessionTitleCarriesZoneDateAndCount();
     await testSameDayTitlesMatchSoTheSessionIsReused();
     await testDifferentDaysOpenDistinctSessions();
+    await testOutingDateReachesTheBackend();
+    await testOutingDateDefaultsToToday();
+    await testTypedDatesAreValidatedInLocalTime();
+    await testCachesWithoutCoordinatesAreWarned();
     await testDetailLevelDrivesTheCollectionOptions();
     await testPreferencesOverrideThePresetLogCounts();
     await testDefaultDetailLevelComesFromPreferences();

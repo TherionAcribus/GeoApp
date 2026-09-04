@@ -133,6 +133,9 @@ export interface OutingAnalysisGeocache {
     terrain: number | null;
     status: string | null;
     coordinates: string | null;
+    /** Coordonnées décimales, celles sur lesquelles travaille le bloc `geography`. */
+    latitude: number | null;
+    longitude: number | null;
     is_corrected: boolean;
     solved: string | null;
     /** Mystery sans coordonnées finales : se déplacer ne sert à rien en l'état. */
@@ -173,6 +176,81 @@ export interface OutingAnalysisGeocache {
     search_effort_logs: OutingLogExcerpt[];
 }
 
+/** Une étape de l'ordre de visite indicatif. Les distances sont à vol d'oiseau. */
+export interface OutingRouteLeg {
+    position: number;
+    gc_code: string;
+    name: string | null;
+    /** Distance depuis l'étape précédente ; 0 pour la première. */
+    leg_km: number;
+    cumulative_km: number;
+}
+
+export interface OutingRoute {
+    /** Nom de l'heuristique, pour que le rapport présente l'ordre comme indicatif. */
+    strategy: string;
+    total_km: number;
+    longest_leg_km: number;
+    legs: OutingRouteLeg[];
+}
+
+/** Caches assez proches pour s'enchaîner à pied depuis un même stationnement. */
+export interface OutingWalkingCluster {
+    gc_codes: string[];
+    count: number;
+    span_km: number;
+}
+
+/**
+ * Éphémérides solaires au centroïde de la sortie, à la date retenue.
+ *
+ * Les heures locales sont celles du poste de l'utilisateur. `polar_state` n'est renseigné
+ * qu'au-delà des cercles polaires, où l'absence d'heure de coucher est un fait et non une
+ * donnée manquante.
+ */
+export interface OutingSunTimes {
+    date: string;
+    latitude: number;
+    longitude: number;
+    sunrise_utc: string | null;
+    sunset_utc: string | null;
+    civil_dawn_utc: string | null;
+    civil_dusk_utc: string | null;
+    solar_noon_utc: string;
+    sunrise_local: string | null;
+    sunset_local: string | null;
+    civil_dawn_local: string | null;
+    civil_dusk_local: string | null;
+    day_length_minutes: number | null;
+    utc_offset: string;
+    timezone_label: string | null;
+    polar_state: 'polar_day' | 'polar_night' | null;
+}
+
+export type OutingGeographyExclusionReason = 'no_coordinates' | 'unsolved_mystery';
+
+/**
+ * Géographie du lot : étendue, ordre de visite, groupes de marche, lumière du jour.
+ *
+ * Tout y est calculé à vol d'oiseau (`crow_flies`), sans réseau routier ni dénivelé : les
+ * distances sont des planchers, jamais des durées. Une mystery non résolue est écartée du
+ * calcul comme une cache sans coordonnées — ses coordonnées publiées sont un leurre.
+ */
+export interface OutingGeography {
+    points_count: number;
+    excluded: Array<{ gc_code: string; reason: OutingGeographyExclusionReason }>;
+    crow_flies: boolean;
+    centroid: { latitude: number; longitude: number } | null;
+    bounding_box: {
+        north: number; south: number; east: number; west: number;
+        width_km: number; height_km: number; diagonal_km: number;
+    } | null;
+    max_pair_distance_km: number | null;
+    route: OutingRoute | null;
+    walking_clusters: OutingWalkingCluster[];
+    sun: OutingSunTimes | null;
+}
+
 export interface OutingAnalysisStats {
     by_type: Record<string, number>;
     by_health_level: Record<string, number>;
@@ -187,6 +265,8 @@ export interface OutingAnalysisStats {
 
 export interface OutingAnalysisBundle {
     generated_at: string;
+    /** Date retenue pour la sortie : celle demandée, ou le jour même. Pilote le calcul solaire. */
+    outing_date: string;
     requested_count: number;
     geocaches: OutingAnalysisGeocache[];
     /** Identifiants demandés mais introuvables : l'appel n'échoue pas pour autant. */
@@ -197,6 +277,8 @@ export interface OutingAnalysisBundle {
     stale_logs: string[];
     /** Codes GC déjà trouvés, à confirmer ou à retirer de la sélection. */
     already_found: string[];
+    /** Toujours présent, même sans point exploitable : les exclusions sont une information. */
+    geography: OutingGeography;
     stats: OutingAnalysisStats;
 }
 
@@ -204,10 +286,22 @@ export interface OutingAnalysisOptions {
     listingChars?: number;
     recentLogsCount?: number;
     gearLogsCount?: number;
+    /** Date de la sortie au format `AAAA-MM-JJ` : elle décide de l'heure du coucher du soleil. */
+    outingDate?: string;
 }
 
+/**
+ * Ce qu'un niveau de détail décide, et lui seul : le volume de texte demandé au serveur.
+ *
+ * La date de sortie n'en fait pas partie — elle vient de l'utilisateur, jamais d'un
+ * préréglage — d'où un type dédié plutôt qu'un `Required<OutingAnalysisOptions>`.
+ */
+export type OutingDetailPreset = Required<
+    Pick<OutingAnalysisOptions, 'listingChars' | 'recentLogsCount' | 'gearLogsCount'>
+>;
+
 /** Paramètres de collecte associés à chaque niveau de détail. */
-export const OUTING_DETAIL_PRESETS: Record<OutingDetailLevel, Required<OutingAnalysisOptions>> = {
+export const OUTING_DETAIL_PRESETS: Record<OutingDetailLevel, OutingDetailPreset> = {
     light: { listingChars: 0, recentLogsCount: 3, gearLogsCount: 6 },
     standard: { listingChars: 1800, recentLogsCount: 5, gearLogsCount: 8 },
     full: { listingChars: 4000, recentLogsCount: 10, gearLogsCount: 12 },

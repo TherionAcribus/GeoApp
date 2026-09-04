@@ -6,6 +6,7 @@ import {
 import {
     OutingAnalysisBundle,
     OutingAnalysisGeocache,
+    OutingGeography,
     OUTING_DETAIL_PRESETS,
 } from '../outing-analysis-types';
 
@@ -21,6 +22,8 @@ function createGeocacheFixture(overrides: Partial<OutingAnalysisGeocache> = {}):
         terrain: 4,
         status: 'active',
         coordinates: 'N 48° 51.396 E 002° 21.132',
+        latitude: 48.8566,
+        longitude: 2.3522,
         is_corrected: false,
         solved: 'not_solved',
         unsolved_mystery: false,
@@ -131,16 +134,67 @@ function createGeocacheFixture(overrides: Partial<OutingAnalysisGeocache> = {}):
     };
 }
 
+/**
+ * Géographie par défaut : deux caches proches, un ordre de visite et un coucher de soleil.
+ *
+ * Les valeurs sont figées, jamais recalculées côté front — le bloc arrive tel quel du
+ * backend, qui a ses propres tests de justesse.
+ */
+function createGeographyFixture(overrides: Partial<OutingGeography> = {}): OutingGeography {
+    return {
+        points_count: 2,
+        excluded: [],
+        crow_flies: true,
+        centroid: { latitude: 48.85, longitude: 2.35 },
+        bounding_box: {
+            north: 48.86, south: 48.84, east: 2.36, west: 2.34,
+            width_km: 1.47, height_km: 2.22, diagonal_km: 2.66,
+        },
+        max_pair_distance_km: 2.66,
+        route: {
+            strategy: 'nearest_neighbour_2opt',
+            total_km: 2.66,
+            longest_leg_km: 2.66,
+            legs: [
+                { position: 1, gc_code: 'GC424242', name: 'Le vieux chene', leg_km: 0, cumulative_km: 0 },
+                { position: 2, gc_code: 'GC999999', name: 'La source', leg_km: 2.66, cumulative_km: 2.66 },
+            ],
+        },
+        walking_clusters: [],
+        sun: {
+            date: '2026-09-05',
+            latitude: 48.85,
+            longitude: 2.35,
+            sunrise_utc: '2026-09-05T05:13:00+00:00',
+            sunset_utc: '2026-09-05T18:25:00+00:00',
+            civil_dawn_utc: '2026-09-05T04:41:00+00:00',
+            civil_dusk_utc: '2026-09-05T18:57:00+00:00',
+            solar_noon_utc: '2026-09-05T11:49:00+00:00',
+            sunrise_local: '07:13',
+            sunset_local: '20:25',
+            civil_dawn_local: '06:41',
+            civil_dusk_local: '20:57',
+            day_length_minutes: 792,
+            utc_offset: '+02:00',
+            timezone_label: 'Europe/Paris',
+            polar_state: null,
+        },
+        ...overrides,
+    };
+}
+
 function createBundleFixture(overrides: Partial<OutingAnalysisBundle> = {}): OutingAnalysisBundle {
     const geocaches = overrides.geocaches ?? [createGeocacheFixture()];
     return {
         generated_at: '2026-09-03T10:00:00+00:00',
+        outing_date: '2026-09-05',
         requested_count: geocaches.length,
         geocaches,
         missing: [],
         without_local_logs: [],
         stale_logs: [],
         already_found: [],
+        geography: createGeographyFixture(),
         stats: {
             by_type: { Traditional: geocaches.length },
             by_health_level: { risky: geocaches.length },
@@ -532,6 +586,134 @@ function testNegativeAttributeIsPrefixed(): void {
     assert.ok(prompt.includes('NON Chiens'));
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Géographie et lumière du jour
+// ─────────────────────────────────────────────────────────────────────────────
+
+function testGeographySectionCarriesExtentAndRoute(): void {
+    const prompt = buildOutingAnalysisPrompt(createBundleFixture(), STANDARD);
+
+    assert.ok(prompt.includes('## Géographie et lumière du jour'));
+    assert.ok(prompt.includes('2.66 km entre les deux caches les plus éloignées'));
+    assert.ok(prompt.includes('Ordre de visite indicatif'));
+    assert.ok(prompt.includes('1. GC424242 — Le vieux chene (départ)'));
+    assert.ok(prompt.includes('2. GC999999 — La source (+2.66 km, cumul 2.66 km)'));
+}
+
+function testGeographySectionPrecedesTheGeocaches(): void {
+    const prompt = buildOutingAnalysisPrompt(createBundleFixture(), STANDARD);
+
+    // Le cadre spatial se lit avant les fiches : il change la lecture de chacune.
+    assert.ok(prompt.indexOf('## Géographie') < prompt.indexOf('## Géocaches'));
+}
+
+function testCrowFliesWarningAccompaniesEveryDistance(): void {
+    const prompt = buildOutingAnalysisPrompt(createBundleFixture(), STANDARD);
+
+    // La confusion vol d'oiseau / distance de marche fausserait toute la planification.
+    assert.ok(prompt.includes("VOL D'OISEAU"));
+}
+
+function testSunsetIsRenderedWithItsTimezone(): void {
+    const prompt = buildOutingAnalysisPrompt(createBundleFixture(), STANDARD);
+
+    assert.ok(prompt.includes('COUCHER 20:25'));
+    assert.ok(prompt.includes('nuit noire vers 20:57'));
+    assert.ok(prompt.includes('heure locale, UTC+02:00'));
+    assert.ok(prompt.includes('13 h 12 de jour'));
+}
+
+function testPolarDayIsSpelledOutRatherThanLeftEmpty(): void {
+    const geography = createGeographyFixture();
+    const prompt = buildOutingAnalysisPrompt(
+        createBundleFixture({
+            geography: {
+                ...geography,
+                sun: {
+                    ...geography.sun!,
+                    sunrise_local: null, sunset_local: null,
+                    civil_dawn_local: null, civil_dusk_local: null,
+                    sunrise_utc: null, sunset_utc: null,
+                    civil_dawn_utc: null, civil_dusk_utc: null,
+                    day_length_minutes: null,
+                    polar_state: 'polar_day',
+                },
+            },
+        }),
+        STANDARD
+    );
+
+    assert.ok(prompt.includes('le soleil ne se couche pas de la journée'));
+}
+
+function testExcludedCachesAreNamedWithTheirReason(): void {
+    const prompt = buildOutingAnalysisPrompt(
+        createBundleFixture({
+            geography: createGeographyFixture({
+                excluded: [
+                    { gc_code: 'GC111', reason: 'no_coordinates' },
+                    { gc_code: 'GC222', reason: 'unsolved_mystery' },
+                ],
+            }),
+        }),
+        STANDARD
+    );
+
+    // Sans la raison, leur absence de l'ordre de visite passerait pour un oubli.
+    assert.ok(prompt.includes('GC111 (aucune coordonnée en base)'));
+    assert.ok(prompt.includes('GC222 (mystery non résolue, coordonnées publiées trompeuses)'));
+}
+
+function testWalkingClustersAreRendered(): void {
+    const prompt = buildOutingAnalysisPrompt(
+        createBundleFixture({
+            geography: createGeographyFixture({
+                walking_clusters: [{ gc_codes: ['GC1', 'GC2', 'GC3'], count: 3, span_km: 0.31 }],
+            }),
+        }),
+        STANDARD
+    );
+
+    assert.ok(prompt.includes('Groupes enchaînables à pied'));
+    assert.ok(prompt.includes("GC1, GC2, GC3 (3 caches, 0.31 km d'un bout à l'autre)"));
+}
+
+function testGeographySectionIsOmittedWhenNothingIsComputable(): void {
+    const prompt = buildOutingAnalysisPrompt(
+        createBundleFixture({
+            geography: {
+                points_count: 0, excluded: [], crow_flies: true, centroid: null,
+                bounding_box: null, max_pair_distance_km: null, route: null,
+                walking_clusters: [], sun: null,
+            },
+        }),
+        STANDARD
+    );
+
+    assert.ok(!prompt.includes('## Géographie'));
+}
+
+function testOlderBackendWithoutGeographyDoesNotCrash(): void {
+    const bundle = createBundleFixture();
+    delete (bundle as Partial<OutingAnalysisBundle>).geography;
+
+    const prompt = buildOutingAnalysisPrompt(bundle, STANDARD);
+
+    assert.ok(prompt.includes('## Géocaches'));
+    assert.ok(!prompt.includes('## Géographie'));
+}
+
+function testHeaderFallsBackOnTheBundleOutingDate(): void {
+    // Le backend a calculé le coucher du soleil pour cette date : l'en-tête doit dire la
+    // même, faute de quoi le rapport daterait la sortie autrement que sa propre lumière.
+    const prompt = buildOutingAnalysisPrompt(
+        createBundleFixture({ outing_date: '2026-12-24' }),
+        { detailLevel: 'standard', zoneName: 'Vosges' }
+    );
+
+    assert.ok(prompt.includes('Date de la sortie : 2026-12-24'));
+}
+
 function testInstructionLineClosesThePrompt(): void {
     const prompt = buildOutingAnalysisPrompt(createBundleFixture(), STANDARD);
 
@@ -588,6 +770,16 @@ function run(): void {
     testGearMentionsAreOmittedWhenTheTextNamesNothing();
     testPresolvedSignalCitesItsSource();
     testPresolvedSignalsAreAnnouncedInTheReliabilitySection();
+    testGeographySectionCarriesExtentAndRoute();
+    testGeographySectionPrecedesTheGeocaches();
+    testCrowFliesWarningAccompaniesEveryDistance();
+    testSunsetIsRenderedWithItsTimezone();
+    testPolarDayIsSpelledOutRatherThanLeftEmpty();
+    testExcludedCachesAreNamedWithTheirReason();
+    testWalkingClustersAreRendered();
+    testGeographySectionIsOmittedWhenNothingIsComputable();
+    testOlderBackendWithoutGeographyDoesNotCrash();
+    testHeaderFallsBackOnTheBundleOutingDate();
     testStandardLevelKeepsTheListing();
     testDetailLevelBoundsRecentLogs();
     testEmptyBundleDoesNotCrash();

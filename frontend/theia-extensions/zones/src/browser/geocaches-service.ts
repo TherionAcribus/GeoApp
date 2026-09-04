@@ -195,6 +195,7 @@ export class GeocachesService {
                 listing_chars: options.listingChars,
                 recent_logs_count: options.recentLogsCount,
                 gear_logs_count: options.gearLogsCount,
+                outing_date: options.outingDate,
             }, { signal }),
             'Erreur lors de la préparation de l\'analyse IA'
         );

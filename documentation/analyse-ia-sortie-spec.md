@@ -4,10 +4,11 @@
 > l'IA » sur un lot de géocaches (préparation d'une sortie). Organisé en 5 lots
 > indépendants, implémentables et commitables séparément.
 >
-> **État : les 5 lots sont livrés (2026-09-03), plus un lot 6 d'enrichissement du
-> bundle (2026-09-04).** Les blocs « Écart constaté à
-> l'implémentation » signalent les endroits où le code s'écarte de la spec initiale, et
-> pourquoi. La documentation de référence est désormais le § 31 de
+> **État : les 5 lots sont livrés (2026-09-03), plus un lot 6 d'enrichissement du bundle,
+> un lot 7 de balayage lexical du listing et un lot 8 de géographie (2026-09-04).**
+> Les blocs « Écart constaté à l'implémentation » signalent les endroits où le code
+> s'écarte de la spec initiale, et pourquoi.
+> La documentation de référence est désormais le § 31 de
 > `documentation/chat-ia-geoapp-technique.md` ; ce document reste le journal de conception.
 >
 > Conventions du dépôt : messages de commit en français au format
@@ -40,7 +41,8 @@ Tout ce qui demande de **lire du texte libre** est laissé à l'IA. La frontièr
 |---|---|
 | Santé de la cache (DNF consécutifs, ancienneté de la dernière trouvaille, maintenance) | Nature précise de l'outil requis |
 | Drapeaux matériel issus des attributs | Type de matériel de grimpe (échelle / corde / arbo / spéléo) |
-| Sélection des logs pertinents (lexique matériel) | Durée réaliste, ordre de visite, priorisation |
+| Sélection des logs pertinents (lexique matériel) | Durée réaliste, priorisation |
+| Distances, ordre de visite géométrique, coucher du soleil | Le réordonnancement selon les contraintes horaires |
 | Mystery non résolue, waypoints, statut | Contraintes implicites du listing (horaires, marée, autorisation) |
 
 **L'attribut n'est pas la réponse, c'est la question.** « Outil spécial requis » (`s-tool`)
@@ -61,6 +63,8 @@ hint et surtout **les logs**, où l'information se trouve le plus souvent.
 | 4 | P1 | Agent `geoapp-outing-analyzer`, prompt système, préférences, configuration du modèle | Faible |
 | 5 | P2 | Documentation | Nul |
 | 6 | P1 | Données manquantes dans le bundle : trouvaille, notes, EarthCache, waypoints, qualité et fraîcheur des logs | Faible |
+| 7 | P1 | Lexique matériel appliqué au listing complet et au hint, pré-résolution des drapeaux | Faible |
+| 8 | P1 | Géographie : étendue, ordre de visite, groupes de marche, coucher du soleil, date de sortie | Faible |
 
 Tous livrés. Récapitulatif des fichiers produits :
 
@@ -72,6 +76,8 @@ Tous livrés. Récapitulatif des fichiers produits :
 | 4 | `geoapp-outing-analyzer-agent.ts`, prompt système, 4 préférences, ligne du panneau Policy, `tests/geoapp-outing-analyzer-agent.test.ts` (7 tests) + 1 test de bridge |
 | 5 | § 31 de `chat-ia-geoapp-technique.md`, `docs/ia/analyse-sortie.md` |
 | 6 | `outing_analysis_service.py`, `outing_health.py`, `outing_gear_signals.py`, `outing-analysis-types.ts`, `outing-analysis-prompt.ts`, `outing-analysis-controller.ts`, `geoapp-chat-system-prompts.ts` (voir § LOT 6 en fin de document) |
+| 7 | `outing_lexicons.py`, `outing_gear_signals.py`, `outing_analysis_service.py`, `outing-analysis-prompt.ts`, `geoapp-chat-system-prompts.ts` (voir § LOT 7 en fin de document) |
+| 8 | `outing_geography.py`, `outing_sun.py`, `tests/test_outing_geography.py`, endpoint, `outing_analysis_service.py`, les trois fichiers `outing-analysis-*.ts`, `geocaches-service.ts`, `geoapp-chat-system-prompts.ts` |
 
 Ordre imposé : 1 → 2 → 3 → 4 → 5. Le lot 3 n'est testable de bout en bout qu'après le
 lot 4 (sans agent dédié, la session s'ouvre sur l'agent GeoApp par défaut, ce qui reste
@@ -960,12 +966,82 @@ qu'un fait sans provenance.
 
 ---
 
+## LOT 8 — Géographie : distances, ordre de visite, coucher du soleil (livré le 2026-09-04)
+
+Les coordonnées étaient en base depuis le début et n'atteignaient l'IA que sous forme de
+texte, cache par cache. Le prompt système lui interdisait donc d'énoncer la moindre
+distance — la seule règle du lot 1 qui interdisait quelque chose faute de l'avoir calculé.
+
+| Apport | Correction | Fichiers |
+|---|---|---|
+| Étendue du lot | Centroïde, boîte englobante, écart maximal entre deux caches | `outing_geography.py` |
+| Ordre de visite | Plus proche voisin lancé depuis chaque départ, puis 2-opt sur chemin ouvert ; `legs` avec distance d'étape et cumul | `outing_geography.py` |
+| Groupes de marche | Lien simple sous 400 m : ce qui s'enchaîne à pied depuis un même stationnement | `outing_geography.py` |
+| Coucher du soleil | NOAA transcrit, sans API ni dépendance ; lever, coucher, crépuscules civils, durée du jour, `polar_state` | `outing_sun.py` |
+| Date de sortie | Vraie entrée utilisateur : picker (Aujourd'hui / Demain / Après-demain / saisie libre), `outing_date` dans le payload et le bundle | `outing-analysis-controller.ts`, endpoint, `build_analysis_bundle` |
+| Rendu | Section « Géographie et lumière du jour », avant les fiches | `formatGeographySection` |
+| Consignes au modèle | Règles 9 et 10 du prompt système, plan du rapport § 4 enrichi | `geoapp-chat-system-prompts.ts` |
+
+### Quatre décisions à retenir
+
+**Une mystery non résolue est écartée du calcul**, comme une cache sans coordonnées. Ses
+coordonnées publiées sont un leurre placé jusqu'à trois kilomètres du vrai final : la faire
+entrer dans un centroïde ou dans un ordre de visite reviendrait à calculer soigneusement
+sur une donnée fausse. C'est le seul cas où un chiffre est pire que pas de chiffre. Elle
+ressort dans `excluded` avec sa raison — le rapport doit pouvoir expliquer son absence de
+l'ordre de visite, faute de quoi le lecteur y verra un oubli.
+
+**Le multi-départ plutôt qu'un départ choisi.** Le glouton dépend beaucoup de son point de
+départ, et aucun candidat n'était défendable (la première de la sélection ? la plus proche
+du centre ?). À soixante points au maximum, le relancer depuis chacun coûte quelques
+millisecondes et supprime la question. Le 2-opt qui suit défait les croisements que le
+glouton s'inflige. Le résultat n'est pas optimal et le prompt ne le présente jamais comme
+tel : `strategy` le nomme, et le prompt système invite à le réordonner selon les
+contraintes horaires.
+
+**Vol d'oiseau, dit trois fois.** Dans le champ (`crow_flies`), dans la section du prompt,
+et dans une règle du prompt système. La confusion entre une distance à vol d'oiseau et une
+distance de marche fausserait toute la planification, et c'est l'erreur qu'un modèle commet
+spontanément.
+
+**Le soleil se calcule, il ne se demande pas.** L'algorithme NOAA tient en cent lignes et
+donne la minute aux latitudes tempérées : aucune raison d'appeler un service pour ça. Les
+heures locales sont celles du poste — GeoApp tourne chez l'utilisateur, qui géocache dans
+son fuseau — avec le décalage du jour de la sortie, donc heure d'été comprise, et les
+heures UTC partent aussi pour le cas de l'étranger.
+
+### Ce que la date de sortie changeait
+
+`outingDate` existait dans le contrat du lot 2 et aucun appelant ne la passait : le titre
+de session portait donc toujours la date du jour. Sans conséquence tant qu'elle n'était
+qu'un libellé ; déterminante dès lors qu'elle décide de l'heure du coucher du soleil. Elle
+est maintenant demandée avant le niveau de détail. Effet de bord assumé sur l'appariement
+des sessions : deux analyses visant le même samedi partagent désormais la même
+conversation, même préparées à deux jours d'intervalle — ce qui est le comportement voulu.
+
+Une date illisible côté endpoint est **ignorée, pas rejetée** : elle ne pilote que le calcul
+solaire, et refuser l'analyse entière pour une saisie fautive serait disproportionné.
+
+### Tests
+
+- Backend : `tests/test_outing_geography.py` (28 tests — haversine, exclusions, étendue,
+  ordre de visite, groupes, éphémérides vérifiées contre l'almanach de Paris aux deux
+  solstices et à l'équinoxe, cas polaires), plus 3 tests dans `test_outing_analysis.py`
+  (parsing de `outing_date`, bundle vide).
+- Front : `outing-analysis-prompt.test.ts` (39 tests) et `outing-analysis-controller.test.ts`
+  (20 tests).
+
+---
+
 ## Points laissés ouverts (hors périmètre, à traiter plus tard)
 
 - **Rafraîchissement global des logs** avant analyse : décidé hors périmètre. Le bundle
   expose déjà `without_local_logs`, qui sera le point d'accroche naturel.
-- **Ordre de visite / optimisation d'itinéraire** : les coordonnées sont dans le bundle,
-  l'IA peut donner un ordre indicatif, mais aucun calcul d'itinéraire n'est prévu.
+- **Point de départ de l'itinéraire** : le chemin est ouvert et part de la cache que
+  l'heuristique retient. Un point de départ utilisateur (domicile, parking, position
+  actuelle) fermerait la boucle et donnerait un vrai kilométrage de journée.
+- **Distances routières** : tout est à vol d'oiseau. Un calcul de trajet réel supposerait un
+  service externe, ce que la fonctionnalité évite jusqu'ici.
 - **Persistance du rapport** : le rapport vit dans la session Chat. Un export vers les
   notes de zone pourrait venir plus tard.
 - **Seuils de santé configurables** : constantes de module au lot 1 ; les exposer en

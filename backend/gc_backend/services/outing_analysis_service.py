@@ -22,6 +22,12 @@ tokens de listing. C'est ce qui rend le mode léger honnête : le listing n'y es
 transmis, mais on sait quand même qu'il parle d'une canne à pêche — et un drapeau « outil
 spécial requis » peut être refermé avant même d'atteindre l'IA.
 
+Un dernier bloc n'est attaché à aucune cache en particulier : la **géographie** de la
+sortie (étendue, ordre de visite, groupes de marche, heure du coucher du soleil à la date
+retenue). Les coordonnées étaient en base depuis toujours ; faute de les exploiter, le
+prompt système devait interdire au modèle de parler de distances. Voir
+`outing_geography.py`.
+
 S'y ajoutent trois sources qui ne viennent pas de geocaching.com mais du travail déjà
 fait par l'utilisateur, et qui valent souvent mieux que le listing : la **note
 personnelle** (« parking rue X », « prévoir deux personnes »), les **notes GeoApp**
@@ -33,11 +39,12 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from sqlalchemy.orm import selectinload
 
 from ..geocaches.models import Geocache, GeocacheLog
+from .outing_geography import build_geography
 from .outing_gear_signals import (
     build_gear_signals,
     build_waypoint_signals,
@@ -559,6 +566,11 @@ def _build_geocache_entry(
         'terrain': geocache.terrain,
         'status': geocache.status,
         'coordinates': _resolve_coordinates(geocache),
+        # Coordonnées décimales, doublon assumé du champ affichable : c'est sur elles que
+        # travaille le bloc géographique, et les reprendre ici évite de refaire un
+        # aller-retour vers la base pour calculer une distance.
+        'latitude': geocache.latitude,
+        'longitude': geocache.longitude,
         'is_corrected': bool(geocache.is_corrected),
         'solved': geocache.solved,
         'unsolved_mystery': _is_unsolved_mystery(geocache),
@@ -626,6 +638,7 @@ def build_analysis_bundle(
     listing_chars: int = 1800,
     recent_logs_count: int = 5,
     gear_logs_count: int = 8,
+    outing_date: date | None = None,
     now: datetime | None = None,
 ) -> dict:
     """
@@ -633,19 +646,28 @@ def build_analysis_bundle(
 
     Les géocaches sont renvoyées dans l'ordre demandé. Un identifiant introuvable ne fait
     pas échouer la construction : il ressort dans `missing`.
+
+    `outing_date` est la date de la sortie, qui n'est pas forcément celle de la
+    préparation : elle ne sert qu'au calcul solaire, mais elle en change complètement le
+    résultat — deux mois d'écart valent deux heures de jour.
     """
     now = now or datetime.now(timezone.utc)
+    # La date du jour au sens de l'utilisateur, pas au sens d'UTC : à 23 h en France, la
+    # sortie « d'aujourd'hui » n'est pas celle de demain.
+    outing_date = outing_date or now.astimezone().date()
     requested = list(dict.fromkeys(geocache_ids or []))
 
     if not requested:
         return {
             'generated_at': now.isoformat(),
+            'outing_date': outing_date.isoformat(),
             'requested_count': 0,
             'geocaches': [],
             'missing': [],
             'without_local_logs': [],
             'stale_logs': [],
             'already_found': [],
+            'geography': build_geography([], outing_date=outing_date),
             'stats': _build_stats([]),
         }
 
@@ -706,11 +728,13 @@ def build_analysis_bundle(
 
     return {
         'generated_at': now.isoformat(),
+        'outing_date': outing_date.isoformat(),
         'requested_count': len(requested),
         'geocaches': entries,
         'missing': missing,
         'without_local_logs': without_local_logs,
         'stale_logs': stale_logs,
         'already_found': already_found,
+        'geography': build_geography(entries, outing_date=outing_date),
         'stats': _build_stats(entries),
     }
