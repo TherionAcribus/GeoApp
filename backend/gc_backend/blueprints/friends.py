@@ -515,6 +515,17 @@ def sync_zone_finds_stream():
     data = request.get_json(silent=True) or {}
     zone_id = data.get("zone_id")
     force_all = bool(data.get("force_all", False))
+    # Filtrer sur un sous-ensemble d'amis (optionnel). Si absent ou vide,
+    # on scanne tous les amis. Les pseudos doivent être des chaînes non vides.
+    selected_friends = data.get("friends")
+    if selected_friends is not None:
+        if not isinstance(selected_friends, list):
+            return jsonify({"success": False, "error": "invalid_params",
+                            "error_message": "friends doit être une liste de pseudos."}), 400
+        selected_friends = [f for f in selected_friends if isinstance(f, str) and f.strip()]
+        selected_set = {f.strip() for f in selected_friends}
+    else:
+        selected_set = None
 
     if not isinstance(zone_id, int):
         return jsonify({"success": False, "error": "invalid_params",
@@ -540,6 +551,9 @@ def sync_zone_finds_stream():
             # Liste d'amis depuis le cache mémoire (pas de réseau).
             friends_result = get_friends_client().get_friends()
             all_friends = [f.username for f in friends_result.friends]
+            # Filtrer sur le sous-ensemble demandé (si présent).
+            if selected_set is not None:
+                all_friends = [f for f in all_friends if f in selected_set]
         except Exception as exc:
             yield json.dumps({
                 'phase': 'error',

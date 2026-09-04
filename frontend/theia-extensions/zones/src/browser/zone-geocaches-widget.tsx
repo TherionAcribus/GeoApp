@@ -89,6 +89,12 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         found_count: number | null; zone_matches: number | null;
         scanned_at: string | null;
     }> = [];
+    /** Dialogue de sélection d'amis à scanner (null = fermé). */
+    protected friendSelectionDialogOpen = false;
+    /** Amis sélectionnés dans le dialogue (Set pour toggle rapide). */
+    protected friendSelectionChecked: Set<string> = new Set();
+    /** Checkbox « forcer une réanalyse complète » dans le dialogue. */
+    protected friendSelectionForceAll = false;
     /** Nombre d'amis dont le scan est frais (affiché dans le bouton). */
     protected get friendScansFreshCount(): number {
         return this.friendScans.filter(s => s.scanned && !s.is_stale).length;
@@ -1238,7 +1244,10 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
      * L'utilisateur peut interrompre l'analyse via le bouton « Annuler »
      * (``AbortController``).
      */
-    protected analyzeFriendFinds = async (forceAll: boolean = false): Promise<void> => {
+    protected analyzeFriendFinds = async (
+        forceAll: boolean = false,
+        friends?: string[],
+    ): Promise<void> => {
         if (!this.zoneId || this.friendFindsProgress) {
             return;
         }
@@ -1280,7 +1289,11 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             const response = await this.apiClient.request('/api/friends/finds/sync-zone-stream', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ zone_id: this.zoneId, force_all: forceAll }),
+                body: JSON.stringify({
+                    zone_id: this.zoneId,
+                    force_all: forceAll,
+                    ...(friends && friends.length > 0 ? { friends } : {}),
+                }),
                 signal: this.analyzeAbortController.signal,
             });
 
@@ -1385,6 +1398,50 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     /** Interrompt l'analyse streaming en cours (bouton « Annuler »). */
     protected cancelAnalyzeFriendFinds = (): void => {
         this.analyzeAbortController?.abort();
+    };
+
+    /** Ouvre le dialogue de sélection d'amis à scanner. */
+    protected openFriendSelectionDialog = (): void => {
+        // Par défaut, tous les amis sont cochés.
+        this.friendSelectionChecked = new Set(this.friendScans.map(s => s.friend));
+        this.friendSelectionForceAll = false;
+        this.friendSelectionDialogOpen = true;
+        this.update();
+    };
+
+    /** Ferme le dialogue de sélection d'amis. */
+    protected closeFriendSelectionDialog = (): void => {
+        this.friendSelectionDialogOpen = false;
+        this.update();
+    };
+
+    /** Bascule la sélection d'un ami dans le dialogue. */
+    protected toggleFriendSelection = (friend: string): void => {
+        if (this.friendSelectionChecked.has(friend)) {
+            this.friendSelectionChecked.delete(friend);
+        } else {
+            this.friendSelectionChecked.add(friend);
+        }
+        this.update();
+    };
+
+    /** Sélectionne ou désélectionne tous les amis. */
+    protected toggleAllFriendsSelection = (selectAll: boolean): void => {
+        if (selectAll) {
+            this.friendSelectionChecked = new Set(this.friendScans.map(s => s.friend));
+        } else {
+            this.friendSelectionChecked = new Set();
+        }
+        this.update();
+    };
+
+    /** Lance l'analyse sur les amis sélectionnés dans le dialogue. */
+    protected confirmFriendSelection = async (): Promise<void> => {
+        const selected = Array.from(this.friendSelectionChecked);
+        const forceAll = this.friendSelectionForceAll;
+        this.friendSelectionDialogOpen = false;
+        this.update();
+        await this.analyzeFriendFinds(forceAll, selected);
     };
 
     protected async load(): Promise<void> {
@@ -1946,6 +2003,16 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 onCancelAnalyzeFriendFinds={this.cancelAnalyzeFriendFinds}
                 friendScansFreshCount={this.friendScansFreshCount}
                 friendScansTotalCount={this.friendScansTotalCount}
+                friendScans={this.friendScans}
+                friendSelectionDialogOpen={this.friendSelectionDialogOpen}
+                friendSelectionChecked={this.friendSelectionChecked}
+                friendSelectionForceAll={this.friendSelectionForceAll}
+                onOpenFriendSelectionDialog={this.openFriendSelectionDialog}
+                onCloseFriendSelectionDialog={this.closeFriendSelectionDialog}
+                onToggleFriendSelection={this.toggleFriendSelection}
+                onToggleAllFriendsSelection={this.toggleAllFriendsSelection}
+                onFriendSelectionForceAllChange={(v: boolean) => { this.friendSelectionForceAll = v; this.update(); }}
+                onConfirmFriendSelection={this.confirmFriendSelection}
                 showImportAroundDialog={this.importAroundDialogOpen}
                 importAroundDialogInitialCenter={this.importAroundDialogInitialCenter}
                 onImportAroundDialogImport={(req, onProgress) => this.handleImportAroundDialogImport(req, onProgress)}

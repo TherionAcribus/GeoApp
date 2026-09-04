@@ -327,3 +327,78 @@ def test_stream_all_fresh_emits_done(app, monkeypatch):
     assert events[0]['skipped'] == 2
     assert events[0]['to_scan'] == 0
     assert events[-1]['scanned'] == 0
+
+
+def test_stream_filters_selected_friends(app, monkeypatch):
+    """Le paramètre friends[] filtre la liste d'amis à scanner."""
+    import gc_backend.blueprints.friends as blueprint
+    import gc_backend.services.geocaching_friend_finds as finds_module
+    import gc_backend.services.geocaching_friends as friends_module
+
+    monkeypatch.setattr(blueprint, 'get_auth_service', lambda: _LoggedInAuth())
+
+    session = _FakeSearchSession({
+        '*': ['GC1', 'GC2'],
+        'ami1': ['GC1'],
+        'ami2': ['GC2'],
+        'ami3': [],
+    })
+    monkeypatch.setattr(finds_module, '_client', _client(session))
+    monkeypatch.setattr(friends_module, 'get_friends_client',
+                        lambda: _FakeFriendsClient(['ami1', 'ami2', 'ami3']))
+
+    # Ne scanner que ami1 et ami3 (pas ami2).
+    response = app.test_client().post(
+        '/api/friends/finds/sync-zone-stream',
+        json={'zone_id': app.zone_id, 'friends': ['ami1', 'ami3']},
+    )
+
+    events = _parse_ndjson(response)
+    start = events[0]
+    assert start['total'] == 2  # 2 amis dans le sous-ensemble
+    assert start['to_scan'] == 2
+    assert start['skipped'] == 0
+
+    done = events[-1]
+    assert done['scanned'] == 2
+
+    # Seuls ami1 et ami3 ont un scan enregistré.
+    scans = {s.friend_username for s in FriendZoneScan.query.all()}
+    assert scans == {'ami1', 'ami3'}
+
+
+def test_stream_rejects_invalid_friends_param(app, monkeypatch):
+    """friends doit être une liste, pas une chaîne."""
+    import gc_backend.blueprints.friends as blueprint
+
+    monkeypatch.setattr(blueprint, 'get_auth_service', lambda: _LoggedInAuth())
+
+    response = app.test_client().post(
+        '/api/friends/finds/sync-zone-stream',
+        json={'zone_id': app.zone_id, 'friends': 'ami1'},
+    )
+    assert response.status_code == 400
+    assert response.get_json()['error'] == 'invalid_params'
+
+
+def test_stream_empty_friends_subset_emits_done(app, monkeypatch):
+    """Une liste friends vide → 0 amis à scanner, done immédiat."""
+    import gc_backend.blueprints.friends as blueprint
+    import gc_backend.services.geocaching_friend_finds as finds_module
+    import gc_backend.services.geocaching_friends as friends_module
+
+    monkeypatch.setattr(blueprint, 'get_auth_service', lambda: _LoggedInAuth())
+    session = _FakeSearchSession({'*': ['GC1', 'GC2']})
+    monkeypatch.setattr(finds_module, '_client', _client(session))
+    monkeypatch.setattr(friends_module, 'get_friends_client',
+                        lambda: _FakeFriendsClient(['ami1', 'ami2']))
+
+    response = app.test_client().post(
+        '/api/friends/finds/sync-zone-stream',
+        json={'zone_id': app.zone_id, 'friends': []},
+    )
+
+    events = _parse_ndjson(response)
+    assert len(events) == 1
+    assert events[0]['phase'] == 'done'
+    assert events[0]['scanned'] == 0
