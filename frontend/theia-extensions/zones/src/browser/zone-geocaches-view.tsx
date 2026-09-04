@@ -8,6 +8,7 @@ import { MoveGeocacheDialog } from './move-geocache-dialog';
 import { ImportAroundDialog, ImportAroundCenter, ImportAroundRequest } from './import-around-dialog';
 import { ImportProgressCallback } from './import-dialog-shell';
 import { EmptyState, LoadingState } from './state-views';
+import { ZoneFriendAnalysisPanel } from './zone-friend-analysis-panel';
 import type { FriendFindsProgress, FriendZoneScanEntry } from './friends-types';
 
 type SelectionDialogState = { geocacheIds: number[] } | null;
@@ -317,6 +318,18 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
                     </>
                 )}
             </div>
+        )}
+
+        {/* Panneau de résultat de l'analyse amis (matrice ami × cache). */}
+        {!props.loading && props.rows.length > 0 && props.friendFinds && props.onMissingForFriendChange && (
+            <ZoneFriendAnalysisPanel
+                rows={props.rows}
+                friendFinds={props.friendFinds}
+                friendScans={props.friendScans ?? []}
+                missingForFriend={props.missingForFriend ?? null}
+                onMissingForFriendChange={props.onMissingForFriendChange}
+                onOpenGeocache={props.onRowClick}
+            />
         )}
 
         {props.loading ? (
