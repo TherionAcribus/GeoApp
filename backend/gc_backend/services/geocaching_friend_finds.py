@@ -508,6 +508,99 @@ class GeocachingFriendFindsClient:
         })
         return int(payload.get('total') or 0)
 
+    def estimate_finds_in_box_count(self, friend_username: str, box: ZoneBox) -> int:
+        """
+        Nombre de caches de la boîte trouvées par cet ami, en **une** requête.
+
+        C'est la sonde du **chemin direct** (`fb` + `box` + `sort=founddate`) :
+        si le filtre joueur est pris en compte par le serveur, on obtient
+        directement les trouvailles dans la boîte — sans paginer le complément
+        `nfb` (qui pour un ami à 0 trouvaille est aussi gros que la référence).
+
+        > ⚠️ Le mode d'échec de `fb` est **silencieux** (§11.1) : aucune erreur
+        > HTTP, juste l'index mondial. Le garde-fou `FilterIgnoredError` lève
+        > dès que le total dépasse `MAX_PLAUSIBLE_FINDS`. L'appelant doit
+        > intercepter cette exception pour retomber sur le complément `nfb`.
+        """
+        payload = self._request({
+            'fb': friend_username,
+            'sort': 'founddate',
+            'asc': 'false',
+            'box': box.box_param,
+            'origin': box.origin_param,
+            'take': 1,
+            'skip': 0,
+        })
+        total = int(payload.get('total') or 0)
+        if total > self.MAX_PLAUSIBLE_FINDS:
+            raise FilterIgnoredError(
+                f"geocaching.com a ignoré le filtre joueur : {total} résultats pour "
+                f"« {friend_username} » avec boîte, c'est l'index mondial. "
+                f"Cette recherche n'est pas exploitable."
+            )
+        return total
+
+    def _paginate_fb(
+        self,
+        base_params: dict,
+        total: int,
+        max_results: Optional[int] = None,
+    ) -> tuple[list[CacheSummary], bool]:
+        """
+        Pagine une recherche `fb` dont le total est déjà connu (sonde faite).
+
+        Retourne (résumés, tronqué). Le plafond `MAX_SKIP` du serveur est
+        respecté : au-delà, on s'arrête proprement.
+        """
+        limit = min(total, max_results) if max_results else total
+        summaries: list[CacheSummary] = []
+        skip = 0
+        truncated = False
+
+        while skip < limit:
+            take = min(self.PAGE_SIZE, limit - skip)
+            if skip + take > self.MAX_SKIP:
+                truncated = True
+                break
+            payload = self._request({**base_params, 'take': take, 'skip': skip})
+            results = payload.get('results') or []
+            summaries.extend(self._to_summary(item) for item in results if item.get('code'))
+            if len(results) < take:
+                break
+            skip += len(results)
+
+        return summaries, truncated or len(summaries) < limit
+
+    def search_finds_in_box(
+        self,
+        username: str,
+        box: ZoneBox,
+        max_results: Optional[int] = None,
+    ) -> tuple[list[CacheSummary], int, bool]:
+        """
+        Trouvailles d'un joueur **dans une boîte**, de la plus récente à la
+        plus ancienne. Retourne (résumés, total, tronqué).
+
+        C'est la variante géolocalisée de `search_finds_by` : mêmes paramètres
+        (`fb`, `sort=founddate`, `asc=false`) avec en plus `box` et `origin`.
+        Le garde-fou `FilterIgnoredError` détecte le mode d'échec silencieux du
+        filtre joueur (§11.1).
+        """
+        total = self.estimate_finds_in_box_count(username, box)
+        base = {
+            'fb': username,
+            'sort': 'founddate',
+            'asc': 'false',
+            'box': box.box_param,
+            'origin': box.origin_param,
+        }
+        summaries, truncated = self._paginate_fb(base, total, max_results)
+        logger.info(
+            "%s : %d trouvailles dans la boîte sur %d annoncées%s",
+            username, len(summaries), total, ' (tronqué)' if truncated else ''
+        )
+        return summaries, total, truncated
+
     def get_zone_baseline_summaries(self, box: ZoneBox, force: bool = False) -> tuple[list[CacheSummary], bool]:
         """
         Caches de la zone, sans filtre — la référence de la soustraction.
@@ -538,25 +631,143 @@ class GeocachingFriendFindsClient:
 
     def find_codes_found_by(self, friend_username: str, box: ZoneBox) -> FriendFindsResult:
         """
-        Déduit les caches de la zone trouvées par cet ami (complément de `nfb`).
+        Déduit les caches de la zone trouvées par cet ami.
+
+        Deux chemins, du plus rapide au plus robuste :
+
+        1. **Chemin direct** (`fb` + `box` + `sort=founddate`) : si le serveur
+           prend en compte le filtre joueur **avec** une boîte, on obtient
+           directement les trouvailles dans la zone — un ami avec 5 trouvailles
+           sur 1 400 caches coûte 1 page au lieu de 14. C'est l'appel de la page
+           « Geocaches found » d'un profil, restreint à une boîte.
+
+        2. **Complément `nfb`** (fallback) : si le filtre `fb` est silencieusement
+           ignoré (§11.1), on retombe sur la soustraction
+           `trouvées = référence − non_trouvées`. La sonde `nfb` (1 requête)
+           court-circuite la pagination pour les amis à 0 ou tout trouvé.
+        """
+        baseline, truncated_baseline = self.get_zone_baseline_summaries(box)
+        baseline_codes = {summary.gc_code for summary in baseline}
+
+        # --- Chemin direct : fb + box ---
+        result = self._find_via_fb_box(
+            friend_username, box, baseline, baseline_codes, truncated_baseline
+        )
+        if result is not None:
+            return result
+
+        # --- Fallback : complément nfb ---
+        return self._find_via_nfb(friend_username, box, baseline, truncated_baseline)
+
+    def _find_via_fb_box(
+        self,
+        friend_username: str,
+        box: ZoneBox,
+        baseline: list[CacheSummary],
+        baseline_codes: set[str],
+        truncated_baseline: bool,
+    ) -> Optional[FriendFindsResult]:
+        """
+        Chemin direct via `fb` + `box` + `sort=founddate`.
+
+        Retourne ``None`` si le chemin n'est pas exploisable (filtre ignoré,
+        cas ambigu, codes hors boîte) : l'appelant doit alors retomber sur le
+        complément `nfb`.
+        """
+        try:
+            fb_total = self.estimate_finds_in_box_count(friend_username, box)
+        except FilterIgnoredError:
+            logger.info(
+                "fb+box ignoré pour %s (filtre joueur non pris en compte), "
+                "retour au complément nfb",
+                friend_username,
+            )
+            return None
+
+        if fb_total == 0:
+            logger.info(
+                "%s a trouvé 0 des %d caches de la zone (fb+box, sans pagination)",
+                friend_username, len(baseline)
+            )
+            return FriendFindsResult(
+                friend_username=friend_username,
+                found_codes=set(),
+                zone_codes_count=len(baseline),
+                truncated=truncated_baseline,
+                summaries={},
+            )
+
+        # Si le total fb atteint la référence et qu'elle n'est pas tronquée,
+        # on ne peut pas distinguer « l'ami a tout trouvé » (légitime, rare) de
+        # « le filtre fb a été ignoré, le serveur renvoie toutes les caches de
+        # la boîte ». On laisse le complément nfb trancher (sa sonde détectera
+        # nfb_total == 0 si l'ami a vraiment tout trouvé).
+        if not truncated_baseline and fb_total >= len(baseline_codes):
+            logger.info(
+                "fb+box : total == référence (%d) pour %s, ambigu, retour au complément nfb",
+                fb_total, friend_username,
+            )
+            return None
+
+        # Cas intéressant : 0 < fb_total < len(baseline). On pagine fb+box
+        # pour obtenir directement les trouvailles dans la boîte.
+        base = {
+            'fb': friend_username,
+            'sort': 'founddate',
+            'asc': 'false',
+            'box': box.box_param,
+            'origin': box.origin_param,
+        }
+        summaries_list, truncated_fb = self._paginate_fb(base, fb_total)
+        summaries = {summary.gc_code: summary for summary in summaries_list}
+
+        # Vérification de cohérence : si la baseline n'est pas tronquée, tous
+        # les codes retournés doivent être dans la boîte. Sinon, le filtre box
+        # a été ignoré (le serveur renvoie les trouvailles mondiales de l'ami).
+        if not truncated_baseline:
+            out_of_box = set(summaries) - baseline_codes
+            if out_of_box:
+                logger.warning(
+                    "fb+box a retourné %d codes hors boîte pour %s : le filtre box "
+                    "a probablement été ignoré. Retour au complément nfb.",
+                    len(out_of_box), friend_username,
+                )
+                return None
+
+        logger.info(
+            "%s a trouvé %d des %d caches de la zone (fb+box)",
+            friend_username, len(summaries), len(baseline)
+        )
+        return FriendFindsResult(
+            friend_username=friend_username,
+            found_codes=set(summaries),
+            zone_codes_count=len(baseline),
+            truncated=truncated_baseline or truncated_fb,
+            summaries=summaries,
+        )
+
+    def _find_via_nfb(
+        self,
+        friend_username: str,
+        box: ZoneBox,
+        baseline: list[CacheSummary],
+        truncated_baseline: bool,
+    ) -> FriendFindsResult:
+        """
+        Complément `nfb` : ``trouvées = référence − non_trouvées``.
 
         Sonde préalable (1 requête) : si l'ami n'a rien trouvé dans la boîte,
         ou s'il a tout trouvé, on s'épargne la pagination complète du
-        complément `nfb`. C'est le cas le plus fréquent pour « qui n'a pas fait
-        la série » : la plupart des amis ont 0 trouvaille sur la zone, et
-        chaque `nfb` complet coûterait autant de pages que la référence.
+        complément. C'est le cas le plus fréquent pour « qui n'a pas fait
+        la série » : la plupart des amis ont 0 trouvaille sur la zone.
         """
-        baseline, truncated_baseline = self.get_zone_baseline_summaries(box)
-
-        # Sonde en une requête : le total du complément nfb suffit à détecter
-        # les deux cas extrêmes sans paginer.
         nfb_total = self.estimate_nfb_count(friend_username, box)
 
         if nfb_total == 0:
             # L'ami a trouvé toutes les caches de la boîte.
             summaries = {summary.gc_code: summary for summary in baseline}
             logger.info(
-                "%s a trouvé %d des %d caches de la zone (tout, sans pagination)",
+                "%s a trouvé %d des %d caches de la zone (nfb, tout, sans pagination)",
                 friend_username, len(summaries), len(baseline)
             )
             return FriendFindsResult(
@@ -572,7 +783,7 @@ class GeocachingFriendFindsClient:
             # grand que la référence. Inutile de le paginer pour apprendre qu'il
             # ne contient que des caches qu'on connaît déjà.
             logger.info(
-                "%s a trouvé 0 des %d caches de la zone (sans pagination)",
+                "%s a trouvé 0 des %d caches de la zone (nfb, sans pagination)",
                 friend_username, len(baseline)
             )
             return FriendFindsResult(
@@ -594,7 +805,8 @@ class GeocachingFriendFindsClient:
             if summary.gc_code not in not_found_codes
         }
         logger.info(
-            "%s a trouvé %d des %d caches de la zone", friend_username, len(summaries), len(baseline)
+            "%s a trouvé %d des %d caches de la zone (nfb)",
+            friend_username, len(summaries), len(baseline)
         )
 
         return FriendFindsResult(

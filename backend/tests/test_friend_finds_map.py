@@ -49,6 +49,10 @@ class _RichSearchSession:
         if nfb:
             found = set(self.found_by.get(nfb, []))
             records = [record for record in records if record['code'] not in found]
+        fb = (params or {}).get('fb')
+        if fb:
+            found = set(self.found_by.get(fb, []))
+            records = [record for record in records if record['code'] in found]
 
         skip = int((params or {}).get('skip', 0))
         take = int((params or {}).get('take', 100))

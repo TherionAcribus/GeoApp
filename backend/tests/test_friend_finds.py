@@ -48,6 +48,9 @@ class _FakeSearchSession:
         nfb = (params or {}).get('nfb')
         if nfb:
             codes = [c for c in codes if c not in self.catalogue.get(nfb, [])]
+        fb = (params or {}).get('fb')
+        if fb:
+            codes = [c for c in codes if c in self.catalogue.get(fb, [])]
 
         skip = int((params or {}).get('skip', 0))
         take = int((params or {}).get('take', 100))
@@ -110,16 +113,16 @@ def test_baseline_is_fetched_once_for_several_friends():
     client.find_codes_found_by('ami1', BOX)
     client.find_codes_found_by('ami2', BOX)
 
-    # 1 référence (sans nfb) + par ami : 1 sonde nfb (take=1) + 1 pagination nfb.
-    # La référence n'est téléchargée qu'une fois (cache 10 min).
-    non_nfb_calls = [c for c in session.calls if not c.get('nfb')]
-    assert len(non_nfb_calls) == 1  # la référence, une seule fois
-    nfb_calls = [c.get('nfb') for c in session.calls if c.get('nfb')]
-    assert nfb_calls == ['ami1', 'ami1', 'ami2', 'ami2']  # sonde + pagination par ami
+    # La référence (sans filtre joueur) n'est téléchargée qu'une fois (cache 10 min).
+    baseline_calls = [c for c in session.calls if not c.get('nfb') and not c.get('fb')]
+    assert len(baseline_calls) == 1
+    # Par ami : 1 sonde fb (take=1) + 1 page fb (take=100), car 0 < total < baseline.
+    fb_calls = [c.get('fb') for c in session.calls if c.get('fb')]
+    assert fb_calls == ['ami1', 'ami1', 'ami2', 'ami2']
 
 
-def test_friend_with_no_finds_skips_nfb_pagination():
-    """Un ami qui n'a rien trouvé se détecte en une sonde, sans paginer nfb."""
+def test_friend_with_no_finds_skips_pagination():
+    """Un ami qui n'a rien trouvé se détecte en une sonde fb, sans paginer."""
     session = _FakeSearchSession({
         '*': ['GC1', 'GC2', 'GC3', 'GC4'],
         'ami': [],
@@ -129,14 +132,17 @@ def test_friend_with_no_finds_skips_nfb_pagination():
     assert result.found_codes == set()
     assert result.zone_codes_count == 4
     assert result.truncated is False
-    # 1 référence + 1 sonde nfb (take=1) : la pagination du complément est sautée.
+    # 1 référence + 1 sonde fb (take=1) : la pagination est sautée.
     assert len(session.calls) == 2
-    assert session.calls[1]['nfb'] == 'ami'
+    assert session.calls[1]['fb'] == 'ami'
     assert session.calls[1]['take'] == 1
 
 
-def test_friend_with_all_finds_skips_nfb_pagination():
-    """Un ami qui a tout trouvé se détecte en une sonde (nfb total = 0)."""
+def test_friend_with_all_finds_uses_nfb_fallback():
+    """
+    Un ami qui a tout trouvé : fb+box donne total == référence (ambigu), on
+    retombe sur nfb dont la sonde (total == 0) confirme que tout est trouvé.
+    """
     session = _FakeSearchSession({
         '*': ['GC1', 'GC2', 'GC3'],
         'ami': ['GC1', 'GC2', 'GC3'],
@@ -146,8 +152,51 @@ def test_friend_with_all_finds_skips_nfb_pagination():
     assert result.found_codes == {'GC1', 'GC2', 'GC3'}
     assert result.zone_codes_count == 3
     assert result.truncated is False
-    # 1 référence + 1 sonde nfb : pas de pagination.
-    assert len(session.calls) == 2
+    # 1 référence + 1 sonde fb (ambigu) + 1 sonde nfb (total=0 → tout trouvé).
+    assert len(session.calls) == 3
+
+
+def test_fb_box_fallback_on_filter_ignored():
+    """
+    Si le filtre fb est ignoré (index mondial), on retombe sur le complément nfb.
+    """
+    from gc_backend.services.geocaching_friend_finds import FilterIgnoredError
+
+    class _FilterIgnoredSession:
+        """Simule un serveur qui ignore fb+box et renvoie l'index mondial."""
+
+        def __init__(self, catalogue):
+            self.catalogue = catalogue
+            self.calls = []
+
+        def get(self, url, params=None, headers=None, timeout=None):
+            self.calls.append(dict(params or {}))
+            fb = (params or {}).get('fb')
+            if fb and (params or {}).get('box'):
+                # Mode d'échec silencieux : index mondial.
+                return _FakeResponse({'total': 4_000_000, 'results': []})
+            # nfb et référence fonctionnent normalement.
+            codes = list(self.catalogue['*'])
+            nfb = (params or {}).get('nfb')
+            if nfb:
+                codes = [c for c in codes if c not in self.catalogue.get(nfb, [])]
+            skip = int((params or {}).get('skip', 0))
+            take = int((params or {}).get('take', 100))
+            page = codes[skip:skip + take]
+            return _FakeResponse({'total': len(codes), 'results': [{'code': c} for c in page]})
+
+    session = _FilterIgnoredSession({
+        '*': ['GC1', 'GC2', 'GC3', 'GC4'],
+        'ami': ['GC2'],
+    })
+    result = _client(session).find_codes_found_by('ami', BOX)
+
+    assert result.found_codes == {'GC2'}
+    # 1 référence + 1 sonde fb (FilterIgnoredError) + 1 sonde nfb + 1 page nfb.
+    fb_calls = [c for c in session.calls if c.get('fb')]
+    nfb_calls = [c for c in session.calls if c.get('nfb')]
+    assert len(fb_calls) == 1  # la sonde fb qui a échoué
+    assert len(nfb_calls) >= 1  # le fallback nfb
 
 
 def test_pagination_collects_every_page():
