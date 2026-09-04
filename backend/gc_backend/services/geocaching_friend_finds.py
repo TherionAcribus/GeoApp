@@ -1301,6 +1301,8 @@ def _is_after(dt: datetime, threshold: datetime) -> bool:
     """
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
+    if threshold.tzinfo is None:
+        threshold = threshold.replace(tzinfo=timezone.utc)
     return dt > threshold
 
 
