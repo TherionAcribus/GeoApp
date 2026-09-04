@@ -7,6 +7,7 @@ Routes API :
 - GET  /api/friends/activity/map    → mêmes filtres, agrégés en points pour la carte
 - POST /api/friends/activity/sync   → récupère le flux distant et l'accumule en base
 - POST /api/friends/finds/sync-zone → déduit les trouvailles d'un ami sur une zone
+- POST /api/friends/finds/sync-zone-stream → analyse tous les amis en streaming NDJSON
 - POST /api/friends/finds/sync-friend → trouvailles d'un ami depuis son profil (sans zone)
 - GET  /api/friends/finds/zone/<id> → « qui a trouvé quoi » pour une zone
 - GET  /api/friends/finds/zone/<id>/scans → état des analyses par ami (vérifié le…, obsolète…)
@@ -364,6 +365,218 @@ def sync_zone_finds():
         "known": known,
         "truncated": result.truncated,
     })
+
+
+@bp.post("/finds/sync-zone-stream")
+def sync_zone_finds_stream():
+    """
+    Analyse **tous les amis** d'une zone en une seule réponse en streaming.
+
+    Réponse en **streaming NDJSON** (une ligne = un objet JSON), comme
+    `/finds/import` : le frontend consomme ligne par ligne pour afficher une
+    progression réelle, un ETA, et peut interrompre via ``AbortController``.
+
+    Avantages par rapport à la boucle ami par ami côté frontend
+    (``sync-zone``) :
+
+    - la boucle est côté serveur : fermer le widget n'interrompt pas
+      l'analyse (le navigateur annule la requête, mais le serveur peut
+      détecter la déconnexion et s'arrêter proprement) ;
+    - le ``Retry-After`` du 429 est respecté côté serveur (le client
+      ``GeocachingFriendFindsClient`` retente avec backoff) au lieu
+      d'abandonner au premier 429 ;
+    - un seul ``fetch`` au lieu de N, moins de overhead ;
+
+    Body JSON : { "zone_id": 1, "force_all": false }
+
+    Lignes émises :
+
+    - ``{ "phase": "start", "total": N, "skipped": M, "to_scan": K }``
+    - ``{ "phase": "progress", "done": i, "total": K, "friend": "pseudo",
+        "found": 5, "zone_matches": 3, "created": 2, "known": 3 }``
+    - ``{ "phase": "rate_limited", "done": i, "total": K, "message": "…" }``
+    - ``{ "phase": "error", "friend": "pseudo", "message": "…" }``
+    - ``{ "phase": "done", "scanned": K, "skipped": M, "with_friends": N }``
+    """
+    data = request.get_json(silent=True) or {}
+    zone_id = data.get("zone_id")
+    force_all = bool(data.get("force_all", False))
+
+    if not isinstance(zone_id, int):
+        return jsonify({"success": False, "error": "invalid_params",
+                        "error_message": "zone_id (entier) est requis."}), 400
+
+    if not get_auth_service().is_logged_in():
+        return jsonify({
+            "success": False,
+            "error": "not_authenticated",
+            "error_message": "Vous devez être connecté à Geocaching.com pour cette recherche.",
+        }), 401
+
+    box = _zone_box(zone_id)
+    if box is None:
+        return jsonify({"success": False, "error": "empty_zone",
+                        "error_message": "Cette zone ne contient aucune géocache géolocalisée."}), 400
+
+    def generate():
+        from ..services.geocaching_friends import get_friends_client
+        from ..services.geocaching_friend_finds import filter_friends_to_scan
+
+        try:
+            # Liste d'amis depuis le cache mémoire (pas de réseau).
+            friends_result = get_friends_client().get_friends()
+            all_friends = [f.username for f in friends_result.friends]
+        except Exception as exc:
+            yield json.dumps({
+                'phase': 'error',
+                'message': f"Impossible de récupérer la liste d'amis : {exc}",
+            }) + '\n'
+            return
+
+        if not all_friends:
+            yield json.dumps({
+                'phase': 'done',
+                'scanned': 0, 'skipped': 0, 'with_friends': 0,
+                'message': "Aucun ami Geocaching.com à analyser.",
+            }) + '\n'
+            return
+
+        # Scan incrémental : skip les amis dont le scan est frais.
+        to_scan = all_friends
+        skipped = 0
+        if not force_all:
+            to_scan, fresh = filter_friends_to_scan(zone_id, all_friends, box)
+            skipped = len(fresh)
+
+        total_to_scan = len(to_scan)
+        yield json.dumps({
+            'phase': 'start',
+            'total': len(all_friends),
+            'skipped': skipped,
+            'to_scan': total_to_scan,
+        }) + '\n'
+
+        if total_to_scan == 0:
+            yield json.dumps({
+                'phase': 'done',
+                'scanned': 0, 'skipped': skipped,
+                'with_friends': 0,
+                'message': f"Tous vos amis ont déjà été analysés récemment ({skipped}).",
+            }) + '\n'
+            return
+
+        client = get_friend_finds_client()
+        scanned = 0
+        rate_limited = False
+
+        for index, friend in enumerate(to_scan):
+            # Détection de déconnexion : si le client a fermé la connexion,
+            # on s'arrête proprement sans perdre ce qui a déjà été collecté.
+            if request.environ.get('werkzeug.socket.disconnected'):
+                logger.info("Client disconnected during zone scan, stopping after %d friends", scanned)
+                break
+
+            try:
+                result = client.find_codes_found_by(friend, box)
+                baseline, _ = client.get_zone_baseline(box)
+                created, known = store_finds(
+                    friend,
+                    result.found_codes,
+                    replace_scope=baseline,
+                    summaries=result.summaries,
+                )
+
+                zone_codes = {
+                    code for (code,) in db.session.query(Geocache.gc_code)
+                    .filter(Geocache.zone_id == zone_id).all()
+                }
+                zone_matches = len(zone_codes & result.found_codes)
+
+                record_scan(
+                    friend_username=friend,
+                    zone_id=zone_id,
+                    box=box,
+                    found_count=len(result.found_codes),
+                    baseline_total=result.zone_codes_count,
+                    zone_matches=zone_matches,
+                    truncated=result.truncated,
+                )
+
+                scanned += 1
+                yield json.dumps({
+                    'phase': 'progress',
+                    'done': scanned,
+                    'total': total_to_scan,
+                    'friend': friend,
+                    'found': len(result.found_codes),
+                    'zone_matches': zone_matches,
+                    'created': created,
+                    'known': known,
+                    'truncated': result.truncated,
+                }) + '\n'
+
+            except RateLimitedError as exc:
+                rate_limited = True
+                logger.warning("Friend finds rate limited during stream: %s", exc)
+                yield json.dumps({
+                    'phase': 'rate_limited',
+                    'done': scanned,
+                    'total': total_to_scan,
+                    'message': (
+                        f"Geocaching.com limite les recherches : analyse interrompue "
+                        f"après {scanned} ami(s). Relancez dans quelques minutes pour continuer."
+                    ),
+                }) + '\n'
+                break
+
+            except NotAuthenticatedError as exc:
+                yield json.dumps({
+                    'phase': 'error',
+                    'friend': friend,
+                    'message': str(exc),
+                }) + '\n'
+                break
+
+            except FriendFindsError as exc:
+                logger.error("Failed to compute friend finds for %s: %s", friend, exc)
+                yield json.dumps({
+                    'phase': 'error',
+                    'friend': friend,
+                    'message': str(exc),
+                }) + '\n'
+                # On continue sur les autres amis : une erreur sur un ami
+                # ne doit pas arrêter toute l'analyse.
+
+            except Exception as exc:  # pragma: no cover - garde-fou
+                logger.exception("Unexpected error scanning %s", friend)
+                db.session.rollback()
+                yield json.dumps({
+                    'phase': 'error',
+                    'friend': friend,
+                    'message': f"Erreur inattendue : {exc}",
+                }) + '\n'
+
+        # Bilan final + rechargement des données locales.
+        finds_rows = (
+            db.session.query(Geocache.gc_code, FriendFind.friend_username)
+            .join(FriendFind, FriendFind.gc_code == Geocache.gc_code)
+            .filter(Geocache.zone_id == zone_id)
+            .all()
+        )
+        with_friends = len({row[0] for row in finds_rows})
+
+        yield json.dumps({
+            'phase': 'done',
+            'scanned': scanned,
+            'skipped': skipped,
+            'with_friends': with_friends,
+            'rate_limited': rate_limited,
+        }) + '\n'
+
+    return Response(
+        stream_with_context(generate()),
+        content_type='application/json',
+    )
 
 
 @bp.get("/finds/friend/<path:username>/estimate")

@@ -81,6 +81,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     /** « Qui a trouvé quoi » dans cette zone : code GC -> pseudos d'amis. */
     protected friendFinds: Record<string, string[]> = {};
     protected friendFindsProgress: { done: number; total: number; friend?: string } | null = null;
+    /** AbortController pour interrompre l'analyse streaming en cours. */
+    protected analyzeAbortController?: AbortController;
     /** État des scans par ami sur cette zone (vérifié le…, obsolète…). */
     protected friendScans: Array<{
         friend: string; scanned: boolean; is_stale: boolean;
@@ -1225,9 +1227,16 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     /**
      * Détermine, ami par ami, quelles caches de la zone il a trouvées.
      *
+     * Analyse en **streaming NDJSON** : un seul ``fetch`` vers
+     * ``/finds/sync-zone-stream`` consomme la réponse ligne par ligne pour
+     * afficher une progression réelle. La boucle est côté serveur, ce qui
+     * permet au backend de respecter le ``Retry-After`` du 429 (backoff) au
+     * lieu d'abandonner au premier throttling.
+     *
      * Scan incrémental : les amis dont le scan est frais (récent + boîte
-     * inchangée) sont skip, sauf si ``forceAll`` est vrai. On s'arrête net au
-     * premier signal de throttling (429), en gardant ce qui a déjà été collecté.
+     * inchangée) sont skip côté serveur, sauf si ``forceAll`` est vrai.
+     * L'utilisateur peut interrompre l'analyse via le bouton « Annuler »
+     * (``AbortController``).
      */
     protected analyzeFriendFinds = async (forceAll: boolean = false): Promise<void> => {
         if (!this.zoneId || this.friendFindsProgress) {
@@ -1258,86 +1267,124 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             console.debug('[ZoneGeocaches] estimation indisponible:', error);
         }
 
-        let friends: Array<{ username: string }> = [];
-        try {
-            const data = await this.apiClient.requestJson<{ success: boolean; friends: Array<{ username: string }> }>(
-                '/api/friends'
-            );
-            friends = data?.friends ?? [];
-        } catch (error) {
-            this.messages.error("Impossible de récupérer la liste d'amis : " + error);
-            return;
-        }
-
-        if (friends.length === 0) {
-            this.messages.info("Aucun ami Geocaching.com à analyser.");
-            return;
-        }
-
-        // Scan incrémental : filtrer les amis dont le scan est frais.
-        const freshSet = new Set(
-            this.friendScans
-                .filter(s => s.scanned && !s.is_stale)
-                .map(s => s.friend)
-        );
-        let toScan = friends;
-        let skipped = 0;
-        if (!forceAll && freshSet.size > 0) {
-            toScan = friends.filter(f => !freshSet.has(f.username));
-            skipped = friends.length - toScan.length;
-        }
-
-        if (toScan.length === 0) {
-            this.messages.info(
-                `Tous vos amis ont déjà été analysés récemment (${freshSet.size}). `
-                + 'Utilisez Maj+clic pour forcer une réanalyse complète.'
-            );
-            return;
-        }
-
-        this.friendFindsProgress = { done: 0, total: toScan.length };
+        this.analyzeAbortController = new AbortController();
+        this.friendFindsProgress = { done: 0, total: 0 };
         this.update();
 
-        let analyzed = 0;
+        let scanned = 0;
+        let skipped = 0;
+        let withFriends = 0;
+        let rateLimited = false;
+
         try {
-            for (const friend of toScan) {
-                this.friendFindsProgress = { done: analyzed, total: toScan.length, friend: friend.username };
-                this.update();
+            const response = await this.apiClient.request('/api/friends/finds/sync-zone-stream', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ zone_id: this.zoneId, force_all: forceAll }),
+                signal: this.analyzeAbortController.signal,
+            });
 
-                const response = await this.apiClient.request('/api/friends/finds/sync-zone', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ zone_id: this.zoneId, friend: friend.username })
-                });
+            if (response.status === 401) {
+                this.messages.error('Vous devez être connecté à Geocaching.com pour cette recherche.');
+                return;
+            }
+            if (response.status === 400) {
+                const payload = await response.json().catch(() => ({}));
+                this.messages.error(payload.error_message || 'Paramètres invalides.');
+                return;
+            }
+            if (!response.body) {
+                this.messages.error('Réponse streaming non supportée par le backend.');
+                return;
+            }
 
-                if (response.status === 429) {
-                    this.messages.warn(
-                        `Geocaching.com limite les recherches : analyse interrompue après ${analyzed} ami(s). `
-                        + 'Relancez dans quelques minutes pour continuer.'
-                    );
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            const handleLine = (line: string): void => {
+                const trimmed = line.trim();
+                if (!trimmed) {
+                    return;
+                }
+                try {
+                    const data = JSON.parse(trimmed);
+                    switch (data.phase) {
+                        case 'start':
+                            this.friendFindsProgress = {
+                                done: 0,
+                                total: data.to_scan ?? 0,
+                            };
+                            skipped = data.skipped ?? 0;
+                            break;
+                        case 'progress':
+                            scanned = data.done ?? scanned;
+                            this.friendFindsProgress = {
+                                done: data.done,
+                                total: data.total,
+                                friend: data.friend,
+                            };
+                            break;
+                        case 'rate_limited':
+                            rateLimited = true;
+                            this.messages.warn(data.message || 'Geocaching.com limite les recherches.');
+                            break;
+                        case 'error':
+                            if (data.friend) {
+                                this.messages.error(`${data.friend}: ${data.message}`);
+                            } else {
+                                this.messages.error(data.message || 'Erreur during scan.');
+                            }
+                            break;
+                        case 'done':
+                            scanned = data.scanned ?? scanned;
+                            withFriends = data.with_friends ?? 0;
+                            rateLimited = data.rate_limited ?? rateLimited;
+                            break;
+                    }
+                    this.update();
+                } catch (e) {
+                    console.error('[ZoneGeocaches] Unparsable stream line:', e);
+                }
+            };
+
+            for (;;) {
+                const { done, value } = await reader.read();
+                if (done) {
                     break;
                 }
-                if (!response.ok) {
-                    const payload = await response.json().catch(() => ({}));
-                    this.messages.error(payload.error_message || `Échec de l'analyse (HTTP ${response.status})`);
-                    break;
-                }
-                analyzed += 1;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+                lines.forEach(handleLine);
+            }
+            handleLine(buffer);
+
+        } catch (error) {
+            if (error instanceof DOMException && error.name === 'AbortError') {
+                this.messages.info(`Analyse interrompue après ${scanned} ami(s).`);
+            } else {
+                this.messages.error("Erreur pendant l'analyse : " + error);
             }
         } finally {
             this.friendFindsProgress = null;
+            this.analyzeAbortController = undefined;
             await this.loadFriendFinds();
             await this.loadFriendScans();
             this.update();
         }
 
-        if (analyzed > 0) {
-            const withFriends = Object.keys(this.friendFinds).length;
+        if (scanned > 0 && !rateLimited) {
             const skipMsg = skipped > 0 ? ` (${skipped} skip, scan récent)` : '';
             this.messages.info(
-                `${analyzed} ami(s) analysé(s)${skipMsg} : ${withFriends} cache(s) de la zone trouvée(s) par au moins un ami.`
+                `${scanned} ami(s) analysé(s)${skipMsg} : ${withFriends} cache(s) de la zone trouvée(s) par au moins un ami.`
             );
         }
+    };
+
+    /** Interrompt l'analyse streaming en cours (bouton « Annuler »). */
+    protected cancelAnalyzeFriendFinds = (): void => {
+        this.analyzeAbortController?.abort();
     };
 
     protected async load(): Promise<void> {
@@ -1896,6 +1943,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 friendFinds={this.friendFinds}
                 friendFindsProgress={this.friendFindsProgress}
                 onAnalyzeFriendFinds={this.analyzeFriendFinds}
+                onCancelAnalyzeFriendFinds={this.cancelAnalyzeFriendFinds}
                 friendScansFreshCount={this.friendScansFreshCount}
                 friendScansTotalCount={this.friendScansTotalCount}
                 showImportAroundDialog={this.importAroundDialogOpen}
