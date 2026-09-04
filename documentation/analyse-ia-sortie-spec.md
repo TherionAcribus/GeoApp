@@ -4,7 +4,8 @@
 > l'IA » sur un lot de géocaches (préparation d'une sortie). Organisé en 5 lots
 > indépendants, implémentables et commitables séparément.
 >
-> **État : les 5 lots sont livrés (2026-09-03).** Les blocs « Écart constaté à
+> **État : les 5 lots sont livrés (2026-09-03), plus un lot 6 d'enrichissement du
+> bundle (2026-09-04).** Les blocs « Écart constaté à
 > l'implémentation » signalent les endroits où le code s'écarte de la spec initiale, et
 > pourquoi. La documentation de référence est désormais le § 31 de
 > `documentation/chat-ia-geoapp-technique.md` ; ce document reste le journal de conception.
@@ -59,6 +60,7 @@ hint et surtout **les logs**, où l'information se trouve le plus souvent.
 | 3 | P1 | UI : bouton dans les deux tables + dialogue d'options | Faible |
 | 4 | P1 | Agent `geoapp-outing-analyzer`, prompt système, préférences, configuration du modèle | Faible |
 | 5 | P2 | Documentation | Nul |
+| 6 | P1 | Données manquantes dans le bundle : trouvaille, notes, EarthCache, waypoints, qualité et fraîcheur des logs | Faible |
 
 Tous livrés. Récapitulatif des fichiers produits :
 
@@ -69,6 +71,7 @@ Tous livrés. Récapitulatif des fichiers produits :
 | 3 | `outing-analysis-controller.ts`, boutons dans `geocaches-table.tsx` et `log-editor/log-editor-header.tsx`, câblage des deux widgets, binding Inversify, `tests/outing-analysis-controller.test.ts` (15 tests) |
 | 4 | `geoapp-outing-analyzer-agent.ts`, prompt système, 4 préférences, ligne du panneau Policy, `tests/geoapp-outing-analyzer-agent.test.ts` (7 tests) + 1 test de bridge |
 | 5 | § 31 de `chat-ia-geoapp-technique.md`, `docs/ia/analyse-sortie.md` |
+| 6 | `outing_analysis_service.py`, `outing_health.py`, `outing_gear_signals.py`, `outing-analysis-types.ts`, `outing-analysis-prompt.ts`, `outing-analysis-controller.ts`, `geoapp-chat-system-prompts.ts` (voir § LOT 6 en fin de document) |
 
 Ordre imposé : 1 → 2 → 3 → 4 → 5. Le lot 3 n'est testable de bout en bout qu'après le
 lot 4 (sans agent dédié, la session s'ouvre sur l'agent GeoApp par défaut, ce qui reste
@@ -858,6 +861,56 @@ certaines caches sont marquées « données incomplètes ».
   sortie » affiche le modèle effectif.
 - **Lot 5** : relire le § 2 de `chat-ia-geoapp-technique.md` pour que la liste des
   fichiers reste exhaustive.
+
+---
+
+## LOT 6 — Données manquantes dans le bundle (livré le 2026-09-04)
+
+Audit d'après-coup : six informations existaient en base et n'arrivaient pas jusqu'à
+l'IA. Fort impact, faible effort — aucune nouvelle mécanique, seulement des champs
+transportés jusqu'au prompt.
+
+| Manque | Correction | Fichiers |
+|---|---|---|
+| `found` / `found_date` | Alerte « déjà trouvée » dans le bloc de la cache, liste `already_found` en tête du bundle, avertissement dans le dialogue avant envoi | `_build_geocache_entry`, `formatFoundLine`, `collectWarnings` |
+| Note personnelle (`gc_personal_note`) et notes GeoApp (`Note`) | Rendues **avant** le listing ; le prompt système en fait la source prioritaire | `_serialize_personal_note`, `_serialize_notes`, `formatPersonalNote`, `formatNotes` |
+| `GeocacheLoggingTask` (EarthCache) | Section « Questions à répondre sur place », `requires_photo` remonté jusqu'à la checklist matériel | `_serialize_logging_tasks`, `formatLoggingTasks` |
+| Coordonnées et type des waypoints | Une ligne par waypoint : identité, type, coordonnées, note. Un waypoint `Parking Area` lève un signal contextuel `parking` (`source: 'waypoint'`) | `_serialize_waypoints`, `build_waypoint_signals`, `formatWaypointLine` |
+| `is_friend_log` / `is_favorite` | Accolés à l'en-tête de chaque extrait de log, dans les trois sélections | `_log_meta`, `formatLogOrigin` |
+| Fraîcheur des logs | `logs_fetched_at`, `days_since_logs_fetched`, `logs_stale` (seuil 180 j), liste `stale_logs` | `compute_health` |
+
+### Deux décisions à retenir
+
+**La péremption ne dégrade pas le niveau de santé.** Les DNF comptés restent des DNF et
+les dates de logs restent exactes : c'est la *complétude* de la collecte qui est en cause,
+pas le calcul. Dégrader `ok` en `watch` reviendrait à confondre « rien à signaler jusqu'à
+la date de collecte » et « signal faible ». La péremption est donc rendue comme un fait —
+raison de santé, liste de tête, avertissement UI, règle du prompt système — et c'est le
+rapport qui pondère.
+
+**`logs_fetched_at` est une approximation par le bas.** Elle vaut
+`max(updated_at, created_at)` sur les logs : un rafraîchissement qui ne ramène rien de
+nouveau ne touche aucune ligne, donc l'ancienneté calculée est majorée, jamais minorée.
+On se trompe du côté prudent, ce qui est le bon sens de l'erreur pour un indicateur de
+fiabilité.
+
+### Nettoyages de données constatés sur la vraie base
+
+- Le type de waypoint arrive du scraping avec un retour à la ligne et une parenthèse
+  orpheline (`Parking Area)\n            `). Nettoyé à la sérialisation : le prompt est un
+  format ligne à ligne.
+- `gc_coords` vaut `???` pour un waypoint dont les coordonnées ne sont pas publiées
+  (final de multi, étape virtuelle). Traité comme une absence, pas comme une valeur.
+
+Les deux corrections sont locales au bundle ; la donnée elle-même n'est pas corrigée, au
+même titre que l'inversion `hints` / `hints_decoded` du lot 1.
+
+### Tests
+
+- Backend : 72 tests dans `tests/test_outing_analysis.py` (26 ajoutés — fraîcheur,
+  waypoints, notes, tâches, métadonnées de logs).
+- Front : `outing-analysis-prompt.test.ts` (25 tests) et `outing-analysis-controller.test.ts`
+  (16 tests).
 
 ---
 

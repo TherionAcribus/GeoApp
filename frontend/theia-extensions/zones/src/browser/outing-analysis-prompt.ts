@@ -23,6 +23,9 @@ import {
     OutingGearSignal,
     OutingHealthLevel,
     OutingLogExcerpt,
+    OutingLoggingTask,
+    OutingNote,
+    OutingWaypoint,
 } from './outing-analysis-types';
 
 export interface OutingPromptContext {
@@ -116,6 +119,21 @@ function formatStatusLine(geocache: OutingAnalysisGeocache): string {
     return `- Statut : ${geocache.status || 'inconnu'} | Résolue : ${solved} | Coordonnées : ${coordinates}`;
 }
 
+/**
+ * Alerte « déjà trouvée ».
+ *
+ * Une cache trouvée dans une sélection de sortie est le plus souvent une erreur de
+ * sélection — mais pas toujours : on refait une multi, on accompagne quelqu'un. D'où une
+ * alerte à confirmer, pas une exclusion silencieuse.
+ */
+function formatFoundLine(geocache: OutingAnalysisGeocache): string | undefined {
+    if (!geocache.found) {
+        return undefined;
+    }
+    const when = isFilled(geocache.found_date) ? ` le ${formatDate(geocache.found_date)}` : '';
+    return `- ALERTE : géocache DÉJÀ TROUVÉE${when} — vérifier qu'elle a sa place dans la sortie.`;
+}
+
 function formatHealthLine(geocache: OutingAnalysisGeocache): string {
     const { level, reasons } = geocache.health;
     const label = HEALTH_LABELS[level] || level;
@@ -158,19 +176,114 @@ function formatAttributes(geocache: OutingAnalysisGeocache): string | undefined 
     return `- Attributs : ${rendered.join(', ')}`;
 }
 
+/**
+ * Un waypoint sur une ligne : identité, type, coordonnées, note.
+ *
+ * Les coordonnées sont l'information utile — un waypoint « Parking » sans coordonnées ne
+ * mène nulle part, et le dire évite que le rapport promette un parking introuvable. Le
+ * type est rendu parce qu'il porte du sens à lui seul (Parking Area, Trailhead, Stage).
+ */
+function formatWaypointLine(waypoint: OutingWaypoint): string {
+    const identity = [waypoint.prefix, waypoint.name].filter(isFilled).join(' ').trim();
+    const parts = [
+        identity !== '' ? identity : 'waypoint sans nom',
+        isFilled(waypoint.type) ? `[${waypoint.type}]` : undefined,
+        isFilled(waypoint.coordinates) ? String(waypoint.coordinates) : 'coordonnées absentes',
+        isFilled(waypoint.note_excerpt) ? `« ${waypoint.note_excerpt} »` : undefined,
+    ].filter(Boolean);
+    return `  > ${parts.join(' — ')}`;
+}
+
 function formatWaypoints(geocache: OutingAnalysisGeocache): string | undefined {
     if (geocache.waypoints_count === 0) {
         return undefined;
     }
-    const named = geocache.waypoints
-        .map(waypoint => [waypoint.prefix, waypoint.name].filter(isFilled).join(' '))
-        .filter(label => label.trim() !== '');
-    const detail = named.length > 0 ? ` (${named.join(', ')})` : '';
-    return `- Waypoints : ${geocache.waypoints_count}${detail}`;
+    if (geocache.waypoints.length === 0) {
+        return `- Waypoints : ${geocache.waypoints_count}`;
+    }
+    return [
+        `- Waypoints (${geocache.waypoints_count}) :`,
+        ...geocache.waypoints.map(formatWaypointLine),
+    ].join('\n');
+}
+
+/**
+ * Note personnelle geocaching.com.
+ *
+ * Rendue avant le listing, et volontairement : elle est plus courte, plus récente et
+ * écrite par l'utilisateur lui-même. Quand elle dit « parking rue des Lilas », elle vaut
+ * mieux que trois paragraphes de description.
+ */
+function formatPersonalNote(geocache: OutingAnalysisGeocache): string | undefined {
+    if (!isFilled(geocache.personal_note)) {
+        return undefined;
+    }
+    const suffix = geocache.personal_note_truncated ? ' (extrait tronqué)' : '';
+    return `- Note personnelle${suffix} :\n${quoteBlock(String(geocache.personal_note))}`;
+}
+
+function formatNoteLine(note: OutingNote): string {
+    const origin = [note.note_type, note.source_plugin || note.source].filter(isFilled).join(', ');
+    const head = [formatDate(note.updated_at), origin].filter(isFilled).join(' — ');
+    return `  > [${head}] « ${note.content_excerpt} »`;
+}
+
+function formatNotes(geocache: OutingAnalysisGeocache): string | undefined {
+    if (geocache.notes.length === 0) {
+        return undefined;
+    }
+    const omitted = geocache.notes_count - geocache.notes.length;
+    const suffix = omitted > 0 ? ` (${omitted} note(s) plus ancienne(s) non reprise(s))` : '';
+    return [
+        `- Notes GeoApp${suffix} :`,
+        ...geocache.notes.map(formatNoteLine),
+    ].join('\n');
+}
+
+/**
+ * Questions d'EarthCache.
+ *
+ * Ce sont les seules caches où la tâche se fait sur place sans rien à trouver : oublier
+ * une observation oblige à revenir. Les questions déjà répondues sont marquées, pour que
+ * le rapport n'en fasse pas une charge de travail qui n'existe plus.
+ */
+function formatLoggingTaskLine(task: OutingLoggingTask): string {
+    const flags = [
+        task.answered ? 'déjà répondue' : undefined,
+        task.requires_photo ? 'PHOTO REQUISE' : undefined,
+    ].filter(Boolean);
+    const suffix = flags.length > 0 ? ` (${flags.join(', ')})` : '';
+    const guidance = isFilled(task.guidance) ? ` — à observer : ${task.guidance}` : '';
+    return `  > ${task.question}${guidance}${suffix}`;
+}
+
+function formatLoggingTasks(geocache: OutingAnalysisGeocache): string | undefined {
+    if (geocache.logging_tasks.length === 0) {
+        return undefined;
+    }
+    const photo = geocache.logging_tasks_photo_required ? ', appareil photo nécessaire' : '';
+    return [
+        `- Questions à répondre sur place (${geocache.logging_tasks_count}${photo}) :`,
+        ...geocache.logging_tasks.map(formatLoggingTaskLine),
+    ].join('\n');
+}
+
+/**
+ * Qualité de la source d'un log, accolée à son en-tête.
+ *
+ * « ami » n'est pas décoratif : un conseil matériel venant de quelqu'un qu'on connaît se
+ * pondère autrement qu'un log anonyme, et le rapport peut le citer comme tel.
+ */
+function formatLogOrigin(log: OutingLogExcerpt): string {
+    const flags = [
+        log.is_friend_log ? 'ami' : undefined,
+        log.is_favorite ? 'favori' : undefined,
+    ].filter(Boolean);
+    return flags.length > 0 ? `, ${flags.join(', ')}` : '';
 }
 
 function formatLogLine(log: OutingLogExcerpt, options: { withType?: boolean; withMatched?: boolean }): string {
-    const head = [formatDate(log.date), log.author].filter(isFilled).join(', ');
+    const head = [formatDate(log.date), log.author].filter(isFilled).join(', ') + formatLogOrigin(log);
     const type = options.withType && isFilled(log.type) ? ` ${log.type} —` : '';
     const matched = options.withMatched && log.matched && log.matched.length > 0
         ? ` (matériel repéré : ${log.matched.join(', ')})`
@@ -205,12 +318,18 @@ function formatGeocacheBlock(
         geocache.unsolved_mystery
             ? '- ALERTE : mystery non résolue, les coordonnées publiées ne sont pas les bonnes.'
             : undefined,
+        formatFoundLine(geocache),
         formatHealthLine(geocache),
         formatAttributes(geocache),
         formatGearSignals(geocache.gear_signals),
         formatContextSignals(geocache.gear_signals),
         formatWaypoints(geocache),
         bullet('Hint', geocache.hint),
+        // Les trois sources écrites par l'utilisateur passent avant le listing : elles
+        // sont plus courtes, plus récentes, et souvent seules à porter l'information.
+        formatPersonalNote(geocache),
+        formatNotes(geocache),
+        formatLoggingTasks(geocache),
         showListing
             ? `- Listing${geocache.listing_truncated ? ' (extrait tronqué)' : ''} :\n${quoteBlock(listing)}`
             : undefined,
@@ -259,6 +378,22 @@ function formatReliabilitySection(bundle: OutingAnalysisBundle): string | undefi
             `- ${bundle.stats.unresolved_gear_signals} drapeau(x) matériel NON RÉSOLU(S) : `
             + `l'attribut signale un besoin sans dire lequel. Cherche l'objet précis dans le `
             + `listing, le hint et les logs, et dis-le clairement quand tu ne le trouves pas.`
+        );
+    }
+
+    if (bundle.stale_logs.length > 0) {
+        lines.push(
+            `- ${bundle.stale_logs.length} géocache(s) dont les logs locaux sont périmés : `
+            + `${bundle.stale_logs.join(', ')}. Leur santé décrit un passé arrêté à la date de `
+            + `collecte, pas l'état d'aujourd'hui. Traite-la comme une indication, pas comme un fait.`
+        );
+    }
+
+    if (bundle.already_found.length > 0) {
+        lines.push(
+            `- ${bundle.already_found.length} géocache(s) DÉJÀ TROUVÉE(S) dans la sélection : `
+            + `${bundle.already_found.join(', ')}. Signale-les d'emblée : c'est le plus souvent `
+            + `une erreur de sélection, à retirer ou à confirmer avant de partir.`
         );
     }
 

@@ -1172,6 +1172,7 @@ OutingAnalysisController.analyze()             sans UI, testable seul
         |            v
         |    outing_analysis_service.build_analysis_bundle()
         |            +--> outing_gear_signals.build_gear_signals()
+        |            +--> outing_gear_signals.build_waypoint_signals()
         |            +--> outing_health.compute_health()
         |            +--> outing_lexicons.find_gear_mentions()
         |
@@ -1180,6 +1181,38 @@ OutingAnalysisController.analyze()             sans UI, testable seul
         v
 GeoAppChatBridge (session `libre`, agent `geoapp-outing-analyzer`)
 ```
+
+### Ce que contient le bundle
+
+Le bundle ne se limite pas à ce que geocaching.com publie : il ramasse aussi le travail
+déjà fait par l'utilisateur, qui est souvent la meilleure source disponible.
+
+| Source | Champs | Pourquoi elle compte |
+|---|---|---|
+| Listing, hint, attributs | `listing_excerpt`, `hint`, `attributes`, `gear_signals` | Le socle |
+| Statut de trouvaille | `found`, `found_date` | Une cache déjà trouvée dans la sélection est presque toujours une erreur de sélection |
+| Note personnelle geocaching.com | `personal_note` | « Parking rue X », « prévoir 2 personnes », solutions partielles : aucune autre source ne les porte |
+| Notes GeoApp | `notes` (5 max, les plus récentes), `notes_count` | Repérages et solutions partielles saisis dans l'app |
+| Questions d'EarthCache | `logging_tasks`, `logging_tasks_photo_required` | La checklist terrain : oublier une observation oblige à revenir |
+| Waypoints | `prefix`, `name`, `type`, `coordinates`, `note_excerpt` | Un « Parking » sans coordonnées ne mène nulle part ; le type `Parking Area` lève lui-même un signal contextuel |
+| Logs | `is_friend_log`, `is_favorite` en plus du texte | Un log d'ami est une source identifiée, donc plus fiable |
+
+Trois conséquences dans le prompt :
+
+- les caches déjà trouvées remontent dans la section « Fiabilité des données » (liste
+  `already_found`) **et** en alerte dans le bloc de la cache, comme les mystery non
+  résolues. Elles ne sont jamais retirées d'office : refaire une multi ou accompagner
+  quelqu'un sont des raisons valables, et c'est à l'utilisateur de trancher ;
+- la note personnelle et les notes GeoApp sont rendues **avant** le listing, et le prompt
+  système en fait la source prioritaire ;
+- un waypoint sans coordonnées est rendu « coordonnées absentes » plutôt qu'omis : c'est
+  un point à récupérer avant de partir, pas un silence.
+
+Deux nettoyages sont appliqués au passage, parce que le prompt est un format ligne à
+ligne : le type de waypoint arrive parfois du scraping avec un retour à la ligne et une
+parenthèse orpheline (`Parking Area)\n    `), et geocaching.com stocke `???` dans
+`gc_coords` pour un waypoint dont les coordonnées ne sont pas publiées — c'est une
+absence, pas une valeur.
 
 ### Principe : déterministe d'abord, IA ensuite
 
@@ -1191,7 +1224,8 @@ fait que ce qu'elle seule sait faire, lire du texte libre.
 | Santé : DNF consécutifs, ancienneté de la trouvaille, maintenance en attente | Nature précise de l'outil requis |
 | Drapeaux matériel issus des attributs | Type de matériel de grimpe |
 | Sélection des logs pertinents par lexique | Durée réaliste, priorisation |
-| Mystery non résolue, waypoints, statut | Contraintes implicites du listing |
+| Mystery non résolue, cache déjà trouvée, waypoints, statut | Contraintes implicites du listing |
+| Fraîcheur de la collecte de logs | Ce qu'il faut en conclure sur la fiabilité |
 
 ### Signaux matériel : l'attribut est une question, pas une réponse
 
@@ -1254,6 +1288,28 @@ la santé n'est **pas** bonne, elle est inconnue. Le bundle liste ces caches dan
 `without_local_logs`, le prompt les nomme dans une section « Fiabilité des données »
 placée **avant** les données, et le prompt système interdit d'en tirer une conclusion.
 Aucun rafraîchissement n'est déclenché : on signale, on n'agit pas.
+
+**Fraîcheur de la collecte** — un second cas trompe autant que l'absence de logs : des
+logs *périmés*. Une cache « saine » dont les logs ont été récupérés il y a quatorze mois a
+pu accumuler trois DNF depuis. Le bloc de santé distingue donc deux dates que l'on confond
+facilement :
+
+| Champ | Question à laquelle il répond |
+|---|---|
+| `last_log_date`, `days_since_last_log` | Quand la cache a-t-elle été visitée pour la dernière fois ? |
+| `logs_fetched_at`, `days_since_logs_fetched` | Jusqu'à quand a-t-on regardé ? |
+| `logs_stale` | La collecte dépasse-t-elle `LOGS_STALE_DAYS` (180 jours) ? |
+
+`logs_fetched_at` vaut `max(updated_at, created_at)` sur les logs : le rafraîchissement
+réassigne texte et type des logs connus, ce qui repousse l'horodatage quand quelque chose
+a changé. Un refresh qui ne ramène rien de nouveau ne touche aucune ligne, donc
+l'ancienneté calculée est **majorée, jamais minorée** — on se trompe du côté prudent.
+
+Le niveau, lui, n'est pas dégradé par la péremption : les DNF comptés restent des DNF et
+les dates de logs restent exactes. C'est la **complétude** qui est en cause, pas le calcul.
+La péremption est donc rendue comme un fait — une raison dans `health.reasons`, la liste
+`stale_logs` en tête du bundle, un avertissement dans le dialogue — et le prompt système
+impose la même prudence que pour `unknown`.
 
 ### Sessions
 

@@ -14,6 +14,12 @@ Deux sélections de logs cohabitent, parce qu'elles répondent à des questions 
 
 Un même log peut apparaître dans les deux listes : c'est voulu, l'extrait est alors
 identique pour qu'on reconnaisse qu'il s'agit du même.
+
+S'y ajoutent trois sources qui ne viennent pas de geocaching.com mais du travail déjà
+fait par l'utilisateur, et qui valent souvent mieux que le listing : la **note
+personnelle** (« parking rue X », « prévoir deux personnes »), les **notes GeoApp**
+(solutions partielles, repérages) et les **questions d'EarthCache**, qui sont la
+checklist terrain de ce type de cache.
 """
 
 from __future__ import annotations
@@ -25,7 +31,7 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import selectinload
 
 from ..geocaches.models import Geocache, GeocacheLog
-from .outing_gear_signals import build_gear_signals, count_unresolved
+from .outing_gear_signals import build_gear_signals, build_waypoint_signals, count_unresolved
 from .outing_health import compute_health
 from .outing_lexicons import find_gear_mentions, find_search_effort_mentions, normalize
 
@@ -36,6 +42,19 @@ LOG_EXCERPT_CHARS = 300
 
 #: Plafond des logs « effort de recherche » : trois suffisent à donner le ton.
 MAX_SEARCH_EFFORT_LOGS = 3
+
+#: Note personnelle geocaching.com : plus généreux qu'un extrait de log, parce que c'est
+#: du texte écrit pour soi, dense et sans remplissage.
+PERSONAL_NOTE_CHARS = 700
+
+#: Notes GeoApp : plafond par note et nombre de notes retenues, les plus récentes d'abord.
+NOTE_EXCERPT_CHARS = 400
+MAX_NOTES = 5
+
+#: Questions d'EarthCache : question et consigne d'observation, tronquées.
+LOGGING_TASK_QUESTION_CHARS = 300
+LOGGING_TASK_GUIDANCE_CHARS = 200
+MAX_LOGGING_TASKS = 12
 
 #: Types de géocaches dont les coordonnées publiées ne sont pas les bonnes tant que
 #: l'énigme n'est pas résolue.
@@ -250,6 +269,39 @@ def _serialize_attributes(geocache: Geocache) -> list[dict]:
     return serialized
 
 
+def _waypoint_coordinates(waypoint) -> str | None:
+    """
+    Coordonnées d'un waypoint, format joueur de préférence.
+
+    Sans coordonnées, un waypoint « Parking » ne sert à rien : c'est le point qu'on va
+    chercher avant de partir, pas son intitulé. Geocaching.com affiche « ??? » pour un
+    waypoint dont les coordonnées ne sont pas publiées (final d'une multi, étape
+    virtuelle) et c'est ce texte qui est stocké : c'est une absence, pas une valeur.
+    """
+    cleaned = _clean_whitespace(waypoint.gc_coords)
+    if cleaned and set(cleaned) <= set('?'):
+        cleaned = ''
+    if cleaned:
+        return cleaned
+    if waypoint.latitude is not None and waypoint.longitude is not None:
+        return f'{waypoint.latitude}, {waypoint.longitude}'
+    return None
+
+
+def _waypoint_type(waypoint) -> str | None:
+    """
+    Type de waypoint, débarrassé des scories du scraping.
+
+    Le libellé arrive parfois avec un retour à la ligne et une parenthèse fermante
+    orpheline (« Parking Area)\n    ») : le prompt est un format ligne à ligne, et
+    « Parking Area » se lit mieux que « Parking Area) ».
+    """
+    cleaned = _clean_whitespace(waypoint.type)
+    if cleaned.endswith(')') and '(' not in cleaned:
+        cleaned = cleaned[:-1].strip()
+    return cleaned or None
+
+
 def _serialize_waypoints(geocache: Geocache) -> list[dict]:
     waypoints = []
     for waypoint in geocache.waypoints or []:
@@ -258,15 +310,107 @@ def _serialize_waypoints(geocache: Geocache) -> list[dict]:
         waypoints.append({
             'prefix': waypoint.prefix,
             'name': _clean_whitespace(waypoint.name),
-            'type': waypoint.type,
+            'type': _waypoint_type(waypoint),
+            'coordinates': _waypoint_coordinates(waypoint),
             'note_excerpt': note_excerpt or None,
         })
     return waypoints
 
 
+def _serialize_personal_note(geocache: Geocache) -> tuple[str | None, bool]:
+    """
+    Note personnelle geocaching.com, en texte brut.
+
+    C'est là que l'utilisateur a écrit « parking rue des Lilas », « prévoir deux
+    personnes » ou une solution partielle. Aucune autre source ne porte cette
+    information : elle prime sur le listing pour préparer la sortie.
+    """
+    cleaned = _strip_html(geocache.gc_personal_note)
+    if not cleaned:
+        return None, False
+    excerpt, truncated = _truncate_on_word(cleaned, PERSONAL_NOTE_CHARS)
+    return excerpt, truncated
+
+
+def _note_sort_key(note) -> datetime:
+    """Les notes les plus fraîches d'abord ; une note sans date passe en dernier."""
+    for attribute in ('updated_at', 'created_at'):
+        value = getattr(note, attribute, None)
+        if value is not None:
+            return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    return datetime.min.replace(tzinfo=timezone.utc)
+
+
+def _serialize_notes(geocache: Geocache) -> tuple[list[dict], int]:
+    """Notes GeoApp attachées à la géocache. Renvoie (extraits retenus, total)."""
+    notes = list(geocache.notes or [])
+    if not notes:
+        return [], 0
+
+    notes.sort(key=_note_sort_key, reverse=True)
+
+    serialized = []
+    for note in notes[:MAX_NOTES]:
+        content = _strip_html(note.content)
+        if not content:
+            continue
+        excerpt, _ = _truncate_on_word(content, NOTE_EXCERPT_CHARS)
+        serialized.append({
+            'note_type': note.note_type,
+            'source': note.source,
+            'source_plugin': note.source_plugin,
+            'updated_at': _note_sort_key(note).isoformat(),
+            'content_excerpt': excerpt,
+        })
+    return serialized, len(notes)
+
+
+def _serialize_logging_tasks(geocache: Geocache) -> list[dict]:
+    """
+    Questions à répondre sur place (EarthCache).
+
+    C'est la checklist terrain de ce type de cache : oublier une observation oblige à y
+    retourner. `requires_photo` vaut « prendre l'appareil », et le statut dit ce qui
+    reste à faire — une question déjà répondue n'a pas à occuper la sortie.
+    """
+    tasks = []
+    for task in (geocache.logging_tasks or [])[:MAX_LOGGING_TASKS]:
+        question, _ = _truncate_on_word(
+            _clean_whitespace(task.question), LOGGING_TASK_QUESTION_CHARS
+        )
+        if not question:
+            continue
+        guidance, _ = _truncate_on_word(
+            _clean_whitespace(task.guidance), LOGGING_TASK_GUIDANCE_CHARS
+        )
+        tasks.append({
+            'position': task.position,
+            'question': question,
+            'guidance': guidance or None,
+            'status': task.status,
+            'requires_photo': bool(task.requires_photo),
+            'answered': bool(_clean_whitespace(task.answer)),
+        })
+    return tasks
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Sélection des logs
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _log_meta(log: GeocacheLog) -> dict:
+    """
+    Ce qui qualifie la **source** d'un log plutôt que son contenu.
+
+    Un log d'ami est une source plus fiable qu'un log anonyme : on sait qui écrit, et le
+    conseil matériel qu'il donne se lit autrement. Un log marqué favori signale, lui, une
+    cache dont l'expérience vaut le détour — utile à la priorisation.
+    """
+    return {
+        'is_friend_log': bool(getattr(log, 'is_friend_log', False)),
+        'is_favorite': bool(getattr(log, 'is_favorite', False)),
+    }
+
 
 def _log_date_key(log: GeocacheLog) -> datetime:
     date = log.date
@@ -284,6 +428,7 @@ def _serialize_recent_logs(logs: list[GeocacheLog], count: int) -> list[dict]:
             'date': log.date.isoformat() if log.date else None,
             'author': log.author,
             'text_excerpt': _excerpt_around(log.text or '', []),
+            **_log_meta(log),
         }
         for log in logs[:count]
     ]
@@ -313,6 +458,7 @@ def _serialize_gear_logs(logs: list[GeocacheLog], count: int) -> list[dict]:
             'author': log.author,
             'matched': matches,
             'text_excerpt': _excerpt_around(log.text or '', matches),
+            **_log_meta(log),
         }
         for log, matches in matched_logs[:count]
     ]
@@ -328,6 +474,7 @@ def _serialize_search_effort_logs(logs: list[GeocacheLog]) -> list[dict]:
                 'date': log.date.isoformat() if log.date else None,
                 'author': log.author,
                 'text_excerpt': _excerpt_around(log.text or '', []),
+                **_log_meta(log),
             })
         if len(selected) >= MAX_SEARCH_EFFORT_LOGS:
             break
@@ -351,6 +498,10 @@ def _build_geocache_entry(
     gear_signals = build_gear_signals(
         geocache.attributes if isinstance(geocache.attributes, list) else []
     )
+    gear_signals += build_waypoint_signals(geocache.waypoints, gear_signals)
+    personal_note, personal_note_truncated = _serialize_personal_note(geocache)
+    notes, notes_count = _serialize_notes(geocache)
+    logging_tasks = _serialize_logging_tasks(geocache)
     health = compute_health(
         logs,
         listing_status=geocache.status,
@@ -375,13 +526,25 @@ def _build_geocache_entry(
         'favorites_count': geocache.favorites_count,
         'logs_count': geocache.logs_count,
         'placed_at': geocache.placed_at.isoformat() if geocache.placed_at else None,
+        # Une cache déjà trouvée dans une sélection de sortie est presque toujours une
+        # erreur de saisie : on la remonte telle quelle plutôt que de l'écarter, parce
+        # qu'elle peut aussi être volontaire (accompagner quelqu'un, refaire une multi).
+        'found': bool(geocache.found),
+        'found_date': geocache.found_date.isoformat() if geocache.found_date else None,
         'hint': _resolve_hint(geocache),
+        'personal_note': personal_note,
+        'personal_note_truncated': personal_note_truncated,
+        'notes': notes,
+        'notes_count': notes_count,
         'listing_excerpt': listing_excerpt,
         'listing_truncated': listing_truncated,
         'attributes': _serialize_attributes(geocache),
         'gear_signals': gear_signals,
         'waypoints': _serialize_waypoints(geocache),
         'waypoints_count': len(geocache.waypoints or []),
+        'logging_tasks': logging_tasks,
+        'logging_tasks_count': len(geocache.logging_tasks or []),
+        'logging_tasks_photo_required': any(task['requires_photo'] for task in logging_tasks),
         'health': health,
         'recent_logs': _serialize_recent_logs(logs, recent_logs_count),
         'gear_logs': _serialize_gear_logs(logs, gear_logs_count),
@@ -405,6 +568,9 @@ def _build_stats(entries: list[dict]) -> dict:
         'unresolved_gear_signals': sum(
             count_unresolved(entry.get('gear_signals')) for entry in entries
         ),
+        'already_found': sum(1 for entry in entries if entry.get('found')),
+        'stale_logs': sum(1 for entry in entries if entry.get('health', {}).get('logs_stale')),
+        'logging_tasks': sum(entry.get('logging_tasks_count') or 0 for entry in entries),
     }
 
 
@@ -432,15 +598,22 @@ def build_analysis_bundle(
             'geocaches': [],
             'missing': [],
             'without_local_logs': [],
+            'stale_logs': [],
+            'already_found': [],
             'stats': _build_stats([]),
         }
 
-    # Deux requêtes seulement : les caches (waypoints préchargés) puis tous leurs logs.
-    # Passer par la relation `geocache.logs` déclencherait un lazy-load par cache.
+    # Les caches et leurs collections en un aller-retour, puis tous leurs logs. Chaque
+    # `selectinload` coûte une requête supplémentaire, mais bornée par le lot : passer par
+    # les relations telles quelles déclencherait un lazy-load *par cache et par relation*.
     found = {
         geocache.id: geocache
         for geocache in Geocache.query
-        .options(selectinload(Geocache.waypoints))
+        .options(
+            selectinload(Geocache.waypoints),
+            selectinload(Geocache.notes),
+            selectinload(Geocache.logging_tasks),
+        )
         .filter(Geocache.id.in_(requested))
         .all()
     }
@@ -473,6 +646,11 @@ def build_analysis_bundle(
     without_local_logs = [
         entry['gc_code'] for entry in entries if not entry['health']['logs_available']
     ]
+    # Deux listes de tête de plus, sur le même principe : ce que le lecteur doit savoir
+    # avant de lire les fiches. Les logs périmés relativisent une santé rassurante, une
+    # cache déjà trouvée n'a probablement rien à faire dans la sélection.
+    stale_logs = [entry['gc_code'] for entry in entries if entry['health']['logs_stale']]
+    already_found = [entry['gc_code'] for entry in entries if entry['found']]
 
     if missing:
         logger.warning(
@@ -486,5 +664,7 @@ def build_analysis_bundle(
         'geocaches': entries,
         'missing': missing,
         'without_local_logs': without_local_logs,
+        'stale_logs': stale_logs,
+        'already_found': already_found,
         'stats': _build_stats(entries),
     }

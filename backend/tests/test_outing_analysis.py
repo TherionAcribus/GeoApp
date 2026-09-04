@@ -315,6 +315,309 @@ def test_real_world_hit_is_still_caught():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Fraîcheur de la collecte
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _fetched_log(log_type, days_ago=0, fetched_days_ago=0, text=''):
+    """Log daté à la fois côté geocaching.com (`date`) et côté base (`updated_at`)."""
+    log = _log(log_type, days_ago, text=text)
+    log.updated_at = NOW - timedelta(days=fetched_days_ago)
+    log.created_at = NOW - timedelta(days=fetched_days_ago)
+    return log
+
+
+def test_fresh_collection_is_not_stale():
+    health = compute_health([_fetched_log('Found it', 10, fetched_days_ago=2)], now=NOW)
+
+    assert health['logs_stale'] is False
+    assert health['days_since_logs_fetched'] == 2
+    assert health['level'] == 'ok'
+
+
+def test_old_collection_is_flagged_stale():
+    """Une cache saine sur des logs collectés il y a 14 mois doit le dire."""
+    health = compute_health([_fetched_log('Found it', 400, fetched_days_ago=420)], now=NOW)
+
+    assert health['logs_stale'] is True
+    assert health['days_since_logs_fetched'] == 420
+    assert any('récupérés il y a 420 jours' in reason for reason in health['reasons'])
+
+
+def test_staleness_does_not_change_the_level():
+    """
+    La collecte périmée qualifie la **complétude**, pas la santé : les DNF comptés restent
+    des DNF, et un niveau calculé ne doit pas se dégrader tout seul. C'est au rapport de
+    pondérer, avec l'information sous les yeux.
+    """
+    fresh = compute_health([_fetched_log('Found it', 10, fetched_days_ago=2)], now=NOW)
+    stale = compute_health([_fetched_log('Found it', 10, fetched_days_ago=400)], now=NOW)
+
+    assert stale['level'] == fresh['level']
+
+
+def test_most_recent_fetch_wins():
+    """Un seul log rafraîchi récemment suffit à dater la collecte."""
+    logs = [
+        _fetched_log('Found it', 500, fetched_days_ago=500),
+        _fetched_log("Didn't find it", 3, fetched_days_ago=1),
+    ]
+    health = compute_health(logs, now=NOW)
+
+    assert health['days_since_logs_fetched'] == 1
+    assert health['logs_stale'] is False
+
+
+def test_last_log_date_is_independent_of_the_last_find():
+    """Un DNF après une trouvaille : la cache a été visitée depuis, sans succès."""
+    logs = [_log("Didn't find it", 5), _log('Found it', 300)]
+    health = compute_health(logs, now=NOW)
+
+    assert health['days_since_last_log'] == 5
+    assert health['days_since_last_found'] == 300
+
+
+def test_logs_without_timestamps_leave_freshness_unknown():
+    """Les objets sans horodatage de base ne doivent pas faire croire à une collecte."""
+    health = compute_health([_log('Found it', 10)], now=NOW)
+
+    assert health['logs_fetched_at'] is None
+    assert health['logs_stale'] is False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Waypoints, notes et questions d'EarthCache
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _waypoint(prefix='PK', name='Parking', wp_type='Parking Area',
+              gc_coords=None, latitude=None, longitude=None, note=None):
+    return SimpleNamespace(
+        prefix=prefix, name=name, type=wp_type, gc_coords=gc_coords,
+        latitude=latitude, longitude=longitude, note=note, note_override=None,
+    )
+
+
+def test_waypoint_keeps_its_player_coordinates():
+    from gc_backend.services.outing_analysis_service import _serialize_waypoints
+
+    geocache = SimpleNamespace(waypoints=[_waypoint(gc_coords='N 48° 51.400 E 002° 21.100')])
+    serialized = _serialize_waypoints(geocache)
+
+    assert serialized[0]['coordinates'] == 'N 48° 51.400 E 002° 21.100'
+    assert serialized[0]['type'] == 'Parking Area'
+
+
+def test_waypoint_falls_back_to_decimal_coordinates():
+    from gc_backend.services.outing_analysis_service import _serialize_waypoints
+
+    geocache = SimpleNamespace(waypoints=[_waypoint(latitude=48.85, longitude=2.35)])
+
+    assert _serialize_waypoints(geocache)[0]['coordinates'] == '48.85, 2.35'
+
+
+def test_waypoint_without_coordinates_says_so():
+    """Un « Parking » sans coordonnées ne mène nulle part : le champ reste vide."""
+    from gc_backend.services.outing_analysis_service import _serialize_waypoints
+
+    geocache = SimpleNamespace(waypoints=[_waypoint()])
+
+    assert _serialize_waypoints(geocache)[0]['coordinates'] is None
+
+
+def test_unknown_coordinates_placeholder_counts_as_absent():
+    """Geocaching.com stocke « ??? » pour un final non publié : c'est une absence."""
+    from gc_backend.services.outing_analysis_service import _serialize_waypoints
+
+    geocache = SimpleNamespace(waypoints=[_waypoint(prefix='FN', wp_type='Final Location',
+                                                   gc_coords='???')])
+
+    assert _serialize_waypoints(geocache)[0]['coordinates'] is None
+
+
+def test_waypoint_type_is_cleaned_of_scraping_artefacts():
+    """Le scraping laisse un retour à la ligne et une parenthèse orpheline dans le type."""
+    from gc_backend.services.outing_analysis_service import _serialize_waypoints
+
+    geocache = SimpleNamespace(waypoints=[_waypoint(wp_type='Parking Area)\n            ')])
+
+    assert _serialize_waypoints(geocache)[0]['type'] == 'Parking Area'
+
+
+def test_parking_waypoint_raises_a_context_signal():
+    from gc_backend.services.outing_gear_signals import build_waypoint_signals
+
+    signals = build_waypoint_signals([_waypoint(gc_coords='N 48 E 002')])
+
+    assert len(signals) == 1
+    assert signals[0]['signal'] == 'parking'
+    assert signals[0]['source'] == 'waypoint'
+
+
+def test_parking_waypoint_does_not_duplicate_the_attribute():
+    from gc_backend.services.outing_gear_signals import build_gear_signals, build_waypoint_signals
+
+    existing = build_gear_signals([{'name': 'Parking', 'base_filename': 'parking-yes'}])
+
+    assert build_waypoint_signals([_waypoint()], existing) == []
+
+
+def test_parking_waypoint_does_not_contradict_a_negative_attribute():
+    """« Pas de parking à proximité » est une information du propriétaire : on la garde."""
+    from gc_backend.services.outing_gear_signals import build_gear_signals, build_waypoint_signals
+
+    existing = build_gear_signals(
+        [{'name': 'Parking', 'base_filename': 'parking-no', 'is_negative': True}]
+    )
+
+    assert build_waypoint_signals([_waypoint()], existing) == []
+
+
+def test_stage_waypoint_raises_nothing():
+    from gc_backend.services.outing_gear_signals import build_waypoint_signals
+
+    assert build_waypoint_signals([_waypoint(prefix='S1', name='Etape', wp_type='Stage')]) == []
+
+
+def test_personal_note_is_kept_as_plain_text():
+    from gc_backend.services.outing_analysis_service import _serialize_personal_note
+
+    geocache = SimpleNamespace(gc_personal_note='<p>Parking rue des Lilas</p>')
+    note, truncated = _serialize_personal_note(geocache)
+
+    assert note == 'Parking rue des Lilas'
+    assert truncated is False
+
+
+def test_personal_note_is_truncated_and_says_so():
+    from gc_backend.services.outing_analysis_service import (
+        PERSONAL_NOTE_CHARS, _serialize_personal_note,
+    )
+
+    geocache = SimpleNamespace(gc_personal_note='mot ' * 400)
+    note, truncated = _serialize_personal_note(geocache)
+
+    assert truncated is True
+    assert len(note) <= PERSONAL_NOTE_CHARS + 1  # le caractère d'ellipse
+
+
+def test_absent_personal_note_returns_none():
+    from gc_backend.services.outing_analysis_service import _serialize_personal_note
+
+    assert _serialize_personal_note(SimpleNamespace(gc_personal_note=None)) == (None, False)
+
+
+def _note(content, note_type='user', days_ago=0, source='user', plugin=None):
+    return SimpleNamespace(
+        content=content, note_type=note_type, source=source, source_plugin=plugin,
+        updated_at=NOW - timedelta(days=days_ago), created_at=NOW - timedelta(days=days_ago),
+    )
+
+
+def test_notes_come_back_most_recent_first():
+    from gc_backend.services.outing_analysis_service import _serialize_notes
+
+    geocache = SimpleNamespace(notes=[_note('vieille', days_ago=90), _note('fraîche', days_ago=1)])
+    serialized, total = _serialize_notes(geocache)
+
+    assert [item['content_excerpt'] for item in serialized] == ['fraîche', 'vieille']
+    assert total == 2
+
+
+def test_notes_are_capped_but_the_total_is_reported():
+    """Le total sert au prompt à dire qu'il n'a pas tout : mieux vaut ça qu'un silence."""
+    from gc_backend.services.outing_analysis_service import MAX_NOTES, _serialize_notes
+
+    geocache = SimpleNamespace(notes=[_note(f'note {index}', days_ago=index) for index in range(9)])
+    serialized, total = _serialize_notes(geocache)
+
+    assert len(serialized) == MAX_NOTES
+    assert total == 9
+
+
+def test_empty_notes_are_dropped():
+    from gc_backend.services.outing_analysis_service import _serialize_notes
+
+    serialized, total = _serialize_notes(SimpleNamespace(notes=[_note('   ')]))
+
+    assert serialized == []
+    assert total == 1
+
+
+def _task(question='Couleur de la roche ?', guidance=None, answer=None,
+          status='todo', requires_photo=False, position=0):
+    return SimpleNamespace(
+        question=question, guidance=guidance, answer=answer,
+        status=status, requires_photo=requires_photo, position=position,
+    )
+
+
+def test_logging_tasks_carry_photo_and_answer_state():
+    from gc_backend.services.outing_analysis_service import _serialize_logging_tasks
+
+    geocache = SimpleNamespace(logging_tasks=[
+        _task(guidance='Observer la paroi'),
+        _task(question='Photo devant le panneau', answer='faite', status='answered',
+              requires_photo=True, position=1),
+    ])
+    serialized = _serialize_logging_tasks(geocache)
+
+    assert serialized[0]['guidance'] == 'Observer la paroi'
+    assert serialized[0]['answered'] is False
+    assert serialized[1]['requires_photo'] is True
+    assert serialized[1]['answered'] is True
+
+
+def test_logging_tasks_are_capped():
+    from gc_backend.services.outing_analysis_service import (
+        MAX_LOGGING_TASKS, _serialize_logging_tasks,
+    )
+
+    geocache = SimpleNamespace(logging_tasks=[_task(position=index) for index in range(20)])
+
+    assert len(_serialize_logging_tasks(geocache)) == MAX_LOGGING_TASKS
+
+
+def test_task_without_question_is_dropped():
+    from gc_backend.services.outing_analysis_service import _serialize_logging_tasks
+
+    assert _serialize_logging_tasks(SimpleNamespace(logging_tasks=[_task(question='  ')])) == []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Qualité de la source des logs
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_friend_and_favorite_flags_reach_every_log_selection():
+    from gc_backend.services.outing_analysis_service import (
+        _serialize_gear_logs, _serialize_recent_logs, _serialize_search_effort_logs,
+    )
+
+    log = _log('Found it', 5, text="il faut une canne à pêche, j'ai cherché longtemps")
+    log.is_friend_log = True
+    log.is_favorite = True
+
+    for serialized in (
+        _serialize_recent_logs([log], 5),
+        _serialize_gear_logs([log], 5),
+        _serialize_search_effort_logs([log]),
+    ):
+        assert serialized[0]['is_friend_log'] is True
+        assert serialized[0]['is_favorite'] is True
+
+
+def test_missing_flags_default_to_false_not_none():
+    """`None` en base signifie « vérification impossible » : le prompt n'y voit qu'un non."""
+    from gc_backend.services.outing_analysis_service import _serialize_recent_logs
+
+    log = _log('Found it', 5)
+    log.is_friend_log = None
+    log.is_favorite = None
+
+    serialized = _serialize_recent_logs([log], 5)[0]
+    assert serialized['is_friend_log'] is False
+    assert serialized['is_favorite'] is False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Hint : colonnes inversées en base
 # ─────────────────────────────────────────────────────────────────────────────
 

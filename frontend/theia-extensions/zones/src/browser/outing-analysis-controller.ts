@@ -282,6 +282,27 @@ export class OutingAnalysisController {
             );
         }
 
+        // Le seul avertissement sur lequel l'utilisateur peut encore agir avant l'envoi :
+        // une cache déjà trouvée se retire de la sélection en deux clics, et l'analyse
+        // coûte alors moins cher.
+        if (bundle.already_found.length > 0) {
+            const codes = bundle.already_found.slice(0, 5).join(', ');
+            const rest = bundle.already_found.length > 5
+                ? ` et ${bundle.already_found.length - 5} autre(s)`
+                : '';
+            warnings.push(
+                `${bundle.already_found.length} géocache(s) déjà trouvée(s) dans la sélection `
+                + `(${codes}${rest}) : à retirer, sauf si c'est voulu.`
+            );
+        }
+
+        if (bundle.stale_logs.length > 0) {
+            warnings.push(
+                `${bundle.stale_logs.length} géocache(s) dont les logs locaux datent de plus de `
+                + `six mois : leur santé décrit la date de collecte, pas l'état actuel.`
+            );
+        }
+
         if (bundle.missing.length > 0) {
             warnings.push(`${bundle.missing.length} géocache(s) introuvable(s) en base, ignorée(s).`);
         }

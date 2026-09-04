@@ -9,6 +9,12 @@ maintenance est-elle restée sans réponse.
 Point important : les logs ne sont en base que si la géocache a été rafraîchie au moins
 une fois. Sans log local, la santé n'est pas « bonne », elle est **inconnue** — et c'est
 cette valeur qui doit remonter jusqu'au prompt, pour que l'IA ne conclue pas sur du vide.
+
+Second point, du même ordre : des logs **périmés** trompent autant qu'une absence de logs.
+Une cache « saine » dont les logs ont été récupérés il y a quatorze mois a pu accumuler
+trois DNF depuis. La fraîcheur de la collecte est donc calculée et remontée
+(`logs_fetched_at`, `logs_stale`) sans modifier le niveau : les faits temporels tirés des
+dates de logs restent exacts, c'est leur **complétude** qui est en cause.
 """
 
 from __future__ import annotations
@@ -25,6 +31,10 @@ STALE_DAYS_RISKY = 365
 STALE_DAYS_WATCH = 180
 DNF_RATIO_WATCH = 0.4
 RECENT_WINDOW = 10
+
+#: Au-delà, la collecte locale des logs est considérée comme périmée : des logs récents
+#: peuvent manquer, et la santé calculée ne porte plus que sur un passé arrêté.
+LOGS_STALE_DAYS = 180
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Normalisation des types de logs
@@ -101,6 +111,23 @@ def _iso(value: datetime | None) -> str | None:
     return aware.isoformat() if aware else None
 
 
+def _fetched_at(log) -> datetime | None:
+    """
+    Date à laquelle ce log a été écrit **en base**, pas celle à laquelle il a été posté.
+
+    `updated_at` d'abord : le rafraîchissement réassigne le texte et le type des logs
+    déjà connus, ce qui repousse l'horodatage quand quelque chose a changé. `created_at`
+    sinon. C'est une approximation par le bas de la date du dernier rafraîchissement —
+    un refresh qui ne ramène rien de nouveau ne touche aucune ligne — donc l'ancienneté
+    calculée est majorée, jamais minorée : on se trompe du côté prudent.
+    """
+    for attribute in ('updated_at', 'created_at'):
+        value = _as_utc(getattr(log, attribute, None))
+        if value is not None:
+            return value
+    return None
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Calcul
 # ─────────────────────────────────────────────────────────────────────────────
@@ -137,6 +164,11 @@ def compute_health(
         'dnf_ratio_recent': None,
         'needs_maintenance_pending': False,
         'listing_status': listing_status,
+        'last_log_date': None,
+        'days_since_last_log': None,
+        'logs_fetched_at': None,
+        'days_since_logs_fetched': None,
+        'logs_stale': False,
     }
 
     if not ordered:
@@ -179,6 +211,22 @@ def compute_health(
     window = [kind for _, kind in kinds if kind in (_FOUND, _DNF)][:RECENT_WINDOW]
     if window:
         health['dnf_ratio_recent'] = round(window.count(_DNF) / len(window), 2)
+
+    # Fraîcheur : deux dates distinctes qu'on confond facilement. La date du dernier log
+    # dit quand la cache a été visitée pour la dernière fois ; la date de collecte dit
+    # jusqu'à quand on a regardé. Un silence de six mois n'a pas le même sens selon que
+    # la collecte date d'hier (personne n'y est allé) ou d'il y a six mois (on ne sait pas).
+    last_dated = next((log for log, _ in kinds if getattr(log, 'date', None)), None)
+    if last_dated is not None:
+        health['last_log_date'] = _iso(last_dated.date)
+        health['days_since_last_log'] = _days_since(last_dated.date, now)
+
+    fetch_dates = [date for date in (_fetched_at(log) for log in ordered) if date is not None]
+    if fetch_dates:
+        fetched_at = max(fetch_dates)
+        health['logs_fetched_at'] = _iso(fetched_at)
+        health['days_since_logs_fetched'] = _days_since(fetched_at, now)
+        health['logs_stale'] = health['days_since_logs_fetched'] > LOGS_STALE_DAYS
 
     health['reasons'] = _build_reasons(health, last_found is None, placed_at, now)
     health['level'] = _build_level(health)
@@ -223,6 +271,14 @@ def _build_reasons(
     ratio = health['dnf_ratio_recent']
     if ratio is not None and ratio >= DNF_RATIO_WATCH:
         reasons.append(f'{int(ratio * 100)} % de DNF sur les dernières visites.')
+
+    # Dit sur quoi porte tout ce qui précède : sans cette ligne, une santé calculée sur
+    # une collecte d'il y a un an se lit comme une santé d'aujourd'hui.
+    if health['logs_stale']:
+        reasons.append(
+            f"Logs locaux récupérés il y a {health['days_since_logs_fetched']} jours : "
+            'ce qui précède ignore tout ce qui a pu se passer depuis.'
+        )
 
     if not reasons:
         reasons.append('Rien à signaler dans les logs locaux.')

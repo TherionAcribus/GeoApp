@@ -27,7 +27,21 @@ function createGeocacheFixture(overrides: Partial<OutingAnalysisGeocache> = {}):
         favorites_count: 42,
         logs_count: 118,
         placed_at: '2019-04-02T00:00:00+00:00',
+        found: false,
+        found_date: null,
         hint: 'au pied du gros arbre',
+        personal_note: 'Parking rue des Lilas, prevoir 2 personnes.',
+        personal_note_truncated: false,
+        notes: [
+            {
+                note_type: 'user',
+                source: 'user',
+                source_plugin: null,
+                updated_at: '2026-08-30T09:00:00+00:00',
+                content_excerpt: 'Repere depuis le pont, prendre la sente de droite.',
+            },
+        ],
+        notes_count: 1,
         listing_excerpt: 'Une balade agreable dans le bois, prevoyez de quoi atteindre la boite.',
         listing_truncated: true,
         attributes: [
@@ -64,10 +78,19 @@ function createGeocacheFixture(overrides: Partial<OutingAnalysisGeocache> = {}):
             },
         ],
         waypoints: [
-            { prefix: 'PK', name: 'Parking', type: 'Parking Area', note_excerpt: null },
-            { prefix: 'S1', name: 'Etape 1', type: 'Stage', note_excerpt: 'Compter les marches.' },
+            {
+                prefix: 'PK', name: 'Parking', type: 'Parking Area',
+                coordinates: 'N 48° 51.400 E 002° 21.100', note_excerpt: null,
+            },
+            {
+                prefix: 'S1', name: 'Etape 1', type: 'Stage',
+                coordinates: null, note_excerpt: 'Compter les marches.',
+            },
         ],
         waypoints_count: 2,
+        logging_tasks: [],
+        logging_tasks_count: 0,
+        logging_tasks_photo_required: false,
         health: {
             level: 'risky',
             reasons: ['2 DNF consecutifs depuis la derniere trouvaille.'],
@@ -79,6 +102,11 @@ function createGeocacheFixture(overrides: Partial<OutingAnalysisGeocache> = {}):
             dnf_ratio_recent: 0.4,
             needs_maintenance_pending: false,
             listing_status: 'active',
+            last_log_date: '2026-03-02T00:00:00+00:00',
+            days_since_last_log: 185,
+            logs_fetched_at: '2026-09-01T00:00:00+00:00',
+            days_since_logs_fetched: 2,
+            logs_stale: false,
         },
         recent_logs: [
             { type: "Didn't find it", date: '2026-03-02T00:00:00+00:00', author: 'Titi', text_excerpt: 'Rien trouve.' },
@@ -90,6 +118,8 @@ function createGeocacheFixture(overrides: Partial<OutingAnalysisGeocache> = {}):
                 author: 'Toto',
                 matched: ['fishing_rod'],
                 text_excerpt: 'il faut une canne a peche improvisee',
+                is_friend_log: true,
+                is_favorite: true,
             },
         ],
         search_effort_logs: [
@@ -107,11 +137,16 @@ function createBundleFixture(overrides: Partial<OutingAnalysisBundle> = {}): Out
         geocaches,
         missing: [],
         without_local_logs: [],
+        stale_logs: [],
+        already_found: [],
         stats: {
             by_type: { Traditional: geocaches.length },
             by_health_level: { risky: geocaches.length },
             unsolved_mysteries: 0,
             unresolved_gear_signals: 1,
+            already_found: 0,
+            stale_logs: 0,
+            logging_tasks: 0,
         },
         ...overrides,
     };
@@ -160,6 +195,9 @@ function testGearLogsCarryTheirMatches(): void {
 function testEmptySectionsAreOmittedNotRendered(): void {
     const bare = createGeocacheFixture({
         hint: null,
+        personal_note: null,
+        notes: [],
+        notes_count: 0,
         listing_excerpt: '',
         listing_truncated: false,
         attributes: [],
@@ -178,6 +216,9 @@ function testEmptySectionsAreOmittedNotRendered(): void {
     assert.ok(!prompt.includes('Waypoints'));
     assert.ok(!prompt.includes('Signaux matériel'));
     assert.ok(!prompt.includes('Logs récents'));
+    assert.ok(!prompt.includes('Note personnelle'));
+    assert.ok(!prompt.includes('Notes GeoApp'));
+    assert.ok(!prompt.includes('Questions à répondre sur place'));
     // Le bloc reste malgré tout identifiable.
     assert.ok(prompt.includes('### 1. GC424242 — Le vieux chêne'));
 }
@@ -198,6 +239,7 @@ function testReliabilitySectionIsOmittedWhenNothingToReport(): void {
         stats: {
             by_type: {}, by_health_level: {},
             unsolved_mysteries: 0, unresolved_gear_signals: 0,
+            already_found: 0, stale_logs: 0, logging_tasks: 0,
         },
     });
     const prompt = buildOutingAnalysisPrompt(bundle, STANDARD);
@@ -212,6 +254,7 @@ function testUnsolvedMysteryIsFlaggedTwice(): void {
         stats: {
             by_type: { Mystery: 1 }, by_health_level: { risky: 1 },
             unsolved_mysteries: 1, unresolved_gear_signals: 1,
+            already_found: 0, stale_logs: 0, logging_tasks: 0,
         },
     });
     const prompt = buildOutingAnalysisPrompt(bundle, STANDARD);
@@ -219,6 +262,108 @@ function testUnsolvedMysteryIsFlaggedTwice(): void {
     // En tête, pour la vue d'ensemble ; dans le bloc, pour qui lit la cache seule.
     assert.ok(prompt.includes('1 mystery(s) non résolue(s) : GC424242'));
     assert.ok(prompt.includes('- ALERTE : mystery non résolue'));
+}
+
+function testAlreadyFoundIsFlaggedTwice(): void {
+    const done = createGeocacheFixture({ found: true, found_date: '2024-05-11T00:00:00+00:00' });
+    const bundle = createBundleFixture({
+        geocaches: [done],
+        already_found: ['GC424242'],
+        stats: {
+            by_type: { Traditional: 1 }, by_health_level: { risky: 1 },
+            unsolved_mysteries: 0, unresolved_gear_signals: 1,
+            already_found: 1, stale_logs: 0, logging_tasks: 0,
+        },
+    });
+    const prompt = buildOutingAnalysisPrompt(bundle, STANDARD);
+
+    // Comme la mystery non résolue : en tête pour la vue d'ensemble, dans le bloc pour
+    // qui ne lit que la fiche.
+    assert.ok(prompt.includes('1 géocache(s) DÉJÀ TROUVÉE(S) dans la sélection : GC424242'));
+    assert.ok(prompt.includes('- ALERTE : géocache DÉJÀ TROUVÉE le 2024-05-11'));
+}
+
+function testStaleLogsRelativizeHealth(): void {
+    const bundle = createBundleFixture({
+        stale_logs: ['GC424242'],
+        stats: {
+            by_type: { Traditional: 1 }, by_health_level: { risky: 1 },
+            unsolved_mysteries: 0, unresolved_gear_signals: 1,
+            already_found: 0, stale_logs: 1, logging_tasks: 0,
+        },
+    });
+    const prompt = buildOutingAnalysisPrompt(bundle, STANDARD);
+
+    assert.ok(prompt.includes('logs locaux sont périmés : GC424242'));
+    assert.ok(prompt.includes('pas comme un fait.'));
+}
+
+function testPersonalNoteAndNotesAreRendered(): void {
+    const prompt = buildOutingAnalysisPrompt(createBundleFixture(), STANDARD);
+
+    assert.ok(prompt.includes('- Note personnelle :'));
+    assert.ok(prompt.includes('Parking rue des Lilas'));
+    assert.ok(prompt.includes('- Notes GeoApp :'));
+    assert.ok(prompt.includes('sente de droite'));
+    // La note de l'utilisateur passe avant le listing : c'est la source la plus sûre.
+    assert.ok(prompt.indexOf('- Note personnelle') < prompt.indexOf('- Listing'));
+}
+
+function testOlderNotesAreCounted(): void {
+    const many = createGeocacheFixture({ notes_count: 9 });
+    const prompt = buildOutingAnalysisPrompt(createBundleFixture({ geocaches: [many] }), STANDARD);
+
+    // Le backend n'en retient que quelques-unes : ne pas laisser croire à l'exhaustivité.
+    assert.ok(prompt.includes('8 note(s) plus ancienne(s) non reprise(s)'));
+}
+
+function testEarthCacheQuestionsAreRendered(): void {
+    const earth = createGeocacheFixture({
+        type: 'Earthcache',
+        logging_tasks: [
+            {
+                position: 0,
+                question: 'Quelle est la couleur de la roche affleurante ?',
+                guidance: 'Observer la paroi sous le panneau.',
+                status: 'todo',
+                requires_photo: false,
+                answered: false,
+            },
+            {
+                position: 1,
+                question: 'Photo de vous devant le panneau.',
+                guidance: null,
+                status: 'answered',
+                requires_photo: true,
+                answered: true,
+            },
+        ],
+        logging_tasks_count: 2,
+        logging_tasks_photo_required: true,
+    });
+    const prompt = buildOutingAnalysisPrompt(createBundleFixture({ geocaches: [earth] }), STANDARD);
+
+    assert.ok(prompt.includes('- Questions à répondre sur place (2, appareil photo nécessaire) :'));
+    assert.ok(prompt.includes('couleur de la roche'));
+    assert.ok(prompt.includes('à observer : Observer la paroi'));
+    assert.ok(prompt.includes('(déjà répondue, PHOTO REQUISE)'));
+}
+
+function testWaypointsCarryTypeAndCoordinates(): void {
+    const prompt = buildOutingAnalysisPrompt(createBundleFixture(), STANDARD);
+
+    assert.ok(prompt.includes('- Waypoints (2) :'));
+    assert.ok(prompt.includes('PK Parking — [Parking Area] — N 48° 51.400 E 002° 21.100'));
+    // Un waypoint sans coordonnées le dit : c'est un point à récupérer avant de partir.
+    assert.ok(prompt.includes('S1 Etape 1 — [Stage] — coordonnées absentes'));
+}
+
+function testFriendAndFavoriteLogsAreMarked(): void {
+    const prompt = buildOutingAnalysisPrompt(createBundleFixture(), STANDARD);
+
+    assert.ok(prompt.includes('[2019-06-12, Toto, ami, favori]'));
+    // Un log ordinaire garde son en-tête nu.
+    assert.ok(prompt.includes('[2026-03-02, Titi]'));
 }
 
 function testMissingIdsAreReported(): void {
@@ -274,6 +419,7 @@ function testEmptyBundleDoesNotCrash(): void {
         stats: {
             by_type: {}, by_health_level: {},
             unsolved_mysteries: 0, unresolved_gear_signals: 0,
+            already_found: 0, stale_logs: 0, logging_tasks: 0,
         },
     });
     const prompt = buildOutingAnalysisPrompt(bundle, STANDARD);
@@ -295,6 +441,11 @@ function testUnknownHealthIsSpelledOut(): void {
             dnf_ratio_recent: null,
             needs_maintenance_pending: false,
             listing_status: 'active',
+            last_log_date: null,
+            days_since_last_log: null,
+            logs_fetched_at: null,
+            days_since_logs_fetched: null,
+            logs_stale: false,
         },
     });
     const prompt = buildOutingAnalysisPrompt(createBundleFixture({ geocaches: [geocache] }), STANDARD);
@@ -351,6 +502,13 @@ function run(): void {
     testReliabilitySectionListsCachesWithoutLogs();
     testReliabilitySectionIsOmittedWhenNothingToReport();
     testUnsolvedMysteryIsFlaggedTwice();
+    testAlreadyFoundIsFlaggedTwice();
+    testStaleLogsRelativizeHealth();
+    testPersonalNoteAndNotesAreRendered();
+    testOlderNotesAreCounted();
+    testEarthCacheQuestionsAreRendered();
+    testWaypointsCarryTypeAndCoordinates();
+    testFriendAndFavoriteLogsAreMarked();
     testMissingIdsAreReported();
     testLightLevelDropsTheListing();
     testStandardLevelKeepsTheListing();

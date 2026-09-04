@@ -62,6 +62,17 @@ export interface OutingHealth {
     dnf_ratio_recent: number | null;
     needs_maintenance_pending: boolean;
     listing_status: string | null;
+    /** Date du log le plus récent, tous types confondus. */
+    last_log_date: string | null;
+    days_since_last_log: number | null;
+    /**
+     * Date de la dernière écriture locale d'un log : quand on a regardé, et non quand
+     * la cache a été visitée. Approximation par le bas de la date de rafraîchissement.
+     */
+    logs_fetched_at: string | null;
+    days_since_logs_fetched: number | null;
+    /** Collecte trop ancienne : la santé porte sur un passé arrêté, pas sur aujourd'hui. */
+    logs_stale: boolean;
 }
 
 export interface OutingLogExcerpt {
@@ -71,13 +82,38 @@ export interface OutingLogExcerpt {
     text_excerpt: string;
     /** Clés du lexique matériel repérées dans ce log (`gear_logs` uniquement). */
     matched?: string[];
+    /** Log d'un ami geocaching.com : source identifiée, donc plus fiable. */
+    is_friend_log?: boolean;
+    /** Log marqué favori par son auteur. */
+    is_favorite?: boolean;
 }
 
 export interface OutingWaypoint {
     prefix: string | null;
     name: string;
     type: string | null;
+    /** Format joueur si disponible, décimal sinon. Un parking sans coordonnées ne sert à rien. */
+    coordinates: string | null;
     note_excerpt: string | null;
+}
+
+/** Note GeoApp attachée à la géocache : repérage, solution partielle, rappel. */
+export interface OutingNote {
+    note_type: string | null;
+    source: string | null;
+    source_plugin: string | null;
+    updated_at: string | null;
+    content_excerpt: string;
+}
+
+/** Question d'EarthCache : la checklist terrain de ce type de cache. */
+export interface OutingLoggingTask {
+    position: number | null;
+    question: string;
+    guidance: string | null;
+    status: string | null;
+    requires_photo: boolean;
+    answered: boolean;
 }
 
 export interface OutingAnalysisGeocache {
@@ -98,13 +134,24 @@ export interface OutingAnalysisGeocache {
     favorites_count: number | null;
     logs_count: number | null;
     placed_at: string | null;
+    /** Déjà trouvée : presque toujours une erreur de sélection, parfois volontaire. */
+    found: boolean;
+    found_date: string | null;
     hint: string | null;
+    /** Note personnelle geocaching.com : parking, nombre de personnes, solution partielle. */
+    personal_note: string | null;
+    personal_note_truncated: boolean;
+    notes: OutingNote[];
+    notes_count: number;
     listing_excerpt: string;
     listing_truncated: boolean;
     attributes: Array<{ label: string; is_negative: boolean }>;
     gear_signals: OutingGearSignal[];
     waypoints: OutingWaypoint[];
     waypoints_count: number;
+    logging_tasks: OutingLoggingTask[];
+    logging_tasks_count: number;
+    logging_tasks_photo_required: boolean;
     health: OutingHealth;
     recent_logs: OutingLogExcerpt[];
     gear_logs: OutingLogExcerpt[];
@@ -116,6 +163,9 @@ export interface OutingAnalysisStats {
     by_health_level: Record<string, number>;
     unsolved_mysteries: number;
     unresolved_gear_signals: number;
+    already_found: number;
+    stale_logs: number;
+    logging_tasks: number;
 }
 
 export interface OutingAnalysisBundle {
@@ -126,6 +176,10 @@ export interface OutingAnalysisBundle {
     missing: number[];
     /** Codes GC sans aucun log local : leur santé n'est pas évaluable. */
     without_local_logs: string[];
+    /** Codes GC dont les logs locaux datent : leur santé ne dit rien du présent. */
+    stale_logs: string[];
+    /** Codes GC déjà trouvés, à confirmer ou à retirer de la sélection. */
+    already_found: string[];
     stats: OutingAnalysisStats;
 }
 

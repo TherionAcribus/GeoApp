@@ -32,13 +32,22 @@ function createGeocache(gcCode: string): OutingAnalysisGeocache {
         favorites_count: 1,
         logs_count: 10,
         placed_at: '2020-01-01T00:00:00+00:00',
+        found: false,
+        found_date: null,
         hint: null,
+        personal_note: null,
+        personal_note_truncated: false,
+        notes: [],
+        notes_count: 0,
         listing_excerpt: '',
         listing_truncated: false,
         attributes: [],
         gear_signals: [],
         waypoints: [],
         waypoints_count: 0,
+        logging_tasks: [],
+        logging_tasks_count: 0,
+        logging_tasks_photo_required: false,
         health: {
             level: 'ok',
             reasons: ['Rien à signaler.'],
@@ -50,6 +59,11 @@ function createGeocache(gcCode: string): OutingAnalysisGeocache {
             dnf_ratio_recent: 0,
             needs_maintenance_pending: false,
             listing_status: 'active',
+            last_log_date: '2026-08-01T00:00:00+00:00',
+            days_since_last_log: 33,
+            logs_fetched_at: '2026-09-02T00:00:00+00:00',
+            days_since_logs_fetched: 1,
+            logs_stale: false,
         },
         recent_logs: [],
         gear_logs: [],
@@ -64,9 +78,12 @@ function createBundle(overrides: Partial<OutingAnalysisBundle> = {}): OutingAnal
         geocaches: [],
         missing: [],
         without_local_logs: [],
+        stale_logs: [],
+        already_found: [],
         stats: {
             by_type: {}, by_health_level: {},
             unsolved_mysteries: 0, unresolved_gear_signals: 0,
+            already_found: 0, stale_logs: 0, logging_tasks: 0,
         },
         ...overrides,
     };
@@ -228,6 +245,20 @@ async function testCachesWithoutLogsAreReportedAsWarnings(): Promise<void> {
     assert.ok(outcome.warnings.some(w => w.includes('introuvable')));
 }
 
+async function testAlreadyFoundAndStaleLogsAreWarned(): Promise<void> {
+    const bundle = createBundle({
+        geocaches: [createGeocache('GC1')],
+        already_found: ['GC1'],
+        stale_logs: ['GC1'],
+    });
+    const controller = new TestableController(bundle);
+    const outcome = await controller.analyze([1]);
+
+    // Avertissements sur lesquels l'utilisateur peut agir avant de payer l'analyse.
+    assert.ok(outcome.warnings.some(w => w.includes('déjà trouvée(s)') && w.includes('GC1')));
+    assert.ok(outcome.warnings.some(w => w.includes('logs locaux datent')));
+}
+
 async function testLongListOfCachesWithoutLogsIsAbbreviated(): Promise<void> {
     const codes = Array.from({ length: 9 }, (_, i) => `GC${i}`);
     const bundle = createBundle({
@@ -276,6 +307,7 @@ async function run(): Promise<void> {
     await testDefaultDetailLevelComesFromPreferences();
     await testInvalidPreferenceFallsBackToStandard();
     await testCachesWithoutLogsAreReportedAsWarnings();
+    await testAlreadyFoundAndStaleLogsAreWarned();
     await testLongListOfCachesWithoutLogsIsAbbreviated();
     await testVolumeWarningUsesThePreferenceThreshold();
     await testPromptSizeIsReported();

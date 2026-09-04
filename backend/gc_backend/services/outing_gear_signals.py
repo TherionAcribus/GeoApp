@@ -320,6 +320,46 @@ def build_gear_signals(attributes: list[dict] | None) -> list[dict]:
     return signals
 
 
+#: Types de waypoint (libellé Geocaching.com) valant « il y a un parking renseigné ».
+_PARKING_WAYPOINT_TERMS = ('parking', 'stationnement')
+
+#: Signaux parking déjà portés par les attributs : le waypoint n'a alors rien à ajouter,
+#: et le négatif (« pas de parking à proximité ») ne doit surtout pas être contredit.
+_PARKING_SIGNALS = ('parking', 'no_parking')
+
+
+def build_waypoint_signals(waypoints: list | None, existing: list[dict] | None = None) -> list[dict]:
+    """
+    Signaux contextuels déduits des waypoints, en complément des attributs.
+
+    Un seul cas aujourd'hui : un waypoint de type « Parking Area » dit qu'un point de
+    stationnement est renseigné, information que l'attribut `parking` ne porte pas
+    toujours. Rien n'est ajouté si les attributs ont déjà tranché la question, dans un
+    sens ou dans l'autre.
+    """
+    if not waypoints:
+        return []
+
+    already = {signal.get('signal') for signal in (existing or [])}
+    if any(name in already for name in _PARKING_SIGNALS):
+        return []
+
+    for waypoint in waypoints:
+        raw_type = normalize(getattr(waypoint, 'type', None) or '')
+        if any(term in raw_type for term in _PARKING_WAYPOINT_TERMS):
+            return [{
+                'signal': 'parking',
+                'kind': 'context',
+                'resolved': True,
+                'label': 'parking renseigné en waypoint',
+                'slug': 'parking',
+                'source': 'waypoint',
+                'is_negative': False,
+            }]
+
+    return []
+
+
 def count_unresolved(signals: list[dict] | None) -> int:
     """Nombre de drapeaux que l'IA doit résoudre depuis le texte."""
     if not signals:

@@ -1183,8 +1183,9 @@ def get_geocaches_analysis_bundle():
     Bundle d'analyse de sortie pour un lot de géocaches.
 
     Rassemble en un seul appel ce qu'une IA doit lire pour préparer une sortie : listing,
-    hint décodé, attributs traduits en signaux matériel, santé calculée depuis les logs
-    locaux, et les logs qui mentionnent du matériel quelle que soit leur date.
+    hint décodé, attributs traduits en signaux matériel, notes personnelles, questions
+    d'EarthCache, santé calculée depuis les logs locaux, et les logs qui mentionnent du
+    matériel quelle que soit leur date.
 
     Body : `{ids: [1,2,3], listing_chars?, recent_logs_count?, gear_logs_count?}`.
     Un identifiant introuvable ne fait pas échouer l'appel : il ressort dans `missing`.
