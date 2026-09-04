@@ -134,6 +134,26 @@ class TestableController extends OutingAnalysisController {
     }
 }
 
+/**
+ * Contrôleur équipé d'une capture, pour vérifier l'enregistrement du contexte de sortie.
+ *
+ * Le contexte est ce qui permet à la capture de savoir à quelle sortie rattacher le plan
+ * que le modèle renverra. Une erreur ici serait muette : le plan serait rangé sous une
+ * autre date, sans que rien ne le signale.
+ */
+class CapturingController extends TestableController {
+    readonly registered: Array<{ zoneName: string; outingDate: string; gcCodes: string[] }> = [];
+
+    constructor(bundle: OutingAnalysisBundle, preferences: Record<string, unknown> = {}) {
+        super(bundle, preferences);
+        (this as any).planCapture = {
+            registerOuting: (context: { zoneName: string; outingDate: string; gcCodes: string[] }) => {
+                this.registered.push(context);
+            },
+        };
+    }
+}
+
 async function testEmptySelectionDoesNotDispatch(): Promise<void> {
     const controller = new TestableController(createBundle());
     const outcome = await controller.analyze([]);
@@ -184,6 +204,41 @@ async function testSessionTitleCarriesZoneDateAndCount(): Promise<void> {
     await controller.analyze([1, 2], { zoneName: 'Vosges', outingDate: new Date(2026, 8, 5) });
 
     assert.equal(controller.dispatched[0].sessionTitle, 'SORTIE - Vosges - 2026-09-05 (2 caches)');
+}
+
+async function testOutingContextIsRegisteredBeforeTheSessionOpens(): Promise<void> {
+    const bundle = createBundle({
+        geocaches: [createGeocache('GC1'), createGeocache('GC2')],
+    });
+    const controller = new CapturingController(bundle);
+    await controller.analyze([1, 2], { zoneName: 'Vosges', outingDate: new Date(2026, 8, 5) });
+
+    assert.equal(controller.registered.length, 1);
+    assert.deepEqual(controller.registered[0], {
+        zoneName: 'Vosges',
+        outingDate: '2026-09-05',
+        gcCodes: ['GC1', 'GC2'],
+    });
+}
+
+async function testOutingContextUsesTheSameZoneLabelAsTheSessionTitle(): Promise<void> {
+    // Sans nom de zone — le cas du log-editor — les deux doivent retomber sur le même
+    // libellé, sinon le plan et la conversation décrivent la même sortie sous deux clés.
+    const bundle = createBundle({ geocaches: [createGeocache('GC1')] });
+    const controller = new CapturingController(bundle);
+    await controller.analyze([1], { outingDate: new Date(2026, 8, 5) });
+
+    assert.equal(controller.registered[0].zoneName, 'sélection');
+    assert.ok(controller.dispatched[0].sessionTitle?.includes('SORTIE - sélection - 2026-09-05'));
+}
+
+async function testAnalysisStillRunsWithoutACaptureService(): Promise<void> {
+    // La capture est un confort : son absence ne doit jamais empêcher une analyse.
+    const bundle = createBundle({ geocaches: [createGeocache('GC1')] });
+    const controller = new TestableController(bundle);
+    const outcome = await controller.analyze([1], { zoneName: 'Vosges' });
+
+    assert.equal(outcome.started, true);
 }
 
 async function testSameDayTitlesMatchSoTheSessionIsReused(): Promise<void> {
@@ -396,6 +451,9 @@ async function run(): Promise<void> {
     await testDuplicateIdsAreCollapsed();
     await testSessionIsPinnedOnTheOutingAgent();
     await testSessionTitleCarriesZoneDateAndCount();
+    await testOutingContextIsRegisteredBeforeTheSessionOpens();
+    await testOutingContextUsesTheSameZoneLabelAsTheSessionTitle();
+    await testAnalysisStillRunsWithoutACaptureService();
     await testSameDayTitlesMatchSoTheSessionIsReused();
     await testDifferentDaysOpenDistinctSessions();
     await testOutingDateReachesTheBackend();

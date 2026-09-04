@@ -66,6 +66,13 @@ import { ZonesService } from './zones-service';
 import { GeocachesService } from './geocaches-service';
 import { ImportAroundService } from './import-around-service';
 import { OutingAnalysisController } from './outing-analysis-controller';
+import { OutingPlanCaptureService } from './outing-plan-capture';
+import { OutingPlanResponseObserver } from './outing-plan-response-observer';
+import { OutingPlanService } from './outing-plan-service';
+import { OutingPlanToolsManager } from './outing-plan-tools-manager';
+import { OutingPlanWidget } from './outing-plan-widget';
+import { OutingPlanNotificationContribution } from './outing-plan-notification-contribution';
+import { GeoAppChatResponseObserver } from './geoapp-chat-shared';
 import { GeoAppWidgetEventsService } from './geoapp-widget-events-service';
 import { GeocacheDetailsService } from './geocache-details-service';
 import { GeocacheDetailsArchiveController } from './geocache-details-archive-controller';
@@ -98,6 +105,8 @@ export default new ContainerModule(bind => {
     bind(GeocachesService).toSelf().inSingletonScope();
     bind(ImportAroundService).toSelf().inSingletonScope();
     bind(OutingAnalysisController).toSelf().inSingletonScope();
+    bind(OutingPlanService).toSelf().inSingletonScope();
+    bind(OutingPlanCaptureService).toSelf().inSingletonScope();
     bind(GeocacheDetailsService).toSelf().inSingletonScope();
     bind(GeocacheNotesService).toSelf().inSingletonScope();
     bind(ArchiveManagerService).toSelf().inSingletonScope();
@@ -266,6 +275,15 @@ export default new ContainerModule(bind => {
     bind(GeocacheListingToolsManager).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(GeocacheListingToolsManager);
 
+    // Capture du rapport de sortie : le tool est la voie normale, l'observateur de
+    // reponse le filet qui repeche le bloc JSON et attache le texte redige.
+    bind(OutingPlanToolsManager).toSelf().inSingletonScope();
+    bind(FrontendApplicationContribution).toService(OutingPlanToolsManager);
+    bind(OutingPlanResponseObserver).toSelf().inSingletonScope();
+    bind(GeoAppChatResponseObserver).toService(OutingPlanResponseObserver);
+    bind(OutingPlanNotificationContribution).toSelf().inSingletonScope();
+    bind(FrontendApplicationContribution).toService(OutingPlanNotificationContribution);
+
     bind(GeoAppOcrAgentContribution).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(GeoAppOcrAgentContribution);
 
@@ -293,6 +311,12 @@ export default new ContainerModule(bind => {
     bind(GeoAppAiToolCatalog).toSelf().inSingletonScope();
     bind(GeoAppChatPolicyService).toSelf().inSingletonScope();
     bind(GeoAppChatConfigurationService).toSelf().inSingletonScope();
+
+    bind(OutingPlanWidget).toSelf().inSingletonScope();
+    bind(WidgetFactory).toDynamicValue(ctx => ({
+        id: OutingPlanWidget.ID,
+        createWidget: () => ctx.container.get(OutingPlanWidget)
+    })).inSingletonScope();
 
     bind(GeoAppChatPolicyWidget).toSelf().inSingletonScope();
     bind(WidgetFactory).toDynamicValue(ctx => ({

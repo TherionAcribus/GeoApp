@@ -156,6 +156,64 @@ GeoApp ne lance **aucun** rafraîchissement automatique : c'est long et cela sol
 Geocaching.com. Si ces caches vous importent, rafraîchissez-les avant de relancer
 l'analyse.
 
+## Le panneau « Sortie » : cocher, exporter, retrouver
+
+Le rapport ne reste pas prisonnier de la conversation. À la fin de son analyse, l'IA en
+range une version structurée dans GeoApp, et une notification vous propose d'ouvrir le
+panneau **Sortie** (commande `GeoApp: Checklist de sortie`).
+
+On y trouve, pour la sortie sélectionnée :
+
+- la **checklist matériel**, groupée par niveau de certitude, avec des cases à cocher.
+  Les coches sont enregistrées : vous préparez votre sac le vendredi soir, elles sont
+  encore là le samedi matin. Relancer l'analyse ne les efface pas, tant que les lignes
+  n'ont pas changé de libellé ;
+- les **alertes**, les plus bloquantes en tête ;
+- le **détail par cache**, l'**ordre de visite** retenu et le **budget de la journée** ;
+- ce qui reste **à vérifier avant de partir**.
+
+Un sélecteur en haut du panneau permet de revenir sur une sortie précédente.
+
+### Exporter
+
+Quatre boutons, pour deux documents différents :
+
+| | Ce que c'est | Quand s'en servir |
+|---|---|---|
+| **Fiche** | La checklist avec ses cases, les alertes, l'ordre, le budget | À emporter, à imprimer |
+| **Rapport** | Le texte complet écrit par l'IA, avec ses arguments et ses sources | À relire la veille |
+
+Chacun se copie dans le presse-papier ou se télécharge en `.md`. La fiche est toujours
+disponible ; le rapport rédigé peut manquer si l'IA n'a pas terminé sa réponse — dans ce
+cas il reste consultable dans la conversation.
+
+La fiche porte en pied la date de l'analyse, le modèle utilisé et le nombre de caches.
+Ce n'est pas de la décoration : trois semaines plus tard, sur le terrain, c'est le seul
+moyen de savoir de quand elle date — et la santé des caches, elle, a continué de bouger.
+
+## Les badges dans les tables
+
+Une fois la sortie analysée, ses conclusions remontent dans les tables de géocaches :
+
+- dans la **table de zone**, une colonne « Sortie » (🎒) à activer dans le sélecteur de
+  colonnes ;
+- dans le **log-editor**, directement à côté du code GC.
+
+| Badge | Signification |
+|---|---|
+| ⛔ | Bloquant : à lever avant de partir |
+| ❓ | Matériel requis, nature non identifiée |
+| 🎒 | Matériel spécifique requis |
+| 🩹 | Santé risquée |
+| 🕒 | Contrainte horaire |
+| 🚧 | Accès, autorisation ou frais |
+| ⏳ | Chronophage |
+| 📉 | Données peu fiables |
+
+Survolez un badge : l'infobulle donne le détail, le matériel, la durée retenue **et la
+sortie dont il provient, avec sa date**. Ces badges ne sont pas des faits calculés par
+GeoApp : ce sont les conclusions d'un modèle, un jour donné, sur un lot donné.
+
 ## Limites à garder en tête
 
 - L'IA lit ce qu'on lui donne. Un listing qui ne mentionne pas le matériel, des logs
@@ -166,6 +224,10 @@ l'analyse.
   déplacer ne sert à rien.
 - L'analyse est limitée à 60 géocaches. Au-delà de 25, GeoApp vous prévient du volume :
   la réponse sera longue et coûteuse. Le mode « Léger » aide.
+- Le panneau « Sortie » et les badges dépendent de ce que l'IA a bien voulu ranger à la
+  fin de sa réponse. Si elle ne l'a pas fait — génération interrompue, par exemple — le
+  rapport reste lisible dans la conversation, mais rien n'apparaît dans le panneau.
+  Relancer l'analyse suffit.
 
 ## Choisir le modèle
 
@@ -177,7 +239,7 @@ sur une énigme.
 La vue **Policy Chat IA GeoApp** affiche le modèle effectivement utilisé, sur la ligne
 « Analyse de sortie ».
 
-Quatre réglages sont disponibles dans les Paramètres (cherchez `geoApp.outing`) :
+Six réglages sont disponibles dans les Paramètres (cherchez `geoApp.outing`) :
 
 | Réglage | Défaut | Rôle |
 |---|---|---|
@@ -185,3 +247,5 @@ Quatre réglages sont disponibles dans les Paramètres (cherchez `geoApp.outing`
 | `recentLogsCount` | `5` | Logs récents envoyés par cache |
 | `gearLogsCount` | `8` | Logs « matériel » envoyés par cache |
 | `warnAboveCount` | `25` | Seuil d'avertissement sur le volume |
+| `adaptiveBudget` | activé | Niveau de détail décidé cache par cache |
+| `maxPromptTokens` | `30000` | Plafond de ce qui est envoyé au modèle |

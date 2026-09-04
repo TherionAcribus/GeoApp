@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timezone
 
 from .database import db
@@ -237,3 +238,77 @@ class FriendActivity(db.Model):
         }
 
 
+
+
+class OutingPlan(db.Model):
+    """
+    Le rapport de préparation de sortie, sorti du chat et rendu exploitable.
+
+    Le rapport vit d'abord dans une conversation : il s'y perd dès qu'on la referme, et
+    rien d'autre dans GeoApp ne peut le lire. Cette table en garde la partie structurée
+    (checklist, alertes, drapeaux par cache) plus le texte complet, ce qui autorise le
+    panneau cochable, les badges dans les tables et l'export Markdown.
+
+    Clé métier : ``(zone_name, outing_date)`` — la même que le titre de session du chat.
+    Deux analyses de la même sortie écrasent donc le même plan au lieu d'empiler des
+    doublons, exactement comme elles reprennent la même conversation. L'état coché
+    (``checked``) survit à cet écrasement pour les lignes dont la clé n'a pas bougé :
+    relancer l'analyse ne doit pas vider un sac à moitié fait.
+
+    ``payload`` et ``gc_codes`` sont du JSON stocké en texte : SQLite n'a rien à
+    requêter là-dedans, et le plan est toujours lu en entier.
+    """
+    __tablename__ = 'outing_plan'
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    # '' est une valeur légitime : le bouton du log-editor n'a pas de zone à nommer.
+    zone_name = db.Column(db.String(150), nullable=False, default='')
+    outing_date = db.Column(db.String(10), nullable=False, index=True)
+
+    gc_codes = db.Column(db.Text)
+    payload = db.Column(db.Text, nullable=False)
+    markdown = db.Column(db.Text)
+    checked = db.Column(db.Text)
+
+    # 'tool' quand le modèle a appelé save_outing_plan, 'parsed' quand le front a repêché
+    # le bloc JSON dans la réponse. Sert au diagnostic : si tout arrive en 'parsed', c'est
+    # que le tool n'est pas exposé ou que le modèle l'ignore.
+    source = db.Column(db.String(20), default='tool')
+    model_name = db.Column(db.String(120))
+
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint('zone_name', 'outing_date', name='unique_plan_per_zone_date'),
+    )
+
+    def to_dict(self, include_markdown: bool = True) -> dict:
+        def _load(raw, fallback):
+            if not raw:
+                return fallback
+            try:
+                return json.loads(raw)
+            except (TypeError, ValueError):
+                return fallback
+
+        data = {
+            'id': self.id,
+            'zone_name': self.zone_name or '',
+            'outing_date': self.outing_date,
+            'gc_codes': _load(self.gc_codes, []),
+            'plan': _load(self.payload, {}),
+            'checked': _load(self.checked, []),
+            'source': self.source or 'tool',
+            'model_name': self.model_name,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+        if include_markdown:
+            data['markdown'] = self.markdown or ''
+        return data

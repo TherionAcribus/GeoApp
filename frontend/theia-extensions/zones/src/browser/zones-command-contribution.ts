@@ -9,6 +9,7 @@ import { GeocachingFriendsWidget } from './geocaching-friends-widget';
 import { GeocachingFriendActivityWidget } from './geocaching-friend-activity-widget';
 import { ArchiveManagerWidget } from './archive-manager-widget';
 import { GeoAppChatPolicyCommandId, GeoAppChatPolicyWidget } from './geoapp-chat-policy-widget';
+import { OutingPlanCommandId, OutingPlanWidget } from './outing-plan-widget';
 import { ServerLogTerminalWidget } from './server-log-terminal-widget';
 
 export const ZonesCommands = {
@@ -20,6 +21,7 @@ export const ZonesCommands = {
     OPEN_FRIEND_ACTIVITY: <Command>{ id: 'geoapp.friends.activity.open', label: 'GeoApp: Activité des amis' },
     OPEN_ARCHIVE_MANAGER: <Command>{ id: 'geoapp.archive.manager.open', label: 'GeoApp: Gestionnaire d\'archive' },
     OPEN_CHAT_POLICY: <Command>{ id: GeoAppChatPolicyCommandId, label: 'GeoApp: Policy Chat IA' },
+    OPEN_OUTING_PLAN: <Command>{ id: OutingPlanCommandId, label: 'GeoApp: Checklist de sortie' },
     OPEN_SERVER_LOG_TERMINAL: <Command>{ id: 'geoapp.serverLogs.open', label: 'GeoApp: Terminal serveur' }
 };
 
@@ -114,6 +116,16 @@ export class ZonesCommandContribution implements CommandContribution {
         commands.registerCommand(ZonesCommands.OPEN_CHAT_POLICY, {
             execute: async () => {
                 const widget = await this.widgetManager.getOrCreateWidget(GeoAppChatPolicyWidget.ID);
+                if (!widget.isAttached) {
+                    this.shell.addWidget(widget, { area: 'main' });
+                }
+                this.shell.activateWidget(widget.id);
+            }
+        });
+
+        commands.registerCommand(ZonesCommands.OPEN_OUTING_PLAN, {
+            execute: async () => {
+                const widget = await this.widgetManager.getOrCreateWidget(OutingPlanWidget.ID);
                 if (!widget.isAttached) {
                     this.shell.addWidget(widget, { area: 'main' });
                 }

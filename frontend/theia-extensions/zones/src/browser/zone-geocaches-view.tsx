@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { GeocachesTable, Geocache, GeocachesTableColumnId } from './geocaches-table';
+import { OutingPlanCacheFlags } from './outing-plan-types';
 import { ImportGpxDialog } from './import-gpx-dialog';
 import { ImportBookmarkListDialog } from './import-bookmark-list-dialog';
 import { ImportPocketQueryDialog } from './import-pocket-query-dialog';
@@ -64,6 +65,8 @@ export interface ZoneGeocachesViewProps {
     onCancelMoveSelected: () => void;
     /** « Qui a trouvé quoi » : code GC -> pseudos d'amis. */
     friendFinds?: Record<string, string[]>;
+    /** Signaux de la dernière analyse IA de sortie, par code GC (colonne « Sortie »). */
+    outingFlags?: Record<string, OutingPlanCacheFlags>;
     /** Progression de l'analyse des amis (null = inactive). */
     friendFindsProgress?: { done: number; total: number; friend?: string } | null;
     onAnalyzeFriendFinds?: (forceAll: boolean) => void | Promise<void>;
@@ -247,6 +250,7 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
                 onSelectionChange={props.onSelectionChange}
                 selectedGeocacheIds={props.selectedGeocacheIds}
                 friendFinds={props.friendFinds}
+                outingFlags={props.outingFlags}
             />
         )}
 

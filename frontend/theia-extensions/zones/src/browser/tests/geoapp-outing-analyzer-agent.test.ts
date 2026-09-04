@@ -13,6 +13,8 @@ import {
     GeoAppOutingSystemPromptVariants,
 } from '../geoapp-chat-system-prompts';
 import { GEOAPP_OUTING_ANALYZER_AGENT_ID } from '../outing-analysis-types';
+import { OUTING_SAVE_PLAN_TOOL_NAME } from '../outing-plan-types';
+import { extractOutingPlanBlock } from '../outing-plan-capture';
 
 class FakeToolInvocationRegistry {
     getAllFunctions(): ToolRequest[] {
@@ -121,6 +123,36 @@ function testPromptDefinesTheFiveReportSections(): void {
     assert.ok(template.includes('## 5. À vérifier avant de partir'));
 }
 
+/**
+ * Troisieme contrat de chaine : le prompt nomme le tool de capture, et decrit un bloc
+ * JSON que `extractOutingPlanBlock()` doit savoir relire. Un exemple de prompt que
+ * l'extracteur ne reconnaitrait pas apprendrait au modele une forme inexploitable.
+ */
+function testPromptCarriesTheMachineOutputContract(): void {
+    const template = GeoAppOutingSystemPromptVariants.defaultVariant.template;
+
+    assert.ok(template.includes(OUTING_SAVE_PLAN_TOOL_NAME));
+    assert.ok(template.includes('LE RAPPORT DOIT POUVOIR SORTIR DU CHAT'));
+    assert.ok(template.includes('```json'));
+
+    // Les quatre vocabulaires fermés doivent être écrits en clair : une valeur inventée
+    // est ramenée au défaut le plus prudent côté serveur, donc silencieusement affaiblie.
+    assert.ok(template.includes('confirmed | probable | precaution'));
+    assert.ok(template.includes('blocking | warning | info'));
+    assert.ok(template.includes('unsolved_mystery'));
+    assert.ok(template.includes('gear_required'));
+}
+
+function testPromptExampleIsReadableByTheExtractor(): void {
+    const template = GeoAppOutingSystemPromptVariants.defaultVariant.template;
+    const plan = extractOutingPlanBlock(template) as Record<string, unknown> | undefined;
+
+    assert.ok(plan, "l'exemple du prompt doit être un plan extractible");
+    assert.ok(Array.isArray(plan!.checklist));
+    assert.ok(Array.isArray(plan!.alerts));
+    assert.ok(Array.isArray(plan!.per_cache));
+}
+
 async function testSystemMessageUsesTheOutingVariantNotTheChatOne(): Promise<void> {
     const agent = createAgent('PROMPT DE SORTIE');
     const description = await (agent as any).getSystemMessageDescription(createContext());
@@ -154,6 +186,8 @@ async function run(): Promise<void> {
     testAgentConfigurationCarriesTheOutingPrompt();
     testPromptStatesTheNonNegotiableRules();
     testPromptDefinesTheFiveReportSections();
+    testPromptCarriesTheMachineOutputContract();
+    testPromptExampleIsReadableByTheExtractor();
     await testSystemMessageUsesTheOutingVariantNotTheChatOne();
     await testSystemMessageStillCarriesTheToolPolicy();
     await testMissingPromptFallsBackInsteadOfLosingInstructions();

@@ -1,0 +1,265 @@
+/*
+ * Panneau « Sortie » et badges d'analyse dans les tables.
+ *
+ * Toutes les couleurs passent par les variables Theia : le thème clair et le thème
+ * sombre doivent rester lisibles sans seconde feuille de style. Les trois niveaux de
+ * sévérité sont les seules couleurs « métier », et elles reprennent celles que Theia
+ * utilise déjà pour les erreurs, les avertissements et l'information.
+ */
+
+.geoapp-outing-plan-root {
+    height: 100%;
+    overflow: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    color: var(--theia-ui-font-color1);
+}
+
+.geoapp-outing-plan-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    border-bottom: 1px solid var(--theia-layout-color3);
+    padding-bottom: 12px;
+}
+
+.geoapp-outing-plan-header h2 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.geoapp-outing-plan-header p {
+    margin: 4px 0 0;
+    font-size: 12px;
+    color: var(--theia-ui-font-color2);
+}
+
+.geoapp-outing-plan-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.geoapp-outing-plan-provenance {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 12px;
+    font-size: 12px;
+    color: var(--theia-ui-font-color2);
+}
+
+.geoapp-outing-plan-source {
+    font-style: italic;
+}
+
+.geoapp-outing-plan-summary {
+    flex-basis: 100%;
+    margin: 0;
+    color: var(--theia-ui-font-color1);
+}
+
+.geoapp-outing-plan-export {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.geoapp-outing-plan-empty,
+.geoapp-outing-plan-error {
+    padding: 12px;
+    border-radius: 4px;
+    background: var(--theia-editorWidget-background);
+    font-size: 12px;
+}
+
+.geoapp-outing-plan-error {
+    color: var(--theia-editorError-foreground);
+}
+
+.geoapp-outing-plan-section {
+    border-top: 1px solid var(--theia-layout-color3);
+    padding-top: 12px;
+}
+
+.geoapp-outing-plan-section h3 {
+    margin: 0 0 8px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.geoapp-outing-plan-section h3 span {
+    margin-left: 8px;
+    font-weight: 400;
+    font-size: 12px;
+    color: var(--theia-ui-font-color2);
+}
+
+.geoapp-outing-plan-section h4 {
+    margin: 8px 0 4px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--theia-ui-font-color2);
+}
+
+.geoapp-outing-plan-section ul,
+.geoapp-outing-plan-section ol {
+    margin: 0;
+    padding-left: 18px;
+}
+
+.geoapp-outing-plan-group ul {
+    list-style: none;
+    padding-left: 0;
+}
+
+.geoapp-outing-plan-group li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px;
+    padding: 2px 0;
+}
+
+.geoapp-outing-plan-group label {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    cursor: pointer;
+}
+
+/*
+ * Le niveau de certitude est porté par une barre à gauche, pas par la couleur du texte :
+ * du texte gris pour « par précaution » se lirait comme du texte désactivé, alors que la
+ * ligne reste tout à fait actionnable.
+ */
+.geoapp-outing-plan-group {
+    border-left: 3px solid transparent;
+    padding-left: 8px;
+    margin-bottom: 8px;
+}
+
+.geoapp-outing-plan-group.certainty-confirmed {
+    border-left-color: var(--theia-successBackground, var(--theia-editorInfo-foreground));
+}
+
+.geoapp-outing-plan-group.certainty-probable {
+    border-left-color: var(--theia-editorWarning-foreground);
+}
+
+.geoapp-outing-plan-group.certainty-precaution {
+    border-left-color: var(--theia-layout-color4);
+}
+
+.geoapp-outing-plan-codes {
+    font-family: var(--theia-code-font-family);
+    font-size: 11px;
+    color: var(--theia-ui-font-color2);
+}
+
+.geoapp-outing-plan-reason {
+    font-size: 11px;
+    font-style: italic;
+    color: var(--theia-ui-font-color2);
+}
+
+.geoapp-outing-plan-alerts {
+    list-style: none;
+    padding-left: 0;
+}
+
+.geoapp-outing-plan-alerts li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px;
+    padding: 4px 0 4px 8px;
+    border-left: 3px solid transparent;
+}
+
+.geoapp-outing-plan-alerts li.severity-blocking {
+    border-left-color: var(--theia-editorError-foreground);
+}
+
+.geoapp-outing-plan-alerts li.severity-warning {
+    border-left-color: var(--theia-editorWarning-foreground);
+}
+
+.geoapp-outing-plan-alerts li.severity-info {
+    border-left-color: var(--theia-editorInfo-foreground);
+}
+
+.geoapp-outing-plan-severity {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.geoapp-outing-plan-kind {
+    font-size: 11px;
+    color: var(--theia-ui-font-color2);
+}
+
+.geoapp-outing-plan-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.geoapp-outing-plan-table th,
+.geoapp-outing-plan-table td {
+    text-align: left;
+    padding: 4px 8px 4px 0;
+    border-bottom: 1px solid var(--theia-layout-color3);
+    vertical-align: top;
+}
+
+.geoapp-outing-plan-table th {
+    font-weight: 600;
+    color: var(--theia-ui-font-color2);
+}
+
+.geoapp-outing-plan-notes {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--theia-ui-font-color2);
+}
+
+.geoapp-outing-plan-order {
+    font-family: var(--theia-code-font-family);
+    font-size: 12px;
+}
+
+/*
+ * Badges d'analyse, partagés entre le panneau et les tables de géocaches.
+ *
+ * Un badge dit ce que la dernière analyse IA a signalé : il porte donc toujours une
+ * infobulle qui nomme la sortie d'origine, pour qu'on ne le prenne pas pour un fait
+ * calculé par GeoApp.
+ */
+.geoapp-outing-badge {
+    display: inline-block;
+    margin-right: 2px;
+    font-size: 11px;
+    line-height: 1;
+    cursor: help;
+}
+
+.geoapp-outing-badge.severity-blocking {
+    filter: none;
+}
+
+.geoapp-outing-badge.severity-info {
+    opacity: 0.75;
+}
+
+.geoapp-outing-badges-cell {
+    white-space: nowrap;
+}

@@ -1602,7 +1602,242 @@ Sur une partie du parc, les colonnes `hints` et `hints_decoded` sont **inversée
 problème en retenant le candidat qui ressemble le plus à de la langue naturelle. La donnée
 elle-même n'est pas corrigée : `to_dict()` et la page de détails restent affectés.
 
-## 32. Résumé technique
+## 32. Plan de sortie : le rapport hors du chat
+
+Le § 31 produit un rapport. Ce paragraphe-ci décrit ce qu'il devient : le rapport ne vit
+plus seulement dans la conversation, il est capturé sous forme structurée, stocké, coché,
+exporté, et il alimente des badges dans les deux tables de géocaches.
+
+La distinction à garder en tête : le **rapport** est du texte rédigé pour être lu ; le
+**plan** est la même substance sous une forme qu'une machine consomme. Ils voyagent
+ensemble et se stockent ensemble, mais ils ne servent pas à la même chose.
+
+### Flux
+
+```text
+Session Chat (agent geoapp-outing-analyzer)
+        |
+        +--> [voie 1] tool save_outing_plan          structure seule, pendant la reponse
+        |            |
+        |            v
+        |    OutingPlanCaptureService.capture(source: 'tool')
+        |
+        +--> [voie 2] reponse terminee
+                     |
+                     v
+             GeoAppChatBridge.observeResponse()      contribution GeoAppChatResponseObserver
+                     |
+                     v
+             OutingPlanResponseObserver
+                     +--> extractOutingPlanBlock()   bloc JSON en fin de reponse
+                     |        +--> capture(source: 'parsed', markdown: texte complet)
+                     +--> sinon : attachMarkdown()   le plan existe deja, il lui manque le texte
+                              |
+                              v
+                     POST /api/outing-plans  ->  outing_plan_schema.validate_plan()
+                              |
+                              v
+                        table outing_plan
+                              |
+        +---------------------+---------------------+
+        |                     |                     |
+        v                     v                     v
+  Panneau « Sortie »    Badges des tables      Export Markdown
+  (checklist cochee)    (colonne outing_flags)  (fiche / rapport)
+```
+
+### Deux voies de capture, volontairement redondantes
+
+La règle 14 du prompt système demande au modèle **les deux** : le tool `save_outing_plan`,
+puis un bloc JSON clôturé en toute fin de réponse. Ce n'est pas une précaution paresseuse :
+les deux voies ne portent pas la même chose et n'échouent pas dans les mêmes cas.
+
+| | Tool `save_outing_plan` | Bloc JSON de fin de réponse |
+|---|---|---|
+| Structure | oui, schéma typé | oui, forme libre à valider |
+| Texte rédigé | **non** | oui : toute la réponse est lue |
+| Échoue quand | le modèle l'oublie, la policy le retire | la génération est coupée |
+| Coût | une confirmation Theia (profil `guided`) | quelques centaines de tokens de sortie |
+
+La conséquence importante est dans la deuxième ligne : **seule la lecture de la réponse
+peut attacher le rapport rédigé**, puisque le tool ne transmet que la structure. Quand un
+plan existe déjà et que la réponse ne porte pas de bloc, l'observateur se contente donc
+d'attacher le texte (`PATCH /api/outing-plans/<id>` avec `markdown`).
+
+Les deux voies écrivent sous la même clé `(zone_name, outing_date)` : la seconde écriture
+remplace la première au lieu de la doubler. La capture est idempotente par construction.
+
+### L'identité de la sortie n'est jamais demandée au modèle
+
+Zone, date et liste de codes GC sont connues de façon certaine côté front, au moment où
+l'analyse part. `OutingAnalysisController.analyze()` les enregistre dans
+`OutingPlanCaptureService` **avant** d'ouvrir la session — la réponse peut arriver vite — et
+la capture les retrouve ensuite.
+
+`resolveContext()` arbitre entre les sorties connues, du critère le plus sûr au plus
+faible : la date annoncée par le modèle si elle correspond à une sortie lancée, sinon le
+recouvrement de codes GC le plus large, sinon la dernière sortie lancée. Le dernier critère
+est presque toujours le bon — une analyse répond dans la minute — mais il cesse de l'être
+dès que deux analyses se chevauchent.
+
+Le motif de toute cette mécanique : une date recopiée de travers par un modèle rangerait le
+plan sous la mauvaise sortie, et **rien ne le signalerait**. Le libellé de zone est celui du
+titre de session, `resolveZoneLabel()`, pour que la conversation et le plan ne décrivent pas
+la même sortie sous deux clés.
+
+### Le serveur normalise, il ne rejette presque jamais
+
+`outing_plan_schema.validate_plan()` ramène ce qui arrive à une forme fixe :
+
+| Entrée | Sortie |
+|---|---|
+| `certainty: "peut-être"` | `precaution`, le défaut le plus prudent |
+| `severity`, `kind`, `flags` hors vocabulaire | ramenés au défaut, ou jetés pour les drapeaux |
+| `minutes: "45 min"` | `45`, borné à 24 h |
+| `gc_code: "gcabc"` | `GCABC` ; illisible → écarté, compté dans `warnings` |
+| Deux lignes « lampe frontale » | fusionnées, certitude la plus forte, union des codes |
+| `time_budget` sans total | total calculé depuis sur place + trajet |
+
+Le seul refus est le **plan vide** — ni checklist, ni alerte, ni détail par cache. Le
+stocker ferait croire à une analyse aboutie. Partout ailleurs, la règle est qu'un rapport
+amputé vaut mieux qu'un rapport rejeté : le texte est déjà sous les yeux de l'utilisateur
+dans le chat, et refuser la capture ne lui rend aucun service. Chaque coupe part dans
+`warnings`, que l'UI affiche.
+
+### Les drapeaux par cache sont dérivés, pas seulement recopiés
+
+`_derive_flags()` complète `per_cache[].flags` depuis les alertes et le matériel listé :
+
+| Source | Drapeau ajouté |
+|---|---|
+| Alerte `severity: blocking` | `blocking` |
+| Alerte `kind: health` | `risky_health` |
+| Alerte `kind: access` / `schedule` / `gear` / `data` | `access` / `time_window` / `gear_required` / `stale_data` |
+| Alerte `unsolved_mystery` / `already_found` | `blocking` |
+| `gear` non vide | `gear_required` |
+
+Une alerte bloquante sur GCXXXX crée au besoin l'entrée `per_cache` correspondante. Les
+badges des tables lisent ces drapeaux : les faire dépendre de la discipline du modèle à
+répéter deux fois la même information les rendrait intermittents, ce qui est pire
+qu'absents.
+
+### Stockage
+
+Table `outing_plan`, clé métier `(zone_name, outing_date)` — la même que le titre de session
+du chat. Relancer l'analyse d'une sortie remplace son plan, exactement comme elle reprend la
+même conversation.
+
+| Colonne | Rôle |
+|---|---|
+| `payload` | Le plan normalisé, JSON en texte |
+| `markdown` | Le rapport rédigé, quand il a pu être attaché |
+| `gc_codes` | Les caches du lot, pour la recherche par code |
+| `checked` | Les clés de checklist cochées |
+| `source` | `tool` ou `parsed` — diagnostic : tout en `parsed` signale un tool non exposé |
+
+**L'état coché survit à une relance** pour les lignes dont la clé n'a pas bougé : relancer
+une analyse ne doit pas vider un sac à moitié fait. La clé est le slug du libellé,
+`normalize_key()` côté Python et `normalizeChecklistKey()` côté TypeScript, avec un test de
+chaque côté pour qu'elles coïncident. Une reformulation du modèle (« lampe frontale » vers
+« frontale ») perd la coche : c'est le prix d'une clé lisible, et la perte est visible.
+
+### Endpoints
+
+| Route | Rôle |
+|---|---|
+| `POST /api/outing-plans` | Upsert. Renvoie le plan normalisé et les `warnings` |
+| `GET /api/outing-plans` | Liste, filtrable par date et zone. Le Markdown est omis |
+| `GET /api/outing-plans/<id>` | Détail, Markdown compris |
+| `PATCH /api/outing-plans/<id>` | `checked` et/ou `markdown` |
+| `DELETE /api/outing-plans/<id>` | Suppression |
+| `POST /api/outing-plans/flags` | Drapeaux pour un lot de codes GC : ce que lisent les tables |
+
+`/flags` répond par le plan **le plus récent** qui parle de chaque code, et renvoie son
+identité avec — un badge doit pouvoir dire de quelle analyse il vient. Le filtrage se fait
+en Python sur les cinquante plans les plus récents : `gc_codes` est du JSON en colonne
+texte, que SQLite ne sait pas indexer, et le volume est de l'ordre de la dizaine.
+
+### Le point d'extension `GeoAppChatResponseObserver`
+
+Le bridge sait ouvrir une session et attendre sa réponse ; il n'a pas à savoir ce qu'on veut
+en faire. `sendRequest()` renvoie une `ChatRequestInvocation`, dont `responseCompleted` est
+attendu **sans bloquer l'ouverture de session** — une génération dure des dizaines de
+secondes. Chaque observateur est isolé : l'un qui lève ne prive pas les autres de
+l'événement, et ne fait pas remonter d'erreur dans un chat qui, lui, a réussi.
+
+`OutingPlanResponseObserver` ne s'active que sur une session de sortie, reconnue à son agent
+épinglé ou, à défaut, au préfixe `SORTIE - ` de son titre — une session reprise peut avoir
+perdu son épinglage sans cesser d'être la même préparation.
+
+### Le tool est déclaré `local_write`, sans tricher
+
+`geoapp.outing.save-plan` écrit en base. Sous le profil `guided`, le défaut, il passe donc
+par une confirmation Theia au premier appel, avec l'option « toujours autoriser ». Le
+déclarer `read_only` pour épargner un clic viderait de son sens la colonne « écrit en
+local » du panneau Policy. Un test verrouille l'appariement entre l'`id` du tool et la clé
+du catalogue : un identifiant qui diverge ferait sortir le tool de la policy GeoApp, donc
+d'une écriture en base soumise à confirmation.
+
+### Panneau « Sortie »
+
+Commande `GeoApp: Checklist de sortie`. Il affiche le plan tel que le serveur l'a normalisé
+— il n'invente rien — et y ajoute la provenance : quelle sortie, quand, sur combien de
+caches, et par quelle voie de capture. La seule interaction structurante est la case à
+cocher : elle bascule immédiatement à l'écran et le serveur suit, parce qu'une case qui
+attend un aller-retour donne l'impression de ne pas répondre. En cas d'échec, l'état revient
+à celui du serveur et l'erreur est dite.
+
+Une capture pendant que le panneau est ouvert s'y affiche : c'est exactement le moment où
+l'utilisateur regarde le résultat de son analyse. Hors du panneau, une notification propose
+de l'ouvrir, avec une fenêtre de silence d'une minute par plan — le double appel tool + bloc
+est le cas nominal, notifier deux fois serait du bruit.
+
+### Badges dans les tables
+
+Colonne `outing_flags` (« Sortie ») dans la table de zone, et badges collés au code GC dans
+le tableau du log-editor, dont le jeu de colonnes est fixe et déjà dense. Les deux tirent de
+`POST /api/outing-plans/flags`, par l'intermédiaire d'un cache qui mémorise **aussi les
+absences** : une table se redessine à chaque tri, à chaque filtre et à chaque sélection, et
+une table dont aucune cache n'est couverte rappellerait le serveur à chaque rendu. Le cache
+est vidé à chaque écriture de plan, et les deux widgets écoutent `onDidChangePlans`.
+
+**L'infobulle nomme la sortie d'origine et sa date.** Ces drapeaux viennent d'un modèle, pas
+d'un calcul GeoApp, et le log-editor affiche justement sa liste longtemps après l'analyse.
+Un badge « santé risquée » lu comme un fait calculé serait plus trompeur que pas de badge.
+
+### Export : deux documents, pas un
+
+| Document | Contenu | Quand |
+|---|---|---|
+| **Rapport** (`plan.markdown`) | Le texte du modèle : il argumente, il cite ses sources | Relecture la veille |
+| **Fiche** (`buildOutingPlanMarkdown()`) | Checklist avec ses cases, alertes, ordre, budget | Ce qu'on emporte |
+
+La fiche est toujours disponible, puisqu'elle se génère depuis la structure. Le rapport peut
+manquer — le tool ne le transmet pas — et c'est un cas expliqué à l'utilisateur, pas masqué
+par un fichier vide. Le pied de la fiche nomme l'analyse, sa date, son modèle et le nombre
+de caches, et rappelle que les recommandations viennent d'un modèle : emportée sur le
+terrain trois semaines plus tard, elle n'a plus aucun autre contexte.
+
+### Ce qui a été écarté
+
+- **Note GeoApp par cache** : écrire `per_cache` en note système sur chaque géocache. Ces
+  notes repartiraient dans le bundle de la prochaine analyse (§ 31, « Ce que contient le
+  bundle »), et l'IA relirait sa propre sortie comme une source utilisateur. Le faire
+  supposerait de les filtrer à la collecte.
+- **Note de zone** : le modèle `Note` de GeoApp est attaché à une géocache, pas à une zone.
+  La table `outing_plan` joue ce rôle avec sa propre clé métier.
+
+### Limites connues
+
+- Si ni le tool ni le bloc n'aboutissent, il n'y a pas de plan : le rapport reste dans la
+  conversation, et aucun bouton ne le repêche manuellement.
+- Le bloc JSON coûte quelques centaines de tokens de sortie, redondants avec le tool quand
+  les deux fonctionnent. Le plafond du lot 10 (§ 31) porte sur l'entrée et ne s'y applique
+  pas.
+- Un plan écrit depuis une autre fenêtre ne rafraîchit pas les badges de celle-ci : le cache
+  est par session front.
+
+## 33. Résumé technique
 
 Le Chat IA GeoApp moderne repose sur une séparation claire :
 

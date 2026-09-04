@@ -79,6 +79,16 @@ const STATIC_TOOL_METADATA: Record<string, Omit<GeoAppAiToolMetadata, 'publicNam
         workflowKinds: ['general', 'secret_code', 'formula', 'checker', 'hidden_content', 'image_puzzle'],
         defaultEnabled: true,
     },
+    // Ecrit en base : c'est le seul tool GeoApp qui range durablement une sortie du
+    // modele. Declare comme tel, il passe par une confirmation sous le profil guided.
+    'geoapp.outing.save-plan': {
+        registryId: 'geoapp.outing.save-plan',
+        category: 'utility',
+        risk: 'local_write',
+        workflowKinds: ['general'],
+        writesLocal: true,
+        defaultEnabled: true,
+    },
     'geoapp.plugins.workflow.resolve': {
         registryId: 'geoapp.plugins.workflow.resolve',
         category: 'workflow',

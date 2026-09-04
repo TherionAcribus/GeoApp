@@ -1,10 +1,10 @@
-import { injectable, inject } from '@theia/core/shared/inversify';
+import { injectable, inject, multiInject, optional } from '@theia/core/shared/inversify';
 import { FrontendApplicationContribution } from '@theia/core/lib/browser';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import { LanguageModelRegistry } from '@theia/ai-core';
 import { DEFAULT_CHAT_AGENT_PREF } from '@theia/ai-chat/lib/common/ai-chat-preferences';
-import { ChatAgent, ChatAgentLocation, ChatAgentService, ChatService, ChatSession, isSessionDeletedEvent } from '@theia/ai-chat';
+import { ChatAgent, ChatAgentLocation, ChatAgentService, ChatRequestInvocation, ChatService, ChatSession, isSessionDeletedEvent } from '@theia/ai-chat';
 import { ImageContextVariable } from '@theia/ai-chat/lib/common/image-context-variable';
 import { AIVariableResolutionRequest } from '@theia/ai-core';
 import {
@@ -17,6 +17,7 @@ import {
     GeoAppChatWorkflowProfile
 } from './geoapp-chat-agent';
 import {
+    GeoAppChatResponseObserver,
     buildGeoAppChatDisplaySessionTitle,
     buildGeoAppChatPrompt,
     GEOAPP_OPEN_CHAT_REQUEST_EVENT,
@@ -72,6 +73,8 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
         @inject(PreferenceService) protected readonly preferenceService: PreferenceService,
         @inject(LanguageModelRegistry) protected readonly languageModelRegistry: LanguageModelRegistry,
         @inject(MessageService) protected readonly messages: MessageService,
+        @multiInject(GeoAppChatResponseObserver) @optional()
+        protected readonly responseObservers: GeoAppChatResponseObserver[] = [],
     ) {}
 
     onStart(): void {
@@ -110,10 +113,11 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
                 this.sanitizeSessionSettings(existingSession);
                 this.chatService.setActiveSession(existingSession.id, { focus: detail.focus !== false });
                 if (prompt) {
-                    await this.chatService.sendRequest(existingSession.id, {
+                    const invocation = await this.chatService.sendRequest(existingSession.id, {
                         text: prompt,
                         ...(imageVariables.length > 0 ? { variables: imageVariables } : {}),
                     });
+                    this.observeResponse(invocation, existingSession.id, baseSessionTitle, pinnedAgent?.id);
                 }
                 return;
             }
@@ -125,16 +129,53 @@ export class GeoAppChatBridge implements FrontendApplicationContribution {
             this.sanitizeSessionSettings(session);
 
             if (prompt) {
-                await this.chatService.sendRequest(session.id, {
+                const invocation = await this.chatService.sendRequest(session.id, {
                     text: prompt,
                     ...(imageVariables.length > 0 ? { variables: imageVariables } : {}),
                 });
+                this.observeResponse(invocation, session.id, baseSessionTitle, pinnedAgent?.id);
             }
         } catch (error) {
             console.error('[GeoAppChatBridge] Failed to open GeoApp chat', error);
             this.messages.error('Impossible d\'ouvrir le chat GeoApp.');
         }
     };
+
+    /**
+     * Prévient les observateurs quand la réponse est complète.
+     *
+     * Volontairement non attendu par l'appelant : l'ouverture de session ne doit pas
+     * rester en suspens le temps d'une génération, qui dure des dizaines de secondes.
+     * Chaque observateur est isolé — l'un qui lève ne prive pas les autres de l'événement,
+     * et surtout ne fait pas remonter une erreur dans un chat qui, lui, a réussi.
+     */
+    protected observeResponse(
+        invocation: ChatRequestInvocation | undefined,
+        sessionId: string,
+        sessionTitle: string,
+        agentId?: string
+    ): void {
+        if (!invocation || this.responseObservers.length === 0) {
+            return;
+        }
+
+        invocation.responseCompleted.then(response => {
+            const text = response?.response?.asDisplayString?.() ?? '';
+            for (const observer of this.responseObservers) {
+                try {
+                    const outcome = observer.handleChatResponse({ sessionId, sessionTitle, agentId, text });
+                    Promise.resolve(outcome).catch(error =>
+                        console.error('[GeoAppChatBridge] Observateur de réponse en échec', error)
+                    );
+                } catch (error) {
+                    console.error('[GeoAppChatBridge] Observateur de réponse en échec', error);
+                }
+            }
+        }).catch(error => {
+            // Réponse annulée ou en erreur : rien à observer, et le chat l'a déjà signalé.
+            console.debug('[GeoAppChatBridge] Réponse non aboutie, observateurs non appelés', error);
+        });
+    }
 
     protected findExistingSession(detail: GeoAppOpenChatRequestDetail, sessionTitle: string): ChatSession | undefined {
         const requestedSessionKind = detail.sessionKind ?? 'auto';

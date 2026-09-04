@@ -387,3 +387,29 @@ export function sanitizeGeoAppSessionSettings(
     }
     return safeSettings;
 }
+
+/**
+ * Point d'extension : être prévenu qu'une réponse du chat GeoApp est terminée.
+ *
+ * Le bridge sait ouvrir une session et attendre sa réponse ; il n'a pas à savoir ce qu'on
+ * veut en faire. L'analyse de sortie s'en sert pour repêcher le bloc JSON de plan quand le
+ * modèle n'a pas appelé le tool de capture — un besoin qui n'a aucune raison de figurer
+ * dans un module de plomberie de chat, et qui ne sera pas le dernier du genre.
+ *
+ * Un observateur qui lève ne doit pas casser l'ouverture de session : le bridge isole
+ * chaque appel.
+ */
+export const GeoAppChatResponseObserver = Symbol('GeoAppChatResponseObserver');
+
+export interface GeoAppChatResponseEvent {
+    sessionId: string;
+    /** Titre de base, sans le suffixe d'agent ajouté à l'affichage. */
+    sessionTitle: string;
+    agentId?: string;
+    /** Texte complet de la réponse, tel qu'il s'affiche dans la conversation. */
+    text: string;
+}
+
+export interface GeoAppChatResponseObserver {
+    handleChatResponse(event: GeoAppChatResponseEvent): void | Promise<void>;
+}

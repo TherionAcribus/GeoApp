@@ -15,7 +15,7 @@
  *   log-editor n'a pas de `QuickInputService` injecté.
  */
 
-import { inject, injectable } from '@theia/core/shared/inversify';
+import { inject, injectable, optional } from '@theia/core/shared/inversify';
 import { MessageService } from '@theia/core';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import { QuickInputService } from '@theia/core/lib/common/quick-pick-service';
@@ -25,6 +25,7 @@ import {
     GeoAppOpenChatRequestDetailPayload,
 } from './geoapp-chat-shared';
 import { GeoAppChatPolicyService } from './geoapp-chat-policy-service';
+import { OutingPlanCaptureService } from './outing-plan-capture';
 import { GeoAppOutingSystemPromptVariants } from './geoapp-chat-system-prompts';
 import { buildBudgetedOutingPrompt, collectionOptionsForPlan } from './outing-analysis-budget';
 import { OutingPromptSize } from './outing-analysis-prompt';
@@ -98,6 +99,16 @@ export class OutingAnalysisController {
      */
     @inject(GeoAppChatPolicyService)
     protected readonly chatPolicyService!: GeoAppChatPolicyService;
+
+    /**
+     * Mémoire de la sortie en cours, pour la capture du rapport.
+     *
+     * Optionnel à dessein : c'est le seul moyen pour la capture de savoir de quelle sortie
+     * parle un plan, mais son absence ne doit pas empêcher une analyse de partir. Un
+     * rapport non capturé reste lisible dans le chat ; une analyse qui échoue, non.
+     */
+    @inject(OutingPlanCaptureService) @optional()
+    protected readonly planCapture?: OutingPlanCaptureService;
 
     /**
      * Parcours complet depuis un widget : choix du détail, progression, avertissements.
@@ -363,6 +374,14 @@ export class OutingAnalysisController {
             }
         );
 
+        // Avant l'ouverture de session, pas après : la réponse peut arriver vite, et la
+        // capture doit déjà savoir à quelle sortie rattacher le plan qu'elle recevra.
+        this.planCapture?.registerOuting({
+            zoneName: this.resolveZoneLabel(request.zoneName),
+            outingDate,
+            gcCodes: bundle.geocaches.map(geocache => geocache.gc_code),
+        });
+
         this.openChatSession({
             sessionTitle: this.buildSessionTitle(bundle, outingDate, request.zoneName),
             prompt: budget.prompt,
@@ -454,8 +473,20 @@ export class OutingAnalysisController {
         outingDate: string,
         zoneName?: string
     ): string {
-        const zone = zoneName?.trim() || 'sélection';
-        return `SORTIE - ${zone} - ${outingDate} (${bundle.geocaches.length} caches)`;
+        return `SORTIE - ${this.resolveZoneLabel(zoneName)} - ${outingDate} `
+            + `(${bundle.geocaches.length} caches)`;
+    }
+
+    /**
+     * Nom de zone retenu pour identifier la sortie.
+     *
+     * Le même que celui du titre de session, volontairement : le plan enregistré et la
+     * conversation partagent la clé « zone + date », et deux libellés différents feraient
+     * diverger deux choses qui décrivent la même sortie. Le log-editor n'a pas de zone,
+     * d'où la valeur de repli.
+     */
+    protected resolveZoneLabel(zoneName?: string): string {
+        return zoneName?.trim() || 'sélection';
     }
 
     protected collectWarnings(bundle: OutingAnalysisBundle): string[] {

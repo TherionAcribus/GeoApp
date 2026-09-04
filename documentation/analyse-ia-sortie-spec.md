@@ -1261,7 +1261,123 @@ message système, sous-évaluait l'envoi de plusieurs milliers de tokens.
   actuelle) fermerait la boucle et donnerait un vrai kilométrage de journée.
 - **Distances routières** : tout est à vol d'oiseau. Un calcul de trajet réel supposerait un
   service externe, ce que la fonctionnalité évite jusqu'ici.
-- **Persistance du rapport** : le rapport vit dans la session Chat. Un export vers les
-  notes de zone pourrait venir plus tard.
+- ~~**Persistance du rapport**~~ : traité par les lots 11 à 16 (table `outing_plan`,
+  panneau cochable, badges, export Markdown). L'écriture en note GeoApp par cache reste
+  écartée : ces notes repartiraient dans le bundle de la prochaine analyse.
 - **Seuils de santé configurables** : constantes de module au lot 1 ; les exposer en
   préférences seulement si l'usage montre que les défauts ne conviennent pas.
+
+---
+
+## LOT 11 à 16 — Sortie exploitable hors chat (2026-09-04)
+
+> **Livré.** Le rapport ne vit plus seulement dans la conversation : il est capturé,
+> stocké, cochable, exporté, et il alimente des badges dans les deux tables de géocaches.
+> Documentation de référence : § 33 de `chat-ia-geoapp-technique.md`.
+
+### Le problème
+
+Le rapport était un beau texte dans un chat. On ne le relit pas devant son sac, on ne coche
+rien, il ne remonte nulle part, et il disparaît avec la conversation. Tout le travail
+déterministe des lots 1 à 10 finissait donc dans un artefact volatil.
+
+### Les décisions structurantes
+
+**1. Deux voies de capture, volontairement redondantes.** Le prompt système (règle 14)
+demande au modèle **et** d'appeler le tool `save_outing_plan`, **et** de terminer par un
+bloc ```json. Ce n'est pas une ceinture-bretelles paresseuse : les deux voies ne portent pas
+la même chose et n'échouent pas dans les mêmes cas.
+
+| | Tool `save_outing_plan` | Bloc JSON en fin de réponse |
+|---|---|---|
+| Structure | oui, schéma typé | oui, format libre à valider |
+| Texte rédigé | **non** | oui (toute la réponse est lue) |
+| Échoue si | le modèle l'oublie, la policy le retire | la génération est coupée |
+| Coût | une confirmation Theia (profil `guided`) | quelques centaines de tokens |
+
+La seconde voie est donc aussi celle qui **attache le rapport rédigé**, que le tool ne peut
+pas transmettre. Quand le plan est déjà là et que la réponse n'a pas de bloc, seul le texte
+est attaché (`PATCH /api/outing-plans/<id>` avec `markdown`).
+
+Les deux écritures visent la même clé `(zone_name, outing_date)` : la seconde remplace la
+première au lieu de la doubler.
+
+**2. L'identité de la sortie n'est jamais demandée au modèle.** Zone, date et liste de codes
+GC sont connues de façon certaine côté front au moment où l'analyse est lancée. Le
+contrôleur les enregistre dans `OutingPlanCaptureService` **avant** d'ouvrir la session ;
+la capture les retrouve. `outing_date` reste un paramètre facultatif du tool, utilisé
+uniquement pour départager deux analyses lancées coup sur coup.
+
+Sans cette règle, une recopie approximative du modèle rangerait un plan sous la mauvaise
+date — une erreur parfaitement silencieuse.
+
+**3. Le serveur normalise, il ne rejette presque jamais.** `outing_plan_schema.py` ramène
+tout à une forme fixe : énumération inconnue → défaut le plus prudent, `minutes` en chaîne →
+entier borné, code GC illisible → écarté, lignes de checklist en double → fusionnées en
+gardant la certitude la plus forte. Chaque coupe part dans `warnings`. Le seul refus est le
+plan vide (ni checklist, ni alerte, ni détail par cache) : le stocker ferait croire à une
+analyse aboutie.
+
+Motif : le rapport est déjà sous les yeux de l'utilisateur dans le chat. Rejeter la capture
+ne lui rend aucun service, alors qu'une checklist amputée en rend un.
+
+**4. Les drapeaux par cache sont dérivés, pas seulement recopiés.** Une alerte `blocking` sur
+GCXXXX vaut drapeau `blocking` sur GCXXXX, que le modèle ait pensé ou non à le répéter dans
+`per_cache` ; du matériel listé vaut `gear_required`. Les badges des tables lisent ces
+drapeaux : les faire dépendre de la discipline du modèle les rendrait intermittents, ce qui
+est pire qu'absents.
+
+**5. L'état coché survit à une relance d'analyse**, pour les lignes dont la clé n'a pas
+bougé. La clé est le slug du libellé (`normalize_key()` côté Python, `normalizeChecklistKey()`
+côté TypeScript, testés pour coïncider). Une reformulation du modèle perd la coche : c'est le
+prix d'une clé lisible, et la perte est visible plutôt que silencieuse.
+
+**6. Le tool est déclaré `local_write`, sans tricher.** Il écrit en base ; sous le profil
+`guided` (le défaut) il passe donc par une confirmation Theia, avec l'option « toujours
+autoriser » au premier appel. Le déclarer `read_only` pour éviter un clic viderait de son
+sens la colonne « écrit en local » du panneau Policy.
+
+**7. Les badges disent qu'ils viennent d'un modèle.** L'infobulle nomme la sortie d'origine
+et sa date. Un badge « santé risquée » lu comme un calcul GeoApp serait plus trompeur que
+pas de badge du tout — d'autant que le log-editor affiche ces badges longtemps après
+l'analyse.
+
+**8. Deux documents Markdown, pas un.** Le **rapport rédigé** (`plan.markdown`) est le texte
+du modèle : il argumente, il cite ses sources, on le relit la veille. La **fiche de sortie**
+est générée depuis la structure : elle porte les cases cochées, ce que le texte ne peut pas
+faire, et c'est elle qu'on emporte. Son pied nomme l'analyse, sa date, son modèle, et
+rappelle que les recommandations viennent d'un modèle.
+
+### Écarté
+
+- **Note GeoApp par cache** (le `per_cache` écrit en note système sur chaque géocache) :
+  écarté à la demande. Ces notes repartiraient dans le bundle de la prochaine analyse, et
+  l'IA relirait sa propre sortie comme une source utilisateur. Le faire supposerait de les
+  filtrer à la collecte — un travail réel, pour un gain qui n'est pas celui du chantier.
+- **Note de zone** : le modèle `Note` de GeoApp est attaché à une géocache, pas à une zone.
+  La table `outing_plan` joue ce rôle, avec une clé métier qui lui est propre.
+
+### Fichiers
+
+| Lot | Fichiers |
+|---|---|
+| 11 | `outing_plan_schema.py`, `OutingPlan` dans `models.py`, `blueprints/outing_plans.py`, `migrations/versions/add_outing_plan_table.py`, `tests/test_outing_plans.py` (39 tests) |
+| 12 | `outing-plan-types.ts`, `outing-plan-service.ts`, `outing-plan-capture.ts`, `outing-plan-tools-manager.ts`, `outing-plan-response-observer.ts`, contrat `GeoAppChatResponseObserver` dans `geoapp-chat-shared.ts` + câblage dans `geoapp-chat-bridge.ts`, règle 14 et bloc de sortie dans `geoapp-chat-system-prompts.ts`, entrée de catalogue, `tests/outing-plan-capture.test.ts` (25 tests) |
+| 13 | `outing-plan-widget.tsx`, `style/outing-plan.css`, `outing-plan-notification-contribution.ts`, commande `geoapp.outing.plan.open` |
+| 14 | Colonne `outing_flags` de `geocaches-table.tsx`, badges dans `log-editor/geocaches-table.tsx`, alimentation par `zone-geocaches-widget.tsx` et `geocache-log-editor-widget.tsx` |
+| 15 | `outing-plan-markdown.ts`, boutons d'export du panneau, `tests/outing-plan-markdown.test.ts` (9 tests) |
+| 16 | § 33 de `chat-ia-geoapp-technique.md`, ce bloc |
+
+### Limites assumées
+
+- **Le bloc JSON coûte des tokens de sortie** : quelques centaines, redondants avec le tool
+  quand les deux fonctionnent. C'est le prix de la robustesse, et il est payé en sortie, où
+  le budget du lot 10 ne s'applique pas.
+- **Le panneau ne relit pas la conversation** : si ni le tool ni le bloc n'aboutissent, il
+  n'y a pas de plan, et le rapport reste consultable dans le chat seulement. Aucun bouton
+  « repêcher manuellement » n'a été fait.
+- **Le cache des drapeaux est par session front** : il est vidé à chaque écriture de plan,
+  mais un plan écrit depuis une autre fenêtre ne rafraîchit pas les badges de celle-ci.
+- **La recherche par code GC balaie les 50 plans les plus récents** en Python : `gc_codes`
+  est du JSON en colonne texte, que SQLite ne sait pas indexer. À l'échelle attendue (des
+  dizaines de plans), c'est sans effet mesurable.

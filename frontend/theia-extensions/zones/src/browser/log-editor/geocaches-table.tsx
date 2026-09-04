@@ -35,6 +35,39 @@ import {
 } from './helpers';
 import { SubmitBadge } from './submit-badge';
 import { GeocacheListItem, LogTypeValue, SubmissionStatus } from './types';
+import { OutingPlanCacheFlags, badgesForFlags, formatOutingMinutes } from '../outing-plan-types';
+// Les badges de sortie sont habillés par la feuille du panneau « Sortie ».
+import '../../../src/browser/style/outing-plan.css';
+
+/**
+ * Badges d'analyse d'une cache, ou rien.
+ *
+ * L'infobulle nomme la sortie d'origine : ces signaux viennent d'un modèle et d'une date,
+ * pas d'un calcul de GeoApp, et le log-editor est justement l'endroit où l'on regarde la
+ * liste du jour longtemps après l'avoir analysée.
+ */
+function outingBadges(entry: OutingPlanCacheFlags | undefined): React.ReactNode {
+    const badges = badgesForFlags(entry?.flags);
+    if (!entry || badges.length === 0) {
+        return undefined;
+    }
+    const duration = formatOutingMinutes(entry.minutes);
+    const gear = entry.gear.length > 0 ? ` — ${entry.gear.join(', ')}` : '';
+    return (
+        <span
+            className='geoapp-outing-badges-cell'
+            title={`${badges.map(badge => badge.label).join(' · ')}${gear}`
+                + `${duration ? ` — ${duration}` : ''}
+Analyse du ${entry.outing_date}`}
+        >
+            {badges.map(badge => (
+                <span key={badge.label} className={`geoapp-outing-badge severity-${badge.severity}`}>
+                    {badge.short}
+                </span>
+            ))}
+        </span>
+    );
+}
 
 const GeocacheLogEditorGeocachesTableImpl: React.FC<{
     data: GeocacheListItem[];
@@ -51,8 +84,16 @@ const GeocacheLogEditorGeocachesTableImpl: React.FC<{
     onReorder: (orderedGeocacheIds: number[]) => void;
     reorderDisabled?: boolean;
     remainingFavoritePoints: number;
+    /**
+     * Signaux de la dernière analyse IA de sortie, par code GC.
+     *
+     * Rendus dans la cellule du code plutôt que dans une colonne à eux : ce tableau a un
+     * jeu de colonnes fixe et déjà dense, et un badge collé au code se lit de toute façon
+     * mieux qu'une colonne de plus à mettre en regard.
+     */
+    outingFlags?: Record<string, OutingPlanCacheFlags>;
     maxHeight?: number;
-}> = ({ data, logType, perCacheLogType, perCacheFavorite, perCacheSubmitStatus, perCacheSubmitReference, perCacheSubmitError, onToggleFavorite, onToggleLogType, onReorder, reorderDisabled = false, remainingFavoritePoints, maxHeight = 220 }) => {
+}> = ({ data, logType, perCacheLogType, perCacheFavorite, perCacheSubmitStatus, perCacheSubmitReference, perCacheSubmitError, onToggleFavorite, onToggleLogType, onReorder, reorderDisabled = false, remainingFavoritePoints, outingFlags, maxHeight = 220 }) => {
     const [sorting, setSorting] = React.useState<SortingState>([]);
     const [draggedId, setDraggedId] = React.useState<number | null>(null);
     const [dropIndicator, setDropIndicator] = React.useState<{ id: number; position: 'before' | 'after' } | null>(null);
@@ -246,6 +287,7 @@ const GeocacheLogEditorGeocachesTableImpl: React.FC<{
                             sanitizeLogTypeForGeocache(perCacheLogType[row.original.id] ?? logType, row.original),
                             perCacheSubmitStatus
                         ) && <DnfBadge compact />}
+                        {outingBadges(outingFlags?.[row.original.gc_code])}
                     </div>
                 ),
             },
@@ -365,7 +407,7 @@ const GeocacheLogEditorGeocachesTableImpl: React.FC<{
                 enableSorting: false,
             },
         ];
-    }, [data, canReorder, logType, perCacheLogType, perCacheFavorite, perCacheSubmitStatus, perCacheSubmitReference, perCacheSubmitError, onToggleFavorite, onToggleLogType]);
+    }, [data, canReorder, logType, perCacheLogType, perCacheFavorite, perCacheSubmitStatus, perCacheSubmitReference, perCacheSubmitError, onToggleFavorite, onToggleLogType, outingFlags]);
 
     const table = useReactTable({
         data,

@@ -23,6 +23,9 @@ import {
 } from './geocache-filter-shared';
 
 import '../../src/browser/style/geocaches-table.css';
+// Les badges de sortie sont définis avec le panneau : la table doit les habiller même
+// quand ce panneau n'a jamais été ouvert.
+import '../../src/browser/style/outing-plan.css';
 
 export interface GeocacheWaypoint {
     id: number;
@@ -70,6 +73,8 @@ export interface Geocache {
 }
 
 
+import { OutingPlanCacheFlags, badgesForFlags, formatOutingMinutes } from './outing-plan-types';
+
 interface GeocachesTableProps {
     data: Geocache[];
     onRowClick?: (geocache: Geocache) => void;
@@ -105,6 +110,14 @@ interface GeocachesTableProps {
     selectedGeocacheIds?: number[];
     /** « Qui a trouvé quoi » : code GC -> pseudos d'amis (colonne `friends_found`). */
     friendFinds?: Record<string, string[]>;
+    /**
+     * Ce que la dernière analyse IA a signalé, par code GC (colonne `outing_flags`).
+     *
+     * Ces drapeaux ne sont pas des faits calculés par GeoApp mais les conclusions d'un
+     * modèle, datées. L'infobulle du badge le dit et nomme la sortie d'origine : un badge
+     * « santé risquée » lu comme un calcul serait plus trompeur que pas de badge du tout.
+     */
+    outingFlags?: Record<string, OutingPlanCacheFlags>;
 }
 
 export type GeocachesTableColumnId =
@@ -127,6 +140,7 @@ export type GeocachesTableColumnId =
     | 'owner'
     | 'logs_count'
     | 'friends_found'
+    | 'outing_flags'
     | 'status'
     | 'need_maintenance';
 
@@ -169,6 +183,7 @@ const GEOCACHES_TABLE_COLUMN_DEFINITIONS: GeocachesTableColumnDefinition[] = [
     { id: 'owner', label: 'Propriétaire', description: 'Propriétaire de la cache.' },
     { id: 'logs_count', label: 'Logs', description: 'Nombre de logs connus.' },
     { id: 'friends_found', label: 'Amis', description: "Nombre d'amis Geocaching.com ayant trouvé la cache." },
+    { id: 'outing_flags', label: 'Sortie', description: "Signaux de la dernière analyse IA de sortie (matériel, santé, bloquant)." },
     { id: 'status', label: 'Statut', description: 'Statut de la cache sur Geocaching.com (active, désactivée, archivée).' },
     { id: 'need_maintenance', label: 'Maintenance', description: 'Indique si le propriétaire a demandé une attention particulière (Need Maintenance).' },
 ];
@@ -408,7 +423,8 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
     onFilteredDataChange,
     onSelectionChange,
     selectedGeocacheIds,
-    friendFinds
+    friendFinds,
+    outingFlags
 }) => {
     const [sorting, setSorting] = React.useState<SortingState>([]);
     const [rowSelection, setRowSelection] = React.useState({});
@@ -659,6 +675,42 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                 size: 60,
             },
             {
+                id: 'outing_flags',
+                // Le tri se fait sur le nombre de signaux : les caches qui demandent une
+                // préparation remontent, ce qui est la seule question que pose la colonne.
+                accessorFn: row => (outingFlags?.[(row as Geocache).gc_code]?.flags ?? []).length,
+                header: '🎒',
+                cell: ({ row }) => {
+                    const entry = outingFlags?.[(row.original as Geocache).gc_code];
+                    const badges = badgesForFlags(entry?.flags);
+                    if (!entry || badges.length === 0) {
+                        return <span style={{ opacity: 0.35 }}>—</span>;
+                    }
+                    const duration = formatOutingMinutes(entry.minutes);
+                    const gear = entry.gear.length > 0 ? ` — ${entry.gear.join(', ')}` : '';
+                    const origin = `Analyse du ${entry.outing_date}`
+                        + `${entry.zone_name ? ` (${entry.zone_name})` : ''}`;
+                    return (
+                        <span
+                            className="geoapp-outing-badges-cell"
+                            title={`${badges.map(badge => badge.label).join(' · ')}`
+                                + `${gear}${duration ? ` — ${duration}` : ''}
+${origin}`}
+                        >
+                            {badges.map(badge => (
+                                <span
+                                    key={badge.label}
+                                    className={`geoapp-outing-badge severity-${badge.severity}`}
+                                >
+                                    {badge.short}
+                                </span>
+                            ))}
+                        </span>
+                    );
+                },
+                size: 90,
+            },
+            {
                 id: 'status',
                 accessorFn: row => (row as Geocache).status ?? 'active',
                 header: 'Statut',
@@ -725,9 +777,10 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                 size: 100,
             },
         ],
-        // `friendFinds` est capturé par la colonne « Amis » : sans cette
-        // dépendance, la colonne resterait figée sur la valeur initiale.
-        [friendFinds]
+        // `friendFinds` et `outingFlags` sont capturés par les colonnes « Amis » et
+        // « Sortie » : sans ces dépendances, elles resteraient figées sur la valeur
+        // initiale, c'est-à-dire vides jusqu'au prochain remontage de la table.
+        [friendFinds, outingFlags]
     );
 
     const cacheTypes = React.useMemo(() => {

@@ -33,6 +33,8 @@ import { ZoneGeocachesView } from './zone-geocaches-view';
 import { ImportAroundCenter, ImportAroundRequest } from './import-around-dialog';
 import { ImportAroundService } from './import-around-service';
 import { OutingAnalysisController } from './outing-analysis-controller';
+import { OutingPlanService } from './outing-plan-service';
+import { OutingPlanCacheFlags } from './outing-plan-types';
 
 interface SerializedZoneGeocachesState {
     zoneId: number;
@@ -80,6 +82,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     protected tableVisibleColumnIds: GeocachesTableColumnId[] = [...DEFAULT_GEOCACHES_TABLE_VISIBLE_COLUMNS];
     /** « Qui a trouvé quoi » dans cette zone : code GC -> pseudos d'amis. */
     protected friendFinds: Record<string, string[]> = {};
+    /** Signaux de la dernière analyse IA, par code GC : alimente la colonne « Sortie ». */
+    protected outingFlags: Record<string, OutingPlanCacheFlags> = {};
     protected friendFindsProgress: { done: number; total: number; friend?: string } | null = null;
     /** AbortController pour interrompre l'analyse streaming en cours. */
     protected analyzeAbortController?: AbortController;
@@ -165,6 +169,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         @inject(GeoAppWidgetEventsService) protected readonly widgetEventsService: GeoAppWidgetEventsService,
         @inject(MapService) protected readonly mapService: MapService,
         @inject(OutingAnalysisController) protected readonly outingAnalysisController: OutingAnalysisController,
+        @inject(OutingPlanService) protected readonly outingPlanService: OutingPlanService,
     ) {
         super();
         this.id = ZoneGeocachesWidget.ID;
@@ -179,6 +184,13 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         // Sélection demandée depuis la carte de la zone (Ctrl+clic, menu contextuel).
         this.toDispose.push(
             this.mapService.onDidRequestListSelection(request => this.handleMapListSelectionRequest(request))
+        );
+
+        // Une analyse de sortie qui vient d'être capturée doit se voir dans la colonne
+        // « Sortie » sans recharger la zone : c'est l'instant où l'utilisateur regarde
+        // justement cette liste.
+        this.toDispose.push(
+            this.outingPlanService.onDidChangePlans(() => { void this.loadOutingFlags(); })
         );
 
         // Recharger la liste des zones cibles (copy/move) quand le tree widget
@@ -1184,6 +1196,30 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
      * Charge « qui a trouvé quoi » depuis la base locale (aucun appel à
      * geocaching.com : la collecte se fait via analyzeFriendFinds).
      */
+    /**
+     * Signaux d'analyse IA pour les caches affichées.
+     *
+     * Appelé après le chargement des lignes, parce qu'il a besoin de leurs codes GC. Le
+     * service met en cache, y compris les absences : redessiner la table ne relance pas
+     * de requête. Un plan enregistré vide ce cache, ce qui rafraîchit les badges.
+     */
+    protected async loadOutingFlags(): Promise<void> {
+        const codes = this.rows.map(row => row.gc_code).filter(Boolean);
+        if (codes.length === 0) {
+            this.outingFlags = {};
+            return;
+        }
+        try {
+            const flags = await this.outingPlanService.fetchFlags(codes);
+            // Nouvelle référence d'objet : la colonne « Sortie » en dépend.
+            this.outingFlags = Object.fromEntries(flags);
+            this.update();
+        } catch (error) {
+            // Les badges sont un confort : leur absence ne doit pas gêner la zone.
+            console.debug('[ZoneGeocaches] drapeaux de sortie indisponibles:', error);
+        }
+    }
+
     protected async loadFriendFinds(): Promise<void> {
         if (!this.zoneId) {
             return;
@@ -1454,6 +1490,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
 
             // « Qui a trouvé quoi » : lecture locale, sans réseau geocaching.com.
             void this.loadFriendFinds();
+            // Signaux de la dernière analyse de sortie : lecture locale également.
+            void this.loadOutingFlags();
             // État des scans (vérifié le…, obsolète…) : lecture locale.
             void this.loadFriendScans();
 
@@ -1998,6 +2036,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 onOpenPocketQueryDialog={() => this.openPocketQueryDialog()}
                 onStartImportAround={() => this.startImportAroundWizard()}
                 friendFinds={this.friendFinds}
+                outingFlags={this.outingFlags}
                 friendFindsProgress={this.friendFindsProgress}
                 onAnalyzeFriendFinds={this.analyzeFriendFinds}
                 onCancelAnalyzeFriendFinds={this.cancelAnalyzeFriendFinds}

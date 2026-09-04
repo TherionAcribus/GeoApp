@@ -10,6 +10,8 @@ import { AiGenerationPanel } from './log-editor/ai-generation-panel';
 import { DraftBanner } from './log-editor/draft-banner';
 import { GeocacheLogEditorGeocachesTable } from './log-editor/geocaches-table';
 import { OutingAnalysisController } from './outing-analysis-controller';
+import { OutingPlanService } from './outing-plan-service';
+import { OutingPlanCacheFlags } from './outing-plan-types';
 import {
     buildFieldNotes as buildFieldNotesPure,
     buildSubmissionSummaryNode as buildSubmissionSummaryNodePure,
@@ -159,6 +161,9 @@ export class GeocacheLogEditorWidget extends ReactWidget {
 
     protected geocacheIds: number[] = [];
     protected geocaches: GeocacheListItem[] = [];
+    /** Signaux de la dernière analyse IA de sortie, par code GC : badges du tableau. */
+    protected outingFlags: Record<string, OutingPlanCacheFlags> = {};
+    protected outingPlanSubscribed = false;
     protected isLoading = false;
 
     protected logDate = todayIsoDate();
@@ -281,6 +286,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         @inject(StorageService) protected readonly storageService: StorageService,
         @inject(PreferenceService) protected readonly preferenceService: PreferenceService,
         @inject(OutingAnalysisController) protected readonly outingAnalysisController: OutingAnalysisController,
+        @inject(OutingPlanService) protected readonly outingPlanService: OutingPlanService,
     ) {
         super();
         this.title.label = 'Logs';
@@ -1155,12 +1161,55 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 }
             }
             this.perCacheFavorite = nextFav;
+
+            // Après le chargement : les drapeaux se demandent par code GC. La liste du
+            // log-editor est celle de la sortie du jour, donc celle que l'analyse a vue.
+            void this.loadOutingFlags();
         } catch (e) {
             console.error('[GeocacheLogEditorWidget] loadGeocaches error', e);
             this.messages.error('Impossible de charger la liste des géocaches.');
         } finally {
             this.isLoading = false;
             this.update();
+        }
+    }
+
+    /**
+     * Signaux de la dernière analyse de sortie pour les caches de la liste.
+     *
+     * Silencieux en cas d'échec : les badges sont un confort, et le log-editor a une tâche
+     * autrement plus importante à mener à bien.
+     */
+    /**
+     * Abonnement aux changements de plan.
+     *
+     * Posé à la première demande de drapeaux plutôt que dans le constructeur : ce widget
+     * s'instancie pour chaque session de log, et un abonnement par instance non utilisée
+     * ne servirait à rien.
+     */
+    protected ensureOutingPlanSubscription(): void {
+        if (this.outingPlanSubscribed) {
+            return;
+        }
+        this.outingPlanSubscribed = true;
+        this.toDispose.push(
+            this.outingPlanService.onDidChangePlans(() => { void this.loadOutingFlags(); })
+        );
+    }
+
+    protected async loadOutingFlags(): Promise<void> {
+        this.ensureOutingPlanSubscription();
+        const codes = this.geocaches.map(gc => gc.gc_code).filter(Boolean);
+        if (codes.length === 0) {
+            this.outingFlags = {};
+            return;
+        }
+        try {
+            const flags = await this.outingPlanService.fetchFlags(codes);
+            this.outingFlags = Object.fromEntries(flags);
+            this.update();
+        } catch (error) {
+            console.debug('[GeocacheLogEditorWidget] drapeaux de sortie indisponibles', error);
         }
     }
 
@@ -2243,6 +2292,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                             onReorder={this.handleTableReorder}
                             reorderDisabled={this.isSubmitting}
                             remainingFavoritePoints={remainingFavoritePoints}
+                            outingFlags={this.outingFlags}
                             maxHeight={220}
                         />
                     </div>
