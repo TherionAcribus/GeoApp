@@ -576,7 +576,12 @@ def sync_zone_finds_stream():
         signature_box = boxes[0]
         to_scan = all_friends
         skipped = 0
-        if not force_all:
+        # Le skip des scans frais ne s'applique que quand on analyse *tous* les
+        # amis (comportement par défaut). Si l'utilisateur a sélectionné un
+        # sous-ensemble explicite, son intention est de (re)scanner ces amis :
+        # on ne skip pas, sinon l'action ne fait rien et l'utilisateur ne
+        # comprend pas pourquoi.
+        if not force_all and selected_friends is None:
             to_scan, fresh = filter_friends_to_scan(zone_id, all_friends, signature_box)
             skipped = len(fresh)
 

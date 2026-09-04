@@ -320,11 +320,13 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
             </div>
         )}
 
-        {/* Panneau de résultat de l'analyse amis (matrice ami × cache). */}
-        {!props.loading && props.rows.length > 0 && props.friendFinds && props.onMissingForFriendChange && (
+        {/* Panneau de résultat de l'analyse amis (matrice ami × cache).
+            Affiché dès qu'il y a des caches et au moins un ami connu (via
+            friendFinds ou friendScans). */}
+        {!props.loading && props.rows.length > 0 && props.onMissingForFriendChange && (
             <ZoneFriendAnalysisPanel
                 rows={props.rows}
-                friendFinds={props.friendFinds}
+                friendFinds={props.friendFinds ?? {}}
                 friendScans={props.friendScans ?? []}
                 missingForFriend={props.missingForFriend ?? null}
                 onMissingForFriendChange={props.onMissingForFriendChange}
