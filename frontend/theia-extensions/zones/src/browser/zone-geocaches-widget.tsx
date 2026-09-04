@@ -25,6 +25,8 @@ import type { MapGeocache } from './map/map-layer-manager';
 import { MapService, ListSelectionRequest } from './map/map-service';
 import { GeocacheTabsManager } from './geocache-tabs-manager';
 import { BackendApiClient } from './backend-api-client';
+import { FriendsService } from './friends-service';
+import type { FriendFindsProgress, FriendZoneScanEntry, FriendScanStreamEvent } from './friends-types';
 import { GeocachesService } from './geocaches-service';
 import { ZonesService } from './zones-service';
 import { GeoAppWidgetEventsService } from './geoapp-widget-events-service';
@@ -84,15 +86,11 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     protected friendFinds: Record<string, string[]> = {};
     /** Signaux de la dernière analyse IA, par code GC : alimente la colonne « Sortie ». */
     protected outingFlags: Record<string, OutingPlanCacheFlags> = {};
-    protected friendFindsProgress: { done: number; total: number; friend?: string } | null = null;
+    protected friendFindsProgress: FriendFindsProgress | null = null;
     /** AbortController pour interrompre l'analyse streaming en cours. */
     protected analyzeAbortController?: AbortController;
     /** État des scans par ami sur cette zone (vérifié le…, obsolète…). */
-    protected friendScans: Array<{
-        friend: string; scanned: boolean; is_stale: boolean;
-        found_count: number | null; zone_matches: number | null;
-        scanned_at: string | null;
-    }> = [];
+    protected friendScans: FriendZoneScanEntry[] = [];
     /** Dialogue de sélection d'amis à scanner (null = fermé). */
     protected friendSelectionDialogOpen = false;
     /** Amis sélectionnés dans le dialogue (Set pour toggle rapide). */
@@ -164,6 +162,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         @inject(ProgressService) protected readonly progressService: ProgressService,
         @inject(GeocachesService) protected readonly geocachesService: GeocachesService,
         @inject(BackendApiClient) protected readonly apiClient: BackendApiClient,
+        @inject(FriendsService) protected readonly friendsService: FriendsService,
         @inject(ImportAroundService) protected readonly importAroundService: ImportAroundService,
         @inject(ZonesService) protected readonly zonesService: ZonesService,
         @inject(GeoAppWidgetEventsService) protected readonly widgetEventsService: GeoAppWidgetEventsService,
@@ -1239,6 +1238,12 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         }
     }
 
+    // Note : loadFriendFinds et loadFriendScans restent sur apiClient pour
+    // l'instant car leur format de réponse ({ success, finds/scans }) diffère
+    // légèrement de ce que FriendsService.loadZoneFinds/loadZoneScans retourne.
+    // Migration progressive : les futurs composants utiliseront directement
+    // FriendsService.
+
     /**
      * Charge l'état des scans par ami depuis la base locale.
      *
@@ -1322,26 +1327,15 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         let rateLimited = false;
 
         try {
-            const response = await this.apiClient.request('/api/friends/finds/sync-zone-stream', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    zone_id: this.zoneId,
+            const response = await this.friendsService.startZoneScanStream(
+                this.zoneId,
+                {
                     force_all: forceAll,
                     ...(friends && friends.length > 0 ? { friends } : {}),
-                }),
-                signal: this.analyzeAbortController.signal,
-            });
+                },
+                this.analyzeAbortController.signal,
+            );
 
-            if (response.status === 401) {
-                this.messages.error('Vous devez être connecté à Geocaching.com pour cette recherche.');
-                return;
-            }
-            if (response.status === 400) {
-                const payload = await response.json().catch(() => ({}));
-                this.messages.error(payload.error_message || 'Paramètres invalides.');
-                return;
-            }
             if (!response.body) {
                 this.messages.error('Réponse streaming non supportée par le backend.');
                 return;
@@ -1357,7 +1351,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                     return;
                 }
                 try {
-                    const data = JSON.parse(trimmed);
+                    const data = JSON.parse(trimmed) as FriendScanStreamEvent;
                     switch (data.phase) {
                         case 'start':
                             this.friendFindsProgress = {

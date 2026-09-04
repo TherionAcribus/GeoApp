@@ -8,6 +8,7 @@ import { MoveGeocacheDialog } from './move-geocache-dialog';
 import { ImportAroundDialog, ImportAroundCenter, ImportAroundRequest } from './import-around-dialog';
 import { ImportProgressCallback } from './import-dialog-shell';
 import { EmptyState, LoadingState } from './state-views';
+import type { FriendFindsProgress, FriendZoneScanEntry } from './friends-types';
 
 type SelectionDialogState = { geocacheIds: number[] } | null;
 
@@ -68,7 +69,7 @@ export interface ZoneGeocachesViewProps {
     /** Signaux de la dernière analyse IA de sortie, par code GC (colonne « Sortie »). */
     outingFlags?: Record<string, OutingPlanCacheFlags>;
     /** Progression de l'analyse des amis (null = inactive). */
-    friendFindsProgress?: { done: number; total: number; friend?: string } | null;
+    friendFindsProgress?: FriendFindsProgress | null;
     onAnalyzeFriendFinds?: (forceAll: boolean) => void | Promise<void>;
     /** Interrompt l'analyse streaming en cours. */
     onCancelAnalyzeFriendFinds?: () => void;
@@ -77,11 +78,7 @@ export interface ZoneGeocachesViewProps {
     /** Nombre total d'amis dans la liste. */
     friendScansTotalCount?: number;
     /** État des scans par ami (pour le dialogue de sélection). */
-    friendScans?: Array<{
-        friend: string; scanned: boolean; is_stale: boolean;
-        found_count: number | null; zone_matches: number | null;
-        scanned_at: string | null;
-    }>;
+    friendScans?: FriendZoneScanEntry[];
     /** Dialogue de sélection d'amis ouvert. */
     friendSelectionDialogOpen?: boolean;
     /** Amis sélectionnés dans le dialogue. */

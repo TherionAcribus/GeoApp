@@ -1,4 +1,5 @@
 import * as React from 'react';
+import type { FriendFinder } from './friends-types';
 
 /**
  * Bandeau « ces amis ont trouvé cette cache ».
@@ -10,13 +11,6 @@ import * as React from 'react';
  * Le composant va chercher ses propres données : il n'a besoin que de l'id de la
  * géocache, et le reste de la fiche n'a rien à savoir de lui.
  */
-
-interface FriendFinder {
-    username: string;
-    profile_url?: string | null;
-    avatar_url?: string | null;
-    message_url?: string | null;
-}
 
 export interface GeocacheFriendFindsBannerProps {
     geocacheId: number;

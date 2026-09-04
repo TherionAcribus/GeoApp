@@ -1,32 +1,9 @@
 import * as React from 'react';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget, Message } from '@theia/core/lib/browser';
-import { BackendApiClient, BackendApiError, getErrorMessage } from './backend-api-client';
-
-interface GeocachingFriend {
-    username: string;
-    profile_guid: string | null;
-    profile_url: string | null;
-    avatar_url: string | null;
-    is_premium: boolean;
-    member_since: string | null;
-    last_online: string | null;
-    location: string | null;
-    finds_count: number | null;
-    hides_count: number | null;
-}
-
-interface FriendsResponse {
-    success: boolean;
-    friends?: GeocachingFriend[];
-    count?: number;
-    reported_count?: number | null;
-    pending_requests?: number | null;
-    truncated?: boolean;
-    fetched_at?: string;
-    error?: string;
-    error_message?: string;
-}
+import { BackendApiError, getErrorMessage } from './backend-api-client';
+import { FriendsService } from './friends-service';
+import type { GeocachingFriend } from './friends-types';
 
 type SortKey = 'username' | 'finds_count' | 'last_online';
 
@@ -35,8 +12,8 @@ export class GeocachingFriendsWidget extends ReactWidget {
     static readonly ID = 'geocaching-friends-widget';
     static readonly LABEL = 'Amis Geocaching';
 
-    @inject(BackendApiClient)
-    protected readonly apiClient: BackendApiClient;
+    @inject(FriendsService)
+    protected readonly friendsService: FriendsService;
 
     protected friends: GeocachingFriend[] = [];
     protected fetchedAt: string | null = null;
@@ -90,11 +67,7 @@ export class GeocachingFriendsWidget extends ReactWidget {
         this.update();
 
         try {
-            const result = await this.apiClient.requestJson<FriendsResponse>(
-                `/api/friends${force ? '?force=true' : ''}`,
-                {},
-                'Impossible de récupérer la liste des amis',
-            );
+            const result = await this.friendsService.getFriends(force);
 
             if (result.success && result.friends) {
                 this.friends = result.friends;

@@ -1,4 +1,4 @@
-import * as React from 'react';
+﻿import * as React from 'react';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget, Message, ConfirmDialog, Dialog } from '@theia/core/lib/browser';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
@@ -6,278 +6,23 @@ import { LogTypeIcon } from './geocache-log-type-icons';
 import { MapWidgetFactory } from './map/map-widget-factory';
 import { MapGeocache } from './map/map-layer-manager';
 import { GeoAppWidgetEventsService } from './geoapp-widget-events-service';
-import { BackendApiClient, getErrorMessage } from './backend-api-client';
-
-interface FriendActivity {
-    id: number;
-    log_reference_code: string;
-    author_username: string;
-    author_avatar_url: string | null;
-    is_self: boolean;
-    log_type_id: number | null;
-    log_date: string | null;
-    note: string | null;
-    cache_name: string | null;
-    cache_reference_code: string | null;
-    cache_type_id: number | null;
-    difficulty: number | null;
-    terrain: number | null;
-    favorite_points: number | null;
-    image_count: number | null;
-    is_premium: boolean;
-    is_archived: boolean;
-    location_name: string | null;
-    is_condensed: boolean;
-    condensed_count: number;
-    action_url: string | null;
-}
-
-/** Un point de la carte des amis : une cache, un ou plusieurs amis l'ayant loguée. */
-interface FriendMapPoint {
-    gc_code: string | null;
-    name: string | null;
-    cache_type: string | null;
-    latitude: number;
-    longitude: number;
-    difficulty: number | null;
-    terrain: number | null;
-    /** Id GeoApp si la cache est importée, 0 sinon. */
-    geocache_id: number;
-    found: boolean;
-    friends: { username: string; log_type_id: number | null; log_date: string | null; is_self: boolean }[];
-    last_log_date: string | null;
-}
-
-interface FriendMapResponse {
-    success: boolean;
-    points?: FriendMapPoint[];
-    total?: number;
-    returned?: number;
-    without_coordinates?: number;
-    truncated?: boolean;
-    log_type_labels?: Record<string, string>;
-    error?: string;
-    error_message?: string;
-}
-
-/** Un point de la table `friend_find` : trouvaille déduite, sans limite de date. */
-interface FriendFindPoint {
-    gc_code: string;
-    name: string | null;
-    cache_type: string | null;
-    latitude: number;
-    longitude: number;
-    difficulty: number | null;
-    terrain: number | null;
-    geocache_id: number;
-    found: boolean;
-    friends: { username: string; source: string }[];
-}
-
-interface FriendFindsMapResponse {
-    success: boolean;
-    points?: FriendFindPoint[];
-    total?: number;
-    without_coordinates?: number;
-    /** Nombre de **caches** non plaçables : ce qu'un import aurait à télécharger. */
-    importable?: number;
-    error?: string;
-    error_message?: string;
-}
-
-/** Une suggestion de cache à faire, trouvée par des amis mais pas par moi. */
-interface FriendSuggestion {
-    gc_code: string;
-    name: string;
-    cache_type: string | null;
-    latitude: number | null;
-    longitude: number | null;
-    difficulty: number | null;
-    terrain: number | null;
-    geocache_id: number;
-    found: boolean;
-    zone_id: number | null;
-    status: string | null;
-    favorites_count: number;
-    friends: string[];
-    friends_count: number;
-}
-
-interface FriendSuggestionsResponse {
-    success: boolean;
-    suggestions?: FriendSuggestion[];
-    count?: number;
-    error?: string;
-    error_message?: string;
-}
-
-/** Statistiques d'un ami : trouvailles, activité, caches en commun. */
-interface FriendStat {
-    username: string;
-    finds_count: number;
-    activity_count: number;
-    shared_with_me: number;
-}
-
-interface FriendStatsSummary {
-    friends_count: number;
-    total_distinct_finds: number;
-    total_shared_with_me: number;
-    most_active_friend: string | null;
-}
-
-interface FriendStatsResponse {
-    success: boolean;
-    friends?: FriendStat[];
-    summary?: FriendStatsSummary;
-    error?: string;
-    error_message?: string;
-}
-
-/** État de fraîcheur d'une source de données. */
-interface FreshnessActivity {
-    last_sync_at: string | null;
-    last_projection_at: string | null;
-    logs_stored: number;
-    authors_in_feed: number;
-    latest_log_date: string | null;
-    is_stale: boolean;
-}
-
-interface FreshnessFinds {
-    total_rows: number;
-    distinct_caches: number;
-    distinct_friends: number;
-    is_stale: boolean;
-}
-
-interface FreshnessFriendsList {
-    fetched_at: string | null;
-    count: number;
-    reported_count: number | null;
-    truncated: boolean;
-    pages_fetched: number;
-}
-
-interface FreshnessGeocaches {
-    total: number;
-    found: number;
-    in_friends_zone: number;
-}
-
-interface FreshnessResponse {
-    success: boolean;
-    checked_at: string;
-    activity?: FreshnessActivity;
-    finds?: FreshnessFinds;
-    friends_list?: FreshnessFriendsList;
-    geocaches?: FreshnessGeocaches;
-    error?: string;
-    error_message?: string;
-}
-
-/** Une notification de nouvelle trouvaille d'ami. */
-interface FriendNotification {
-    gc_code: string;
-    name: string;
-    cache_type: string | null;
-    latitude: number | null;
-    longitude: number | null;
-    difficulty: number | null;
-    terrain: number | null;
-    geocache_id: number;
-    found: boolean;
-    zone_id: number | null;
-    status: string | null;
-    favorites_count: number;
-    friends: string[];
-    friends_count: number;
-    first_seen_at: string;
-}
-
-interface FriendNotificationsResponse {
-    success: boolean;
-    items?: FriendNotification[];
-    count?: number;
-    total_new_finds?: number;
-    last_seen_at?: string | null;
-    error?: string;
-    error_message?: string;
-}
-
-/** Un event geocaching (log type 9/10) auquel des amis participent. */
-interface FriendEvent {
-    gc_code: string | null;
-    name: string;
-    cache_type_id: number | null;
-    latitude: number | null;
-    longitude: number | null;
-    location_name: string | null;
-    difficulty: number | null;
-    terrain: number | null;
-    is_archived: boolean;
-    action_url: string | null;
-    friends: string[];
-    friends_count: number;
-    is_upcoming: boolean;
-    event_date: string | null;
-}
-
-interface FriendEventsResponse {
-    success: boolean;
-    items?: FriendEvent[];
-    count?: number;
-    upcoming_count?: number;
-    past_count?: number;
-    error?: string;
-    error_message?: string;
-}
-
-/**
- * Ce que la carte affiche.
- *
- * - `activity` : le flux récent (§ activité), avec les DNF et les notes ;
- * - `finds`    : toutes les trouvailles déduites par zone, sans limite de date ;
- * - `both`     : l'union des deux, fusionnée par code GC.
- */
-type MapSource = 'activity' | 'finds' | 'both';
-
-const MAP_SOURCES: { id: MapSource; label: string }[] = [
-    { id: 'activity', label: 'Activité récente' },
-    { id: 'finds', label: 'Toutes les trouvailles' },
-    { id: 'both', label: 'Les deux' },
-];
-
-/** Agrégat par cache, avant rendu en géocache de carte. */
-interface AggregatedPoint {
-    gc_code: string | null;
-    name: string | null;
-    cache_type: string | null;
-    latitude: number;
-    longitude: number;
-    difficulty: number | null;
-    terrain: number | null;
-    geocache_id: number;
-    found: boolean;
-    activityFriends: FriendMapPoint['friends'];
-    findsFriends: string[];
-    lastLogDate: string | null;
-}
-
-interface ActivityResponse {
-    success: boolean;
-    activities?: FriendActivity[];
-    total?: number;
-    offset?: number;
-    limit?: number;
-    authors?: { username: string; count: number }[];
-    log_type_labels?: Record<string, string>;
-    last_sync_at?: string | null;
-    /** Trouvailles regroupées par geocaching.com sans être détaillées. */
-    condensed_hidden?: number;
-    error?: string;
-    error_message?: string;
-}
+import { BackendApiClient, BackendApiError, getErrorMessage } from './backend-api-client';
+import { FriendsService } from './friends-service';
+import type {
+    FriendActivity,
+    FriendMapPoint,
+    FriendMapResponse,
+    FriendFindPoint,
+    FriendFindsMapResponse,
+    FriendSuggestion,
+    FriendStat,
+    FriendStatsSummary,
+    FreshnessResponse,
+    FriendNotification,
+    FriendEvent,
+    MapSource,
+    AggregatedPoint,
+} from './friends-types';
 
 const PAGE_SIZE = 50;
 
@@ -299,6 +44,12 @@ const IMPORT_CONFIRM_THRESHOLD = 500;
 /** Une requête vers geocaching.com par cache, plus la respiration du scraper. */
 const SECONDS_PER_IMPORT = 1.2;
 
+const MAP_SOURCES: { id: MapSource; label: string }[] = [
+    { id: 'activity', label: 'Activité récente' },
+    { id: 'finds', label: 'Toutes les trouvailles' },
+    { id: 'both', label: 'Les deux' },
+];
+
 @injectable()
 export class GeocachingFriendActivityWidget extends ReactWidget {
     static readonly ID = 'geocaching-friend-activity-widget';
@@ -309,6 +60,9 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
 
     @inject(BackendApiClient)
     protected readonly apiClient: BackendApiClient;
+
+    @inject(FriendsService)
+    protected readonly friendsService: FriendsService;
 
     @inject(MapWidgetFactory)
     protected readonly mapWidgetFactory: MapWidgetFactory;
@@ -458,11 +212,7 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
         this.update();
 
         try {
-            const result = await this.apiClient.requestJson<ActivityResponse>(
-                `/api/friends/activity?${this.buildQuery(offset)}`,
-                {},
-                "Impossible de charger l'activité des amis",
-            );
+            const result = await this.friendsService.loadActivities(offset, o => this.buildQuery(o));
 
             if (!result.success) {
                 this.notAuthenticated = result.error === 'not_authenticated';
@@ -610,6 +360,12 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
         }
     }
 
+    // Note : fetchMapJson reste ici car il est appelé avec des paths variables
+    // (activity/map, finds/map, estimate) et une logique silent/bruyant. Les
+    // méthodes du FriendsService pour la carte (fetchActivityMap, fetchFindsMap)
+    // sont disponibles pour les futurs composants qui n'ont pas besoin de ce
+    // niveau de contrôle.
+
     /**
      * Met à jour le nombre de trouvailles non localisables, indépendamment de la
      * carte.
@@ -752,9 +508,7 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
         this.update();
 
         try {
-            const estimate = await this.fetchMapJson<{
-                success: boolean; total?: number; reachable?: number; seconds?: number;
-            }>(`/api/friends/finds/friend/${encodeURIComponent(friend)}/estimate`, true);
+            const estimate = await this.friendsService.estimateFriendFinds(friend);
 
             if (estimate?.total !== undefined) {
                 const minutes = Math.ceil((estimate.seconds || 0) / 60);
@@ -775,14 +529,7 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
                 }
             }
 
-            const result = await this.apiClient.requestJson<{
-                success: boolean; error?: string; error_message?: string;
-                fetched: number; created: number; truncated?: boolean;
-            }>(
-                '/api/friends/finds/sync-friend',
-                this.apiClient.createJsonInit('POST', { friend }),
-                'Échec de la récupération des trouvailles.',
-            );
+            const result = await this.friendsService.syncFriendFinds(friend);
 
             if (!result.success) {
                 this.notAuthenticated = result.error === 'not_authenticated';
@@ -857,16 +604,16 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
 
     /** Consomme la réponse en streaming ligne par ligne (même format qu'`import-around`). */
     protected async streamImport(signal: AbortSignal): Promise<void> {
-        const response = await this.apiClient.request(
-            '/api/friends/finds/import',
-            this.apiClient.createJsonInit('POST', {}, { signal })
-        );
-
-        if (response.status === 401) {
-            this.importProgress = 'Connectez-vous à Geocaching.com pour importer ces géocaches.';
-            return;
+        let response: Response;
+        try {
+            response = await this.friendsService.startImportStream(signal);
+        } catch (err) {
+            if ((err as BackendApiError)?.status === 401) {
+                this.importProgress = 'Connectez-vous à Geocaching.com pour importer ces géocaches.';
+                return;
+            }
+            throw err;
         }
-        await this.apiClient.ensureOk(response, 'Échec de l\'import des trouvailles.');
         if (!response.body) {
             throw new Error('Réponse streaming non supportée');
         }
@@ -913,14 +660,7 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
         this.update();
 
         try {
-            const result = await this.apiClient.requestJson<{
-                success: boolean; error?: string; error_message?: string;
-                created: number; finds_projected?: number;
-            }>(
-                '/api/friends/activity/sync',
-                this.apiClient.createJsonInit('POST', { days: this.syncDays }),
-                'Échec de la synchronisation',
-            );
+            const result = await this.friendsService.syncActivity(this.syncDays);
 
             if (result.success) {
                 const bits = [
@@ -1040,11 +780,7 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
                 min_friends: String(this.suggestionsMinFriends),
                 limit: '50',
             });
-            const result = await this.apiClient.requestJson<FriendSuggestionsResponse>(
-                `/api/friends/finds/suggestions?${params}`,
-                {},
-                'Impossible de charger les suggestions.',
-            );
+            const result = await this.friendsService.loadSuggestions(params);
             if (result.success) {
                 this.suggestions = result.suggestions || [];
             } else {
@@ -1238,11 +974,7 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
         this.update();
 
         try {
-            const result = await this.apiClient.requestJson<FriendStatsResponse>(
-                '/api/friends/stats',
-                {},
-                'Impossible de charger les statistiques.',
-            );
+            const result = await this.friendsService.loadStats();
             if (result.success) {
                 this.stats = result.friends || [];
                 this.statsSummary = result.summary || null;
@@ -1389,11 +1121,7 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
         this.update();
 
         try {
-            const result = await this.apiClient.requestJson<FreshnessResponse>(
-                '/api/friends/freshness',
-                {},
-                'Impossible de charger l\'état de fraîcheur.',
-            );
+            const result = await this.friendsService.loadFreshness();
             this.freshness = result.success ? result : null;
         } catch {
             this.freshness = null;
@@ -1521,11 +1249,7 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
         const minFriends = this.preferenceService.get<number>('geoApp.friends.notifications.minFriends', 1);
         try {
             const params = new URLSearchParams({ min_friends: String(minFriends), limit: '50' });
-            const result = await this.apiClient.requestJson<FriendNotificationsResponse>(
-                `/api/friends/notifications?${params}`,
-                {},
-                'Impossible de charger les notifications.',
-            );
+            const result = await this.friendsService.loadNotifications(params);
             if (result.success) {
                 this.notifications = result.items || [];
                 this.notificationsCount = result.count || 0;
@@ -1538,7 +1262,7 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
 
     protected async markNotificationsSeen(): Promise<void> {
         try {
-            await this.apiClient.requestVoid('/api/friends/notifications/seen', { method: 'POST' });
+            await this.friendsService.markNotificationsSeen();
             this.notifications = [];
             this.notificationsCount = 0;
             this.update();
@@ -1689,11 +1413,7 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
         this.eventsLoading = true;
         this.update();
         try {
-            const result = await this.apiClient.requestJson<FriendEventsResponse>(
-                '/api/friends/events?limit=100',
-                {},
-                'Impossible de charger les événements.',
-            );
+            const result = await this.friendsService.loadEvents(100);
             if (result.success) {
                 this.events = result.items || [];
                 this.eventsCount = result.count || 0;

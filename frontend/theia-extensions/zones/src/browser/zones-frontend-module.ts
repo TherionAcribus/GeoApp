@@ -64,6 +64,7 @@ import { ServerLogTerminalWidget } from './server-log-terminal-widget';
 import { BackendApiClient } from './backend-api-client';
 import { ZonesService } from './zones-service';
 import { GeocachesService } from './geocaches-service';
+import { FriendsService } from './friends-service';
 import { ImportAroundService } from './import-around-service';
 import { OutingAnalysisController } from './outing-analysis-controller';
 import { OutingPlanCaptureService } from './outing-plan-capture';
@@ -103,6 +104,7 @@ export default new ContainerModule(bind => {
     bind(BackendApiClient).toSelf().inSingletonScope();
     bind(ZonesService).toSelf().inSingletonScope();
     bind(GeocachesService).toSelf().inSingletonScope();
+    bind(FriendsService).toSelf().inSingletonScope();
     bind(ImportAroundService).toSelf().inSingletonScope();
     bind(OutingAnalysisController).toSelf().inSingletonScope();
     bind(OutingPlanService).toSelf().inSingletonScope();
