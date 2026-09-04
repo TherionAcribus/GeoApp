@@ -6,6 +6,7 @@ import { LogTypeIcon } from './geocache-log-type-icons';
 import { MapWidgetFactory } from './map/map-widget-factory';
 import { MapGeocache } from './map/map-layer-manager';
 import { GeoAppWidgetEventsService } from './geoapp-widget-events-service';
+import { BackendApiClient, getErrorMessage } from './backend-api-client';
 
 interface FriendActivity {
     id: number;
@@ -306,6 +307,9 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
     @inject(PreferenceService)
     protected readonly preferenceService: PreferenceService;
 
+    @inject(BackendApiClient)
+    protected readonly apiClient: BackendApiClient;
+
     @inject(MapWidgetFactory)
     protected readonly mapWidgetFactory: MapWidgetFactory;
 
@@ -408,10 +412,6 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
         }
     }
 
-    protected getApiBaseUrl(): string {
-        return this.preferenceService.get<string>('geoApp.backend.apiBaseUrl', 'http://localhost:8000');
-    }
-
     /** Première synchro automatique si le flux local n'a jamais été rempli ou date de plus d'une heure. */
     protected async autoSyncIfStale(): Promise<void> {
         if (this.error) {
@@ -458,17 +458,12 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
         this.update();
 
         try {
-            const response = await fetch(`${this.getApiBaseUrl()}/api/friends/activity?${this.buildQuery(offset)}`);
+            const result = await this.apiClient.requestJson<ActivityResponse>(
+                `/api/friends/activity?${this.buildQuery(offset)}`,
+                {},
+                "Impossible de charger l'activité des amis",
+            );
 
-            const contentType = response.headers.get('content-type') || '';
-            if (!contentType.includes('application/json')) {
-                this.error = response.status === 404
-                    ? "Route /api/friends/activity introuvable : le backend GeoApp doit être redémarré."
-                    : `Réponse inattendue du backend GeoApp (HTTP ${response.status}).`;
-                return;
-            }
-
-            const result: ActivityResponse = await response.json();
             if (!result.success) {
                 this.notAuthenticated = result.error === 'not_authenticated';
                 this.error = result.error_message || "Impossible de charger l'activité des amis";
@@ -484,7 +479,7 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
             this.lastSyncAt = result.last_sync_at ?? null;
             this.loaded = true;
         } catch (err) {
-            this.error = 'Erreur de connexion au serveur GeoApp';
+            this.error = getErrorMessage(err, 'Erreur de connexion au serveur GeoApp');
             console.error('[FriendActivity] Failed to load activities:', err);
         } finally {
             this.loading = false;
@@ -594,26 +589,25 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
         path: string,
         silent: boolean = false
     ): Promise<T | undefined> {
-        const response = await fetch(`${this.getApiBaseUrl()}${path}`);
-
-        const contentType = response.headers.get('content-type') || '';
-        if (!contentType.includes('application/json')) {
+        try {
+            const result = await this.apiClient.requestJson<T>(
+                path,
+                {},
+                'Impossible de charger la carte des amis.',
+            );
+            if (!result.success) {
+                if (!silent) {
+                    this.mapMessage = result.error_message || 'Impossible de charger la carte des amis.';
+                }
+                return undefined;
+            }
+            return result;
+        } catch (err) {
             if (!silent) {
-                this.mapMessage = response.status === 404
-                    ? `Route ${path.split('?')[0]} introuvable : le backend GeoApp doit être redémarré.`
-                    : `Réponse inattendue du backend GeoApp (HTTP ${response.status}).`;
+                this.mapMessage = getErrorMessage(err, 'Impossible de charger la carte des amis.');
             }
             return undefined;
         }
-
-        const result = await response.json() as T;
-        if (!result.success) {
-            if (!silent) {
-                this.mapMessage = result.error_message || 'Impossible de charger la carte des amis.';
-            }
-            return undefined;
-        }
-        return result;
     }
 
     /**
@@ -781,21 +775,15 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
                 }
             }
 
-            const response = await fetch(`${this.getApiBaseUrl()}/api/friends/finds/sync-friend`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ friend })
-            });
+            const result = await this.apiClient.requestJson<{
+                success: boolean; error?: string; error_message?: string;
+                fetched: number; created: number; truncated?: boolean;
+            }>(
+                '/api/friends/finds/sync-friend',
+                this.apiClient.createJsonInit('POST', { friend }),
+                'Échec de la récupération des trouvailles.',
+            );
 
-            const contentType = response.headers.get('content-type') || '';
-            if (!contentType.includes('application/json')) {
-                this.error = response.status === 404
-                    ? 'Route /api/friends/finds/sync-friend introuvable : le backend GeoApp doit être redémarré.'
-                    : `Réponse inattendue du backend GeoApp (HTTP ${response.status}).`;
-                return;
-            }
-
-            const result = await response.json();
             if (!result.success) {
                 this.notAuthenticated = result.error === 'not_authenticated';
                 this.error = result.error_message || 'Échec de la récupération des trouvailles.';
@@ -808,7 +796,7 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
             await this.showOnMap();
             await this.refreshImportableCount();
         } catch (err) {
-            this.error = 'Erreur de connexion au serveur GeoApp';
+            this.error = getErrorMessage(err, 'Erreur de connexion au serveur GeoApp');
             console.error('[FriendActivity] Profile finds fetch failed:', err);
         } finally {
             this.profileSyncing = false;
@@ -869,17 +857,16 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
 
     /** Consomme la réponse en streaming ligne par ligne (même format qu'`import-around`). */
     protected async streamImport(signal: AbortSignal): Promise<void> {
-        const response = await fetch(`${this.getApiBaseUrl()}/api/friends/finds/import`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: '{}',
-            signal
-        });
+        const response = await this.apiClient.request(
+            '/api/friends/finds/import',
+            this.apiClient.createJsonInit('POST', {}, { signal })
+        );
 
-        if (!response.ok && response.status === 401) {
+        if (response.status === 401) {
             this.importProgress = 'Connectez-vous à Geocaching.com pour importer ces géocaches.';
             return;
         }
+        await this.apiClient.ensureOk(response, 'Échec de l\'import des trouvailles.');
         if (!response.body) {
             throw new Error('Réponse streaming non supportée');
         }
@@ -926,21 +913,15 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
         this.update();
 
         try {
-            const response = await fetch(`${this.getApiBaseUrl()}/api/friends/activity/sync`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ days: this.syncDays })
-            });
+            const result = await this.apiClient.requestJson<{
+                success: boolean; error?: string; error_message?: string;
+                created: number; finds_projected?: number;
+            }>(
+                '/api/friends/activity/sync',
+                this.apiClient.createJsonInit('POST', { days: this.syncDays }),
+                'Échec de la synchronisation',
+            );
 
-            const contentType = response.headers.get('content-type') || '';
-            if (!contentType.includes('application/json')) {
-                this.error = response.status === 404
-                    ? 'Route de synchronisation introuvable : le backend GeoApp doit être redémarré.'
-                    : `Réponse inattendue du backend GeoApp (HTTP ${response.status}).`;
-                return;
-            }
-
-            const result = await response.json();
             if (result.success) {
                 const bits = [
                     result.created > 0
@@ -960,7 +941,7 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
                 this.error = result.error_message || 'Échec de la synchronisation';
             }
         } catch (err) {
-            this.error = 'Erreur de connexion au serveur GeoApp';
+            this.error = getErrorMessage(err, 'Erreur de connexion au serveur GeoApp');
             console.error('[FriendActivity] Sync failed:', err);
         } finally {
             this.syncing = false;
@@ -1059,17 +1040,11 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
                 min_friends: String(this.suggestionsMinFriends),
                 limit: '50',
             });
-            const response = await fetch(
-                `${this.getApiBaseUrl()}/api/friends/finds/suggestions?${params}`
+            const result = await this.apiClient.requestJson<FriendSuggestionsResponse>(
+                `/api/friends/finds/suggestions?${params}`,
+                {},
+                'Impossible de charger les suggestions.',
             );
-
-            const contentType = response.headers.get('content-type') || '';
-            if (!contentType.includes('application/json')) {
-                this.suggestions = [];
-                return;
-            }
-
-            const result: FriendSuggestionsResponse = await response.json();
             if (result.success) {
                 this.suggestions = result.suggestions || [];
             } else {
@@ -1263,15 +1238,11 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
         this.update();
 
         try {
-            const response = await fetch(`${this.getApiBaseUrl()}/api/friends/stats`);
-            const contentType = response.headers.get('content-type') || '';
-            if (!contentType.includes('application/json')) {
-                this.stats = [];
-                this.statsSummary = null;
-                return;
-            }
-
-            const result: FriendStatsResponse = await response.json();
+            const result = await this.apiClient.requestJson<FriendStatsResponse>(
+                '/api/friends/stats',
+                {},
+                'Impossible de charger les statistiques.',
+            );
             if (result.success) {
                 this.stats = result.friends || [];
                 this.statsSummary = result.summary || null;
@@ -1418,13 +1389,11 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
         this.update();
 
         try {
-            const response = await fetch(`${this.getApiBaseUrl()}/api/friends/freshness`);
-            const contentType = response.headers.get('content-type') || '';
-            if (!contentType.includes('application/json')) {
-                this.freshness = null;
-                return;
-            }
-            const result: FreshnessResponse = await response.json();
+            const result = await this.apiClient.requestJson<FreshnessResponse>(
+                '/api/friends/freshness',
+                {},
+                'Impossible de charger l\'état de fraîcheur.',
+            );
             this.freshness = result.success ? result : null;
         } catch {
             this.freshness = null;
@@ -1552,12 +1521,11 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
         const minFriends = this.preferenceService.get<number>('geoApp.friends.notifications.minFriends', 1);
         try {
             const params = new URLSearchParams({ min_friends: String(minFriends), limit: '50' });
-            const response = await fetch(`${this.getApiBaseUrl()}/api/friends/notifications?${params}`);
-            const contentType = response.headers.get('content-type') || '';
-            if (!contentType.includes('application/json')) {
-                return;
-            }
-            const result: FriendNotificationsResponse = await response.json();
+            const result = await this.apiClient.requestJson<FriendNotificationsResponse>(
+                `/api/friends/notifications?${params}`,
+                {},
+                'Impossible de charger les notifications.',
+            );
             if (result.success) {
                 this.notifications = result.items || [];
                 this.notificationsCount = result.count || 0;
@@ -1570,7 +1538,7 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
 
     protected async markNotificationsSeen(): Promise<void> {
         try {
-            await fetch(`${this.getApiBaseUrl()}/api/friends/notifications/seen`, { method: 'POST' });
+            await this.apiClient.requestVoid('/api/friends/notifications/seen', { method: 'POST' });
             this.notifications = [];
             this.notificationsCount = 0;
             this.update();
@@ -1721,12 +1689,11 @@ export class GeocachingFriendActivityWidget extends ReactWidget {
         this.eventsLoading = true;
         this.update();
         try {
-            const response = await fetch(`${this.getApiBaseUrl()}/api/friends/events?limit=100`);
-            const contentType = response.headers.get('content-type') || '';
-            if (!contentType.includes('application/json')) {
-                return;
-            }
-            const result: FriendEventsResponse = await response.json();
+            const result = await this.apiClient.requestJson<FriendEventsResponse>(
+                '/api/friends/events?limit=100',
+                {},
+                'Impossible de charger les événements.',
+            );
             if (result.success) {
                 this.events = result.items || [];
                 this.eventsCount = result.count || 0;

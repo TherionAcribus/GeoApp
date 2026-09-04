@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget, Message } from '@theia/core/lib/browser';
-import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
+import { BackendApiClient, BackendApiError, getErrorMessage } from './backend-api-client';
 
 interface GeocachingFriend {
     username: string;
@@ -35,8 +35,8 @@ export class GeocachingFriendsWidget extends ReactWidget {
     static readonly ID = 'geocaching-friends-widget';
     static readonly LABEL = 'Amis Geocaching';
 
-    @inject(PreferenceService)
-    protected readonly preferenceService: PreferenceService;
+    @inject(BackendApiClient)
+    protected readonly apiClient: BackendApiClient;
 
     protected friends: GeocachingFriend[] = [];
     protected fetchedAt: string | null = null;
@@ -83,10 +83,6 @@ export class GeocachingFriendsWidget extends ReactWidget {
         }
     }
 
-    protected getApiBaseUrl(): string {
-        return this.preferenceService.get<string>('geoApp.backend.apiBaseUrl', 'http://localhost:8000');
-    }
-
     protected async fetchFriends(force: boolean = false): Promise<void> {
         this.loading = true;
         this.error = null;
@@ -94,22 +90,11 @@ export class GeocachingFriendsWidget extends ReactWidget {
         this.update();
 
         try {
-            const baseUrl = this.getApiBaseUrl();
-            const response = await fetch(`${baseUrl}/api/friends${force ? '?force=true' : ''}`);
-
-            // Une route inconnue renvoie la page d'erreur HTML de Flask : sans ce
-            // garde-fou, response.json() échoue sur "<!doctype ..." et le message
-            // d'erreur n'aide en rien à diagnostiquer.
-            const contentType = response.headers.get('content-type') || '';
-            if (!contentType.includes('application/json')) {
-                this.friends = [];
-                this.error = response.status === 404
-                    ? "Route /api/friends introuvable : le backend GeoApp doit être redémarré pour prendre en compte la fonctionnalité Amis."
-                    : `Réponse inattendue du backend GeoApp (HTTP ${response.status}).`;
-                return;
-            }
-
-            const result: FriendsResponse = await response.json();
+            const result = await this.apiClient.requestJson<FriendsResponse>(
+                `/api/friends${force ? '?force=true' : ''}`,
+                {},
+                'Impossible de récupérer la liste des amis',
+            );
 
             if (result.success && result.friends) {
                 this.friends = result.friends;
@@ -124,7 +109,11 @@ export class GeocachingFriendsWidget extends ReactWidget {
             }
         } catch (err) {
             this.friends = [];
-            this.error = 'Erreur de connexion au serveur GeoApp';
+            if (err instanceof BackendApiError && err.status === 404) {
+                this.error = "Route /api/friends introuvable : le backend GeoApp doit être redémarré pour prendre en compte la fonctionnalité Amis.";
+            } else {
+                this.error = getErrorMessage(err, 'Erreur de connexion au serveur GeoApp');
+            }
             console.error('[GeocachingFriends] Failed to fetch friends:', err);
         } finally {
             this.loading = false;
