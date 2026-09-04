@@ -487,6 +487,27 @@ class GeocachingFriendFindsClient:
         })
         return int(payload.get('total') or 0)
 
+    def estimate_nfb_count(self, friend_username: str, box: ZoneBox) -> int:
+        """
+        Nombre de caches de la boîte **non** trouvées par cet ami, en **une**
+        requête.
+
+        C'est la sonde qui rend l'analyse supportable : pour « qui n'a pas fait
+        la série », la plupart des amis ont 0 trouvaille sur la zone. Sans cette
+        sonde, chacun d'eux coûterait autant de pages que la référence (on
+        paginerait l'intégralité de la boîte pour apprendre qu'elle n'a rien
+        trouvé). Avec elle, un ami à 0 trouvaille se détecte en une seule
+        requête.
+        """
+        payload = self._request({
+            'box': box.box_param,
+            'origin': box.origin_param,
+            'nfb': friend_username,
+            'take': 1,
+            'skip': 0,
+        })
+        return int(payload.get('total') or 0)
+
     def get_zone_baseline_summaries(self, box: ZoneBox, force: bool = False) -> tuple[list[CacheSummary], bool]:
         """
         Caches de la zone, sans filtre — la référence de la soustraction.
@@ -516,8 +537,54 @@ class GeocachingFriendFindsClient:
         return [summary.gc_code for summary in summaries], truncated
 
     def find_codes_found_by(self, friend_username: str, box: ZoneBox) -> FriendFindsResult:
-        """Déduit les caches de la zone trouvées par cet ami (complément de `nfb`)."""
+        """
+        Déduit les caches de la zone trouvées par cet ami (complément de `nfb`).
+
+        Sonde préalable (1 requête) : si l'ami n'a rien trouvé dans la boîte,
+        ou s'il a tout trouvé, on s'épargne la pagination complète du
+        complément `nfb`. C'est le cas le plus fréquent pour « qui n'a pas fait
+        la série » : la plupart des amis ont 0 trouvaille sur la zone, et
+        chaque `nfb` complet coûterait autant de pages que la référence.
+        """
         baseline, truncated_baseline = self.get_zone_baseline_summaries(box)
+
+        # Sonde en une requête : le total du complément nfb suffit à détecter
+        # les deux cas extrêmes sans paginer.
+        nfb_total = self.estimate_nfb_count(friend_username, box)
+
+        if nfb_total == 0:
+            # L'ami a trouvé toutes les caches de la boîte.
+            summaries = {summary.gc_code: summary for summary in baseline}
+            logger.info(
+                "%s a trouvé %d des %d caches de la zone (tout, sans pagination)",
+                friend_username, len(summaries), len(baseline)
+            )
+            return FriendFindsResult(
+                friend_username=friend_username,
+                found_codes=set(summaries),
+                zone_codes_count=len(baseline),
+                truncated=truncated_baseline,
+                summaries=summaries,
+            )
+
+        if not truncated_baseline and nfb_total == len(baseline):
+            # L'ami n'a rien trouvé dans la boîte : le complément nfb est aussi
+            # grand que la référence. Inutile de le paginer pour apprendre qu'il
+            # ne contient que des caches qu'on connaît déjà.
+            logger.info(
+                "%s a trouvé 0 des %d caches de la zone (sans pagination)",
+                friend_username, len(baseline)
+            )
+            return FriendFindsResult(
+                friend_username=friend_username,
+                found_codes=set(),
+                zone_codes_count=len(baseline),
+                truncated=False,
+                summaries={},
+            )
+
+        # Cas général : on pagine le complément nfb pour identifier les caches
+        # non trouvées, puis on déduit les trouvailles par différence.
         not_found, truncated_nfb = self.search_codes(box, {'nfb': friend_username})
 
         not_found_codes = set(not_found)

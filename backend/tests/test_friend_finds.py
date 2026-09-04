@@ -110,9 +110,44 @@ def test_baseline_is_fetched_once_for_several_friends():
     client.find_codes_found_by('ami1', BOX)
     client.find_codes_found_by('ami2', BOX)
 
-    # 1 référence + 1 requête nfb par ami (et non 2 références).
-    assert len(session.calls) == 3
-    assert [call.get('nfb') for call in session.calls] == [None, 'ami1', 'ami2']
+    # 1 référence (sans nfb) + par ami : 1 sonde nfb (take=1) + 1 pagination nfb.
+    # La référence n'est téléchargée qu'une fois (cache 10 min).
+    non_nfb_calls = [c for c in session.calls if not c.get('nfb')]
+    assert len(non_nfb_calls) == 1  # la référence, une seule fois
+    nfb_calls = [c.get('nfb') for c in session.calls if c.get('nfb')]
+    assert nfb_calls == ['ami1', 'ami1', 'ami2', 'ami2']  # sonde + pagination par ami
+
+
+def test_friend_with_no_finds_skips_nfb_pagination():
+    """Un ami qui n'a rien trouvé se détecte en une sonde, sans paginer nfb."""
+    session = _FakeSearchSession({
+        '*': ['GC1', 'GC2', 'GC3', 'GC4'],
+        'ami': [],
+    })
+    result = _client(session).find_codes_found_by('ami', BOX)
+
+    assert result.found_codes == set()
+    assert result.zone_codes_count == 4
+    assert result.truncated is False
+    # 1 référence + 1 sonde nfb (take=1) : la pagination du complément est sautée.
+    assert len(session.calls) == 2
+    assert session.calls[1]['nfb'] == 'ami'
+    assert session.calls[1]['take'] == 1
+
+
+def test_friend_with_all_finds_skips_nfb_pagination():
+    """Un ami qui a tout trouvé se détecte en une sonde (nfb total = 0)."""
+    session = _FakeSearchSession({
+        '*': ['GC1', 'GC2', 'GC3'],
+        'ami': ['GC1', 'GC2', 'GC3'],
+    })
+    result = _client(session).find_codes_found_by('ami', BOX)
+
+    assert result.found_codes == {'GC1', 'GC2', 'GC3'}
+    assert result.zone_codes_count == 3
+    assert result.truncated is False
+    # 1 référence + 1 sonde nfb : pas de pagination.
+    assert len(session.calls) == 2
 
 
 def test_pagination_collects_every_page():
