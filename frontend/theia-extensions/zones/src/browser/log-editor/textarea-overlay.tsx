@@ -120,9 +120,78 @@ export const TextareaWithOverlay: React.FC<{
         parts.push(<span key={`${overlayKey}-text-${partIndex++}`}>{value.slice(lastIndex)}</span>);
     }
 
+    // --- Préservation du défilement et du curseur à travers les re-renders ---
+    //
+    // Le <textarea> est contrôlé : à chaque frappe, le parent appelle `update()` et
+    // React fait `node.value = newValue`. Cela remet `scrollTop` à 0 et place le
+    // curseur en fin de texte. Sans restauration, l'utilisateur qui tape en haut d'un
+    // texte long voit le champ scroller vers le bas à chaque touche, et le curseur
+    // saute parfois en fin de champ.
+    //
+    // `scheduleRestoreSelection` (côté parent) utilise `setTimeout(0)` : trop tard,
+    // le navigateur a déjà peint le saut. On capture ici l'état (scroll + sélection)
+    // lors des interactions, et on le restaure dans `useLayoutEffect` : celui-ci
+    // s'exécute après la mise à jour DOM de React mais **avant le paint**, donc
+    // l'utilisateur ne voit jamais le saut.
+    const internalTextareaRef = React.useRef<HTMLTextAreaElement | null>(null);
+    const savedScrollTop = React.useRef(0);
+    const savedSelection = React.useRef<{ start: number; end: number } | null>(null);
+    const prevValue = React.useRef(value);
+    // Distingue les changements de valeur venant de la frappe (à restaurer) des
+    // changements programmatiques (Markdown, patterns) : ces derniers ont leur propre
+    // `setTimeout` pour positionner le curseur, on ne doit pas l'écraser.
+    const wasUserInput = React.useRef(false);
+
+    const captureState = React.useCallback((): void => {
+        const ta = internalTextareaRef.current;
+        if (!ta) {
+            return;
+        }
+        savedScrollTop.current = ta.scrollTop;
+        savedSelection.current = { start: ta.selectionStart, end: ta.selectionEnd };
+    }, []);
+
+    React.useLayoutEffect(() => {
+        const ta = internalTextareaRef.current;
+        if (!ta) {
+            return;
+        }
+        // On ne restaure que lorsque la `value` a effectivement changé : c'est seulement
+        // dans ce cas que React réécrit `node.value` et remet le scroll/sélection à zéro.
+        if (prevValue.current === value) {
+            return;
+        }
+        prevValue.current = value;
+
+        // Restaure le scroll (pour la frappe ET les changements programmatiques : dans
+        // les deux cas, l'utilisateur veut rester à l'endroit qu'il regardait).
+        ta.scrollTop = savedScrollTop.current;
+
+        // Ne restaure la sélection que pour la frappe : les changements programmatiques
+        // (Markdown, insertion de pattern) positionnent le curseur via leur propre
+        // `setTimeout` et ne doivent pas être écrasés.
+        if (wasUserInput.current) {
+            const saved = savedSelection.current;
+            if (saved) {
+                const max = ta.value.length;
+                try {
+                    ta.setSelectionRange(Math.min(saved.start, max), Math.min(saved.end, max));
+                } catch {
+                    // ignore (textarea désactivé ou détaché)
+                }
+            }
+            wasUserInput.current = false;
+        }
+
+        // La couche de surlignage a été alignée pendant le commit (ref callback) sur le
+        // `scrollTop` remis à 0 par React : on la recale sur le `scrollTop` restauré.
+        onScrollSync(overlayKey, ta);
+    });
+
     const {
         onFocus,
         onBlur,
+        onChange,
         onScroll,
         onSelect,
         onKeyUp,
@@ -179,22 +248,34 @@ export const TextareaWithOverlay: React.FC<{
         // la sélection masque le texte affiché par la couche de surlignage.
         className: className ? `${className} geoapp-log-textarea` : 'geoapp-log-textarea',
         style: mergedTextareaStyle as React.CSSProperties & { [key: string]: string | number | undefined },
+        // Capture l'état (scroll + sélection) AVANT que le parent ne déclenche le
+        // re-render qui réinitialisera le <textarea>. Le drapeau `wasUserInput` marque
+        // ce changement comme venant de la frappe (à restaurer dans le useLayoutEffect).
+        onChange: e => {
+            captureState();
+            wasUserInput.current = true;
+            onChange?.(e);
+        },
         // Le format sous le curseur pilote l'état allumé/éteint des boutons de la
         // barre d'outils. `select` ne couvre pas les simples déplacements de curseur,
         // d'où le trio select/keyUp/mouseUp.
         onFocus: e => {
+            captureState();
             onFocus?.(e);
             onCaretChange(e.currentTarget);
         },
         onSelect: e => {
+            captureState();
             onSelect?.(e);
             onCaretChange(e.currentTarget);
         },
         onKeyUp: e => {
+            captureState();
             onKeyUp?.(e);
             onCaretChange(e.currentTarget);
         },
         onMouseUp: e => {
+            captureState();
             onMouseUp?.(e);
             onCaretChange(e.currentTarget);
         },
@@ -203,7 +284,9 @@ export const TextareaWithOverlay: React.FC<{
         },
         // Le <textarea> défile, pas la couche : sans cette synchronisation le
         // surlignage reste figé dès que le texte dépasse la hauteur visible.
+        // On maintient aussi `savedScrollTop` à jour pour les re-renders ultérieurs.
         onScroll: e => {
+            savedScrollTop.current = e.currentTarget.scrollTop;
             onScrollSync(overlayKey, e.currentTarget);
             onScroll?.(e);
         },
@@ -221,6 +304,7 @@ export const TextareaWithOverlay: React.FC<{
             <textarea
                 {...textareaMergedProps}
                 ref={el => {
+                    internalTextareaRef.current = el;
                     textareaRef(el);
                     registerTextarea(overlayKey, el);
                     if (el) {
