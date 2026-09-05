@@ -239,6 +239,10 @@ export class GeocacheLogEditorWidget extends ReactWidget {
 
     protected totalFavoritePoints: number = 0;
     protected isFetchingFavoritePoints = false;
+    /** Faux tant que le stock de PF n'a pas été confirmé par Geocaching.com. */
+    protected favoritePointsKnown = false;
+    /** Resynchronisation du stock de PF en tâche de fond en cours. */
+    protected isSyncingFavoritePoints = false;
     protected userFindsCount: number = 0;
     protected isRefreshingFindsCount = false;
 
@@ -1041,6 +1045,16 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         return Math.max(0, this.totalFavoritePoints - usedCount);
     }
 
+    /**
+     * Vrai tant que le stock de PF n'est pas exploitable : soit il n'a jamais été
+     * synchronisé, soit la synchronisation de fond est encore en vol. Les cases
+     * « Donner PF » sont alors grisées faute de stock connu, et non parce qu'il
+     * serait épuisé — l'infobulle le dit.
+     */
+    protected isFavoritePointsStockPending(): boolean {
+        return this.isSyncingFavoritePoints || this.isFetchingFavoritePoints || !this.favoritePointsKnown;
+    }
+
     protected async fetchFavoritePoints(): Promise<void> {
         if (this.isFetchingFavoritePoints) {
             return;
@@ -1051,13 +1065,52 @@ export class GeocacheLogEditorWidget extends ReactWidget {
 
         try {
             const stats = await fetchUserStats(this.backendBaseUrl);
-            this.totalFavoritePoints = stats.awardedFavoritePoints;
+            this.favoritePointsKnown = stats.awardedFavoritePoints !== undefined;
+            this.totalFavoritePoints = stats.awardedFavoritePoints ?? 0;
             this.userFindsCount = stats.findsCount;
         } catch (e) {
             console.error('[GeocacheLogEditorWidget] fetchFavoritePoints error', e);
+            this.favoritePointsKnown = false;
             this.totalFavoritePoints = 0;
         } finally {
             this.isFetchingFavoritePoints = false;
+            this.update();
+        }
+
+        // Le stock mémorisé à la connexion vaut souvent 0 ou rien du tout : sans
+        // resynchronisation, toutes les cases « Donner PF » resteraient grisées alors
+        // que des points sont disponibles. On va donc les chercher en tâche de fond,
+        // sans bloquer l'ouverture de l'éditeur.
+        if (!this.favoritePointsKnown || this.totalFavoritePoints <= 0) {
+            void this.syncFavoritePoints();
+        }
+    }
+
+    /**
+     * Resynchronise le stock de PF depuis Geocaching.com, en tâche de fond.
+     *
+     * Ne touche pas au nombre de trouvailles : celui-ci a ses propres règles
+     * (cf. `refreshUserFindsCount`, qui doit s'abstenir dès qu'un log de l'onglet
+     * est parti). Un échec est silencieux : on reste sur le stock connu.
+     */
+    protected async syncFavoritePoints(options: { force?: boolean } = {}): Promise<void> {
+        if (this.isSyncingFavoritePoints || this.isRefreshingFindsCount) {
+            return;
+        }
+
+        this.isSyncingFavoritePoints = true;
+        this.update();
+
+        try {
+            const stats = await refreshUserStats(this.backendBaseUrl, { force: options.force ?? false });
+            if (stats.awardedFavoritePoints !== undefined) {
+                this.totalFavoritePoints = stats.awardedFavoritePoints;
+                this.favoritePointsKnown = true;
+            }
+        } catch (e) {
+            console.error('[GeocacheLogEditorWidget] syncFavoritePoints error', e);
+        } finally {
+            this.isSyncingFavoritePoints = false;
             this.update();
         }
     }
@@ -1098,6 +1151,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             }
             if (stats.awardedFavoritePoints !== undefined) {
                 this.totalFavoritePoints = stats.awardedFavoritePoints;
+                this.favoritePointsKnown = true;
             }
         } catch (e) {
             console.error('[GeocacheLogEditorWidget] refreshUserFindsCount error', e);
@@ -2079,6 +2133,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 isFavorite={this.perCacheFavorite[gc.id] === true}
                 onFavoriteChange={value => this.toggleFavoriteForGeocacheId(gc.id, value)}
                 remainingFavoritePoints={this.getRemainingFavoritePoints()}
+                favoritePointsPending={this.isFavoritePointsStockPending()}
                 formatFavoritePercent={(fav, logs) => this.formatFavoritePercent(fav, logs)}
                 getLogTypeLabel={value => this.getLogTypeLabel(value)}
                 images={this.getImagesForGeocacheId(gc.id)}
@@ -2161,6 +2216,10 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     protected render(): React.ReactNode {
         const allSubmitted = this.geocaches.length > 0 && this.geocaches.every(gc => this.isGeocacheSubmittedOk(gc.id));
         const remainingFavoritePoints = this.getRemainingFavoritePoints();
+        const favoritePointsPending = this.isFavoritePointsStockPending();
+        // Une synchronisation ratée laisse le stock inconnu : le bouton doit rester
+        // cliquable pour réessayer, seul un appel en vol le désactive.
+        const favoritePointsSyncing = this.isSyncingFavoritePoints || this.isFetchingFavoritePoints;
         const canPrev = !this.isLoadingHistory && this.logHistory.length > 0 && (this.logHistoryCursor < this.logHistory.length - 1);
         const canNext = !this.isLoadingHistory && this.logHistory.length > 0 && (this.logHistoryCursor > 0);
         const canSubmit = this.getGeocachesToSubmit().length > 0;
@@ -2217,8 +2276,18 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                         </div>
                     )}
                     <div style={{ display: 'flex', gap: 12, alignItems: 'center', fontSize: 12 }}>
-                        <div style={{ opacity: 0.85 }}>
-                            <strong>PF disponibles:</strong> {this.totalFavoritePoints}
+                        <div style={{ opacity: 0.85, display: 'flex', gap: 4, alignItems: 'center' }}>
+                            <strong>PF disponibles:</strong>
+                            {favoritePointsSyncing ? '⏳' : (this.favoritePointsKnown ? this.totalFavoritePoints : '—')}
+                            <button
+                                className='theia-button secondary'
+                                style={{ fontSize: 11, padding: '0 6px', minWidth: 0 }}
+                                onClick={() => { void this.syncFavoritePoints({ force: true }); }}
+                                disabled={favoritePointsSyncing || this.isSubmitting}
+                                title='Resynchroniser le stock de points favoris depuis Geocaching.com'
+                            >
+                                ⟳
+                            </button>
                         </div>
                         <div style={{ opacity: 0.85 }}>
                             <strong>PF restants:</strong> <span style={{ color: remainingFavoritePoints === 0 ? 'var(--theia-errorForeground)' : 'inherit' }}>{remainingFavoritePoints}</span>
@@ -2295,6 +2364,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                             onReorder={this.handleTableReorder}
                             reorderDisabled={this.isSubmitting}
                             remainingFavoritePoints={remainingFavoritePoints}
+                            favoritePointsPending={favoritePointsPending}
                             outingFlags={this.outingFlags}
                             maxHeight={220}
                         />
@@ -2433,6 +2503,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                                         this.logType,
                                         this.perCacheFavorite[gc.id] === true,
                                         remainingFavoritePoints,
+                                        favoritePointsPending,
                                         this.perCacheSubmitStatus[gc.id],
                                         this.perCacheSubmitReference[gc.id],
                                         this.perCacheSubmitError[gc.id],

@@ -307,8 +307,13 @@ def get_profile_stats():
 @bp.route('/profile/refresh', methods=['POST'])
 def refresh_profile_stats():
     """
-    Force le rafraîchissement des statistiques du profil.
-    
+    Rafraîchit les statistiques du profil depuis Geocaching.com.
+
+    Query params:
+        force: "false" pour accepter les stats en cache (moins de 5 minutes) plutôt
+            que de rescraper. Utilisé par les synchronisations automatiques en tâche
+            de fond, là où un clic explicite de l'utilisateur force le rechargement.
+
     Returns:
         {
             "success": true/false,
@@ -324,9 +329,10 @@ def refresh_profile_stats():
             "stats": None,
             "error_message": "Not logged in"
         }), 401
-    
-    logger.info("Forcing profile stats refresh")
-    stats = auth_service.fetch_profile_stats(force=True)
+
+    force = request.args.get('force', 'true').lower() != 'false'
+    logger.info("Refreshing profile stats (force=%s)", force)
+    stats = auth_service.fetch_profile_stats(force=force)
     
     if stats:
         return jsonify({

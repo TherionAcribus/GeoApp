@@ -85,6 +85,12 @@ const GeocacheLogEditorGeocachesTableImpl: React.FC<{
     reorderDisabled?: boolean;
     remainingFavoritePoints: number;
     /**
+     * Vrai tant que le stock de PF n'est pas connu (synchronisation avec Geocaching.com
+     * en cours) : les cases restent grisées, mais l'infobulle ne prétend pas que le
+     * stock est épuisé.
+     */
+    favoritePointsPending?: boolean;
+    /**
      * Signaux de la dernière analyse IA de sortie, par code GC.
      *
      * Rendus dans la cellule du code plutôt que dans une colonne à eux : ce tableau a un
@@ -93,7 +99,7 @@ const GeocacheLogEditorGeocachesTableImpl: React.FC<{
      */
     outingFlags?: Record<string, OutingPlanCacheFlags>;
     maxHeight?: number;
-}> = ({ data, logType, perCacheLogType, perCacheFavorite, perCacheSubmitStatus, perCacheSubmitReference, perCacheSubmitError, onToggleFavorite, onToggleLogType, onReorder, reorderDisabled = false, remainingFavoritePoints, outingFlags, maxHeight = 220 }) => {
+}> = ({ data, logType, perCacheLogType, perCacheFavorite, perCacheSubmitStatus, perCacheSubmitReference, perCacheSubmitError, onToggleFavorite, onToggleLogType, onReorder, reorderDisabled = false, remainingFavoritePoints, favoritePointsPending = false, outingFlags, maxHeight = 220 }) => {
     const [sorting, setSorting] = React.useState<SortingState>([]);
     const [draggedId, setDraggedId] = React.useState<number | null>(null);
     const [dropIndicator, setDropIndicator] = React.useState<{ id: number; position: 'before' | 'after' } | null>(null);
@@ -393,21 +399,26 @@ const GeocacheLogEditorGeocachesTableImpl: React.FC<{
                     const gc = row.original;
                     const currentLogType = sanitizeLogTypeForGeocache(perCacheLogType[gc.id] ?? logType, gc);
                     const isChecked = perCacheFavorite[gc.id] === true;
-                    const disabled = currentLogType !== 'found' || perCacheSubmitStatus[gc.id] === 'ok' || (!isChecked && remainingFavoritePoints <= 0);
+                    const noPointsLeft = !isChecked && remainingFavoritePoints <= 0;
+                    const disabled = currentLogType !== 'found' || perCacheSubmitStatus[gc.id] === 'ok' || noPointsLeft;
                     return (
                         <input
                             type='checkbox'
                             checked={isChecked}
                             onChange={e => onToggleFavorite(gc.id, e.target.checked)}
                             disabled={disabled}
-                            title={!isChecked && remainingFavoritePoints <= 0 ? 'Plus de PF disponibles' : ''}
+                            title={noPointsLeft
+                                ? (favoritePointsPending
+                                    ? 'Synchronisation du stock de PF avec Geocaching.com…'
+                                    : 'Plus de PF disponibles')
+                                : ''}
                         />
                     );
                 },
                 enableSorting: false,
             },
         ];
-    }, [data, canReorder, logType, perCacheLogType, perCacheFavorite, perCacheSubmitStatus, perCacheSubmitReference, perCacheSubmitError, onToggleFavorite, onToggleLogType, outingFlags]);
+    }, [data, canReorder, logType, perCacheLogType, perCacheFavorite, perCacheSubmitStatus, perCacheSubmitReference, perCacheSubmitError, onToggleFavorite, onToggleLogType, remainingFavoritePoints, favoritePointsPending, outingFlags]);
 
     const table = useReactTable({
         data,

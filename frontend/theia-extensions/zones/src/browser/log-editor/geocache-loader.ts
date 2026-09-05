@@ -95,7 +95,12 @@ export async function fetchGeocachesBatch(
 
 /** Statistiques utilisateur (points favoris, nombre de trouvailles). */
 export interface UserStats {
-    awardedFavoritePoints: number;
+    /**
+     * PF disponibles à distribuer, ou `undefined` si le profil n'a jamais été
+     * synchronisé avec Geocaching.com : « inconnu » et « zéro PF » n'appellent pas
+     * la même réaction, le premier justifie une resynchronisation.
+     */
+    awardedFavoritePoints: number | undefined;
     findsCount: number;
 }
 
@@ -109,16 +114,26 @@ export async function fetchUserStats(backendBaseUrl: BackendBaseUrl): Promise<Us
     return {
         awardedFavoritePoints: typeof authState?.user?.awarded_favorite_points === 'number'
             ? authState.user.awarded_favorite_points
-            : 0,
+            : undefined,
         findsCount: typeof authState?.user?.finds_count === 'number'
             ? authState.user.finds_count
             : 0,
     };
 }
 
-/** Resynchronise les statistiques depuis Geocaching.com (scraping du profil). */
-export async function refreshUserStats(backendBaseUrl: BackendBaseUrl): Promise<Partial<UserStats>> {
-    const res = await fetch(`${backendBaseUrl}/api/auth/profile/refresh`, {
+/**
+ * Resynchronise les statistiques depuis Geocaching.com (scraping du profil).
+ *
+ * `force: false` accepte les stats mises en cache par le backend (moins de 5 minutes) :
+ * c'est ce que veut une synchronisation automatique en tâche de fond, là où un clic de
+ * l'utilisateur doit vraiment aller rechercher la valeur du moment.
+ */
+export async function refreshUserStats(
+    backendBaseUrl: BackendBaseUrl,
+    options: { force?: boolean } = {}
+): Promise<Partial<UserStats>> {
+    const query = options.force === false ? '?force=false' : '';
+    const res = await fetch(`${backendBaseUrl}/api/auth/profile/refresh${query}`, {
         method: 'POST',
         credentials: 'include',
     });

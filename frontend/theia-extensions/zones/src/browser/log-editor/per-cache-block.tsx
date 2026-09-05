@@ -43,6 +43,8 @@ export interface PerCacheBlockProps {
     isFavorite: boolean;
     onFavoriteChange: (value: boolean) => void;
     remainingFavoritePoints: number;
+    /** Vrai tant que le stock de PF est en cours de synchronisation avec Geocaching.com. */
+    favoritePointsPending?: boolean;
     formatFavoritePercent: (favoritesCount: number | undefined, logsCount: number | undefined) => string;
     getLogTypeLabel: (value: LogTypeValue) => string;
 
@@ -104,6 +106,7 @@ export const PerCacheBlock: React.FC<PerCacheBlockProps> = (props) => {
         gc, isSubmittedOk, isPendingDnf, isPendingAlreadyFound,
         submitStatus, submitReference, submitError,
         logType, onLogTypeChange, isFavorite, onFavoriteChange, remainingFavoritePoints,
+        favoritePointsPending = false,
         formatFavoritePercent, getLogTypeLabel,
         images, isImagesDisabled, isDragOver, onAddFiles, onRemoveImage, onDragOverChange, getPreviewUrl,
         isToolbarDisabled, activeCaretFormat, isEditorActive, onApplyFormat, onApplyPrefix,
@@ -115,6 +118,8 @@ export const PerCacheBlock: React.FC<PerCacheBlockProps> = (props) => {
         charCounterStats,
         resolvedText, previewKeyPrefix, isPreviewOpen, onPreviewToggle,
     } = props;
+
+    const noPointsLeft = !isFavorite && remainingFavoritePoints <= 0;
 
     return (
         <div
@@ -208,8 +213,12 @@ export const PerCacheBlock: React.FC<PerCacheBlockProps> = (props) => {
                             type='checkbox'
                             checked={isFavorite}
                             onChange={e => onFavoriteChange(e.target.checked)}
-                            disabled={logType !== 'found' || (!isFavorite && remainingFavoritePoints <= 0)}
-                            title={!isFavorite && remainingFavoritePoints <= 0 ? 'Plus de PF disponibles' : ''}
+                            disabled={logType !== 'found' || noPointsLeft}
+                            title={noPointsLeft
+                                ? (favoritePointsPending
+                                    ? 'Synchronisation du stock de PF avec Geocaching.com…'
+                                    : 'Plus de PF disponibles')
+                                : ''}
                         />
                         Donner un PF
                     </label>
