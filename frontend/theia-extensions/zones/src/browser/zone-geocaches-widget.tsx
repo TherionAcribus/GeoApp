@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { injectable, inject } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
-import { ApplicationShell, StatefulWidget, WidgetManager, ConfirmDialog, Dialog } from '@theia/core/lib/browser';
+import { ApplicationShell, StatefulWidget, StorageService, WidgetManager, ConfirmDialog, Dialog } from '@theia/core/lib/browser';
 import { MessageService } from '@theia/core';
 import { QuickInputService, QuickPickValue } from '@theia/core/lib/common/quick-pick-service';
 import { ProgressService } from '@theia/core/lib/common/progress-service';
@@ -37,6 +37,17 @@ import { ImportAroundService } from './import-around-service';
 import { OutingAnalysisController } from './outing-analysis-controller';
 import { OutingPlanService } from './outing-plan-service';
 import { OutingPlanCacheFlags } from './outing-plan-types';
+import {
+    FriendAnalysisSummary,
+    FriendFilter,
+    FriendOuting,
+    createFriendOuting,
+    friendOfFilter,
+    missingForFriendFilter,
+    outingScopeGcCodes,
+    updateFriendOuting,
+} from './friend-outing-state';
+import { clearFriendOuting, loadFriendOuting, saveFriendOuting } from './friend-outing-store';
 
 interface SerializedZoneGeocachesState {
     zoneId: number;
@@ -90,26 +101,39 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     /** AbortController pour interrompre l'analyse streaming en cours. */
     protected analyzeAbortController?: AbortController;
     /** Résumé persistant de la dernière analyse terminée (pas un toast éphémère). */
-    protected lastAnalysisSummary: {
-        scanned: number;
-        skipped: number;
-        withFriends: number;
-        rateLimited: boolean;
-        cancelled: boolean;
-        at: string;
-    } | null = null;
+    protected lastAnalysisSummary: FriendAnalysisSummary | null = null;
     /** État des scans par ami sur cette zone (vérifié le…, obsolète…). */
     protected friendScans: FriendZoneScanEntry[] = [];
     /**
-     * Mode « sortie entre amis ». Toute l'UI amis (barre de puces, bandeau
-     * d'analyse, panneau matrice, code couleur des lignes) n'est visible que
-     * dans ce mode.
+     * Mode « sortie entre amis » : `null` hors sortie, sinon la sortie en cours
+     * (zone, amis emmenés, périmètre de caches). C'est la source de vérité unique —
+     * toute l'UI amis (barre de puces, bandeau d'analyse, panneau matrice, code
+     * couleur des lignes) n'est visible que quand elle n'est pas nulle.
      */
-    protected outingMode: boolean = false;
-    /** Amis actifs (pour la sortie). Pilotent les couleurs, l'analyse et les filtres. */
-    protected activeFriends: Set<string> = new Set();
-    /** Filtre « manquantes pour X » : null = aucun filtre, sinon un pseudo d'ami. */
-    protected missingForFriend: string | null = null;
+    protected outing: FriendOuting | null = null;
+    /**
+     * Les amis de la sortie sous forme de Set. Champ et non getter : la table
+     * mémoïse sur l'identité de ce Set, un nouveau à chaque rendu invaliderait le
+     * calcul des couleurs de lignes à chaque frappe dans le filtre.
+     */
+    protected activeFriendsSet: Set<string> = new Set();
+    /** Filtre de table : sous-état du mode sortie, levé en sortant. */
+    protected friendFilter: FriendFilter = 'none';
+    /** Bandeau « Sortie en cours restaurée » : vrai jusqu'à ce que l'utilisateur le ferme. */
+    protected outingRestored: boolean = false;
+
+    /** Vrai quand une sortie est en cours sur la zone affichée. */
+    protected get outingMode(): boolean {
+        return this.outing !== null;
+    }
+    /** Amis de la sortie (vide hors sortie). */
+    protected get activeFriends(): Set<string> {
+        return this.activeFriendsSet;
+    }
+    /** Ami visé par le filtre « manquantes pour X » (null si un autre filtre, ou aucun). */
+    protected get missingForFriend(): string | null {
+        return friendOfFilter(this.friendFilter);
+    }
     /** Nombre d'amis dont le scan est frais (affiché dans le bouton). */
     protected get friendScansFreshCount(): number {
         return this.friendScans.filter(s => s.scanned && !s.is_stale).length;
@@ -195,6 +219,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         @inject(MapService) protected readonly mapService: MapService,
         @inject(OutingAnalysisController) protected readonly outingAnalysisController: OutingAnalysisController,
         @inject(OutingPlanService) protected readonly outingPlanService: OutingPlanService,
+        @inject(StorageService) protected readonly storageService: StorageService,
     ) {
         super();
         this.id = ZoneGeocachesWidget.ID;
@@ -1042,6 +1067,11 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         this.zoneName = context.zoneName;
         this.lastAccessTimestamp = Date.now();
         this.title.label = `Géocaches - ${this.zoneName ?? this.zoneId}`;
+        // La sortie appartient à la zone : celle de la zone précédente ne survit pas
+        // à l'affichage d'une autre — elle reste seulement dans le stockage.
+        this.applyOuting(null);
+        this.outingRestored = false;
+        void this.restoreOuting(context.zoneId);
         this.update();
         // Charger une fois la liste des zones (cibles copy/move) ; ensuite tenue
         // à jour via onDidChangeZoneList. load() ne s'en occupe plus.
@@ -1441,14 +1471,14 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             } else {
                 this.messages.error("Erreur pendant l'analyse : " + error);
             }
-            this.lastAnalysisSummary = {
+            this.setAnalysisSummary({
                 scanned,
                 skipped,
                 withFriends,
                 rateLimited,
                 cancelled,
                 at: new Date().toISOString(),
-            };
+            });
         } finally {
             this.friendFindsProgress = null;
             this.analyzeAbortController = undefined;
@@ -1459,14 +1489,14 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
 
         // Résumé persistant (pas juste un toast) : reste affiché jusqu'à la
         // prochaine analyse, pour que l'utilisateur puisse le relire.
-        this.lastAnalysisSummary = {
+        this.setAnalysisSummary({
             scanned,
             skipped,
             withFriends,
             rateLimited,
             cancelled: false,
             at: new Date().toISOString(),
-        };
+        });
         if (scanned > 0 && !rateLimited) {
             const skipMsg = skipped > 0 ? ` (${skipped} skip, scan récent)` : '';
             this.messages.info(
@@ -1475,50 +1505,142 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         }
     };
 
+    /**
+     * Enregistre le compte rendu d'une analyse.
+     *
+     * Une analyse interrompue par la fin de la sortie termine son `catch` après
+     * `exitOutingMode()` : sans cette garde, elle réécrirait un résumé qui
+     * réapparaîtrait à la prochaine sortie sur la zone.
+     */
+    protected setAnalysisSummary(summary: FriendAnalysisSummary): void {
+        this.lastAnalysisSummary = this.outingMode ? summary : null;
+    }
+
     /** Interrompt l'analyse streaming en cours (bouton « Annuler »). */
     protected cancelAnalyzeFriendFinds = (): void => {
         this.analyzeAbortController?.abort();
     };
 
     /**
-     * Entre ou sort du mode « sortie entre amis ». La sélection d'amis actifs
-     * est conservée d'une sortie à l'autre, mais le filtre « manquantes pour X »
-     * est levé en sortant : son contrôle disparaît avec le panneau amis, il ne
-     * doit pas continuer à masquer des caches de façon invisible.
+     * Applique une sortie en mémoire (sans persistance) et remet à jour tout ce
+     * qui en dépend. Point de passage unique : l'état de la sortie et le Set
+     * d'amis actifs ne peuvent pas diverger.
      */
-    protected toggleOutingMode = (active: boolean): void => {
-        this.outingMode = active;
-        if (!active) {
-            this.missingForFriend = null;
+    protected applyOuting(next: FriendOuting | null): void {
+        this.outing = next;
+        this.activeFriendsSet = new Set(next?.friends ?? []);
+    }
+
+    /** Applique une sortie et l'écrit dans le stockage. */
+    protected commitOuting(next: FriendOuting): void {
+        this.applyOuting(next);
+        void saveFriendOuting(this.storageService, next);
+        this.update();
+    }
+
+    /**
+     * Restaure la sortie enregistrée pour une zone, si elle existe.
+     *
+     * Préparer une sortie coûte plusieurs analyses réseau, chacune limitée par
+     * geocaching.com : fermer l'onglet ne doit pas les jeter. Le bandeau signale la
+     * restauration, parce qu'un mode réactivé tout seul serait sinon une table qui
+     * filtre et colore sans raison apparente.
+     */
+    protected async restoreOuting(zoneId: number): Promise<void> {
+        const stored = await loadFriendOuting(this.storageService, zoneId);
+        // La zone a pu changer pendant la lecture : ne rien restaurer par-dessus.
+        if (!stored || this.zoneId !== zoneId) {
+            return;
+        }
+        this.applyOuting(stored);
+        this.friendFilter = 'none';
+        this.outingRestored = true;
+        this.update();
+    }
+
+    /**
+     * Entre en mode sortie. Le périmètre est la sélection courante si elle existe,
+     * sinon toute la zone (`gcCodes` vide).
+     */
+    protected enterOutingMode = (ids: number[] = []): void => {
+        if (!this.zoneId) { return; }
+        this.outingRestored = false;
+        this.commitOuting(createFriendOuting(this.zoneId, this.outing?.friends ?? [], this.gcCodesOf(ids)));
+    };
+
+    /** Change les amis emmenés. */
+    protected updateOutingFriends = (friends: string[]): void => {
+        if (!this.outing) { return; }
+        this.commitOuting(updateFriendOuting(this.outing, { friends }));
+    };
+
+    /** Change le périmètre de caches analysées (IDs de géocaches de la zone). */
+    protected updateOutingCaches = (ids: number[]): void => {
+        if (!this.outing) { return; }
+        this.commitOuting(updateFriendOuting(this.outing, { gcCodes: this.gcCodesOf(ids) }));
+    };
+
+    /**
+     * Termine la sortie : l'entrée persistée est supprimée, et tout ce qui n'a de
+     * sens que dans le mode est remis à zéro — le filtre, dont le contrôle disparaît
+     * avec le panneau amis et qui masquerait sinon des caches de façon invisible,
+     * ainsi que le résumé et la progression de l'analyse.
+     */
+    protected exitOutingMode = (): void => {
+        const zoneId = this.outing?.zoneId ?? this.zoneId;
+        this.applyOuting(null);
+        this.friendFilter = 'none';
+        this.outingRestored = false;
+        this.lastAnalysisSummary = null;
+        // Une analyse en cours appartient à la sortie : l'abandonner, sinon son flux
+        // continuerait d'écrire dans un état que plus personne n'affiche.
+        this.analyzeAbortController?.abort();
+        this.friendFindsProgress = null;
+        if (zoneId) {
+            void clearFriendOuting(this.storageService, zoneId);
         }
         this.update();
     };
 
+    /** Ferme le bandeau de restauration. */
+    protected dismissOutingRestored = (): void => {
+        this.outingRestored = false;
+        this.update();
+    };
+
+    /** Change le filtre de table du mode sortie. */
+    protected setFriendFilter = (filter: FriendFilter): void => {
+        this.friendFilter = filter;
+        this.update();
+    };
+
+    /** IDs de géocaches -> codes GC, dans l'ordre des lignes de la zone. */
+    protected gcCodesOf(ids: number[]): string[] {
+        if (!ids || ids.length === 0) { return []; }
+        const wanted = new Set(ids);
+        return this.rows.filter(row => wanted.has(row.id)).map(row => row.gc_code).filter(Boolean);
+    }
+
     /** Bascule l'activation d'un ami dans la barre d'amis actifs. */
     protected toggleActiveFriend = (friend: string): void => {
-        if (this.activeFriends.has(friend)) {
-            this.activeFriends.delete(friend);
-        } else {
-            this.activeFriends.add(friend);
-        }
-        this.update();
+        if (!this.outing) { return; }
+        const friends = this.activeFriends.has(friend)
+            ? this.outing.friends.filter(name => name !== friend)
+            : [...this.outing.friends, friend];
+        this.updateOutingFriends(friends);
     };
 
     /** Active ou désactive tous les amis connus. */
     protected toggleAllActiveFriends = (active: boolean): void => {
-        if (active) {
-            this.activeFriends = new Set(this.friendNames);
-        } else {
-            this.activeFriends = new Set();
-        }
-        this.update();
+        this.updateOutingFriends(active ? this.friendNames : []);
     };
 
-    /** Lance l'analyse sur les amis actifs × toute la zone. */
+    /** Lance l'analyse sur les amis de la sortie × son périmètre. */
     protected analyzeActiveFriends = async (): Promise<void> => {
         const friends = Array.from(this.activeFriends);
         if (friends.length === 0) { return; }
-        await this.analyzeFriendFinds(false, friends);
+        const scope = outingScopeGcCodes(this.outing, this.rows.map(row => row.gc_code).filter(Boolean));
+        await this.analyzeFriendFinds(false, friends, scope);
     };
 
     /**
@@ -2098,7 +2220,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 friendFinds={this.friendFinds}
                 friendNames={this.friendNames}
                 missingForFriend={this.missingForFriend}
-                onMissingForFriendChange={(f: string | null) => { this.missingForFriend = f; this.update(); }}
+                onMissingForFriendChange={(f: string | null) => this.setFriendFilter(missingForFriendFilter(f))}
                 outingFlags={this.outingFlags}
                 friendFindsProgress={this.friendFindsProgress}
                 lastAnalysisSummary={this.lastAnalysisSummary}
@@ -2108,7 +2230,16 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 friendScansTotalCount={this.friendScansTotalCount}
                 friendScans={this.friendScans}
                 outingMode={this.outingMode}
-                onToggleOutingMode={this.toggleOutingMode}
+                outingCacheCount={this.outing?.gcCodes.length ?? 0}
+                outingRestored={this.outingRestored}
+                onDismissOutingRestored={this.dismissOutingRestored}
+                onToggleOutingMode={(active: boolean) => {
+                    if (active) {
+                        this.enterOutingMode(this.selectedGeocacheIds);
+                    } else {
+                        this.exitOutingMode();
+                    }
+                }}
                 activeFriends={this.activeFriends}
                 onToggleActiveFriend={this.toggleActiveFriend}
                 onToggleAllActiveFriends={this.toggleAllActiveFriends}

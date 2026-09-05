@@ -1138,6 +1138,84 @@ widget**, indépendamment de la carte.
 > d'affichage — la zone « Amis » restait vide sans que rien n'indique comment la
 > remplir.
 
+### 13.11 Le mode « sortie entre amis » — un état, pas deux booléens
+
+Toute l'UI amis d'une zone (barre de puces, bandeau d'analyse, panneau matrice,
+code couleur des lignes) ne s'affiche que dans un « mode sortie ». Ce mode était
+d'abord deux champs indépendants du widget : `outingMode: boolean` et
+`activeFriends: Set<string>`. Deux conséquences :
+
+- rien ne disait si l'utilisateur préparait une sortie ou avait coché un ami au
+  passage — les amis actifs survivaient à la sortie du mode, le filtre non ;
+- rien ne survivait à la fermeture de l'onglet, alors que préparer une sortie
+  coûte plusieurs analyses réseau, chacune limitée par geocaching.com.
+
+#### Le modèle
+
+`friend-outing-state.ts` (types + fonctions pures) :
+
+```ts
+interface FriendOuting {
+    zoneId: number;
+    friends: string[];   // amis emmenés
+    gcCodes: string[];   // périmètre de l'analyse (vide = toute la zone)
+    updatedAt: string;
+}
+
+type FriendFilter = 'none' | 'nobody' | 'everybody' | `missing-for:${string}`;
+```
+
+`ZoneGeocachesWidget.outing: FriendOuting | null` est **la** source de vérité :
+`null` = pas de sortie. `outingMode`, `activeFriends` et `missingForFriend` sont
+devenus des accesseurs dérivés, ce qui rend l'incohérence impossible.
+`friendFilter` est un **sous-état** du mode : sortir du mode le remet à `'none'`,
+parce que son contrôle disparaît avec le panneau amis et qu'il continuerait
+sinon à masquer des caches de façon invisible. `'nobody'` et `'everybody'` sont
+déclarés mais pas encore branchés sur la table — la phase suivante s'en charge.
+
+API du widget : `enterOutingMode(ids)` (périmètre = sélection courante, sinon
+toute la zone), `updateOutingFriends(friends)`, `updateOutingCaches(ids)`,
+`exitOutingMode()`.
+
+#### La persistance
+
+`friend-outing-store.ts` suit le pattern de
+`log-editor/log-history-store.ts` : les accès `StorageService` y sont isolés,
+une entrée par zone sous `geoapp.friendOuting.zone.<zoneId>`. Chaque
+modification écrit, `setZone()` relit et restaure, `exitOutingMode()` supprime.
+
+Trois pièges, tous traités dans `normalizeFriendOuting()` et le widget :
+
+- **Le stockage est partagé avec tout Theia.** Une entrée peut être tronquée ou
+  écrite par une version antérieure : tout ce qui n'est pas exploitable est
+  traité comme une absence de sortie, jamais comme une erreur. Une entrée dont
+  le `zoneId` ne correspond pas est rejetée — une sortie ne doit jamais
+  réactiver le mode sur une autre zone.
+- **La restauration est asynchrone.** `setZone()` remet d'abord la sortie à
+  `null` puis lit ; la lecture vérifie que `zoneId` n'a pas changé entre-temps,
+  sinon un changement rapide de zone restaurerait la sortie de la précédente.
+- **Un mode qui se rallume tout seul est illisible.** Un bandeau « Sortie en
+  cours restaurée » (amis, périmètre) l'annonce, sinon la table filtre et colore
+  sans raison apparente.
+
+#### Le périmètre et l'analyse
+
+`outingScopeGcCodes()` ne renvoie des codes GC que si le périmètre est un vrai
+**sous-ensemble** de la zone. Une sortie « toute la zone » lance donc l'analyse
+sans `gc_codes` : sinon le backend perdrait l'estimation préalable (§11.4) et le
+skip des amis récemment scannés (§11.5). Les codes du périmètre absents de la
+zone (caches supprimées depuis) sont ignorés ; s'il n'en reste aucun, on
+retombe sur la zone entière plutôt que d'analyser le vide.
+
+`lastAnalysisSummary` et `friendFindsProgress` appartiennent également à la
+sortie : `exitOutingMode()` interrompt l'analyse en cours
+(`AbortController`) et les remet à zéro, et l'écriture du résumé est gardée —
+une analyse annulée par la fin de la sortie termine son `catch` *après*
+`exitOutingMode()` et réafficherait sinon son compte rendu à la sortie suivante.
+
+Tests frontend : `src/browser/tests/friend-outing-state.test.ts`
+(aller-retour par le stockage, entrée abîmée ou d'une autre zone, périmètre).
+
 ---
 
 ## 14. Tests

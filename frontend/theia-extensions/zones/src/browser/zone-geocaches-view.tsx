@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { GeocachesTable, Geocache, GeocachesTableColumnId } from './geocaches-table';
 import { OutingPlanCacheFlags } from './outing-plan-types';
+import type { FriendAnalysisSummary } from './friend-outing-state';
 import { ImportGpxDialog } from './import-gpx-dialog';
 import { ImportBookmarkListDialog } from './import-bookmark-list-dialog';
 import { ImportPocketQueryDialog } from './import-pocket-query-dialog';
@@ -81,14 +82,7 @@ export interface ZoneGeocachesViewProps {
     /** Progression de l'analyse des amis (null = inactive). */
     friendFindsProgress?: FriendFindsProgress | null;
     /** Résumé persistant de la dernière analyse terminée. */
-    lastAnalysisSummary?: {
-        scanned: number;
-        skipped: number;
-        withFriends: number;
-        rateLimited: boolean;
-        cancelled: boolean;
-        at: string;
-    } | null;
+    lastAnalysisSummary?: FriendAnalysisSummary | null;
     onAnalyzeFriendFinds?: (forceAll: boolean) => void | Promise<void>;
     /** Interrompt l'analyse streaming en cours. */
     onCancelAnalyzeFriendFinds?: () => void;
@@ -106,6 +100,12 @@ export interface ZoneGeocachesViewProps {
     outingMode?: boolean;
     /** Bascule le mode « sortie entre amis ». */
     onToggleOutingMode?: (active: boolean) => void;
+    /** Nombre de caches du périmètre de la sortie (0 = toute la zone). */
+    outingCacheCount?: number;
+    /** Vrai quand la sortie affichée vient d'être restaurée depuis le stockage. */
+    outingRestored?: boolean;
+    /** Ferme le bandeau de restauration. */
+    onDismissOutingRestored?: () => void;
     /** Amis actifs (pour la sortie). */
     activeFriends?: Set<string>;
     /** Bascule l'activation d'un ami. */
@@ -195,13 +195,48 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
                         onClick={() => props.onToggleOutingMode?.(!props.outingMode)}
                         title={props.outingMode
                             ? 'Quitter le mode sortie entre amis'
-                            : 'Préparer une sortie entre amis'}
+                            : 'Préparer une sortie entre amis (les caches sélectionnées en définissent le périmètre)'}
                     >
                         👥 Sortie
                     </button>
                 )}
             </div>
         </div>
+
+        {/* Sortie retrouvée dans le stockage : le mode s'est réactivé tout seul,
+            il faut le dire — sinon la table filtre et colore sans raison apparente. */}
+        {props.outingMode && props.outingRestored && (
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '6px 10px',
+                marginBottom: 8,
+                borderRadius: 4,
+                border: '1px solid var(--theia-panel-border)',
+                borderLeft: '3px solid var(--theia-charts-blue)',
+                background: 'var(--theia-editor-background)',
+                fontSize: '0.85em',
+            }}>
+                <span className='codicon codicon-history' />
+                <span>
+                    Sortie en cours restaurée
+                    {(props.activeFriends?.size ?? 0) > 0 && ` — ${props.activeFriends?.size} ami(s)`}
+                    {(props.outingCacheCount ?? 0) > 0
+                        ? `, ${props.outingCacheCount} cache(s) au périmètre`
+                        : ', toute la zone'}
+                </span>
+                <span style={{ flex: 1 }} />
+                <button
+                    className='theia-button secondary'
+                    onClick={props.onDismissOutingRestored}
+                    title='Masquer ce message'
+                    style={{ padding: '2px 8px' }}
+                >
+                    <span className='codicon codicon-close' />
+                </button>
+            </div>
+        )}
 
         {/* Barre d'amis actifs : puces cliquables pour choisir avec qui on sort.
             Réservée au mode sortie. */}
