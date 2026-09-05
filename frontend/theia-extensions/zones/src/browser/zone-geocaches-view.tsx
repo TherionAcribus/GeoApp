@@ -98,6 +98,14 @@ export interface ZoneGeocachesViewProps {
     friendScansTotalCount?: number;
     /** État des scans par ami (pour la barre d'amis et la table). */
     friendScans?: FriendZoneScanEntry[];
+    /**
+     * Mode « sortie entre amis ». Toute l'UI amis (barre de puces, bandeau
+     * d'analyse, panneau matrice) n'est rendue que dans ce mode : hors sortie,
+     * la vue reste une simple table de zone.
+     */
+    outingMode?: boolean;
+    /** Bascule le mode « sortie entre amis ». */
+    onToggleOutingMode?: (active: boolean) => void;
     /** Amis actifs (pour la sortie). */
     activeFriends?: Set<string>;
     /** Bascule l'activation d'un ami. */
@@ -181,11 +189,23 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
                 >
                     📍 Importer autour…
                 </button>
+                {props.onToggleOutingMode && (
+                    <button
+                        className={`theia-button${props.outingMode ? '' : ' secondary'}`}
+                        onClick={() => props.onToggleOutingMode?.(!props.outingMode)}
+                        title={props.outingMode
+                            ? 'Quitter le mode sortie entre amis'
+                            : 'Préparer une sortie entre amis'}
+                    >
+                        👥 Sortie
+                    </button>
+                )}
             </div>
         </div>
 
-        {/* Barre d'amis actifs : puces cliquables pour choisir avec qui on sort. */}
-        {props.onToggleActiveFriend && (
+        {/* Barre d'amis actifs : puces cliquables pour choisir avec qui on sort.
+            Réservée au mode sortie. */}
+        {props.outingMode && props.onToggleActiveFriend && (
             <FriendChipsBar
                 friendFinds={props.friendFinds ?? {}}
                 friendScans={props.friendScans ?? []}
@@ -199,8 +219,9 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
             />
         )}
 
-        {/* Barre d'état de l'analyse des amis : progression live + résumé persistant. */}
-        {(props.friendFindsProgress || props.lastAnalysisSummary) && (
+        {/* Barre d'état de l'analyse des amis : progression live + résumé persistant.
+            Réservée au mode sortie. */}
+        {props.outingMode && (props.friendFindsProgress || props.lastAnalysisSummary) && (
             <div style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -281,9 +302,8 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
         )}
 
         {/* Panneau de résultat de l'analyse amis (matrice ami × cache).
-            Affiché dès qu'il y a des caches et au moins un ami connu (via
-            friendFinds ou friendScans). */}
-        {!props.loading && props.rows.length > 0 && props.onMissingForFriendChange && (
+            Réservé au mode sortie, dès qu'il y a des caches. */}
+        {props.outingMode && !props.loading && props.rows.length > 0 && props.onMissingForFriendChange && (
             <ZoneFriendAnalysisPanel
                 rows={props.rows}
                 friendFinds={props.friendFinds ?? {}}
@@ -336,7 +356,9 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
                 selectedGeocacheIds={props.selectedGeocacheIds}
                 friendFinds={props.friendFinds}
                 friendScans={props.friendScans}
-                activeFriends={props.activeFriends}
+                /* Hors mode sortie, aucun ami actif n'est transmis : la table
+                   reste neutre (pas de code couleur « amis »). */
+                activeFriends={props.outingMode ? props.activeFriends : undefined}
                 missingForFriend={props.missingForFriend}
                 outingFlags={props.outingFlags}
             />

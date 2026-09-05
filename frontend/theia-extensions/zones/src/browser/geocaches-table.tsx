@@ -115,7 +115,11 @@ interface GeocachesTableProps {
     friendFinds?: Record<string, string[]>;
     /** État des scans par ami (pour détecter les caches non analysées). */
     friendScans?: FriendZoneScanEntry[];
-    /** Amis actifs (pour le code couleur des lignes). Si vide, tous les amis connus sont utilisés. */
+    /**
+     * Amis actifs (pour le code couleur des lignes). Si vide ou absent, aucune
+     * couleur « amis » n'est appliquée : ces états n'ont de sens que dans le
+     * cadre d'une sortie, avec des amis explicitement sélectionnés.
+     */
     activeFriends?: Set<string>;
     /**
      * Si renseigné, la table ne montre que les caches que cet ami **n'a pas**
@@ -922,23 +926,12 @@ ${origin}`}
     //   - 'partial' : certains amis actifs l'ont trouvée (orange — certains déjà passés)
     //   - 'all'     : tous les amis actifs l'ont trouvée (gris — pas intéressant)
     //   - 'unknown' : pas assez de données pour au moins un ami (bordure pointillée)
-    // Les amis pris en compte sont les amis actifs (activeFriends), ou à défaut
-    // tous les amis connus (union de friendFinds et friendScans).
-    const knownFriends = React.useMemo(() => {
-        if (activeFriends && activeFriends.size > 0) {
-            return activeFriends;
-        }
-        const names = new Set<string>();
-        if (friendFinds) {
-            for (const list of Object.values(friendFinds)) {
-                for (const name of list) { names.add(name); }
-            }
-        }
-        if (friendScans) {
-            for (const scan of friendScans) { names.add(scan.friend); }
-        }
-        return names;
-    }, [activeFriends, friendFinds, friendScans]);
+    // Seuls les amis actifs sont pris en compte : sans ami de sortie sélectionné,
+    // la table reste neutre (ni couleur de ligne, ni title « amis »).
+    const knownFriends = React.useMemo(
+        () => activeFriends ?? new Set<string>(),
+        [activeFriends]
+    );
 
     const friendRowState = React.useMemo(() => {
         const map = new Map<string, 'none' | 'partial' | 'all' | 'unknown'>(); // gc_code -> état

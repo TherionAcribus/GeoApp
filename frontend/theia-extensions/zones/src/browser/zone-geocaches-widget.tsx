@@ -100,6 +100,12 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     } | null = null;
     /** État des scans par ami sur cette zone (vérifié le…, obsolète…). */
     protected friendScans: FriendZoneScanEntry[] = [];
+    /**
+     * Mode « sortie entre amis ». Toute l'UI amis (barre de puces, bandeau
+     * d'analyse, panneau matrice, code couleur des lignes) n'est visible que
+     * dans ce mode.
+     */
+    protected outingMode: boolean = false;
     /** Amis actifs (pour la sortie). Pilotent les couleurs, l'analyse et les filtres. */
     protected activeFriends: Set<string> = new Set();
     /** Filtre « manquantes pour X » : null = aucun filtre, sinon un pseudo d'ami. */
@@ -1474,6 +1480,20 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         this.analyzeAbortController?.abort();
     };
 
+    /**
+     * Entre ou sort du mode « sortie entre amis ». La sélection d'amis actifs
+     * est conservée d'une sortie à l'autre, mais le filtre « manquantes pour X »
+     * est levé en sortant : son contrôle disparaît avec le panneau amis, il ne
+     * doit pas continuer à masquer des caches de façon invisible.
+     */
+    protected toggleOutingMode = (active: boolean): void => {
+        this.outingMode = active;
+        if (!active) {
+            this.missingForFriend = null;
+        }
+        this.update();
+    };
+
     /** Bascule l'activation d'un ami dans la barre d'amis actifs. */
     protected toggleActiveFriend = (friend: string): void => {
         if (this.activeFriends.has(friend)) {
@@ -2087,6 +2107,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 friendScansFreshCount={this.friendScansFreshCount}
                 friendScansTotalCount={this.friendScansTotalCount}
                 friendScans={this.friendScans}
+                outingMode={this.outingMode}
+                onToggleOutingMode={this.toggleOutingMode}
                 activeFriends={this.activeFriends}
                 onToggleActiveFriend={this.toggleActiveFriend}
                 onToggleAllActiveFriends={this.toggleAllActiveFriends}
