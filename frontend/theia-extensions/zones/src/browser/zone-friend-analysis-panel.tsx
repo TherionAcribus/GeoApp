@@ -29,6 +29,18 @@ export interface ZoneFriendAnalysisPanelProps {
     onMissingForFriendChange: (friend: string | null) => void;
     /** Ouvre une géocache (clic sur une cellule de la matrice). */
     onOpenGeocache?: (geocache: Geocache) => void;
+    /**
+     * Amis à afficher. Par défaut, tous ceux que connaissent `friendFinds` et
+     * `friendScans` ; le panneau de sortie passe les amis cochés, pour que le
+     * résultat réponde sur la sortie qu'on prépare et pas sur toute la zone.
+     */
+    friendNames?: string[];
+    /**
+     * Rendu resserré pour la colonne latérale (~280 px) : le titre et le
+     * décompte disparaissent — la section qui l'accueille les porte déjà — et
+     * il ne reste que le choix de vue.
+     */
+    compact?: boolean;
 }
 
 type ViewMode = 'summary' | 'matrix';
@@ -37,8 +49,13 @@ export const ZoneFriendAnalysisPanel: React.FC<ZoneFriendAnalysisPanelProps> = p
     const [mode, setMode] = React.useState<ViewMode>('summary');
     const [collapsed, setCollapsed] = React.useState(false);
 
-    // Liste triée des amis (union de friendFinds et friendScans).
+    // Liste triée des amis (union de friendFinds et friendScans), sauf si
+    // l'appelant impose la sienne.
+    const givenNames = props.friendNames;
     const friendNames = React.useMemo(() => {
+        if (givenNames) {
+            return [...givenNames].sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }));
+        }
         const names = new Set<string>();
         for (const list of Object.values(props.friendFinds)) {
             for (const name of list) {
@@ -49,7 +66,7 @@ export const ZoneFriendAnalysisPanel: React.FC<ZoneFriendAnalysisPanelProps> = p
             names.add(scan.friend);
         }
         return Array.from(names).sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }));
-    }, [props.friendFinds, props.friendScans]);
+    }, [givenNames, props.friendFinds, props.friendScans]);
 
     if (friendNames.length === 0 || props.rows.length === 0) {
         return null;
@@ -96,7 +113,7 @@ export const ZoneFriendAnalysisPanel: React.FC<ZoneFriendAnalysisPanelProps> = p
                 fontSize: '0.85em',
             }}>
                 <span className='codicon codicon-organization' />
-                <strong>Résultat amis</strong>
+                {!props.compact && <strong>Résultat amis</strong>}
                 <span style={{ color: 'var(--theia-descriptionForeground)' }}>
                     {friendNames.length} ami(s) · {totalCaches} cache(s)
                 </span>
@@ -128,11 +145,15 @@ export const ZoneFriendAnalysisPanel: React.FC<ZoneFriendAnalysisPanelProps> = p
                 padding: '6px 10px',
                 borderBottom: '1px solid var(--theia-panel-border)',
             }}>
-                <span className='codicon codicon-organization' />
-                <strong>Résultat de l'analyse amis</strong>
-                <span style={{ color: 'var(--theia-descriptionForeground)', fontSize: '0.85em' }}>
-                    {friendNames.length} ami(s) · {totalCaches} cache(s)
-                </span>
+                {!props.compact && (
+                    <>
+                        <span className='codicon codicon-organization' />
+                        <strong>Résultat de l'analyse amis</strong>
+                        <span style={{ color: 'var(--theia-descriptionForeground)', fontSize: '0.85em' }}>
+                            {friendNames.length} ami(s) · {totalCaches} cache(s)
+                        </span>
+                    </>
+                )}
                 <div style={{ flex: 1 }} />
                 {/* Sélecteur de mode */}
                 <button
@@ -168,6 +189,7 @@ export const ZoneFriendAnalysisPanel: React.FC<ZoneFriendAnalysisPanelProps> = p
                         stats={friendStats}
                         missingForFriend={props.missingForFriend}
                         onMissingForFriendChange={props.onMissingForFriendChange}
+                        compact={props.compact}
                     />
                 ) : (
                     <MatrixView
@@ -198,7 +220,9 @@ const SummaryView: React.FC<{
     stats: FriendStatRow[];
     missingForFriend: string | null;
     onMissingForFriendChange: (friend: string | null) => void;
-}> = ({ stats, missingForFriend, onMissingForFriendChange }) => {
+    /** Colonne latérale : la ligne passe sur deux niveaux au lieu de déborder. */
+    compact?: boolean;
+}> = ({ stats, missingForFriend, onMissingForFriendChange, compact }) => {
     return (
         <div>
             {stats.map(stat => {
@@ -210,13 +234,21 @@ const SummaryView: React.FC<{
                         style={{
                             display: 'flex',
                             alignItems: 'center',
-                            gap: 8,
+                            flexWrap: compact ? 'wrap' : 'nowrap',
+                            gap: compact ? 4 : 8,
                             padding: '4px 0',
                             borderBottom: '1px solid var(--theia-panel-border)',
                         }}
                     >
                         {/* Pseudo */}
-                        <span style={{ minWidth: 120, fontWeight: isActive ? 'bold' : 'normal' }}>
+                        <span style={{
+                            minWidth: compact ? 0 : 120,
+                            flex: compact ? 1 : undefined,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            fontWeight: isActive ? 'bold' : 'normal',
+                        }}>
                             {stat.name}
                         </span>
 
@@ -244,9 +276,11 @@ const SummaryView: React.FC<{
                             </span>
                         )}
 
-                        {/* Barre de progression */}
+                        {/* Barre de progression (seconde ligne en mode resserré) */}
                         <div style={{
                             flex: 1,
+                            flexBasis: compact ? '100%' : undefined,
+                            order: compact ? 1 : undefined,
                             height: 8,
                             borderRadius: 4,
                             backgroundColor: 'var(--theia-panel-border)',
@@ -263,16 +297,19 @@ const SummaryView: React.FC<{
 
                         {/* Compteurs */}
                         <span style={{
-                            minWidth: 80,
+                            minWidth: compact ? 0 : 80,
                             textAlign: 'right',
                             fontSize: '0.85em',
+                            whiteSpace: 'nowrap',
                             color: 'var(--theia-descriptionForeground)',
                         }}>
                             <strong style={{ color: 'var(--theia-charts-green)' }}>{stat.found}</strong>
                             {` / ${stat.total}`}
                             {stat.missing > 0 && (
                                 <span style={{ color: 'var(--theia-charts-red)' }}>
-                                    {' '}({stat.missing} manquante{stat.missing > 1 ? 's' : ''})
+                                    {compact
+                                        ? ` (−${stat.missing})`
+                                        : ` (${stat.missing} manquante${stat.missing > 1 ? 's' : ''})`}
                                 </span>
                             )}
                         </span>
@@ -285,9 +322,9 @@ const SummaryView: React.FC<{
                                 title={isActive
                                     ? 'Désactiver le filtre'
                                     : `Filtrer la table sur les ${stat.missing} cache(s) manquante(s) pour ${stat.name}`}
-                                style={{ padding: '2px 8px', fontSize: '0.8em' }}
+                                style={{ padding: '2px 8px', fontSize: '0.8em', whiteSpace: 'nowrap' }}
                             >
-                                {isActive ? '✕' : 'Voir manquantes'}
+                                {isActive ? '✕' : compact ? 'Manquantes' : 'Voir manquantes'}
                             </button>
                         )}
                     </div>

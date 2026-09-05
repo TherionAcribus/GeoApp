@@ -1216,6 +1216,68 @@ une analyse annulée par la fin de la sortie termine son `catch` *après*
 Tests frontend : `src/browser/tests/friend-outing-state.test.ts`
 (aller-retour par le stockage, entrée abîmée ou d'une autre zone, périmètre).
 
+
+### 13.12 Le panneau latéral de sortie
+
+Préparer une sortie, c'est répondre à trois questions : **avec qui**, **sur
+quelles caches**, et **qui a déjà fait quoi**. Ces réponses vivaient dans trois
+endroits empilés au-dessus du tableau — une barre de puces, un bandeau
+d'analyse, un panneau de résultat — qui repoussaient la liste vers le bas au
+moment précis où on avait besoin de la lire. Et le lien entre la sélection de
+lignes et le périmètre de la sortie n'était écrit nulle part : cocher des lignes
+puis lancer une analyse produisait un résultat qu'on ne savait pas expliquer.
+
+`friend-outing-side-panel.tsx` les rassemble à droite du tableau (largeur fixe
+280 px, `flex` en ligne), replié en une bande verticale qui rappelle le mode et
+le rouvre d'un clic. Le panneau ne détient aucun état métier : la sortie
+appartient au widget (§13.11), qui la persiste ; seul l'aspect — replié, texte
+de recherche — est local.
+
+Quatre sections :
+
+- **Amis** — la liste complète du compte (`FriendsService.getFriends()`, avatars
+  compris) fusionnée avec les pseudos connus des données locales et avec ceux
+  déjà emmenés : une sortie restaurée avant que la liste réseau n'arrive
+  continue d'afficher ses amis, cochés. Par ami, l'état sur le périmètre
+  (analysé / obsolète / jamais) et le compteur trouvées/périmètre.
+- **Caches** — c'est ici, et nulle part ailleurs, que la sélection du tableau
+  devient le périmètre : « Remplacer par la sélection », « Ajouter », « Retirer »,
+  « Toute la zone ».
+- **Analyse** — amis cochés × caches du périmètre, via `startZoneScanStream`
+  (`friends` + `gc_codes`, déjà acceptés par le backend), avec la progression,
+  l'interruption et le compte rendu de la dernière analyse.
+- **Résultats** — `ZoneFriendAnalysisPanel`, restreint au périmètre et aux amis
+  cochés, ses boutons « Voir manquantes » pilotant `friendFilter`.
+
+Quatre points méritent d'être notés :
+
+- **La liste d'amis n'est chargée qu'à l'entrée en mode sortie.**
+  `GET /api/friends` interroge geocaching.com ; une zone ouverte sans intention
+  de sortie n'a aucune raison de la payer. L'échec n'émet pas de toast : le
+  panneau l'affiche avec un « Réessayer » et garde les amis connus localement.
+- **« Toute la zone » est un fait, pas un champ.** Un périmètre vide, un
+  périmètre qui contient déjà toutes les caches, et un périmètre dont plus
+  aucune cache n'existe donnent le même résultat — c'est exactement ce que
+  `outingScopeGcCodes()` transmet au backend, et le panneau doit annoncer ce que
+  l'analyse fera réellement, pas ce qui est stocké.
+- **Retirer des caches d'une sortie « toute la zone » matérialise les codes GC
+  restants.** Le périmètre devient un vrai sous-ensemble, ce qui coûte le skip
+  incrémental du backend (§11.5) — mais c'est ce qui a été demandé. Un périmètre
+  vidé entièrement est refusé plutôt que silencieusement retransformé en zone.
+- **`handleSelectionChange` redessine, en mode sortie seulement.** Le panneau
+  affiche la taille de la sélection et l'utilise pour activer ses boutons ; hors
+  mode, le tableau détient déjà cet état et un rendu par case cochée serait
+  gaspillé.
+
+L'état « analysé » par ami reste celui de la **zone** : `/scans` ne suit pas la
+fraîcheur périmètre par périmètre. Sur un sous-ensemble, c'est une approximation
+— l'infobulle le dit plutôt que de laisser croire à une garantie.
+
+`friendColor()` a quitté `friend-chips-bar.tsx` pour `friend-colors.ts` : la même
+couleur identifie un ami dans le panneau, la colonne « 👥 » et le code couleur
+des lignes, sans dépendre de l'ordre d'affichage. La barre de puces, le bandeau
+d'analyse et le panneau de résultat intercalés ne sont plus rendus.
+
 ---
 
 ## 14. Tests

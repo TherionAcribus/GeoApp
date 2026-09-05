@@ -1,5 +1,6 @@
 import * as React from 'react';
 import type { FriendZoneScanEntry } from './friends-types';
+import { friendColor } from './friend-colors';
 
 /**
  * Barre d'amis actifs — remplace le dropdown « Pas {ami} » (A2) et le dialogue
@@ -39,26 +40,9 @@ export interface FriendChipsBarProps {
     onCancelAnalyze?: () => void;
 }
 
-// Palette de couleurs stables pour les amis (hash du pseudo → index).
-const FRIEND_PALETTE = [
-    '#4caf50', // vert
-    '#2196f3', // bleu
-    '#9c27b0', // violet
-    '#ff5722', // orange foncé
-    '#00bcd4', // cyan
-    '#e91e63', // rose
-    '#8bc34a', // vert clair
-    '#ffc107', // ambre
-];
-
-/** Couleur stable pour un pseudo (hash → palette). */
-export function friendColor(name: string): string {
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) {
-        hash = ((hash << 5) - hash + name.charCodeAt(i)) | 0;
-    }
-    return FRIEND_PALETTE[Math.abs(hash) % FRIEND_PALETTE.length];
-}
+// `friendColor()` vit désormais dans `friend-colors.ts` : le panneau de sortie s'en
+// sert aussi, et cette barre est en cours de retrait.
+export { friendColor };
 
 export const FriendChipsBar: React.FC<FriendChipsBarProps> = props => {
     const [showAll, setShowAll] = React.useState(false);

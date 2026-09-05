@@ -26,7 +26,7 @@ import { MapService, ListSelectionRequest } from './map/map-service';
 import { GeocacheTabsManager } from './geocache-tabs-manager';
 import { BackendApiClient } from './backend-api-client';
 import { FriendsService } from './friends-service';
-import type { FriendFindsProgress, FriendZoneScanEntry, FriendScanStreamEvent } from './friends-types';
+import type { FriendFindsProgress, FriendZoneScanEntry, FriendScanStreamEvent, GeocachingFriend } from './friends-types';
 import { GeocachesService } from './geocaches-service';
 import { ZonesService } from './zones-service';
 import { GeoAppWidgetEventsService } from './geoapp-widget-events-service';
@@ -42,8 +42,6 @@ import {
     FriendFilter,
     FriendOuting,
     createFriendOuting,
-    friendOfFilter,
-    missingForFriendFilter,
     outingScopeGcCodes,
     updateFriendOuting,
 } from './friend-outing-state';
@@ -105,6 +103,17 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     /** État des scans par ami sur cette zone (vérifié le…, obsolète…). */
     protected friendScans: FriendZoneScanEntry[] = [];
     /**
+     * Liste d'amis du compte (avatars, pseudos), pour le panneau de sortie.
+     *
+     * Chargée seulement à l'entrée en mode sortie : `/api/friends` interroge
+     * geocaching.com, une zone ouverte sans intention de sortie n'a aucune raison
+     * de payer cette requête. Le `FriendsService` mutualise ensuite le résultat
+     * avec les autres widgets.
+     */
+    protected accountFriends: GeocachingFriend[] = [];
+    protected friendsListLoading = false;
+    protected friendsListError: string | null = null;
+    /**
      * Mode « sortie entre amis » : `null` hors sortie, sinon la sortie en cours
      * (zone, amis emmenés, périmètre de caches). C'est la source de vérité unique —
      * toute l'UI amis (barre de puces, bandeau d'analyse, panneau matrice, code
@@ -130,30 +139,9 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     protected get activeFriends(): Set<string> {
         return this.activeFriendsSet;
     }
-    /** Ami visé par le filtre « manquantes pour X » (null si un autre filtre, ou aucun). */
-    protected get missingForFriend(): string | null {
-        return friendOfFilter(this.friendFilter);
-    }
-    /** Nombre d'amis dont le scan est frais (affiché dans le bouton). */
-    protected get friendScansFreshCount(): number {
-        return this.friendScans.filter(s => s.scanned && !s.is_stale).length;
-    }
-    protected get friendScansTotalCount(): number {
-        return this.friendScans.length;
-    }
-    /** Liste triée des pseudos d'amis connus (union de friendFinds et friendScans). */
-    protected get friendNames(): string[] {
-        const names = new Set<string>();
-        for (const list of Object.values(this.friendFinds)) {
-            for (const name of list) {
-                names.add(name);
-            }
-        }
-        for (const scan of this.friendScans) {
-            names.add(scan.friend);
-        }
-        return Array.from(names).sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }));
-    }
+    // Le filtre, les compteurs de scans et la liste des pseudos ne sont plus
+    // dérivés ici : le panneau de sortie les reconstruit à partir de `friendFinds`,
+    // `friendScans` et `accountFriends`, en les restreignant au périmètre.
 
     protected interactionTimerId: number | undefined;
     private lastAccessTimestamp: number = Date.now();
@@ -1171,13 +1159,18 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
      * Répercute sur la carte les géocaches cochées dans le tableau (anneau noir
      * et pulsation à la sélection).
      *
-     * Pas de `update()` ici : le tableau détient déjà cet état, le re-rendre à
-     * chaque case cochée serait inutile. On mémorise seulement la sélection pour
-     * pouvoir la modifier depuis la carte.
+     * Hors mode sortie, pas de `update()` : le tableau détient déjà cet état, le
+     * re-rendre à chaque case cochée serait inutile. On mémorise seulement la
+     * sélection pour pouvoir la modifier depuis la carte. En mode sortie, le
+     * panneau latéral affiche cette sélection (« Remplacer par la sélection (N) »)
+     * et ses boutons en dépendent : il faut alors bien redessiner.
      */
     protected handleSelectionChange(geocacheIds: number[]): void {
         this.selectedGeocacheIds = geocacheIds;
         this.findZoneMapWidget()?.setSelectedGeocaches(geocacheIds);
+        if (this.outingMode) {
+            this.update();
+        }
     }
 
     /**
@@ -1556,6 +1549,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         this.friendFilter = 'none';
         this.outingRestored = true;
         this.update();
+        void this.loadAccountFriends();
     }
 
     /**
@@ -1566,6 +1560,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         if (!this.zoneId) { return; }
         this.outingRestored = false;
         this.commitOuting(createFriendOuting(this.zoneId, this.outing?.friends ?? [], this.gcCodesOf(ids)));
+        void this.loadAccountFriends();
     };
 
     /** Change les amis emmenés. */
@@ -1630,9 +1625,86 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         this.updateOutingFriends(friends);
     };
 
-    /** Active ou désactive tous les amis connus. */
-    protected toggleAllActiveFriends = (active: boolean): void => {
-        this.updateOutingFriends(active ? this.friendNames : []);
+    /** Remplace les amis de la sortie (boutons « Tout » / « Rien » du panneau). */
+    protected setActiveFriends = (friends: string[]): void => {
+        this.updateOutingFriends(friends);
+    };
+
+    /**
+     * Charge la liste d'amis du compte pour le panneau de sortie.
+     *
+     * Sans elle, on ne peut cocher que les amis déjà croisés dans une analyse de
+     * cette zone — impossible d'en ajouter un nouveau. Le chargement est silencieux
+     * côté toast : le panneau affiche l'échec lui-même, avec un « Réessayer », et
+     * garde les amis connus localement en attendant.
+     */
+    protected async loadAccountFriends(force: boolean = false): Promise<void> {
+        if (this.friendsListLoading || (!force && this.accountFriends.length > 0)) {
+            return;
+        }
+        this.friendsListLoading = true;
+        this.friendsListError = null;
+        this.update();
+        try {
+            const response = await this.friendsService.getFriends(force);
+            if (response.success) {
+                this.accountFriends = response.friends ?? [];
+            } else {
+                this.friendsListError = response.error_message ?? 'Liste d\'amis indisponible.';
+            }
+        } catch (error) {
+            this.friendsListError = getErrorMessage(error, 'Liste d\'amis indisponible.');
+        } finally {
+            this.friendsListLoading = false;
+            this.update();
+        }
+    }
+
+    /** Recharge la liste d'amis en ignorant le cache (bouton « Réessayer »). */
+    protected reloadAccountFriends = (): void => {
+        void this.loadAccountFriends(true);
+    };
+
+    /** Le périmètre devient la sélection courante du tableau. */
+    protected replaceOutingCachesWithSelection = (): void => {
+        this.updateOutingCaches(this.selectedGeocacheIds);
+    };
+
+    /** La sélection courante s'ajoute au périmètre. */
+    protected addSelectionToOutingCaches = (): void => {
+        if (!this.outing || this.selectedGeocacheIds.length === 0) { return; }
+        // Un périmètre vide vaut « toute la zone » : il n'y a rien à y ajouter.
+        if (this.outing.gcCodes.length === 0) { return; }
+        this.commitOuting(updateFriendOuting(this.outing, {
+            gcCodes: [...this.outing.gcCodes, ...this.gcCodesOf(this.selectedGeocacheIds)],
+        }));
+    };
+
+    /**
+     * La sélection courante sort du périmètre.
+     *
+     * Retirer des caches d'une sortie « toute la zone » oblige à matérialiser les
+     * codes GC restants : le périmètre devient un vrai sous-ensemble, ce qui coûte
+     * le skip incrémental du backend mais reste ce que l'utilisateur a demandé.
+     */
+    protected removeSelectionFromOutingCaches = (): void => {
+        if (!this.outing || this.selectedGeocacheIds.length === 0) { return; }
+        const removed = new Set(this.gcCodesOf(this.selectedGeocacheIds));
+        const current = this.outing.gcCodes.length > 0
+            ? this.outing.gcCodes
+            : this.rows.map(row => row.gc_code).filter(Boolean);
+        const kept = current.filter(code => !removed.has(code));
+        if (kept.length === 0) {
+            this.messages.warn('Le périmètre de la sortie ne peut pas être vide.');
+            return;
+        }
+        this.commitOuting(updateFriendOuting(this.outing, { gcCodes: kept }));
+    };
+
+    /** Le périmètre redevient « toute la zone ». */
+    protected resetOutingCachesToZone = (): void => {
+        if (!this.outing) { return; }
+        this.commitOuting(updateFriendOuting(this.outing, { gcCodes: [] }));
     };
 
     /** Lance l'analyse sur les amis de la sortie × son périmètre. */
@@ -2218,19 +2290,12 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 onOpenPocketQueryDialog={() => this.openPocketQueryDialog()}
                 onStartImportAround={() => this.startImportAroundWizard()}
                 friendFinds={this.friendFinds}
-                friendNames={this.friendNames}
-                missingForFriend={this.missingForFriend}
-                onMissingForFriendChange={(f: string | null) => this.setFriendFilter(missingForFriendFilter(f))}
                 outingFlags={this.outingFlags}
                 friendFindsProgress={this.friendFindsProgress}
                 lastAnalysisSummary={this.lastAnalysisSummary}
-                onAnalyzeFriendFinds={this.analyzeFriendFinds}
                 onCancelAnalyzeFriendFinds={this.cancelAnalyzeFriendFinds}
-                friendScansFreshCount={this.friendScansFreshCount}
-                friendScansTotalCount={this.friendScansTotalCount}
                 friendScans={this.friendScans}
-                outingMode={this.outingMode}
-                outingCacheCount={this.outing?.gcCodes.length ?? 0}
+                outing={this.outing}
                 outingRestored={this.outingRestored}
                 onDismissOutingRestored={this.dismissOutingRestored}
                 onToggleOutingMode={(active: boolean) => {
@@ -2240,10 +2305,21 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                         this.exitOutingMode();
                     }
                 }}
+                onExitOutingMode={this.exitOutingMode}
+                accountFriends={this.accountFriends}
+                friendsListLoading={this.friendsListLoading}
+                friendsListError={this.friendsListError}
+                onReloadFriends={this.reloadAccountFriends}
                 activeFriends={this.activeFriends}
                 onToggleActiveFriend={this.toggleActiveFriend}
-                onToggleAllActiveFriends={this.toggleAllActiveFriends}
+                onSetActiveFriends={this.setActiveFriends}
                 onAnalyzeActiveFriends={this.analyzeActiveFriends}
+                onReplaceOutingCaches={this.replaceOutingCachesWithSelection}
+                onAddSelectionToOutingCaches={this.addSelectionToOutingCaches}
+                onRemoveSelectionFromOutingCaches={this.removeSelectionFromOutingCaches}
+                onResetOutingCachesToZone={this.resetOutingCachesToZone}
+                friendFilter={this.friendFilter}
+                onFriendFilterChange={this.setFriendFilter}
                 showImportAroundDialog={this.importAroundDialogOpen}
                 importAroundDialogInitialCenter={this.importAroundDialogInitialCenter}
                 onImportAroundDialogImport={(req, onProgress) => this.handleImportAroundDialogImport(req, onProgress)}
