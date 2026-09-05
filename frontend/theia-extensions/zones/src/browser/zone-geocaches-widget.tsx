@@ -100,12 +100,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     } | null = null;
     /** État des scans par ami sur cette zone (vérifié le…, obsolète…). */
     protected friendScans: FriendZoneScanEntry[] = [];
-    /** Dialogue de sélection d'amis à scanner (null = fermé). */
-    protected friendSelectionDialogOpen = false;
-    /** Amis sélectionnés dans le dialogue (Set pour toggle rapide). */
-    protected friendSelectionChecked: Set<string> = new Set();
-    /** Checkbox « forcer une réanalyse complète » dans le dialogue. */
-    protected friendSelectionForceAll = false;
+    /** Amis actifs (pour la sortie). Pilotent les couleurs, l'analyse et les filtres. */
+    protected activeFriends: Set<string> = new Set();
     /** Filtre « manquantes pour X » : null = aucun filtre, sinon un pseudo d'ami. */
     protected missingForFriend: string | null = null;
     /** Nombre d'amis dont le scan est frais (affiché dans le bouton). */
@@ -1478,48 +1474,31 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         this.analyzeAbortController?.abort();
     };
 
-    /** Ouvre le dialogue de sélection d'amis à scanner. */
-    protected openFriendSelectionDialog = (): void => {
-        // Par défaut, tous les amis sont cochés.
-        this.friendSelectionChecked = new Set(this.friendScans.map(s => s.friend));
-        this.friendSelectionForceAll = false;
-        this.friendSelectionDialogOpen = true;
-        this.update();
-    };
-
-    /** Ferme le dialogue de sélection d'amis. */
-    protected closeFriendSelectionDialog = (): void => {
-        this.friendSelectionDialogOpen = false;
-        this.update();
-    };
-
-    /** Bascule la sélection d'un ami dans le dialogue. */
-    protected toggleFriendSelection = (friend: string): void => {
-        if (this.friendSelectionChecked.has(friend)) {
-            this.friendSelectionChecked.delete(friend);
+    /** Bascule l'activation d'un ami dans la barre d'amis actifs. */
+    protected toggleActiveFriend = (friend: string): void => {
+        if (this.activeFriends.has(friend)) {
+            this.activeFriends.delete(friend);
         } else {
-            this.friendSelectionChecked.add(friend);
+            this.activeFriends.add(friend);
         }
         this.update();
     };
 
-    /** Sélectionne ou désélectionne tous les amis. */
-    protected toggleAllFriendsSelection = (selectAll: boolean): void => {
-        if (selectAll) {
-            this.friendSelectionChecked = new Set(this.friendScans.map(s => s.friend));
+    /** Active ou désactive tous les amis connus. */
+    protected toggleAllActiveFriends = (active: boolean): void => {
+        if (active) {
+            this.activeFriends = new Set(this.friendNames);
         } else {
-            this.friendSelectionChecked = new Set();
+            this.activeFriends = new Set();
         }
         this.update();
     };
 
-    /** Lance l'analyse sur les amis sélectionnés dans le dialogue. */
-    protected confirmFriendSelection = async (): Promise<void> => {
-        const selected = Array.from(this.friendSelectionChecked);
-        const forceAll = this.friendSelectionForceAll;
-        this.friendSelectionDialogOpen = false;
-        this.update();
-        await this.analyzeFriendFinds(forceAll, selected);
+    /** Lance l'analyse sur les amis actifs × toute la zone. */
+    protected analyzeActiveFriends = async (): Promise<void> => {
+        const friends = Array.from(this.activeFriends);
+        if (friends.length === 0) { return; }
+        await this.analyzeFriendFinds(false, friends);
     };
 
     /**
@@ -1528,6 +1507,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
      *
      * Convertit les IDs de géocaches en codes GC, puis lance l'analyse
      * ciblée — beaucoup plus rapide qu'une analyse de zone entière.
+     * N'analyse que les amis actifs (ou tous si aucun n'est actif).
      */
     protected analyzeFriendsOnSelected = async (ids: number[]): Promise<void> => {
         if (!this.rows || ids.length === 0) { return; }
@@ -1535,9 +1515,9 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             .filter(r => ids.includes(r.id))
             .map(r => r.gc_code);
         if (gcCodes.length === 0) { return; }
-        // On lance l'analyse sur les caches sélectionnées avec tous les amis.
-        // Le skip est désactivé côté backend car gc_codes est explicite.
-        await this.analyzeFriendFinds(false, undefined, gcCodes);
+        // N'analyser que les amis actifs, ou tous si aucun n'est sélectionné.
+        const friends = this.activeFriends.size > 0 ? Array.from(this.activeFriends) : undefined;
+        await this.analyzeFriendFinds(false, friends, gcCodes);
     };
 
     protected async load(): Promise<void> {
@@ -2107,15 +2087,10 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 friendScansFreshCount={this.friendScansFreshCount}
                 friendScansTotalCount={this.friendScansTotalCount}
                 friendScans={this.friendScans}
-                friendSelectionDialogOpen={this.friendSelectionDialogOpen}
-                friendSelectionChecked={this.friendSelectionChecked}
-                friendSelectionForceAll={this.friendSelectionForceAll}
-                onOpenFriendSelectionDialog={this.openFriendSelectionDialog}
-                onCloseFriendSelectionDialog={this.closeFriendSelectionDialog}
-                onToggleFriendSelection={this.toggleFriendSelection}
-                onToggleAllFriendsSelection={this.toggleAllFriendsSelection}
-                onFriendSelectionForceAllChange={(v: boolean) => { this.friendSelectionForceAll = v; this.update(); }}
-                onConfirmFriendSelection={this.confirmFriendSelection}
+                activeFriends={this.activeFriends}
+                onToggleActiveFriend={this.toggleActiveFriend}
+                onToggleAllActiveFriends={this.toggleAllActiveFriends}
+                onAnalyzeActiveFriends={this.analyzeActiveFriends}
                 showImportAroundDialog={this.importAroundDialogOpen}
                 importAroundDialogInitialCenter={this.importAroundDialogInitialCenter}
                 onImportAroundDialogImport={(req, onProgress) => this.handleImportAroundDialogImport(req, onProgress)}

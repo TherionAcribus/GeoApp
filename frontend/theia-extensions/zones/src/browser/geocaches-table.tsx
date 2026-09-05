@@ -115,6 +115,8 @@ interface GeocachesTableProps {
     friendFinds?: Record<string, string[]>;
     /** État des scans par ami (pour détecter les caches non analysées). */
     friendScans?: FriendZoneScanEntry[];
+    /** Amis actifs (pour le code couleur des lignes). Si vide, tous les amis connus sont utilisés. */
+    activeFriends?: Set<string>;
     /**
      * Si renseigné, la table ne montre que les caches que cet ami **n'a pas**
      * trouvées. Vide = pas de filtre.
@@ -436,6 +438,7 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
     selectedGeocacheIds,
     friendFinds,
     friendScans,
+    activeFriends,
     missingForFriend,
     outingFlags
 }) => {
@@ -915,12 +918,16 @@ ${origin}`}
 
     // --- États « amis » pour le code couleur des lignes ---
     // Pour chaque cache, on calcule un état parmi :
-    //   - 'none'    : aucun ami connu ne l'a trouvée (vert clair — on peut y aller)
-    //   - 'partial' : certains amis l'ont trouvée (orange — certains déjà passés)
-    //   - 'all'     : tous les amis l'ont trouvée (gris — pas intéressant)
+    //   - 'none'    : aucun ami actif ne l'a trouvée (vert clair — on peut y aller)
+    //   - 'partial' : certains amis actifs l'ont trouvée (orange — certains déjà passés)
+    //   - 'all'     : tous les amis actifs l'ont trouvée (gris — pas intéressant)
     //   - 'unknown' : pas assez de données pour au moins un ami (bordure pointillée)
-    // Les amis "connus" sont l'union des pseudos dans friendFinds et friendScans.
+    // Les amis pris en compte sont les amis actifs (activeFriends), ou à défaut
+    // tous les amis connus (union de friendFinds et friendScans).
     const knownFriends = React.useMemo(() => {
+        if (activeFriends && activeFriends.size > 0) {
+            return activeFriends;
+        }
         const names = new Set<string>();
         if (friendFinds) {
             for (const list of Object.values(friendFinds)) {
@@ -931,7 +938,7 @@ ${origin}`}
             for (const scan of friendScans) { names.add(scan.friend); }
         }
         return names;
-    }, [friendFinds, friendScans]);
+    }, [activeFriends, friendFinds, friendScans]);
 
     const friendRowState = React.useMemo(() => {
         const map = new Map<string, 'none' | 'partial' | 'all' | 'unknown'>(); // gc_code -> état

@@ -9,6 +9,7 @@ import { ImportAroundDialog, ImportAroundCenter, ImportAroundRequest } from './i
 import { ImportProgressCallback } from './import-dialog-shell';
 import { EmptyState, LoadingState } from './state-views';
 import { ZoneFriendAnalysisPanel } from './zone-friend-analysis-panel';
+import { FriendChipsBar } from './friend-chips-bar';
 import type { FriendFindsProgress, FriendZoneScanEntry } from './friends-types';
 
 type SelectionDialogState = { geocacheIds: number[] } | null;
@@ -95,20 +96,16 @@ export interface ZoneGeocachesViewProps {
     friendScansFreshCount?: number;
     /** Nombre total d'amis dans la liste. */
     friendScansTotalCount?: number;
-    /** État des scans par ami (pour le dialogue de sélection). */
+    /** État des scans par ami (pour la barre d'amis et la table). */
     friendScans?: FriendZoneScanEntry[];
-    /** Dialogue de sélection d'amis ouvert. */
-    friendSelectionDialogOpen?: boolean;
-    /** Amis sélectionnés dans le dialogue. */
-    friendSelectionChecked?: Set<string>;
-    /** Checkbox « forcer une réanalyse complète » dans le dialogue. */
-    friendSelectionForceAll?: boolean;
-    onOpenFriendSelectionDialog?: () => void;
-    onCloseFriendSelectionDialog?: () => void;
-    onToggleFriendSelection?: (friend: string) => void;
-    onToggleAllFriendsSelection?: (selectAll: boolean) => void;
-    onFriendSelectionForceAllChange?: (forceAll: boolean) => void;
-    onConfirmFriendSelection?: () => void | Promise<void>;
+    /** Amis actifs (pour la sortie). */
+    activeFriends?: Set<string>;
+    /** Bascule l'activation d'un ami. */
+    onToggleActiveFriend?: (friend: string) => void;
+    /** Active ou désactive tous les amis. */
+    onToggleAllActiveFriends?: (active: boolean) => void;
+    /** Lance l'analyse sur les amis actifs × toute la zone. */
+    onAnalyzeActiveFriends?: () => void | Promise<void>;
     showImportAroundDialog: boolean;
     importAroundDialogInitialCenter?: ImportAroundCenter;
     onImportAroundDialogImport: (request: ImportAroundRequest, onProgress?: (percentage: number, message: string) => void) => Promise<void>;
@@ -184,62 +181,23 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
                 >
                     📍 Importer autour…
                 </button>
-                {props.onMissingForFriendChange && props.friendNames && props.friendNames.length > 0 && (
-                    <select
-                        className='theia-select'
-                        value={props.missingForFriend ?? ''}
-                        onChange={e => props.onMissingForFriendChange?.(e.target.value || null)}
-                        title="Filtrer : caches que cet ami n'a pas encore trouvées"
-                        style={{ maxWidth: 140 }}
-                    >
-                        <option value=''>Tous les amis</option>
-                        {props.friendNames.map(name => (
-                            <option key={name} value={name}>
-                                Pas {name}
-                            </option>
-                        ))}
-                    </select>
-                )}
-                {props.onAnalyzeFriendFinds && (
-                    <>
-                        <button
-                            className='theia-button secondary'
-                            onClick={e => {
-                                if (e.shiftKey) {
-                                    // Maj+clic : analyse complète de tous les amis (raccourci).
-                                    props.onAnalyzeFriendFinds?.(true);
-                                } else if (props.onOpenFriendSelectionDialog) {
-                                    // Clic normal : ouvrir le dialogue de sélection.
-                                    props.onOpenFriendSelectionDialog();
-                                } else {
-                                    props.onAnalyzeFriendFinds?.(false);
-                                }
-                            }}
-                            disabled={!!props.friendFindsProgress}
-                            title={
-                                "Déterminer, pour chaque cache de la zone, lesquels de vos amis l'ont trouvée "
-                                + '(sur tout leur historique). Maj+clic pour forcer une réanalyse complète de tous les amis.'
-                            }
-                        >
-                            {props.friendFindsProgress
-                                ? `👥 ${props.friendFindsProgress.done}/${props.friendFindsProgress.total}…`
-                                : props.friendScansTotalCount && props.friendScansTotalCount > 0
-                                    ? `👥 Amis ${props.friendScansFreshCount}/${props.friendScansTotalCount}`
-                                    : '👥 Amis'}
-                        </button>
-                        {props.friendFindsProgress && props.onCancelAnalyzeFriendFinds && (
-                            <button
-                                className='theia-button secondary'
-                                onClick={props.onCancelAnalyzeFriendFinds}
-                                title="Interrompre l'analyse en cours"
-                            >
-                                ✕
-                            </button>
-                        )}
-                    </>
-                )}
             </div>
         </div>
+
+        {/* Barre d'amis actifs : puces cliquables pour choisir avec qui on sort. */}
+        {props.onToggleActiveFriend && (
+            <FriendChipsBar
+                friendFinds={props.friendFinds ?? {}}
+                friendScans={props.friendScans ?? []}
+                totalCaches={props.rows.length}
+                activeFriends={props.activeFriends ?? new Set()}
+                onToggleFriend={props.onToggleActiveFriend}
+                onToggleAllFriends={props.onToggleAllActiveFriends}
+                onAnalyzeAll={props.onAnalyzeActiveFriends}
+                analyzing={!!props.friendFindsProgress}
+                onCancelAnalyze={props.onCancelAnalyzeFriendFinds}
+            />
+        )}
 
         {/* Barre d'état de l'analyse des amis : progression live + résumé persistant. */}
         {(props.friendFindsProgress || props.lastAnalysisSummary) && (
@@ -378,6 +336,7 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
                 selectedGeocacheIds={props.selectedGeocacheIds}
                 friendFinds={props.friendFinds}
                 friendScans={props.friendScans}
+                activeFriends={props.activeFriends}
                 missingForFriend={props.missingForFriend}
                 outingFlags={props.outingFlags}
             />
@@ -450,105 +409,5 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => (
             />
         )}
 
-        {props.friendSelectionDialogOpen && (
-            <div
-                style={{
-                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-                    background: 'rgba(0,0,0,0.4)', zIndex: 10000,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}
-                onClick={props.onCloseFriendSelectionDialog}
-            >
-                <div
-                    style={{
-                        background: 'var(--theia-editor-background, #fff)',
-                        borderRadius: '4px', padding: '16px', minWidth: '360px',
-                        maxWidth: '500px', maxHeight: '80vh', overflow: 'auto',
-                        boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-                    }}
-                    onClick={e => e.stopPropagation()}
-                >
-                    <div style={{ fontWeight: 'bold', marginBottom: '12px', fontSize: '14px' }}>
-                        Sélectionner les amis à analyser
-                    </div>
-                    <div style={{ marginBottom: '8px', display: 'flex', gap: '8px' }}>
-                        <button
-                            className='theia-button secondary'
-                            style={{ fontSize: '12px' }}
-                            onClick={() => props.onToggleAllFriendsSelection?.(true)}
-                        >
-                            Tout cocher
-                        </button>
-                        <button
-                            className='theia-button secondary'
-                            style={{ fontSize: '12px' }}
-                            onClick={() => props.onToggleAllFriendsSelection?.(false)}
-                        >
-                            Tout décocher
-                        </button>
-                    </div>
-                    <div style={{ maxHeight: '300px', overflow: 'auto', border: '1px solid var(--theia-border, #ccc)', borderRadius: '2px' }}>
-                        {(props.friendScans ?? []).map(scan => {
-                            const checked = props.friendSelectionChecked?.has(scan.friend) ?? false;
-                            return (
-                                <label
-                                    key={scan.friend}
-                                    style={{
-                                        display: 'flex', alignItems: 'center', gap: '8px',
-                                        padding: '4px 8px', cursor: 'pointer',
-                                        borderBottom: '1px solid var(--theia-border, #eee)',
-                                    }}
-                                >
-                                    <input
-                                        type='checkbox'
-                                        checked={checked}
-                                        onChange={() => props.onToggleFriendSelection?.(scan.friend)}
-                                    />
-                                    <span style={{ flex: 1 }}>{scan.friend}</span>
-                                    {scan.scanned && !scan.is_stale && (
-                                        <span style={{ fontSize: '11px', color: 'var(--theia-descriptionForeground, #888)' }}>
-                                            ✓ {scan.found_count ?? 0} trouvée(s)
-                                        </span>
-                                    )}
-                                    {scan.is_stale && (
-                                        <span style={{ fontSize: '11px', color: 'var(--theia-editorWarning-foreground, #c4a000)' }}>
-                                            obsolète
-                                        </span>
-                                    )}
-                                </label>
-                            );
-                        })}
-                        {(props.friendScans ?? []).length === 0 && (
-                            <div style={{ padding: '12px', color: 'var(--theia-descriptionForeground, #888)', fontSize: '12px' }}>
-                                Aucun ami à afficher. La liste d'amis sera chargée au prochain lancement.
-                            </div>
-                        )}
-                    </div>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '12px', fontSize: '12px' }}>
-                        <input
-                            type='checkbox'
-                            checked={props.friendSelectionForceAll ?? false}
-                            onChange={e => props.onFriendSelectionForceAllChange?.(e.target.checked)}
-                        />
-                        Forcer une réanalyse complète (ignorer les scans récents)
-                    </label>
-                    <div style={{ display: 'flex', gap: '8px', marginTop: '16px', justifyContent: 'flex-end' }}>
-                        <button
-                            className='theia-button secondary'
-                            onClick={props.onCloseFriendSelectionDialog}
-                        >
-                            Annuler
-                        </button>
-                        <button
-                            className='theia-button main'
-                            disabled={(props.friendSelectionChecked?.size ?? 0) === 0}
-                            onClick={props.onConfirmFriendSelection}
-                        >
-                            Analyser ({props.friendSelectionChecked?.size ?? 0})
-                        </button>
-                    </div>
-                </div>
-            </div>
-        )}
     </div>
 );
