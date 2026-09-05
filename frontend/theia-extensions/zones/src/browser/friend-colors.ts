@@ -7,7 +7,8 @@
  * donc sur la même couleur pour le même ami, et l'ordre des cases cochées ne la
  * fait pas changer sous les yeux de l'utilisateur.
  *
- * Extrait de `friend-chips-bar.tsx`, qui disparaît avec la barre de puces.
+ * Extrait de l'ancienne barre de puces `FriendChipsBar`, supprimée avec le
+ * passage au panneau latéral de sortie.
  */
 
 /** Palette : teintes distinctes, lisibles sur fond clair comme sur fond sombre. */

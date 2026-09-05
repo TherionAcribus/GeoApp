@@ -24,7 +24,6 @@ import type { MapWidget } from './map/map-widget';
 import type { MapGeocache } from './map/map-layer-manager';
 import { MapService, ListSelectionRequest } from './map/map-service';
 import { GeocacheTabsManager } from './geocache-tabs-manager';
-import { BackendApiClient } from './backend-api-client';
 import { FriendsService } from './friends-service';
 import type { FriendFindsProgress, FriendZoneScanEntry, FriendScanStreamEvent, GeocachingFriend } from './friends-types';
 import { GeocachesService } from './geocaches-service';
@@ -116,7 +115,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     /**
      * Mode « sortie entre amis » : `null` hors sortie, sinon la sortie en cours
      * (zone, amis emmenés, périmètre de caches). C'est la source de vérité unique —
-     * toute l'UI amis (barre de puces, bandeau d'analyse, panneau matrice, code
+     * toute l'UI amis (panneau latéral, bandeau de mode, colonne « 👥 », code
      * couleur des lignes) n'est visible que quand elle n'est pas nulle.
      */
     protected outing: FriendOuting | null = null;
@@ -199,7 +198,6 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         @inject(QuickInputService) protected readonly quickInputService: QuickInputService,
         @inject(ProgressService) protected readonly progressService: ProgressService,
         @inject(GeocachesService) protected readonly geocachesService: GeocachesService,
-        @inject(BackendApiClient) protected readonly apiClient: BackendApiClient,
         @inject(FriendsService) protected readonly friendsService: FriendsService,
         @inject(ImportAroundService) protected readonly importAroundService: ImportAroundService,
         @inject(ZonesService) protected readonly zonesService: ZonesService,
@@ -1268,30 +1266,24 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         }
     }
 
+    /**
+     * Charge « qui a trouvé quoi » sur la zone, pour la colonne « 👥 » et le code
+     * couleur des lignes.
+     */
     protected async loadFriendFinds(): Promise<void> {
         if (!this.zoneId) {
             return;
         }
         try {
-            const data = await this.apiClient.requestJson<{ success: boolean; finds: Record<string, string[]> }>(
-                `/api/friends/finds/zone/${this.zoneId}`
-            );
-            if (data?.success) {
-                // Nouvelle référence d'objet : la colonne « Amis » du tableau en dépend.
-                this.friendFinds = { ...data.finds };
-                this.update();
-            }
+            const finds = await this.friendsService.loadZoneFinds(this.zoneId);
+            // Nouvelle référence d'objet : la colonne « Amis » du tableau en dépend.
+            this.friendFinds = { ...finds };
+            this.update();
         } catch (error) {
             // Fonctionnalité optionnelle : son absence ne doit pas gêner la zone.
             console.debug('[ZoneGeocaches] friend finds indisponibles:', error);
         }
     }
-
-    // Note : loadFriendFinds et loadFriendScans restent sur apiClient pour
-    // l'instant car leur format de réponse ({ success, finds/scans }) diffère
-    // légèrement de ce que FriendsService.loadZoneFinds/loadZoneScans retourne.
-    // Migration progressive : les futurs composants utiliseront directement
-    // FriendsService.
 
     /**
      * Charge l'état des scans par ami depuis la base locale.
@@ -1304,17 +1296,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             return;
         }
         try {
-            const data = await this.apiClient.requestJson<{
-                success: boolean; scans: Array<{
-                    friend: string; scanned: boolean; is_stale: boolean;
-                    found_count: number | null; zone_matches: number | null;
-                    scanned_at: string | null;
-                }>;
-            }>(`/api/friends/finds/zone/${this.zoneId}/scans`);
-            if (data?.success) {
-                this.friendScans = data.scans ?? [];
-                this.update();
-            }
+            this.friendScans = await this.friendsService.loadZoneScans(this.zoneId);
+            this.update();
         } catch (error) {
             console.debug('[ZoneGeocaches] friend scans indisponibles:', error);
         }
@@ -1348,9 +1331,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         // Skip l'estimation si on analyse un sous-ensemble de caches (c'est ciblé).
         if (!gcCodes || gcCodes.length === 0) {
             try {
-                const estimate = await this.apiClient.requestJson<{
-                    success: boolean; zone_caches: number; searched_caches: number; seconds_per_friend: number;
-                }>(`/api/friends/finds/zone/${this.zoneId}/estimate`);
+                const estimate = await this.friendsService.estimateZoneScan(this.zoneId);
 
                 if (estimate?.success && estimate.searched_caches > 10 * Math.max(estimate.zone_caches, 1)) {
                     const minutes = Math.ceil((estimate.seconds_per_friend * 16) / 60);
@@ -2286,13 +2267,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 outing={this.outing}
                 outingRestored={this.outingRestored}
                 onDismissOutingRestored={this.dismissOutingRestored}
-                onToggleOutingMode={(active: boolean) => {
-                    if (active) {
-                        this.enterOutingMode(this.selectedGeocacheIds);
-                    } else {
-                        this.exitOutingMode();
-                    }
-                }}
+                onEnterOutingMode={() => this.enterOutingMode(this.selectedGeocacheIds)}
                 onExitOutingMode={this.exitOutingMode}
                 accountFriends={this.accountFriends}
                 friendsListLoading={this.friendsListLoading}

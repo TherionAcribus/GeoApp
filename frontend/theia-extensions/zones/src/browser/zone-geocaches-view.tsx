@@ -89,8 +89,12 @@ export interface ZoneGeocachesViewProps {
      * tableau ne s'affichent que si elle existe.
      */
     outing?: FriendOuting | null;
-    /** Bascule le mode « sortie entre amis ». */
-    onToggleOutingMode?: (active: boolean) => void;
+    /**
+     * Ouvre une sortie sur la sélection courante. Entrée et sortie du mode sont
+     * deux actions distinctes (`onExitOutingMode` pour l'autre sens) : une seule
+     * bascule booléenne laissait deux chemins vers la même fermeture.
+     */
+    onEnterOutingMode?: () => void;
     /** Vrai quand la sortie affichée vient d'être restaurée depuis le stockage. */
     outingRestored?: boolean;
     /** Ferme le bandeau de restauration. */
@@ -215,10 +219,10 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => {
                 >
                     📍 Importer autour…
                 </button>
-                {props.onToggleOutingMode && (
+                {(outingMode ? props.onExitOutingMode : props.onEnterOutingMode) && (
                     <button
                         className={`theia-button${outingMode ? '' : ' secondary'}`}
-                        onClick={() => props.onToggleOutingMode?.(!outingMode)}
+                        onClick={() => (outingMode ? props.onExitOutingMode?.() : props.onEnterOutingMode?.())}
                         title={outingMode
                             ? 'Quitter le mode sortie entre amis'
                             : 'Préparer une sortie entre amis (les caches sélectionnées en définissent le périmètre)'}
@@ -293,7 +297,7 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => {
                 <span style={{ flex: 1 }} />
                 <button
                     className='theia-button secondary'
-                    onClick={props.onExitOutingMode ?? (() => props.onToggleOutingMode?.(false))}
+                    onClick={() => props.onExitOutingMode?.()}
                     title='Quitter le mode sortie (la sortie enregistrée est supprimée)'
                     style={{ padding: '2px 8px' }}
                 >
@@ -388,7 +392,7 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => {
                     friendFilter={props.friendFilter ?? 'none'}
                     onFriendFilterChange={props.onFriendFilterChange ?? (() => undefined)}
                     onOpenGeocache={props.onRowClick}
-                    onExit={props.onExitOutingMode ?? (() => props.onToggleOutingMode?.(false))}
+                    onExit={props.onExitOutingMode ?? (() => undefined)}
                 />
             )}
         </div>

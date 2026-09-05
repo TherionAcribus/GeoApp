@@ -41,6 +41,12 @@ import type {
  */
 @injectable()
 export class FriendsService {
+    /** Messages d'erreur des lectures de zone : partagés entre le fallback HTTP
+     *  et le rejet sur `success: false`, pour que l'utilisateur voie la même
+     *  phrase quelle que soit la façon dont l'appel a échoué. */
+    protected static readonly ZONE_FINDS_ERROR = "Impossible de charger les trouvailles d'amis pour cette zone.";
+    protected static readonly ZONE_SCANS_ERROR = "Impossible de charger l'état des scans.";
+
     protected readonly onDidChangeFriendsEmitter = new Emitter<GeocachingFriend[]>();
     /** Émis quand la liste d'amis est (re)chargée. */
     readonly onDidChangeFriends: TheiaEvent<GeocachingFriend[]> = this.onDidChangeFriendsEmitter.event;
@@ -274,33 +280,67 @@ export class FriendsService {
 
     // -------------------------------------------------- Zone finds / scans
 
+    /**
+     * « Qui a trouvé quoi » sur une zone : `{ code GC: [pseudos] }`.
+     *
+     * L'enveloppe `{ success, finds }` du backend est dépliée ici : les appelants
+     * n'ont qu'une carte à consommer, et un `success: false` (HTTP 200) rejette au
+     * même titre qu'une erreur réseau, pour qu'un seul `catch` chez l'appelant
+     * suffise à conserver l'état précédent.
+     */
     async loadZoneFinds(zoneId: number): Promise<Record<string, string[]>> {
-        return this.apiClient.requestJson<Record<string, string[]>>(
+        const result = await this.apiClient.requestJson<{
+            success: boolean;
+            error?: string;
+            finds?: Record<string, string[]>;
+        }>(
             `/api/friends/finds/zone/${zoneId}`,
             {},
-            'Impossible de charger les trouvailles d\'amis pour cette zone.',
+            FriendsService.ZONE_FINDS_ERROR,
         );
+        if (!result.success) {
+            throw new Error(result.error ?? FriendsService.ZONE_FINDS_ERROR);
+        }
+        return result.finds ?? {};
     }
 
-    async loadZoneScans(zoneId: number): Promise<{ scans: FriendZoneScanEntry[] }> {
+    /**
+     * État des analyses par ami sur une zone (vérifié le…, obsolète, jamais
+     * analysé). Même contrat que `loadZoneFinds` : enveloppe dépliée,
+     * `success: false` transformé en rejet.
+     */
+    async loadZoneScans(zoneId: number): Promise<FriendZoneScanEntry[]> {
         const result = await this.apiClient.requestJson<{
+            success: boolean;
+            error?: string;
             scans?: FriendZoneScanEntry[];
-            entries?: FriendZoneScanEntry[];
         }>(
             `/api/friends/finds/zone/${zoneId}/scans`,
             {},
-            'Impossible de charger l\'état des scans.',
+            FriendsService.ZONE_SCANS_ERROR,
         );
-        // Le backend peut renvoyer `scans` ou `entries` selon la version.
-        return { scans: result.scans ?? result.entries ?? [] };
+        if (!result.success) {
+            throw new Error(result.error ?? FriendsService.ZONE_SCANS_ERROR);
+        }
+        return result.scans ?? [];
     }
 
+    /**
+     * Coût prévisible d'une analyse de zone : caches à balayer et durée estimée.
+     *
+     * Une zone géographiquement dispersée produit une boîte englobante démesurée ;
+     * l'appelant s'en sert pour prévenir avant de lancer une analyse de vingt
+     * minutes. Le backend répond en erreur HTTP quand il ne peut pas estimer
+     * (non connecté, zone vide, throttling) : l'appel rejette alors.
+     */
     async estimateZoneScan(zoneId: number): Promise<{
         success: boolean;
-        strategy?: string;
-        logbook_cost?: number;
-        zone_cost?: number;
-        [key: string]: unknown;
+        zone_caches: number;
+        searched_caches: number;
+        clusters: number;
+        seconds_per_friend: number;
+        recommended_strategy: 'zone_search' | 'logbook';
+        nb_friends: number;
     }> {
         return this.apiClient.requestJson(
             `/api/friends/finds/zone/${zoneId}/estimate`,
