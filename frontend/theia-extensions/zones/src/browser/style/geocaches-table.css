@@ -156,15 +156,11 @@
     background: var(--theia-list-hoverBackground);
 }
 
-.geoapp-gc-table__row--selected,
-.geoapp-gc-table__row--selected:hover {
-    background: var(--theia-list-activeSelectionBackground);
-}
-
 /*
  * Codes couleur « amis » sur les lignes.
  * Ces états ne s'appliquent que quand des données d'amis sont disponibles.
- * La sélection prend le dessus sur la couleur d'arrière-plan (voir ci-dessus).
+ * La sélection prend le dessus sur ces couleurs : ses règles sont déclarées
+ * après ce bloc (voir ci-dessous).
  */
 .geoapp-gc-table__row--friends-none {
     background: rgba(76, 175, 80, 0.08); /* vert clair — personne ne l'a trouvée */
@@ -198,6 +194,17 @@
 
 .geoapp-gc-table__row--friends-unknown:hover {
     background: var(--theia-list-hoverBackground);
+}
+
+/*
+ * Sélection : déclarée après les codes couleur « amis » pour l'emporter sur eux
+ * à spécificité égale. L'opacité réduite de --friends-all est aussi annulée,
+ * sinon la ligne sélectionnée reste délavée.
+ */
+.geoapp-gc-table__row--selected,
+.geoapp-gc-table__row--selected:hover {
+    background: var(--theia-list-activeSelectionBackground);
+    opacity: 1;
 }
 
 .geoapp-gc-table__cell {
