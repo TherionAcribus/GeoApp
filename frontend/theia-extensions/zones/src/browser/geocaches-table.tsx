@@ -13,6 +13,9 @@ import { ContextMenu, ContextMenuItem } from './context-menu';
 import { MoveGeocacheDialog } from './move-geocache-dialog';
 import { GeocacheIcon } from './geocache-icon';
 import type { FriendZoneScanEntry } from './friends-types';
+import type { FriendFilter } from './friend-outing-state';
+import { friendOfFilter } from './friend-outing-state';
+import { friendColor } from './friend-colors';
 import { GeocacheFilterBar } from './geocache-filter-bar';
 import {
     AdvancedFilterClause,
@@ -88,8 +91,6 @@ interface GeocachesTableProps {
     onAnalyzeWithAiSelected?: (ids: number[]) => void;
     /** Vrai pendant la collecte du bundle d'analyse : le bouton passe en attente. */
     analyzingWithAi?: boolean;
-    /** Analyse les amis sur les caches sélectionnées (bouton « Amis »). */
-    onAnalyzeFriendsSelected?: (ids: number[]) => void;
     onExportGpxSelected?: (ids: number[]) => void;
     /** Vrai pendant la génération/le téléchargement de l'export GPX. */
     exportingGpx?: boolean;
@@ -116,16 +117,33 @@ interface GeocachesTableProps {
     /** État des scans par ami (pour détecter les caches non analysées). */
     friendScans?: FriendZoneScanEntry[];
     /**
-     * Amis actifs (pour le code couleur des lignes). Si vide ou absent, aucune
-     * couleur « amis » n'est appliquée : ces états n'ont de sens que dans le
-     * cadre d'une sortie, avec des amis explicitement sélectionnés.
+     * Amis actifs (pour le code couleur des lignes et la colonne « 👥 »). Si vide
+     * ou absent, aucune couleur « amis » n'est appliquée : ces états n'ont de sens
+     * que dans le cadre d'une sortie, avec des amis explicitement sélectionnés.
      */
     activeFriends?: Set<string>;
     /**
-     * Si renseigné, la table ne montre que les caches que cet ami **n'a pas**
-     * trouvées. Vide = pas de filtre.
+     * Mode « sortie entre amis ».
+     *
+     * Le tableau continue d'afficher toute la zone — on prépare une sortie en
+     * comparant ce qu'on y met à ce qu'on n'y met pas. Le mode ne change que la
+     * lecture : colonne « 👥 » d'office, code couleur des lignes, marqueur du
+     * périmètre, et les filtres qui n'ont de sens qu'avec des amis choisis.
      */
-    missingForFriend?: string | null;
+    outingMode?: boolean;
+    /**
+     * Codes GC du périmètre de la sortie. Vide = toute la zone : il n'y a alors
+     * rien à distinguer, ni marqueur ni filtre de périmètre.
+     */
+    outingGcCodes?: string[];
+    /** Filtre « amis » du mode sortie (manquantes pour X / personne / tous). */
+    friendFilter?: FriendFilter;
+    /** Change le filtre « amis » (contrôles de la barre de filtres). */
+    onFriendFilterChange?: (filter: FriendFilter) => void;
+    /** Hors mode sortie : la sélection courante ouvre une sortie. */
+    onStartOutingWithSelection?: (ids: number[]) => void;
+    /** En mode sortie : la sélection courante s'ajoute au périmètre. */
+    onAddSelectionToOuting?: (ids: number[]) => void;
     /**
      * Ce que la dernière analyse IA a signalé, par code GC (colonne `outing_flags`).
      *
@@ -155,6 +173,10 @@ export type GeocachesTableColumnId =
     | 'favorites_count'
     | 'owner'
     | 'logs_count'
+    // `friends_found` n'apparaît pas dans GEOCACHES_TABLE_COLUMN_DEFINITIONS : la
+    // colonne « 👥 » est pilotée par le mode sortie, pas par le menu Colonnes. Elle
+    // garde son identifiant parce qu'elle reste une colonne du tableau — et parce
+    // que des préférences enregistrées la contiennent encore (elles sont ignorées).
     | 'friends_found'
     | 'outing_flags'
     | 'status'
@@ -198,7 +220,6 @@ const GEOCACHES_TABLE_COLUMN_DEFINITIONS: GeocachesTableColumnDefinition[] = [
     { id: 'favorites_count', label: 'Favoris', description: 'Nombre de points favoris.' },
     { id: 'owner', label: 'Propriétaire', description: 'Propriétaire de la cache.' },
     { id: 'logs_count', label: 'Logs', description: 'Nombre de logs connus.' },
-    { id: 'friends_found', label: 'Amis', description: "Nombre d'amis Geocaching.com ayant trouvé la cache." },
     { id: 'outing_flags', label: 'Sortie', description: "Signaux de la dernière analyse IA de sortie (matériel, santé, bloquant)." },
     { id: 'status', label: 'Statut', description: 'Statut de la cache sur Geocaching.com (active, désactivée, archivée).' },
     { id: 'need_maintenance', label: 'Maintenance', description: 'Indique si le propriétaire a demandé une attention particulière (Need Maintenance).' },
@@ -414,6 +435,86 @@ const SelectAllCheckbox: React.FC<{
     );
 };
 
+/**
+ * Filtres propres au mode « sortie » (périmètre et état des trouvailles).
+ *
+ * Ils vivent dans la barre de filtres du tableau, pas dans le panneau latéral :
+ * ce sont des filtres de liste, ils doivent rester atteignables panneau replié, et
+ * se lire au même endroit que la recherche qu'ils complètent.
+ */
+const OutingTableFilters: React.FC<{
+    hasScope: boolean;
+    scopeSize: number;
+    scopeOnly: boolean;
+    onScopeOnlyChange: (value: boolean) => void;
+    friendFilter: FriendFilter;
+    onFriendFilterChange?: (filter: FriendFilter) => void;
+    /** Faux si aucun ami n'est coché : les filtres d'état n'ont alors rien à dire. */
+    hasFriends: boolean;
+}> = props => {
+    const missingFor = friendOfFilter(props.friendFilter);
+    const setFilter = (filter: FriendFilter) => props.onFriendFilterChange?.(filter);
+    // Sans ami coché le filtre ne s'applique pas (voir `filteredData`) : le bouton
+    // ne doit pas s'afficher enfoncé, il annoncerait un tri qui n'a pas lieu.
+    const stateButton = (filter: FriendFilter, label: string, title: string) => {
+        const active = props.hasFriends && props.friendFilter === filter;
+        return (
+            <button
+                className={`theia-button${active ? '' : ' secondary'}`}
+                style={{ padding: '2px 8px' }}
+                disabled={!props.hasFriends}
+                title={props.hasFriends ? title : 'Cochez au moins un ami dans le panneau de sortie'}
+                onClick={() => setFilter(active ? 'none' : filter)}
+            >
+                {label}
+            </button>
+        );
+    };
+    return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            {props.hasScope && (
+                <label
+                    style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: '0.9em' }}
+                    title="N'afficher que les caches retenues pour la sortie"
+                >
+                    <input
+                        type='checkbox'
+                        checked={props.scopeOnly}
+                        onChange={event => props.onScopeOnlyChange(event.target.checked)}
+                    />
+                    Sortie seulement ({props.scopeSize})
+                </label>
+            )}
+            {stateButton('nobody', 'Personne', "Caches qu'aucun ami de la sortie n'a trouvées")}
+            {stateButton('everybody', 'Tous', 'Caches que tous les amis de la sortie ont trouvées')}
+            {missingFor && (
+                <span
+                    style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        padding: '2px 6px',
+                        borderRadius: 10,
+                        border: '1px solid var(--theia-panel-border)',
+                        fontSize: '0.85em',
+                    }}
+                    title={`Seules les caches que ${missingFor} n'a pas trouvées sont affichées`}
+                >
+                    Manquantes pour {missingFor}
+                    <button
+                        className='theia-button secondary'
+                        style={{ padding: '0 4px', margin: 0 }}
+                        onClick={() => setFilter('none')}
+                        title='Retirer ce filtre'
+                    >
+                        <span className='codicon codicon-close' />
+                    </button>
+                </span>
+            )}
+        </div>
+    );
+};
+
 export const GeocachesTable: React.FC<GeocachesTableProps> = ({
     data,
     onRowClick,
@@ -425,7 +526,6 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
     onApplyPluginSelected,
     onAnalyzeWithAiSelected,
     analyzingWithAi = false,
-    onAnalyzeFriendsSelected,
     onExportGpxSelected,
     exportingGpx = false,
     onDelete,
@@ -443,7 +543,12 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
     friendFinds,
     friendScans,
     activeFriends,
-    missingForFriend,
+    outingMode = false,
+    outingGcCodes,
+    friendFilter = 'none',
+    onFriendFilterChange,
+    onStartOutingWithSelection,
+    onAddSelectionToOuting,
     outingFlags
 }) => {
     const [sorting, setSorting] = React.useState<SortingState>([]);
@@ -457,6 +562,28 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
     const [columnDragTarget, setColumnDragTarget] = React.useState<{ id: GeocachesTableColumnId; position: 'before' | 'after' } | null>(null);
     const [internalVisibleColumnIds, setInternalVisibleColumnIds] = React.useState<GeocachesTableColumnId[]>(() => [...DEFAULT_GEOCACHES_TABLE_VISIBLE_COLUMNS]);
     const [advancedClauses, setAdvancedClauses] = React.useState<AdvancedFilterClause[]>([]);
+    // Filtre rapide « caches de la sortie seulement » : un état d'affichage, au même
+    // titre que la recherche — il vit avec le tableau, pas avec la sortie persistée.
+    const [outingScopeOnly, setOutingScopeOnly] = React.useState(false);
+    // Le périmètre, réduit aux caches réellement présentes : une sortie enregistrée
+    // peut citer des caches supprimées depuis. Comme `outingScopeGcCodes()` côté
+    // analyse, un périmètre dont plus rien ne subsiste retombe sur la zone entière —
+    // le marqueur et le filtre doivent montrer ce que la sortie couvre vraiment.
+    const outingScope = React.useMemo(() => {
+        const wanted = new Set(outingMode ? outingGcCodes ?? [] : []);
+        if (wanted.size === 0) {
+            return new Set<string>();
+        }
+        return new Set(data.filter(row => wanted.has(row.gc_code)).map(row => row.gc_code));
+    }, [outingMode, outingGcCodes, data]);
+    // Un périmètre vide vaut « toute la zone » : il n'y a alors ni marqueur de ligne
+    // ni filtre de périmètre à proposer.
+    const hasOutingScope = outingScope.size > 0;
+    React.useEffect(() => {
+        if (!hasOutingScope) {
+            setOutingScopeOnly(false);
+        }
+    }, [hasOutingScope]);
     const activeVisibleColumnIds = React.useMemo(
         () => normalizeGeocachesTableVisibleColumnIds(visibleColumnIds ?? internalVisibleColumnIds),
         [visibleColumnIds, internalVisibleColumnIds]
@@ -476,18 +603,25 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
         const visibility: VisibilityState = {
             select: true,
             actions: true,
+            // La colonne « 👥 » suit le mode, pas les préférences : en sortie elle est
+            // la raison d'être de l'écran, hors sortie elle n'a aucune donnée à montrer
+            // (les amis actifs viennent de la sortie).
+            friends_found: outingMode,
         };
         for (const columnId of ALL_GEOCACHES_TABLE_COLUMN_IDS) {
             visibility[columnId] = visibleColumnSet.has(columnId);
         }
         return visibility;
-    }, [visibleColumnSet]);
+    }, [visibleColumnSet, outingMode]);
     const columnOrder = React.useMemo<ColumnOrderState>(() => [
         'select',
+        // Juste après les cases à cocher : la colonne des amis se lit sans faire
+        // défiler le tableau, quel que soit l'ordre choisi pour les autres.
+        ...(outingMode ? ['friends_found'] : []),
         ...activeVisibleColumnIds,
         ...ALL_GEOCACHES_TABLE_COLUMN_IDS.filter(columnId => !visibleColumnSet.has(columnId)),
         'actions',
-    ], [activeVisibleColumnIds, visibleColumnSet]);
+    ], [activeVisibleColumnIds, visibleColumnSet, outingMode]);
     const visibleColumnDefinitions = React.useMemo(
         () => activeVisibleColumnIds
             .map(columnId => GEOCACHES_TABLE_COLUMN_DEFINITION_BY_ID.get(columnId))
@@ -498,6 +632,90 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
         () => GEOCACHES_TABLE_COLUMN_DEFINITIONS.filter(def => !visibleColumnSet.has(def.id)),
         [visibleColumnSet]
     );
+
+    // --- États « amis » pour le code couleur des lignes ---
+    // Pour chaque cache, on calcule un état parmi :
+    //   - 'none'    : aucun ami actif ne l'a trouvée (vert clair — on peut y aller)
+    //   - 'partial' : certains amis actifs l'ont trouvée (orange — certains déjà passés)
+    //   - 'all'     : tous les amis actifs l'ont trouvée (gris — pas intéressant)
+    //   - 'unknown' : pas assez de données pour au moins un ami (bordure pointillée)
+    // Seuls les amis cochés dans la sortie comptent, et seulement en mode sortie :
+    // couleurs de ligne, colonne « 👥 » et filtres d'état sont des lectures de
+    // sortie. Hors mode, ou sans ami coché, la table reste neutre — le parent aurait
+    // beau transmettre des amis actifs, ils n'ont rien à dire sur une zone qu'on
+    // consulte simplement.
+    const knownFriends = React.useMemo(
+        () => (outingMode ? activeFriends ?? new Set<string>() : new Set<string>()),
+        [outingMode, activeFriends]
+    );
+
+    /**
+     * Qui, parmi les amis de la sortie, a trouvé cette cache.
+     *
+     * Sans ami coché, la question n'a pas de réponse utile : la colonne « 👥 » reste
+     * vide plutôt que d'afficher les trouvailles d'amis qu'on n'emmène pas.
+     */
+    const findersOfOuting = React.useCallback(
+        (gcCode: string): string[] => {
+            const finders = friendFinds?.[gcCode] ?? [];
+            return knownFriends.size === 0 ? [] : finders.filter(name => knownFriends.has(name));
+        },
+        [friendFinds, knownFriends]
+    );
+
+    const friendRowState = React.useMemo(() => {
+        const map = new Map<string, 'none' | 'partial' | 'all' | 'unknown'>(); // gc_code -> état
+        if (knownFriends.size === 0) { return map; }
+        const scannedFriends = new Set<string>();
+        if (friendScans) {
+            for (const scan of friendScans) {
+                if (scan.scanned) { scannedFriends.add(scan.friend); }
+            }
+        }
+        for (const gc of data) {
+            const finders = friendFinds?.[gc.gc_code] ?? [];
+            const findersSet = new Set(finders);
+            const total = knownFriends.size;
+            const foundCount = finders.filter(f => knownFriends.has(f)).length;
+            // Si au moins un ami scanné n'a pas de données pour cette cache,
+            // c'est qu'elle n'était pas dans sa zone de scan → 'unknown'.
+            const hasUnknown = Array.from(knownFriends).some(
+                f => scannedFriends.has(f) && !findersSet.has(f) && (friendFinds?.[gc.gc_code] === undefined)
+            );
+            if (hasUnknown) {
+                map.set(gc.gc_code, 'unknown');
+            } else if (foundCount === 0) {
+                map.set(gc.gc_code, 'none');
+            } else if (foundCount >= total) {
+                map.set(gc.gc_code, 'all');
+            } else {
+                map.set(gc.gc_code, 'partial');
+            }
+        }
+        return map;
+    }, [data, friendFinds, friendScans, knownFriends]);
+
+    // Libellés pour le title des lignes.
+    const friendRowTitle = React.useMemo(() => {
+        const map = new Map<string, string>(); // gc_code -> title
+        if (knownFriends.size === 0) { return map; }
+        for (const gc of data) {
+            const finders = friendFinds?.[gc.gc_code] ?? [];
+            const found = finders.filter(f => knownFriends.has(f));
+            const missing = Array.from(knownFriends).filter(f => !found.includes(f));
+            const parts: string[] = [];
+            if (found.length > 0) {
+                parts.push(`Trouvée par ${found.join(', ')}`);
+            }
+            if (missing.length > 0) {
+                parts.push(`Manquante pour ${missing.join(', ')}`);
+            }
+            if (parts.length > 0) {
+                map.set(gc.gc_code, parts.join(' · '));
+            }
+        }
+        return map;
+    }, [data, friendFinds, knownFriends]);
 
     const columns = React.useMemo<ColumnDef<Geocache>[]>(
         () => [
@@ -676,15 +894,16 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
             },
             {
                 id: 'friends_found',
-                accessorFn: row => (friendFinds?.[(row as Geocache).gc_code] ?? []).length,
+                accessorFn: row => findersOfOuting((row as Geocache).gc_code).length,
                 header: '👥',
                 cell: ({ row }) => {
-                    const names = friendFinds?.[(row.original as Geocache).gc_code] ?? [];
+                    const names = findersOfOuting((row.original as Geocache).gc_code);
                     if (names.length === 0) {
                         return <span style={{ opacity: 0.35 }}>—</span>;
                     }
                     // Puces d'initiales : bien plus lisible qu'un simple nombre,
-                    // et le survol donne le pseudo complet.
+                    // et le survol donne le pseudo complet. La couleur est celle de
+                    // l'ami dans tout le mode sortie (panneau compris).
                     const maxVisible = 3;
                     const visible = names.slice(0, maxVisible);
                     const extra = names.length - visible.length;
@@ -713,7 +932,7 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                                         padding: '0 4px',
                                         fontSize: '0.7em',
                                         fontWeight: 'bold',
-                                        backgroundColor: 'var(--theia-charts-blue)',
+                                        backgroundColor: friendColor(name),
                                         color: 'white',
                                     }}
                                 >
@@ -836,7 +1055,8 @@ ${origin}`}
         // `friendFinds` et `outingFlags` sont capturés par les colonnes « Amis » et
         // « Sortie » : sans ces dépendances, elles resteraient figées sur la valeur
         // initiale, c'est-à-dire vides jusqu'au prochain remontage de la table.
-        [friendFinds, outingFlags]
+        // `findersOfOuting` l'est aussi : décocher un ami doit vider ses puces.
+        [friendFinds, findersOfOuting, outingFlags]
     );
 
     const cacheTypes = React.useMemo(() => {
@@ -908,84 +1128,33 @@ ${origin}`}
                     return false;
                 }
             }
-            // Filtre « manquantes pour X » : ne garder que les caches que cet
-            // ami n'a pas trouvées.
-            if (missingForFriend) {
-                const finders = friendFinds?.[geocache.gc_code] ?? [];
-                if (finders.includes(missingForFriend)) {
+            // Filtre rapide « caches de la sortie seulement ».
+            if (outingScopeOnly && !outingScope.has(geocache.gc_code)) {
+                return false;
+            }
+            // Filtres « amis » du mode sortie. Ils lisent l'état de ligne déjà
+            // calculé (`none` / `all`), donc les mêmes amis que le code couleur :
+            // ce que le filtre garde est exactement ce que la couleur annonce.
+            // Sans ami coché il n'y a rien à filtrer — sinon le tableau se viderait
+            // sans que rien à l'écran n'explique pourquoi.
+            if (outingMode && knownFriends.size > 0) {
+                const missingFor = friendOfFilter(friendFilter);
+                if (missingFor) {
+                    if ((friendFinds?.[geocache.gc_code] ?? []).includes(missingFor)) {
+                        return false;
+                    }
+                } else if (friendFilter === 'nobody' && friendRowState.get(geocache.gc_code) !== 'none') {
+                    return false;
+                } else if (friendFilter === 'everybody' && friendRowState.get(geocache.gc_code) !== 'all') {
                     return false;
                 }
             }
             return true;
         });
-    }, [data, globalFilter, advancedClauses, missingForFriend, friendFinds]);
-
-    // --- États « amis » pour le code couleur des lignes ---
-    // Pour chaque cache, on calcule un état parmi :
-    //   - 'none'    : aucun ami actif ne l'a trouvée (vert clair — on peut y aller)
-    //   - 'partial' : certains amis actifs l'ont trouvée (orange — certains déjà passés)
-    //   - 'all'     : tous les amis actifs l'ont trouvée (gris — pas intéressant)
-    //   - 'unknown' : pas assez de données pour au moins un ami (bordure pointillée)
-    // Seuls les amis actifs sont pris en compte : sans ami de sortie sélectionné,
-    // la table reste neutre (ni couleur de ligne, ni title « amis »).
-    const knownFriends = React.useMemo(
-        () => activeFriends ?? new Set<string>(),
-        [activeFriends]
-    );
-
-    const friendRowState = React.useMemo(() => {
-        const map = new Map<string, 'none' | 'partial' | 'all' | 'unknown'>(); // gc_code -> état
-        if (knownFriends.size === 0) { return map; }
-        const scannedFriends = new Set<string>();
-        if (friendScans) {
-            for (const scan of friendScans) {
-                if (scan.scanned) { scannedFriends.add(scan.friend); }
-            }
-        }
-        for (const gc of data) {
-            const finders = friendFinds?.[gc.gc_code] ?? [];
-            const findersSet = new Set(finders);
-            const total = knownFriends.size;
-            const foundCount = finders.filter(f => knownFriends.has(f)).length;
-            // Si au moins un ami scanné n'a pas de données pour cette cache,
-            // c'est qu'elle n'était pas dans sa zone de scan → 'unknown'.
-            const hasUnknown = Array.from(knownFriends).some(
-                f => scannedFriends.has(f) && !findersSet.has(f) && (friendFinds?.[gc.gc_code] === undefined)
-            );
-            if (hasUnknown) {
-                map.set(gc.gc_code, 'unknown');
-            } else if (foundCount === 0) {
-                map.set(gc.gc_code, 'none');
-            } else if (foundCount >= total) {
-                map.set(gc.gc_code, 'all');
-            } else {
-                map.set(gc.gc_code, 'partial');
-            }
-        }
-        return map;
-    }, [data, friendFinds, friendScans, knownFriends]);
-
-    // Libellés pour le title des lignes.
-    const friendRowTitle = React.useMemo(() => {
-        const map = new Map<string, string>(); // gc_code -> title
-        if (knownFriends.size === 0) { return map; }
-        for (const gc of data) {
-            const finders = friendFinds?.[gc.gc_code] ?? [];
-            const found = finders.filter(f => knownFriends.has(f));
-            const missing = Array.from(knownFriends).filter(f => !found.includes(f));
-            const parts: string[] = [];
-            if (found.length > 0) {
-                parts.push(`Trouvée par ${found.join(', ')}`);
-            }
-            if (missing.length > 0) {
-                parts.push(`Manquante pour ${missing.join(', ')}`);
-            }
-            if (parts.length > 0) {
-                map.set(gc.gc_code, parts.join(' · '));
-            }
-        }
-        return map;
-    }, [data, friendFinds, knownFriends]);
+    }, [
+        data, globalFilter, advancedClauses, friendFinds,
+        outingMode, outingScopeOnly, outingScope, friendFilter, friendRowState, knownFriends,
+    ]);
 
     React.useEffect(() => {
         onFilteredDataChange?.(filteredData);
@@ -1406,6 +1575,17 @@ ${origin}`}
                             </div>
                         )}
                     </div>
+                    {outingMode && (
+                        <OutingTableFilters
+                            hasScope={hasOutingScope}
+                            scopeSize={outingScope.size}
+                            scopeOnly={outingScopeOnly}
+                            onScopeOnlyChange={setOutingScopeOnly}
+                            friendFilter={friendFilter}
+                            onFriendFilterChange={onFriendFilterChange}
+                            hasFriends={knownFriends.size > 0}
+                        />
+                    )}
                 </div>
             </div>
 
@@ -1454,15 +1634,33 @@ ${origin}`}
                                     {analyzingWithAi ? 'Analyse en cours…' : 'Analyser IA'}
                                 </button>
                             )}
-                            {onAnalyzeFriendsSelected && (
-                                <button
-                                    onClick={() => onAnalyzeFriendsSelected(selectedIds)}
-                                    className="geoapp-gc-action-btn geoapp-gc-action-btn--primary"
-                                    title="Analyser les amis sur les géocaches sélectionnées (qui a trouvé quoi ?)"
-                                >
-                                    <span className="geoapp-gc-action-btn__icon" aria-hidden="true">👥</span>
-                                    Amis
-                                </button>
+                            {/* Le même bouton ouvre une sortie puis l'alimente :
+                                hors mode, la sélection devient le périmètre d'une
+                                nouvelle sortie ; en mode, elle s'y ajoute. C'est le
+                                seul chemin de la sélection vers la sortie — cocher
+                                une ligne ne change rien par elle-même. */}
+                            {outingMode ? (
+                                onAddSelectionToOuting && (
+                                    <button
+                                        onClick={() => onAddSelectionToOuting(selectedIds)}
+                                        className="geoapp-gc-action-btn geoapp-gc-action-btn--primary"
+                                        title="Ajouter les géocaches sélectionnées au périmètre de la sortie"
+                                    >
+                                        <span className="geoapp-gc-action-btn__icon" aria-hidden="true">👥</span>
+                                        Ajouter à la sortie
+                                    </button>
+                                )
+                            ) : (
+                                onStartOutingWithSelection && (
+                                    <button
+                                        onClick={() => onStartOutingWithSelection(selectedIds)}
+                                        className="geoapp-gc-action-btn geoapp-gc-action-btn--primary"
+                                        title="Préparer une sortie entre amis sur les géocaches sélectionnées"
+                                    >
+                                        <span className="geoapp-gc-action-btn__icon" aria-hidden="true">👥</span>
+                                        Sortie
+                                    </button>
+                                )
                             )}
                             {onExportGpxSelected && (
                                 <button
@@ -1597,6 +1795,11 @@ ${origin}`}
                                         : 'geoapp-gc-table__row')
                                     + (friendRowState.get(row.original.gc_code)
                                         ? ` geoapp-gc-table__row--friends-${friendRowState.get(row.original.gc_code)}`
+                                        : '')
+                                    // Le tableau montre toute la zone : un liseré
+                                    // discret dit lesquelles sont dans la sortie.
+                                    + (hasOutingScope && outingScope.has(row.original.gc_code)
+                                        ? ' geoapp-gc-table__row--outing'
                                         : '')
                                 }
                                 title={friendRowTitle.get(row.original.gc_code) ?? undefined}

@@ -1278,6 +1278,63 @@ couleur identifie un ami dans le panneau, la colonne « 👥 » et le code coule
 des lignes, sans dépendre de l'ordre d'affichage. La barre de puces, le bandeau
 d'analyse et le panneau de résultat intercalés ne sont plus rendus.
 
+### 13.13 Le tableau en mode sortie
+
+Le tableau **continue d'afficher toute la zone**. Filtrer sur le périmètre par
+défaut aurait fait disparaître ce qu'on est justement en train d'arbitrer :
+préparer une sortie, c'est comparer ce qu'on y met à ce qu'on n'y met pas. Le
+mode ne change donc pas ce qui est affiché, seulement **la façon dont on le
+lit** — et `GeocachesTable` reçoit `outingMode` tel quel plutôt que des props
+neutralisées une à une par la vue.
+
+**Ce que le mode change :**
+
+- **La colonne « 👥 » suit le mode, pas les préférences.** Elle a quitté
+  `GEOCACHES_TABLE_COLUMN_DEFINITIONS` : visible d'office en sortie, absente
+  hors sortie, et placée juste après les cases à cocher pour se lire sans faire
+  défiler. Son identifiant `friends_found` reste dans `GeocachesTableColumnId`
+  — c'est toujours une colonne du tableau ; les préférences enregistrées qui la
+  contiennent encore sont ignorées par `normalizeGeocachesTableVisibleColumnIds()`.
+  Ses puces portent la couleur `friendColor()` de chaque ami, restreintes aux
+  amis cochés : la colonne répond « qui, parmi ceux que j'emmène », pas « qui,
+  parmi tous mes amis ».
+- **Le code couleur des lignes et les filtres d'état ne comptent que les amis
+  cochés, et seulement en mode sortie.** `knownFriends` est vide hors mode quoi
+  que transmette le parent : ces lectures n'ont rien à dire sur une zone qu'on
+  consulte simplement.
+- **Le périmètre se voit sur les lignes.** Classe `--outing`, rendue par un
+  `box-shadow` interne sur la première cellule plutôt que par une bordure de
+  ligne : `--friends-unknown` occupe déjà `border-left`, et une cache peut être
+  dans la sortie **et** sans données pour un ami — les deux informations doivent
+  rester lisibles. Un périmètre vide, ou dont plus aucune cache n'existe, ne
+  marque rien : comme `outingScopeGcCodes()`, il vaut « toute la zone ».
+
+**Les filtres de sortie vivent dans la barre de filtres du tableau**
+(`OutingTableFilters`), pas dans le panneau : ce sont des filtres de liste, ils
+doivent rester atteignables panneau replié et se lire au même endroit que la
+recherche qu'ils complètent. Trois contrôles : « Sortie seulement (N) » (état
+d'affichage local au tableau, comme la recherche — il ne va pas dans la sortie
+persistée, et retombe à faux dès que le périmètre redevient la zone entière),
+« Personne » / « Tous » (`friendFilter` `'nobody'` / `'everybody'`, lus sur le
+même `friendRowState` que les couleurs : ce que le filtre garde est exactement
+ce que la couleur annonce), et la puce « Manquantes pour X » que posent les
+boutons du panneau de résultat, retirable d'un clic. **Sans ami coché, les
+filtres d'état ne s'appliquent pas** et leurs boutons sont désactivés : sinon le
+tableau se viderait sans que rien à l'écran n'explique pourquoi.
+
+**Le bouton « 👥 » de la barre d'actions est le seul chemin de la sélection vers
+la sortie.** Hors mode il ouvre une sortie sur les caches sélectionnées
+(`enterOutingMode`), en mode il les ajoute au périmètre. Il ne lance plus
+d'analyse : l'analyse appartient au panneau, où l'on voit sur qui et sur quoi
+elle porte. `addSelectionToOutingCaches()` accepte désormais des IDs explicites
+(le bouton passe les siens) et dit « la sortie couvre déjà toute la zone »
+plutôt que de ne rien faire quand le périmètre est vide.
+
+Enfin, un **bandeau de mode d'une ligne** au-dessus du tableau — « 👥 Sortie
+avec A, B, C · 12 caches » et « Quitter » : le panneau se replie, mais un
+tableau qui colore et filtre doit toujours dire au nom de quelle sortie il le
+fait, et offrir la porte de sortie.
+
 ---
 
 ## 14. Tests

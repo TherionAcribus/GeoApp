@@ -10,7 +10,6 @@ import { ImportAroundDialog, ImportAroundCenter, ImportAroundRequest } from './i
 import { ImportProgressCallback } from './import-dialog-shell';
 import { EmptyState, LoadingState } from './state-views';
 import { FriendOutingSidePanel } from './friend-outing-side-panel';
-import { friendOfFilter } from './friend-outing-state';
 import type { FriendFilter, FriendOuting } from './friend-outing-state';
 import type { FriendFindsProgress, FriendZoneScanEntry, GeocachingFriend } from './friends-types';
 
@@ -45,8 +44,10 @@ export interface ZoneGeocachesViewProps {
     onAnalyzeWithAiSelected: (ids: number[]) => void | Promise<void>;
     /** Une analyse IA est en cours : le bouton de la barre d'actions passe en attente. */
     analyzingWithAi?: boolean;
-    /** Analyse les amis sur les caches sélectionnées (bouton « Amis »). */
-    onAnalyzeFriendsSelected?: (ids: number[]) => void | Promise<void>;
+    /** Hors mode sortie : la sélection du tableau ouvre une sortie. */
+    onStartOutingWithSelection?: (ids: number[]) => void;
+    /** En mode sortie : la sélection du tableau s'ajoute au périmètre. */
+    onAddSelectionToOuting?: (ids: number[]) => void;
     onExportGpxSelected: (ids: number[]) => void | Promise<void>;
     /** Un export GPX est en cours : le bouton de la barre d'actions passe en attente. */
     exportingGpx?: boolean;
@@ -138,7 +139,12 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => {
     // diverger d'elle.
     const outing = props.outing ?? null;
     const outingMode = outing !== null;
-    const missingForFriend = friendOfFilter(props.friendFilter ?? 'none');
+    // Le bandeau de mode tient sur une ligne : au-delà de trois amis, on compte.
+    const outingFriendsLabel = outing && outing.friends.length > 0
+        ? (outing.friends.length > 3
+            ? `${outing.friends.slice(0, 3).join(', ')} +${outing.friends.length - 3}`
+            : outing.friends.join(', '))
+        : null;
 
     return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: 8 }}>
@@ -258,6 +264,44 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => {
             </div>
         )}
 
+        {/* Bandeau de mode : le panneau latéral peut être replié, mais un tableau
+            qui colore et filtre doit toujours dire au nom de quelle sortie il le
+            fait — et offrir la porte de sortie. */}
+        {outing && (
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '4px 10px',
+                marginBottom: 8,
+                borderRadius: 4,
+                border: '1px solid var(--theia-panel-border)',
+                borderLeft: '3px solid var(--theia-charts-blue)',
+                background: 'var(--theia-editor-background)',
+                fontSize: '0.85em',
+            }}>
+                <span>👥</span>
+                <span title={outing.friends.length > 0 ? outing.friends.join(', ') : undefined}>
+                    {outingFriendsLabel
+                        ? `Sortie avec ${outingFriendsLabel}`
+                        : 'Sortie sans ami sélectionné'}
+                    {' · '}
+                    {outing.gcCodes.length > 0
+                        ? `${outing.gcCodes.length} cache(s)`
+                        : `toute la zone (${props.rows.length} cache(s))`}
+                </span>
+                <span style={{ flex: 1 }} />
+                <button
+                    className='theia-button secondary'
+                    onClick={props.onExitOutingMode ?? (() => props.onToggleOutingMode?.(false))}
+                    title='Quitter le mode sortie (la sortie enregistrée est supprimée)'
+                    style={{ padding: '2px 8px' }}
+                >
+                    Quitter
+                </button>
+            </div>
+        )}
+
         {/* Tableau à gauche, panneau de sortie à droite. Le panneau reste monté
             même pendant un chargement ou sur une zone vide : il porte le mode, qui
             ne dépend pas de ce que le tableau a à afficher. */}
@@ -288,7 +332,8 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => {
                     onApplyPluginSelected={props.onApplyPluginSelected}
                     onAnalyzeWithAiSelected={props.onAnalyzeWithAiSelected}
                     analyzingWithAi={props.analyzingWithAi}
-                    onAnalyzeFriendsSelected={props.onAnalyzeFriendsSelected}
+                    onStartOutingWithSelection={props.onStartOutingWithSelection}
+                    onAddSelectionToOuting={props.onAddSelectionToOuting}
                     onExportGpxSelected={props.onExportGpxSelected}
                     exportingGpx={props.exportingGpx}
                     onDelete={geocache => props.onDelete(geocache)}
@@ -305,10 +350,14 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => {
                     selectedGeocacheIds={props.selectedGeocacheIds}
                     friendFinds={props.friendFinds}
                     friendScans={props.friendScans}
-                    /* Hors mode sortie, aucun ami actif n'est transmis : la table
-                       reste neutre (pas de code couleur « amis »). */
-                    activeFriends={outingMode ? props.activeFriends : undefined}
-                    missingForFriend={missingForFriend}
+                    activeFriends={props.activeFriends}
+                    /* Le mode se transmet tel quel : c'est la table qui décide de
+                       ce qu'il change (colonne « 👥 », couleurs, filtres, marqueur
+                       de périmètre), sans que la vue ait à neutraliser chaque prop. */
+                    outingMode={outingMode}
+                    outingGcCodes={outing?.gcCodes}
+                    friendFilter={props.friendFilter}
+                    onFriendFilterChange={props.onFriendFilterChange}
                     outingFlags={props.outingFlags}
                 />
             )}

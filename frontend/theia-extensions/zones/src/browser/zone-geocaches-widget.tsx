@@ -1670,13 +1670,20 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         this.updateOutingCaches(this.selectedGeocacheIds);
     };
 
-    /** La sélection courante s'ajoute au périmètre. */
-    protected addSelectionToOutingCaches = (): void => {
-        if (!this.outing || this.selectedGeocacheIds.length === 0) { return; }
-        // Un périmètre vide vaut « toute la zone » : il n'y a rien à y ajouter.
-        if (this.outing.gcCodes.length === 0) { return; }
+    /**
+     * La sélection s'ajoute au périmètre (bouton du panneau, ou « 👥 Ajouter à la
+     * sortie » de la barre d'actions du tableau, qui passe ses propres IDs).
+     */
+    protected addSelectionToOutingCaches = (ids: number[] = this.selectedGeocacheIds): void => {
+        if (!this.outing || ids.length === 0) { return; }
+        // Un périmètre vide vaut « toute la zone » : il n'y a rien à y ajouter, et
+        // le dire vaut mieux qu'un bouton qui ne fait rien.
+        if (this.outing.gcCodes.length === 0) {
+            this.messages.info('La sortie couvre déjà toute la zone.');
+            return;
+        }
         this.commitOuting(updateFriendOuting(this.outing, {
-            gcCodes: [...this.outing.gcCodes, ...this.gcCodesOf(this.selectedGeocacheIds)],
+            gcCodes: [...this.outing.gcCodes, ...this.gcCodesOf(ids)],
         }));
     };
 
@@ -1713,25 +1720,6 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         if (friends.length === 0) { return; }
         const scope = outingScopeGcCodes(this.outing, this.rows.map(row => row.gc_code).filter(Boolean));
         await this.analyzeFriendFinds(false, friends, scope);
-    };
-
-    /**
-     * Analyse les amis sur un sous-ensemble de caches sélectionnées dans la
-     * table (bouton « 👥 Amis » de la barre d'actions).
-     *
-     * Convertit les IDs de géocaches en codes GC, puis lance l'analyse
-     * ciblée — beaucoup plus rapide qu'une analyse de zone entière.
-     * N'analyse que les amis actifs (ou tous si aucun n'est actif).
-     */
-    protected analyzeFriendsOnSelected = async (ids: number[]): Promise<void> => {
-        if (!this.rows || ids.length === 0) { return; }
-        const gcCodes = this.rows
-            .filter(r => ids.includes(r.id))
-            .map(r => r.gc_code);
-        if (gcCodes.length === 0) { return; }
-        // N'analyser que les amis actifs, ou tous si aucun n'est sélectionné.
-        const friends = this.activeFriends.size > 0 ? Array.from(this.activeFriends) : undefined;
-        await this.analyzeFriendFinds(false, friends, gcCodes);
     };
 
     protected async load(): Promise<void> {
@@ -2315,7 +2303,9 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 onSetActiveFriends={this.setActiveFriends}
                 onAnalyzeActiveFriends={this.analyzeActiveFriends}
                 onReplaceOutingCaches={this.replaceOutingCachesWithSelection}
-                onAddSelectionToOutingCaches={this.addSelectionToOutingCaches}
+                /* Appelée sans argument : le bouton du panneau la branche directement
+                   sur son onClick, qui passerait sinon l'événement à la place des IDs. */
+                onAddSelectionToOutingCaches={() => this.addSelectionToOutingCaches()}
                 onRemoveSelectionFromOutingCaches={this.removeSelectionFromOutingCaches}
                 onResetOutingCachesToZone={this.resetOutingCachesToZone}
                 friendFilter={this.friendFilter}
@@ -2333,7 +2323,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 onApplyPluginSelected={ids => this.handleApplyPluginSelected(ids)}
                 onAnalyzeWithAiSelected={ids => this.handleAnalyzeWithAiSelected(ids)}
                 analyzingWithAi={this.analyzingWithAi}
-                onAnalyzeFriendsSelected={this.analyzeFriendsOnSelected}
+                onStartOutingWithSelection={ids => this.enterOutingMode(ids)}
+                onAddSelectionToOuting={ids => this.addSelectionToOutingCaches(ids)}
                 onExportGpxSelected={ids => this.handleExportGpxSelected(ids)}
                 onDelete={geocache => this.handleDelete(geocache.id, geocache.gc_code)}
                 onRefresh={id => this.handleRefresh(id)}

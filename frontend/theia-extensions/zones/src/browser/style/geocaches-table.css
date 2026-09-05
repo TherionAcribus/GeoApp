@@ -207,6 +207,17 @@
     opacity: 1;
 }
 
+/*
+ * Périmètre de la sortie : le tableau montre toute la zone, un liseré sur la
+ * première cellule dit lesquelles en font partie. Un box-shadow interne plutôt
+ * qu'une bordure de ligne, pour ne pas entrer en concurrence avec la bordure
+ * pointillée de --friends-unknown : une cache peut être dans la sortie ET sans
+ * données pour un ami, les deux informations doivent rester lisibles.
+ */
+.geoapp-gc-table__row--outing > .geoapp-gc-table__cell:first-child {
+    box-shadow: inset 3px 0 0 var(--theia-charts-blue);
+}
+
 .geoapp-gc-table__cell {
     padding: 6px;
     border-bottom: 1px solid var(--theia-panel-border);
