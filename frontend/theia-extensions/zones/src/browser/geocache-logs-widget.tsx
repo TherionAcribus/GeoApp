@@ -21,38 +21,14 @@ import {
     LOGS_PAGE_SIZE,
     LogsRefreshOptions
 } from './geocache-logs-fetch-service';
-
-/**
- * Interface représentant un log de géocache
- */
-interface GeocacheLogDto {
-    id: number;
-    external_id: string;
-    author: string;
-    author_guid?: string;
-    text: string;
-    date: string | null;
-    log_type: string;
-    is_favorite: boolean;
-    is_friend_log?: boolean;
-    created_at: string | null;
-}
-
-/**
- * Interface pour la réponse de l'API des logs
- */
-interface LogsApiResponse {
-    geocache_id: number;
-    gc_code: string;
-    /** Nombre de logs stockés localement. */
-    total_count: number;
-    /** Nombre de logs sur Geocaching.com, `null` tant qu'on ne l'a pas appris. */
-    total_available?: number | null;
-    friends_count?: number;
-    offset: number;
-    limit: number;
-    logs: GeocacheLogDto[];
-}
+import { GeocacheLogDto, LOGS_ANALYSIS_MAX_LOGS, LogsApiResponse } from './geocache-logs-types';
+import {
+    GeocacheLogsAnalysisDto,
+    GeocacheLogsAnalysisInput,
+    GeocacheLogsAnalysisService
+} from './geocache-logs-analysis-service';
+import { buildLogsAnalysisPrompt, describeAnalysisScope } from './geocache-logs-analysis-prompt';
+import { LogsAnalysisPanel } from './geocache-logs-analysis-view';
 
 /**
  * Props pour le composant LogItem
@@ -329,6 +305,15 @@ export class GeocacheLogsWidget extends ReactWidget {
     protected geocacheName?: string;
     protected logs: GeocacheLogDto[] = [];
     protected totalCount = 0;
+    /**
+     * Nombre de logs stockés, filtre « Amis » exclu.
+     *
+     * `totalCount` suit le filtre courant : sous « Amis » il tombe à trois logs
+     * alors que la base en contient trois cents. L'analyse IA, elle, porte sur
+     * tout le stock — c'est donc ce compteur-ci qu'elle annonce et qu'elle
+     * compare pour savoir si elle a vieilli.
+     */
+    protected storedLogsCount = 0;
     /** Logs que la cache possède sur Geocaching.com, `undefined` si inconnu. */
     protected totalAvailable?: number;
     protected friendsCount = 0;
@@ -336,7 +321,8 @@ export class GeocacheLogsWidget extends ReactWidget {
     protected isLoading = false;
     protected isRefreshing = false;
     protected isAnalyzing = false;
-    protected analysisResult?: string;
+    /** Analyse IA stockée pour cette géocache, `undefined` si elle n'en a pas. */
+    protected analysis?: GeocacheLogsAnalysisDto;
     protected offset = 0;
     protected limit = 25;
     protected summaryEntries: LogSummaryEntry[] = [];
@@ -347,6 +333,7 @@ export class GeocacheLogsWidget extends ReactWidget {
         @inject(MessageService) protected readonly messages: MessageService,
         @inject(PreferenceService) protected readonly preferenceService: PreferenceService,
         @inject(GeocacheLogsFetchService) protected readonly logsFetchService: GeocacheLogsFetchService,
+        @inject(GeocacheLogsAnalysisService) protected readonly analysisService: GeocacheLogsAnalysisService,
         @inject(LanguageModelRegistry) protected readonly languageModelRegistry: LanguageModelRegistry,
         @inject(LanguageModelService) protected readonly languageModelService: LanguageModelService
     ) {
@@ -419,10 +406,11 @@ export class GeocacheLogsWidget extends ReactWidget {
         this.logs = [];
         this.offset = 0;
         this.totalCount = 0;
+        this.storedLogsCount = 0;
         this.totalAvailable = undefined;
         this.friendsCount = 0;
         this.friendsOnly = false;
-        this.analysisResult = undefined;
+        this.analysis = undefined;
         this.summaryEntries = [];
         this.summaryTotalCount = 0;
 
@@ -441,7 +429,7 @@ export class GeocacheLogsWidget extends ReactWidget {
      */
     protected async loadInitial(): Promise<void> {
         const geocacheId = this.geocacheId;
-        await Promise.all([this.loadSummary(), this.loadLogs()]);
+        await Promise.all([this.loadSummary(), this.loadLogs(), this.loadAnalysis()]);
         if (this.geocacheId !== geocacheId) {
             return;
         }
@@ -523,6 +511,11 @@ export class GeocacheLogsWidget extends ReactWidget {
             }
 
             this.totalCount = data.total_count;
+            // Sous le filtre « Amis », `total_count` ne compte que les amis : on
+            // garde alors le dernier total complet connu.
+            if (!this.friendsOnly) {
+                this.storedLogsCount = data.total_count;
+            }
             this.totalAvailable = data.total_available ?? undefined;
             this.friendsCount = data.friends_count ?? 0;
             this.geocacheCode = data.gc_code;
@@ -669,20 +662,82 @@ export class GeocacheLogsWidget extends ReactWidget {
     }
 
     /**
-     * Analyse les logs avec l'IA pour extraire des informations utiles
+     * Lit l'analyse IA déjà enregistrée pour cette géocache.
+     *
+     * Une analyse absente est un état normal (la plupart des géocaches n'en ont
+     * pas) : l'échec est donc silencieux, comme pour le résumé des logs.
      */
-    protected async analyzeLogs(): Promise<void> {
-        if (!this.geocacheId || this.isAnalyzing) {
+    protected async loadAnalysis(): Promise<void> {
+        const geocacheId = this.geocacheId;
+        if (!geocacheId) {
             return;
         }
 
-        if (this.logs.length === 0) {
-            this.messages.warn('Aucun log à analyser');
+        try {
+            const analysis = await this.analysisService.load(geocacheId);
+            // La géocache a pu changer pendant la lecture.
+            if (this.geocacheId !== geocacheId) {
+                return;
+            }
+            this.analysis = analysis;
+        } catch (error) {
+            console.error('[GeocacheLogsWidget] Failed to load logs analysis:', error);
+        } finally {
+            this.update();
+        }
+    }
+
+    /**
+     * Supprime l'analyse enregistrée, après confirmation.
+     *
+     * La confirmation n'est pas de la politesse : l'analyse est maintenant
+     * persistée, et la refaire coûte un appel de modèle. Pour la faire
+     * simplement disparaître de l'écran, le panneau a un bouton « replier ».
+     */
+    protected deleteAnalysis = async (): Promise<void> => {
+        const geocacheId = this.geocacheId;
+        if (!geocacheId || !this.analysis) {
+            return;
+        }
+
+        const confirmed = await this.messages.warn(
+            "Supprimer l'analyse IA enregistrée pour cette géocache ? "
+            + 'La refaire demandera un nouvel appel au modèle.',
+            'Supprimer',
+            'Annuler'
+        );
+        if (confirmed !== 'Supprimer') {
+            return;
+        }
+
+        try {
+            await this.analysisService.clear(geocacheId);
+            if (this.geocacheId !== geocacheId) {
+                return;
+            }
+            this.analysis = undefined;
+            this.update();
+        } catch (error) {
+            console.error('[GeocacheLogsWidget] Failed to delete logs analysis:', error);
+            this.messages.error(`Impossible de supprimer l'analyse : ${error}`);
+        }
+    };
+
+    /**
+     * Analyse les logs avec l'IA pour en extraire ce qui sert sur le terrain.
+     *
+     * L'analyse porte sur les logs **stockés**, pas sur la page affichée : la
+     * liste n'en montre que 25 au départ, et une analyse muette sur son
+     * échantillon se lit comme un verdict sur toute la cache. Le périmètre
+     * réellement couvert est transmis au modèle et enregistré avec le résultat.
+     */
+    protected analyzeLogs = async (): Promise<void> => {
+        const geocacheId = this.geocacheId;
+        if (!geocacheId || this.isAnalyzing) {
             return;
         }
 
         this.isAnalyzing = true;
-        this.analysisResult = undefined;
         this.update();
 
         try {
@@ -693,44 +748,30 @@ export class GeocacheLogsWidget extends ReactWidget {
             });
 
             if (!languageModel) {
-                this.messages.error('Aucun modèle IA n\'est configuré pour l\'analyse (vérifie la configuration IA de Theia)');
+                this.messages.error("Aucun modèle IA n'est configuré pour l'analyse (vérifie la configuration IA de Theia)");
                 return;
             }
 
-            // Récupérer le hint
-            const geocacheDetails = await this.fetchGeocacheDetails();
-            const hint = geocacheDetails.hint_raw || geocacheDetails.hint || '';
+            const [selection, geocacheDetails] = await Promise.all([
+                this.analysisService.collectLogsToAnalyze(geocacheId),
+                this.fetchGeocacheDetails()
+            ]);
 
-            // Préparer les logs pour l'analyse (limiter à 50 pour éviter un contexte trop long)
-            const logsToAnalyze = this.logs.slice(0, 50).map(log => ({
-                type: log.log_type,
-                author: log.author,
-                date: log.date,
-                text: log.text,
-                is_favorite: log.is_favorite
-            }));
+            if (this.geocacheId !== geocacheId) {
+                return;
+            }
 
-            const prompt = `Tu es un assistant pour géocacheurs. Analyse les logs suivants et le hint (indice) d'une géocache.
+            if (selection.logs.length === 0) {
+                this.messages.warn('Aucun log à analyser');
+                return;
+            }
 
-Ton objectif est d'extraire et de résumer les informations UTILES pour un géocacheur qui veut trouver cette cache :
-- Indices ou conseils mentionnés par les trouveurs
-- Avertissements (cache difficile d'accès, terrain dangereux, besoin d'équipement spécial, etc.)
-- Informations sur l'état de la cache (endommagée, humide, pleine, etc.)
-- Conseils pratiques (meilleur moment pour y aller, parking, discrétion, etc.)
-- Informations sur la difficulté réelle vs. la difficulté annoncée
-
-NE MENTIONNE PAS :
-- Les simples "TFTC" ou remerciements sans information
-- Les logs qui ne contiennent aucune information utile
-- Les détails personnels des géocacheurs
-
-Formate ta réponse en sections claires avec des puces. Sois concis et pertinent.
-
-HINT (indice officiel) :
-${hint || 'Aucun hint fourni'}
-
-LOGS (${logsToAnalyze.length} logs récents) :
-${JSON.stringify(logsToAnalyze, null, 2)}`;
+            const { prompt, analyzedCount } = buildLogsAnalysisPrompt({
+                hint: geocacheDetails.hint_raw || geocacheDetails.hint,
+                logs: selection.logs,
+                storedCount: selection.storedCount,
+                totalAvailable: selection.totalAvailable
+            });
 
             const request: UserRequest = {
                 messages: [
@@ -743,7 +784,7 @@ ${JSON.stringify(logsToAnalyze, null, 2)}`;
 
             const response = await this.languageModelService.sendRequest(languageModel, request);
             let analysisText = '';
-            
+
             if (isLanguageModelParsedResponse(response)) {
                 analysisText = JSON.stringify(response.parsed);
             } else {
@@ -758,19 +799,66 @@ ${JSON.stringify(logsToAnalyze, null, 2)}`;
             analysisText = (analysisText || '').toString().trim();
 
             if (!analysisText) {
-                this.messages.warn('Analyse IA: réponse vide');
+                this.messages.warn('Analyse IA : réponse vide');
                 return;
             }
 
-            this.analysisResult = analysisText;
-            this.messages.info('Analyse des logs terminée');
-            
+            if (this.geocacheId !== geocacheId) {
+                return;
+            }
+
+            await this.storeAnalysis(geocacheId, {
+                content: analysisText,
+                model_id: (languageModel as any).name || languageModel.id,
+                analyzed_count: analyzedCount,
+                stored_count: selection.storedCount,
+                total_available: selection.totalAvailable
+            });
+
+            this.messages.info(
+                `Analyse des logs terminée (${describeAnalysisScope(
+                    analyzedCount, selection.storedCount, selection.totalAvailable
+                )})`
+            );
+
         } catch (error) {
             console.error('[GeocacheLogsWidget] Failed to analyze logs:', error);
             this.messages.error(`Impossible d'analyser les logs: ${error}`);
         } finally {
             this.isAnalyzing = false;
             this.update();
+        }
+    };
+
+    /**
+     * Enregistre l'analyse et l'affiche.
+     *
+     * Si le backend refuse l'enregistrement, on affiche quand même le résultat :
+     * le modèle a déjà répondu, et perdre sa réponse parce qu'on n'a pas su la
+     * ranger serait le pire des deux mondes. L'analyse est alors marquée comme
+     * non enregistrée par son identifiant nul.
+     */
+    protected async storeAnalysis(
+        geocacheId: number,
+        input: GeocacheLogsAnalysisInput
+    ): Promise<void> {
+        try {
+            this.analysis = await this.analysisService.save(geocacheId, input);
+        } catch (error) {
+            console.error('[GeocacheLogsWidget] Failed to store logs analysis:', error);
+            this.messages.warn("L'analyse n'a pas pu être enregistrée : elle sera perdue en changeant de géocache.");
+            const now = new Date().toISOString();
+            this.analysis = {
+                id: 0,
+                geocache_id: geocacheId,
+                content: input.content,
+                model_id: input.model_id,
+                analyzed_count: input.analyzed_count,
+                stored_count: input.stored_count,
+                total_available: input.total_available,
+                created_at: now,
+                updated_at: now
+            };
         }
     }
 
@@ -781,7 +869,17 @@ ${JSON.stringify(logsToAnalyze, null, 2)}`;
         const remoteRemaining = !this.friendsOnly && this.totalAvailable !== undefined
             ? this.totalAvailable - this.totalCount
             : 0;
-        
+
+        // Le bouton annonce son périmètre avant de coûter un appel de modèle :
+        // l'analyse porte sur les logs stockés (plafonnés), pas sur les 25 que
+        // la liste montre au départ.
+        const analyzableCount = Math.min(this.storedLogsCount, LOGS_ANALYSIS_MAX_LOGS);
+        const analyzeTitle = this.storedLogsCount === 0
+            ? 'Aucun log stocké à analyser'
+            : `Analyser les ${analyzableCount} log${analyzableCount > 1 ? 's' : ''} `
+                + `${this.storedLogsCount > analyzableCount ? `les plus récents (sur ${this.storedLogsCount} stockés) ` : 'stockés '}`
+                + "avec l'IA pour en extraire les informations utiles";
+
         return (
             <div className='geoapp-logs-panel'>
                 {/* En-tête */}
@@ -824,12 +922,12 @@ ${JSON.stringify(logsToAnalyze, null, 2)}`;
                             </button>
                             <button
                                 className='geoapp-logs-panel__button'
-                                onClick={() => this.analyzeLogs()}
-                                disabled={this.isAnalyzing || this.logs.length === 0}
-                                title="Analyser les logs avec l'IA pour extraire des informations utiles"
+                                onClick={() => void this.analyzeLogs()}
+                                disabled={this.isAnalyzing || this.storedLogsCount === 0}
+                                title={analyzeTitle}
                             >
                                 <i className={`fa ${this.isAnalyzing ? 'fa-spinner fa-spin' : 'fa-brain'}`} />
-                                {this.isAnalyzing ? 'Analyse...' : 'Analyser avec IA'}
+                                {this.isAnalyzing ? 'Analyse...' : (this.analysis ? "Relancer l'analyse" : 'Analyser avec IA')}
                             </button>
                             <button
                                 className='geoapp-logs-panel__button'
@@ -851,30 +949,15 @@ ${JSON.stringify(logsToAnalyze, null, 2)}`;
                     </div>
                 ) : (
                     <>
-                        {/* Résultat de l'analyse IA */}
-                        {this.analysisResult && (
-                            <div className='geoapp-logs-analysis'>
-                                <div className='geoapp-logs-analysis__header'>
-                                    <h4 className='geoapp-logs-analysis__title'>
-                                        <i className='fa fa-brain' />
-                                        Analyse IA des Logs
-                                    </h4>
-                                    <button
-                                        className='geoapp-logs-analysis__close'
-                                        onClick={() => {
-                                            this.analysisResult = undefined;
-                                            this.update();
-                                        }}
-                                        title="Fermer l'analyse"
-                                        aria-label="Fermer l'analyse"
-                                    >
-                                        <i className='fa fa-times' aria-hidden='true' />
-                                    </button>
-                                </div>
-                                <div className='geoapp-logs-analysis__body'>
-                                    {this.analysisResult}
-                                </div>
-                            </div>
+                        {/* Résultat de l'analyse IA, tel qu'il a été enregistré */}
+                        {this.analysis && (
+                            <LogsAnalysisPanel
+                                analysis={this.analysis}
+                                storedCount={this.storedLogsCount}
+                                isAnalyzing={this.isAnalyzing}
+                                onRerun={() => void this.analyzeLogs()}
+                                onDelete={() => void this.deleteAnalysis()}
+                            />
                         )}
 
                         {/* Résumé des logs récents */}

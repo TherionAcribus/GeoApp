@@ -1,4 +1,6 @@
-# Chargement des logs — Documentation technique
+# Logs d'une géocache — Documentation technique
+
+Chargement depuis Geocaching.com, pagination, et analyse IA du logbook.
 
 ## Vue d'ensemble
 
@@ -114,13 +116,23 @@ Réponse : `added`, `updated`, `replaced_local`, `friends`,
 `GET /api/geocaches/<id>/logs` renvoie lui aussi `total_available`, pour que le
 panneau sache qu'il reste des logs **sans avoir à rescraper d'abord**.
 
+| Route de l'analyse IA | Rôle |
+|---|---|
+| `GET /api/geocaches/<id>/logs/analysis` | l'analyse stockée, `analysis: null` si la cache n'en a pas (état normal) |
+| `PUT /api/geocaches/<id>/logs/analysis` | enregistre ou remplace : `content` (Markdown, obligatoire), `model_id`, `analyzed_count`, `stored_count`, `total_available` |
+| `DELETE /api/geocaches/<id>/logs/analysis` | supprime ; supprimer ce qui n'existe pas renvoie `deleted: false`, pas une erreur |
+
 ## Frontend
 
 | Fichier | Rôle |
 |---|---|
 | `geocache-logs-fetch-service.ts` | Lecture des préférences, règle de déclenchement, mémoire de session, file d'attente, appels à `/logs/refresh`. Partagé par les deux déclencheurs. |
-| `geocache-logs-widget.tsx` | Panneau Logs : chargement initial, bandeau « il en reste », rafraîchissement manuel. |
+| `geocache-logs-widget.tsx` | Panneau Logs : chargement initial, bandeau « il en reste », rafraîchissement manuel, déclenchement de l'analyse IA. |
 | `geocache-details-widget.tsx` | `autoFetchLogsInBackground()`, branché sur `loadLogsSummary()`. |
+| `geocache-logs-types.ts` | Formes des logs et budget de l'analyse. Sans React ni Theia : c'est ce qui garde le module de prompt testable. |
+| `geocache-logs-analysis-service.ts` | Lecture des logs à analyser, chargement/enregistrement/suppression de l'analyse. |
+| `geocache-logs-analysis-prompt.ts` | Construction du message envoyé au modèle, et description du périmètre. Fonctions pures. |
+| `geocache-logs-analysis-view.tsx` | Rendu du résultat : Markdown, métadonnées, avertissement de fraîcheur. |
 
 Le chargement en tâche de fond de la fiche est **volontairement muet** :
 l'utilisateur regarde la fiche, pas les logs. Le résumé des logs récents se
@@ -140,6 +152,66 @@ compte autre chose). Il propose les deux chemins :
 - **Tout charger (*n*)** — `all=true`, derrière une confirmation, parce que sur
   une cache très loguée c'est long et que c'est autant de requêtes vers GC.com.
 
+## Analyse IA des logs
+
+Trois défauts se tenaient ensemble dans l'ancien bloc d'analyse, et se corrigent
+ensemble.
+
+### Le périmètre
+
+L'analyse portait sur `this.logs`, c'est-à-dire sur **la page affichée** : 25
+logs, sur une cache qui peut en compter trois cents. Rien ne le disait, ni à
+l'utilisateur, ni au modèle — qui écrivait donc « les trouveurs signalent tous
+que… » en ayant lu le dernier trimestre.
+
+Elle porte désormais sur les logs **stockés**, lus par
+`collectLogsToAnalyze()` indépendamment de la pagination de la liste :
+
+| Constante | Valeur | Rôle |
+|---|---|---|
+| `LOGS_ANALYSIS_MAX_LOGS` | 100 | plafond de logs soumis (les plus récents) |
+| `LOGS_ANALYSIS_MAX_TEXT_LENGTH` | 1500 | coupe d'un log-fleuve, marquée `[…log tronqué]` |
+
+C'est une lecture (`GET /logs`), pas une récupération : **aucun appel à
+Geocaching.com**. Si des logs manquent en base, c'est le bandeau « il en reste »
+qui propose d'aller les chercher.
+
+Le périmètre est écrit trois fois, à trois destinataires : dans l'infobulle du
+bouton (avant de dépenser un appel), dans le prompt (`PÉRIMÈTRE : …`, suivi
+d'une consigne explicite de ne pas généraliser quand l'échantillon est partiel),
+et sous le titre de l'analyse (« 100 logs analysés sur 250 chargés sur 300
+présents sur Geocaching.com »).
+
+### La persistance
+
+Une analyse coûte un appel de modèle ; elle disparaissait au moindre changement
+de géocache. Elle est maintenant enregistrée côté backend, **une par géocache**
+(`geocache_logs_analysis`, contrainte d'unicité sur `geocache_id`) : la relancer
+remplace la précédente, puisque c'est la même question posée sur des logs plus
+frais.
+
+Les compteurs enregistrés avec le texte ne sont pas décoratifs :
+
+- `analyzed_count` / `stored_count` / `total_available` — ce que l'analyse a vu ;
+- comparer `stored_count` au stock actuel dit si elle a **vieilli**. Le panneau
+  affiche alors « 12 logs sont arrivés depuis cette analyse » et propose de la
+  relancer : une cache réparée ou un accès fermé se joue dans les logs récents.
+
+Si l'enregistrement échoue, le résultat est **quand même affiché** (avec un
+avertissement) : le modèle a déjà répondu, perdre sa réponse faute de savoir la
+ranger serait le pire des deux mondes.
+
+### Le rendu
+
+Le modèle répond en Markdown — on le lui demande explicitement — et le panneau le
+rend avec `renderLogMarkdown()`, le même rendu que le texte des logs juste en
+dessous. Avant, `white-space: pre-wrap` affichait les `##` et les `**` tels
+quels.
+
+L'en-tête du bloc porte trois actions : **replier** (local, gratuit),
+**relancer** (nouvel appel au modèle) et **supprimer** (effacement en base,
+derrière une confirmation — pour simplement masquer l'analyse, il y a replier).
+
 ## Points d'attention
 
 - **Ne jamais déclencher un scraping automatique sur une cache qui a déjà des
@@ -152,6 +224,12 @@ compte autre chose). Il propose les deux chemins :
   trouvailles d'amis, `geocaching_friend_finds.py`).
 - Un double de `GeocachingLogsClient` dans un test doit implémenter
   `fetch_logbook()`, pas seulement `get_logs_with_friends()`.
+- `totalCount` suit le filtre courant du panneau ; sous « Amis » il ne compte que
+  les amis. L'analyse annonce et compare `storedLogsCount`, le dernier total
+  complet connu — confondre les deux ferait dire au bouton « analyser les 3
+  logs » d'une cache qui en a trois cents.
+- L'analyse est produite par le frontend (c'est lui qui parle au modèle via
+  Theia) ; le backend ne fait que la garder. Aucune route n'appelle de modèle.
 
 ## Tests
 
@@ -164,11 +242,26 @@ compte autre chose). Il propose les deux chemins :
 - route de rafraîchissement : total exposé et stocké, page suivante qui n'écrase
   pas la précédente, page au-delà de la fin qui n'est pas une erreur.
 
+`backend/tests/test_geocache_logs_analysis.py` : analyse absente qui est un état
+normal, périmètre relu tel qu'il a été écrit, relance qui remplace au lieu
+d'empiler, contenu vide refusé, suppression idempotente, cascade à la
+suppression de la géocache.
+
+`frontend/theia-extensions/zones/src/browser/tests/geocache-logs-analysis-prompt.test.ts` :
+périmètre annoncé au modèle et avertissement d'échantillon partiel (absent quand
+l'analyse voit tout), hint présent ou dit absent, coupe d'un log long sur une
+frontière de mot, demande de Markdown.
+
 ## Références code
 
 - `backend/gc_backend/services/geocaching_logs.py`
 - `backend/gc_backend/blueprints/logs.py`
-- `backend/gc_backend/geocaches/models.py` (`Geocache.logs_total_available`)
+- `backend/gc_backend/geocaches/models.py` (`Geocache.logs_total_available`,
+  `GeocacheLogsAnalysis`)
+- `backend/migrations/versions/add_geocache_logs_analysis_table.py`
 - `frontend/theia-extensions/zones/src/browser/geocache-logs-fetch-service.ts`
 - `frontend/theia-extensions/zones/src/browser/geocache-logs-widget.tsx`
+- `frontend/theia-extensions/zones/src/browser/geocache-logs-analysis-service.ts`
+- `frontend/theia-extensions/zones/src/browser/geocache-logs-analysis-prompt.ts`
+- `frontend/theia-extensions/zones/src/browser/geocache-logs-analysis-view.tsx`
 - `shared/preferences/geo-preferences-schema.json` (`geoApp.logs.*`)

@@ -91,6 +91,14 @@ class Geocache(db.Model):
         order_by='GeocacheLoggingTask.position',
     )
     puzzle_states = db.relationship('GeocachePuzzleState', back_populates='geocache', cascade='all, delete-orphan', lazy=True)
+    # Une seule analyse de logs par géocache : la relancer remplace la précédente.
+    logs_analysis = db.relationship(
+        'GeocacheLogsAnalysis',
+        back_populates='geocache',
+        cascade='all, delete-orphan',
+        uselist=False,
+        lazy=True,
+    )
 
     def to_list_item(self) -> dict:
         return {
@@ -553,6 +561,66 @@ class GeocacheLog(db.Model):
         
         # Par défaut, capitaliser la première lettre
         return log_type.strip().title()
+
+
+class GeocacheLogsAnalysis(db.Model):
+    """
+    Analyse IA des logs d'une géocache, telle que l'utilisateur l'a demandée.
+
+    Une analyse coûte un appel de modèle et quelques milliers de tokens : la
+    perdre au moindre changement de géocache, c'est la repayer. Elle est donc
+    stockée, à raison d'**une par géocache** — relancer remplace la précédente,
+    puisque c'est bien la même question posée sur des logs plus frais.
+
+    Les compteurs enregistrés avec le texte disent sur quoi l'analyse a porté :
+    combien de logs lui ont été soumis (`analyzed_count`), combien la base en
+    comptait alors (`stored_count`) et combien la cache en affichait sur
+    Geocaching.com (`total_available`). C'est ce qui permet à l'interface
+    d'annoncer honnêtement son périmètre, et de signaler qu'elle a vieilli quand
+    des logs sont arrivés depuis.
+    """
+
+    __tablename__ = 'geocache_logs_analysis'
+
+    id = db.Column(db.Integer, primary_key=True)
+    geocache_id = db.Column(
+        db.Integer, db.ForeignKey('geocache.id'), nullable=False, index=True, unique=True
+    )
+
+    # Réponse du modèle, en Markdown.
+    content = db.Column(db.Text, nullable=False)
+
+    # Modèle qui a répondu, tel que le frontend le connaît (pour pouvoir dire
+    # « analysé par X » et relativiser une analyse produite par un petit modèle).
+    model_id = db.Column(db.String(200))
+
+    # Périmètre de l'analyse (voir la docstring).
+    analyzed_count = db.Column(db.Integer)
+    stored_count = db.Column(db.Integer)
+    total_available = db.Column(db.Integer)
+
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    geocache = db.relationship('Geocache', back_populates='logs_analysis')
+
+    def to_dict(self) -> dict:
+        return {
+            'id': self.id,
+            'geocache_id': self.geocache_id,
+            'content': self.content,
+            'model_id': self.model_id,
+            'analyzed_count': self.analyzed_count,
+            'stored_count': self.stored_count,
+            'total_available': self.total_available,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
 
 
 class Note(db.Model):

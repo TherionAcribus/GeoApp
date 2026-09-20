@@ -1,10 +1,11 @@
 /*
  * Panneau de lecture des logs d'une géocache.
  *
- * Couvre le widget `geocache-logs-widget.tsx` (en-tête, analyse IA, liste de
- * cartes) et le résumé `geocache-logs-summary.tsx`, réutilisé tel quel dans la
- * fiche détail : les deux surfaces partagent la même feuille pour que la
- * pastille d'un type de log ait la même tête des deux côtés.
+ * Couvre le widget `geocache-logs-widget.tsx` (en-tête, liste de cartes), le
+ * bloc d'analyse IA `geocache-logs-analysis-view.tsx` et le résumé
+ * `geocache-logs-summary.tsx`, réutilisé tel quel dans la fiche détail : ces
+ * surfaces partagent la même feuille pour que la pastille d'un type de log ait
+ * la même tête des deux côtés.
  *
  * Deux valeurs restent posées en inline par le TSX, parce qu'elles viennent des
  * données et non du design :
@@ -143,8 +144,14 @@
     margin-right: 8px;
 }
 
-.geoapp-logs-analysis__close {
-    padding: 4px;
+.geoapp-logs-analysis__actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.geoapp-logs-analysis__action {
+    padding: 4px 6px;
     border: none;
     background: none;
     color: var(--theia-foreground);
@@ -152,15 +159,83 @@
     cursor: pointer;
 }
 
-.geoapp-logs-analysis__close:hover {
+.geoapp-logs-analysis__action:hover:not(:disabled) {
     opacity: 1;
 }
 
+.geoapp-logs-analysis__action:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+.geoapp-logs-analysis__action--danger:hover:not(:disabled) {
+    color: var(--theia-errorForeground);
+}
+
+/* Périmètre et date de l'analyse : présents mais discrets, au-dessus du texte. */
+.geoapp-logs-analysis__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+    font-size: 11px;
+    opacity: 0.7;
+}
+
+/* Des logs sont arrivés depuis : l'analyse parle d'un état dépassé. */
+.geoapp-logs-analysis__stale {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 10px;
+    padding: 6px 8px;
+    border-radius: 4px;
+    background: var(--theia-editorWarning-background, var(--theia-editorWidget-background));
+    color: var(--theia-editorWarning-foreground, var(--theia-foreground));
+    font-size: 12px;
+}
+
+.geoapp-logs-analysis__stale-action {
+    padding: 2px 8px;
+    border: 1px solid currentColor;
+    border-radius: 4px;
+    background: none;
+    color: inherit;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.geoapp-logs-analysis__stale-action:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+/*
+ * Le corps de l'analyse est du Markdown rendu (mêmes blocs que le texte d'un
+ * log) : `white-space: pre-wrap` n'a donc plus lieu d'être, il doublerait les
+ * sauts de ligne déjà portés par les paragraphes.
+ */
 .geoapp-logs-analysis__body {
     font-size: 13px;
     line-height: 1.6;
     color: var(--theia-foreground);
-    white-space: pre-wrap;
+}
+
+.geoapp-logs-analysis__body h1,
+.geoapp-logs-analysis__body h2,
+.geoapp-logs-analysis__body h3 {
+    font-size: 13px;
+    font-weight: bold;
+    color: var(--theia-focusBorder);
+}
+
+.geoapp-logs-analysis__body ul {
+    padding-left: 0;
+}
+
+.geoapp-logs-analysis__body li {
+    margin-bottom: 2px;
 }
 
 /* ------------------------------------------------------- Carte d'un log */

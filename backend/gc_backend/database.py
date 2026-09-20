@@ -19,6 +19,7 @@ def init_db(app):
             Geocache,
             GeocacheImage,
             GeocacheLog,
+            GeocacheLogsAnalysis,
             GeocacheNote,
             GeocachePuzzleState,
             GeocacheWaypoint,

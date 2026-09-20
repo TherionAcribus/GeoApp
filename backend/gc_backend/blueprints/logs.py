@@ -4,6 +4,7 @@ Ce module fournit les routes API pour :
 - Récupérer les logs stockés d'une géocache
 - Rafraîchir les logs depuis Geocaching.com
 - Filtrer les logs par type
+- Conserver l'analyse IA des logs d'une géocache
 """
 
 import logging
@@ -13,7 +14,7 @@ from datetime import datetime, time as time_type
 from flask import Blueprint, jsonify, request
 
 from ..database import db
-from ..geocaches.models import Geocache, GeocacheLog
+from ..geocaches.models import Geocache, GeocacheLog, GeocacheLogsAnalysis
 from ..geocaches.archive_service import ArchiveService
 from ..services.geocaching_auth import get_auth_service
 from ..services.geocaching_friend_finds import store_finds
@@ -726,6 +727,101 @@ def get_log_types(geocache_id: int):
     except Exception as e:
         logger.error(f"Error fetching log types for geocache {geocache_id}: {e}")
         raise
+
+
+# ------------------------------------------------------- Analyse IA des logs
+#
+# L'analyse est produite par le frontend (c'est lui qui parle au modèle via
+# Theia) ; le backend ne fait que la garder. Une par géocache : la relancer
+# remplace la précédente.
+
+
+@bp.get('/api/geocaches/<int:geocache_id>/logs/analysis')
+def get_geocache_logs_analysis(geocache_id: int):
+    """
+    Renvoie l'analyse IA stockée pour cette géocache.
+
+    `analysis` vaut `null` quand aucune analyse n'a encore été faite : c'est un
+    état normal, pas une erreur — le panneau Logs interroge cette route à chaque
+    ouverture de géocache.
+    """
+    geocache = Geocache.query.get(geocache_id)
+    if not geocache:
+        return jsonify({'error': 'Geocache not found'}), 404
+
+    analysis = GeocacheLogsAnalysis.query.filter_by(geocache_id=geocache_id).first()
+
+    return jsonify({
+        'geocache_id': geocache_id,
+        'gc_code': geocache.gc_code,
+        'analysis': analysis.to_dict() if analysis else None,
+    })
+
+
+@bp.put('/api/geocaches/<int:geocache_id>/logs/analysis')
+def save_geocache_logs_analysis(geocache_id: int):
+    """
+    Enregistre (ou remplace) l'analyse IA des logs d'une géocache.
+
+    Body JSON :
+        - content: texte Markdown produit par le modèle (obligatoire)
+        - model_id: identifiant du modèle qui a répondu
+        - analyzed_count: nombre de logs effectivement soumis au modèle
+        - stored_count: nombre de logs en base au moment de l'analyse
+        - total_available: nombre de logs sur Geocaching.com (peut être absent)
+
+    Les trois compteurs sont le périmètre de l'analyse : sans eux, impossible de
+    dire plus tard « faite sur 50 logs sur 300 » ni de repérer qu'elle a vieilli.
+    """
+    geocache = Geocache.query.get(geocache_id)
+    if not geocache:
+        return jsonify({'error': 'Geocache not found'}), 404
+
+    payload = request.get_json(silent=True) or {}
+    content = (payload.get('content') or '').strip()
+    if not content:
+        return jsonify({'error': 'content is required'}), 400
+
+    def _count(key):
+        value = payload.get(key)
+        return value if isinstance(value, int) and value >= 0 else None
+
+    analysis = GeocacheLogsAnalysis.query.filter_by(geocache_id=geocache_id).first()
+    if not analysis:
+        analysis = GeocacheLogsAnalysis(geocache_id=geocache_id)
+        db.session.add(analysis)
+
+    analysis.content = content
+    analysis.model_id = (payload.get('model_id') or None)
+    analysis.analyzed_count = _count('analyzed_count')
+    analysis.stored_count = _count('stored_count')
+    analysis.total_available = _count('total_available')
+
+    db.session.commit()
+
+    logger.info(
+        "Stored logs analysis for geocache %s (%s logs analyzed)",
+        geocache.gc_code, analysis.analyzed_count
+    )
+
+    return jsonify({
+        'geocache_id': geocache_id,
+        'gc_code': geocache.gc_code,
+        'analysis': analysis.to_dict(),
+    })
+
+
+@bp.delete('/api/geocaches/<int:geocache_id>/logs/analysis')
+def delete_geocache_logs_analysis(geocache_id: int):
+    """Supprime l'analyse IA stockée. Supprimer ce qui n'existe pas n'est pas une erreur."""
+    geocache = Geocache.query.get(geocache_id)
+    if not geocache:
+        return jsonify({'error': 'Geocache not found'}), 404
+
+    deleted = GeocacheLogsAnalysis.query.filter_by(geocache_id=geocache_id).delete()
+    db.session.commit()
+
+    return jsonify({'geocache_id': geocache_id, 'deleted': bool(deleted)})
 
 
 @bp.delete('/api/geocaches/<int:geocache_id>/logs')
