@@ -20,3 +20,18 @@ def disable_plugin_discovery():
     os.environ['TESTING'] = '1'
     yield
     del os.environ['TESTING']
+
+
+@pytest.fixture(autouse=True)
+def clear_user_token_cache():
+    """
+    Le cache des userToken est partagé au niveau module (le client est recréé
+    à chaque requête) : on le vide entre les tests pour qu'un token « caché »
+    par un test ne soit pas servi au suivant, dont la session est un faux
+    objet différent.
+    """
+    from gc_backend.services.geocaching_logs import _USER_TOKEN_CACHE
+
+    _USER_TOKEN_CACHE.clear()
+    yield
+    _USER_TOKEN_CACHE.clear()

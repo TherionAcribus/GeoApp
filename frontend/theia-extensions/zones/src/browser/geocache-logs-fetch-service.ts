@@ -3,8 +3,9 @@
  *
  * Deux choses se ressemblent mais n'ont rien à voir :
  * - lire les logs **stockés** (`GET /logs`) : gratuit, immédiat ;
- * - les **récupérer** sur Geocaching.com (`POST /logs/refresh`) : trois requêtes
- *   vers le site, plusieurs secondes.
+ * - les **récupérer** sur Geocaching.com (`POST /logs/refresh`) : deux requêtes
+ *   vers le site (le userToken est caché côté backend), trois quand la page de
+ *   la cache doit être retéléchargée — plusieurs secondes dans tous les cas.
  *
  * Ce service ne s'occupe que du second. Il est partagé par le panneau Logs et la
  * fiche géocache pour que le « premier chargement automatique » obéisse aux

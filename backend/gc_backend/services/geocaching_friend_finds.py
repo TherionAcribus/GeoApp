@@ -1027,7 +1027,9 @@ def list_codes_to_import() -> list[str]:
 # ----------------------------------------------- Heuristique logbook vs zone
 
 # Coût d'une cache via le logbook : 1 page HTML (userToken) + 1 appel logs
-# « tous » + 1 appel logs « amis » (sf=true) = 3 requêtes.
+# « tous » + 1 appel logs « amis » (sf=true) = 3 requêtes. C'est un majorant :
+# le userToken est mis en cache par gc_code (geocaching_logs), un second scan
+# dans la fenêtre du TTL ne coûte que les 2 appels au logbook.
 LOGBOOK_COST_PER_CACHE = 3
 
 # Coût minimum d'un ami via la recherche par zone : 1 sonde fb+box. Avec

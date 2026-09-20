@@ -8,6 +8,7 @@ plafonner le chargement par défaut tout en sachant proposer la suite.
 from __future__ import annotations
 
 import json
+import time
 
 import pytest
 
@@ -15,9 +16,11 @@ from gc_backend import create_app
 from gc_backend.database import db
 from gc_backend.geocaches.models import Geocache, GeocacheLog
 from gc_backend.models import Zone
+from gc_backend.services import geocaching_logs
 from gc_backend.services.geocaching_logs import (
     MAX_LOGS_FETCH_ALL,
     GeocachingLogsClient,
+    GeocachingLogsError,
 )
 
 
@@ -161,6 +164,94 @@ def test_page_size_is_capped_even_when_more_is_asked():
     GeocachingLogsClient(session=session).fetch_logbook('GC12345', count=5000)
 
     assert [call['num'] for call in session.logbook_calls] == [100, 100]
+
+
+# -------------------------------------------------------- Cache du userToken
+
+def test_user_token_is_reused_across_clients_within_ttl():
+    """
+    Chaque requête HTTP recrée un GeocachingLogsClient : le cache est partagé
+    au niveau module, et deux rafraîchissements de la même cache ne
+    retéléchargent sa page qu'une fois.
+    """
+    session = _PaginatedSession(total=137)
+
+    GeocachingLogsClient(session=session).fetch_logbook('GC12345', count=20)
+    GeocachingLogsClient(session=session).fetch_logbook('GC12345', count=20)
+
+    assert session.page_calls == 1
+
+
+def test_expired_cached_token_is_refetched():
+    """Passé le TTL, la page est retéléchargée pour obtenir un token frais."""
+    session = _PaginatedSession(total=5)
+
+    GeocachingLogsClient(session=session).fetch_logbook('GC12345', count=5)
+    assert session.page_calls == 1
+
+    token, _expiry = geocaching_logs._USER_TOKEN_CACHE['GC12345']
+    geocaching_logs._USER_TOKEN_CACHE['GC12345'] = (token, time.monotonic() - 1)
+
+    GeocachingLogsClient(session=session).fetch_logbook('GC12345', count=5)
+    assert session.page_calls == 2
+
+
+class _RejectsStaleTokenSession(_PaginatedSession):
+    """Le logbook répond en erreur tant qu'on lui passe le token « STALE »."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.rejected_calls: list[dict] = []
+
+    def get(self, url: str, params=None, headers=None, timeout=None):
+        if 'logbook' in url and (params or {}).get('tkn') == 'STALE':
+            self.rejected_calls.append(params or {})
+            return _FakeResponse(payload={'status': 'error', 'msg': 'bad token'})
+        return super().get(url, params=params, headers=headers, timeout=timeout)
+
+
+def test_stale_cached_token_is_dropped_and_retried_once():
+    """
+    Un token de cache que le logbook rejette (session Geocaching.com renouvelée
+    depuis son extraction) est invalidé : la page est retéléchargée et l'appel
+    retenté une fois avec le nouveau token.
+    """
+    session = _RejectsStaleTokenSession(total=10)
+    geocaching_logs._USER_TOKEN_CACHE['GC12345'] = ('STALE', time.monotonic() + 600)
+
+    result = GeocachingLogsClient(session=session).fetch_logbook('GC12345', count=10)
+
+    assert len(result.logs) == 10
+    # Une seule page téléchargée : celle du token frais.
+    assert session.page_calls == 1
+    # Une tentative rejetée avec le token périmé, puis le retry avec le token
+    # frais et l'appel amis sf=true, tous deux signés TOKEN123.
+    assert len(session.rejected_calls) == 1
+    assert [call['tkn'] for call in session.logbook_calls] == ['TOKEN123', 'TOKEN123']
+
+
+class _FailLogbookSession(_PaginatedSession):
+    """Le logbook répond toujours en erreur."""
+
+    def get(self, url: str, params=None, headers=None, timeout=None):
+        if 'geocache/' in url:
+            return super().get(url, params=params, headers=headers, timeout=timeout)
+        self.logbook_calls.append(params or {})
+        return _FakeResponse(payload={'status': 'error', 'msg': 'boom'})
+
+
+def test_logbook_failure_with_fresh_token_is_not_retried():
+    """
+    La retentative ne concerne que les tokens sortis du cache : une panne avec
+    un token frais remonte tout de suite, sans page ni appel supplémentaire.
+    """
+    session = _FailLogbookSession(total=10)
+
+    with pytest.raises(GeocachingLogsError):
+        GeocachingLogsClient(session=session).fetch_logbook('GC12345', count=10)
+
+    assert session.page_calls == 1
+    assert len(session.logbook_calls) == 1
 
 
 # ----------------------------------------------------------------------- API

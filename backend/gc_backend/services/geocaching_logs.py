@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
@@ -114,6 +116,23 @@ MAX_LOGS_PER_PAGE = 100
 # milliers de logs, qu'on ne veut ni télécharger ni stocker sans fin.
 MAX_LOGS_FETCH_ALL = 1000
 
+# Durée de réutilisation d'un userToken extrait de la page d'une cache. Le
+# token est stable pendant la session Geocaching.com — le TTL borne seulement
+# le risque de resservir le token d'une session expirée ; au pire, le premier
+# appel au logbook échoue, l'entrée est invalidée et l'appel est retenté une
+# fois avec une page fraîche (voir `fetch_logbook`).
+USER_TOKEN_CACHE_TTL_SECONDS = 30 * 60
+
+# Les entrées expirent seules ; cette borne ne sert qu'à ne pas accumuler sans
+# fin sur une très longue session (les clés sont de simples codes GC).
+USER_TOKEN_CACHE_MAX_ENTRIES = 500
+
+# gc_code -> (userToken, expiration en time.monotonic()). Partagé au niveau
+# module parce que chaque requête HTTP recrée un GeocachingLogsClient : un
+# cache d'instance ne survivrait pas d'un rafraîchissement à l'autre.
+_USER_TOKEN_CACHE: dict[str, tuple[str, float]] = {}
+_USER_TOKEN_CACHE_LOCK = threading.Lock()
+
 # Préfixe des photos de logs. Le logbook porte bien un champ `ImageUrl`, mais il
 # est **toujours nul** (constaté sur plusieurs centaines de logs) : l'URL se
 # reconstruit à partir de `FileName`, qui vaut `<ImageGuid>.jpg`.
@@ -206,15 +225,27 @@ class GeocachingLogsClient:
         """
         gc_code = gc_code.strip().upper()
         logger.info(f"Fetching logs for {gc_code} (count={count}, type={log_type})")
-        
-        # Étape 1: Récupérer le userToken depuis la page de la géocache
-        user_token = self._get_user_token(gc_code)
+
+        # Étape 1: userToken — du cache mémoire s'il est valide, sinon de la
+        # page HTML de la géocache.
+        user_token, token_from_cache = self._get_user_token_with_source(gc_code)
         if not user_token:
             logger.error(f"Could not get userToken for {gc_code}")
             return []
-        
-        # Étape 2: Appeler l'API des logs avec le token
-        return self._fetch_logs_page(user_token, count, log_type).logs
+
+        # Étape 2: Appeler l'API des logs avec le token. Un token sorti du
+        # cache peut être périmé : on le jette et on retente une fois avec un
+        # token frais avant de renoncer.
+        try:
+            return self._fetch_logs_page(user_token, count, log_type).logs
+        except GeocachingLogsError:
+            if not token_from_cache:
+                raise
+            self._drop_cached_user_token(gc_code, expected=user_token)
+            user_token = self._get_user_token(gc_code)
+            if not user_token:
+                raise
+            return self._fetch_logs_page(user_token, count, log_type).logs
 
     def get_logs_with_friends(
         self,
@@ -250,7 +281,9 @@ class GeocachingLogsClient:
         plus récents, un log d'ami peut sortir de la fenêtre demandée : il est
         alors retourné en plus dans la liste.
 
-        Le `userToken` n'est extrait qu'une fois pour toutes les requêtes.
+        Le `userToken` n'est extrait qu'une fois pour toutes les requêtes, et
+        vient du cache mémoire (`_USER_TOKEN_CACHE`) si la cache a déjà été
+        visitée récemment — la page HTML n'est alors pas retéléchargée.
 
         Args:
             gc_code: Code GC de la géocache.
@@ -282,7 +315,7 @@ class GeocachingLogsClient:
             f"(page={first_page}, size={page_size}, all={fetch_all})"
         )
 
-        user_token = self._get_user_token(gc_code)
+        user_token, token_from_cache = self._get_user_token_with_source(gc_code)
         if not user_token:
             logger.error(f"Could not get userToken for {gc_code}")
             return LogbookFetchResult(logs=[], friend_external_ids=set())
@@ -293,8 +326,28 @@ class GeocachingLogsClient:
         truncated = False
         current_page = first_page
 
+        # Un userToken sorti du cache peut être périmé (session Geocaching.com
+        # renouvelée depuis son extraction) : on s'accorde alors une seule
+        # retentative, avec un token frais. Un token frais qui échoue est une
+        # vraie panne, pas un problème de cache.
+        token_retry_allowed = token_from_cache
+
         while True:
-            fetched = self._fetch_logs_page(user_token, page_size, 'all', page=current_page)
+            try:
+                fetched = self._fetch_logs_page(user_token, page_size, 'all', page=current_page)
+            except GeocachingLogsError:
+                if not token_retry_allowed:
+                    raise
+                token_retry_allowed = False
+                logger.info(
+                    f"Logbook rejected the cached userToken of {gc_code}; "
+                    f"fetching a fresh one and retrying"
+                )
+                self._drop_cached_user_token(gc_code, expected=user_token)
+                user_token = self._get_user_token(gc_code)
+                if not user_token:
+                    raise
+                continue
             if fetched.total_available is not None:
                 total_available = fetched.total_available
 
@@ -374,47 +427,114 @@ class GeocachingLogsClient:
         )
 
 
+    @staticmethod
+    def _read_cached_user_token(gc_code: str) -> str | None:
+        """Token caché pour ce code GC, `None` s'il est absent ou expiré."""
+        entry = _USER_TOKEN_CACHE.get(gc_code)
+        if entry is None:
+            return None
+        token, expires_at = entry
+        if expires_at <= time.monotonic():
+            return None
+        return token
+
+    @staticmethod
+    def _store_user_token(gc_code: str, token: str) -> None:
+        now = time.monotonic()
+        with _USER_TOKEN_CACHE_LOCK:
+            if len(_USER_TOKEN_CACHE) >= USER_TOKEN_CACHE_MAX_ENTRIES:
+                expired = [
+                    code for code, (_, expiry) in _USER_TOKEN_CACHE.items()
+                    if expiry <= now
+                ]
+                for code in expired:
+                    del _USER_TOKEN_CACHE[code]
+                # Tout est encore valide : on vide plutôt que de choisir un
+                # ordre d'éviction — une entrée perdue coûte une page HTML.
+                if len(_USER_TOKEN_CACHE) >= USER_TOKEN_CACHE_MAX_ENTRIES:
+                    _USER_TOKEN_CACHE.clear()
+            _USER_TOKEN_CACHE[gc_code] = (token, now + USER_TOKEN_CACHE_TTL_SECONDS)
+
+    @staticmethod
+    def _drop_cached_user_token(gc_code: str, expected: str | None = None) -> bool:
+        """
+        Jette le token caché pour ce code GC. Renvoie True si une entrée a
+        été supprimée.
+
+        `expected` évite de jeter un token qu'un autre thread vient de
+        rafraîchir : on ne supprime l'entrée que si c'est bien celle qui a
+        échoué.
+        """
+        with _USER_TOKEN_CACHE_LOCK:
+            entry = _USER_TOKEN_CACHE.get(gc_code)
+            if entry is None or (expected is not None and entry[0] != expected):
+                return False
+            del _USER_TOKEN_CACHE[gc_code]
+            return True
+
     def _get_user_token(self, gc_code: str) -> str | None:
         """
-        Récupère le userToken depuis la page HTML de la géocache.
-        
-        Le userToken est un token chiffré nécessaire pour appeler l'API des logs.
-        Il est présent dans le JavaScript de la page sous la forme:
+        Récupère le userToken de la géocache — du cache mémoire s'il est encore
+        valide, sinon en téléchargeant la page HTML de la cache.
+
+        Le userToken est un token chiffré nécessaire pour appeler l'API des
+        logs ; c'est aussi lui qui dit au logbook de quelle cache on veut les
+        logs (le `tkn` est le seul paramètre identifiant). Il est présent dans
+        le JavaScript de la page sous la forme:
         userToken = 'XXXXX...'
-        
+
         Args:
             gc_code: Code GC de la géocache
-            
+
         Returns:
             Le userToken ou None si non trouvé
         """
+        token, _from_cache = self._get_user_token_with_source(gc_code)
+        return token
+
+    def _get_user_token_with_source(self, gc_code: str) -> tuple[str | None, bool]:
+        """
+        `(token, vient_du_cache)` — la provenance sert à l'appelant pour
+        distinguer un token périmé (entrée à jeter, puis une retentative) d'une
+        vraie panne.
+        """
+        gc_code = gc_code.strip().upper()
+        cached = self._read_cached_user_token(gc_code)
+        if cached is not None:
+            logger.debug(f"Reusing cached userToken for {gc_code}")
+            return cached, True
+        return self._fetch_user_token(gc_code), False
+
+    def _fetch_user_token(self, gc_code: str) -> str | None:
+        """Télécharge la page HTML de la cache et en extrait le userToken."""
         url = self.GEOCACHE_PAGE_URL.format(gc_code=gc_code)
         logger.debug(f"Fetching geocache page to extract userToken: {url}")
-        
+
         try:
             # Utiliser les headers pour une requête HTML normale
             headers = {
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             }
             resp = self.session.get(url, headers=headers, timeout=30)
-            
+
             if resp.status_code == 404:
                 logger.warning(f"Geocache {gc_code} not found (404)")
                 raise LookupError('gc_not_found')
-            
+
             resp.raise_for_status()
-            
+
             # Chercher le userToken dans la page
             # Format: userToken = 'XXXXX...'
             token_match = re.search(r"userToken\s*=\s*'([^']+)'", resp.text)
             if token_match:
                 token = token_match.group(1)
                 logger.debug(f"Found userToken for {gc_code}: {token[:30]}...")
+                self._store_user_token(gc_code, token)
                 return token
-            
+
             logger.warning(f"userToken not found in page for {gc_code}")
             return None
-            
+
         except requests.RequestException as e:
             logger.error(f"Failed to fetch geocache page for {gc_code}: {e}")
             raise
