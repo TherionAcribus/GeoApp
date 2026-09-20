@@ -119,7 +119,7 @@ const LogItem: React.FC<LogItemProps> = ({ log }) => {
 
     return (
         <div
-            className='geoapp-log-card'
+            className={`geoapp-log-card${log.is_own_log ? ' geoapp-log-card--own' : ''}`}
             // Couleur issue du type de log : une donnée, pas un choix de design.
             style={{ ['--geoapp-log-color' as any]: color }}
         >
@@ -143,6 +143,15 @@ const LogItem: React.FC<LogItemProps> = ({ log }) => {
                         </div>
                         <div className='geoapp-log-card__author'>
                             par <strong>{log.author}</strong>
+                            {log.is_own_log && (
+                                <span
+                                    className='geoapp-log-card__own-badge'
+                                    title='Log écrit avec votre compte Geocaching.com'
+                                >
+                                    <i className='fa fa-user-check' />
+                                    vous
+                                </span>
+                            )}
                             {log.is_friend_log && (
                                 <span
                                     className='geoapp-log-card__friend-badge'

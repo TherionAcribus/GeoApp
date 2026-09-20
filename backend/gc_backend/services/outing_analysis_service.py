@@ -517,11 +517,13 @@ def _log_meta(log: GeocacheLog) -> dict:
     Ce qui qualifie la **source** d'un log plutôt que son contenu.
 
     Un log d'ami est une source plus fiable qu'un log anonyme : on sait qui écrit, et le
-    conseil matériel qu'il donne se lit autrement. Un log marqué favori signale, lui, une
+    conseil matériel qu'il donne se lit autrement. Un log de l'utilisateur l'est tout
+    autant — c'est son expérience qui parle. Un log marqué favori signale, lui, une
     cache dont l'expérience vaut le détour — utile à la priorisation.
     """
     return {
         'is_friend_log': bool(getattr(log, 'is_friend_log', False)),
+        'is_own_log': bool(getattr(log, 'is_own_log', False)),
         'is_favorite': bool(getattr(log, 'is_favorite', False)),
     }
 

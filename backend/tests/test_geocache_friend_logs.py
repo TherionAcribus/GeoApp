@@ -48,11 +48,13 @@ class _FakeResponse:
 
 
 class _FakeSession:
-    """Rejoue la page de la cache puis le logbook, avec ou sans `sf=true`."""
+    """Rejoue la page de la cache puis le logbook, avec ou sans `sf=true`/`sp=true`."""
 
-    def __init__(self, all_logs: list[dict], friend_logs: list[dict]):
+    def __init__(self, all_logs: list[dict], friend_logs: list[dict],
+                 own_logs: list[dict] | None = None):
         self.all_logs = all_logs
         self.friend_logs = friend_logs
+        self.own_logs = own_logs if own_logs is not None else []
         self.logbook_calls: list[dict] = []
         self.page_calls = 0
 
@@ -62,8 +64,13 @@ class _FakeSession:
             return _FakeResponse(text=CACHE_PAGE)
 
         self.logbook_calls.append(params or {})
-        is_friends = (params or {}).get('sf') == 'true'
-        data = self.friend_logs if is_friends else self.all_logs
+        params = params or {}
+        if params.get('sf') == 'true':
+            data = self.friend_logs
+        elif params.get('sp') == 'true':
+            data = self.own_logs
+        else:
+            data = self.all_logs
         return _FakeResponse(payload={'status': 'success', 'data': data})
 
 
@@ -155,6 +162,69 @@ def test_friend_check_failure_is_not_mistaken_for_no_friends():
     assert [log.author for log in exc_info.value.logs] == ['inconnu', 'mon_ami']
 
 
+def test_own_logs_are_identified_when_asked():
+    """`sp=true` filtre côté serveur sur le compte connecté, comme `sf=true`."""
+    session = _FakeSession(
+        all_logs=[_log_entry(1, 'inconnu'), _log_entry(2, 'moi')],
+        friend_logs=[],
+        own_logs=[_log_entry(2, 'moi')],
+    )
+
+    result = GeocachingLogsClient(session=session).fetch_logbook('GC12345', count=25, include_own=True)
+
+    assert result.own_external_ids == {'2'}
+    assert [call.get('sp') for call in session.logbook_calls] == [None, None, 'true']
+
+
+def test_own_log_outside_the_window_is_added_to_the_result():
+    """Mon log peut être plus ancien que la fenêtre : il est quand même ramené."""
+    session = _FakeSession(
+        all_logs=[_log_entry(1, 'inconnu')],
+        friend_logs=[],
+        own_logs=[_log_entry(99, 'moi', visited='01/02/2019')],
+    )
+
+    result = GeocachingLogsClient(session=session).fetch_logbook('GC12345', count=1, include_own=True)
+
+    assert [log.author for log in result.logs] == ['inconnu', 'moi']
+    assert result.own_external_ids == {'99'}
+
+
+def test_own_logs_not_fetched_unless_asked():
+    session = _FakeSession(all_logs=[_log_entry(1, 'inconnu')], friend_logs=[])
+
+    result = GeocachingLogsClient(session=session).fetch_logbook('GC12345', count=25)
+
+    assert result.own_external_ids is None
+    assert [call.get('sp') for call in session.logbook_calls] == [None, None]
+
+
+class _OwnCheckFailsSession(_FakeSession):
+    """Le logbook répond pour 'all' et `sf=true`, mais échoue pour `sp=true`."""
+
+    def get(self, url: str, params=None, headers=None, timeout=None):
+        if 'geocache/' in url or (params or {}).get('sp') != 'true':
+            return super().get(url, params, headers, timeout)
+        self.logbook_calls.append(params or {})
+        return _FakeResponse(payload={'status': 'error', 'msg': 'boom'})
+
+
+def test_own_check_failure_degrades_to_none():
+    """
+    Une panne sur `sp=true` ne doit ni faire échouer le logbook ni être lue
+    comme « aucun log à moi » : own_external_ids=None = « on ne sait pas ».
+    """
+    session = _OwnCheckFailsSession(
+        all_logs=[_log_entry(1, 'inconnu'), _log_entry(2, 'moi')],
+        friend_logs=[],
+    )
+
+    result = GeocachingLogsClient(session=session).fetch_logbook('GC12345', count=25, include_own=True)
+
+    assert [log.author for log in result.logs] == ['inconnu', 'moi']
+    assert result.own_external_ids is None
+
+
 # ----------------------------------------------------------------------- API
 
 @pytest.fixture
@@ -223,10 +293,43 @@ def test_refresh_route_preserves_friend_flags_when_friend_check_fails(app, monke
 
     assert response.status_code == 200
     assert payload['friends_check_failed'] is True
-    assert payload['friends'] == 1  # le badge de mon_ami a survécu
+    assert payload['friends'] == 1
+    # L'appel sp=true n'a pas eu lieu non plus : « inconnu », pas « non ».
+    assert payload['own_check_failed'] is True  # le badge de mon_ami a survécu
 
     stored = {
         log.author: log.is_friend_log
         for log in GeocacheLog.query.filter_by(geocache_id=app.geocache_id).all()
     }
     assert stored == {'inconnu': False, 'mon_ami': True}
+
+
+def test_refresh_marks_my_own_logs(app, monkeypatch):
+    """`sp=true` au rafraîchissement : mes logs ressortent avec is_own_log."""
+    import gc_backend.blueprints.logs as logs_blueprint
+
+    session = _FakeSession(
+        all_logs=[_log_entry(1, 'inconnu'), _log_entry(3, 'moi')],
+        friend_logs=[],
+        own_logs=[_log_entry(3, 'moi')],
+    )
+    monkeypatch.setattr(
+        logs_blueprint, 'GeocachingLogsClient',
+        lambda: GeocachingLogsClient(session=session)
+    )
+
+    payload = app.test_client().post(
+        f'/api/geocaches/{app.geocache_id}/logs/refresh'
+    ).get_json()
+
+    assert payload['own_check_failed'] is False
+
+    stored = {
+        log.author: log.is_own_log
+        for log in GeocacheLog.query.filter_by(geocache_id=app.geocache_id).all()
+    }
+    assert stored['moi'] is True
+    assert stored['inconnu'] is False
+
+    exposed = app.test_client().get(f'/api/geocaches/{app.geocache_id}/logs').get_json()
+    assert {log['author']: log['is_own_log'] for log in exposed['logs']}['moi'] is True

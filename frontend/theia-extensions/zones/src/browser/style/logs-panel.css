@@ -249,6 +249,14 @@
     background: var(--theia-editor-background);
 }
 
+/*
+ * Log écrit avec le compte connecté : un voile d'accent à peine perceptible,
+ * sans toucher au liseré de type — le badge « vous » porte l'identification.
+ */
+.geoapp-log-card--own {
+    background: color-mix(in srgb, var(--theia-focusBorder) 5%, var(--theia-editor-background));
+}
+
 .geoapp-log-card__header {
     display: flex;
     align-items: flex-start;
@@ -301,6 +309,23 @@
 }
 
 .geoapp-log-card__friend-badge > .fa {
+    margin-right: 4px;
+}
+
+/*
+ * Badge « vous » : contour discret là où le badge « ami » est plein — les deux
+ * ne racontent pas la même chose et ne doivent pas se ressembler.
+ */
+.geoapp-log-card__own-badge {
+    margin-left: 6px;
+    padding: 0 6px;
+    border: 1px solid var(--theia-focusBorder);
+    border-radius: 8px;
+    font-size: 11px;
+    color: var(--theia-focusBorder);
+}
+
+.geoapp-log-card__own-badge > .fa {
     margin-right: 4px;
 }
 
@@ -428,6 +453,11 @@
     font-size: 13px;
     flex-shrink: 0;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+/* Mon propre log : un anneau d'accent fin autour de la pastille. */
+.geoapp-logs-summary__badge--own {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 0 0 2px var(--theia-focusBorder);
 }
 
 .geoapp-logs-summary__favorite {

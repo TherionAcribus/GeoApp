@@ -156,6 +156,7 @@ def init_db(app):
 
             to_add: dict[str, str] = {
                 'is_friend_log': 'BOOLEAN',
+                'is_own_log': 'BOOLEAN',
             }
 
             for col, col_type in to_add.items():

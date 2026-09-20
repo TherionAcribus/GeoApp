@@ -110,6 +110,8 @@ export interface OutingLogExcerpt {
     matched?: string[];
     /** Log d'un ami geocaching.com : source identifiée, donc plus fiable. */
     is_friend_log?: boolean;
+    /** Log écrit avec le compte connecté : sa propre expérience de la cache. */
+    is_own_log?: boolean;
     /** Log marqué favori par son auteur. */
     is_favorite?: boolean;
 }

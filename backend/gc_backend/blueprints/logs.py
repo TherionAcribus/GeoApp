@@ -232,6 +232,9 @@ def _store_submitted_log(geocache, *, log_reference_code, text, visited_date,
             log_type=GeocacheLog.normalize_log_type(_LOG_TYPE_LABELS.get(log_type_id)),
             is_favorite=bool(used_favorite_point),
             is_friend_log=False,
+            # Ce log est le mien par construction : il vient d'être envoyé avec
+            # le compte connecté, sans attendre que `sp=true` le confirme.
+            is_own_log=True,
         )
         db.session.add(log)
         if isinstance(geocache.logs_count, int):
@@ -477,15 +480,19 @@ def refresh_geocache_logs(geocache_id: int):
         logger.info(f"Refreshing logs for {gc_code} (count={count}, page={page}, all={fetch_all})")
 
         # Récupérer les logs depuis Geocaching.com, en identifiant au passage
-        # ceux écrits par mes amis (filtrage côté serveur, cf. fetch_logbook).
+        # ceux écrits par mes amis et par mon propre compte (filtrage côté
+        # serveur, cf. fetch_logbook).
         client = GeocachingLogsClient()
         friends_check_failed = False
         total_available = None
         truncated = False
         try:
-            result = client.fetch_logbook(gc_code, count=count, page=page, fetch_all=fetch_all)
+            result = client.fetch_logbook(
+                gc_code, count=count, page=page, fetch_all=fetch_all, include_own=True
+            )
             fetched_logs = result.logs
             friend_external_ids = result.friend_external_ids
+            own_external_ids = result.own_external_ids
             total_available = result.total_available
             truncated = result.truncated
         except FriendLogsCheckFailedError as e:
@@ -493,10 +500,12 @@ def refresh_geocache_logs(geocache_id: int):
             # cette cache ». Les logs sont quand même enregistrés (contenu,
             # dates...), mais is_friend_log n'est touché sur aucune ligne —
             # ni existante ni nouvelle — pour ne pas écraser des badges
-            # corrects avec un résultat qu'on n'a pas pu vérifier.
+            # corrects avec un résultat qu'on n'a pas pu vérifier. L'appel
+            # sp=true n'a alors pas eu lieu : is_own_log suit la même règle.
             logger.warning(f"Friend check failed for {gc_code}, badges left untouched: {e}")
             fetched_logs = e.logs
             friend_external_ids = None
+            own_external_ids = None
             friends_check_failed = True
             total_available = e.total_available
 
@@ -550,10 +559,15 @@ def refresh_geocache_logs(geocache_id: int):
 
         for log_data in fetched_logs:
             # `None` si la vérification amis a échoué : dans ce cas on ne sait
-            # pas, et on ne doit surtout pas le traduire en `False`.
+            # pas, et on ne doit surtout pas le traduire en `False`. Même règle
+            # pour is_own_log quand l'appel sp=true n'a pas abouti.
             is_friend_log = (
                 log_data.external_id in friend_external_ids
                 if friend_external_ids is not None else None
+            )
+            is_own_log = (
+                log_data.external_id in own_external_ids
+                if own_external_ids is not None else None
             )
 
             if log_data.external_id in existing_logs:
@@ -564,6 +578,8 @@ def refresh_geocache_logs(geocache_id: int):
                 existing_log.is_favorite = log_data.is_favorite
                 if is_friend_log is not None:
                     existing_log.is_friend_log = is_friend_log
+                if is_own_log is not None:
+                    existing_log.is_own_log = is_own_log
                 updated_count += 1
             else:
                 # Créer un nouveau log. Sans vérification fiable, on ne peut
@@ -579,6 +595,7 @@ def refresh_geocache_logs(geocache_id: int):
                     log_type=GeocacheLog.normalize_log_type(log_data.log_type),
                     is_favorite=log_data.is_favorite,
                     is_friend_log=bool(is_friend_log),
+                    is_own_log=bool(is_own_log),
                 )
                 db.session.add(new_log)
                 added_count += 1
@@ -625,6 +642,7 @@ def refresh_geocache_logs(geocache_id: int):
             'replaced_local': replaced_local_count,
             'friends': friends_count,
             'friends_check_failed': friends_check_failed,
+            'own_check_failed': own_external_ids is None,
             'total': geocache.logs_count,
             'total_available': geocache.logs_total_available,
             'truncated': truncated
@@ -676,6 +694,7 @@ def get_recent_logs_summary(geocache_id: int):
                 'date': log.date.isoformat() if log.date else None,
                 'author': log.author,
                 'is_favorite': log.is_favorite,
+                'is_own_log': bool(log.is_own_log),
             }
             for log in logs
         ]

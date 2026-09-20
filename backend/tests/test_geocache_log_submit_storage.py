@@ -93,6 +93,8 @@ def test_submitted_log_is_stored_locally(submitting_client, app):
     assert log.date == datetime(2026, 7, 26)
     assert log.is_favorite is True
     assert log.is_friend_log is False
+    # Le log soumis est le mien par construction, sans attendre `sp=true`.
+    assert log.is_own_log is True
 
     # Un log de plus sur la cache, comme après un rafraîchissement.
     assert Geocache.query.get(app.geocache_id).logs_count == 8
@@ -121,7 +123,7 @@ def _fetched(external_id: str, author: str, log_type: str = 'Found it',
 
 def _patch_refresh(monkeypatch, fetched):
     class _FakeLogsClient:
-        def fetch_logbook(self, gc_code, count=25, page=1, fetch_all=False):
+        def fetch_logbook(self, gc_code, count=25, page=1, fetch_all=False, include_own=False):
             return LogbookFetchResult(
                 logs=fetched,
                 friend_external_ids=set(),

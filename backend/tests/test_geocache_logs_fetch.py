@@ -60,10 +60,12 @@ class _PaginatedSession:
     page 1-based, pas un offset en nombre de logs.
     """
 
-    def __init__(self, total: int, *, with_page_info: bool = True, friend_logs: list[dict] | None = None):
+    def __init__(self, total: int, *, with_page_info: bool = True, friend_logs: list[dict] | None = None,
+                 own_logs: list[dict] | None = None):
         self.total = total
         self.with_page_info = with_page_info
         self.friend_logs = friend_logs or []
+        self.own_logs = own_logs or []
         self.logbook_calls: list[dict] = []
         self.page_calls = 0
 
@@ -77,6 +79,9 @@ class _PaginatedSession:
 
         if params.get('sf') == 'true':
             return _FakeResponse(payload={'status': 'success', 'data': self.friend_logs})
+
+        if params.get('sp') == 'true':
+            return _FakeResponse(payload={'status': 'success', 'data': self.own_logs})
 
         size = int(params['num'])
         start = (int(params['idx']) - 1) * size

@@ -405,11 +405,13 @@ function formatLoggingTasks(geocache: OutingAnalysisGeocache): string | undefine
  * Qualité de la source d'un log, accolée à son en-tête.
  *
  * « ami » n'est pas décoratif : un conseil matériel venant de quelqu'un qu'on connaît se
- * pondère autrement qu'un log anonyme, et le rapport peut le citer comme tel.
+ * pondère autrement qu'un log anonyme, et le rapport peut le citer comme tel. « vous »
+ * vaut pareil : c'est l'utilisateur lui-même qui raconte la cache.
  */
 function formatLogOrigin(log: OutingLogExcerpt): string {
     const flags = [
         log.is_friend_log ? 'ami' : undefined,
+        log.is_own_log ? 'vous' : undefined,
         log.is_favorite ? 'favori' : undefined,
     ].filter(Boolean);
     return flags.length > 0 ? `, ${flags.join(', ')}` : '';

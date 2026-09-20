@@ -16,6 +16,8 @@ export interface LogSummaryEntry {
     date: string | null;
     author: string;
     is_favorite: boolean;
+    /** Log écrit avec le compte connecté. */
+    is_own_log?: boolean;
 }
 
 /**
@@ -102,8 +104,9 @@ export const LogsRecentSummary: React.FC<LogsRecentSummaryProps> = ({
                 {entries.map((entry, idx) => {
                     const color = getSummaryColor(entry.log_type);
                     const icon = getSummaryIcon(entry.log_type);
+                    const author = entry.is_own_log ? `${entry.author} (vous)` : entry.author;
                     const tooltip = `${entry.log_type}
-${entry.author}
+${author}
 ${formatShortDate(entry.date)}`;
                     return (
                         <div
@@ -114,7 +117,9 @@ ${formatShortDate(entry.date)}`;
                             // de design, donc elle reste posée en inline et la feuille la lit.
                             style={{ ['--geoapp-log-color' as any]: color }}
                         >
-                            <span className='geoapp-logs-summary__badge'>
+                            <span
+                                className={`geoapp-logs-summary__badge${entry.is_own_log ? ' geoapp-logs-summary__badge--own' : ''}`}
+                            >
                                 <i className={`fa ${icon}`} />
                                 {entry.is_favorite && (
                                     <span className='geoapp-logs-summary__favorite' title='Log favori'>

@@ -80,9 +80,16 @@ class LogbookFetchResult:
 
     `truncated` signale qu'un `fetch_all` s'est arrêté sur le plafond de
     sécurité plutôt que sur la fin réelle des logs.
+
+    `own_external_ids` identifie les logs écrits par le compte connecté
+    (filtre `sp=true` du logbook). Il ne vaut quelque chose que si
+    `include_own` était demandé **et** que l'appel a réussi : `None` signifie
+    « on ne sait pas », ce qui doit se traduire en aval par « ne pas toucher
+    aux badges existants », jamais par « aucun log à moi ».
     """
     logs: list[GeocacheLogData]
     friend_external_ids: set[str]
+    own_external_ids: set[str] | None = None
     total_available: int | None = None
     truncated: bool = False
 
@@ -190,6 +197,7 @@ class GeocachingLogsClient:
         count: int = 25,
         page: int = 1,
         fetch_all: bool = False,
+        include_own: bool = False,
     ) -> LogbookFetchResult:
         """
         Récupère une tranche du logbook d'une géocache **et** les logs de mes amis.
@@ -209,6 +217,10 @@ class GeocachingLogsClient:
                 numéro de page, pas un offset en nombre de logs.
             fetch_all: Enchaîne les pages à partir de `page` jusqu'à épuisement
                 des logs ou jusqu'au plafond `MAX_LOGS_FETCH_ALL`.
+            include_own: Demande en plus la page `sp=true` — les logs du compte
+                connecté, même mécanisme que `sf=true` pour les amis. Ceux qui
+                sortent de la fenêtre sont ajoutés au résultat, et leurs
+                external_ids sont rapportés dans `own_external_ids`.
 
         Raises:
             GeocachingLogsError: la récupération des logs « tous » a échoué —
@@ -287,10 +299,34 @@ class GeocachingLogsClient:
         if extra:
             logger.info(f"{len(extra)} friend log(s) outside the fetched window of {gc_code}")
             logs = logs + extra
+            seen_ids.update(log.external_id for log in extra)
+
+        # Même traitement pour mes propres logs (`sp=true`), quand l'appelant le
+        # demande. Un échec ici ne doit rien casser : les logs « tous » sont déjà
+        # récupérés, et `own_external_ids=None` dira « inconnu » plutôt que
+        # « aucun » — l'appelant laissera alors les badges existants tranquilles.
+        own_ids: set[str] | None = None
+        if include_own:
+            try:
+                own_logs = self._fetch_logs_page(user_token, page_size, 'own').logs
+            except GeocachingLogsError as e:
+                logger.warning(f"Own logs check failed for {gc_code}: {e}")
+            else:
+                own_ids = {log.external_id for log in own_logs if log.external_id}
+                extra = [
+                    log for log in own_logs
+                    if log.external_id and log.external_id not in seen_ids
+                ]
+                if extra:
+                    logger.info(
+                        f"{len(extra)} own log(s) outside the fetched window of {gc_code}"
+                    )
+                    logs = logs + extra
 
         return LogbookFetchResult(
             logs=logs,
             friend_external_ids=friend_ids,
+            own_external_ids=own_ids,
             total_available=total_available,
             truncated=truncated,
         )

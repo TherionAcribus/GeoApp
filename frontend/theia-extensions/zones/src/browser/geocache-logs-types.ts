@@ -40,6 +40,8 @@ export interface GeocacheLogDto {
     log_type: string;
     is_favorite: boolean;
     is_friend_log?: boolean;
+    /** Log écrit avec le compte connecté (`sp=true` côté backend, ou soumission locale). */
+    is_own_log?: boolean;
     created_at: string | null;
 }
 
