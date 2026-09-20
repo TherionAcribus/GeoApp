@@ -1601,6 +1601,10 @@ def refresh_geocache(geocache_id: int):
         geocache.attributes = getattr(s, 'attributes', None)
         geocache.favorites_count = getattr(s, 'favorites_count', None)
         geocache.logs_count = getattr(s, 'logs_count', None)
+        # La page de la cache annonce le total réel : c'est la meilleure valeur
+        # connue tant qu'un rafraîchissement des logs n'a pas lu `totalRows`.
+        if getattr(s, 'logs_count', None) is not None:
+            geocache.logs_total_available = s.logs_count
         geocache.images = getattr(s, 'images', None)
 
         ensure_images_v2_for_geocache(geocache)

@@ -56,6 +56,11 @@ class Geocache(db.Model):
     attributes = db.Column(db.JSON)
     favorites_count = db.Column(db.Integer)
     logs_count = db.Column(db.Integer)
+    # Nombre de logs que la cache possède sur Geocaching.com, par opposition à
+    # `logs_count` que le rafraîchissement écrase avec le nombre de logs stockés
+    # en local. C'est lui qui permet de savoir qu'il reste des logs à récupérer.
+    # NULL = inconnu (cache jamais scrapée, ou logbook muet sur le total).
+    logs_total_available = db.Column(db.Integer)
     images = db.Column(db.JSON)  # liste d'objets {url: str}
     found = db.Column(db.Boolean)
     found_date = db.Column(db.DateTime)
@@ -116,6 +121,7 @@ class Geocache(db.Model):
             'zone_id': self.zone_id,
             'favorites_count': self.favorites_count,
             'logs_count': self.logs_count,
+            'logs_total_available': self.logs_total_available,
             'found': self.found,
             'found_date': self.found_date.isoformat() if self.found_date else None,
             'solved': self.solved,
@@ -164,6 +170,7 @@ class Geocache(db.Model):
             'attributes': self.attributes,
             'favorites_count': self.favorites_count,
             'logs_count': self.logs_count,
+            'logs_total_available': self.logs_total_available,
             'images': self.images,
             'found': self.found,
             'found_date': self.found_date.isoformat() if self.found_date else None,

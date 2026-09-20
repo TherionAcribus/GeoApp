@@ -359,7 +359,10 @@ const PreferenceItem = React.memo(function PreferenceItem(props: PreferenceItemP
                     value={String(value ?? definition.default ?? '')}
                     onChange={event => handlers.onSelect(prefKey, event.currentTarget.value, definition)}
                 >
-                    {definition.enum.map((option: string | number) => (
+                    {/* `enum` est typé `string[] | number[]` : l'union n'est pas
+                        appelable telle quelle depuis que le schéma déclare des
+                        enums numériques (geoApp.logs.initialFetchCount). */}
+                    {(definition.enum as Array<string | number>).map(option => (
                         <option key={option} value={option}>
                             {enumOptionLabel(option, definition)}
                         </option>

@@ -61,6 +61,7 @@ def init_db(app):
                 'attributes': 'JSON',
                 'favorites_count': 'INTEGER',
                 'logs_count': 'INTEGER',
+                'logs_total_available': 'INTEGER',
                 'images': 'JSON',
                 'found': 'BOOLEAN',
                 'found_date': 'DATETIME',

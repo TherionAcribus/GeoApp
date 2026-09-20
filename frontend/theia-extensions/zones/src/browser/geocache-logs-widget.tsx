@@ -15,6 +15,11 @@ import { LogsRecentSummary, LogSummaryEntry, LogsRecentSummaryApiResponse } from
 import { EmptyState, LoadingState } from './state-views';
 import { getLogTypeColor, getLogTypeIcon } from './geocache-log-type-style';
 import { renderLogMarkdown } from './log-markdown-renderer';
+import {
+    GeocacheLogsFetchService,
+    LOGS_PAGE_SIZE,
+    LogsRefreshOptions
+} from './geocache-logs-fetch-service';
 
 /**
  * Interface représentant un log de géocache
@@ -38,24 +43,14 @@ interface GeocacheLogDto {
 interface LogsApiResponse {
     geocache_id: number;
     gc_code: string;
+    /** Nombre de logs stockés localement. */
     total_count: number;
+    /** Nombre de logs sur Geocaching.com, `null` tant qu'on ne l'a pas appris. */
+    total_available?: number | null;
     friends_count?: number;
     offset: number;
     limit: number;
     logs: GeocacheLogDto[];
-}
-
-/**
- * Interface pour la réponse du rafraîchissement
- */
-interface RefreshApiResponse {
-    geocache_id: number;
-    gc_code: string;
-    message: string;
-    added: number;
-    updated: number;
-    friends: number;
-    total: number;
 }
 
 /**
@@ -267,6 +262,68 @@ const LogsList: React.FC<LogsListProps> = ({ logs, isLoading, onLoadMore, hasMor
 };
 
 /**
+ * Props du bandeau « il reste des logs sur Geocaching.com »
+ */
+interface RemoteLogsBannerProps {
+    storedCount: number;
+    totalAvailable: number;
+    isRefreshing: boolean;
+    onLoadNextPage: () => void;
+    onLoadAll: () => void;
+}
+
+/**
+ * Bandeau proposant de récupérer les logs qui n'ont pas été chargés.
+ *
+ * Il n'apparaît que quand on *sait* qu'il en reste : le réglage « Tout » est
+ * plafonné, et c'est ici que l'utilisateur décide d'aller au-delà — page par
+ * page, ou d'un coup en connaissance du nombre.
+ */
+const RemoteLogsBanner: React.FC<RemoteLogsBannerProps> = ({
+    storedCount, totalAvailable, isRefreshing, onLoadNextPage, onLoadAll
+}) => {
+    const remaining = totalAvailable - storedCount;
+    const nextBatch = Math.min(LOGS_PAGE_SIZE, remaining);
+    const buttonStyle: React.CSSProperties = {
+        padding: '6px 12px',
+        background: 'var(--theia-button-secondaryBackground, var(--theia-editor-background))',
+        color: 'var(--theia-button-secondaryForeground, var(--theia-foreground))',
+        border: '1px solid var(--theia-panel-border)',
+        borderRadius: 4,
+        cursor: isRefreshing ? 'wait' : 'pointer',
+        fontSize: 12
+    };
+
+    return (
+        <div style={{
+            background: 'var(--theia-editor-background)',
+            border: '1px solid var(--theia-panel-border)',
+            borderLeft: '4px solid var(--theia-focusBorder)',
+            borderRadius: 6,
+            padding: 12,
+            marginBottom: 12,
+            flexShrink: 0
+        }}>
+            <div style={{ fontSize: 13, marginBottom: 8 }}>
+                <i className="fa fa-cloud-download-alt" style={{ marginRight: 8, opacity: 0.8 }} />
+                Cette géocache compte <strong>{totalAvailable}</strong> logs sur Geocaching.com,
+                dont <strong>{storedCount}</strong> chargé{storedCount > 1 ? 's' : ''} ici.
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button onClick={onLoadNextPage} disabled={isRefreshing} style={buttonStyle}>
+                    <i className="fa fa-chevron-down" style={{ marginRight: 6 }} />
+                    Charger {nextBatch} de plus
+                </button>
+                <button onClick={onLoadAll} disabled={isRefreshing} style={buttonStyle}>
+                    <i className="fa fa-cloud-download-alt" style={{ marginRight: 6 }} />
+                    Tout charger ({totalAvailable})
+                </button>
+            </div>
+        </div>
+    );
+};
+
+/**
  * Widget Theia pour afficher les logs d'une géocache
  */
 @injectable()
@@ -279,6 +336,8 @@ export class GeocacheLogsWidget extends ReactWidget {
     protected geocacheName?: string;
     protected logs: GeocacheLogDto[] = [];
     protected totalCount = 0;
+    /** Logs que la cache possède sur Geocaching.com, `undefined` si inconnu. */
+    protected totalAvailable?: number;
     protected friendsCount = 0;
     protected friendsOnly = false;
     protected isLoading = false;
@@ -294,6 +353,7 @@ export class GeocacheLogsWidget extends ReactWidget {
     constructor(
         @inject(MessageService) protected readonly messages: MessageService,
         @inject(PreferenceService) protected readonly preferenceService: PreferenceService,
+        @inject(GeocacheLogsFetchService) protected readonly logsFetchService: GeocacheLogsFetchService,
         @inject(LanguageModelRegistry) protected readonly languageModelRegistry: LanguageModelRegistry,
         @inject(LanguageModelService) protected readonly languageModelService: LanguageModelService
     ) {
@@ -366,16 +426,47 @@ export class GeocacheLogsWidget extends ReactWidget {
         this.logs = [];
         this.offset = 0;
         this.totalCount = 0;
+        this.totalAvailable = undefined;
         this.friendsCount = 0;
         this.friendsOnly = false;
         this.analysisResult = undefined;
         this.summaryEntries = [];
         this.summaryTotalCount = 0;
-        
+
         this.title.label = params.gcCode ? `Logs - ${params.gcCode}` : 'Logs';
-        
-        this.loadSummary();
-        this.loadLogs();
+
+        void this.loadInitial();
+    }
+
+    /**
+     * Affiche d'abord ce qui est déjà stocké, puis déclenche le premier
+     * chargement depuis Geocaching.com si la géocache n'a encore aucun log.
+     *
+     * L'ordre compte : sans logs en base, le panneau resterait vide jusqu'à un
+     * clic sur « Rafraîchir » — c'est précisément ce que le réglage
+     * `geoApp.logs.autoFetchTrigger` évite.
+     */
+    protected async loadInitial(): Promise<void> {
+        const geocacheId = this.geocacheId;
+        await Promise.all([this.loadSummary(), this.loadLogs()]);
+        if (this.geocacheId !== geocacheId) {
+            return;
+        }
+        await this.autoFetchIfNeeded();
+    }
+
+    /**
+     * Premier chargement automatique, quand le réglage le confie au panneau Logs.
+     */
+    protected async autoFetchIfNeeded(): Promise<void> {
+        const geocacheId = this.geocacheId;
+        if (!geocacheId || this.isRefreshing) {
+            return;
+        }
+        if (!this.logsFetchService.shouldAutoFetch('logs-panel', geocacheId, this.totalCount)) {
+            return;
+        }
+        await this.refreshLogs({ auto: true });
     }
 
     /**
@@ -439,6 +530,7 @@ export class GeocacheLogsWidget extends ReactWidget {
             }
 
             this.totalCount = data.total_count;
+            this.totalAvailable = data.total_available ?? undefined;
             this.friendsCount = data.friends_count ?? 0;
             this.geocacheCode = data.gc_code;
             
@@ -471,45 +563,90 @@ export class GeocacheLogsWidget extends ReactWidget {
     };
 
     /**
-     * Rafraîchit les logs depuis Geocaching.com
+     * Récupère les logs depuis Geocaching.com.
+     *
+     * `auto` distingue le premier chargement automatique d'un clic sur
+     * « Rafraîchir » : l'automatique reste discret (pas de message quand il n'a
+     * rien ramené, échec silencieux), le manuel parle toujours.
      */
-    protected async refreshLogs(): Promise<void> {
-        if (!this.geocacheId || this.isRefreshing) {
+    protected async refreshLogs(options: LogsRefreshOptions & { auto?: boolean } = {}): Promise<void> {
+        const geocacheId = this.geocacheId;
+        if (!geocacheId || this.isRefreshing) {
             return;
         }
+
+        const { auto, ...fetchOptions } = options;
 
         this.isRefreshing = true;
         this.update();
 
         try {
-            const url = `${this.backendBaseUrl}/api/geocaches/${this.geocacheId}/logs/refresh?count=50`;
-            const response = await fetch(url, { method: 'POST' });
-            
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.error || `HTTP ${response.status}`);
+            const data = auto
+                ? await this.logsFetchService.autoFetch('logs-panel', geocacheId, this.totalCount)
+                : await this.logsFetchService.refresh(geocacheId, fetchOptions);
+
+            // La géocache a pu changer pendant la récupération : ce qui suit ne
+            // parlerait plus de ce que le panneau affiche.
+            if (!data || this.geocacheId !== geocacheId) {
+                return;
             }
 
-            const data: RefreshApiResponse = await response.json();
-            
-            const friendsInfo = data.friends > 0 ? `, ${data.friends} d'ami(s)` : '';
-            this.messages.info(
-                `Logs rafraîchis : ${data.added} ajoutés, ${data.updated} mis à jour${friendsInfo}`
-            );
-            
+            if (!auto || data.added > 0) {
+                const friendsInfo = data.friends > 0 ? `, ${data.friends} d'ami(s)` : '';
+                this.messages.info(
+                    `Logs rafraîchis : ${data.added} ajoutés, ${data.updated} mis à jour${friendsInfo}`
+                );
+            }
+
+            if (data.truncated) {
+                this.messages.warn(
+                    `Chargement interrompu à ${data.total} logs : la géocache en compte trop pour tout récupérer d'un coup.`
+                );
+            }
+
             // Recharger les logs et le résumé depuis le début
             this.offset = 0;
             await this.loadSummary();
             await this.loadLogs();
-            
+
         } catch (error) {
             console.error('[GeocacheLogsWidget] Failed to refresh logs:', error);
-            this.messages.error(`Impossible de rafraîchir les logs: ${error}`);
+            if (!auto) {
+                this.messages.error(`Impossible de rafraîchir les logs: ${error}`);
+            }
         } finally {
             this.isRefreshing = false;
             this.update();
         }
     }
+
+    /**
+     * Récupère la page de logs qui suit celles déjà stockées.
+     */
+    protected loadNextRemotePage = (): void => {
+        void this.refreshLogs({
+            count: LOGS_PAGE_SIZE,
+            page: this.logsFetchService.nextPageFor(this.totalCount)
+        });
+    };
+
+    /**
+     * Récupère tout le logbook, après confirmation : sur une géocache très
+     * loggée c'est long, et c'est autant de requêtes vers Geocaching.com.
+     */
+    protected loadAllRemoteLogs = async (): Promise<void> => {
+        const total = this.totalAvailable;
+        const confirmed = await this.messages.warn(
+            `Récupérer les ${total} logs de cette géocache depuis Geocaching.com ? `
+            + "L'opération peut prendre un moment.",
+            'Tout charger',
+            'Annuler'
+        );
+        if (confirmed !== 'Tout charger') {
+            return;
+        }
+        await this.refreshLogs({ count: LOGS_PAGE_SIZE, all: true });
+    };
 
     /**
      * Récupère les détails de la géocache (pour obtenir le hint)
@@ -646,6 +783,11 @@ ${JSON.stringify(logsToAnalyze, null, 2)}`;
 
     protected render(): React.ReactNode {
         const hasMore = this.logs.length < this.totalCount;
+        // Ne se propose que quand on sait qu'il reste des logs à récupérer, et
+        // seulement sur la liste complète : le filtre « Amis » compte autre chose.
+        const remoteRemaining = !this.friendsOnly && this.totalAvailable !== undefined
+            ? this.totalAvailable - this.totalCount
+            : 0;
         
         return (
             <div style={{ 
@@ -734,7 +876,7 @@ ${JSON.stringify(logsToAnalyze, null, 2)}`;
                                 {this.isAnalyzing ? 'Analyse...' : 'Analyser avec IA'}
                             </button>
                             <button
-                                onClick={() => this.refreshLogs()}
+                                onClick={() => void this.refreshLogs()}
                                 disabled={this.isRefreshing}
                                 style={{
                                     padding: '8px 16px',
@@ -824,6 +966,17 @@ ${JSON.stringify(logsToAnalyze, null, 2)}`;
                             totalCount={this.summaryTotalCount}
                             isLoading={this.isSummaryLoading}
                         />
+
+                        {/* Il reste des logs sur Geocaching.com */}
+                        {remoteRemaining > 0 && this.totalAvailable !== undefined && (
+                            <RemoteLogsBanner
+                                storedCount={this.totalCount}
+                                totalAvailable={this.totalAvailable}
+                                isRefreshing={this.isRefreshing}
+                                onLoadNextPage={this.loadNextRemotePage}
+                                onLoadAll={() => void this.loadAllRemoteLogs()}
+                            />
+                        )}
 
                         {/* Liste des logs */}
                         <div style={{ flex: 1, overflow: 'auto' }}>

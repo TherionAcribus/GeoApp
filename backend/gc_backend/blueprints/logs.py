@@ -148,6 +148,11 @@ def get_geocache_logs(geocache_id: int):
             'geocache_id': geocache_id,
             'gc_code': geocache.gc_code,
             'total_count': total_count,
+            # Ce que la cache compte sur Geocaching.com (None si inconnu), à ne
+            # pas confondre avec `total_count` qui ne parle que du stock local :
+            # c'est l'écart entre les deux qui déclenche la proposition de
+            # charger la suite dans le panneau Logs.
+            'total_available': geocache.logs_total_available,
             'friends_count': friends_count,
             'offset': offset,
             'limit': limit,
@@ -441,12 +446,18 @@ def submit_geocache_log(geocache_id: int):
 def refresh_geocache_logs(geocache_id: int):
     """
     Rafraîchit les logs d'une géocache depuis Geocaching.com.
-    
+
     Query params:
-        - count: Nombre de logs à récupérer (défaut: 25)
-    
+        - count: Nombre de logs à récupérer, càd la taille de page (défaut: 25)
+        - page: Numéro de page 1-based du logbook (défaut: 1). `count=100&page=2`
+          récupère donc les logs 101 à 200.
+        - all: 'true' pour enchaîner les pages jusqu'au bout, dans la limite de
+          `MAX_LOGS_FETCH_ALL`. Réservé à une demande explicite de l'utilisateur :
+          c'est autant d'allers-retours vers Geocaching.com que de pages.
+
     Returns:
-        JSON avec le nombre de logs ajoutés/mis à jour
+        JSON avec le nombre de logs ajoutés/mis à jour, et `total_available`,
+        le nombre de logs de la cache sur Geocaching.com quand il est connu.
     """
     try:
         geocache = Geocache.query.get(geocache_id)
@@ -459,15 +470,23 @@ def refresh_geocache_logs(geocache_id: int):
         
         # Paramètres
         count = request.args.get('count', 25, type=int)
-        
-        logger.info(f"Refreshing logs for {gc_code} (count={count})")
+        page = request.args.get('page', 1, type=int)
+        fetch_all = request.args.get('all', 'false').lower() in ('true', '1', 'yes')
+
+        logger.info(f"Refreshing logs for {gc_code} (count={count}, page={page}, all={fetch_all})")
 
         # Récupérer les logs depuis Geocaching.com, en identifiant au passage
-        # ceux écrits par mes amis (filtrage côté serveur, cf. get_logs_with_friends).
+        # ceux écrits par mes amis (filtrage côté serveur, cf. fetch_logbook).
         client = GeocachingLogsClient()
         friends_check_failed = False
+        total_available = None
+        truncated = False
         try:
-            fetched_logs, friend_external_ids = client.get_logs_with_friends(gc_code, count=count)
+            result = client.fetch_logbook(gc_code, count=count, page=page, fetch_all=fetch_all)
+            fetched_logs = result.logs
+            friend_external_ids = result.friend_external_ids
+            total_available = result.total_available
+            truncated = result.truncated
         except FriendLogsCheckFailedError as e:
             # L'appel sf=true a échoué : ce n'est PAS « aucun ami n'a loggué
             # cette cache ». Les logs sont quand même enregistrés (contenu,
@@ -478,15 +497,27 @@ def refresh_geocache_logs(geocache_id: int):
             fetched_logs = e.logs
             friend_external_ids = None
             friends_check_failed = True
+            total_available = e.total_available
+
+        # Le total annoncé par le logbook prime sur celui lu sur la page de la
+        # cache : il vient de la même source que les logs qu'on vient d'écrire.
+        if total_available is not None:
+            geocache.logs_total_available = total_available
 
         if not fetched_logs:
             logger.warning(f"No logs found for {gc_code}")
+            # Une page vide au-delà de la première n'est pas une anomalie : on a
+            # simplement demandé la suite d'un logbook déjà épuisé.
+            db.session.commit()
             return jsonify({
                 'geocache_id': geocache_id,
                 'gc_code': gc_code,
                 'message': 'No logs found on Geocaching.com',
                 'added': 0,
-                'updated': 0
+                'updated': 0,
+                'friends': 0,
+                'total': geocache.logs_count,
+                'total_available': geocache.logs_total_available
             })
         
         # Récupérer les logs existants par external_id
@@ -593,7 +624,9 @@ def refresh_geocache_logs(geocache_id: int):
             'replaced_local': replaced_local_count,
             'friends': friends_count,
             'friends_check_failed': friends_check_failed,
-            'total': geocache.logs_count
+            'total': geocache.logs_count,
+            'total_available': geocache.logs_total_available,
+            'truncated': truncated
         })
 
     except LookupError as e:

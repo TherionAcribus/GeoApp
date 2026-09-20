@@ -553,11 +553,17 @@ GET https://www.geocaching.com/seek/geocache.logbook
   connecté : rien à croiser côté client.
 - Le `userToken` s'extrait de la page de la cache (`userToken\s*=\s*'([^']+)'`).
 
-### 10.2 `get_logs_with_friends()`
+### 10.2 `fetch_logbook()`
 
 Ajoutée à `GeocachingLogsClient` (`services/geocaching_logs.py`), elle retourne
-`(logs, external_ids des logs d'amis)` et **n'extrait le `userToken` qu'une
-fois** pour ses deux appels au logbook — soit 3 requêtes au lieu de 4.
+un `LogbookFetchResult` (logs, `external_ids` des logs d'amis, total disponible)
+et **n'extrait le `userToken` qu'une fois** pour ses appels au logbook — soit 3
+requêtes au lieu de 4. `get_logs_with_friends()` en reste le raccourci
+historique, pour les appelants qui ne veulent que `(logs, friend_ids)`.
+
+Le filtre amis reste une requête unique même quand plusieurs pages de logs sont
+parcourues (chargement « tout », cf.
+[logs-chargement-technique.md](logs-chargement-technique.md)).
 
 Subtilité qui fait tout l'intérêt du filtre serveur : `sf=true` s'applique à
 **tous** les logs de la cache, pas seulement aux `num` plus récents. Un ami ayant

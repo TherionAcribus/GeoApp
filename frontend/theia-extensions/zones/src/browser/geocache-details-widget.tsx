@@ -32,6 +32,7 @@ import {
 } from './geocache-details-preferences-controller';
 import { GeocacheDetailsView } from './geocache-details-view';
 import { GeocachesService } from './geocaches-service';
+import { GeocacheLogsFetchService } from './geocache-logs-fetch-service';
 import {
     GeocacheDetailsService,
     SaveWaypointInput,
@@ -146,6 +147,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         @inject(BackendApiClient) protected readonly apiClient: BackendApiClient,
         @inject(GeocachesService) protected readonly geocachesService: GeocachesService,
         @inject(GeocacheDetailsService) protected readonly geocacheDetailsService: GeocacheDetailsService,
+        @inject(GeocacheLogsFetchService) protected readonly logsFetchService: GeocacheLogsFetchService,
         @inject(GeocacheDetailsArchiveController) protected readonly archiveController: GeocacheDetailsArchiveController,
         @inject(GeocacheDetailsChatController) protected readonly chatController: GeocacheDetailsChatController,
         @inject(GeocacheDetailsContentController) protected readonly contentController: GeocacheDetailsContentController,
@@ -852,7 +854,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             });
     }
 
-    protected async loadLogsSummary(): Promise<void> {
+    protected async loadLogsSummary(allowAutoFetch: boolean = true): Promise<void> {
         if (!this.geocacheId) { return; }
         const geocacheId = this.geocacheId;
         this.isLogsSummaryLoading = true;
@@ -865,6 +867,9 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             if (data) {
                 this.logsSummaryEntries = data.entries;
                 this.logsSummaryTotalCount = data.total_count;
+                if (allowAutoFetch) {
+                    void this.autoFetchLogsInBackground(geocacheId, data.total_count);
+                }
             }
         } catch (e) {
             console.error('[GeocacheDetailsWidget] loadLogsSummary error', e);
@@ -872,6 +877,23 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             this.isLogsSummaryLoading = false;
             this.update();
         }
+    }
+
+    /**
+     * Premier chargement des logs en tâche de fond, quand le réglage
+     * `geoApp.logs.autoFetchTrigger` le confie à l'ouverture de la géocache.
+     *
+     * Volontairement muet : l'utilisateur regarde la fiche, pas les logs. Le
+     * résumé se remplit tout seul quand la récupération aboutit, et le service
+     * garantit qu'on ne scrape ni deux fois la même cache, ni plusieurs caches
+     * en parallèle quand on enchaîne les ouvertures.
+     */
+    protected async autoFetchLogsInBackground(geocacheId: number, storedCount: number): Promise<void> {
+        const result = await this.logsFetchService.autoFetch('geocache-open', geocacheId, storedCount);
+        if (!result || result.added === 0 || this.geocacheId !== geocacheId) {
+            return;
+        }
+        await this.loadLogsSummary(false);
     }
 
     protected async loadArchiveStatus(): Promise<void> {

@@ -38,9 +38,15 @@ class FriendLogsCheckFailedError(GeocachingLogsError):
     quand même les enregistrer sans toucher aux badges « ami ».
     """
 
-    def __init__(self, message: str, logs: list["GeocacheLogData"]) -> None:
+    def __init__(
+        self,
+        message: str,
+        logs: list["GeocacheLogData"],
+        total_available: int | None = None,
+    ) -> None:
         super().__init__(message)
         self.logs = logs
+        self.total_available = total_available
 
 
 @dataclass
@@ -53,6 +59,42 @@ class GeocacheLogData:
     date: datetime | None
     log_type: str
     is_favorite: bool
+
+
+@dataclass
+class LogbookPage:
+    """Une page du logbook, avec le total de logs de la cache s'il est connu."""
+    logs: list[GeocacheLogData]
+    total_available: int | None = None
+
+
+@dataclass
+class LogbookFetchResult:
+    """
+    Résultat d'une récupération du logbook.
+
+    `total_available` est le nombre de logs que la cache possède sur
+    Geocaching.com, **pas** le nombre de logs ramenés : c'est lui qui permet à
+    l'interface de proposer « il en reste, on continue ? ». Il vaut `None`
+    quand le logbook ne l'annonce pas (voir `_read_total_available`).
+
+    `truncated` signale qu'un `fetch_all` s'est arrêté sur le plafond de
+    sécurité plutôt que sur la fin réelle des logs.
+    """
+    logs: list[GeocacheLogData]
+    friend_external_ids: set[str]
+    total_available: int | None = None
+    truncated: bool = False
+
+
+# Le logbook sert les logs par pages (`idx` = numéro de page, `num` = taille).
+# Au-delà de cette taille, mieux vaut enchaîner les pages que demander un `num`
+# énorme d'un seul coup.
+MAX_LOGS_PER_PAGE = 100
+
+# Garde-fou du mode « tout charger » : une cache ancienne peut compter plusieurs
+# milliers de logs, qu'on ne veut ni télécharger ni stocker sans fin.
+MAX_LOGS_FETCH_ALL = 1000
 
 
 class GeocachingLogsClient:
@@ -84,7 +126,7 @@ class GeocachingLogsClient:
 
         # NB: ne pas muter les headers de la session partagée ici. Les headers
         # spécifiques (Accept JSON, X-Requested-With) sont passés par requête dans
-        # _get_user_token / _fetch_logs_with_token ; sinon ils fuiteraient sur les
+        # _get_user_token / _fetch_logs_page ; sinon ils fuiteraient sur les
         # requêtes HTML du scraper qui réutilise la même session singleton.
     
     def get_logs(
@@ -123,7 +165,7 @@ class GeocachingLogsClient:
             return []
         
         # Étape 2: Appeler l'API des logs avec le token
-        return self._fetch_logs_with_token(user_token, count, log_type)
+        return self._fetch_logs_page(user_token, count, log_type).logs
 
     def get_logs_with_friends(
         self,
@@ -133,16 +175,40 @@ class GeocachingLogsClient:
         """
         Récupère les logs d'une géocache **et** ceux écrits par mes amis.
 
-        Le paramètre `sf=true` du logbook fait filtrer geocaching.com selon la
-        liste d'amis du compte connecté (c'est la méthode de c:geo). Comme ce
-        filtre s'applique à *tous* les logs de la cache et pas seulement aux
-        plus récents, un log d'ami peut sortir de la fenêtre `count` : il est
-        alors retourné en plus dans la première liste.
-
-        Le `userToken` n'est extrait qu'une fois pour les deux requêtes.
+        Raccourci historique vers `fetch_logbook`, pour les appelants qui ne
+        veulent que les logs les plus récents et se moquent du total disponible.
 
         Returns:
             (logs, external_ids des logs d'amis)
+        """
+        result = self.fetch_logbook(gc_code, count=count)
+        return result.logs, result.friend_external_ids
+
+    def fetch_logbook(
+        self,
+        gc_code: str,
+        count: int = 25,
+        page: int = 1,
+        fetch_all: bool = False,
+    ) -> LogbookFetchResult:
+        """
+        Récupère une tranche du logbook d'une géocache **et** les logs de mes amis.
+
+        Le paramètre `sf=true` du logbook fait filtrer geocaching.com selon la
+        liste d'amis du compte connecté (c'est la méthode de c:geo). Comme ce
+        filtre s'applique à *tous* les logs de la cache et pas seulement aux
+        plus récents, un log d'ami peut sortir de la fenêtre demandée : il est
+        alors retourné en plus dans la liste.
+
+        Le `userToken` n'est extrait qu'une fois pour toutes les requêtes.
+
+        Args:
+            gc_code: Code GC de la géocache.
+            count: Taille de page demandée (plafonnée à `MAX_LOGS_PER_PAGE`).
+            page: Numéro de page 1-based — c'est le `idx` du logbook, donc un
+                numéro de page, pas un offset en nombre de logs.
+            fetch_all: Enchaîne les pages à partir de `page` jusqu'à épuisement
+                des logs ou jusqu'au plafond `MAX_LOGS_FETCH_ALL`.
 
         Raises:
             GeocachingLogsError: la récupération des logs « tous » a échoué —
@@ -155,31 +221,79 @@ class GeocachingLogsClient:
                 enregistrer sans toucher aux badges « ami ».
         """
         gc_code = gc_code.strip().upper()
-        logger.info(f"Fetching logs + friend logs for {gc_code} (count={count})")
+        page_size = max(1, min(count, MAX_LOGS_PER_PAGE))
+        first_page = max(1, page)
+        logger.info(
+            f"Fetching logbook for {gc_code} "
+            f"(page={first_page}, size={page_size}, all={fetch_all})"
+        )
 
         user_token = self._get_user_token(gc_code)
         if not user_token:
             logger.error(f"Could not get userToken for {gc_code}")
-            return [], set()
+            return LogbookFetchResult(logs=[], friend_external_ids=set())
 
-        logs = self._fetch_logs_with_token(user_token, count, 'all')
+        logs: list[GeocacheLogData] = []
+        seen_ids: set[str] = set()
+        total_available: int | None = None
+        truncated = False
+        current_page = first_page
 
+        while True:
+            fetched = self._fetch_logs_page(user_token, page_size, 'all', page=current_page)
+            if fetched.total_available is not None:
+                total_available = fetched.total_available
+
+            # Deux pages peuvent se recouvrir si un log est posté entre les deux
+            # appels : on déduplique ici plutôt que de compter deux fois.
+            for log in fetched.logs:
+                if log.external_id:
+                    if log.external_id in seen_ids:
+                        continue
+                    seen_ids.add(log.external_id)
+                logs.append(log)
+
+            if not fetch_all:
+                break
+
+            # Une page incomplète marque la fin du logbook. C'est le seul critère
+            # d'arrêt qui reste juste quand `totalRows` est absent de la réponse.
+            if len(fetched.logs) < page_size:
+                break
+
+            if len(logs) >= MAX_LOGS_FETCH_ALL:
+                logger.warning(
+                    f"Stopping at {len(logs)} logs for {gc_code}: "
+                    f"safety cap MAX_LOGS_FETCH_ALL={MAX_LOGS_FETCH_ALL} reached"
+                )
+                truncated = True
+                break
+
+            current_page += 1
+
+        # Le filtre amis porte sur toute la cache : une seule requête suffit,
+        # quel que soit le nombre de pages parcourues au-dessus.
         try:
-            friend_logs = self._fetch_logs_with_token(user_token, count, 'friends')
+            friend_page = self._fetch_logs_page(user_token, page_size, 'friends')
         except GeocachingLogsError as e:
-            raise FriendLogsCheckFailedError(str(e), logs) from e
+            raise FriendLogsCheckFailedError(str(e), logs, total_available) from e
 
+        friend_logs = friend_page.logs
         friend_ids = {log.external_id for log in friend_logs if log.external_id}
 
         # Un log d'ami plus ancien que la fenêtre demandée n'est pas dans `logs` :
         # on l'ajoute, c'est justement l'intérêt du filtre côté serveur.
-        known_ids = {log.external_id for log in logs if log.external_id}
-        extra = [log for log in friend_logs if log.external_id and log.external_id not in known_ids]
+        extra = [log for log in friend_logs if log.external_id and log.external_id not in seen_ids]
         if extra:
-            logger.info(f"{len(extra)} friend log(s) outside the {count} most recent logs of {gc_code}")
+            logger.info(f"{len(extra)} friend log(s) outside the fetched window of {gc_code}")
             logs = logs + extra
 
-        return logs, friend_ids
+        return LogbookFetchResult(
+            logs=logs,
+            friend_external_ids=friend_ids,
+            total_available=total_available,
+            truncated=truncated,
+        )
 
 
     def _get_user_token(self, gc_code: str) -> str | None:
@@ -227,23 +341,57 @@ class GeocachingLogsClient:
             logger.error(f"Failed to fetch geocache page for {gc_code}: {e}")
             raise
     
-    def _fetch_logs_with_token(
+    @staticmethod
+    def _read_total_available(data: dict) -> int | None:
+        """
+        Lit le nombre total de logs de la cache dans l'enveloppe du logbook.
+
+        Le logbook accompagne les logs d'un bloc de pagination
+        (`{"pageInfo": {"idx": 1, "size": 25, "rows": 25, "totalRows": 137}}`),
+        seule source du total réel : `data` ne contient que la page demandée.
+
+        Ce bloc n'est pas contractuel — c'est une API interne, qui a déjà changé
+        de forme. On accepte donc plusieurs graphies et on renvoie `None` si
+        rien n'est exploitable : tout le code en aval doit savoir s'en passer
+        (l'interface masque simplement la proposition « charger la suite »).
+        """
+        candidates = []
+        page_info = data.get('pageInfo')
+        if isinstance(page_info, dict):
+            candidates.extend([page_info.get('totalRows'), page_info.get('totalrows')])
+        candidates.extend([data.get('totalRows'), data.get('pageInfoTotalRows')])
+
+        for candidate in candidates:
+            try:
+                total = int(candidate)
+            except (TypeError, ValueError):
+                continue
+            if total >= 0:
+                return total
+
+        logger.debug("No totalRows in logbook response (keys: %s)", sorted(data.keys()))
+        return None
+
+    def _fetch_logs_page(
         self,
         user_token: str,
         count: int,
-        log_type: str
-    ) -> list[GeocacheLogData]:
+        log_type: str,
+        page: int = 1
+    ) -> LogbookPage:
         """
-        Récupère les logs via l'API en utilisant le userToken.
+        Récupère une page de logs via l'API en utilisant le userToken.
 
         Args:
             user_token: Token chiffré extrait de la page
-            count: Nombre de logs à récupérer
+            count: Nombre de logs à récupérer (taille de page)
             log_type: Type de logs ('all', 'friends', 'own')
+            page: Numéro de page 1-based (le `idx` du logbook)
 
         Returns:
-            Liste des logs récupérés (peut être vide : c'est une réponse
-            valide, pas une erreur).
+            La page récupérée (`logs` peut être vide : c'est une réponse
+            valide, pas une erreur), avec le total de logs de la cache quand le
+            logbook l'annonce.
 
         Raises:
             GeocachingLogsError: erreur réseau, JSON invalide, ou réponse
@@ -254,7 +402,7 @@ class GeocachingLogsClient:
         """
         params = {
             'tkn': user_token,
-            'idx': 1,
+            'idx': max(1, page),
             'num': count,
             'decrypt': 'false',
         }
@@ -291,8 +439,12 @@ class GeocachingLogsClient:
 
             if status == 'success' and 'data' in data:
                 logs = self._parse_legacy_logs(data['data'])
-                logger.info(f"Retrieved {len(logs)} logs")
-                return logs
+                total_available = self._read_total_available(data)
+                logger.info(
+                    f"Retrieved {len(logs)} logs (page {params['idx']}, "
+                    f"total available: {total_available if total_available is not None else 'unknown'})"
+                )
+                return LogbookPage(logs=logs, total_available=total_available)
 
         logger.warning("Unexpected response format from logs API")
         raise GeocachingLogsError("Unexpected response format from logs API")

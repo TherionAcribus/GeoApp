@@ -2215,6 +2215,76 @@
         "frontend"
       ]
     },
+    "geoApp.logs.autoFetchTrigger": {
+      "type": "string",
+      "enum": [
+        "logs-panel",
+        "geocache-open",
+        "off"
+      ],
+      "default": "logs-panel",
+      "title": "Premier chargement des logs",
+      "description": "Quand récupérer automatiquement les logs d'une géocache depuis Geocaching.com. Le chargement automatique n'a lieu que si aucun log n'est encore stocké localement : ensuite, seul le bouton « Rafraîchir » relance une récupération. En mode « à l'ouverture de la géocache », le panneau Logs prend le relais si la récupération en tâche de fond n'a pas eu lieu.",
+      "x-ui": {
+        "section": "Chargement",
+        "label": "Déclencheur du premier chargement",
+        "order": 20,
+        "enumLabels": {
+          "logs-panel": "À l'ouverture du panneau Logs",
+          "geocache-open": "À l'ouverture de la géocache (en tâche de fond)",
+          "off": "Jamais (bouton Rafraîchir uniquement)"
+        },
+        "keywords": [
+          "logs",
+          "chargement",
+          "automatique",
+          "rafraichir"
+        ]
+      },
+      "x-category": "logs",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "logs",
+        "network"
+      ]
+    },
+    "geoApp.logs.initialFetchCount": {
+      "type": "integer",
+      "enum": [
+        20,
+        50,
+        100
+      ],
+      "default": 50,
+      "title": "Nombre de logs récupérés",
+      "description": "Nombre de logs récupérés depuis Geocaching.com à chaque chargement ou rafraîchissement. « Tout » est plafonné à 100 : si la géocache en compte davantage, le panneau Logs propose de récupérer la suite.",
+      "x-ui": {
+        "section": "Chargement",
+        "label": "Nombre de logs récupérés",
+        "order": 30,
+        "enumLabels": {
+          "20": "20 logs",
+          "50": "50 logs",
+          "100": "Tout (100 au maximum)"
+        },
+        "keywords": [
+          "logs",
+          "nombre",
+          "chargement",
+          "tout"
+        ]
+      },
+      "x-category": "logs",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "logs",
+        "network"
+      ]
+    },
     "geoApp.images.storage.defaultMode": {
       "type": "string",
       "enum": [

@@ -15,7 +15,7 @@ from gc_backend.blueprints import logs as logs_bp
 from gc_backend.database import db
 from gc_backend.geocaches.models import Geocache, GeocacheLog
 from gc_backend.models import Zone
-from gc_backend.services.geocaching_logs import GeocacheLogData
+from gc_backend.services.geocaching_logs import GeocacheLogData, LogbookFetchResult
 
 
 ME = 'therion'
@@ -121,8 +121,12 @@ def _fetched(external_id: str, author: str, log_type: str = 'Found it',
 
 def _patch_refresh(monkeypatch, fetched):
     class _FakeLogsClient:
-        def get_logs_with_friends(self, gc_code, count=25):
-            return fetched, set()
+        def fetch_logbook(self, gc_code, count=25, page=1, fetch_all=False):
+            return LogbookFetchResult(
+                logs=fetched,
+                friend_external_ids=set(),
+                total_available=len(fetched),
+            )
 
     monkeypatch.setattr(logs_bp, 'GeocachingLogsClient', lambda *a, **k: _FakeLogsClient())
 

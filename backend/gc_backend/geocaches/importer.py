@@ -190,6 +190,9 @@ class GeocacheImporter:
         g.favorites_count = getattr(s, 'favorites_count', None)
         if getattr(s, 'logs_count', None) is not None:
             g.logs_count = s.logs_count
+            # Voir Geocache.logs_total_available : le total annoncé par la page
+            # de la cache sert de référence tant que le logbook n'a rien dit.
+            g.logs_total_available = s.logs_count
         if getattr(s, 'images', None):
             g.images = s.images
 
