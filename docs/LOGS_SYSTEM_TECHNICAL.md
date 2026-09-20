@@ -149,6 +149,20 @@ les boutons des deux barres simultanément.
 
 Tests : `src/browser/tests/log-markdown.test.ts` (`npm run test:geoapp` dans l'extension `zones`).
 
+**Repli d'un log long (liste des logs)** : le repli est **visuel**, jamais textuel. Le
+Markdown est toujours rendu en entier et seule la hauteur du conteneur est bornée à
+`COLLAPSED_TEXT_MAX_LINES` lignes (`geocache-logs-widget.tsx`). Couper la chaîne avant le
+rendu — ce que faisait la troncature à 200 caractères — produisait deux défauts : un
+délimiteur orphelin (`**gras` privé de sa fermeture) s'affichait littéralement, et la
+coupe tombait au milieu d'un mot.
+
+Le bouton « Voir plus » n'apparaît que si le contenu déborde réellement, mesuré par
+`scrollHeight > COLLAPSED_TEXT_MAX_HEIGHT`. Cette comparaison vaut dans les deux états :
+`scrollHeight` reste la hauteur du contenu complet même quand le conteneur est replié en
+`overflow: hidden`, donc le bouton ne disparaît pas une fois le log déplié. Un
+`ResizeObserver` refait la mesure quand la largeur du panneau change, puisque c'est elle
+qui décide du nombre de lignes. Le fondu de bas de bloc remplace les « … » supprimés.
+
 ### 3.4 Champ texte à couche de surlignage
 
 `renderTextareaWithOverlay()` superpose un `<textarea>` au texte transparent et une couche

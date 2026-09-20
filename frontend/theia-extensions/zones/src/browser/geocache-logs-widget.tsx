@@ -79,6 +79,26 @@ function formatDate(dateStr: string | null): string {
     }
 }
 
+const LOG_TEXT_FONT_SIZE = 13;
+const LOG_TEXT_LINE_HEIGHT = 1.5;
+
+/** Nombre de lignes visibles d'un log replié. */
+const COLLAPSED_TEXT_MAX_LINES = 6;
+
+/**
+ * Hauteur d'un log replié, en pixels.
+ *
+ * Exprimer le repli en lignes plutôt qu'en caractères donne des cartes de hauteur
+ * régulière quel que soit le contenu (listes, citations, blocs de code), là où une
+ * troncature à N caractères produisait des hauteurs très variables.
+ */
+const COLLAPSED_TEXT_MAX_HEIGHT = Math.round(
+    LOG_TEXT_FONT_SIZE * LOG_TEXT_LINE_HEIGHT * COLLAPSED_TEXT_MAX_LINES
+);
+
+/** Fondu de bas de bloc appliqué à un log replié qui déborde. */
+const COLLAPSED_TEXT_MASK = 'linear-gradient(to bottom, black calc(100% - 20px), transparent)';
+
 /**
  * Composant pour afficher un seul log
  */
@@ -86,14 +106,34 @@ const LogItem: React.FC<LogItemProps> = ({ log }) => {
     const color = getLogTypeColor(log.log_type);
     const icon = getLogTypeIcon(log.log_type);
     const [expanded, setExpanded] = React.useState(false);
-    
-    // Tronquer le texte si trop long
-    const maxLength = 200;
-    const isLong = log.text && log.text.length > maxLength;
-    const displayText = expanded || !isLong 
-        ? log.text 
-        : log.text.substring(0, maxLength) + '...';
-    
+    const [isOverflowing, setIsOverflowing] = React.useState(false);
+    const textRef = React.useRef<HTMLDivElement | null>(null);
+
+    // Le repli est visuel : le Markdown est toujours rendu en entier, et seule la
+    // hauteur du conteneur est bornée. Couper la chaîne avant le rendu laissait des
+    // délimiteurs orphelins (`**gras` sans sa fermeture s'affichait littéralement)
+    // et tombait au milieu d'un mot.
+    // `scrollHeight` reste la hauteur du contenu complet, y compris replié : la même
+    // mesure vaut donc dans les deux états, et le bouton ne disparaît pas au dépliage.
+    React.useLayoutEffect(() => {
+        const element = textRef.current;
+        if (!element) {
+            setIsOverflowing(false);
+            return;
+        }
+        const measure = () => setIsOverflowing(element.scrollHeight > COLLAPSED_TEXT_MAX_HEIGHT + 1);
+        measure();
+
+        // La largeur du panneau décide du nombre de lignes : un texte qui tient
+        // replié dans un panneau large déborde dans un panneau étroit.
+        if (typeof ResizeObserver === 'undefined') {
+            return;
+        }
+        const observer = new ResizeObserver(measure);
+        observer.observe(element);
+        return () => observer.disconnect();
+    }, [log.text]);
+
     return (
         <div 
             style={{
@@ -170,16 +210,28 @@ const LogItem: React.FC<LogItemProps> = ({ log }) => {
             
             {/* Texte du log */}
             {log.text && (
-                <div style={{ 
+                <div style={{
                     marginTop: 8,
                     paddingTop: 8,
-                    borderTop: '1px solid var(--theia-panel-border)',
-                    whiteSpace: 'pre-wrap',
-                    fontSize: 13,
-                    lineHeight: 1.5
+                    borderTop: '1px solid var(--theia-panel-border)'
                 }}>
-                    {renderLogMarkdown(displayText, `log-${log.id}`)}
-                    {isLong && (
+                    <div
+                        ref={textRef}
+                        style={{
+                            fontSize: LOG_TEXT_FONT_SIZE,
+                            lineHeight: LOG_TEXT_LINE_HEIGHT,
+                            ...(expanded ? {} : {
+                                maxHeight: COLLAPSED_TEXT_MAX_HEIGHT,
+                                overflow: 'hidden',
+                                // Le fondu remplace les « … » : il signale la coupe sans
+                                // s'appliquer quand le texte tient entièrement.
+                                ...(isOverflowing ? { maskImage: COLLAPSED_TEXT_MASK, WebkitMaskImage: COLLAPSED_TEXT_MASK } : {})
+                            })
+                        }}
+                    >
+                        {renderLogMarkdown(log.text, `log-${log.id}`)}
+                    </div>
+                    {isOverflowing && (
                         <button
                             onClick={() => setExpanded(!expanded)}
                             style={{
@@ -187,7 +239,7 @@ const LogItem: React.FC<LogItemProps> = ({ log }) => {
                                 border: 'none',
                                 color: 'var(--theia-textLink-foreground)',
                                 cursor: 'pointer',
-                                marginLeft: 4,
+                                marginTop: 4,
                                 padding: 0,
                                 fontSize: 12
                             }}
