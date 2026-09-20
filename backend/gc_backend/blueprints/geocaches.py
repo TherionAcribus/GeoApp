@@ -1561,6 +1561,18 @@ def refresh_geocache(geocache_id: int):
         geocache.placed_at = s.placed_at
         geocache.status = s.status or 'active'
 
+        # Statut « trouvé » : le scrape ne renseigne l'attribut que lorsqu'il a
+        # repéré le bandeau « Found It » sur la page ; il n'émet jamais
+        # found=False (page consultée sans être connecté, bandeau absent…).
+        # On ne remonte donc que dans le sens non-trouvé -> trouvé, pour ne pas
+        # effacer un found posé localement (log envoyé depuis GeoApp, archive).
+        scraped_found = getattr(s, 'found', None)
+        if scraped_found:
+            geocache.found = True
+            scraped_found_date = getattr(s, 'found_date', None)
+            if scraped_found_date:
+                geocache.found_date = scraped_found_date
+
         # Coordonnées : ne pas écraser une solution résolue localement mais non
         # poussée sur Geocaching.com. Si GC possède des coordonnées corrigées,
         # elles font foi ; sinon, on conserve les coordonnées locales corrigées.

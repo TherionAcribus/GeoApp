@@ -80,6 +80,17 @@ class ScrapedGeocache:
 
 GC_CODE_RE = re.compile(r'^GC[0-9A-Z]+$')
 
+# Icône du type de log dans le bandeau « FoundStatus » : /images/logtypes/48/2.png
+# (la taille varie selon le gabarit de la page, l'identifiant du type non).
+LOG_TYPE_ICON_RE = re.compile(r'/logtypes/(?:\d+/)?(\d+)\.(?:png|gif|jpg)', re.I)
+
+# Types de logs qui créditent une trouvaille au compteur Geocaching.com.
+FOUND_LOG_TYPE_IDS = frozenset({
+    2,   # Found it
+    10,  # Attended (events)
+    11,  # Webcam Photo Taken
+})
+
 
 class GeocachingScraper:
     BASE_URL = 'https://www.geocaching.com/geocache/'
@@ -674,14 +685,52 @@ class GeocachingScraper:
         else:
             logger.debug('[scraper] CachePageImages: no gallery element found in page')
 
-        # Statut trouvé
+        # Statut trouvé.
+        #
+        # Le bandeau « FoundStatus » de la colonne de droite porte l'icône du
+        # type du dernier log personnel, dont l'URL encode l'identifiant
+        # numérique du type :
+        #     <div id="ctl00_ContentBody_GeoNav_foundStatus" class="FoundStatus">
+        #       <img src="/images/logtypes/48/2.png" id="..._logTypeImage" />
+        #       <p><strong id="..._logText">Found It!</strong>
+        #          <small id="..._logDate">Logged on: 08/24/2026</small></p>
+        #
+        # On lit cet identifiant plutôt que le libellé : « Found It! » devient
+        # « Trouvée ! », « Gefunden! »… selon la langue du compte, alors que le
+        # numéro du type de log, lui, ne bouge pas.
         found = None
         found_date = None
         found_div = soup.find('div', {'id': 'ctl00_ContentBody_GeoNav_foundStatus'})
-        if found_div:
-            st = found_div.find('strong', {'id': 'ctl00_ContentBody_GeoNav_logText'})
-            if st and ('Found It' in st.get_text()):
-                found = True
+        if not found_div:
+            # Bloc absent aussi bien quand la cache n'est pas trouvée que
+            # lorsque la page a été servie sans session connectée : dans le
+            # doute on laisse found à None plutôt que de répondre False.
+            logger.debug("[%s] no foundStatus block on page", code)
+        else:
+            log_type_id = None
+            img = found_div.find('img', {'id': 'ctl00_ContentBody_GeoNav_logTypeImage'})
+            if img:
+                m = LOG_TYPE_ICON_RE.search(img.get('src') or '')
+                if m:
+                    log_type_id = int(m.group(1))
+
+            if log_type_id is not None:
+                found = log_type_id in FOUND_LOG_TYPE_IDS
+                logger.debug(
+                    "[%s] foundStatus: log type id=%s -> found=%s", code, log_type_id, found
+                )
+            else:
+                # Repli si la structure du bandeau change : le libellé anglais
+                # reste exploitable pour les comptes non traduits.
+                st = found_div.find('strong', {'id': 'ctl00_ContentBody_GeoNav_logText'})
+                label = st.get_text(strip=True) if st else ''
+                found = True if 'Found It' in label else None
+                logger.warning(
+                    "[%s] foundStatus present but no usable log type icon "
+                    "(logText=%r) -> found=%s", code, label, found
+                )
+
+            if found:
                 date_sm = found_div.find('small', {'id': 'ctl00_ContentBody_GeoNav_logDate'})
                 if date_sm:
                     txt = date_sm.get_text()
