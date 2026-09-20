@@ -31,6 +31,7 @@ import {
 } from './geocache-logs-analysis-service';
 import { buildLogsAnalysisPrompt, describeAnalysisScope } from './geocache-logs-analysis-prompt';
 import { LogsAnalysisPanel } from './geocache-logs-analysis-view';
+import { VirtualizedList } from './virtualized-list';
 
 /**
  * Props pour le composant LogItem
@@ -42,6 +43,12 @@ interface LogItemProps {
     /** Téléchargement des photos demandé explicitement sur ce log. */
     onDownloadImages: (log: GeocacheLogDto) => void;
     isDownloadingImages: boolean;
+    /**
+     * Repli « Voir plus ». Porté par la liste : la virtualisation démonte les
+     * cartes hors champ, et un état local serait perdu au démontage.
+     */
+    expanded: boolean;
+    onToggleExpand: () => void;
 }
 
 /**
@@ -87,11 +94,10 @@ const COLLAPSED_TEXT_MASK = 'linear-gradient(to bottom, black calc(100% - 20px),
  * Composant pour afficher un seul log
  */
 const LogItem: React.FC<LogItemProps> = ({
-    log, resolveUrl, onDownloadImages, isDownloadingImages
+    log, resolveUrl, onDownloadImages, isDownloadingImages, expanded, onToggleExpand
 }) => {
     const color = getLogTypeColor(log.log_type);
     const icon = getLogTypeIcon(log.log_type);
-    const [expanded, setExpanded] = React.useState(false);
     const [isOverflowing, setIsOverflowing] = React.useState(false);
     const textRef = React.useRef<HTMLDivElement | null>(null);
 
@@ -199,7 +205,7 @@ const LogItem: React.FC<LogItemProps> = ({
                             {isOverflowing && (
                                 <button
                                     className='geoapp-log-card__toggle'
-                                    onClick={() => setExpanded(!expanded)}
+                                    onClick={onToggleExpand}
                                 >
                                     {expanded ? 'Voir moins' : 'Voir plus'}
                                 </button>
@@ -243,26 +249,45 @@ interface LogsListProps {
 const LogsList: React.FC<LogsListProps> = ({
     logs, isLoading, onLoadMore, hasMore, resolveUrl, onDownloadImages, downloadingImageLogIds
 }) => {
+    // Cartes dépliées : hors de `LogItem`, dont le montage dépend du défilement.
+    const [expandedLogIds, setExpandedLogIds] = React.useState<ReadonlySet<number>>(new Set());
+
     if (isLoading && logs.length === 0) {
         return <LoadingState message='Chargement des logs…' />;
     }
-    
+
     if (logs.length === 0) {
         return <EmptyState icon='fa-comments' title='Aucun log disponible' />;
     }
-    
+
     return (
         <div>
-            {logs.map(log => (
-                <LogItem
-                    key={log.id}
-                    log={log}
-                    resolveUrl={resolveUrl}
-                    onDownloadImages={onDownloadImages}
-                    isDownloadingImages={downloadingImageLogIds.has(log.id)}
-                />
-            ))}
-            
+            <VirtualizedList
+                items={logs}
+                itemKey={log => log.id}
+                // Carte repliée typique : en-tête, six lignes de texte, marges.
+                estimatedItemHeight={200}
+                overscan={800}
+                renderItem={log => (
+                    <LogItem
+                        log={log}
+                        resolveUrl={resolveUrl}
+                        onDownloadImages={onDownloadImages}
+                        isDownloadingImages={downloadingImageLogIds.has(log.id)}
+                        expanded={expandedLogIds.has(log.id)}
+                        onToggleExpand={() => setExpandedLogIds(previous => {
+                            const next = new Set(previous);
+                            if (next.has(log.id)) {
+                                next.delete(log.id);
+                            } else {
+                                next.add(log.id);
+                            }
+                            return next;
+                        })}
+                    />
+                )}
+            />
+
             {hasMore && (
                 <button
                     className='geoapp-logs-load-more'

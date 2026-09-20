@@ -23,6 +23,7 @@ import {
     uploadOneLogImage as uploadOneLogImagePure,
 } from './log-editor/log-submit-service';
 import { MemoizedFragment } from './log-editor/memoized-fragment';
+import { VirtualizedList } from './virtualized-list';
 import {
     buildPatternsIndex,
     getBuiltinPatterns,
@@ -2495,14 +2496,21 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 )}
 
                 {!this.isLoading && this.geocaches.length > 0 && !this.useSameTextForAll && (
-                    <div className='geoapp-log-editor__blocks'>
-                        {this.geocaches.map(gc => {
+                    <VirtualizedList
+                        className='geoapp-log-editor__blocks'
+                        items={this.geocaches}
+                        itemKey={gc => gc.id}
+                        // Bloc typique : en-tête, contrôles, photos, toolbar,
+                        // textarea 6 lignes, aperçu fermé. Mesuré ensuite.
+                        estimatedItemHeight={440}
+                        gap={10}
+                        overscan={800}
+                        renderItem={gc => {
                             const previewKey = `per-preview-${gc.id}`;
                             const autocompleteHere = this.patternAutocompleteOpen
                                 && this.patternAutocompleteTargetGeocacheId === gc.id;
                             return (
                                 <MemoizedFragment
-                                    key={gc.id}
                                     // Tout ce que le bloc lit dans l'état du widget. Une frappe ne
                                     // change que le texte de la cache éditée : les autres blocs sont
                                     // alors sautés au lieu d'être redessinés.
@@ -2537,8 +2545,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                                     render={() => this.renderPerCacheBlock(gc)}
                                 />
                             );
-                        })}
-                    </div>
+                        }}
+                    />
                 )}
             </div>
         );
