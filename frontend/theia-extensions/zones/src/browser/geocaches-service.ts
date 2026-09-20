@@ -220,8 +220,8 @@ export class GeocachesService {
      * Rafraîchit les logs d'une géocache depuis Geocaching.com.
      *
      * Une géocache à la fois : l'appel scrape le logbook, et paralléliser sur une
-     * sélection entière reviendrait à marteler geocaching.com. L'appelant boucle et
-     * affiche sa progression.
+     * sélection entière reviendrait à marteler geocaching.com. Pour un lot,
+     * préférer `refreshLogsBatch` — un seul aller-retour au lieu d'un par cache.
      */
     async refreshLogs(id: number, count: number, signal?: AbortSignal): Promise<void> {
         await this.apiClient.requestVoid(
@@ -229,5 +229,22 @@ export class GeocachesService {
             { method: 'POST', signal },
             'Erreur lors du rafraîchissement des logs'
         );
+    }
+
+    /**
+     * Rafraîchit les logs de plusieurs géocaches en un seul appel streaming.
+     *
+     * Retourne la `Response` brute pour consommation NDJSON ligne par ligne
+     * (`LogsRefreshBatchEvent`) : la boucle vit côté serveur, qui étale les
+     * appels vers Geocaching.com et peut s'arrêter proprement si le client
+     * se déconnecte.
+     */
+    async refreshLogsBatch(ids: number[], count: number, signal?: AbortSignal): Promise<Response> {
+        const response = await this.apiClient.request(
+            '/api/geocaches/logs/refresh-batch',
+            this.apiClient.createJsonInit('POST', { geocache_ids: ids, count }, signal ? { signal } : {}),
+        );
+        await this.apiClient.ensureOk(response, 'Erreur lors du rafraîchissement des logs');
+        return response;
     }
 }

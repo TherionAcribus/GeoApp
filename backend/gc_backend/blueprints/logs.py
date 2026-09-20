@@ -7,12 +7,14 @@ Ce module fournit les routes API pour :
 - Conserver l'analyse IA des logs d'une géocache
 """
 
+import json
 import logging
+import time
 from datetime import date as date_type
 from datetime import datetime, time as time_type
 from pathlib import Path
 
-from flask import Blueprint, jsonify, request, send_file
+from flask import Blueprint, Response, jsonify, request, send_file, stream_with_context
 
 from ..database import db
 from ..geocaches.models import Geocache, GeocacheLog, GeocacheLogImage, GeocacheLogsAnalysis
@@ -636,6 +638,209 @@ def submit_geocache_log(geocache_id: int):
         raise
 
 
+# Pause entre deux caches dans un rafraîchissement en lot : chaque cache coûte
+# déjà plusieurs secondes de réseau à Geocaching.com, la pause ne sert qu'à
+# étaler proprement les appels plutôt qu'à les enchaîner au pas de course.
+BATCH_LOGS_REFRESH_INTERVAL_SECONDS = 0.5
+
+
+def _refresh_geocache_logs_core(geocache, count: int, page: int, fetch_all: bool) -> dict:
+    """
+    Récupère le logbook d'une géocache sur Geocaching.com et l'enregistre.
+
+    Factorise le corps de `POST /logs/refresh` pour le rafraîchissement en lot
+    (`POST /logs/refresh-batch`) : les deux appliquent exactement la même
+    politique de stockage, de badges amis/propres et de compteurs. Le commit
+    est fait ici — dans un lot, chaque cache est donc persistée au fur et à
+    mesure, indépendamment du sort des suivantes.
+
+    Returns:
+        Le payload résultat (celui que la route unitaire renvoie en JSON).
+
+    Raises:
+        LookupError: la cache n'existe pas sur Geocaching.com (404).
+        GeocachingLogsError: erreur réseau ou réponse du logbook en échec.
+    """
+    gc_code = geocache.gc_code
+    geocache_id = geocache.id
+
+    logger.info(f"Refreshing logs for {gc_code} (count={count}, page={page}, all={fetch_all})")
+
+    # Récupérer les logs depuis Geocaching.com, en identifiant au passage
+    # ceux écrits par mes amis et par mon propre compte (filtrage côté
+    # serveur, cf. fetch_logbook).
+    client = GeocachingLogsClient()
+    friends_check_failed = False
+    total_available = None
+    truncated = False
+    try:
+        result = client.fetch_logbook(
+            gc_code, count=count, page=page, fetch_all=fetch_all, include_own=True
+        )
+        fetched_logs = result.logs
+        friend_external_ids = result.friend_external_ids
+        own_external_ids = result.own_external_ids
+        total_available = result.total_available
+        truncated = result.truncated
+    except FriendLogsCheckFailedError as e:
+        # L'appel sf=true a échoué : ce n'est PAS « aucun ami n'a loggué
+        # cette cache ». Les logs sont quand même enregistrés (contenu,
+        # dates...), mais is_friend_log n'est touché sur aucune ligne —
+        # ni existante ni nouvelle — pour ne pas écraser des badges
+        # corrects avec un résultat qu'on n'a pas pu vérifier. L'appel
+        # sp=true n'a alors pas eu lieu : is_own_log suit la même règle.
+        logger.warning(f"Friend check failed for {gc_code}, badges left untouched: {e}")
+        fetched_logs = e.logs
+        friend_external_ids = None
+        own_external_ids = None
+        friends_check_failed = True
+        total_available = e.total_available
+
+    # Le total annoncé par le logbook prime sur celui lu sur la page de la
+    # cache : il vient de la même source que les logs qu'on vient d'écrire.
+    if total_available is not None:
+        geocache.logs_total_available = total_available
+
+    if not fetched_logs:
+        logger.warning(f"No logs found for {gc_code}")
+        # Une page vide au-delà de la première n'est pas une anomalie : on a
+        # simplement demandé la suite d'un logbook déjà épuisé.
+        db.session.commit()
+        return {
+            'geocache_id': geocache_id,
+            'gc_code': gc_code,
+            'message': 'No logs found on Geocaching.com',
+            'added': 0,
+            'updated': 0,
+            'friends': 0,
+            'total': geocache.logs_count,
+            'total_available': geocache.logs_total_available
+        }
+
+    # Récupérer les logs existants par external_id
+    existing_logs = {
+        log.external_id: log
+        for log in GeocacheLog.query.filter_by(geocache_id=geocache_id).all()
+        if log.external_id
+    }
+
+    # Le log qu'on a inséré soi-même à la soumission n'a pas le même
+    # external_id que celui renvoyé par le logbook : sans ce nettoyage, il
+    # resterait à côté de la version officielle, en double.
+    fetched_identities = {
+        _log_identity(log_data.author, log_data.date, log_data.log_type)
+        for log_data in fetched_logs
+    }
+    replaced_local_count = 0
+    for existing_log in list(existing_logs.values()):
+        if not (existing_log.external_id or '').startswith(_LOCAL_LOG_ID_PREFIX):
+            continue
+        identity = _log_identity(existing_log.author, existing_log.date, existing_log.log_type)
+        if identity in fetched_identities:
+            db.session.delete(existing_log)
+            existing_logs.pop(existing_log.external_id, None)
+            replaced_local_count += 1
+
+    added_count = 0
+    updated_count = 0
+    images_added = 0
+
+    for log_data in fetched_logs:
+        # `None` si la vérification amis a échoué : dans ce cas on ne sait
+        # pas, et on ne doit surtout pas le traduire en `False`. Même règle
+        # pour is_own_log quand l'appel sp=true n'a pas abouti.
+        is_friend_log = (
+            log_data.external_id in friend_external_ids
+            if friend_external_ids is not None else None
+        )
+        is_own_log = (
+            log_data.external_id in own_external_ids
+            if own_external_ids is not None else None
+        )
+
+        if log_data.external_id in existing_logs:
+            # Mettre à jour le log existant
+            existing_log = existing_logs[log_data.external_id]
+            existing_log.text = log_data.text
+            existing_log.log_type = GeocacheLog.normalize_log_type(log_data.log_type)
+            existing_log.is_favorite = log_data.is_favorite
+            if is_friend_log is not None:
+                existing_log.is_friend_log = is_friend_log
+            if is_own_log is not None:
+                existing_log.is_own_log = is_own_log
+            images_added += _sync_log_images(existing_log, geocache_id, log_data.images)
+            updated_count += 1
+        else:
+            # Créer un nouveau log. Sans vérification fiable, on ne peut
+            # pas faire mieux que `False` par défaut ; friends_check_failed
+            # dans la réponse signale qu'il faudra rafraîchir à nouveau.
+            new_log = GeocacheLog(
+                geocache_id=geocache_id,
+                external_id=log_data.external_id,
+                author=log_data.author,
+                author_guid=log_data.author_guid,
+                text=log_data.text,
+                date=log_data.date,
+                log_type=GeocacheLog.normalize_log_type(log_data.log_type),
+                is_favorite=log_data.is_favorite,
+                is_friend_log=bool(is_friend_log),
+                is_own_log=bool(is_own_log),
+            )
+            images_added += _sync_log_images(new_log, geocache_id, log_data.images)
+            db.session.add(new_log)
+            added_count += 1
+
+    # Mettre à jour le compteur de logs
+    geocache.logs_count = GeocacheLog.query.filter_by(geocache_id=geocache_id).count()
+
+    db.session.commit()
+
+    # Compté depuis la base plutôt que depuis friend_external_ids : ça
+    # reste correct même quand la vérification amis a échoué (les badges
+    # existants n'ont alors pas été touchés).
+    friends_count = GeocacheLog.query.filter_by(
+        geocache_id=geocache_id, is_friend_log=True
+    ).count()
+
+    # Les « Found » d'amis relevés ici alimentent la même table que la
+    # déduction par zone : les deux sources convergent vers FriendFind.
+    # Rien à en tirer si la vérification amis a échoué : friend_external_ids
+    # est alors inconnu.
+    if not friends_check_failed:
+        friend_finders = {
+            log_data.author
+            for log_data in fetched_logs
+            if log_data.external_id in friend_external_ids
+            and GeocacheLog.normalize_log_type(log_data.log_type) == 'Found'
+            and log_data.author
+        }
+        for author in friend_finders:
+            store_finds(author, [gc_code], source='cache_logs')
+
+    logger.info(
+        f"Refreshed logs for {gc_code}: {added_count} added, {updated_count} updated, "
+        f"{replaced_local_count} local replaced, "
+        f"{images_added} images, "
+        f"{friends_count} from friends" + (" (friend check failed)" if friends_check_failed else "")
+    )
+
+    return {
+        'geocache_id': geocache_id,
+        'gc_code': gc_code,
+        'message': 'Logs refreshed successfully',
+        'added': added_count,
+        'updated': updated_count,
+        'replaced_local': replaced_local_count,
+        'images_added': images_added,
+        'friends': friends_count,
+        'friends_check_failed': friends_check_failed,
+        'own_check_failed': own_external_ids is None,
+        'total': geocache.logs_count,
+        'total_available': geocache.logs_total_available,
+        'truncated': truncated
+    }
+
+
 @bp.post('/api/geocaches/<int:geocache_id>/logs/refresh')
 def refresh_geocache_logs(geocache_id: int):
     """
@@ -657,191 +862,16 @@ def refresh_geocache_logs(geocache_id: int):
         geocache = Geocache.query.get(geocache_id)
         if not geocache:
             return jsonify({'error': 'Geocache not found'}), 404
-        
-        gc_code = geocache.gc_code
-        if not gc_code:
+
+        if not geocache.gc_code:
             return jsonify({'error': 'Geocache has no GC code'}), 400
-        
+
         # Paramètres
         count = request.args.get('count', 25, type=int)
         page = request.args.get('page', 1, type=int)
         fetch_all = request.args.get('all', 'false').lower() in ('true', '1', 'yes')
 
-        logger.info(f"Refreshing logs for {gc_code} (count={count}, page={page}, all={fetch_all})")
-
-        # Récupérer les logs depuis Geocaching.com, en identifiant au passage
-        # ceux écrits par mes amis et par mon propre compte (filtrage côté
-        # serveur, cf. fetch_logbook).
-        client = GeocachingLogsClient()
-        friends_check_failed = False
-        total_available = None
-        truncated = False
-        try:
-            result = client.fetch_logbook(
-                gc_code, count=count, page=page, fetch_all=fetch_all, include_own=True
-            )
-            fetched_logs = result.logs
-            friend_external_ids = result.friend_external_ids
-            own_external_ids = result.own_external_ids
-            total_available = result.total_available
-            truncated = result.truncated
-        except FriendLogsCheckFailedError as e:
-            # L'appel sf=true a échoué : ce n'est PAS « aucun ami n'a loggué
-            # cette cache ». Les logs sont quand même enregistrés (contenu,
-            # dates...), mais is_friend_log n'est touché sur aucune ligne —
-            # ni existante ni nouvelle — pour ne pas écraser des badges
-            # corrects avec un résultat qu'on n'a pas pu vérifier. L'appel
-            # sp=true n'a alors pas eu lieu : is_own_log suit la même règle.
-            logger.warning(f"Friend check failed for {gc_code}, badges left untouched: {e}")
-            fetched_logs = e.logs
-            friend_external_ids = None
-            own_external_ids = None
-            friends_check_failed = True
-            total_available = e.total_available
-
-        # Le total annoncé par le logbook prime sur celui lu sur la page de la
-        # cache : il vient de la même source que les logs qu'on vient d'écrire.
-        if total_available is not None:
-            geocache.logs_total_available = total_available
-
-        if not fetched_logs:
-            logger.warning(f"No logs found for {gc_code}")
-            # Une page vide au-delà de la première n'est pas une anomalie : on a
-            # simplement demandé la suite d'un logbook déjà épuisé.
-            db.session.commit()
-            return jsonify({
-                'geocache_id': geocache_id,
-                'gc_code': gc_code,
-                'message': 'No logs found on Geocaching.com',
-                'added': 0,
-                'updated': 0,
-                'friends': 0,
-                'total': geocache.logs_count,
-                'total_available': geocache.logs_total_available
-            })
-        
-        # Récupérer les logs existants par external_id
-        existing_logs = {
-            log.external_id: log 
-            for log in GeocacheLog.query.filter_by(geocache_id=geocache_id).all()
-            if log.external_id
-        }
-        
-        # Le log qu'on a inséré soi-même à la soumission n'a pas le même
-        # external_id que celui renvoyé par le logbook : sans ce nettoyage, il
-        # resterait à côté de la version officielle, en double.
-        fetched_identities = {
-            _log_identity(log_data.author, log_data.date, log_data.log_type)
-            for log_data in fetched_logs
-        }
-        replaced_local_count = 0
-        for existing_log in list(existing_logs.values()):
-            if not (existing_log.external_id or '').startswith(_LOCAL_LOG_ID_PREFIX):
-                continue
-            identity = _log_identity(existing_log.author, existing_log.date, existing_log.log_type)
-            if identity in fetched_identities:
-                db.session.delete(existing_log)
-                existing_logs.pop(existing_log.external_id, None)
-                replaced_local_count += 1
-
-        added_count = 0
-        updated_count = 0
-        images_added = 0
-
-        for log_data in fetched_logs:
-            # `None` si la vérification amis a échoué : dans ce cas on ne sait
-            # pas, et on ne doit surtout pas le traduire en `False`. Même règle
-            # pour is_own_log quand l'appel sp=true n'a pas abouti.
-            is_friend_log = (
-                log_data.external_id in friend_external_ids
-                if friend_external_ids is not None else None
-            )
-            is_own_log = (
-                log_data.external_id in own_external_ids
-                if own_external_ids is not None else None
-            )
-
-            if log_data.external_id in existing_logs:
-                # Mettre à jour le log existant
-                existing_log = existing_logs[log_data.external_id]
-                existing_log.text = log_data.text
-                existing_log.log_type = GeocacheLog.normalize_log_type(log_data.log_type)
-                existing_log.is_favorite = log_data.is_favorite
-                if is_friend_log is not None:
-                    existing_log.is_friend_log = is_friend_log
-                if is_own_log is not None:
-                    existing_log.is_own_log = is_own_log
-                images_added += _sync_log_images(existing_log, geocache_id, log_data.images)
-                updated_count += 1
-            else:
-                # Créer un nouveau log. Sans vérification fiable, on ne peut
-                # pas faire mieux que `False` par défaut ; friends_check_failed
-                # dans la réponse signale qu'il faudra rafraîchir à nouveau.
-                new_log = GeocacheLog(
-                    geocache_id=geocache_id,
-                    external_id=log_data.external_id,
-                    author=log_data.author,
-                    author_guid=log_data.author_guid,
-                    text=log_data.text,
-                    date=log_data.date,
-                    log_type=GeocacheLog.normalize_log_type(log_data.log_type),
-                    is_favorite=log_data.is_favorite,
-                    is_friend_log=bool(is_friend_log),
-                    is_own_log=bool(is_own_log),
-                )
-                images_added += _sync_log_images(new_log, geocache_id, log_data.images)
-                db.session.add(new_log)
-                added_count += 1
-
-        # Mettre à jour le compteur de logs
-        geocache.logs_count = GeocacheLog.query.filter_by(geocache_id=geocache_id).count()
-
-        db.session.commit()
-
-        # Compté depuis la base plutôt que depuis friend_external_ids : ça
-        # reste correct même quand la vérification amis a échoué (les badges
-        # existants n'ont alors pas été touchés).
-        friends_count = GeocacheLog.query.filter_by(
-            geocache_id=geocache_id, is_friend_log=True
-        ).count()
-
-        # Les « Found » d'amis relevés ici alimentent la même table que la
-        # déduction par zone : les deux sources convergent vers FriendFind.
-        # Rien à en tirer si la vérification amis a échoué : friend_external_ids
-        # est alors inconnu.
-        if not friends_check_failed:
-            friend_finders = {
-                log_data.author
-                for log_data in fetched_logs
-                if log_data.external_id in friend_external_ids
-                and GeocacheLog.normalize_log_type(log_data.log_type) == 'Found'
-                and log_data.author
-            }
-            for author in friend_finders:
-                store_finds(author, [gc_code], source='cache_logs')
-
-        logger.info(
-            f"Refreshed logs for {gc_code}: {added_count} added, {updated_count} updated, "
-            f"{replaced_local_count} local replaced, "
-            f"{images_added} images, "
-            f"{friends_count} from friends" + (" (friend check failed)" if friends_check_failed else "")
-        )
-
-        return jsonify({
-            'geocache_id': geocache_id,
-            'gc_code': gc_code,
-            'message': 'Logs refreshed successfully',
-            'added': added_count,
-            'updated': updated_count,
-            'replaced_local': replaced_local_count,
-            'images_added': images_added,
-            'friends': friends_count,
-            'friends_check_failed': friends_check_failed,
-            'own_check_failed': own_external_ids is None,
-            'total': geocache.logs_count,
-            'total_available': geocache.logs_total_available,
-            'truncated': truncated
-        })
+        return jsonify(_refresh_geocache_logs_core(geocache, count, page, fetch_all))
 
     except LookupError as e:
         logger.warning(f"Geocache not found on Geocaching.com: {e}")
@@ -855,6 +885,134 @@ def refresh_geocache_logs(geocache_id: int):
         logger.error(f"Error refreshing logs for geocache {geocache_id}: {e}")
         db.session.rollback()
         raise
+
+
+@bp.post('/api/geocaches/logs/refresh-batch')
+def refresh_geocache_logs_batch():
+    """
+    Rafraîchit les logs de plusieurs géocaches en une seule réponse NDJSON.
+
+    La boucle vit côté serveur : un seul aller-retour HTTP local au lieu d'un
+    par cache, et le serveur peut étaler proprement les appels vers
+    Geocaching.com (une pause entre caches) et s'arrêter net si le client se
+    déconnecte. Une cache en échec n'interrompt pas le lot.
+
+    Body JSON : `{ "geocache_ids": [1, 2, 3], "count": 25 }`
+
+    Lignes émises (une ligne = un objet JSON) :
+
+    - ``{"phase": "start", "total": N}``
+    - ``{"phase": "progress", "done": i, "total": N, ...}`` — le payload est
+      celui du rafraîchissement unitaire (`added`, `updated`, `friends`, …)
+    - ``{"phase": "error", "done": i, "total": N, "geocache_id": id,
+      "gc_code": "…", "message": "…"}``
+    - ``{"phase": "rate_limited", "done": i, "total": N, "message": "…"}`` —
+      Geocaching.com limite : le lot s'arrête là
+    - ``{"phase": "done", "refreshed": K, "failed": M, "failed_ids": […]}``
+    """
+    data = request.get_json(silent=True) or {}
+    ids = data.get('geocache_ids')
+    if (not isinstance(ids, list) or not ids
+            or any(not isinstance(i, int) or isinstance(i, bool) for i in ids)):
+        return jsonify({'error': 'geocache_ids doit être une liste non vide d\'entiers'}), 400
+
+    count = data.get('count', 25)
+    if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+        count = 25
+
+    if not get_auth_service().is_logged_in():
+        return jsonify({'error': 'not_authenticated'}), 401
+
+    def generate():
+        total = len(ids)
+        yield json.dumps({'phase': 'start', 'total': total}) + '\n'
+
+        refreshed = 0
+        failed_ids: list[int] = []
+
+        for index, geocache_id in enumerate(ids):
+            # Le client (AbortController) a fermé la connexion : on s'arrête
+            # proprement — chaque cache déjà traitée est commitée.
+            if request.environ.get('werkzeug.socket.disconnected'):
+                logger.info(f"Logs batch refresh aborted by client after {index} geocache(s)")
+                break
+
+            geocache = Geocache.query.get(geocache_id)
+            if not geocache:
+                failed_ids.append(geocache_id)
+                yield json.dumps({
+                    'phase': 'error', 'done': index + 1, 'total': total,
+                    'geocache_id': geocache_id,
+                    'message': 'Geocache not found',
+                }) + '\n'
+            elif not geocache.gc_code:
+                failed_ids.append(geocache_id)
+                yield json.dumps({
+                    'phase': 'error', 'done': index + 1, 'total': total,
+                    'geocache_id': geocache_id,
+                    'message': 'Geocache has no GC code',
+                }) + '\n'
+            else:
+                try:
+                    payload = _refresh_geocache_logs_core(
+                        geocache, count=count, page=1, fetch_all=False
+                    )
+                    refreshed += 1
+                    yield json.dumps({
+                        'phase': 'progress', 'done': index + 1, 'total': total,
+                        **payload,
+                    }) + '\n'
+                except LookupError:
+                    failed_ids.append(geocache_id)
+                    yield json.dumps({
+                        'phase': 'error', 'done': index + 1, 'total': total,
+                        'geocache_id': geocache_id, 'gc_code': geocache.gc_code,
+                        'message': 'Geocache not found on Geocaching.com',
+                    }) + '\n'
+                except GeocachingLogsError as e:
+                    failed_ids.append(geocache_id)
+                    logger.error(f"Batch logs refresh failed for {geocache.gc_code}: {e}")
+                    if '429' in str(e) or 'rate' in str(e).lower():
+                        yield json.dumps({
+                            'phase': 'rate_limited', 'done': index, 'total': total,
+                            'message': (
+                                f"Geocaching.com limite les requêtes : lot interrompu "
+                                f"après {index} géocache(s). Relancez dans quelques "
+                                f"minutes pour continuer."
+                            ),
+                        }) + '\n'
+                        break
+                    yield json.dumps({
+                        'phase': 'error', 'done': index + 1, 'total': total,
+                        'geocache_id': geocache_id, 'gc_code': geocache.gc_code,
+                        'message': str(e),
+                    }) + '\n'
+                except Exception as e:  # pragma: no cover - garde-fou
+                    logger.exception(f"Unexpected error refreshing logs for {geocache.gc_code}")
+                    db.session.rollback()
+                    failed_ids.append(geocache_id)
+                    yield json.dumps({
+                        'phase': 'error', 'done': index + 1, 'total': total,
+                        'geocache_id': geocache_id, 'gc_code': geocache.gc_code,
+                        'message': f"Erreur inattendue : {e}",
+                    }) + '\n'
+
+            # Étaler les appels vers Geocaching.com : une courte pause entre
+            # caches (pas après la dernière).
+            if index + 1 < total:
+                time.sleep(BATCH_LOGS_REFRESH_INTERVAL_SECONDS)
+
+        yield json.dumps({
+            'phase': 'done',
+            'refreshed': refreshed,
+            'failed': len(failed_ids),
+            'failed_ids': failed_ids,
+        }) + '\n'
+
+    return Response(
+        stream_with_context(generate()),
+        content_type='application/json',
+    )
 
 
 @bp.get('/api/geocaches/<int:geocache_id>/logs/recent-summary')

@@ -541,12 +541,40 @@ class InteractiveController extends TestableController {
             }
             return this.logsStatus;
         };
-        service.refreshLogs = async (id: number, count: number) => {
-            this.calls.push(`refresh:${id}`);
-            if (this.failingRefreshIds.has(id)) {
-                throw new Error('Geocaching.com injoignable');
-            }
-            this.refreshed.push({ id, count });
+        // Le rafraîchissement passe par l'endpoint en lot : le double rejoue le
+        // flux NDJSON que le backend servirait — une ligne `progress` par cache
+        // réussie, `error` par cache en échec, puis le bilan `done`.
+        service.refreshLogsBatch = async (ids: number[], count: number) => {
+            const events: object[] = [{ phase: 'start', total: ids.length }];
+            ids.forEach((id, index) => {
+                this.calls.push(`refresh:${id}`);
+                if (this.failingRefreshIds.has(id)) {
+                    events.push({
+                        phase: 'error',
+                        done: index + 1,
+                        total: ids.length,
+                        geocache_id: id,
+                        message: 'Geocaching.com injoignable',
+                    });
+                } else {
+                    this.refreshed.push({ id, count });
+                    events.push({
+                        phase: 'progress',
+                        done: index + 1,
+                        total: ids.length,
+                        geocache_id: id,
+                        gc_code: `GC${id}`,
+                    });
+                }
+            });
+            const failedIds = ids.filter(id => this.failingRefreshIds.has(id));
+            events.push({
+                phase: 'done',
+                refreshed: ids.length - failedIds.length,
+                failed: failedIds.length,
+                failed_ids: failedIds,
+            });
+            return new Response(events.map(event => JSON.stringify(event)).join('\n') + '\n');
         };
 
         (this as any).messages = {

@@ -40,6 +40,7 @@ import {
     OUTING_RECENT_LOGS_PREF,
     OUTING_REFRESH_LOGS_COUNT_PREF,
     OUTING_WARN_ABOVE_PREF,
+    LogsRefreshBatchEvent,
     OutingAnalysisBundle,
     OutingDetailLevel,
     OutingLogsStatusEntry,
@@ -384,8 +385,7 @@ export class OutingAnalysisController {
             [
                 {
                     label: `Rafraîchir les logs puis analyser (recommandé)`,
-                    description: `${gaps.length} géocache(s) — une requête Geocaching.com par cache, `
-                        + `annulable`,
+                    description: `${gaps.length} géocache(s) — rafraîchissement groupé, annulable`,
                     value: 'refresh',
                 },
                 {
@@ -410,12 +410,14 @@ export class OutingAnalysisController {
     }
 
     /**
-     * Rafraîchissement séquentiel des logs, une géocache à la fois.
+     * Rafraîchissement des logs en lot, une seule requête streaming.
      *
-     * Séquentiel à dessein : chaque appel scrape un logbook, et lancer soixante requêtes
-     * de front reviendrait à marteler geocaching.com. Un échec isolé n'interrompt pas la
-     * série — il vaut mieux analyser avec dix caches rafraîchies sur douze que pas du
-     * tout — mais une annulation, elle, remonte.
+     * La boucle vit côté serveur (`POST /logs/refresh-batch`, NDJSON) : un seul
+     * aller-retour local au lieu d'un par cache, et le backend étale les appels
+     * vers geocaching.com — lancer soixante requêtes de front reviendrait à le
+     * marteler. Un échec isolé n'interrompt pas la série — il vaut mieux
+     * analyser avec dix caches rafraîchies sur douze que pas du tout — mais une
+     * annulation, elle, remonte via l'`AbortSignal`.
      *
      * Renvoie les identifiants dont le rafraîchissement a échoué.
      */
@@ -426,23 +428,89 @@ export class OutingAnalysisController {
     ): Promise<number[]> {
         const count = this.readNumber(OUTING_REFRESH_LOGS_COUNT_PREF, 25);
         const failed: number[] = [];
+        const seen = new Set<number>();
+        let total = ids.length;
 
-        for (let index = 0; index < ids.length; index++) {
-            progress.report({
-                message: `Rafraîchissement des logs ${index + 1}/${ids.length}…`,
-            });
-            try {
-                await this.geocachesService.refreshLogs(ids[index], count, signal);
-            } catch (error) {
-                if ((error as Error)?.name === 'AbortError') {
-                    throw error;
-                }
-                console.warn(
-                    `[OutingAnalysisController] Logs non rafraîchis pour ${ids[index]}`,
-                    error
-                );
-                failed.push(ids[index]);
+        const handleLine = (line: string): void => {
+            const trimmed = line.trim();
+            if (!trimmed) {
+                return;
             }
+            let event: LogsRefreshBatchEvent;
+            try {
+                event = JSON.parse(trimmed) as LogsRefreshBatchEvent;
+            } catch (error) {
+                console.error('[OutingAnalysisController] Ligne de stream illisible', error);
+                return;
+            }
+            switch (event.phase) {
+                case 'start':
+                    total = event.total;
+                    break;
+                case 'progress':
+                case 'error':
+                    progress.report({
+                        message: `Rafraîchissement des logs ${event.done}/${total}…`,
+                    });
+                    if (event.geocache_id !== undefined) {
+                        seen.add(event.geocache_id);
+                    }
+                    if (event.phase === 'error') {
+                        console.warn(
+                            `[OutingAnalysisController] Logs non rafraîchis pour `
+                            + `${event.gc_code ?? event.geocache_id} : ${event.message}`
+                        );
+                        if (event.geocache_id !== undefined) {
+                            failed.push(event.geocache_id);
+                        }
+                    }
+                    break;
+                case 'rate_limited':
+                    this.messages.warn(event.message ?? 'Geocaching.com limite les requêtes.');
+                    break;
+                case 'done':
+                    // Le bilan du serveur fait foi : il liste aussi les échecs
+                    // qui n'auraient pas eu leur ligne `error` (arrêt précoce).
+                    for (const failedId of event.failed_ids ?? []) {
+                        seen.add(failedId);
+                        if (!failed.includes(failedId)) {
+                            failed.push(failedId);
+                        }
+                    }
+                    break;
+            }
+        };
+
+        try {
+            const response = await this.geocachesService.refreshLogsBatch(ids, count, signal);
+            if (!response.body) {
+                throw new Error('Réponse streaming non supportée par le backend.');
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            for (;;) {
+                const { done, value } = await reader.read();
+                if (done) {
+                    break;
+                }
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+                lines.forEach(handleLine);
+            }
+            handleLine(buffer);
+        } catch (error) {
+            if ((error as Error)?.name === 'AbortError') {
+                throw error;
+            }
+            // Le lot entier n'a pas abouti (backend injoignable, stream coupé) :
+            // les caches jamais confirmées comptent comme non rafraîchies, mais
+            // l'analyse doit pouvoir continuer avec ce qui est en base.
+            console.warn('[OutingAnalysisController] Rafraîchissement en lot interrompu', error);
+            return [...new Set([...failed, ...ids.filter(id => !seen.has(id))])];
         }
 
         return failed;

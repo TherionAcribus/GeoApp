@@ -525,3 +525,16 @@ export interface OutingLogsStatus {
     without_local_logs: OutingLogsStatusEntry[];
     stale_logs: OutingLogsStatusEntry[];
 }
+
+/**
+ * Événements émis par `POST /api/geocaches/logs/refresh-batch` (une ligne JSON
+ * par événement, même convention que `/api/friends/finds/sync-zone-stream`).
+ * Le champ `phase` discrimine le payload ; `progress` porte en plus tout le
+ * résultat du rafraîchissement unitaire (`added`, `updated`, `friends`, …).
+ */
+export type LogsRefreshBatchEvent =
+    | { phase: 'start'; total: number }
+    | { phase: 'progress'; done: number; total: number; geocache_id: number; gc_code?: string }
+    | { phase: 'error'; done: number; total: number; geocache_id?: number; gc_code?: string; message?: string }
+    | { phase: 'rate_limited'; done?: number; total?: number; message?: string }
+    | { phase: 'done'; refreshed: number; failed: number; failed_ids?: number[] };

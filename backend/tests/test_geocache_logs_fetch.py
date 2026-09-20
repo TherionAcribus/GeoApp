@@ -284,6 +284,97 @@ def _patch_client(monkeypatch, session):
     )
 
 
+class _FakeAuth:
+    """Le lot exige une session Geocaching.com ouverte — cf. sync-zone-stream."""
+
+    def __init__(self, logged_in: bool):
+        self._logged_in = logged_in
+
+    def is_logged_in(self) -> bool:
+        return self._logged_in
+
+
+def _patch_batch(monkeypatch, session, logged_in: bool = True):
+    """Client + auth + pause nulle : le lot devient instantané en test."""
+    import gc_backend.blueprints.logs as logs_blueprint
+    _patch_client(monkeypatch, session)
+    monkeypatch.setattr(
+        logs_blueprint, 'get_auth_service', lambda: _FakeAuth(logged_in)
+    )
+    monkeypatch.setattr(logs_blueprint, 'BATCH_LOGS_REFRESH_INTERVAL_SECONDS', 0)
+
+
+def _parse_ndjson(response) -> list[dict]:
+    """Découpe une réponse streaming en liste d'objets JSON."""
+    lines = response.data.decode('utf-8').strip().split('\n')
+    return [json.loads(line) for line in lines if line.strip()]
+
+
+def _add_geocache(app, gc_code: str) -> int:
+    zone_id = Geocache.query.get(app.geocache_id).zone_id
+    geocache = Geocache(gc_code=gc_code, name='Autre', type='Traditional', zone_id=zone_id)
+    db.session.add(geocache)
+    db.session.commit()
+    return geocache.id
+
+
+def test_refresh_batch_streams_one_line_per_geocache(app, monkeypatch):
+    """Un seul POST pour tout le lot : progression NDJSON puis bilan."""
+    _patch_batch(monkeypatch, _PaginatedSession(total=137))
+    second_id = _add_geocache(app, 'GC22222')
+
+    response = app.test_client().post(
+        '/api/geocaches/logs/refresh-batch',
+        json={'geocache_ids': [app.geocache_id, second_id], 'count': 20},
+    )
+
+    assert response.status_code == 200
+    lines = _parse_ndjson(response)
+    assert [line['phase'] for line in lines] == ['start', 'progress', 'progress', 'done']
+    assert lines[0] == {'phase': 'start', 'total': 2}
+    # Le payload unitaire voyage tel quel dans la ligne de progression.
+    assert lines[1]['added'] == 20
+    assert lines[1]['geocache_id'] == app.geocache_id
+    assert lines[2]['geocache_id'] == second_id
+    assert lines[-1] == {'phase': 'done', 'refreshed': 2, 'failed': 0, 'failed_ids': []}
+    assert GeocacheLog.query.filter_by(geocache_id=second_id).count() == 20
+
+
+def test_refresh_batch_keeps_going_past_a_missing_geocache(app, monkeypatch):
+    """Une cache inconnue produit une ligne `error` sans arrêter le lot."""
+    _patch_batch(monkeypatch, _PaginatedSession(total=10))
+    second_id = _add_geocache(app, 'GC22222')
+
+    response = app.test_client().post(
+        '/api/geocaches/logs/refresh-batch',
+        json={'geocache_ids': [app.geocache_id, 9999, second_id], 'count': 10},
+    )
+
+    lines = _parse_ndjson(response)
+    assert [line['phase'] for line in lines] == ['start', 'progress', 'error', 'progress', 'done']
+    assert lines[2]['geocache_id'] == 9999
+    assert lines[-1] == {'phase': 'done', 'refreshed': 2, 'failed': 1, 'failed_ids': [9999]}
+
+
+def test_refresh_batch_rejects_when_not_authenticated(app, monkeypatch):
+    _patch_batch(monkeypatch, _PaginatedSession(total=10), logged_in=False)
+
+    response = app.test_client().post(
+        '/api/geocaches/logs/refresh-batch',
+        json={'geocache_ids': [app.geocache_id]},
+    )
+    assert response.status_code == 401
+
+
+def test_refresh_batch_rejects_invalid_payload(app, monkeypatch):
+    _patch_batch(monkeypatch, _PaginatedSession(total=10))
+
+    for payload in ({}, {'geocache_ids': 'x'}, {'geocache_ids': []},
+                    {'geocache_ids': ['GC1']}):
+        response = app.test_client().post('/api/geocaches/logs/refresh-batch', json=payload)
+        assert response.status_code == 400, payload
+
+
 def test_refresh_route_records_and_exposes_the_total_available(app, monkeypatch):
     _patch_client(monkeypatch, _PaginatedSession(total=137))
     client = app.test_client()
