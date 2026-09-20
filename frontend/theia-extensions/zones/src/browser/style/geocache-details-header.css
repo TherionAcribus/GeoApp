@@ -1,0 +1,24 @@
+/* En-tête des détails de géocache : états « en cours » portés par les boutons
+   eux-mêmes, pour éviter les notifications transitoires. */
+
+/* Le bouton de rafraîchissement fait tourner son icône tant que la géocache
+   est en cours de mise à jour. */
+.geoapp-gcd-refresh-icon {
+    display: inline-block;
+}
+
+.geoapp-gcd-refresh-icon--spinning {
+    animation: geoapp-gcd-refresh-spin 900ms linear infinite;
+}
+
+@keyframes geoapp-gcd-refresh-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .geoapp-gcd-refresh-icon--spinning {
+        animation-duration: 2.5s;
+    }
+}

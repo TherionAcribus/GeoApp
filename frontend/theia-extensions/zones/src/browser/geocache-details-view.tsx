@@ -44,6 +44,8 @@ interface GeocacheDetailsViewProps {
     imagesPanelProps?: GeocacheImagesPanelProps;
     waypointsEditorProps: WaypointsEditorProps;
     onRefresh?: () => void | Promise<void>;
+    /** Rafraichissement en cours : anime l'icone du bouton de rafraichissement de l'en-tete. */
+    isRefreshing?: boolean;
     logsSummaryEntries?: import('./geocache-logs-summary').LogSummaryEntry[];
     logsSummaryTotalCount?: number;
     isLogsSummaryLoading?: boolean;
@@ -69,6 +71,7 @@ export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
     imagesPanelProps,
     waypointsEditorProps,
     onRefresh,
+    isRefreshing,
     logsSummaryEntries,
     logsSummaryTotalCount,
     isLogsSummaryLoading,
@@ -99,7 +102,7 @@ export const GeocacheDetailsView: React.FC<GeocacheDetailsViewProps> = ({
                 }}
                 aria-busy={isLoading}
             >
-                <GeocacheDetailsHeader {...headerProps} onRefresh={onRefresh} />
+                <GeocacheDetailsHeader {...headerProps} onRefresh={onRefresh} isRefreshing={isRefreshing} />
 
                 {apiBaseUrl && geocacheData.id ? (
                     <GeocacheFriendFindsBanner geocacheId={geocacheData.id} apiBaseUrl={apiBaseUrl} />

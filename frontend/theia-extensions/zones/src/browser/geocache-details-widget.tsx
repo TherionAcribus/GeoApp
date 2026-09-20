@@ -109,6 +109,8 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
     protected archiveStatus: GeocacheArchiveStatus = 'none';
     protected archiveUpdatedAt: string | undefined = undefined;
     protected isSyncingArchive = false;
+    /** Rafraichissement de la geocache en cours : anime l'icone du bouton de l'en-tete. */
+    protected isRefreshing = false;
     protected chatWorkflowPreview: GeoAppChatWorkflowKind = 'general';
     protected chatProfilePreview: GeoAppChatProfile = 'fast';
     protected chatProfileOverride: GeoAppChatWorkflowProfile = 'default';
@@ -1256,11 +1258,13 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
     };
 
     private refreshGeocache = async (): Promise<void> => {
-        if (!this.geocacheId) {
+        if (!this.geocacheId || this.isRefreshing) {
             return;
         }
+        // L'état « en cours » est porté par l'icône animée du bouton, pas par une notification.
+        this.isRefreshing = true;
+        this.update();
         try {
-            this.messages.info('Rafraîchissement en cours...');
             await this.geocachesService.refresh(this.geocacheId);
             await this.load();
             window.dispatchEvent(new CustomEvent('geoapp-geocache-images-updated', { detail: { geocacheId: this.geocacheId } }));
@@ -1270,6 +1274,9 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         } catch (error) {
             console.error('[GeocacheDetailsWidget] refreshGeocache error', error);
             this.messages.error(getErrorMessage(error, 'Erreur lors du rafraîchissement'));
+        } finally {
+            this.isRefreshing = false;
+            this.update();
         }
     };
 
@@ -1486,6 +1493,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                     onRegisterCallback: this.handleRegisterWaypointCallback,
                 }}
                 onRefresh={this.refreshGeocache}
+                isRefreshing={this.isRefreshing}
                 logsSummaryEntries={this.logsSummaryEntries}
                 logsSummaryTotalCount={this.logsSummaryTotalCount}
                 isLogsSummaryLoading={this.isLogsSummaryLoading}

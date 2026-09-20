@@ -22,7 +22,7 @@ Particularité notable : le widget est **multi-instances** (un onglet par géoca
 |---|---|
 | `geocache-details-widget.tsx` | `ReactWidget` Theia (`StatefulWidget`). Détient tout l'état, orchestre les actions, écoute les événements (DOM + service inter-widgets), et délègue le rendu à `GeocacheDetailsView`. ~1300 lignes : c'est le chef d'orchestre. |
 | `geocache-details-view.tsx` | Composant React **sans état** : assemble les sections dans l'ordre et applique l'overlay de rechargement. Contient les wrappers `React.memo` des composants feuilles coûteux. |
-| `geocache-details-sections.tsx` | Composants présentationnels du header et des sections (overview, infos détaillées, indices, checkers) + helpers de rendu (étoiles, attributs, badges d'archive). |
+| `geocache-details-sections.tsx` | Composants présentationnels du header et des sections (overview, infos détaillées, indices, checkers) + helpers de rendu (étoiles, attributs, badges d'archive et de découverte). |
 | `geocache-details-types.ts` | DTO et types partagés (`GeocacheDto`, `GeocacheWaypoint`, `GeocacheChecker`, `DescriptionVariant`, `WaypointPrefillPayload`…). |
 | `geocache-details-service.ts` | Client HTTP (via `BackendApiClient`) : description, coordonnées, waypoints, statut solved, contenu traduit, archive, workflow chat, résumé des logs. |
 | `geocache-details-content-controller.ts` | Logique de contenu pure : choix description effective (original/modifié), décodage ROT13 des indices, extraction du contenu cherchable (recherche in-page). |
@@ -140,14 +140,14 @@ Les chargements secondaires portent une **garde anti-course** : si l'utilisateur
 
 L'ordre de rendu (`GeocacheDetailsView`) :
 
-1. **Header** (`GeocacheDetailsHeader`) : titre, badges (archivée / désactivée), barre d'actions :
+1. **Header** (`GeocacheDetailsHeader`) : titre, badges (**trouvée / non trouvée** — toujours affiché, vert avec la date de découverte si connue ; archivée / désactivée), barre d'actions :
    - menu déroulant **« Analyser »** (Formula Solver, Analyse page, Analyse code/Metasolver, Analyse plugins, Grilles, + actions contribuées) ;
    - **split-button Chat IA** affichant le profil effectif + menu de sélection de profil (`Auto`/`Fast`/`Strong`/`Web`/`Local`) ;
    - **Chat Libre** ;
    - groupe **Logs / Loguer / Notes** (avec compteur de notes) ;
    - bouton **rafraîchir** et bouton **statut d'archive** (couleur/icône selon l'état).
 2. **Overview** (`GeocacheOverviewSection`) : carte « Statistiques » (D/T en étoiles, taille, favoris, résumé des logs, attributs) + carte « Coordonnées » (`CoordinatesEditor`).
-3. **Infos détaillées** (`GeocacheDetailedInfoSection`) : `<details>` repliable avec le tableau complet.
+3. **Infos détaillées** (`GeocacheDetailedInfoSection`) : `<details>` repliable avec le tableau complet (dont « Trouvee » et « Trouvee le »).
 4. **Description** (`DescriptionEditor`) : bascule original/modifié, édition, traduction (FR / tout FR), rendu HTML **sanitizé**.
 5. **Indices** (`GeocacheHintsSection`) : affichage codé/décodé (ROT13) avec bascule.
 6. **Images** (`GeocacheImagesPanel`) : galerie, stockage local, OCR, sélection pour chat.

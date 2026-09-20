@@ -13,6 +13,7 @@ import {
 import { ContextMenu, ContextMenuItem } from './context-menu';
 import { GeocacheDetailsHeaderAction } from './geocache-details-header-actions';
 import { LogsRecentSummary, LogSummaryEntry } from './geocache-logs-summary';
+import '../../src/browser/style/geocache-details-header.css';
 
 type ArchiveStatus = 'synced' | 'needs_sync' | 'none' | 'loading';
 
@@ -57,6 +58,8 @@ interface GeocacheDetailsHeaderProps {
     onOpenNotes: () => void;
     onForceSyncArchive: () => void | Promise<void>;
     onRefresh?: () => void | Promise<void>;
+    /** Rafraîchissement en cours : le bouton porte l'état (icône animée) au lieu d'une notification. */
+    isRefreshing?: boolean;
     extraActions?: GeocacheDetailsHeaderAction[];
 }
 
@@ -89,6 +92,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
     onOpenNotes,
     onForceSyncArchive,
     onRefresh,
+    isRefreshing = false,
     extraActions = []
 }) => {
     const archiveTooltip = getArchiveTooltip(archiveStatus, archiveUpdatedAt);
@@ -444,6 +448,7 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                 <span style={{ opacity: 0.7 }}>{geocacheData.type}</span>
                 <span style={{ opacity: 0.7 }}>|</span>
                 <span style={{ opacity: 0.7 }}>{`Par ${geocacheData.owner || 'Inconnu'}`}</span>
+                {renderFoundBadge(geocacheData)}
                 {geocacheData.status === 'archived' && (
                     <span style={{
                         background: 'var(--theia-inputValidation-errorBackground)',
@@ -474,11 +479,18 @@ export const GeocacheDetailsHeader: React.FC<GeocacheDetailsHeaderProps> = ({
                     <button
                         className='theia-button secondary'
                         onClick={() => { void onRefresh(); }}
-                        style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12 }}
-                        title='Rafraîchir cette géocache'
-                        aria-label='Rafraîchir cette géocache'
+                        disabled={isRefreshing}
+                        style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, cursor: isRefreshing ? 'wait' : undefined }}
+                        title={isRefreshing ? 'Rafraîchissement en cours…' : 'Rafraîchir cette géocache'}
+                        aria-label={isRefreshing ? 'Rafraîchissement en cours…' : 'Rafraîchir cette géocache'}
+                        aria-busy={isRefreshing}
                     >
-                        <span aria-hidden='true'>🔄</span>
+                        <span
+                            aria-hidden='true'
+                            className={`geoapp-gcd-refresh-icon${isRefreshing ? ' geoapp-gcd-refresh-icon--spinning' : ''}`}
+                        >
+                            🔄
+                        </span>
                     </button>
                 )}
                 {archiveStatus !== 'none' ? (
@@ -595,6 +607,8 @@ export const GeocacheDetailedInfoSection: React.FC<GeocacheDetailedInfoSectionPr
                 {renderRow('Logs', geocacheData.logs_count?.toString())}
                 {renderRow('Placee le', geocacheData.placed_at)}
                 {renderRow('Statut', geocacheData.status)}
+                {renderRow('Trouvee', geocacheData.found ? 'Oui' : 'Non')}
+                {renderRow('Trouvee le', formatFoundDate(geocacheData.found_date))}
                 {renderRow('Lien', geocacheData.url ? <a href={geocacheData.url} target='_blank' rel='noreferrer'>{geocacheData.url}</a> : undefined)}
             </tbody>
         </table>
@@ -763,6 +777,58 @@ function renderRow(label: string, value?: React.ReactNode): React.ReactNode {
             <td style={{ opacity: 0.7, paddingRight: 8 }}>{label}</td>
             <td>{value}</td>
         </tr>
+    );
+}
+
+/** Date de decouverte au format court FR, ou `undefined` si absente / invalide. */
+function formatFoundDate(iso?: string): string | undefined {
+    if (!iso) {
+        return undefined;
+    }
+    const timestamp = Date.parse(iso);
+    if (!Number.isFinite(timestamp)) {
+        return undefined;
+    }
+    return new Date(timestamp).toLocaleDateString('fr-FR');
+}
+
+/**
+ * Pastille « trouvee / non trouvee » affichee dans l'entete. Les deux etats sont rendus
+ * (et non seulement « trouvee ») pour que le statut soit toujours explicite : une absence
+ * de pastille serait ambigue avec une donnee non chargee.
+ */
+function renderFoundBadge(geocacheData: GeocacheDto): React.ReactNode {
+    const isFound = geocacheData.found === true;
+    const foundDate = formatFoundDate(geocacheData.found_date);
+    const label = isFound
+        ? (foundDate ? `Trouvée le ${foundDate}` : 'Trouvée')
+        : 'Non trouvée';
+    const tooltip = isFound
+        ? (foundDate ? `Géocache trouvée le ${foundDate}` : 'Géocache trouvée (date inconnue)')
+        : 'Géocache pas encore trouvée';
+    const green = 'var(--theia-charts-green, #10b981)';
+
+    return (
+        <span
+            title={tooltip}
+            aria-label={tooltip}
+            style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                borderRadius: 12,
+                padding: '2px 10px',
+                fontSize: 12,
+                fontWeight: 'bold',
+                border: `1px solid ${isFound ? green : 'var(--theia-panel-border)'}`,
+                background: isFound ? green : 'transparent',
+                color: isFound ? 'var(--theia-editor-background)' : 'var(--theia-descriptionForeground, var(--theia-foreground))',
+                opacity: isFound ? 1 : 0.85,
+            }}
+        >
+            <span aria-hidden='true'>{isFound ? '✔' : '○'}</span>
+            <span>{label}</span>
+        </span>
     );
 }
 
