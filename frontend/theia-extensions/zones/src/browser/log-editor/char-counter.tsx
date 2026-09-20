@@ -24,11 +24,11 @@ export const CharCounter: React.FC<FinalLengthStats> = ({ raw, min, max, worst }
 
     const over = max > GC_LOG_MAX_LENGTH;
     const near = !over && max > GC_LOG_MAX_LENGTH * 0.9;
-    const color = over
-        ? 'var(--theia-errorForeground, #f85149)'
+    const className = over
+        ? 'geoapp-log-counter geoapp-log-counter--over'
         : near
-            ? 'var(--theia-editorWarning-foreground, #d29922)'
-            : undefined;
+            ? 'geoapp-log-counter geoapp-log-counter--near'
+            : 'geoapp-log-counter';
 
     const count = min === max ? `${max}` : `${min}–${max}`;
     const hints: string[] = [];
@@ -44,17 +44,7 @@ export const CharCounter: React.FC<FinalLengthStats> = ({ raw, min, max, worst }
         : `Les @patterns donnent un texte différent par géocache. La plus longue : ${worst?.gc_code ?? '?'} (${max} caractères).`;
 
     return (
-        <div
-            style={{
-                marginTop: 4,
-                fontSize: 11,
-                textAlign: 'right',
-                opacity: color ? 1 : 0.7,
-                color,
-                fontWeight: over ? 600 : 400,
-            }}
-            title={tooltip}
-        >
+        <div className={className} title={tooltip}>
             {over && '⚠️ '}
             Texte final : {count}/{GC_LOG_MAX_LENGTH} caractères
             {hints.length > 0 && ` (${hints.join(', ')})`}

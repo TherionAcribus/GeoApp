@@ -18,20 +18,13 @@ export const MarkdownToolbar: React.FC<{
     onApplyFormat: (kind: MarkdownFormatKind, placeholder: string) => void;
     onApplyPrefix: (prefix: string, placeholder: string) => void;
 }> = ({ activeCaretFormat, isActive, disabled, onApplyFormat, onApplyPrefix }) => {
-    const buttonStyle: React.CSSProperties = { fontSize: 12, padding: '2px 10px' };
-    const activeStyle: React.CSSProperties = {
-        ...buttonStyle,
-        background: 'var(--theia-button-background)',
-        color: 'var(--theia-button-foreground)',
-    };
     const isFormatActive = (kind: MarkdownFormatKind) => isActive && activeCaretFormat === kind;
 
     const formatButton = (kind: MarkdownFormatKind, placeholder: string, title: string, label: React.ReactNode) => {
         const active = isFormatActive(kind);
         return (
             <button
-                className='theia-button secondary'
-                style={active ? activeStyle : buttonStyle}
+                className='theia-button secondary geoapp-log-button--medium geoapp-log-button--toggle'
                 onClick={() => onApplyFormat(kind, placeholder)}
                 disabled={disabled}
                 title={active ? `${title} — cliquer pour retirer` : title}
@@ -44,8 +37,7 @@ export const MarkdownToolbar: React.FC<{
 
     const prefixButton = (prefix: string, placeholder: string, title: string, label: React.ReactNode) => (
         <button
-            className='theia-button secondary'
-            style={buttonStyle}
+            className='theia-button secondary geoapp-log-button--medium'
             onClick={() => onApplyPrefix(prefix, placeholder)}
             disabled={disabled}
             title={title}
@@ -56,7 +48,7 @@ export const MarkdownToolbar: React.FC<{
 
     return (
         <>
-            <span style={{ fontSize: 12, opacity: 0.75, marginRight: 6 }}>Markdown</span>
+            <span className='geoapp-log-markdown-label'>Markdown</span>
             {formatButton('bold', 'texte', 'Gras', <strong>B</strong>)}
             {formatButton('italic', 'texte', 'Italique', <em>I</em>)}
             {formatButton('code', 'code', 'Code inline', '</>')}

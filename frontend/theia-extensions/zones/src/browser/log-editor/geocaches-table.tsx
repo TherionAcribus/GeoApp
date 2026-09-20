@@ -18,14 +18,6 @@ import { GeocacheIcon } from '../geocache-icon';
 import { LogTypeIcon } from '../geocache-log-type-icons';
 import { DnfBadge } from './dnf-badge';
 import {
-    ALREADY_FOUND_ACCENT,
-    ALREADY_FOUND_ROW_BACKGROUND,
-    DNF_ACCENT,
-    DNF_ROW_BACKGROUND,
-    JUST_LOGGED_ACCENT,
-    JUST_LOGGED_ROW_BACKGROUND,
-} from './constants';
-import {
     alreadyFoundTooltip,
     getLogTypeLabel,
     isJustLogged,
@@ -192,8 +184,8 @@ const GeocacheLogEditorGeocachesTableImpl: React.FC<{
                 cell: ({ row }) => {
                     const gc = row.original;
                     return (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
-                            <span style={{ fontSize: 11, opacity: 0.7, minWidth: 14, textAlign: 'right' }}>
+                        <div className='geoapp-log-table__order'>
+                            <span className='geoapp-log-table__order-index'>
                                 {row.index + 1}
                             </span>
                             <span
@@ -243,14 +235,9 @@ const GeocacheLogEditorGeocachesTableImpl: React.FC<{
                                 title={canReorder
                                     ? "Glisser pour changer l'ordre d'envoi (Alt + ↑/↓ au clavier)"
                                     : "Réordonnancement indisponible"}
-                                style={{
-                                    cursor: canReorder ? 'grab' : 'default',
-                                    opacity: canReorder ? 0.75 : 0.3,
-                                    fontSize: 14,
-                                    lineHeight: 1,
-                                    padding: '0 2px',
-                                    userSelect: 'none'
-                                }}
+                                className={canReorder
+                                    ? 'geoapp-log-table__grip'
+                                    : 'geoapp-log-table__grip geoapp-log-table__grip--disabled'}
                             >
                                 ⠿
                             </span>
@@ -283,7 +270,7 @@ const GeocacheLogEditorGeocachesTableImpl: React.FC<{
                 accessorKey: 'gc_code',
                 header: 'GC',
                 cell: ({ row }) => (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+                    <div className='geoapp-log-table__code'>
                         <strong>{row.original.gc_code}</strong>
                         {isPreviouslyFound(row.original, perCacheSubmitStatus) && (
                             <LogTypeIcon kind='found' size={15} title={alreadyFoundTooltip(row.original)} />
@@ -307,16 +294,15 @@ const GeocacheLogEditorGeocachesTableImpl: React.FC<{
                     const current = sanitizeLogTypeForGeocache(perCacheLogType[gc.id] ?? logType, gc);
                     return (
                         <select
-                            className='theia-select'
+                            className={isPendingDnf(gc, current, perCacheSubmitStatus)
+                                ? 'theia-select geoapp-log-select geoapp-log-select--dnf'
+                                : 'theia-select geoapp-log-select'}
                             value={current}
                             onChange={e => onToggleLogType(gc.id, e.target.value as LogTypeValue)}
                             disabled={justLogged}
                             title={justLogged
                                 ? 'Log déjà envoyé pour cette géocache'
                                 : previouslyFound ? alreadyFoundTooltip(gc) : undefined}
-                            style={isPendingDnf(gc, current, perCacheSubmitStatus)
-                                ? { fontSize: 12, color: DNF_ACCENT, borderColor: DNF_ACCENT, fontWeight: 600 }
-                                : { fontSize: 12 }}
                         >
                             <option value='found' disabled={previouslyFound}>{getLogTypeLabel('found')}</option>
                             <option value='dnf'>{getLogTypeLabel('dnf')}</option>
@@ -331,7 +317,7 @@ const GeocacheLogEditorGeocachesTableImpl: React.FC<{
                 accessorKey: 'name',
                 header: 'Nom',
                 cell: info => (
-                    <div style={{ maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={info.getValue() as string}>
+                    <div className='geoapp-log-table__name' title={info.getValue() as string}>
                         {info.getValue() as string}
                     </div>
                 ),
@@ -342,11 +328,11 @@ const GeocacheLogEditorGeocachesTableImpl: React.FC<{
                 cell: info => {
                     const owner = (info.getValue() as string | undefined) || '';
                     if (!owner) {
-                        return <span style={{ opacity: 0.7 }}>—</span>;
+                        return <span className='geoapp-log-table__cell--empty'>—</span>;
                     }
                     return (
                         <div
-                            style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, opacity: 0.85 }}
+                            className='geoapp-log-table__owner'
                             title={owner}
                         >
                             {owner}
@@ -361,12 +347,12 @@ const GeocacheLogEditorGeocachesTableImpl: React.FC<{
                 cell: info => {
                     const type = (info.getValue() as string | undefined) || '';
                     if (!type) {
-                        return <span style={{ opacity: 0.7 }}>—</span>;
+                        return <span className='geoapp-log-table__cell--empty'>—</span>;
                     }
                     return (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <div className='geoapp-log-table__type'>
                             <GeocacheIcon type={type} size={18} showLabel={false} />
-                            <span style={{ fontSize: 12, opacity: 0.85, whiteSpace: 'nowrap' }}>{type}</span>
+                            <span className='geoapp-log-table__cell--muted'>{type}</span>
                         </div>
                     );
                 },
@@ -376,12 +362,12 @@ const GeocacheLogEditorGeocachesTableImpl: React.FC<{
                 id: 'placed_at',
                 header: 'Posée',
                 accessorFn: row => getPlacedTs(row.placed_at),
-                cell: ({ row }) => <span style={{ fontSize: 12, opacity: 0.85 }}>{formatPlaced(row.original.placed_at)}</span>,
+                cell: ({ row }) => <span className='geoapp-log-table__cell--muted'>{formatPlaced(row.original.placed_at)}</span>,
             },
             {
                 accessorKey: 'favorites_count',
                 header: 'PF',
-                cell: info => <span style={{ fontSize: 12 }}>{typeof info.getValue() === 'number' ? (info.getValue() as number) : '—'}</span>,
+                cell: info => <span className='geoapp-log-table__cell'>{typeof info.getValue() === 'number' ? (info.getValue() as number) : '—'}</span>,
             },
             {
                 id: 'pf_pct',
@@ -389,7 +375,7 @@ const GeocacheLogEditorGeocachesTableImpl: React.FC<{
                 accessorFn: row => getPct(row.favorites_count, row.logs_count),
                 cell: ({ row }) => {
                     const pct = getPct(row.original.favorites_count, row.original.logs_count);
-                    return <span style={{ fontSize: 12, opacity: 0.85 }}>{typeof pct === 'number' ? `${pct.toFixed(1)}%` : '—'}</span>;
+                    return <span className='geoapp-log-table__cell--muted'>{typeof pct === 'number' ? `${pct.toFixed(1)}%` : '—'}</span>;
                 },
             },
             {
@@ -453,35 +439,12 @@ const GeocacheLogEditorGeocachesTableImpl: React.FC<{
     )).length;
 
     return (
-        <div style={{ border: '1px solid var(--theia-panel-border)', borderRadius: 6, overflow: 'hidden' }}>
-            <div
-                style={{
-                    padding: '6px 10px',
-                    fontSize: 12,
-                    fontWeight: 700,
-                    background: 'var(--theia-editor-background)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    flexWrap: 'wrap'
-                }}
-            >
+        <div className='geoapp-log-table'>
+            <div className='geoapp-log-table__caption'>
                 <span>Géocaches</span>
                 {alreadyFoundCount > 0 && (
                     <span
-                        style={{
-                            padding: '2px 8px',
-                            borderRadius: 10,
-                            fontSize: 11,
-                            fontWeight: 600,
-                            background: ALREADY_FOUND_ROW_BACKGROUND,
-                            color: ALREADY_FOUND_ACCENT,
-                            border: `1px solid ${ALREADY_FOUND_ACCENT}`,
-                            whiteSpace: 'nowrap',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 4
-                        }}
+                        className='geoapp-log-pill geoapp-log-pill--found'
                         title={'Une géocache ne peut être loguée "Found it" qu\'une seule fois : ces lignes sont passées en "Ne pas loguer".'}
                     >
                         <LogTypeIcon kind='found' size={13} />
@@ -490,16 +453,7 @@ const GeocacheLogEditorGeocachesTableImpl: React.FC<{
                 )}
                 {justLoggedCount > 0 && (
                     <span
-                        style={{
-                            padding: '2px 8px',
-                            borderRadius: 10,
-                            fontSize: 11,
-                            fontWeight: 600,
-                            background: JUST_LOGGED_ROW_BACKGROUND,
-                            color: JUST_LOGGED_ACCENT,
-                            border: `1px solid ${JUST_LOGGED_ACCENT}`,
-                            whiteSpace: 'nowrap'
-                        }}
+                        className='geoapp-log-pill geoapp-log-pill--logged'
                         title='Logs envoyés sur Geocaching.com pendant cette session : ces géocaches ne peuvent plus être reloguées ici.'
                     >
                         ✅ {justLoggedCount} loguée{justLoggedCount > 1 ? 's' : ''}
@@ -507,19 +461,7 @@ const GeocacheLogEditorGeocachesTableImpl: React.FC<{
                 )}
                 {dnfCount > 0 && (
                     <span
-                        style={{
-                            padding: '2px 8px',
-                            borderRadius: 10,
-                            fontSize: 11,
-                            fontWeight: 600,
-                            background: DNF_ROW_BACKGROUND,
-                            color: DNF_ACCENT,
-                            border: `1px solid ${DNF_ACCENT}`,
-                            whiteSpace: 'nowrap',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 4
-                        }}
+                        className='geoapp-log-pill geoapp-log-pill--dnf'
                         title={'Ces géocaches partiront en "Didn\'t find it".'}
                     >
                         <LogTypeIcon kind='dnf' size={13} />
@@ -528,38 +470,28 @@ const GeocacheLogEditorGeocachesTableImpl: React.FC<{
                 )}
                 {canReorder && (
                     <span
-                        style={{ fontSize: 11, fontWeight: 400, opacity: 0.7 }}
+                        className='geoapp-log-table__hint'
                         title="L'ordre du tableau est l'ordre d'envoi des logs, celui des blocs de texte par cache et celui de la numérotation @cache_count."
                     >
                         Glisser ⠿ (ou trier une colonne) pour changer l'ordre d'envoi
                     </span>
                 )}
             </div>
-            <div style={{ overflow: 'auto', maxHeight }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            {/* La hauteur maximale est une prop du composant, d'où le style en ligne. */}
+            <div className='geoapp-log-table__scroll' style={{ maxHeight }}>
+                <table className='geoapp-log-table__grid'>
                     <thead>
                         {table.getHeaderGroups().map(headerGroup => (
                             <tr key={headerGroup.id}>
                                 {headerGroup.headers.map(header => (
                                     <th
                                         key={header.id}
+                                        className={header.column.getCanSort() ? 'geoapp-log-table__th--sortable' : undefined}
                                         onClick={header.column.getToggleSortingHandler()}
-                                        style={{
-                                            textAlign: 'left',
-                                            padding: '6px 8px',
-                                            borderTop: '1px solid var(--theia-panel-border)',
-                                            borderBottom: '1px solid var(--theia-panel-border)',
-                                            background: 'var(--theia-editor-background)',
-                                            position: 'sticky',
-                                            top: 0,
-                                            zIndex: 1,
-                                            cursor: header.column.getCanSort() ? 'pointer' : 'default',
-                                            whiteSpace: 'nowrap'
-                                        }}
                                     >
                                         {flexRender(header.column.columnDef.header, header.getContext())}
-                                        {header.column.getIsSorted() === 'asc' && <span style={{ marginLeft: 6 }}>▲</span>}
-                                        {header.column.getIsSorted() === 'desc' && <span style={{ marginLeft: 6 }}>▼</span>}
+                                        {header.column.getIsSorted() === 'asc' && <span className='geoapp-log-table__sort'>▲</span>}
+                                        {header.column.getIsSorted() === 'desc' && <span className='geoapp-log-table__sort'>▼</span>}
                                     </th>
                                 ))}
                             </tr>
@@ -572,16 +504,23 @@ const GeocacheLogEditorGeocachesTableImpl: React.FC<{
                             const indicator = dropIndicator?.id === gc.id ? dropIndicator.position : undefined;
                             const currentLogType = sanitizeLogTypeForGeocache(perCacheLogType[gc.id] ?? logType, gc);
                             // Le DNF choisi passe devant l'info "déjà trouvée" : c'est ce qui va réellement être envoyé.
-                            const background = isJustLogged(gc, perCacheSubmitStatus)
-                                ? JUST_LOGGED_ROW_BACKGROUND
+                            const stateModifier = isJustLogged(gc, perCacheSubmitStatus)
+                                ? 'geoapp-log-table__row--logged'
                                 : isPendingDnf(gc, currentLogType, perCacheSubmitStatus)
-                                    ? DNF_ROW_BACKGROUND
+                                    ? 'geoapp-log-table__row--dnf'
                                     : isPreviouslyFound(gc, perCacheSubmitStatus)
-                                        ? ALREADY_FOUND_ROW_BACKGROUND
-                                        : undefined;
+                                        ? 'geoapp-log-table__row--found'
+                                        : '';
                             // "Ne pas loguer" : la ligne reste lisible mais se démarque de celles qui partiront.
                             const isSkipped = currentLogType === 'skip'
                                 && !isJustLogged(gc, perCacheSubmitStatus);
+                            const rowClassName = [
+                                stateModifier,
+                                isDragged ? 'geoapp-log-table__row--dragged' : '',
+                                !isDragged && isSkipped ? 'geoapp-log-table__row--skipped' : '',
+                                indicator === 'before' ? 'geoapp-log-table__row--drop-before' : '',
+                                indicator === 'after' ? 'geoapp-log-table__row--drop-after' : '',
+                            ].filter(Boolean).join(' ');
                             return (
                                 <tr
                                     key={row.id}
@@ -609,7 +548,7 @@ const GeocacheLogEditorGeocachesTableImpl: React.FC<{
                                         const position = e.clientY - rect.top < rect.height / 2 ? 'before' : 'after';
                                         moveRelativeTo(draggedId, gc.id, position);
                                     }}
-                                    style={{ background, opacity: isDragged ? 0.4 : isSkipped ? 0.65 : undefined }}
+                                    className={rowClassName || undefined}
                                     title={isJustLogged(gc, perCacheSubmitStatus)
                                         ? 'Log envoyé — cette géocache ne peut plus être loguée ici'
                                         : isPreviouslyFound(gc, perCacheSubmitStatus)
@@ -619,17 +558,7 @@ const GeocacheLogEditorGeocachesTableImpl: React.FC<{
                                                 : undefined}
                                 >
                                     {row.getVisibleCells().map(cell => (
-                                        <td
-                                            key={cell.id}
-                                            style={{
-                                                padding: '6px 8px',
-                                                borderBottom: indicator === 'after'
-                                                    ? '2px solid var(--theia-focusBorder)'
-                                                    : '1px solid var(--theia-panel-border)',
-                                                borderTop: indicator === 'before' ? '2px solid var(--theia-focusBorder)' : undefined,
-                                                verticalAlign: 'middle'
-                                            }}
-                                        >
+                                        <td key={cell.id}>
                                             {flexRender(cell.column.columnDef.cell, cell.getContext())}
                                         </td>
                                     ))}

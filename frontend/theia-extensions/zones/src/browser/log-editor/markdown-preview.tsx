@@ -25,36 +25,28 @@ export const MarkdownPreview: React.FC<{
 
     return (
         <details
-            style={{ marginTop: 8 }}
+            className='geoapp-log-preview'
             open={isOpen}
             onToggle={event => {
                 const open = (event.currentTarget as HTMLDetailsElement).open;
                 onToggle(open);
             }}
         >
-            <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
+            <summary className='geoapp-log-preview__summary'>
                 Aperçu Markdown (texte final)
                 {unrendered.length > 0 && (
-                    <span style={{ marginLeft: 6, fontWeight: 400, color: 'var(--theia-editorWarning-foreground, #d29922)' }}>
+                    <span className='geoapp-log-preview__warning-count'>
                         ⚠️ {unrendered.length} ligne{unrendered.length > 1 ? 's' : ''} avec des astérisques non interprétées
                     </span>
                 )}
             </summary>
             {isOpen && unrendered.length > 0 && (
-                <div
-                    style={{
-                        marginTop: 8,
-                        padding: 8,
-                        borderRadius: 6,
-                        border: '1px solid var(--theia-editorWarning-foreground, #d29922)',
-                        fontSize: 12,
-                    }}
-                >
-                    <div style={{ marginBottom: 4 }}>
+                <div className='geoapp-log-preview__warning'>
+                    <div className='geoapp-log-preview__warning-intro'>
                         Geocaching.com exige que les astérisques soient collées au texte :{' '}
                         <code>**gras**</code> fonctionne, <code>**gras **</code> non.
                     </div>
-                    <ul style={{ margin: '4px 0 0 18px' }}>
+                    <ul className='geoapp-log-preview__warning-list'>
                         {unrendered.map((line, index) => (
                             <li key={`${keyPrefix}-warn-${index}`}>
                                 <code>{line}</code>
@@ -64,17 +56,7 @@ export const MarkdownPreview: React.FC<{
                 </div>
             )}
             {isOpen && (
-                <div
-                    style={{
-                        marginTop: 8,
-                        background: 'var(--theia-editor-background)',
-                        border: '1px solid var(--theia-panel-border)',
-                        borderRadius: 6,
-                        padding: 10,
-                        fontSize: 13,
-                        overflow: 'auto',
-                    }}
-                >
+                <div className='geoapp-log-preview__body'>
                     {renderLogMarkdown(text, keyPrefix)}
                 </div>
             )}

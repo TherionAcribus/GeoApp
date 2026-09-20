@@ -68,16 +68,19 @@ export const ImagesSection: React.FC<{
     };
 
     return (
-        <div style={{ border: '1px solid var(--theia-panel-border)', borderRadius: 6, padding: 10, background: 'var(--theia-editor-background)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
-                <div style={{ fontWeight: 700 }}>{title}</div>
-                <label style={{ fontSize: 12, opacity: disabled ? 0.6 : 0.9, cursor: disabled ? 'not-allowed' : 'pointer' }}>
+        <div className='geoapp-log-images'>
+            <div className='geoapp-log-images__header'>
+                <div className='geoapp-log-images__title'>{title}</div>
+                <label className={disabled
+                    ? 'geoapp-log-images__add geoapp-log-images__add--disabled'
+                    : 'geoapp-log-images__add'}
+                >
                     <input
                         type='file'
+                        className='geoapp-log-images__file-input'
                         accept={ACCEPTED_IMAGE_TYPES}
                         multiple
                         disabled={disabled}
-                        style={{ display: 'none' }}
                         onChange={e => {
                             const files = e.currentTarget.files;
                             if (files && files.length > 0) {
@@ -91,65 +94,44 @@ export const ImagesSection: React.FC<{
             </div>
 
             <div
+                className={[
+                    'geoapp-log-images__dropzone',
+                    isDragOver ? 'geoapp-log-images__dropzone--over' : '',
+                    disabled ? 'geoapp-log-images__dropzone--disabled' : '',
+                ].filter(Boolean).join(' ')}
                 onDrop={onDrop}
                 onDragOver={onDragOver}
                 onDragEnter={onDragEnter}
                 onDragLeave={onDragLeave}
-                style={{
-                    border: isDragOver ? '2px dashed var(--theia-focusBorder)' : '1px dashed var(--theia-panel-border)',
-                    borderRadius: 6,
-                    padding: isDragOver ? 9 : 10,
-                    fontSize: 12,
-                    textAlign: 'center',
-                    opacity: disabled ? 0.6 : 0.9,
-                    color: isDragOver ? 'var(--theia-focusBorder)' : undefined,
-                    fontWeight: isDragOver ? 600 : undefined,
-                    background: isDragOver ? 'var(--theia-list-dropBackground, var(--theia-list-hoverBackground))' : 'var(--theia-editor-background)',
-                    transition: 'background 0.12s ease, border-color 0.12s ease',
-                }}
             >
                 {isDragOver ? 'Dépose ici pour ajouter les images' : 'Glisse-dépose tes images ici'}
             </div>
 
             {images.length === 0 ? (
-                <div style={{ marginTop: 8, fontSize: 12, opacity: 0.7 }}>Aucune photo</div>
+                <div className='geoapp-log-images__empty'>Aucune photo</div>
             ) : (
-                <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>
+                <div className='geoapp-log-images__list'>
                     {images.map(img => {
                         const previewUrl = getPreviewUrl(img.file);
                         const size = formatFileSize(img.file.size);
                         return (
-                        <div key={img.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', fontSize: 12 }}>
-                            <div style={{ display: 'flex', gap: 8, alignItems: 'center', minWidth: 0 }}>
-                                <div
-                                    style={{
-                                        width: 44,
-                                        height: 44,
-                                        flex: '0 0 auto',
-                                        borderRadius: 4,
-                                        border: '1px solid var(--theia-panel-border)',
-                                        background: 'var(--theia-editorWidget-background)',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        overflow: 'hidden',
-                                    }}
-                                >
+                        <div key={img.id} className='geoapp-log-images__item'>
+                            <div className='geoapp-log-images__item-main'>
+                                <div className='geoapp-log-images__thumb'>
                                     {previewUrl ? (
-                                        <img
-                                            src={previewUrl}
-                                            alt={img.file.name}
-                                            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-                                        />
+                                        <img src={previewUrl} alt={img.file.name} />
                                     ) : (
-                                        <span style={{ opacity: 0.6 }}>🖼️</span>
+                                        <span className='geoapp-log-images__thumb-placeholder'>🖼️</span>
                                     )}
                                 </div>
-                                <div style={{ minWidth: 0 }}>
-                                    <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={img.file.name}>
+                                <div className='geoapp-log-images__meta'>
+                                    <div className='geoapp-log-images__name' title={img.file.name}>
                                         {img.file.name}
                                     </div>
-                                    <div style={{ opacity: 0.8 }} title={img.status === 'ok' ? img.imageGuid : undefined}>
+                                    <div
+                                        className='geoapp-log-images__status'
+                                        title={img.status === 'ok' ? img.imageGuid : undefined}
+                                    >
                                         {img.status === 'pending' && `📎 Prête — sera envoyée avec le log${size ? ` · ${size}` : ''}`}
                                         {img.status === 'uploading' && '⬆️ Envoi en cours…'}
                                         {img.status === 'ok' && '✅ Envoyée à Geocaching.com'}
@@ -158,8 +140,7 @@ export const ImagesSection: React.FC<{
                                 </div>
                             </div>
                             <button
-                                className='theia-button secondary'
-                                style={{ fontSize: 12, padding: '2px 10px' }}
+                                className='theia-button secondary geoapp-log-button--medium'
                                 disabled={disabled || img.status === 'uploading'}
                                 onClick={() => onRemoveImage(img.id)}
                                 title='Retirer cette image'

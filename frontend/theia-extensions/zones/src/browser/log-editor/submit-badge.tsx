@@ -2,10 +2,13 @@
  * Badge de statut d'envoi d'un log (ok / skipped / failed / à envoyer).
  *
  * Extrait de `geocache-log-editor-widget.tsx` (découpage phase 2). Composant pur.
+ * La couleur de chaque statut est dans `style/log-editor.css`.
  */
 
 import * as React from '@theia/core/shared/react';
 import { SubmissionStatus } from './types';
+
+const BADGE = 'geoapp-log-submit-badge';
 
 export const SubmitBadge: React.FC<{
     status: SubmissionStatus | undefined;
@@ -21,7 +24,7 @@ export const SubmitBadge: React.FC<{
     if (status === 'ok') {
         return (
             <span
-                style={badgeStyle('var(--theia-charts-green, #22c55e)')}
+                className={`${BADGE} ${BADGE}--ok`}
                 title={reference ? `logReferenceCode: ${reference}` : 'Log envoyé'}
             >
                 ✅{compact ? '' : ' Log envoyé'}
@@ -31,7 +34,7 @@ export const SubmitBadge: React.FC<{
     if (status === 'skipped') {
         return (
             <span
-                style={badgeStyle('var(--theia-charts-orange, #f59e0b)')}
+                className={`${BADGE} ${BADGE}--skipped`}
                 title='Cache déjà loguée (non soumise)'
             >
                 ↩️{compact ? '' : ' Déjà loguée'}
@@ -41,7 +44,7 @@ export const SubmitBadge: React.FC<{
     if (status === 'failed') {
         return (
             <span
-                style={badgeStyle('var(--theia-errorForeground)')}
+                className={`${BADGE} ${BADGE}--failed`}
                 title={error ?? 'Dernière tentative en échec'}
             >
                 ⚠️{compact ? '' : ' Échec'}
@@ -51,7 +54,7 @@ export const SubmitBadge: React.FC<{
     if (isSkipped) {
         return (
             <span
-                style={badgeStyle('var(--theia-charts-lines, #6b7280)')}
+                className={`${BADGE} ${BADGE}--pending`}
                 title="Ne pas loguer : cette géocache sera ignorée à l'envoi"
             >
                 🚫
@@ -60,22 +63,10 @@ export const SubmitBadge: React.FC<{
     }
     return (
         <span
-            style={badgeStyle('var(--theia-charts-lines, #6b7280)')}
+            className={`${BADGE} ${BADGE}--pending`}
             title='Pas encore envoyé'
         >
             ⏳{compact ? '' : ' À envoyer'}
         </span>
     );
 };
-
-function badgeStyle(background: string): React.CSSProperties {
-    return {
-        padding: '2px 6px',
-        borderRadius: 3,
-        fontSize: 12,
-        background,
-        color: '#fff',
-        fontWeight: 700,
-        whiteSpace: 'nowrap',
-    };
-}

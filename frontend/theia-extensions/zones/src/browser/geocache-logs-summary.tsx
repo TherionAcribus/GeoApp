@@ -6,6 +6,7 @@
  */
 import * as React from 'react';
 import { getLogTypeColor as getSummaryColor, getLogTypeIcon as getSummaryIcon } from './geocache-log-type-style';
+import '../../src/browser/style/logs-panel.css';
 
 /**
  * Entrée légère d'un résumé de log (pas de texte complet)
@@ -63,15 +64,8 @@ export const LogsRecentSummary: React.FC<LogsRecentSummaryProps> = ({
 }) => {
     if (isLoading) {
         return (
-            <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '8px 0',
-                opacity: 0.6,
-                fontSize: 12,
-            }}>
-                <i className="fa fa-spinner fa-spin" style={{ marginRight: 4 }} />
+            <div className='geoapp-logs-summary__loading'>
+                <i className='fa fa-spinner fa-spin' />
                 Chargement du résumé...
             </div>
         );
@@ -82,101 +76,53 @@ export const LogsRecentSummary: React.FC<LogsRecentSummaryProps> = ({
     }
 
     return (
-        <div
-            style={{
-                background: 'var(--theia-editor-background)',
-                border: '1px solid var(--theia-panel-border)',
-                borderRadius: 6,
-                padding: '10px 12px',
-                marginBottom: 12,
-                flexShrink: 0,
-            }}
-        >
+        <div className='geoapp-logs-summary'>
             {/* Titre */}
-            <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                marginBottom: 8,
-            }}>
-                <span style={{ fontSize: 11, fontWeight: 600, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            <div className='geoapp-logs-summary__header'>
+                <span className='geoapp-logs-summary__title'>
                     Derniers logs
                     {totalCount > 0 && (
-                        <span style={{ fontWeight: 'normal', marginLeft: 4 }}>({totalCount} au total)</span>
+                        <span className='geoapp-logs-summary__total'>({totalCount} au total)</span>
                     )}
                 </span>
                 {onOpenLogs && (
                     <button
+                        className='geoapp-logs-summary__open'
                         onClick={onOpenLogs}
-                        title="Ouvrir le panneau des logs"
-                        style={{
-                            background: 'none',
-                            border: 'none',
-                            color: 'var(--theia-textLink-foreground)',
-                            cursor: 'pointer',
-                            padding: '0 2px',
-                            fontSize: 11,
-                            opacity: 0.8,
-                        }}
+                        title='Ouvrir le panneau des logs'
                     >
-                        <i className="fa fa-external-link-alt" style={{ marginRight: 3 }} />
+                        <i className='fa fa-external-link-alt' />
                         Voir tout
                     </button>
                 )}
             </div>
 
             {/* Série d'icônes */}
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <div className='geoapp-logs-summary__icons'>
                 {entries.map((entry, idx) => {
                     const color = getSummaryColor(entry.log_type);
                     const icon = getSummaryIcon(entry.log_type);
-                    const tooltip = `${entry.log_type}\n${entry.author}\n${formatShortDate(entry.date)}`;
+                    const tooltip = `${entry.log_type}
+${entry.author}
+${formatShortDate(entry.date)}`;
                     return (
                         <div
                             key={idx}
+                            className='geoapp-logs-summary__entry'
                             title={tooltip}
-                            style={{
-                                display: 'inline-flex',
-                                flexDirection: 'column',
-                                alignItems: 'center',
-                                gap: 3,
-                                cursor: 'default',
-                            }}
+                            // Couleur issue du type de log : c'est une donnée, pas un choix
+                            // de design, donc elle reste posée en inline et la feuille la lit.
+                            style={{ ['--geoapp-log-color' as any]: color }}
                         >
-                            <span
-                                style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    width: 32,
-                                    height: 32,
-                                    borderRadius: '50%',
-                                    background: color,
-                                    color: 'white',
-                                    fontSize: 13,
-                                    flexShrink: 0,
-                                    boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-                                    position: 'relative',
-                                }}
-                            >
+                            <span className='geoapp-logs-summary__badge'>
                                 <i className={`fa ${icon}`} />
                                 {entry.is_favorite && (
-                                    <span
-                                        style={{
-                                            position: 'absolute',
-                                            top: -2,
-                                            right: -2,
-                                            fontSize: 8,
-                                            color: 'var(--theia-charts-yellow, #fbbf24)',
-                                            lineHeight: 1,
-                                        }}
-                                        title="Log favori"
-                                    >
-                                        <i className="fa fa-star" />
+                                    <span className='geoapp-logs-summary__favorite' title='Log favori'>
+                                        <i className='fa fa-star' />
                                     </span>
                                 )}
                             </span>
-                            <span style={{ fontSize: 9, opacity: 0.65, textAlign: 'center', maxWidth: 36, lineHeight: 1.2 }}>
+                            <span className='geoapp-logs-summary__date'>
                                 {formatShortDate(entry.date)}
                             </span>
                         </div>

@@ -185,6 +185,40 @@ que le texte est long. Les contraintes, réunies dans `sharedMetrics` :
 Le redimensionnement vertical du `<textarea>` ne nécessite rien de particulier : le
 conteneur suit sa hauteur, et la couche est positionnée en `inset: 0` sur ce conteneur.
 
+### 3.5 Feuilles de styles
+
+Les deux surfaces sont habillées par des classes, pas par des styles en ligne :
+
+- `style/logs-panel.css` — panneau de lecture (`geocache-logs-widget.tsx`) et résumé
+  des derniers logs (`geocache-logs-summary.tsx`, réutilisé par la fiche détail).
+  Préfixes `geoapp-logs-panel`, `geoapp-log-card`, `geoapp-logs-summary`.
+- `style/log-editor.css` — éditeur et tous ses composants de présentation
+  (`log-editor/*.tsx`). Préfixe `geoapp-log-`.
+
+Nommage `bloc__element--modificateur`, couleurs prises aux variables Theia.
+
+**Ce qui reste légitimement en ligne** — et seulement ça :
+
+| Où | Quoi | Pourquoi |
+|---|---|---|
+| `geocache-logs-widget.tsx`, `geocache-logs-summary.tsx` | `--geoapp-log-color` | couleur du type de log, issue des données |
+| `geocache-logs-widget.tsx` | `--geoapp-log-collapsed-height` | seuil de repli, dont le TSX a besoin comme seuil de mesure |
+| `geocache-log-editor-widget.tsx` | les six accents d'état | cf. ci-dessous |
+| `log-editor/geocaches-table.tsx` | `maxHeight` | prop du composant |
+| `log-editor/submit-progress.tsx` | `width` de la barre | avancement |
+| `log-editor/pattern-autocomplete-menu.tsx` | `top` / `left` | suit le curseur |
+| `log-editor/textarea-overlay.tsx` | `sharedMetrics` | cf. § 3.4 : les deux couches doivent déclarer les mêmes métriques, et `.theia-input` écraserait une classe posée sur le `<textarea>` seul |
+
+**Accents d'état.** `ALREADY_FOUND_ACCENT`, `JUST_LOGGED_ACCENT`, `DNF_ACCENT` et leurs
+fonds restent définis dans `log-editor/constants.ts`, parce que les icônes SVG de
+`geocache-log-type-icons.tsx` les dessinent aussi : une valeur recopiée dans la feuille
+aurait fini par diverger. Le widget les pose une seule fois en variables CSS sur sa
+racine `.geoapp-log-editor` ; le tableau, les blocs par cache et les badges les lisent
+par héritage. Pour changer une couleur d'état, un seul endroit : `constants.ts`.
+
+**Menu d'autocomplétion.** `log-editor/pattern-autocomplete-menu.tsx` a été extrait au
+passage : l'éditeur global et les blocs par cache en contenaient deux copies identiques.
+
 ## 4. Historique global (persistance)
 
 ### 4.1 Stockage

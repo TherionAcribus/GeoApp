@@ -32,47 +32,45 @@ export const PatternsSection: React.FC<PatternsSectionProps> = ({
     onPatternNameInputChange, onPatternContentInputChange,
     onEditPattern, onDeletePattern, onAddPattern, onUpdatePattern, onCancelEditPattern,
 }) => (
-    <details style={{ marginBottom: 8 }}>
-        <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: 12 }}>
+    <details className='geoapp-log-details'>
+        <summary className='geoapp-log-details__summary'>
             📝 Patterns de texte ({allPatternsCount}) - Tapez @ dans le texte pour les utiliser
         </summary>
-        <div style={{ marginTop: 8, padding: 10, background: 'var(--theia-editor-background)', border: '1px solid var(--theia-panel-border)', borderRadius: 6 }}>
-            <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Patterns intégrés</div>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: 11 }}>
+        <div className='geoapp-log-details__body geoapp-log-details__body--tight'>
+            <div className='geoapp-log-patterns__group'>
+                <div className='geoapp-log-patterns__group-title'>Patterns intégrés</div>
+                <div className='geoapp-log-patterns__builtins'>
                     {builtinPatterns.map(p => (
-                        <span key={p.id} style={{ padding: '2px 6px', background: 'var(--theia-badge-background)', borderRadius: 3 }}>
+                        <span key={p.id} className='geoapp-log-patterns__chip'>
                             @{p.name} → {resolvePatternValue(p.name, firstGeocacheId)}
                         </span>
                     ))}
                 </div>
             </div>
 
-            <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Patterns personnalisés</div>
+            <div className='geoapp-log-patterns__group'>
+                <div className='geoapp-log-patterns__group-title'>Patterns personnalisés</div>
                 {customPatterns.length === 0 && (
-                    <div style={{ fontSize: 11, opacity: 0.7 }}>Aucun pattern personnalisé</div>
+                    <div className='geoapp-log-patterns__empty'>Aucun pattern personnalisé</div>
                 )}
                 {customPatterns.length > 0 && (
-                    <div style={{ display: 'grid', gap: 6 }}>
+                    <div className='geoapp-log-patterns__list'>
                         {customPatterns.map(p => (
-                            <div key={p.id} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 11 }}>
-                                <span style={{ padding: '2px 6px', background: 'var(--theia-badge-background)', borderRadius: 3, fontWeight: 600 }}>
+                            <div key={p.id} className='geoapp-log-patterns__row'>
+                                <span className='geoapp-log-patterns__chip geoapp-log-patterns__chip--name'>
                                     @{p.name}
                                 </span>
-                                <span style={{ opacity: 0.8, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                <span className='geoapp-log-patterns__content'>
                                     {p.content}
                                 </span>
                                 <button
-                                    className='theia-button secondary'
-                                    style={{ fontSize: 10, padding: '2px 6px' }}
+                                    className='theia-button secondary geoapp-log-button--tiny'
                                     onClick={() => onEditPattern(p)}
                                 >
                                     ✏️
                                 </button>
                                 <button
-                                    className='theia-button secondary'
-                                    style={{ fontSize: 10, padding: '2px 6px' }}
+                                    className='theia-button secondary geoapp-log-button--tiny'
                                     onClick={() => onDeletePattern(p.id)}
                                 >
                                     🗑️
@@ -83,45 +81,41 @@ export const PatternsSection: React.FC<PatternsSectionProps> = ({
                 )}
             </div>
 
-            <div style={{ borderTop: '1px solid var(--theia-panel-border)', paddingTop: 10 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
+            <div className='geoapp-log-patterns__form'>
+                <div className='geoapp-log-patterns__group-title'>
                     {editingPattern ? 'Modifier le pattern' : 'Ajouter un pattern'}
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr auto', gap: 8, alignItems: 'end' }}>
+                <div className='geoapp-log-patterns__form-grid'>
                     <div>
-                        <label style={{ display: 'block', fontSize: 10, opacity: 0.8, marginBottom: 2 }}>Nom (sans @)</label>
+                        <label className='geoapp-log-patterns__form-label'>Nom (sans @)</label>
                         <input
-                            className='theia-input'
+                            className='theia-input geoapp-log-patterns__form-input'
                             value={patternNameInput}
                             onChange={e => onPatternNameInputChange(e.target.value)}
                             placeholder='mon_pattern'
-                            style={{ width: '100%', fontSize: 11 }}
                         />
                     </div>
                     <div>
-                        <label style={{ display: 'block', fontSize: 10, opacity: 0.8, marginBottom: 2 }}>Contenu</label>
+                        <label className='geoapp-log-patterns__form-label'>Contenu</label>
                         <input
-                            className='theia-input'
+                            className='theia-input geoapp-log-patterns__form-input'
                             value={patternContentInput}
                             onChange={e => onPatternContentInputChange(e.target.value)}
                             placeholder='Texte à insérer...'
-                            style={{ width: '100%', fontSize: 11 }}
                         />
                     </div>
-                    <div style={{ display: 'flex', gap: 4 }}>
+                    <div className='geoapp-log-patterns__form-actions'>
                         {editingPattern ? (
                             <>
                                 <button
-                                    className='theia-button primary'
-                                    style={{ fontSize: 11, padding: '4px 8px' }}
+                                    className='theia-button primary geoapp-log-button--form'
                                     onClick={onUpdatePattern}
                                     disabled={!patternNameInput.trim() || !patternContentInput.trim()}
                                 >
                                     Enregistrer
                                 </button>
                                 <button
-                                    className='theia-button secondary'
-                                    style={{ fontSize: 11, padding: '4px 8px' }}
+                                    className='theia-button secondary geoapp-log-button--form'
                                     onClick={onCancelEditPattern}
                                 >
                                     Annuler
@@ -129,8 +123,7 @@ export const PatternsSection: React.FC<PatternsSectionProps> = ({
                             </>
                         ) : (
                             <button
-                                className='theia-button primary'
-                                style={{ fontSize: 11, padding: '4px 8px' }}
+                                className='theia-button primary geoapp-log-button--form'
                                 onClick={onAddPattern}
                                 disabled={!patternNameInput.trim() || !patternContentInput.trim()}
                             >

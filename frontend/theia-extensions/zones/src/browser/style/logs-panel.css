@@ -1,0 +1,426 @@
+/*
+ * Panneau de lecture des logs d'une géocache.
+ *
+ * Couvre le widget `geocache-logs-widget.tsx` (en-tête, analyse IA, liste de
+ * cartes) et le résumé `geocache-logs-summary.tsx`, réutilisé tel quel dans la
+ * fiche détail : les deux surfaces partagent la même feuille pour que la
+ * pastille d'un type de log ait la même tête des deux côtés.
+ *
+ * Deux valeurs restent posées en inline par le TSX, parce qu'elles viennent des
+ * données et non du design :
+ *   --geoapp-log-color            couleur du type de log (`geocache-log-type-style.ts`)
+ *   --geoapp-log-collapsed-height hauteur d'un log replié, dont le TSX a besoin
+ *                                 comme seuil de mesure (cf. `COLLAPSED_TEXT_MAX_HEIGHT`)
+ */
+
+/* ---------------------------------------------------------------- Panneau */
+
+.geoapp-logs-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    padding: 16px;
+    overflow: auto;
+}
+
+.geoapp-logs-panel__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+    flex-shrink: 0;
+}
+
+.geoapp-logs-panel__title {
+    margin: 0;
+    font-size: 16px;
+}
+
+.geoapp-logs-panel__subtitle {
+    margin-top: 4px;
+    font-size: 12px;
+    opacity: 0.7;
+}
+
+.geoapp-logs-panel__count {
+    margin-top: 2px;
+    font-size: 12px;
+    opacity: 0.7;
+}
+
+.geoapp-logs-panel__actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.geoapp-logs-panel__list {
+    flex: 1;
+    overflow: auto;
+}
+
+/* ---------------------------------------------------------------- Boutons */
+
+.geoapp-logs-panel__button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    background: var(--theia-button-background);
+    color: var(--theia-button-foreground);
+    cursor: pointer;
+}
+
+/*
+ * Bascule « Amis » : bouton à deux états, donc bordé même éteint pour rester
+ * lisible sur le fond de l'éditeur.
+ */
+.geoapp-logs-panel__button--toggle {
+    border: 1px solid var(--theia-panel-border);
+    background: var(--theia-editor-background);
+    color: var(--theia-foreground);
+}
+
+.geoapp-logs-panel__button--toggle[aria-pressed='true'] {
+    background: var(--theia-button-background);
+    color: var(--theia-button-foreground);
+}
+
+.geoapp-logs-panel__button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.geoapp-logs-load-more {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    margin-top: 8px;
+    padding: 10px 16px;
+    border: none;
+    border-radius: 4px;
+    background: var(--theia-button-background);
+    color: var(--theia-button-foreground);
+    cursor: pointer;
+}
+
+.geoapp-logs-load-more:disabled {
+    cursor: wait;
+}
+
+/* ------------------------------------------------------------ Analyse IA */
+
+.geoapp-logs-analysis {
+    margin-bottom: 16px;
+    padding: 16px;
+    border: 2px solid var(--theia-focusBorder);
+    border-radius: 6px;
+    background: var(--theia-editor-background);
+    flex-shrink: 0;
+}
+
+.geoapp-logs-analysis__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.geoapp-logs-analysis__title {
+    margin: 0;
+    font-size: 14px;
+    font-weight: bold;
+    color: var(--theia-focusBorder);
+}
+
+.geoapp-logs-analysis__title > .fa {
+    margin-right: 8px;
+}
+
+.geoapp-logs-analysis__close {
+    padding: 4px;
+    border: none;
+    background: none;
+    color: var(--theia-foreground);
+    opacity: 0.7;
+    cursor: pointer;
+}
+
+.geoapp-logs-analysis__close:hover {
+    opacity: 1;
+}
+
+.geoapp-logs-analysis__body {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--theia-foreground);
+    white-space: pre-wrap;
+}
+
+/* ------------------------------------------------------- Carte d'un log */
+
+.geoapp-log-card {
+    margin-bottom: 8px;
+    padding: 12px;
+    border: 1px solid var(--theia-panel-border);
+    border-left: 4px solid var(--geoapp-log-color, var(--theia-panel-border));
+    border-radius: 6px;
+    background: var(--theia-editor-background);
+}
+
+.geoapp-log-card__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.geoapp-log-card__identity {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.geoapp-log-card__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--geoapp-log-color, var(--theia-panel-border));
+    color: white;
+    font-size: 12px;
+    flex-shrink: 0;
+}
+
+.geoapp-log-card__type {
+    font-weight: bold;
+    color: var(--geoapp-log-color, inherit);
+}
+
+.geoapp-log-card__favorite {
+    margin-left: 6px;
+    color: var(--theia-charts-yellow, #fbbf24);
+}
+
+.geoapp-log-card__author {
+    font-size: 12px;
+    opacity: 0.8;
+}
+
+.geoapp-log-card__friend-badge {
+    margin-left: 6px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    font-size: 11px;
+    background: var(--theia-badge-background);
+    color: var(--theia-badge-foreground);
+}
+
+.geoapp-log-card__friend-badge > .fa {
+    margin-right: 4px;
+}
+
+.geoapp-log-card__date {
+    font-size: 12px;
+    opacity: 0.7;
+    white-space: nowrap;
+}
+
+.geoapp-log-card__body {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--theia-panel-border);
+}
+
+.geoapp-log-card__text {
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.geoapp-log-card__text--collapsed {
+    max-height: var(--geoapp-log-collapsed-height);
+    overflow: hidden;
+}
+
+/* Le fondu remplace les « … » : il signale la coupe sans s'appliquer quand le
+   texte tient entièrement dans la hauteur repliée. */
+.geoapp-log-card__text--faded {
+    -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 20px), transparent);
+    mask-image: linear-gradient(to bottom, black calc(100% - 20px), transparent);
+}
+
+.geoapp-log-card__toggle {
+    margin-top: 4px;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--theia-textLink-foreground);
+    font-size: 12px;
+    cursor: pointer;
+}
+
+/* ------------------------------------------------- Résumé des N derniers */
+
+.geoapp-logs-summary {
+    margin-bottom: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editor-background);
+    flex-shrink: 0;
+}
+
+.geoapp-logs-summary__loading {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 0;
+    font-size: 12px;
+    opacity: 0.6;
+}
+
+.geoapp-logs-summary__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.geoapp-logs-summary__title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    opacity: 0.7;
+}
+
+.geoapp-logs-summary__total {
+    margin-left: 4px;
+    font-weight: normal;
+}
+
+.geoapp-logs-summary__open {
+    padding: 0 2px;
+    border: none;
+    background: none;
+    color: var(--theia-textLink-foreground);
+    font-size: 11px;
+    opacity: 0.8;
+    cursor: pointer;
+}
+
+.geoapp-logs-summary__open:hover {
+    opacity: 1;
+}
+
+.geoapp-logs-summary__open > .fa {
+    margin-right: 3px;
+}
+
+.geoapp-logs-summary__icons {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.geoapp-logs-summary__entry {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    cursor: default;
+}
+
+.geoapp-logs-summary__badge {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--geoapp-log-color, var(--theia-panel-border));
+    color: white;
+    font-size: 13px;
+    flex-shrink: 0;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.geoapp-logs-summary__favorite {
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    font-size: 8px;
+    line-height: 1;
+    color: var(--theia-charts-yellow, #fbbf24);
+}
+
+.geoapp-logs-summary__date {
+    max-width: 36px;
+    font-size: 9px;
+    line-height: 1.2;
+    text-align: center;
+    opacity: 0.65;
+}
+
+/* ------------------------- Bandeau « il reste des logs sur Geocaching.com » */
+
+.geoapp-logs-remote-banner {
+    margin-bottom: 12px;
+    padding: 12px;
+    border: 1px solid var(--theia-panel-border);
+    border-left: 4px solid var(--theia-focusBorder);
+    border-radius: 6px;
+    background: var(--theia-editor-background);
+    flex-shrink: 0;
+}
+
+.geoapp-logs-remote-banner__text {
+    margin-bottom: 8px;
+    font-size: 13px;
+}
+
+.geoapp-logs-remote-banner__text > .fa {
+    margin-right: 8px;
+    opacity: 0.8;
+}
+
+.geoapp-logs-remote-banner__actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.geoapp-logs-remote-banner__button {
+    padding: 6px 12px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    background: var(--theia-button-secondaryBackground, var(--theia-editor-background));
+    color: var(--theia-button-secondaryForeground, var(--theia-foreground));
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.geoapp-logs-remote-banner__button > .fa {
+    margin-right: 6px;
+}
+
+.geoapp-logs-remote-banner__button:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}
+
+/* Zone d'attente quand aucune géocache n'est sélectionnée. */
+.geoapp-logs-panel__empty {
+    display: flex;
+    flex: 1;
+}

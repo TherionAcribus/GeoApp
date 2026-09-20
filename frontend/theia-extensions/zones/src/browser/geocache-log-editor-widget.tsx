@@ -58,9 +58,15 @@ import {
 } from './log-editor/submission-orchestrator';
 import { SubmitProgress } from './log-editor/submit-progress';
 import {
+    ALREADY_FOUND_ACCENT,
+    ALREADY_FOUND_ROW_BACKGROUND,
+    DNF_ACCENT,
+    DNF_ROW_BACKGROUND,
     IMAGE_FAILURE_SEND,
     IMAGE_FAILURE_SEND_ALL,
     IMAGE_FAILURE_SKIP,
+    JUST_LOGGED_ACCENT,
+    JUST_LOGGED_ROW_BACKGROUND,
     PATTERN_AUTOCOMPLETE_DELAY_MS,
 } from './log-editor/constants';
 import {
@@ -136,6 +142,7 @@ import {
     sanitizeLogUrl,
 } from './log-markdown';
 import '../../src/browser/style/log-editor-textarea.css';
+import '../../src/browser/style/log-editor.css';
 
 @injectable()
 export class GeocacheLogEditorWidget extends ReactWidget {
@@ -2230,7 +2237,20 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         const charCounterStats = this.getFinalLengthStats('global');
 
         return (
-            <div style={{ padding: 12, height: '100%', overflow: 'auto', display: 'grid', gap: 12 }}>
+            <div
+                className='geoapp-log-editor'
+                // Les accents d'état vivent dans `constants.ts` (les icônes SVG les
+                // dessinent aussi) : posés ici une fois, ils descendent par héritage
+                // jusqu'au tableau, aux blocs par cache et aux badges.
+                style={{
+                    ['--geoapp-log-found-accent' as any]: ALREADY_FOUND_ACCENT,
+                    ['--geoapp-log-found-bg' as any]: ALREADY_FOUND_ROW_BACKGROUND,
+                    ['--geoapp-log-logged-accent' as any]: JUST_LOGGED_ACCENT,
+                    ['--geoapp-log-logged-bg' as any]: JUST_LOGGED_ROW_BACKGROUND,
+                    ['--geoapp-log-dnf-accent' as any]: DNF_ACCENT,
+                    ['--geoapp-log-dnf-bg' as any]: DNF_ROW_BACKGROUND,
+                }}
+            >
                 <LogEditorHeader
                     geocacheCount={this.geocacheIds.length}
                     loadedCount={this.geocaches.length}
@@ -2269,19 +2289,18 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                     />
                 )}
 
-                <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+                <div className='geoapp-log-counters'>
                     {this.lastSubmitSummary && (
-                        <div style={{ opacity: 0.85, fontSize: 12 }}>
+                        <div className='geoapp-log-counters__summary'>
                             Résultat: {this.lastSubmitSummary.ok} ok, {this.lastSubmitSummary.failed} échec(s)
                         </div>
                     )}
-                    <div style={{ display: 'flex', gap: 12, alignItems: 'center', fontSize: 12 }}>
-                        <div style={{ opacity: 0.85, display: 'flex', gap: 4, alignItems: 'center' }}>
+                    <div className='geoapp-log-counters__group'>
+                        <div className='geoapp-log-counters__item'>
                             <strong>PF disponibles:</strong>
                             {favoritePointsSyncing ? '⏳' : (this.favoritePointsKnown ? this.totalFavoritePoints : '—')}
                             <button
-                                className='theia-button secondary'
-                                style={{ fontSize: 11, padding: '0 6px', minWidth: 0 }}
+                                className='theia-button secondary geoapp-log-button--icon'
                                 onClick={() => { void this.syncFavoritePoints({ force: true }); }}
                                 disabled={favoritePointsSyncing || this.isSubmitting}
                                 title='Resynchroniser le stock de points favoris depuis Geocaching.com'
@@ -2289,14 +2308,16 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                                 ⟳
                             </button>
                         </div>
-                        <div style={{ opacity: 0.85 }}>
-                            <strong>PF restants:</strong> <span style={{ color: remainingFavoritePoints === 0 ? 'var(--theia-errorForeground)' : 'inherit' }}>{remainingFavoritePoints}</span>
+                        <div className='geoapp-log-counters__item'>
+                            <strong>PF restants:</strong>{' '}
+                            <span className={remainingFavoritePoints === 0 ? 'geoapp-log-counters__empty' : undefined}>
+                                {remainingFavoritePoints}
+                            </span>
                         </div>
-                        <div style={{ opacity: 0.85, display: 'flex', gap: 4, alignItems: 'center' }}>
+                        <div className='geoapp-log-counters__item'>
                             <strong>Trouvailles:</strong> {this.userFindsCount}
                             <button
-                                className='theia-button secondary'
-                                style={{ fontSize: 11, padding: '0 6px', minWidth: 0 }}
+                                className='theia-button secondary geoapp-log-button--icon'
                                 onClick={() => { void this.refreshUserFindsCount(); }}
                                 disabled={this.isRefreshingFindsCount || this.isSubmitting}
                                 title='Resynchroniser le nombre de trouvailles depuis Geocaching.com (base de @cache_count)'
@@ -2350,7 +2371,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 />
 
                 {!this.isLoading && this.geocaches.length > 0 && (
-                    <div style={{ background: 'var(--theia-editor-background)' }}>
+                    <div className='geoapp-log-editor__table-wrapper'>
                         <GeocacheLogEditorGeocachesTable
                             data={this.geocaches}
                             logType={this.logType}
@@ -2372,16 +2393,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 )}
 
                 {allSubmitted && (
-                    <div
-                        style={{
-                            border: '1px solid var(--theia-panel-border)',
-                            background: 'var(--theia-editor-background)',
-                            borderRadius: 6,
-                            padding: '8px 10px',
-                            fontSize: 12,
-                            fontWeight: 600,
-                        }}
-                    >
+                    <div className='geoapp-log-editor__all-submitted'>
                         ✅ Tous les logs ont été envoyés.
                     </div>
                 )}
@@ -2471,19 +2483,19 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 />
 
                 {this.isLoading && (
-                    <div style={{ opacity: 0.7 }}>
+                    <div className='geoapp-log-editor__muted'>
                         Chargement…
                     </div>
                 )}
 
                 {!this.isLoading && this.geocaches.length === 0 && (
-                    <div style={{ opacity: 0.7 }}>
+                    <div className='geoapp-log-editor__muted'>
                         Aucune géocache
                     </div>
                 )}
 
                 {!this.isLoading && this.geocaches.length > 0 && !this.useSameTextForAll && (
-                    <div style={{ display: 'grid', gap: 10 }}>
+                    <div className='geoapp-log-editor__blocks'>
                         {this.geocaches.map(gc => {
                             const previewKey = `per-preview-${gc.id}`;
                             const autocompleteHere = this.patternAutocompleteOpen

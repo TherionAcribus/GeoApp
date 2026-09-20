@@ -15,6 +15,7 @@ import { LogsRecentSummary, LogSummaryEntry, LogsRecentSummaryApiResponse } from
 import { EmptyState, LoadingState } from './state-views';
 import { getLogTypeColor, getLogTypeIcon } from './geocache-log-type-style';
 import { renderLogMarkdown } from './log-markdown-renderer';
+import '../../src/browser/style/logs-panel.css';
 import {
     GeocacheLogsFetchService,
     LOGS_PAGE_SIZE,
@@ -134,115 +135,73 @@ const LogItem: React.FC<LogItemProps> = ({ log }) => {
         return () => observer.disconnect();
     }, [log.text]);
 
+    const textClassName = [
+        'geoapp-log-card__text',
+        expanded ? '' : 'geoapp-log-card__text--collapsed',
+        !expanded && isOverflowing ? 'geoapp-log-card__text--faded' : '',
+    ].filter(Boolean).join(' ');
+
     return (
-        <div 
-            style={{
-                background: 'var(--theia-editor-background)',
-                border: '1px solid var(--theia-panel-border)',
-                borderLeft: `4px solid ${color}`,
-                borderRadius: 6,
-                padding: 12,
-                marginBottom: 8
-            }}
+        <div
+            className='geoapp-log-card'
+            // Couleur issue du type de log : une donnée, pas un choix de design.
+            style={{ ['--geoapp-log-color' as any]: color }}
         >
             {/* En-tête du log */}
-            <div style={{ 
-                display: 'flex', 
-                justifyContent: 'space-between', 
-                alignItems: 'flex-start',
-                marginBottom: 8
-            }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div className='geoapp-log-card__header'>
+                <div className='geoapp-log-card__identity'>
                     {/* Icône du type */}
-                    <span 
-                        style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            width: 28,
-                            height: 28,
-                            borderRadius: '50%',
-                            background: color,
-                            color: 'white',
-                            fontSize: 12
-                        }}
-                    >
+                    <span className='geoapp-log-card__icon'>
                         <i className={`fa ${icon}`} />
                     </span>
-                    
+
                     {/* Type et auteur */}
                     <div>
-                        <div style={{ fontWeight: 'bold', color }}>
+                        <div className='geoapp-log-card__type'>
                             {log.log_type}
                             {log.is_favorite && (
-                                <span style={{ marginLeft: 6, color: 'var(--theia-charts-yellow, #fbbf24)' }} title="Favori">
-                                    <i className="fa fa-star" />
+                                <span className='geoapp-log-card__favorite' title='Favori'>
+                                    <i className='fa fa-star' />
                                 </span>
                             )}
                         </div>
-                        <div style={{ fontSize: 12, opacity: 0.8 }}>
+                        <div className='geoapp-log-card__author'>
                             par <strong>{log.author}</strong>
                             {log.is_friend_log && (
                                 <span
-                                    title="Log écrit par un de vos amis Geocaching.com"
-                                    style={{
-                                        marginLeft: 6,
-                                        padding: '1px 6px',
-                                        borderRadius: 8,
-                                        fontSize: 11,
-                                        background: 'var(--theia-badge-background)',
-                                        color: 'var(--theia-badge-foreground)'
-                                    }}
+                                    className='geoapp-log-card__friend-badge'
+                                    title='Log écrit par un de vos amis Geocaching.com'
                                 >
-                                    <i className="fa fa-user-friends" style={{ marginRight: 4 }} />
+                                    <i className='fa fa-user-friends' />
                                     ami
                                 </span>
                             )}
                         </div>
                     </div>
                 </div>
-                
+
                 {/* Date */}
-                <div style={{ fontSize: 12, opacity: 0.7 }}>
+                <div className='geoapp-log-card__date'>
                     {formatDate(log.date)}
                 </div>
             </div>
-            
+
             {/* Texte du log */}
             {log.text && (
-                <div style={{
-                    marginTop: 8,
-                    paddingTop: 8,
-                    borderTop: '1px solid var(--theia-panel-border)'
-                }}>
+                <div className='geoapp-log-card__body'>
                     <div
                         ref={textRef}
-                        style={{
-                            fontSize: LOG_TEXT_FONT_SIZE,
-                            lineHeight: LOG_TEXT_LINE_HEIGHT,
-                            ...(expanded ? {} : {
-                                maxHeight: COLLAPSED_TEXT_MAX_HEIGHT,
-                                overflow: 'hidden',
-                                // Le fondu remplace les « … » : il signale la coupe sans
-                                // s'appliquer quand le texte tient entièrement.
-                                ...(isOverflowing ? { maskImage: COLLAPSED_TEXT_MASK, WebkitMaskImage: COLLAPSED_TEXT_MASK } : {})
-                            })
-                        }}
+                        className={textClassName}
+                        // Le seuil de repli vit dans le TSX (il sert aussi de seuil de
+                        // mesure) et descend dans la feuille par cette variable.
+                        style={{ ['--geoapp-log-collapsed-height' as any]: `${COLLAPSED_TEXT_MAX_HEIGHT}px` }}
                     >
                         {renderLogMarkdown(log.text, `log-${log.id}`)}
                     </div>
                     {isOverflowing && (
                         <button
+                            className='geoapp-log-card__toggle'
                             onClick={() => setExpanded(!expanded)}
-                            style={{
-                                background: 'none',
-                                border: 'none',
-                                color: 'var(--theia-textLink-foreground)',
-                                cursor: 'pointer',
-                                marginTop: 4,
-                                padding: 0,
-                                fontSize: 12
-                            }}
                         >
                             {expanded ? 'Voir moins' : 'Voir plus'}
                         </button>
@@ -283,27 +242,18 @@ const LogsList: React.FC<LogsListProps> = ({ logs, isLoading, onLoadMore, hasMor
             
             {hasMore && (
                 <button
+                    className='geoapp-logs-load-more'
                     onClick={onLoadMore}
                     disabled={isLoading}
-                    style={{
-                        width: '100%',
-                        padding: '10px 16px',
-                        background: 'var(--theia-button-background)',
-                        color: 'var(--theia-button-foreground)',
-                        border: 'none',
-                        borderRadius: 4,
-                        cursor: isLoading ? 'wait' : 'pointer',
-                        marginTop: 8
-                    }}
                 >
                     {isLoading ? (
                         <>
-                            <i className="fa fa-spinner fa-spin" style={{ marginRight: 8 }} />
+                            <i className='fa fa-spinner fa-spin' />
                             Chargement...
                         </>
                     ) : (
                         <>
-                            <i className="fa fa-chevron-down" style={{ marginRight: 8 }} />
+                            <i className='fa fa-chevron-down' />
                             Charger plus de logs
                         </>
                     )}
@@ -336,38 +286,29 @@ const RemoteLogsBanner: React.FC<RemoteLogsBannerProps> = ({
 }) => {
     const remaining = totalAvailable - storedCount;
     const nextBatch = Math.min(LOGS_PAGE_SIZE, remaining);
-    const buttonStyle: React.CSSProperties = {
-        padding: '6px 12px',
-        background: 'var(--theia-button-secondaryBackground, var(--theia-editor-background))',
-        color: 'var(--theia-button-secondaryForeground, var(--theia-foreground))',
-        border: '1px solid var(--theia-panel-border)',
-        borderRadius: 4,
-        cursor: isRefreshing ? 'wait' : 'pointer',
-        fontSize: 12
-    };
 
     return (
-        <div style={{
-            background: 'var(--theia-editor-background)',
-            border: '1px solid var(--theia-panel-border)',
-            borderLeft: '4px solid var(--theia-focusBorder)',
-            borderRadius: 6,
-            padding: 12,
-            marginBottom: 12,
-            flexShrink: 0
-        }}>
-            <div style={{ fontSize: 13, marginBottom: 8 }}>
-                <i className="fa fa-cloud-download-alt" style={{ marginRight: 8, opacity: 0.8 }} />
+        <div className='geoapp-logs-remote-banner'>
+            <div className='geoapp-logs-remote-banner__text'>
+                <i className='fa fa-cloud-download-alt' />
                 Cette géocache compte <strong>{totalAvailable}</strong> logs sur Geocaching.com,
                 dont <strong>{storedCount}</strong> chargé{storedCount > 1 ? 's' : ''} ici.
             </div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <button onClick={onLoadNextPage} disabled={isRefreshing} style={buttonStyle}>
-                    <i className="fa fa-chevron-down" style={{ marginRight: 6 }} />
+            <div className='geoapp-logs-remote-banner__actions'>
+                <button
+                    className='geoapp-logs-remote-banner__button'
+                    onClick={onLoadNextPage}
+                    disabled={isRefreshing}
+                >
+                    <i className='fa fa-chevron-down' />
                     Charger {nextBatch} de plus
                 </button>
-                <button onClick={onLoadAll} disabled={isRefreshing} style={buttonStyle}>
-                    <i className="fa fa-cloud-download-alt" style={{ marginRight: 6 }} />
+                <button
+                    className='geoapp-logs-remote-banner__button'
+                    onClick={onLoadAll}
+                    disabled={isRefreshing}
+                >
+                    <i className='fa fa-cloud-download-alt' />
                     Tout charger ({totalAvailable})
                 </button>
             </div>
@@ -842,23 +783,11 @@ ${JSON.stringify(logsToAnalyze, null, 2)}`;
             : 0;
         
         return (
-            <div style={{ 
-                padding: 16, 
-                height: '100%', 
-                overflow: 'auto',
-                display: 'flex',
-                flexDirection: 'column'
-            }}>
+            <div className='geoapp-logs-panel'>
                 {/* En-tête */}
-                <div style={{ 
-                    display: 'flex', 
-                    justifyContent: 'space-between', 
-                    alignItems: 'center',
-                    marginBottom: 16,
-                    flexShrink: 0
-                }}>
+                <div className='geoapp-logs-panel__header'>
                     <div>
-                        <h3 style={{ margin: 0, fontSize: 16 }}>
+                        <h3 className='geoapp-logs-panel__title'>
                             {this.geocacheCode ? (
                                 <>Logs - {this.geocacheCode}</>
                             ) : (
@@ -866,82 +795,47 @@ ${JSON.stringify(logsToAnalyze, null, 2)}`;
                             )}
                         </h3>
                         {this.geocacheName && (
-                            <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>
+                            <div className='geoapp-logs-panel__subtitle'>
                                 {this.geocacheName}
                             </div>
                         )}
                         {this.totalCount > 0 && (
-                            <div style={{ fontSize: 12, opacity: 0.7, marginTop: 2 }}>
+                            <div className='geoapp-logs-panel__count'>
                                 {this.totalCount} log{this.totalCount > 1 ? 's' : ''}
                                 {this.friendsOnly ? ' de vos amis' : ' au total'}
                             </div>
                         )}
                     </div>
-                    
+
                     {/* Boutons d'action */}
                     {this.geocacheId && (
-                        <div style={{ display: 'flex', gap: 8 }}>
+                        <div className='geoapp-logs-panel__actions'>
                             <button
+                                className='geoapp-logs-panel__button geoapp-logs-panel__button--toggle'
                                 onClick={() => this.toggleFriendsOnly()}
                                 disabled={this.isLoading || (this.friendsCount === 0 && !this.friendsOnly)}
-                                style={{
-                                    padding: '8px 16px',
-                                    background: this.friendsOnly
-                                        ? 'var(--theia-button-background)'
-                                        : 'var(--theia-editor-background)',
-                                    color: this.friendsOnly
-                                        ? 'var(--theia-button-foreground)'
-                                        : 'var(--theia-foreground)',
-                                    border: '1px solid var(--theia-panel-border)',
-                                    borderRadius: 4,
-                                    cursor: this.friendsCount === 0 && !this.friendsOnly ? 'not-allowed' : 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 8,
-                                    opacity: this.friendsCount === 0 && !this.friendsOnly ? 0.5 : 1
-                                }}
+                                aria-pressed={this.friendsOnly}
                                 title={this.friendsCount === 0
                                     ? "Aucun log d'ami détecté sur cette géocache (rafraîchissez les logs pour vérifier)"
                                     : "N'afficher que les logs de vos amis Geocaching.com"}
                             >
-                                <i className="fa fa-user-friends" />
+                                <i className='fa fa-user-friends' />
                                 {`Amis${this.friendsCount > 0 ? ` (${this.friendsCount})` : ''}`}
                             </button>
                             <button
+                                className='geoapp-logs-panel__button'
                                 onClick={() => this.analyzeLogs()}
                                 disabled={this.isAnalyzing || this.logs.length === 0}
-                                style={{
-                                    padding: '8px 16px',
-                                    background: 'var(--theia-button-background)',
-                                    color: 'var(--theia-button-foreground)',
-                                    border: 'none',
-                                    borderRadius: 4,
-                                    cursor: (this.isAnalyzing || this.logs.length === 0) ? 'not-allowed' : 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 8,
-                                    opacity: this.logs.length === 0 ? 0.5 : 1
-                                }}
                                 title="Analyser les logs avec l'IA pour extraire des informations utiles"
                             >
                                 <i className={`fa ${this.isAnalyzing ? 'fa-spinner fa-spin' : 'fa-brain'}`} />
                                 {this.isAnalyzing ? 'Analyse...' : 'Analyser avec IA'}
                             </button>
                             <button
+                                className='geoapp-logs-panel__button'
                                 onClick={() => void this.refreshLogs()}
                                 disabled={this.isRefreshing}
-                                style={{
-                                    padding: '8px 16px',
-                                    background: 'var(--theia-button-background)',
-                                    color: 'var(--theia-button-foreground)',
-                                    border: 'none',
-                                    borderRadius: 4,
-                                    cursor: this.isRefreshing ? 'wait' : 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 8
-                                }}
-                                title="Récupérer les logs depuis Geocaching.com"
+                                title='Récupérer les logs depuis Geocaching.com'
                             >
                                 <i className={`fa ${this.isRefreshing ? 'fa-spinner fa-spin' : 'fa-sync-alt'}`} />
                                 {this.isRefreshing ? 'Rafraîchissement...' : 'Rafraîchir'}
@@ -949,69 +843,40 @@ ${JSON.stringify(logsToAnalyze, null, 2)}`;
                         </div>
                     )}
                 </div>
-                
+
                 {/* Message si pas de géocache sélectionnée */}
                 {!this.geocacheId ? (
-                    <div style={{ flex: 1, display: 'flex' }}>
+                    <div className='geoapp-logs-panel__empty'>
                         <EmptyState fullHeight icon='fa-comments' title='Sélectionnez une géocache pour voir ses logs' />
                     </div>
                 ) : (
                     <>
                         {/* Résultat de l'analyse IA */}
                         {this.analysisResult && (
-                            <div style={{
-                                background: 'var(--theia-editor-background)',
-                                border: '2px solid var(--theia-focusBorder)',
-                                borderRadius: 6,
-                                padding: 16,
-                                marginBottom: 16,
-                                flexShrink: 0
-                            }}>
-                                <div style={{
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center',
-                                    marginBottom: 12
-                                }}>
-                                    <h4 style={{
-                                        margin: 0,
-                                        fontSize: 14,
-                                        fontWeight: 'bold',
-                                        color: 'var(--theia-focusBorder)'
-                                    }}>
-                                        <i className="fa fa-brain" style={{ marginRight: 8 }} />
+                            <div className='geoapp-logs-analysis'>
+                                <div className='geoapp-logs-analysis__header'>
+                                    <h4 className='geoapp-logs-analysis__title'>
+                                        <i className='fa fa-brain' />
                                         Analyse IA des Logs
                                     </h4>
                                     <button
+                                        className='geoapp-logs-analysis__close'
                                         onClick={() => {
                                             this.analysisResult = undefined;
                                             this.update();
                                         }}
-                                        style={{
-                                            background: 'none',
-                                            border: 'none',
-                                            color: 'var(--theia-foreground)',
-                                            cursor: 'pointer',
-                                            padding: 4,
-                                            opacity: 0.7
-                                        }}
                                         title="Fermer l'analyse"
                                         aria-label="Fermer l'analyse"
                                     >
-                                        <i className="fa fa-times" aria-hidden="true" />
+                                        <i className='fa fa-times' aria-hidden='true' />
                                     </button>
                                 </div>
-                                <div style={{
-                                    whiteSpace: 'pre-wrap',
-                                    fontSize: 13,
-                                    lineHeight: 1.6,
-                                    color: 'var(--theia-foreground)'
-                                }}>
+                                <div className='geoapp-logs-analysis__body'>
                                     {this.analysisResult}
                                 </div>
                             </div>
                         )}
-                        
+
                         {/* Résumé des logs récents */}
                         <LogsRecentSummary
                             entries={this.summaryEntries}
@@ -1031,8 +896,8 @@ ${JSON.stringify(logsToAnalyze, null, 2)}`;
                         )}
 
                         {/* Liste des logs */}
-                        <div style={{ flex: 1, overflow: 'auto' }}>
-                            <LogsList 
+                        <div className='geoapp-logs-panel__list'>
+                            <LogsList
                                 logs={this.logs}
                                 isLoading={this.isLoading}
                                 onLoadMore={this.loadMore}

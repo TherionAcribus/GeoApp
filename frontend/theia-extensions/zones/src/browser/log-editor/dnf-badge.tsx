@@ -6,7 +6,7 @@
 
 import * as React from '@theia/core/shared/react';
 import { LogTypeIcon } from '../geocache-log-type-icons';
-import { DNF_ACCENT, DNF_ROW_BACKGROUND, DNF_TOOLTIP } from './constants';
+import { DNF_TOOLTIP } from './constants';
 
 /**
  * "Didn't find it" : l'icône Geocaching.com seule dans le tableau (l'espace y est compté),
@@ -18,19 +18,7 @@ export const DnfBadge: React.FC<{ compact?: boolean }> = ({ compact = false }) =
     }
     return (
         <span
-            style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 4,
-                padding: '2px 6px',
-                borderRadius: 3,
-                fontSize: 12,
-                background: DNF_ROW_BACKGROUND,
-                color: DNF_ACCENT,
-                border: `1px solid ${DNF_ACCENT}`,
-                fontWeight: 700,
-                whiteSpace: 'nowrap'
-            }}
+            className='geoapp-log-state-badge geoapp-log-state-badge--dnf'
             title={DNF_TOOLTIP}
         >
             <LogTypeIcon kind='dnf' size={14} title={DNF_TOOLTIP} />

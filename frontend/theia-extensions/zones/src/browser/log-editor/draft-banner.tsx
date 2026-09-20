@@ -12,32 +12,19 @@ export const DraftBanner: React.FC<{
     onDiscard: () => void;
     onDismiss: () => void;
 }> = ({ restoredDraftAt, onDiscard, onDismiss }) => (
-    <div
-        style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            padding: '6px 10px',
-            fontSize: 12,
-            borderRadius: 4,
-            border: '1px solid var(--theia-editorWidget-border)',
-            background: 'var(--theia-editorWidget-background)',
-        }}
-    >
+    <div className='geoapp-log-draft-banner'>
         <span>💾 Brouillon restauré (enregistré le {formatIsoDateTimeFr(restoredDraftAt)}). Les photos ne sont pas conservées.</span>
         <button
-            className='theia-button secondary'
+            className='theia-button secondary geoapp-log-button--small'
             onClick={onDiscard}
             title='Effacer les textes restaurés et repartir sur un log vierge'
-            style={{ fontSize: 11, padding: '2px 8px' }}
         >
             Repartir de zéro
         </button>
         <button
-            className='theia-button secondary'
+            className='theia-button secondary geoapp-log-button--small geoapp-log-draft-banner__dismiss'
             onClick={onDismiss}
             title='Masquer ce message'
-            style={{ fontSize: 11, padding: '2px 8px', marginLeft: 'auto' }}
         >
             ✕
         </button>

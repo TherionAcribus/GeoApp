@@ -7,12 +7,12 @@
 
 import * as React from '@theia/core/shared/react';
 import { LogTypeIcon } from '../geocache-log-type-icons';
-import { ALREADY_FOUND_ACCENT } from './constants';
 import { CharCounter } from './char-counter';
 import { ImagesSection } from './images-section';
 import { GeocacheListItem, LogHistoryEntry, LogTypeValue, PatternSuggestion, SelectedLogImage } from './types';
 import { MarkdownPreview } from './markdown-preview';
 import { MarkdownToolbar } from './markdown-toolbar';
+import { PatternAutocompleteMenu } from './pattern-autocomplete-menu';
 import { TextareaWithOverlay } from './textarea-overlay';
 import { MarkdownFormatKind } from '../log-markdown';
 
@@ -107,43 +107,34 @@ export const GlobalLogEditor: React.FC<GlobalLogEditorProps> = (props) => {
 
     return (
         <>
-            <div style={{ display: 'grid', gridTemplateColumns: '190px 220px 1fr', gap: 12, alignItems: 'end' }}>
+            <div className='geoapp-log-global__row'>
                 <div>
-                    <label style={{ display: 'block', fontSize: 12, opacity: 0.8, marginBottom: 4 }}>Date</label>
-                    <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                    <label className='geoapp-log-global__label'>Date</label>
+                    <div className='geoapp-log-global__date'>
                         <input
                             type='date'
-                            className='theia-input'
+                            className='theia-input geoapp-log-global__date-input'
                             value={logDate}
                             onChange={e => onLogDateChange(e.target.value)}
-                            style={{ flex: 1, minWidth: 0 }}
                         />
                         <button
-                            className='theia-button secondary'
+                            className='theia-button secondary geoapp-log-global__pin'
                             onClick={onToggleLogDatePin}
                             title={isLogDatePinned
                                 ? 'Date épinglée : elle sera réutilisée pour les prochains logs. Cliquer pour revenir à la date du jour.'
                                 : 'Épingler la date pour la réutiliser lors des prochains logs'}
                             aria-pressed={isLogDatePinned}
-                            style={{
-                                padding: '2px 6px',
-                                minWidth: 26,
-                                fontSize: 13,
-                                opacity: isLogDatePinned ? 1 : 0.6,
-                                color: isLogDatePinned ? 'var(--theia-focusBorder)' : undefined,
-                            }}
                         >
                             <i className={isLogDatePinned ? 'fa fa-thumb-tack' : 'fa fa-thumb-tack fa-rotate-90'} />
                         </button>
                     </div>
                 </div>
                 <div>
-                    <label style={{ display: 'block', fontSize: 12, opacity: 0.8, marginBottom: 4 }}>Type</label>
+                    <label className='geoapp-log-global__label'>Type</label>
                     <select
-                        className='theia-select'
+                        className='theia-select geoapp-log-global__select'
                         value={logType}
                         onChange={e => onLogTypeChange(e.target.value as LogTypeValue)}
-                        style={{ width: '100%' }}
                     >
                         <option value='found'>Found it</option>
                         <option value='dnf'>Didn't find it</option>
@@ -151,28 +142,24 @@ export const GlobalLogEditor: React.FC<GlobalLogEditorProps> = (props) => {
                         <option value='skip'>Ne pas loguer</option>
                     </select>
                     {logType === 'found' && pendingAlreadyFoundCount > 0 && (
-                        <div
-                            style={{ fontSize: 11, marginTop: 4, color: ALREADY_FOUND_ACCENT, display: 'flex', alignItems: 'center', gap: 4 }}
-                            title={pendingAlreadyFoundCodes}
-                        >
+                        <div className='geoapp-log-global__already-found' title={pendingAlreadyFoundCodes}>
                             <LogTypeIcon kind='found' size={13} />
                             {pendingAlreadyFoundCount} déjà trouvée(s) → "Ne pas loguer"
                         </div>
                     )}
                 </div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <div className='geoapp-log-global__same-text'>
                     <input
                         type='checkbox'
                         checked={useSameTextForAll}
                         onChange={e => onToggleUseSameTextForAll(e.target.checked)}
                     />
-                    <span style={{ fontSize: 12, opacity: 0.85 }}>Texte identique pour toutes les géocaches</span>
+                    <span className='geoapp-log-global__same-text-label'>Texte identique pour toutes les géocaches</span>
                     {!useSameTextForAll && globalText.trim() !== '' && (
                         <button
-                            className='theia-button secondary'
+                            className='theia-button secondary geoapp-log-button--compact'
                             onClick={onApplyGlobalTextToAll}
                             title={`Remplacer le texte de chaque géocache par le texte commun :\n\n${globalTextExcerpt}`}
-                            style={{ fontSize: 11, padding: '2px 6px' }}
                         >
                             ↺ Réappliquer le texte commun
                         </button>
@@ -182,12 +169,11 @@ export const GlobalLogEditor: React.FC<GlobalLogEditorProps> = (props) => {
 
             {useSameTextForAll && (
                 <div>
-                    <label style={{ display: 'block', fontSize: 12, opacity: 0.8, marginBottom: 4 }}>Texte (Markdown)</label>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 6 }}>
-                        <div style={{ position: 'relative' }}>
+                    <label className='geoapp-log-global__label'>Texte (Markdown)</label>
+                    <div className='geoapp-log-global__toolbar'>
+                        <div className='geoapp-log-anchor'>
                             <button
-                                className='theia-button secondary'
-                                style={{ fontSize: 12, padding: '2px 10px' }}
+                                className='theia-button secondary geoapp-log-button--medium'
                                 onClick={onToggleHistoryDropdown}
                                 disabled={isToolbarDisabled || logHistory.length === 0}
                                 title='Réutiliser un log récent'
@@ -195,26 +181,11 @@ export const GlobalLogEditor: React.FC<GlobalLogEditorProps> = (props) => {
                                 📝 Logs récents ({logHistory.length})
                             </button>
                             {historyDropdownOpen && logHistory.length > 0 && (
-                                <div
-                                    style={{
-                                        position: 'absolute',
-                                        top: '100%',
-                                        left: 0,
-                                        marginTop: 4,
-                                        width: 400,
-                                        maxHeight: 300,
-                                        overflowY: 'auto',
-                                        border: '1px solid var(--theia-panel-border)',
-                                        background: 'var(--theia-editor-background)',
-                                        borderRadius: 3,
-                                        zIndex: 1000,
-                                        boxShadow: '0 4px 12px rgba(0,0,0,0.35)'
-                                    }}
-                                >
-                                    <div style={{ padding: '6px 8px', borderBottom: '1px solid var(--theia-panel-border)', fontSize: 11, fontWeight: 600, opacity: 0.8 }}>
+                                <div className='geoapp-log-menu'>
+                                    <div className='geoapp-log-menu__title'>
                                         Cliquez pour réutiliser le texte
                                     </div>
-                                    {logHistory.map((entry, idx) => {
+                                    {logHistory.map(entry => {
                                         const date = new Date(entry.createdAt);
                                         const dateStr = date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
                                         const timeStr = date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
@@ -222,20 +193,13 @@ export const GlobalLogEditor: React.FC<GlobalLogEditorProps> = (props) => {
                                         return (
                                             <div
                                                 key={entry.id}
-                                                style={{
-                                                    padding: '8px',
-                                                    cursor: 'pointer',
-                                                    borderBottom: idx < logHistory.length - 1 ? '1px solid var(--theia-panel-border)' : 'none',
-                                                    background: 'transparent'
-                                                }}
-                                                onMouseEnter={e => { e.currentTarget.style.background = 'var(--theia-list-hoverBackground)'; }}
-                                                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                                                className='geoapp-log-menu__entry'
                                                 onClick={() => onApplyHistoryTextOnly(entry)}
                                             >
-                                                <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 2 }}>
+                                                <div className='geoapp-log-menu__entry-date'>
                                                     {dateStr} à {timeStr}
                                                 </div>
-                                                <div style={{ fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                <div className='geoapp-log-menu__entry-preview'>
                                                     {preview || '(vide)'}
                                                 </div>
                                             </div>
@@ -252,7 +216,7 @@ export const GlobalLogEditor: React.FC<GlobalLogEditorProps> = (props) => {
                             onApplyPrefix={onApplyPrefix}
                         />
                     </div>
-                    <div style={{ position: 'relative' }}>
+                    <div className='geoapp-log-anchor'>
                         <TextareaWithOverlay
                             value={globalText}
                             geocacheId={null}
@@ -267,40 +231,13 @@ export const GlobalLogEditor: React.FC<GlobalLogEditorProps> = (props) => {
                             registerOverlay={registerOverlay}
                         />
                         {autocompleteOpen && autocompleteSuggestions.length > 0 && autocompletePosition && (
-                            <div
-                                style={{
-                                    position: 'fixed',
-                                    top: `${autocompletePosition.top + 20}px`,
-                                    left: `${autocompletePosition.left}px`,
-                                    width: 320,
-                                    maxHeight: 200,
-                                    overflowY: 'auto',
-                                    border: '1px solid var(--theia-panel-border)',
-                                    background: 'var(--theia-editor-background)',
-                                    borderRadius: 3,
-                                    zIndex: 1000,
-                                    boxShadow: '0 4px 12px rgba(0,0,0,0.35)'
-                                }}
-                                onMouseDown={e => e.preventDefault()}
-                            >
-                                {autocompleteSuggestions.map((s, idx) => (
-                                    <div
-                                        key={s.id}
-                                        style={{
-                                            padding: '6px 8px',
-                                            cursor: 'pointer',
-                                            background: idx === autocompleteActiveIndex
-                                                ? 'var(--theia-list-activeSelectionBackground)'
-                                                : 'transparent'
-                                        }}
-                                        onMouseEnter={() => onAutocompleteHover(idx)}
-                                        onClick={() => onAutocompleteClick(s)}
-                                    >
-                                        <div style={{ fontSize: '0.9em', fontWeight: 600 }}>{s.label}</div>
-                                        <div style={{ fontSize: '0.8em', opacity: 0.7 }}>{s.description}</div>
-                                    </div>
-                                ))}
-                            </div>
+                            <PatternAutocompleteMenu
+                                suggestions={autocompleteSuggestions}
+                                activeIndex={autocompleteActiveIndex}
+                                position={autocompletePosition}
+                                onHover={onAutocompleteHover}
+                                onSelect={onAutocompleteClick}
+                            />
                         )}
                     </div>
 
@@ -308,7 +245,7 @@ export const GlobalLogEditor: React.FC<GlobalLogEditorProps> = (props) => {
                         <CharCounter {...charCounterStats} />
                     )}
 
-                    <div style={{ marginTop: 10 }}>
+                    <div className='geoapp-log-global__images'>
                         <ImagesSection
                             images={images}
                             title='Photos'

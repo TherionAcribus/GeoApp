@@ -9,19 +9,12 @@ import * as React from '@theia/core/shared/react';
 import { LogTypeIcon } from '../geocache-log-type-icons';
 import { MarkdownFormatKind } from '../log-markdown';
 import { alreadyFoundTooltip } from './helpers';
-import {
-    ALREADY_FOUND_ACCENT,
-    ALREADY_FOUND_ROW_BACKGROUND,
-    DNF_ACCENT,
-    DNF_ROW_BACKGROUND,
-    JUST_LOGGED_ACCENT,
-    JUST_LOGGED_ROW_BACKGROUND,
-} from './constants';
 import { CharCounter } from './char-counter';
 import { DnfBadge } from './dnf-badge';
 import { ImagesSection } from './images-section';
 import { MarkdownPreview } from './markdown-preview';
 import { MarkdownToolbar } from './markdown-toolbar';
+import { PatternAutocompleteMenu } from './pattern-autocomplete-menu';
 import { SubmitBadge } from './submit-badge';
 import { TextareaWithOverlay } from './textarea-overlay';
 import { GeocacheListItem, LogTypeValue, PatternSuggestion, SelectedLogImage, SubmissionStatus } from './types';
@@ -121,47 +114,24 @@ export const PerCacheBlock: React.FC<PerCacheBlockProps> = (props) => {
 
     const noPointsLeft = !isFavorite && remainingFavoritePoints <= 0;
 
+    // Même cascade que dans le tableau : envoyé, puis DNF, puis déjà trouvée.
+    const stateModifier = isSubmittedOk
+        ? ' geoapp-log-cache-block--logged'
+        : isPendingDnf
+            ? ' geoapp-log-cache-block--dnf'
+            : isPendingAlreadyFound
+                ? ' geoapp-log-cache-block--found'
+                : '';
+
     return (
-        <div
-            style={{
-                // Même cascade que dans le tableau : envoyé, puis DNF, puis déjà trouvée.
-                border: isSubmittedOk
-                    ? `1px solid ${JUST_LOGGED_ACCENT}`
-                    : isPendingDnf
-                        ? `1px solid ${DNF_ACCENT}`
-                        : isPendingAlreadyFound
-                            ? `1px solid ${ALREADY_FOUND_ACCENT}`
-                            : '1px solid var(--theia-panel-border)',
-                borderRadius: 6,
-                padding: 10,
-                background: isSubmittedOk
-                    ? JUST_LOGGED_ROW_BACKGROUND
-                    : isPendingDnf
-                        ? DNF_ROW_BACKGROUND
-                        : isPendingAlreadyFound
-                            ? ALREADY_FOUND_ROW_BACKGROUND
-                            : 'var(--theia-editor-background)'
-            }}
-        >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-                <div style={{ fontWeight: 700 }}>{gc.gc_code}</div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+        <div className={`geoapp-log-cache-block${stateModifier}`}>
+            <div className='geoapp-log-cache-block__header'>
+                <div className='geoapp-log-cache-block__code'>{gc.gc_code}</div>
+                <div className='geoapp-log-cache-block__badges'>
                     {isPendingDnf && <DnfBadge />}
                     {isPendingAlreadyFound && (
                         <span
-                            style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: 4,
-                                padding: '2px 6px',
-                                borderRadius: 3,
-                                fontSize: 12,
-                                background: ALREADY_FOUND_ROW_BACKGROUND,
-                                color: ALREADY_FOUND_ACCENT,
-                                border: `1px solid ${ALREADY_FOUND_ACCENT}`,
-                                fontWeight: 700,
-                                whiteSpace: 'nowrap'
-                            }}
+                            className='geoapp-log-state-badge geoapp-log-state-badge--found'
                             title={alreadyFoundTooltip(gc)}
                         >
                             <LogTypeIcon kind='found' size={14} title={alreadyFoundTooltip(gc)} />
@@ -175,31 +145,30 @@ export const PerCacheBlock: React.FC<PerCacheBlockProps> = (props) => {
                             error={submitError}
                         />
                     )}
-                    <div style={{ opacity: 0.8, fontSize: 12, textAlign: 'right' }}>{gc.name}</div>
+                    <div className='geoapp-log-cache-block__name'>{gc.name}</div>
                 </div>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
-                <div style={{ fontSize: 12, opacity: 0.85 }}>
+            <div className='geoapp-log-cache-block__controls'>
+                <div className='geoapp-log-cache-block__favorites'>
                     PF: {typeof gc.favorites_count === 'number' ? gc.favorites_count : '—'}
                     {'  '}(
                     {formatFavoritePercent(gc.favorites_count, gc.logs_count)}
                     )
                 </div>
-                <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12 }}>
-                        <span style={{ opacity: 0.85 }}>Type</span>
+                <div className='geoapp-log-cache-block__fields'>
+                    <label className='geoapp-log-cache-block__field'>
+                        <span className='geoapp-log-cache-block__field-label'>Type</span>
                         <select
-                            className='theia-select'
+                            className={isPendingDnf
+                                ? 'theia-select geoapp-log-select geoapp-log-select--dnf'
+                                : 'theia-select geoapp-log-select'}
                             value={logType}
                             onChange={e => onLogTypeChange(e.target.value as LogTypeValue)}
                             disabled={isSubmittedOk}
                             title={isSubmittedOk
                                 ? 'Log déjà envoyé pour cette géocache'
                                 : isPendingAlreadyFound ? alreadyFoundTooltip(gc) : undefined}
-                            style={isPendingDnf
-                                ? { fontSize: 12, color: DNF_ACCENT, borderColor: DNF_ACCENT, fontWeight: 600 }
-                                : { fontSize: 12 }}
                         >
                             <option value='found' disabled={isPendingAlreadyFound}>{getLogTypeLabel('found')}</option>
                             <option value='dnf'>{getLogTypeLabel('dnf')}</option>
@@ -208,7 +177,10 @@ export const PerCacheBlock: React.FC<PerCacheBlockProps> = (props) => {
                         </select>
                     </label>
 
-                    <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, opacity: logType === 'found' ? 0.9 : 0.5 }}>
+                    <label className={logType === 'found'
+                        ? 'geoapp-log-cache-block__field geoapp-log-cache-block__field--active'
+                        : 'geoapp-log-cache-block__field geoapp-log-cache-block__field--inactive'}
+                    >
                         <input
                             type='checkbox'
                             checked={isFavorite}
@@ -225,7 +197,7 @@ export const PerCacheBlock: React.FC<PerCacheBlockProps> = (props) => {
                 </div>
             </div>
 
-            <div style={{ marginTop: 10 }}>
+            <div className='geoapp-log-cache-block__images'>
                 <ImagesSection
                     images={images}
                     title='Photos'
@@ -238,7 +210,7 @@ export const PerCacheBlock: React.FC<PerCacheBlockProps> = (props) => {
                 />
             </div>
 
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 8, marginBottom: 6 }}>
+            <div className='geoapp-log-cache-block__toolbar'>
                 <MarkdownToolbar
                     activeCaretFormat={activeCaretFormat}
                     isActive={isEditorActive}
@@ -248,17 +220,16 @@ export const PerCacheBlock: React.FC<PerCacheBlockProps> = (props) => {
                 />
                 {globalText.trim() !== '' && (
                     <button
-                        className='theia-button secondary'
+                        className='theia-button secondary geoapp-log-button--compact geoapp-log-cache-block__apply-global'
                         onClick={onApplyGlobalText}
                         disabled={isApplyGlobalTextDisabled}
                         title={applyGlobalTextTitle}
-                        style={{ fontSize: 11, padding: '2px 6px', marginLeft: 'auto' }}
                     >
                         ↺ Texte commun
                     </button>
                 )}
             </div>
-            <div style={{ position: 'relative', marginTop: 8 }}>
+            <div className='geoapp-log-cache-block__textarea'>
                 <TextareaWithOverlay
                     value={text}
                     geocacheId={gc.id}
@@ -273,40 +244,13 @@ export const PerCacheBlock: React.FC<PerCacheBlockProps> = (props) => {
                     registerOverlay={registerOverlay}
                 />
                 {autocompleteOpen && autocompleteSuggestions.length > 0 && autocompletePosition && (
-                    <div
-                        style={{
-                            position: 'fixed',
-                            top: `${autocompletePosition.top + 20}px`,
-                            left: `${autocompletePosition.left}px`,
-                            width: 320,
-                            maxHeight: 200,
-                            overflowY: 'auto',
-                            border: '1px solid var(--theia-panel-border)',
-                            background: 'var(--theia-editor-background)',
-                            borderRadius: 3,
-                            zIndex: 1000,
-                            boxShadow: '0 4px 12px rgba(0,0,0,0.35)'
-                        }}
-                        onMouseDown={e => e.preventDefault()}
-                    >
-                        {autocompleteSuggestions.map((s, idx) => (
-                            <div
-                                key={s.id}
-                                style={{
-                                    padding: '6px 8px',
-                                    cursor: 'pointer',
-                                    background: idx === autocompleteActiveIndex
-                                        ? 'var(--theia-list-activeSelectionBackground)'
-                                        : 'transparent'
-                                }}
-                                onMouseEnter={() => onAutocompleteHover(idx)}
-                                onClick={() => onAutocompleteClick(s)}
-                            >
-                                <div style={{ fontSize: '0.9em', fontWeight: 600 }}>{s.label}</div>
-                                <div style={{ fontSize: '0.8em', opacity: 0.7 }}>{s.description}</div>
-                            </div>
-                        ))}
-                    </div>
+                    <PatternAutocompleteMenu
+                        suggestions={autocompleteSuggestions}
+                        activeIndex={autocompleteActiveIndex}
+                        position={autocompletePosition}
+                        onHover={onAutocompleteHover}
+                        onSelect={onAutocompleteClick}
+                    />
                 )}
             </div>
 

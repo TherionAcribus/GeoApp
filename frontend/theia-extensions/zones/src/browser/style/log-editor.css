@@ -1,0 +1,1132 @@
+/*
+ * Éditeur de logs : widget principal et tous ses composants de présentation
+ * (`log-editor/*.tsx`).
+ *
+ * Les accents d'état (déjà trouvée, loguée, DNF) restent définis en TypeScript
+ * dans `log-editor/constants.ts`, parce que les icônes SVG de
+ * `geocache-log-type-icons.tsx` les dessinent aussi. Le widget les pose une
+ * seule fois en variables sur sa racine `.geoapp-log-editor`, et toute la
+ * feuille les lit de là : une seule source, aucune couleur recopiée ici.
+ *
+ *   --geoapp-log-found-accent / --geoapp-log-found-bg        déjà trouvée
+ *   --geoapp-log-logged-accent / --geoapp-log-logged-bg      loguée à l'instant
+ *   --geoapp-log-dnf-accent / --geoapp-log-dnf-bg            DNF
+ *
+ * `textarea-overlay.tsx` garde délibérément ses styles en inline : la couche de
+ * surlignage et le `<textarea>` doivent déclarer exactement les mêmes métriques,
+ * et `.theia-input` écraserait une classe posée sur le textarea seul
+ * (cf. § 3.4 de docs/LOGS_SYSTEM_TECHNICAL.md).
+ */
+
+/* ------------------------------------------------------------- Squelette */
+
+.geoapp-log-editor {
+    display: grid;
+    gap: 12px;
+    height: 100%;
+    padding: 12px;
+    overflow: auto;
+}
+
+.geoapp-log-editor__muted {
+    opacity: 0.7;
+}
+
+.geoapp-log-editor__blocks {
+    display: grid;
+    gap: 10px;
+}
+
+.geoapp-log-editor__table-wrapper {
+    background: var(--theia-editor-background);
+}
+
+.geoapp-log-editor__all-submitted {
+    padding: 8px 10px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editor-background);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+/* --------------------------------------------------------------- Boutons */
+
+/*
+ * Les boutons de l'éditeur sont des `theia-button` : la classe ne fixe que la
+ * taille, pour ne pas reprendre au thème ses couleurs et ses états.
+ */
+.geoapp-log-button {
+    font-size: 12px;
+    padding: 4px 12px;
+}
+
+.geoapp-log-button--nav {
+    padding: 4px 10px;
+}
+
+.geoapp-log-button--small {
+    font-size: 11px;
+    padding: 2px 8px;
+}
+
+.geoapp-log-button--compact {
+    font-size: 11px;
+    padding: 2px 6px;
+}
+
+.geoapp-log-button--icon {
+    font-size: 11px;
+    padding: 0 6px;
+    min-width: 0;
+}
+
+.geoapp-log-button--tiny {
+    font-size: 10px;
+    padding: 2px 6px;
+}
+
+.geoapp-log-button--form {
+    font-size: 11px;
+    padding: 4px 8px;
+}
+
+.geoapp-log-button--medium {
+    font-size: 12px;
+    padding: 2px 10px;
+}
+
+/* Bouton de format Markdown allumé : le curseur est dans une zone formatée. */
+.geoapp-log-button--toggle[aria-pressed='true'] {
+    background: var(--theia-button-background);
+    color: var(--theia-button-foreground);
+}
+
+.geoapp-log-button--stop {
+    font-size: 12px;
+    padding: 4px 12px;
+    font-weight: 600;
+    color: var(--theia-editorWarning-foreground, #d29922);
+}
+
+/* Arrêt déjà demandé : le bouton n'appelle plus à l'action. */
+.geoapp-log-button--stop:disabled {
+    color: inherit;
+}
+
+.geoapp-log-button--generate {
+    font-size: 12px;
+    padding: 6px 16px;
+}
+
+/* ---------------------------------------------------------------- Entête */
+
+.geoapp-log-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.geoapp-log-header__title {
+    margin: 0;
+}
+
+.geoapp-log-header__subtitle {
+    margin-top: 4px;
+    font-size: 12px;
+    opacity: 0.7;
+}
+
+.geoapp-log-header__actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+/* --------------------------------------------------------- Ligne compteurs */
+
+.geoapp-log-counters {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.geoapp-log-counters__summary {
+    font-size: 12px;
+    opacity: 0.85;
+}
+
+.geoapp-log-counters__group {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+}
+
+.geoapp-log-counters__item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    opacity: 0.85;
+}
+
+.geoapp-log-counters__empty {
+    color: var(--theia-errorForeground);
+}
+
+/* ------------------------------------------------------ Bandeau brouillon */
+
+.geoapp-log-draft-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px;
+    border: 1px solid var(--theia-editorWidget-border);
+    border-radius: 4px;
+    background: var(--theia-editorWidget-background);
+    font-size: 12px;
+}
+
+.geoapp-log-draft-banner__dismiss {
+    margin-left: auto;
+}
+
+/* ---------------------------------------------------- Progression d'envoi */
+
+.geoapp-log-progress {
+    margin: 8px 0;
+}
+
+.geoapp-log-progress__line {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 4px;
+    font-size: 12px;
+}
+
+.geoapp-log-progress__current {
+    font-weight: 600;
+}
+
+.geoapp-log-progress__code {
+    opacity: 0.85;
+}
+
+.geoapp-log-progress__images {
+    opacity: 0.7;
+}
+
+.geoapp-log-progress__stopping {
+    margin-left: auto;
+    font-weight: 600;
+    color: var(--theia-editorWarning-foreground, #d29922);
+}
+
+.geoapp-log-progress__track {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--theia-panel-border);
+    overflow: hidden;
+}
+
+/* La largeur vient de l'avancement : le TSX la pose en inline. */
+.geoapp-log-progress__bar {
+    height: 100%;
+    background: var(--theia-progressBar-background, var(--theia-button-background));
+    transition: width 0.2s ease;
+}
+
+.geoapp-log-progress__bar--stopping {
+    background: var(--theia-editorWarning-foreground, #d29922);
+}
+
+/* ------------------------------------------------------ Sections dépliables */
+
+.geoapp-log-details {
+    margin-bottom: 8px;
+}
+
+.geoapp-log-details__summary {
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.geoapp-log-details__body {
+    margin-top: 8px;
+    padding: 12px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editor-background);
+    display: grid;
+    gap: 12px;
+}
+
+/* Les patterns tiennent moins au large que le panneau IA. */
+.geoapp-log-details__body--tight {
+    display: block;
+    padding: 10px;
+}
+
+/* ------------------------------------------------------------- Formulaire */
+
+.geoapp-log-field__label {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.geoapp-log-field__hint {
+    margin-top: 2px;
+    font-size: 11px;
+    opacity: 0.7;
+}
+
+.geoapp-log-field__input {
+    width: 100%;
+    font-size: 12px;
+}
+
+.geoapp-log-field__input--resizable {
+    resize: vertical;
+}
+
+/* ------------------------------------------------------------ Panneau IA */
+
+.geoapp-log-ai__actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.geoapp-log-ai__actions .fa-spinner {
+    margin-right: 6px;
+}
+
+.geoapp-log-ai__status {
+    font-size: 12px;
+    opacity: 0.7;
+}
+
+/* -------------------------------------------------------------- Patterns */
+
+.geoapp-log-patterns__group {
+    margin-bottom: 12px;
+}
+
+.geoapp-log-patterns__group-title {
+    margin-bottom: 6px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.geoapp-log-patterns__builtins {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 11px;
+}
+
+.geoapp-log-patterns__chip {
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: var(--theia-badge-background);
+}
+
+.geoapp-log-patterns__chip--name {
+    font-weight: 600;
+}
+
+.geoapp-log-patterns__empty {
+    font-size: 11px;
+    opacity: 0.7;
+}
+
+.geoapp-log-patterns__list {
+    display: grid;
+    gap: 6px;
+}
+
+.geoapp-log-patterns__row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+}
+
+.geoapp-log-patterns__content {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    opacity: 0.8;
+}
+
+.geoapp-log-patterns__form {
+    padding-top: 10px;
+    border-top: 1px solid var(--theia-panel-border);
+}
+
+.geoapp-log-patterns__form-grid {
+    display: grid;
+    grid-template-columns: 120px 1fr auto;
+    gap: 8px;
+    align-items: end;
+}
+
+.geoapp-log-patterns__form-label {
+    display: block;
+    margin-bottom: 2px;
+    font-size: 10px;
+    opacity: 0.8;
+}
+
+.geoapp-log-patterns__form-input {
+    width: 100%;
+    font-size: 11px;
+}
+
+.geoapp-log-patterns__form-actions {
+    display: flex;
+    gap: 4px;
+}
+
+/* -------------------------------------------------- Éditeur global : barre */
+
+.geoapp-log-global__row {
+    display: grid;
+    grid-template-columns: 190px 220px 1fr;
+    gap: 12px;
+    align-items: end;
+}
+
+.geoapp-log-global__label {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 12px;
+    opacity: 0.8;
+}
+
+.geoapp-log-global__date {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.geoapp-log-global__date-input {
+    flex: 1;
+    min-width: 0;
+}
+
+.geoapp-log-global__pin {
+    min-width: 26px;
+    padding: 2px 6px;
+    font-size: 13px;
+    opacity: 0.6;
+}
+
+.geoapp-log-global__pin[aria-pressed='true'] {
+    opacity: 1;
+    color: var(--theia-focusBorder);
+}
+
+.geoapp-log-global__select {
+    width: 100%;
+}
+
+.geoapp-log-global__already-found {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--geoapp-log-found-accent);
+}
+
+.geoapp-log-global__same-text {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.geoapp-log-global__same-text-label {
+    font-size: 12px;
+    opacity: 0.85;
+}
+
+.geoapp-log-global__toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+}
+
+.geoapp-log-global__images {
+    margin-top: 10px;
+}
+
+/* ------------------------------------------------- Menus flottants */
+
+/* Ancre du menu « logs récents » : le menu se positionne dessous. */
+.geoapp-log-anchor {
+    position: relative;
+}
+
+.geoapp-log-menu {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    margin-top: 4px;
+    width: 400px;
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 3px;
+    background: var(--theia-editor-background);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+    z-index: 1000;
+}
+
+.geoapp-log-menu__title {
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    font-size: 11px;
+    font-weight: 600;
+    opacity: 0.8;
+}
+
+.geoapp-log-menu__entry {
+    padding: 8px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    cursor: pointer;
+}
+
+.geoapp-log-menu__entry:last-child {
+    border-bottom: none;
+}
+
+.geoapp-log-menu__entry:hover {
+    background: var(--theia-list-hoverBackground);
+}
+
+.geoapp-log-menu__entry-date {
+    margin-bottom: 2px;
+    font-size: 11px;
+    opacity: 0.7;
+}
+
+.geoapp-log-menu__entry-preview {
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/*
+ * Autocomplétion @pattern : positionnée en `fixed` d'après le curseur, donc le
+ * TSX pose `top`/`left` en inline — le reste est ici.
+ */
+.geoapp-log-autocomplete {
+    position: fixed;
+    width: 320px;
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 3px;
+    background: var(--theia-editor-background);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+    z-index: 1000;
+}
+
+.geoapp-log-autocomplete__item {
+    padding: 6px 8px;
+    cursor: pointer;
+}
+
+.geoapp-log-autocomplete__item--active {
+    background: var(--theia-list-activeSelectionBackground);
+}
+
+.geoapp-log-autocomplete__label {
+    font-size: 0.9em;
+    font-weight: 600;
+}
+
+.geoapp-log-autocomplete__description {
+    font-size: 0.8em;
+    opacity: 0.7;
+}
+
+/* ------------------------------------------------------ Compteur de texte */
+
+.geoapp-log-counter {
+    margin-top: 4px;
+    font-size: 11px;
+    text-align: right;
+    opacity: 0.7;
+}
+
+/* Proche de la limite, puis au-delà : le compteur cesse d'être discret. */
+.geoapp-log-counter--near {
+    opacity: 1;
+    color: var(--theia-editorWarning-foreground, #d29922);
+}
+
+.geoapp-log-counter--over {
+    opacity: 1;
+    color: var(--theia-errorForeground, #f85149);
+    font-weight: 600;
+}
+
+/* ------------------------------------------------------- Aperçu Markdown */
+
+.geoapp-log-preview {
+    margin-top: 8px;
+}
+
+.geoapp-log-preview__summary {
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.geoapp-log-preview__warning-count {
+    margin-left: 6px;
+    font-weight: 400;
+    color: var(--theia-editorWarning-foreground, #d29922);
+}
+
+.geoapp-log-preview__warning {
+    margin-top: 8px;
+    padding: 8px;
+    border: 1px solid var(--theia-editorWarning-foreground, #d29922);
+    border-radius: 6px;
+    font-size: 12px;
+}
+
+.geoapp-log-preview__warning-intro {
+    margin-bottom: 4px;
+}
+
+.geoapp-log-preview__warning-list {
+    margin: 4px 0 0 18px;
+}
+
+.geoapp-log-preview__body {
+    margin-top: 8px;
+    padding: 10px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editor-background);
+    font-size: 13px;
+    overflow: auto;
+}
+
+/* ------------------------------------------------------------- Markdown */
+
+.geoapp-log-markdown-label {
+    margin-right: 6px;
+    font-size: 12px;
+    opacity: 0.75;
+}
+
+/* --------------------------------------------------------------- Photos */
+
+.geoapp-log-images {
+    padding: 10px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editor-background);
+}
+
+.geoapp-log-images__header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.geoapp-log-images__title {
+    font-weight: 700;
+}
+
+.geoapp-log-images__add {
+    font-size: 12px;
+    opacity: 0.9;
+    cursor: pointer;
+}
+
+.geoapp-log-images__add--disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.geoapp-log-images__file-input {
+    display: none;
+}
+
+.geoapp-log-images__dropzone {
+    padding: 10px;
+    border: 1px dashed var(--theia-panel-border);
+    border-radius: 6px;
+    font-size: 12px;
+    text-align: center;
+    opacity: 0.9;
+    background: var(--theia-editor-background);
+    transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+/* Le padding compense la bordure qui s'épaissit, pour que rien ne bouge. */
+.geoapp-log-images__dropzone--over {
+    padding: 9px;
+    border: 2px dashed var(--theia-focusBorder);
+    color: var(--theia-focusBorder);
+    font-weight: 600;
+    background: var(--theia-list-dropBackground, var(--theia-list-hoverBackground));
+}
+
+.geoapp-log-images__dropzone--disabled {
+    opacity: 0.6;
+}
+
+.geoapp-log-images__empty {
+    margin-top: 8px;
+    font-size: 12px;
+    opacity: 0.7;
+}
+
+.geoapp-log-images__list {
+    display: grid;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.geoapp-log-images__item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 12px;
+}
+
+.geoapp-log-images__item-main {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.geoapp-log-images__thumb {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    flex: 0 0 auto;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    background: var(--theia-editorWidget-background);
+    overflow: hidden;
+}
+
+.geoapp-log-images__thumb img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.geoapp-log-images__thumb-placeholder {
+    opacity: 0.6;
+}
+
+.geoapp-log-images__meta {
+    min-width: 0;
+}
+
+.geoapp-log-images__name {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.geoapp-log-images__status {
+    opacity: 0.8;
+}
+
+/* ------------------------------------------------------- Bloc par cache */
+
+.geoapp-log-cache-block {
+    padding: 10px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editor-background);
+}
+
+/*
+ * Cascade d'états, dans l'ordre où le TSX les applique : envoyé, puis DNF, puis
+ * déjà trouvée — c'est ce qui va réellement partir qui prime.
+ */
+.geoapp-log-cache-block--found {
+    border-color: var(--geoapp-log-found-accent);
+    background: var(--geoapp-log-found-bg);
+}
+
+.geoapp-log-cache-block--dnf {
+    border-color: var(--geoapp-log-dnf-accent);
+    background: var(--geoapp-log-dnf-bg);
+}
+
+.geoapp-log-cache-block--logged {
+    border-color: var(--geoapp-log-logged-accent);
+    background: var(--geoapp-log-logged-bg);
+}
+
+.geoapp-log-cache-block__header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.geoapp-log-cache-block__code {
+    font-weight: 700;
+}
+
+.geoapp-log-cache-block__badges {
+    display: flex;
+    align-items: baseline;
+    justify-content: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.geoapp-log-cache-block__name {
+    font-size: 12px;
+    text-align: right;
+    opacity: 0.8;
+}
+
+.geoapp-log-cache-block__controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+}
+
+.geoapp-log-cache-block__favorites {
+    font-size: 12px;
+    opacity: 0.85;
+}
+
+.geoapp-log-cache-block__fields {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.geoapp-log-cache-block__field {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+}
+
+.geoapp-log-cache-block__field-label {
+    opacity: 0.85;
+}
+
+/* Case « donner un PF » inopérante hors « Found it ». */
+.geoapp-log-cache-block__field--inactive {
+    opacity: 0.5;
+}
+
+.geoapp-log-cache-block__field--active {
+    opacity: 0.9;
+}
+
+.geoapp-log-cache-block__images {
+    margin-top: 10px;
+}
+
+.geoapp-log-cache-block__toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+    margin-bottom: 6px;
+}
+
+.geoapp-log-cache-block__apply-global {
+    margin-left: auto;
+}
+
+.geoapp-log-cache-block__textarea {
+    position: relative;
+    margin-top: 8px;
+}
+
+/* ------------------------------------------------------------- Badges d'état */
+
+.geoapp-log-state-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 6px;
+    border: 1px solid currentColor;
+    border-radius: 3px;
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.geoapp-log-state-badge--dnf {
+    color: var(--geoapp-log-dnf-accent);
+    background: var(--geoapp-log-dnf-bg);
+}
+
+.geoapp-log-state-badge--found {
+    color: var(--geoapp-log-found-accent);
+    background: var(--geoapp-log-found-bg);
+}
+
+/* Pastilles de l'entête du tableau : même code couleur, forme de gélule. */
+.geoapp-log-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border: 1px solid currentColor;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.geoapp-log-pill--found {
+    color: var(--geoapp-log-found-accent);
+    background: var(--geoapp-log-found-bg);
+}
+
+.geoapp-log-pill--logged {
+    color: var(--geoapp-log-logged-accent);
+    background: var(--geoapp-log-logged-bg);
+}
+
+.geoapp-log-pill--dnf {
+    color: var(--geoapp-log-dnf-accent);
+    background: var(--geoapp-log-dnf-bg);
+}
+
+/* ------------------------------------------------------ Tableau des caches */
+
+.geoapp-log-table {
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.geoapp-log-table__caption {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 6px 10px;
+    background: var(--theia-editor-background);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.geoapp-log-table__hint {
+    font-size: 11px;
+    font-weight: 400;
+    opacity: 0.7;
+}
+
+/* La hauteur maximale est une prop du composant : posée en inline. */
+.geoapp-log-table__scroll {
+    overflow: auto;
+}
+
+.geoapp-log-table__grid {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.geoapp-log-table__grid th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: 6px 8px;
+    border-top: 1px solid var(--theia-panel-border);
+    border-bottom: 1px solid var(--theia-panel-border);
+    background: var(--theia-editor-background);
+    text-align: left;
+    white-space: nowrap;
+}
+
+.geoapp-log-table__grid th.geoapp-log-table__th--sortable {
+    cursor: pointer;
+}
+
+.geoapp-log-table__sort {
+    margin-left: 6px;
+}
+
+.geoapp-log-table__grid td {
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--theia-panel-border);
+    vertical-align: middle;
+}
+
+.geoapp-log-table__row--found > td {
+    background: var(--geoapp-log-found-bg);
+}
+
+.geoapp-log-table__row--dnf > td {
+    background: var(--geoapp-log-dnf-bg);
+}
+
+.geoapp-log-table__row--logged > td {
+    background: var(--geoapp-log-logged-bg);
+}
+
+/* « Ne pas loguer » : la ligne reste lisible mais se démarque de celles qui partiront. */
+.geoapp-log-table__row--skipped {
+    opacity: 0.65;
+}
+
+.geoapp-log-table__row--dragged {
+    opacity: 0.4;
+}
+
+/* Trait d'insertion pendant un glisser-déposer de réordonnancement. */
+.geoapp-log-table__row--drop-before > td {
+    border-top: 2px solid var(--theia-focusBorder);
+}
+
+.geoapp-log-table__row--drop-after > td {
+    border-bottom: 2px solid var(--theia-focusBorder);
+}
+
+.geoapp-log-table__order {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+}
+
+.geoapp-log-table__order-index {
+    min-width: 14px;
+    font-size: 11px;
+    text-align: right;
+    opacity: 0.7;
+}
+
+.geoapp-log-table__grip {
+    padding: 0 2px;
+    font-size: 14px;
+    line-height: 1;
+    opacity: 0.75;
+    cursor: grab;
+    user-select: none;
+}
+
+.geoapp-log-table__grip--disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+
+.geoapp-log-table__code {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.geoapp-log-select {
+    font-size: 12px;
+}
+
+/* Le DNF choisi se voit dans le sélecteur lui-même, pas seulement sur la ligne. */
+.geoapp-log-select--dnf {
+    color: var(--geoapp-log-dnf-accent);
+    border-color: var(--geoapp-log-dnf-accent);
+    font-weight: 600;
+}
+
+.geoapp-log-table__name {
+    max-width: 320px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.geoapp-log-table__owner {
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    opacity: 0.85;
+}
+
+.geoapp-log-table__type {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.geoapp-log-table__cell {
+    font-size: 12px;
+}
+
+.geoapp-log-table__cell--muted {
+    font-size: 12px;
+    opacity: 0.85;
+}
+
+.geoapp-log-table__cell--empty {
+    opacity: 0.7;
+}
+
+/* ------------------------------------------------- Badge de statut d'envoi */
+
+.geoapp-log-submit-badge {
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #fff;
+    white-space: nowrap;
+}
+
+.geoapp-log-submit-badge--ok {
+    background: var(--theia-charts-green, #22c55e);
+}
+
+.geoapp-log-submit-badge--skipped {
+    background: var(--theia-charts-orange, #f59e0b);
+}
+
+.geoapp-log-submit-badge--failed {
+    background: var(--theia-errorForeground);
+}
+
+/* « À envoyer » et « Ne pas loguer » : gris, ce ne sont pas des verdicts. */
+.geoapp-log-submit-badge--pending {
+    background: var(--theia-charts-lines, #6b7280);
+}

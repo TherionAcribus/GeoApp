@@ -25,40 +25,30 @@ export const SubmitProgress: React.FC<{
     const ratio = total > 0 ? Math.min(1, (current - 1 + inCache) / total) : 0;
 
     return (
-        <div style={{ margin: '8px 0' }}>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 12, marginBottom: 4 }}>
-                <span style={{ fontWeight: 600 }}>
+        <div className='geoapp-log-progress'>
+            <div className='geoapp-log-progress__line'>
+                <span className='geoapp-log-progress__current'>
                     Envoi {current}/{total}
                 </span>
-                <span style={{ opacity: 0.85 }}>{gcCode}</span>
+                <span className='geoapp-log-progress__code'>{gcCode}</span>
                 {imagesTotal > 0 && (
-                    <span style={{ opacity: 0.7 }}>
+                    <span className='geoapp-log-progress__images'>
                         — photo {Math.min(imagesDone + 1, imagesTotal)}/{imagesTotal}
                     </span>
                 )}
                 {stopRequested && (
-                    <span style={{ marginLeft: 'auto', color: 'var(--theia-editorWarning-foreground, #d29922)', fontWeight: 600 }}>
+                    <span className='geoapp-log-progress__stopping'>
                         Arrêt après cette géocache…
                     </span>
                 )}
             </div>
-            <div
-                style={{
-                    height: 6,
-                    borderRadius: 3,
-                    background: 'var(--theia-panel-border)',
-                    overflow: 'hidden',
-                }}
-            >
+            <div className='geoapp-log-progress__track'>
                 <div
-                    style={{
-                        width: `${Math.round(ratio * 100)}%`,
-                        height: '100%',
-                        background: stopRequested
-                            ? 'var(--theia-editorWarning-foreground, #d29922)'
-                            : 'var(--theia-progressBar-background, var(--theia-button-background))',
-                        transition: 'width 0.2s ease',
-                    }}
+                    className={stopRequested
+                        ? 'geoapp-log-progress__bar geoapp-log-progress__bar--stopping'
+                        : 'geoapp-log-progress__bar'}
+                    // Seule la largeur vient de l'avancement.
+                    style={{ width: `${Math.round(ratio * 100)}%` }}
                 />
             </div>
         </div>
