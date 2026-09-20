@@ -501,6 +501,17 @@ class GeocacheLog(db.Model):
 
     geocache = db.relationship('Geocache', back_populates='logs')
 
+    # `selectin` et pas le `lazy=True` par défaut : une page de logs en charge
+    # 25 à 50 d'un coup, et un chargement paresseux par log ferait autant de
+    # requêtes que de logs pour un panneau qui n'en fait qu'une aujourd'hui.
+    images = db.relationship(
+        'GeocacheLogImage',
+        back_populates='log',
+        cascade='all, delete-orphan',
+        lazy='selectin',
+        order_by='GeocacheLogImage.id',
+    )
+
     __table_args__ = (
         db.UniqueConstraint('geocache_id', 'external_id', name='unique_log_per_geocache'),
     )
@@ -518,6 +529,7 @@ class GeocacheLog(db.Model):
             'is_friend_log': bool(self.is_friend_log),
             'is_own_log': bool(self.is_own_log),
             'created_at': self.created_at.isoformat() if self.created_at else None,
+            'images': [image.to_dict() for image in self.images],
         }
 
     @staticmethod
@@ -568,6 +580,90 @@ class GeocacheLog(db.Model):
         
         # Par défaut, capitaliser la première lettre
         return log_type.strip().title()
+
+
+class GeocacheLogImage(db.Model):
+    """
+    Photo jointe à un log, telle que le logbook l'annonce.
+
+    Table séparée de `geocache_image` à dessein : les photos de logs sont
+    nombreuses (un quart des logs en porte) et parlent d'une visite, pas de la
+    cache. Les verser dans `geocache_image` noierait la galerie, l'éditeur
+    d'image et l'OCR sous des centaines de vignettes de conteneurs.
+
+    Deux états bien distincts :
+
+    - **connue** : le rafraîchissement a lu les métadonnées du logbook. C'est
+      gratuit, et c'est tout ce que fait `/logs/refresh`.
+    - **stockée** (`stored`) : les octets sont sur disque, donc consultables
+      hors ligne — l'usage terrain de l'application. Le téléchargement est un
+      acte séparé, que la préférence `geoApp.logs.downloadImages` pilote.
+    """
+    __tablename__ = 'geocache_log_image'
+
+    id = db.Column(db.Integer, primary_key=True)
+    geocache_log_id = db.Column(
+        db.Integer, db.ForeignKey('geocache_log.id'), nullable=False, index=True
+    )
+    # Dupliqué depuis le log : c'est lui qui groupe les fichiers sur disque, et
+    # il doit rester lisible pour purger un dossier sans recharger les logs.
+    geocache_id = db.Column(db.Integer, db.ForeignKey('geocache.id'), nullable=False, index=True)
+
+    # `ImageID` du logbook, ce qui rend le rafraîchissement idempotent.
+    external_id = db.Column(db.String(100), index=True)
+
+    source_url = db.Column(db.String(2000), nullable=False)
+    title = db.Column(db.String(255))
+    description = db.Column(db.Text)
+    # Date de prise de vue annoncée par le logbook (`Created` de l'image).
+    taken_at = db.Column(db.DateTime)
+
+    stored = db.Column(db.Boolean, default=False)
+    stored_path = db.Column(db.String(1000))
+    mime_type = db.Column(db.String(100))
+    byte_size = db.Column(db.Integer)
+    sha256 = db.Column(db.String(64))
+
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(
+        db.DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    log = db.relationship('GeocacheLog', back_populates='images')
+
+    __table_args__ = (
+        db.UniqueConstraint('geocache_log_id', 'external_id', name='unique_image_per_log'),
+    )
+
+    def get_display_url(self) -> str | None:
+        """
+        URL que le front peut mettre dans un `<img src>`, ou `None`.
+
+        Volontairement `None` tant que l'image n'est pas stockée, **même si**
+        `source_url` est connue et publique : c'est ce qui garantit qu'une
+        préférence de téléchargement désactivée coupe réellement le trafic vers
+        geocaching.com, au lieu de ne couper que l'écriture disque.
+        """
+        return f'/api/geocache-log-images/{self.id}/content' if self.stored else None
+
+    def to_dict(self) -> dict:
+        return {
+            'id': self.id,
+            'geocache_log_id': self.geocache_log_id,
+            'external_id': self.external_id,
+            # `display_url` sert à l'affichage, `source_url` seulement à
+            # « ouvrir sur Geocaching.com » : ne jamais afficher la seconde.
+            'display_url': self.get_display_url(),
+            'source_url': self.source_url,
+            'title': self.title,
+            'description': self.description,
+            'taken_at': self.taken_at.isoformat() if self.taken_at else None,
+            'stored': bool(self.stored),
+            'mime_type': self.mime_type,
+            'byte_size': self.byte_size,
+        }
 
 
 class GeocacheLogsAnalysis(db.Model):

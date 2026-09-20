@@ -63,6 +63,7 @@ venv.bak/
 backend/data/.gc_credentials.json
 backend/data/.gc_credentials.*
 backend/data/geocache_images/
+backend/data/log_images/
 
 # --- Node/Frontend ---
 **/node_modules/

@@ -10,12 +10,19 @@ Ce module fournit les routes API pour :
 import logging
 from datetime import date as date_type
 from datetime import datetime, time as time_type
+from pathlib import Path
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, send_file
 
 from ..database import db
-from ..geocaches.models import Geocache, GeocacheLog, GeocacheLogsAnalysis
+from ..geocaches.models import Geocache, GeocacheLog, GeocacheLogImage, GeocacheLogsAnalysis
 from ..geocaches.archive_service import ArchiveService
+from ..geocaches.image_storage import (
+    download_image,
+    get_log_images_root_dir,
+    remove_log_images_dir,
+    write_image_file,
+)
 from ..services.geocaching_auth import get_auth_service
 from ..services.geocaching_friend_finds import store_finds
 from ..services.geocaching_logs import (
@@ -165,6 +172,145 @@ def get_geocache_logs(geocache_id: int):
         raise
 
 
+# --- Photos jointes aux logs -------------------------------------------------
+#
+# Deux états, volontairement séparés : le rafraîchissement n'enregistre que les
+# métadonnées (`_sync_log_images`, gratuit), et les octets ne descendent sur
+# disque que par un appel explicite à `/images/store`. C'est ce découpage qui
+# permet à la préférence `geoApp.logs.downloadImages` de couper réellement le
+# trafic vers Geocaching.com, et pas seulement l'écriture disque.
+
+
+def _safe_resolve_log_image_file(stored_path: str) -> Path:
+    """Résout un `stored_path` sous la racine des photos de logs, ou lève.
+
+    Même garde que pour les images de géocache : `stored_path` vient de la base,
+    et une valeur corrompue ne doit pas pouvoir servir un fichier pris ailleurs
+    sur le disque.
+    """
+    root = get_log_images_root_dir().resolve()
+    full_path = (root / stored_path).resolve()
+    if root not in full_path.parents and root != full_path:
+        raise ValueError('Invalid stored path')
+    return full_path
+
+
+@bp.post('/api/geocaches/<int:geocache_id>/logs/<int:log_id>/images/store')
+def store_geocache_log_images(geocache_id: int, log_id: int):
+    """
+    Télécharge et range sur disque les photos d'**un** log.
+
+    Volontairement limité à un log : c'est ce qui rend acceptable de le faire
+    dans le thread Flask, là où un « toute la cache » sur un logbook de 3000
+    logs deviendrait une requête interminable et non annulable. Le panneau
+    enchaîne les appels log par log, en les sérialisant de son côté.
+
+    Les photos déjà stockées sont ignorées, ce qui rend l'appel rejouable.
+
+    Returns:
+        JSON avec les photos du log à jour, et le compte de celles qui viennent
+        d'être téléchargées.
+    """
+    log = GeocacheLog.query.filter_by(id=log_id, geocache_id=geocache_id).first()
+    if not log:
+        return jsonify({'error': 'Log not found'}), 404
+
+    stored_count = 0
+    failed = []
+
+    for image in log.images:
+        if image.stored and image.stored_path:
+            continue
+
+        try:
+            content, content_type, status_code = download_image(image.source_url)
+            if status_code != 200 or not content:
+                raise ValueError(f'HTTP {status_code}')
+
+            stored_path, mime_type, byte_size, sha256 = write_image_file(
+                geocache_id,
+                image.id,
+                content,
+                content_type,
+                image.source_url,
+                root=get_log_images_root_dir(),
+            )
+        except Exception as exc:
+            # Une photo retirée de Geocaching.com, ou un format exotique, ne
+            # doit pas faire échouer les autres photos du même log.
+            logger.warning('Failed to store log image %s (%s): %s', image.id, image.source_url, exc)
+            failed.append({'id': image.id, 'error': str(exc)})
+            continue
+
+        image.stored = True
+        image.stored_path = stored_path
+        image.mime_type = mime_type
+        image.byte_size = byte_size
+        image.sha256 = sha256
+        stored_count += 1
+
+    db.session.commit()
+
+    logger.info(
+        'Stored %s log image(s) for log %s of geocache %s%s',
+        stored_count, log_id, geocache_id,
+        f' ({len(failed)} failed)' if failed else '',
+    )
+
+    return jsonify({
+        'geocache_id': geocache_id,
+        'log_id': log_id,
+        'stored': stored_count,
+        'failed': failed,
+        'images': [image.to_dict() for image in log.images],
+    })
+
+
+@bp.get('/api/geocache-log-images/<int:image_id>/content')
+def get_geocache_log_image_content(image_id: int):
+    """Sert le fichier d'une photo de log stockée localement."""
+    image = GeocacheLogImage.query.get(image_id)
+    if not image:
+        return jsonify({'error': 'Image not found'}), 404
+
+    if not image.stored or not image.stored_path:
+        return jsonify({'error': 'Image not stored'}), 404
+
+    try:
+        full_path = _safe_resolve_log_image_file(image.stored_path)
+    except ValueError:
+        return jsonify({'error': 'Invalid stored path'}), 400
+
+    if not full_path.exists():
+        return jsonify({'error': 'Stored file missing'}), 404
+
+    return send_file(full_path, mimetype=image.mime_type or None)
+
+
+@bp.delete('/api/geocaches/<int:geocache_id>/logs/images')
+def delete_geocache_log_images(geocache_id: int):
+    """
+    Efface du disque les photos de logs d'une géocache, sans perdre les logs.
+
+    Les lignes sont conservées et repassent simplement à « connue, non
+    stockée » : les photos restent listées dans le panneau, avec le bouton pour
+    les récupérer à nouveau. C'est une libération de place, pas un oubli.
+    """
+    geocache = Geocache.query.get(geocache_id)
+    if not geocache:
+        return jsonify({'error': 'Geocache not found'}), 404
+
+    remove_log_images_dir(geocache_id)
+
+    cleared = GeocacheLogImage.query.filter_by(geocache_id=geocache_id, stored=True).update(
+        {'stored': False, 'stored_path': None, 'mime_type': None, 'byte_size': None, 'sha256': None}
+    )
+    db.session.commit()
+
+    logger.info('Cleared %s stored log image(s) for geocache %s', cleared, geocache_id)
+    return jsonify({'geocache_id': geocache_id, 'cleared': cleared})
+
+
 # Le logbook de Geocaching.com identifie chaque log par son `LogID` numérique,
 # alors que la soumission ne renvoie que le `logReferenceCode` (« GL... »). Le log
 # qu'on insère localement juste après l'envoi porte donc un external_id d'une autre
@@ -189,6 +335,50 @@ def _log_identity(author, log_date, log_type):
         log_date.date() if log_date else None,
         GeocacheLog.normalize_log_type(log_type),
     )
+
+
+def _sync_log_images(log, geocache_id, images):
+    """Aligne les photos connues d'un log sur ce que le logbook vient d'annoncer.
+
+    N'écrit que des **métadonnées** : aucun octet n'est téléchargé ici, pour que
+    le rafraîchissement reste aussi rapide qu'avant même sur une cache où un
+    quart des logs porte une photo. Le téléchargement est un acte séparé
+    (`/logs/<id>/images/store`), piloté par la préférence côté panneau.
+
+    Aucune suppression non plus : une photo retirée de Geocaching.com reste
+    consultable en local si on l'avait déjà téléchargée, ce qui est précisément
+    l'intérêt d'un stockage hors ligne.
+
+    Returns:
+        Nombre de photos nouvellement connues.
+    """
+    known = {image.external_id: image for image in log.images if image.external_id}
+    added = 0
+
+    for image_data in images:
+        existing = known.get(image_data.external_id)
+        if existing is not None:
+            # Le titre et la légende sont éditables par leur auteur sur
+            # Geocaching.com ; `source_url` ne bouge pas, mais l'aligner ne
+            # coûte rien si le préfixe des images change un jour.
+            existing.source_url = image_data.source_url
+            existing.title = image_data.title
+            existing.description = image_data.description
+            existing.taken_at = image_data.taken_at
+            continue
+
+        log.images.append(GeocacheLogImage(
+            geocache_id=geocache_id,
+            external_id=image_data.external_id,
+            source_url=image_data.source_url,
+            title=image_data.title,
+            description=image_data.description,
+            taken_at=image_data.taken_at,
+            stored=False,
+        ))
+        added += 1
+
+    return added
 
 
 def _store_submitted_log(geocache, *, log_reference_code, text, visited_date,
@@ -556,6 +746,7 @@ def refresh_geocache_logs(geocache_id: int):
 
         added_count = 0
         updated_count = 0
+        images_added = 0
 
         for log_data in fetched_logs:
             # `None` si la vérification amis a échoué : dans ce cas on ne sait
@@ -580,6 +771,7 @@ def refresh_geocache_logs(geocache_id: int):
                     existing_log.is_friend_log = is_friend_log
                 if is_own_log is not None:
                     existing_log.is_own_log = is_own_log
+                images_added += _sync_log_images(existing_log, geocache_id, log_data.images)
                 updated_count += 1
             else:
                 # Créer un nouveau log. Sans vérification fiable, on ne peut
@@ -597,6 +789,7 @@ def refresh_geocache_logs(geocache_id: int):
                     is_friend_log=bool(is_friend_log),
                     is_own_log=bool(is_own_log),
                 )
+                images_added += _sync_log_images(new_log, geocache_id, log_data.images)
                 db.session.add(new_log)
                 added_count += 1
 
@@ -630,6 +823,7 @@ def refresh_geocache_logs(geocache_id: int):
         logger.info(
             f"Refreshed logs for {gc_code}: {added_count} added, {updated_count} updated, "
             f"{replaced_local_count} local replaced, "
+            f"{images_added} images, "
             f"{friends_count} from friends" + (" (friend check failed)" if friends_check_failed else "")
         )
 
@@ -640,6 +834,7 @@ def refresh_geocache_logs(geocache_id: int):
             'added': added_count,
             'updated': updated_count,
             'replaced_local': replaced_local_count,
+            'images_added': images_added,
             'friends': friends_count,
             'friends_check_failed': friends_check_failed,
             'own_check_failed': own_external_ids is None,
@@ -856,9 +1051,16 @@ def delete_geocache_logs(geocache_id: int):
         if not geocache:
             return jsonify({'error': 'Geocache not found'}), 404
         
+        # Les photos d'abord : la suppression en masse ci-dessous passe à côté
+        # de l'ORM, donc de la cascade `GeocacheLog.images`. Sans ces deux
+        # lignes, les lignes de photos survivraient à leurs logs et leurs
+        # fichiers resteraient sur le disque indéfiniment.
+        remove_log_images_dir(geocache_id)
+        GeocacheLogImage.query.filter_by(geocache_id=geocache_id).delete()
+
         # Compter et supprimer les logs
         deleted_count = GeocacheLog.query.filter_by(geocache_id=geocache_id).delete()
-        
+
         # Mettre à jour le compteur
         geocache.logs_count = 0
         

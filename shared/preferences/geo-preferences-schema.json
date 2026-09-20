@@ -2285,6 +2285,32 @@
         "network"
       ]
     },
+    "geoApp.logs.downloadImages": {
+      "type": "boolean",
+      "default": true,
+      "title": "Télécharger les photos des logs",
+      "description": "Télécharge et conserve en local les photos jointes aux logs, pour qu'elles restent consultables hors ligne. Désactivé, le panneau Logs signale la présence de photos et propose de les récupérer log par log : aucune requête n'est envoyée à Geocaching.com tant que vous ne l'avez pas demandé.",
+      "x-ui": {
+        "section": "Chargement",
+        "label": "Photos des logs",
+        "order": 40,
+        "keywords": [
+          "logs",
+          "photos",
+          "images",
+          "hors ligne"
+        ]
+      },
+      "x-category": "logs",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "logs",
+        "network",
+        "images"
+      ]
+    },
     "geoApp.images.storage.defaultMode": {
       "type": "string",
       "enum": [

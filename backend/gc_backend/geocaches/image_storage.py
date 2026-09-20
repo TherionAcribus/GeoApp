@@ -31,9 +31,23 @@ def get_images_root_dir() -> Path:
     return Path(__file__).resolve().parents[2] / 'data' / 'geocache_images'
 
 
-def ensure_geocache_dir(geocache_id: int) -> Path:
-    """Ensure and return the directory used to store images for a geocache."""
-    root = get_images_root_dir()
+def get_log_images_root_dir() -> Path:
+    """Return the root directory where geocache **log** photos are stored.
+
+    Racine distincte de celle des images de géocache : les photos de logs sont
+    bien plus nombreuses et ont leur propre cycle de vie (elles disparaissent
+    avec les logs). Les mélanger rendrait toute purge ambiguë.
+    """
+    return Path(__file__).resolve().parents[2] / 'data' / 'log_images'
+
+
+def ensure_geocache_dir(geocache_id: int, root: Optional[Path] = None) -> Path:
+    """Ensure and return the directory used to store images for a geocache.
+
+    `root` permet de réutiliser tel quel ce module pour une autre famille
+    d'images (les photos de logs), dont le rangement par géocache est identique.
+    """
+    root = root or get_images_root_dir()
     root.mkdir(parents=True, exist_ok=True)
     geocache_dir = root / str(geocache_id)
     geocache_dir.mkdir(parents=True, exist_ok=True)
@@ -108,16 +122,16 @@ def download_image(source_url: str, timeout_sec: int = 20, max_bytes: int = MAX_
         return b''.join(chunks), content_type, res.status_code
 
 
-def write_image_file(geocache_id: int, image_id: int, content: bytes, content_type: Optional[str], source_url: str) -> Tuple[str, str, int, str]:
+def write_image_file(geocache_id: int, image_id: int, content: bytes, content_type: Optional[str], source_url: str, root: Optional[Path] = None) -> Tuple[str, str, int, str]:
     """Write the image file to disk and return metadata.
 
     Returns:
-        stored_path: str (relative path within the geocache_images root)
+        stored_path: str (relative path within the chosen root)
         mime_type: str
         byte_size: int
         sha256: str
     """
-    geocache_dir = ensure_geocache_dir(geocache_id)
+    geocache_dir = ensure_geocache_dir(geocache_id, root=root)
 
     mime_type = detect_image_mime_type(content, content_type)
     ext = guess_extension(source_url, mime_type)
@@ -133,9 +147,14 @@ def write_image_file(geocache_id: int, image_id: int, content: bytes, content_ty
     return stored_path, mime_type, byte_size, sha
 
 
-def remove_geocache_dir(geocache_id: int) -> None:
+def remove_log_images_dir(geocache_id: int) -> None:
+    """Remove every stored log photo of a geocache."""
+    remove_geocache_dir(geocache_id, root=get_log_images_root_dir())
+
+
+def remove_geocache_dir(geocache_id: int, root: Optional[Path] = None) -> None:
     """Remove all stored files for a geocache."""
-    geocache_dir = get_images_root_dir() / str(geocache_id)
+    geocache_dir = (root or get_images_root_dir()) / str(geocache_id)
     if not geocache_dir.exists():
         return
 

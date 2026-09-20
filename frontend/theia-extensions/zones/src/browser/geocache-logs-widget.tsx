@@ -22,6 +22,8 @@ import {
     LogsRefreshOptions
 } from './geocache-logs-fetch-service';
 import { GeocacheLogDto, LOGS_ANALYSIS_MAX_LOGS, LogsApiResponse } from './geocache-logs-types';
+import { GeocacheLogImagesService, hasPendingImages } from './geocache-log-images-service';
+import { LogImages } from './geocache-log-images';
 import {
     GeocacheLogsAnalysisDto,
     GeocacheLogsAnalysisInput,
@@ -35,6 +37,11 @@ import { LogsAnalysisPanel } from './geocache-logs-analysis-view';
  */
 interface LogItemProps {
     log: GeocacheLogDto;
+    /** Résout une URL relative du backend en URL absolue. */
+    resolveUrl: (url: string) => string;
+    /** Téléchargement des photos demandé explicitement sur ce log. */
+    onDownloadImages: (log: GeocacheLogDto) => void;
+    isDownloadingImages: boolean;
 }
 
 /**
@@ -79,7 +86,9 @@ const COLLAPSED_TEXT_MASK = 'linear-gradient(to bottom, black calc(100% - 20px),
 /**
  * Composant pour afficher un seul log
  */
-const LogItem: React.FC<LogItemProps> = ({ log }) => {
+const LogItem: React.FC<LogItemProps> = ({
+    log, resolveUrl, onDownloadImages, isDownloadingImages
+}) => {
     const color = getLogTypeColor(log.log_type);
     const icon = getLogTypeIcon(log.log_type);
     const [expanded, setExpanded] = React.useState(false);
@@ -110,6 +119,8 @@ const LogItem: React.FC<LogItemProps> = ({ log }) => {
         observer.observe(element);
         return () => observer.disconnect();
     }, [log.text]);
+
+    const images = log.images ?? [];
 
     const textClassName = [
         'geoapp-log-card__text',
@@ -171,26 +182,41 @@ const LogItem: React.FC<LogItemProps> = ({ log }) => {
                 </div>
             </div>
 
-            {/* Texte du log */}
-            {log.text && (
+            {/* Texte du log, puis ses photos */}
+            {(log.text || images.length > 0) && (
                 <div className='geoapp-log-card__body'>
-                    <div
-                        ref={textRef}
-                        className={textClassName}
-                        // Le seuil de repli vit dans le TSX (il sert aussi de seuil de
-                        // mesure) et descend dans la feuille par cette variable.
-                        style={{ ['--geoapp-log-collapsed-height' as any]: `${COLLAPSED_TEXT_MAX_HEIGHT}px` }}
-                    >
-                        {renderLogMarkdown(log.text, `log-${log.id}`)}
-                    </div>
-                    {isOverflowing && (
-                        <button
-                            className='geoapp-log-card__toggle'
-                            onClick={() => setExpanded(!expanded)}
-                        >
-                            {expanded ? 'Voir moins' : 'Voir plus'}
-                        </button>
+                    {log.text && (
+                        <>
+                            <div
+                                ref={textRef}
+                                className={textClassName}
+                                // Le seuil de repli vit dans le TSX (il sert aussi de seuil de
+                                // mesure) et descend dans la feuille par cette variable.
+                                style={{ ['--geoapp-log-collapsed-height' as any]: `${COLLAPSED_TEXT_MAX_HEIGHT}px` }}
+                            >
+                                {renderLogMarkdown(log.text, `log-${log.id}`)}
+                            </div>
+                            {isOverflowing && (
+                                <button
+                                    className='geoapp-log-card__toggle'
+                                    onClick={() => setExpanded(!expanded)}
+                                >
+                                    {expanded ? 'Voir moins' : 'Voir plus'}
+                                </button>
+                            )}
+                        </>
                     )}
+
+                    {/* Hors du bloc de texte, et c'est structurel : ce bloc est
+                        mesuré au montage pour décider du bouton « Voir plus », et
+                        des images qui se chargent en asynchrone fausseraient la
+                        mesure après coup. */}
+                    <LogImages
+                        images={images}
+                        resolveUrl={resolveUrl}
+                        onDownload={() => onDownloadImages(log)}
+                        isDownloading={isDownloadingImages}
+                    />
                 </div>
             )}
         </div>
@@ -205,12 +231,18 @@ interface LogsListProps {
     isLoading: boolean;
     onLoadMore?: () => void;
     hasMore: boolean;
+    resolveUrl: (url: string) => string;
+    onDownloadImages: (log: GeocacheLogDto) => void;
+    /** Identifiants des logs dont les photos sont en cours de téléchargement. */
+    downloadingImageLogIds: ReadonlySet<number>;
 }
 
 /**
  * Composant pour afficher la liste des logs
  */
-const LogsList: React.FC<LogsListProps> = ({ logs, isLoading, onLoadMore, hasMore }) => {
+const LogsList: React.FC<LogsListProps> = ({
+    logs, isLoading, onLoadMore, hasMore, resolveUrl, onDownloadImages, downloadingImageLogIds
+}) => {
     if (isLoading && logs.length === 0) {
         return <LoadingState message='Chargement des logs…' />;
     }
@@ -222,7 +254,13 @@ const LogsList: React.FC<LogsListProps> = ({ logs, isLoading, onLoadMore, hasMor
     return (
         <div>
             {logs.map(log => (
-                <LogItem key={log.id} log={log} />
+                <LogItem
+                    key={log.id}
+                    log={log}
+                    resolveUrl={resolveUrl}
+                    onDownloadImages={onDownloadImages}
+                    isDownloadingImages={downloadingImageLogIds.has(log.id)}
+                />
             ))}
             
             {hasMore && (
@@ -332,6 +370,8 @@ export class GeocacheLogsWidget extends ReactWidget {
     protected isAnalyzing = false;
     /** Analyse IA stockée pour cette géocache, `undefined` si elle n'en a pas. */
     protected analysis?: GeocacheLogsAnalysisDto;
+    /** Logs dont les photos sont en cours de téléchargement. */
+    protected downloadingImageLogIds = new Set<number>();
     protected offset = 0;
     protected limit = 25;
     protected summaryEntries: LogSummaryEntry[] = [];
@@ -343,6 +383,7 @@ export class GeocacheLogsWidget extends ReactWidget {
         @inject(PreferenceService) protected readonly preferenceService: PreferenceService,
         @inject(GeocacheLogsFetchService) protected readonly logsFetchService: GeocacheLogsFetchService,
         @inject(GeocacheLogsAnalysisService) protected readonly analysisService: GeocacheLogsAnalysisService,
+        @inject(GeocacheLogImagesService) protected readonly logImagesService: GeocacheLogImagesService,
         @inject(LanguageModelRegistry) protected readonly languageModelRegistry: LanguageModelRegistry,
         @inject(LanguageModelService) protected readonly languageModelService: LanguageModelService
     ) {
@@ -422,6 +463,7 @@ export class GeocacheLogsWidget extends ReactWidget {
         this.analysis = undefined;
         this.summaryEntries = [];
         this.summaryTotalCount = 0;
+        this.downloadingImageLogIds.clear();
 
         this.title.label = params.gcCode ? `Logs - ${params.gcCode}` : 'Logs';
 
@@ -528,6 +570,8 @@ export class GeocacheLogsWidget extends ReactWidget {
             this.totalAvailable = data.total_available ?? undefined;
             this.friendsCount = data.friends_count ?? 0;
             this.geocacheCode = data.gc_code;
+
+            void this.autoDownloadImages();
             
         } catch (error) {
             console.error('[GeocacheLogsWidget] Failed to load logs:', error);
@@ -642,6 +686,94 @@ export class GeocacheLogsWidget extends ReactWidget {
         }
         await this.refreshLogs({ count: LOGS_PAGE_SIZE, all: true });
     };
+
+    /**
+     * Résout une URL relative du backend (`/api/...`) en URL absolue.
+     * Les DTO ne portent que le chemin : c'est le front qui sait où répond le
+     * backend.
+     */
+    protected resolveUrl = (url: string): string =>
+        url.startsWith('/') ? `${this.backendBaseUrl}${url}` : url;
+
+    /**
+     * Télécharge les photos des logs affichés, si la préférence l'autorise.
+     *
+     * Limité aux logs **affichés**, et pas à tout le stock : une géocache très
+     * loggée compte des milliers de logs, dont un quart avec photos — les
+     * télécharger tous sur un simple affichage ferait plusieurs centaines de
+     * mégaoctets que personne n'a demandés. Le service sérialise les appels.
+     */
+    protected async autoDownloadImages(): Promise<void> {
+        if (!this.logImagesService.shouldAutoDownload()) {
+            return;
+        }
+        for (const log of this.logs) {
+            if (hasPendingImages(log)) {
+                void this.runImagesDownload(log, { auto: true });
+            }
+        }
+    }
+
+    /**
+     * Téléchargement demandé par l'utilisateur sur un log précis.
+     *
+     * C'est le recours quand la préférence est désactivée : on garde la main
+     * log par log, sans rien avoir laissé partir automatiquement.
+     */
+    protected downloadLogImages = (log: GeocacheLogDto): void => {
+        void this.runImagesDownload(log, { auto: false });
+    };
+
+    /**
+     * Récupère les photos d'un log et remplace la carte concernée.
+     *
+     * Seule l'entrée du log est remplacée, pas toute la liste : un
+     * rechargement complet ferait sauter la position de défilement et les logs
+     * dépliés à chaque photo qui arrive.
+     */
+    protected async runImagesDownload(
+        log: GeocacheLogDto,
+        options: { auto: boolean }
+    ): Promise<void> {
+        const geocacheId = this.geocacheId;
+        if (!geocacheId || this.downloadingImageLogIds.has(log.id)) {
+            return;
+        }
+
+        this.downloadingImageLogIds.add(log.id);
+        this.update();
+
+        try {
+            const result = options.auto
+                ? await this.logImagesService.autoStoreForLog(geocacheId, log)
+                : await this.logImagesService.requestForLog(geocacheId, log.id);
+
+            // La géocache a pu changer pendant le téléchargement : la liste ne
+            // parle plus du même log.
+            if (!result || this.geocacheId !== geocacheId) {
+                return;
+            }
+
+            this.logs = this.logs.map(existing =>
+                existing.id === log.id ? { ...existing, images: result.images } : existing
+            );
+
+            if (!options.auto && result.failed.length > 0) {
+                this.messages.warn(
+                    `${result.failed.length} photo(s) n'ont pas pu être téléchargée(s) : `
+                    + 'elles ont pu être retirées de Geocaching.com.'
+                );
+            }
+        } catch (error) {
+            console.error('[GeocacheLogsWidget] Failed to download log images:', error);
+            if (!options.auto) {
+                this.messages.error(`Impossible de télécharger les photos : ${error}`);
+            }
+        } finally {
+            this.downloadingImageLogIds.delete(log.id);
+            this.update();
+        }
+    }
 
     /**
      * Récupère les détails de la géocache (pour obtenir le hint)
@@ -994,6 +1126,9 @@ export class GeocacheLogsWidget extends ReactWidget {
                                 isLoading={this.isLoading}
                                 onLoadMore={this.loadMore}
                                 hasMore={hasMore}
+                                resolveUrl={this.resolveUrl}
+                                onDownloadImages={this.downloadLogImages}
+                                downloadingImageLogIds={this.downloadingImageLogIds}
                             />
                         </div>
                     </>

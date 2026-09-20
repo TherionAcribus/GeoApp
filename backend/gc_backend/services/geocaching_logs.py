@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
@@ -50,6 +50,16 @@ class FriendLogsCheckFailedError(GeocachingLogsError):
 
 
 @dataclass
+class GeocacheLogImageData:
+    """Une photo jointe à un log, telle que le logbook l'annonce."""
+    external_id: str
+    source_url: str
+    title: str
+    description: str
+    taken_at: datetime | None = None
+
+
+@dataclass
 class GeocacheLogData:
     """Représente un log récupéré depuis Geocaching.com."""
     external_id: str
@@ -59,6 +69,7 @@ class GeocacheLogData:
     date: datetime | None
     log_type: str
     is_favorite: bool
+    images: list[GeocacheLogImageData] = field(default_factory=list)
 
 
 @dataclass
@@ -102,6 +113,37 @@ MAX_LOGS_PER_PAGE = 100
 # Garde-fou du mode « tout charger » : une cache ancienne peut compter plusieurs
 # milliers de logs, qu'on ne veut ni télécharger ni stocker sans fin.
 MAX_LOGS_FETCH_ALL = 1000
+
+# Préfixe des photos de logs. Le logbook porte bien un champ `ImageUrl`, mais il
+# est **toujours nul** (constaté sur plusieurs centaines de logs) : l'URL se
+# reconstruit à partir de `FileName`, qui vaut `<ImageGuid>.jpg`.
+#
+# Quatre variantes existent, toutes servies sans authentification :
+#
+#   `/<FileName>`                    l'original     ~970 Ko
+#   `/cache/log/large/<FileName>`    grand format   ~100 Ko
+#   `/cache/log/display/<FileName>`  réduit          ~14 Ko
+#   `/cache/log/thumb/<FileName>`    vignette         ~3 Ko
+#
+# On retient `large` : l'original coûterait dix fois plus pour un écran qui ne
+# l'exploite pas, et `display` est trop dégradé pour un spoiler qu'on agrandit.
+# Un seul fichier est stocké par photo — le projet redimensionne en CSS plutôt
+# que de générer des vignettes (cf. le panneau d'images de géocache).
+LOG_IMAGE_URL_PREFIX = 'https://img.geocaching.com/cache/log/large/'
+
+
+def build_log_image_url(file_name: str | None) -> str | None:
+    """
+    Construit l'URL d'une photo de log à partir du `FileName` du logbook.
+
+    Renvoie `None` si le nom est absent ou suspect : il finit dans une URL
+    téléchargée par le serveur, et un `../` y aurait sa place ailleurs que dans
+    le dossier des photos de logs.
+    """
+    name = (file_name or '').strip()
+    if not name or '/' in name or '\\' in name or '..' in name:
+        return None
+    return LOG_IMAGE_URL_PREFIX + name
 
 
 class GeocachingLogsClient:
@@ -499,8 +541,26 @@ class GeocachingLogsClient:
             "Visited": "11/30/2025",
             "UserName": "geokaboutervinnie",
             "AccountGuid": "602bdfc3-c48e-4a14-8449-216dfc1416fb",
-            "FavoritePointUsed": false
+            "FavoritePointUsed": false,
+            "Images": [
+                {
+                    "ImageID": 103296230,
+                    "ImageGuid": "2dd2667c-8c1f-4ebb-b39b-452af9bd1987",
+                    "Name": "Bild 1",
+                    "Descr": "",
+                    "FileName": "2dd2667c-8c1f-4ebb-b39b-452af9bd1987.jpg",
+                    "Created": "09/07/2026",
+                    "LogID": 1383323441,
+                    "CacheID": 4158,
+                    "ImageUrl": null
+                }
+            ]
         }
+
+        `ImageUrl` est toujours nul et `ImageCount` aussi : seul `FileName`
+        permet de retrouver la photo (voir `build_log_image_url`). Les photos
+        n'apparaissent jamais en `<img>` dans `LogText` — et ce serait sans
+        effet, `_clean_log_text` supprimant toutes les balises.
         """
         logs = []
         
@@ -528,13 +588,50 @@ class GeocachingLogsClient:
                     date=date,
                     log_type=log_type,
                     is_favorite=is_favorite,
+                    images=self._parse_log_images(entry),
                 ))
             except Exception as e:
                 logger.warning(f"Failed to parse log entry: {e}")
                 continue
-        
+
         return logs
-    
+
+    def _parse_log_images(self, entry: dict) -> list[GeocacheLogImageData]:
+        """
+        Extrait les photos jointes à un log.
+
+        Une photo dont le `FileName` est inexploitable est ignorée plutôt que de
+        faire échouer le log entier : le texte reste la donnée principale, et un
+        log sans sa photo vaut mieux qu'un log perdu.
+        """
+        images: list[GeocacheLogImageData] = []
+
+        for raw in entry.get('Images') or []:
+            if not isinstance(raw, dict):
+                continue
+
+            source_url = build_log_image_url(raw.get('FileName'))
+            if not source_url:
+                logger.warning(
+                    "Skipping log image with unusable FileName: %r", raw.get('FileName')
+                )
+                continue
+
+            external_id = str(raw.get('ImageID') or raw.get('ImageGuid') or '')
+            if not external_id:
+                logger.warning("Skipping log image without identifier: %s", source_url)
+                continue
+
+            images.append(GeocacheLogImageData(
+                external_id=external_id,
+                source_url=source_url,
+                title=(raw.get('Name') or '').strip(),
+                description=(raw.get('Descr') or '').strip(),
+                taken_at=self._parse_date(raw.get('Created') or ''),
+            ))
+
+        return images
+
     def _clean_log_text(self, text: str) -> str:
         """
         Nettoie le texte d'un log (supprime le HTML basique).

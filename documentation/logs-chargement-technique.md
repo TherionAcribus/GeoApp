@@ -128,6 +128,8 @@ panneau sache qu'il reste des logs **sans avoir à rescraper d'abord**.
 |---|---|
 | `geocache-logs-fetch-service.ts` | Lecture des préférences, règle de déclenchement, mémoire de session, file d'attente, appels à `/logs/refresh`. Partagé par les deux déclencheurs. |
 | `geocache-logs-widget.tsx` | Panneau Logs : chargement initial, bandeau « il en reste », rafraîchissement manuel, déclenchement de l'analyse IA. |
+| `geocache-log-images-service.ts` | Préférence de téléchargement, file d'attente sérialisée, mémoire des logs déjà tentés, appels à `/images/store`. |
+| `geocache-log-images.tsx` | Vignettes, bandeau « N photos jointes » avec bouton, visionneuse modale (flèches, Échap). |
 | `geocache-details-widget.tsx` | `autoFetchLogsInBackground()`, branché sur `loadLogsSummary()`. |
 | `geocache-logs-types.ts` | Formes des logs et budget de l'analyse. Sans React ni Theia : c'est ce qui garde le module de prompt testable. |
 | `geocache-logs-analysis-service.ts` | Lecture des logs à analyser, chargement/enregistrement/suppression de l'analyse. |
@@ -212,6 +214,119 @@ L'en-tête du bloc porte trois actions : **replier** (local, gratuit),
 **relancer** (nouvel appel au modèle) et **supprimer** (effacement en base,
 derrière une confirmation — pour simplement masquer l'analyse, il y a replier).
 
+## Photos jointes aux logs
+
+Le logbook accompagne chaque log d'un tableau `Images` que le parseur ignorait.
+Ce n'est pas anecdotique : sur une cache fréquentée, **un quart des logs porte
+une photo** (50 sur 200 relevés sur GC103E), et c'est souvent l'information la
+plus utile avant d'aller sur le terrain — vue du site, état du conteneur,
+spoiler.
+
+### La forme réelle de `Images`
+
+Constatée en réel, parce que rien ne la documente côté Geocaching.com :
+
+```json
+{
+  "ImageID": 103296230,
+  "ImageGuid": "2dd2667c-8c1f-4ebb-b39b-452af9bd1987",
+  "Name": "Bild 1",
+  "Descr": "",
+  "FileName": "2dd2667c-8c1f-4ebb-b39b-452af9bd1987.jpg",
+  "Created": "09/07/2026",
+  "LogID": 1383323441,
+  "CacheID": 4158,
+  "ImageUrl": null
+}
+```
+
+Deux pièges : **`ImageUrl` est toujours nul** et `ImageCount` aussi — seul
+`FileName` permet de retrouver la photo. Et les photos n'apparaissent jamais en
+`<img>` dans `LogText` (ce qui serait de toute façon sans effet, `_clean_log_text`
+supprimant toutes les balises).
+
+Quatre variantes sont servies, **toutes sans authentification** :
+
+| URL | Poids |
+|---|---|
+| `img.geocaching.com/<FileName>` | ~970 Ko (l'original) |
+| `img.geocaching.com/cache/log/large/<FileName>` | ~100 Ko |
+| `img.geocaching.com/cache/log/display/<FileName>` | ~14 Ko |
+| `img.geocaching.com/cache/log/thumb/<FileName>` | ~3 Ko |
+
+`large` est retenue (`LOG_IMAGE_URL_PREFIX`) : l'original coûterait dix fois plus
+pour un écran qui ne l'exploite pas, et `display` est trop dégradé pour un
+spoiler qu'on agrandit. **Un seul fichier par photo** — comme ailleurs dans le
+projet, la vignette est un redimensionnement CSS, pas un second fichier.
+
+### Connaître n'est pas stocker
+
+C'est toute la structure de la fonctionnalité, et la raison d'être de la table
+`geocache_log_image` :
+
+| État | Ce qui existe | Ce que ça coûte |
+|---|---|---|
+| **connue** | une ligne en base : URL, titre, légende, date | rien — `/logs/refresh` le fait déjà |
+| **stockée** (`stored`) | le fichier sur disque | une requête vers GC.com, ~100 Ko |
+
+Le rafraîchissement ne fait *jamais* que le premier : sur une cache à 3000 logs,
+tout télécharger représenterait plusieurs centaines de mégaoctets que personne
+n'a demandés.
+
+`display_url` ne vaut quelque chose **que** si la photo est stockée. `source_url`
+est renvoyée au front, mais uniquement pour un lien « ouvrir sur
+Geocaching.com » : l'afficher dans un `<img>` viderait la préférence de son sens
+— elle ne couperait plus que l'écriture disque, pas le trafic.
+
+### La préférence
+
+| Clé | Valeurs | Défaut |
+|---|---|---|
+| `geoApp.logs.downloadImages` | `true` / `false` | `true` |
+
+Activée, le panneau télécharge les photos des **logs affichés** au fil du
+chargement (pas tout le stock), en sérialisant les appels dans
+`GeocacheLogImagesService`. Désactivée, chaque log annonce « 3 photos jointes »
+avec un bouton : rien ne part vers Geocaching.com tant qu'on ne clique pas.
+
+### Table et stockage
+
+`geocache_log_image`, séparée de `geocache_image` à dessein : ces photos parlent
+d'une visite, pas de la cache. Les verser dans la table existante noierait la
+galerie, l'éditeur d'image et l'OCR sous des centaines de vignettes.
+
+Fichiers dans `backend/data/log_images/<geocache_id>/<image_id>.<ext>`, via
+`image_storage.py` réutilisé tel quel — ses gardes (anti-SSRF, détection du type
+par magic bytes, plafond de 15 Mo) valent ici aussi. Les fonctions ont gagné un
+paramètre `root` à valeur par défaut, donc aucun appelant existant ne change.
+
+| Route | Rôle |
+|---|---|
+| `POST /api/geocaches/<id>/logs/<log_id>/images/store` | télécharge et range les photos d'**un** log ; rejouable, ignore ce qui est déjà stocké |
+| `GET /api/geocache-log-images/<image_id>/content` | sert le fichier stocké |
+| `DELETE /api/geocaches/<id>/logs/images` | efface les fichiers d'une géocache ; les lignes restent, les photos redeviennent « connues » |
+
+`/logs/refresh` renvoie en plus `images_added`.
+
+Le `store` est volontairement limité à un log, ce qui le rend acceptable dans le
+thread Flask — là où un « toute la cache » deviendrait une requête interminable
+et non annulable. C'est le front qui enchaîne, log par log.
+
+### Ce qui se casse facilement ici
+
+- **`delete_geocache_logs` supprime en masse**, donc hors ORM : la cascade
+  `GeocacheLog.images` ne s'applique pas. Les lignes de photos et leurs fichiers
+  sont effacés explicitement, sans quoi ils survivraient à leurs logs.
+- **Le placement des vignettes dans la carte est structurel.** Elles sont rendues
+  hors du bloc `geoapp-log-card__text`, qui est mesuré au montage (`scrollHeight`
+  contre `--geoapp-log-collapsed-height`) pour décider du bouton « Voir plus » :
+  des images arrivant en asynchrone fausseraient cette mesure après coup.
+- **La relation est en `lazy='selectin'`.** Avec le `lazy=True` par défaut, une
+  page de 25 à 50 logs déclencherait autant de requêtes qu'elle affiche de logs.
+- Une photo retirée de Geocaching.com reste consultable si elle avait été
+  téléchargée — c'est l'intérêt du stockage hors ligne. Une photo qui échoue
+  n'emporte pas les autres photos du même log.
+
 ## Points d'attention
 
 - **Ne jamais déclencher un scraping automatique sur une cache qui a déjà des
@@ -247,6 +362,14 @@ normal, périmètre relu tel qu'il a été écrit, relance qui remplace au lieu
 d'empiler, contenu vide refusé, suppression idempotente, cascade à la
 suppression de la géocache.
 
+`backend/tests/test_geocache_log_images.py` : lecture du tableau `Images`, refus
+d'un `FileName` qui tenterait une traversée, rafraîchissement idempotent et sans
+téléchargement, stockage rejouable, échec isolé d'une photo, garde
+anti-traversée sur `/content`, cascade et purge disque.
+
+`frontend/theia-extensions/zones/src/browser/tests/geocache-log-images.test.ts` :
+quelles photos restent à télécharger, y compris sur un log partiellement stocké.
+
 `frontend/theia-extensions/zones/src/browser/tests/geocache-logs-analysis-prompt.test.ts` :
 périmètre annoncé au modèle et avertissement d'échantillon partiel (absent quand
 l'analyse voit tout), hint présent ou dit absent, coupe d'un log long sur une
@@ -259,9 +382,13 @@ frontière de mot, demande de Markdown.
 - `backend/gc_backend/geocaches/models.py` (`Geocache.logs_total_available`,
   `GeocacheLogsAnalysis`)
 - `backend/migrations/versions/add_geocache_logs_analysis_table.py`
+- `backend/migrations/versions/add_geocache_log_image_table.py`
+- `backend/gc_backend/geocaches/image_storage.py` (racine `log_images`, paramètre `root`)
 - `frontend/theia-extensions/zones/src/browser/geocache-logs-fetch-service.ts`
 - `frontend/theia-extensions/zones/src/browser/geocache-logs-widget.tsx`
 - `frontend/theia-extensions/zones/src/browser/geocache-logs-analysis-service.ts`
 - `frontend/theia-extensions/zones/src/browser/geocache-logs-analysis-prompt.ts`
 - `frontend/theia-extensions/zones/src/browser/geocache-logs-analysis-view.tsx`
+- `frontend/theia-extensions/zones/src/browser/geocache-log-images-service.ts`
+- `frontend/theia-extensions/zones/src/browser/geocache-log-images.tsx`
 - `shared/preferences/geo-preferences-schema.json` (`geoApp.logs.*`)

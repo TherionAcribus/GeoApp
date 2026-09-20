@@ -29,6 +29,36 @@ export const LOGS_ANALYSIS_MAX_LOGS = 100;
  */
 export const LOGS_ANALYSIS_MAX_TEXT_LENGTH = 1500;
 
+/**
+ * Une photo jointe à un log.
+ *
+ * Deux états bien distincts, et c'est toute la logique d'affichage :
+ *
+ * - **connue** (`stored: false`) : le rafraîchissement a lu ses métadonnées,
+ *   rien n'a été téléchargé. `display_url` vaut `null`.
+ * - **stockée** (`stored: true`) : les octets sont sur disque, `display_url`
+ *   porte l'URL du backend qui les sert.
+ *
+ * `source_url` pointe vers Geocaching.com et ne doit **jamais** finir dans un
+ * `<img src>` : c'est ce qui fait qu'une préférence de téléchargement
+ * désactivée coupe réellement le trafic, au lieu de ne couper que l'écriture
+ * disque. Elle ne sert qu'à un lien « ouvrir sur Geocaching.com ».
+ */
+export interface GeocacheLogImageDto {
+    id: number;
+    geocache_log_id: number;
+    external_id: string;
+    /** URL relative servie par le backend, `null` tant que non téléchargée. */
+    display_url: string | null;
+    source_url: string;
+    title: string;
+    description: string;
+    taken_at: string | null;
+    stored: boolean;
+    mime_type?: string | null;
+    byte_size?: number | null;
+}
+
 /** Un log de géocache, tel que `GET /api/geocaches/<id>/logs` le renvoie. */
 export interface GeocacheLogDto {
     id: number;
@@ -43,6 +73,8 @@ export interface GeocacheLogDto {
     /** Log écrit avec le compte connecté (`sp=true` côté backend, ou soumission locale). */
     is_own_log?: boolean;
     created_at: string | null;
+    /** Photos jointes au log, vide si le log n'en porte aucune. */
+    images?: GeocacheLogImageDto[];
 }
 
 /** Réponse de `GET /api/geocaches/<id>/logs`. */

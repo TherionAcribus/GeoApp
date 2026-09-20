@@ -368,6 +368,174 @@
     cursor: pointer;
 }
 
+/* -------------------------------------------- Photos jointes à un log */
+
+/*
+ * Rendues hors du bloc `__text` à dessein : ce bloc est mesuré au montage
+ * (`scrollHeight` vs `--geoapp-log-collapsed-height`) pour décider du bouton
+ * « Voir plus », et des images qui arrivent en asynchrone fausseraient la
+ * mesure.
+ */
+
+.geoapp-log-images {
+    margin-top: 8px;
+}
+
+.geoapp-log-images--pending {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+}
+
+.geoapp-log-images__banner {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--theia-descriptionForeground);
+    font-size: 12px;
+}
+
+.geoapp-log-images__download {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 8px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    background: none;
+    color: var(--theia-textLink-foreground);
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.geoapp-log-images__download:hover:not(:disabled) {
+    background: var(--theia-list-hoverBackground);
+}
+
+.geoapp-log-images__download:disabled {
+    cursor: default;
+    opacity: 0.6;
+}
+
+.geoapp-log-images__download--partial {
+    margin-top: 6px;
+}
+
+.geoapp-log-images__grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.geoapp-log-images__thumb {
+    width: 84px;
+    height: 84px;
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    background: none;
+    cursor: pointer;
+}
+
+.geoapp-log-images__thumb:hover {
+    border-color: var(--theia-focusBorder);
+}
+
+.geoapp-log-images__thumb img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    /* `cover` plutôt que `contain` : la grille reste régulière quelles que
+       soient les orientations, et le détail se voit à l'agrandissement. */
+    object-fit: cover;
+}
+
+/* ------------------------------------------------ Visionneuse de photo */
+
+.geoapp-log-image-viewer {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(0, 0, 0, 0.75);
+}
+
+.geoapp-log-image-viewer__stage {
+    position: relative;
+    max-width: 100%;
+    max-height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.geoapp-log-image-viewer__image {
+    max-width: 100%;
+    /* Laisse la place à la légende sous la photo. */
+    max-height: calc(100vh - 120px);
+    object-fit: contain;
+    border-radius: 4px;
+}
+
+.geoapp-log-image-viewer__caption {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    max-width: 100%;
+    color: #fff;
+    font-size: 12px;
+    text-align: center;
+}
+
+.geoapp-log-image-viewer__position {
+    opacity: 0.7;
+}
+
+.geoapp-log-image-viewer__nav,
+.geoapp-log-image-viewer__close {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: 50%;
+    /* Fond sombre en dur, et pas une variable de thème : ces boutons flottent
+       sur la photo, pas sur la surface de l'éditeur. */
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    cursor: pointer;
+}
+
+.geoapp-log-image-viewer__nav:hover,
+.geoapp-log-image-viewer__close:hover {
+    background: rgba(0, 0, 0, 0.8);
+}
+
+.geoapp-log-image-viewer__nav--previous {
+    top: 50%;
+    left: 8px;
+    transform: translateY(-50%);
+}
+
+.geoapp-log-image-viewer__nav--next {
+    top: 50%;
+    right: 8px;
+    transform: translateY(-50%);
+}
+
+.geoapp-log-image-viewer__close {
+    top: 8px;
+    right: 8px;
+}
+
 /* ------------------------------------------------- Résumé des N derniers */
 
 .geoapp-logs-summary {

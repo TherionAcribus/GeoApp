@@ -11,6 +11,7 @@ import { GeocacheDetailsWidget } from './geocache-details-widget';
 import { GeocacheLogsWidget } from './geocache-logs-widget';
 import { GeocacheLogsFetchService } from './geocache-logs-fetch-service';
 import { GeocacheLogsAnalysisService } from './geocache-logs-analysis-service';
+import { GeocacheLogImagesService } from './geocache-log-images-service';
 import { GeocacheLogEditorWidget } from './geocache-log-editor-widget';
 import { GeocacheNotesWidget } from './geocache-notes-widget';
 import { MapWidget } from './map/map-widget';
@@ -114,6 +115,7 @@ export default new ContainerModule(bind => {
     bind(GeocacheDetailsService).toSelf().inSingletonScope();
     bind(GeocacheLogsFetchService).toSelf().inSingletonScope();
     bind(GeocacheLogsAnalysisService).toSelf().inSingletonScope();
+    bind(GeocacheLogImagesService).toSelf().inSingletonScope();
     bind(GeocacheNotesService).toSelf().inSingletonScope();
     bind(ArchiveManagerService).toSelf().inSingletonScope();
     bind(GeocacheDetailsArchiveController).toSelf().inSingletonScope();
