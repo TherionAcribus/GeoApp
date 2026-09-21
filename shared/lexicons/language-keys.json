@@ -1,0 +1,26 @@
+{
+  "$comment": "Noms de langue reconnus par GeoApp vers un code ISO 639-1. Les langues de l'application sont du texte libre — la liste de l'éditeur de logs écrit « Anglais », la préférence des listings écrit `francais` — et cette table les ramène à une clé unique, qui sert de colonne d'équivalents dans le lexique géocaching. Une langue absente de la table garde son nom normalisé comme clé. Lu par frontend/theia-extensions/zones (moteurs IA) et par frontend/theia-extensions/preferences (éditeur de lexique).",
+  "keys": {
+    "francais": "fr", "french": "fr", "fr": "fr",
+    "anglais": "en", "english": "en", "en": "en",
+    "allemand": "de", "german": "de", "deutsch": "de", "de": "de",
+    "espagnol": "es", "spanish": "es", "espanol": "es", "castellano": "es", "es": "es",
+    "neerlandais": "nl", "dutch": "nl", "nederlands": "nl", "hollandais": "nl", "nl": "nl",
+    "italien": "it", "italian": "it", "italiano": "it", "it": "it",
+    "portugais": "pt", "portuguese": "pt", "portugues": "pt", "pt": "pt",
+    "tcheque": "cs", "czech": "cs", "cs": "cs",
+    "polonais": "pl", "polish": "pl", "pl": "pl",
+    "suedois": "sv", "swedish": "sv", "sv": "sv",
+    "danois": "da", "danish": "da", "da": "da",
+    "norvegien": "no", "norwegian": "no", "no": "no",
+    "finnois": "fi", "finnish": "fi", "fi": "fi",
+    "russe": "ru", "russian": "ru", "ru": "ru",
+    "hongrois": "hu", "hungarian": "hu", "hu": "hu",
+    "grec": "el", "greek": "el", "el": "el",
+    "turc": "tr", "turkish": "tr", "tr": "tr",
+    "roumain": "ro", "romanian": "ro", "ro": "ro",
+    "slovaque": "sk", "slovak": "sk", "sk": "sk",
+    "croate": "hr", "croatian": "hr", "hr": "hr",
+    "catalan": "ca", "ca": "ca"
+  }
+}

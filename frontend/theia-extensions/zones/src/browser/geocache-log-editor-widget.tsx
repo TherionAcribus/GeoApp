@@ -117,6 +117,7 @@ import {
 } from './log-editor/geocache-loader';
 import { generateLogWithAi as generateLogWithAiPure, NoLanguageModelError } from './log-editor/ai-log-generator';
 import { LogTranslationMode, translateLogWithAi as translateLogWithAiPure } from './log-editor/log-translator';
+import { LexiconEntry, resolveLexicon } from './geocaching-lexicon';
 import { PerCacheBlock } from './log-editor/per-cache-block';
 import { LogEditorHeader } from './log-editor/log-editor-header';
 import { PatternsSection } from './log-editor/patterns-section';
@@ -194,6 +195,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     protected readonly translationAddNoticePreferenceKey = 'geoApp.logs.translation.addNotice';
     protected readonly translationNoticeTextPreferenceKey = 'geoApp.logs.translation.noticeText';
     protected readonly translationSeparatorPreferenceKey = 'geoApp.logs.translation.bilingualSeparator';
+    protected readonly lexiconEnabledPreferenceKey = 'geoApp.ai.lexicon.enabled';
+    protected readonly lexiconEntriesPreferenceKey = 'geoApp.ai.lexicon.entries';
 
     /** Langue cible de la traduction IA. Résolue au chargement : épinglée, sinon préférence, sinon 1re de la liste. */
     protected logLanguage = '';
@@ -2216,7 +2219,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 this.geocaches,
                 (this.aiCustomInstructions || '').trim(),
                 (this.aiExampleLogs || '').trim(),
-                this.logLanguage
+                this.logLanguage,
+                this.getLexicon()
             );
 
             if (!generatedText) {
@@ -2246,6 +2250,21 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             this.isGeneratingAi = false;
             this.update();
         }
+    }
+
+    /**
+     * Lexique géocaching effectif, ou liste vide si l'utilisateur l'a désactivé.
+     *
+     * Lu à chaque appel IA plutôt que mémorisé : éditer le lexique dans les préférences doit
+     * porter sur la traduction suivante, sans rouvrir l'éditeur de logs. `resolveLexicon`
+     * mémoïse la fusion, le coût se limite donc à la lecture de la préférence.
+     */
+    protected getLexicon(): readonly LexiconEntry[] {
+        if (this.preferenceService.get<boolean>(this.lexiconEnabledPreferenceKey, true) === false) {
+            return [];
+        }
+        const entries = this.preferenceService.get<LexiconEntry[]>(this.lexiconEntriesPreferenceKey, []);
+        return resolveLexicon(Array.isArray(entries) ? entries : []);
     }
 
     // --- Traduction IA du texte du log ---
@@ -2292,7 +2311,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             mode,
             separator,
             addNotice,
-            noticeText
+            noticeText,
+            this.getLexicon()
         );
 
         if (!result) {
@@ -2308,6 +2328,16 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 : 'le pattern suivant a disparu';
             const names = result.lostPatterns.map(name => `@${name}`).join(', ');
             this.messages.warn(`Traduction appliquée, mais ${lead} : ${names}. Vérifiez le texte avant d’envoyer.`);
+        }
+
+        if (result.lexiconDeviations.length > 0) {
+            // Une consigne de lexique ignorée n'est pas une erreur de syntaxe : le texte reste
+            // publiable, et c'est à l'utilisateur de juger si « DNF » devait survivre.
+            const shown = result.lexiconDeviations.slice(0, 4)
+                .map(({ term, expected }) => term === expected ? `« ${term} »` : `« ${term} » → « ${expected} »`)
+                .join(', ');
+            const more = result.lexiconDeviations.length > 4 ? ` (+${result.lexiconDeviations.length - 4})` : '';
+            this.messages.warn(`Termes du lexique non repris dans la traduction : ${shown}${more}.`);
         }
 
         return result.text;

@@ -8,6 +8,7 @@
 
 import { LanguageModel, LanguageModelRegistry, LanguageModelService, UserRequest, getTextOfResponse, getJsonOfResponse, isLanguageModelParsedResponse } from '@theia/ai-core';
 import { GeocacheListItem, LogTypeValue } from './types';
+import { LexiconEntry, buildLexiconWritingBlock, findLexiconMentions } from '../geocaching-lexicon';
 
 /** Agent ID pour la sélection du modèle IA. */
 export type AgentId = string;
@@ -19,7 +20,8 @@ export function buildLogGenerationPrompt(
     geocaches: GeocacheListItem[],
     customInstructions: string,
     exampleLogs: string,
-    targetLanguage?: string
+    targetLanguage?: string,
+    lexicon: readonly LexiconEntry[] = []
 ): string {
     const logTypeLabel = logType === 'found' ? 'trouvaille (Found it)'
         : logType === 'dnf' ? 'non trouvée (Did Not Find)'
@@ -57,6 +59,17 @@ ${geocacheContext}`;
         prompt += `\n- Rédige le log en ${language}.`;
     }
 
+    // Le lexique se lit dans ce que l'utilisateur a demandé, pas dans ses exemples de style :
+    // un « DNF » tapé dans les mots-clés doit sortir tel quel, alors qu'un lexique déduit d'un
+    // corpus d'exemples imposerait à chaque log tout le jargon jamais employé par l'utilisateur.
+    const lexiconBlock = buildLexiconWritingBlock(
+        findLexiconMentions(`${keywords}\n${customInstructions}`, lexicon),
+        language
+    );
+    if (lexiconBlock) {
+        prompt += `\n\n${lexiconBlock}`;
+    }
+
     return prompt;
 }
 
@@ -88,7 +101,8 @@ export async function generateLogWithAi(
     geocaches: GeocacheListItem[],
     customInstructions: string,
     exampleLogs: string,
-    targetLanguage?: string
+    targetLanguage?: string,
+    lexicon: readonly LexiconEntry[] = []
 ): Promise<string | undefined> {
     const languageModel = await languageModelRegistry.selectLanguageModel({
         agent: agentId,
@@ -100,7 +114,7 @@ export async function generateLogWithAi(
         throw new NoLanguageModelError();
     }
 
-    const prompt = buildLogGenerationPrompt(logType, keywords, geocaches, customInstructions, exampleLogs, targetLanguage);
+    const prompt = buildLogGenerationPrompt(logType, keywords, geocaches, customInstructions, exampleLogs, targetLanguage, lexicon);
 
     const request: UserRequest = {
         messages: [

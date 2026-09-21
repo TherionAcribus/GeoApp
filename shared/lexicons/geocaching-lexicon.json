@@ -1,0 +1,331 @@
+{
+  "$comment": "Lexique géocaching intégré, utilisé par les moteurs IA de GeoApp (traduction de logs, génération de logs, traduction de listings). Les entrées personnelles vivent dans la préférence geoApp.logs.translation.lexicon et surchargent celles-ci terme par terme. Voir documentation/lexique-geocaching-technique.md.",
+  "version": 1,
+  "entries": [
+    {
+      "term": "DNF",
+      "gloss": "Did Not Find : la cache n'a pas été trouvée",
+      "policy": "keep"
+    },
+    {
+      "term": "FTF",
+      "gloss": "First To Find : premier à avoir trouvé la cache",
+      "policy": "keep"
+    },
+    {
+      "term": "STF",
+      "gloss": "Second To Find : deuxième à avoir trouvé la cache",
+      "policy": "keep"
+    },
+    {
+      "term": "TTF",
+      "gloss": "Third To Find : troisième à avoir trouvé la cache",
+      "policy": "keep"
+    },
+    {
+      "term": "TFTC",
+      "gloss": "Thanks For The Cache : merci pour la cache",
+      "policy": "keep"
+    },
+    {
+      "term": "TFTH",
+      "gloss": "Thanks For The Hide : merci pour la pose",
+      "policy": "keep"
+    },
+    {
+      "term": "TNLN",
+      "gloss": "Took Nothing, Left Nothing : rien pris, rien laissé dans la boîte",
+      "policy": "keep"
+    },
+    {
+      "term": "TNLNSL",
+      "gloss": "Took Nothing, Left Nothing, Signed Log : rien pris, rien laissé, logbook signé",
+      "policy": "keep"
+    },
+    {
+      "term": "TB",
+      "aliases": ["Travel Bug"],
+      "gloss": "Travel Bug : objet traçable de Groundspeak qui voyage de cache en cache (marque déposée)",
+      "policy": "keep"
+    },
+    {
+      "term": "CITO",
+      "aliases": ["Cache In Trash Out"],
+      "gloss": "Cache In Trash Out : ramassage des déchets pendant la sortie",
+      "policy": "keep"
+    },
+    {
+      "term": "GZ",
+      "gloss": "Ground Zero : le point exact indiqué par les coordonnées",
+      "policy": "keep"
+    },
+    {
+      "term": "NM",
+      "gloss": "Needs Maintenance : demande d'entretien adressée au propriétaire",
+      "policy": "keep"
+    },
+    {
+      "term": "SBA",
+      "gloss": "Should Be Archived : demande d'archivage de la cache",
+      "policy": "keep"
+    },
+    {
+      "term": "CO",
+      "gloss": "Cache Owner : le propriétaire de la cache",
+      "policy": "keep"
+    },
+    {
+      "term": "BYOP",
+      "gloss": "Bring Your Own Pen : prévoir son propre stylo",
+      "policy": "keep"
+    },
+    {
+      "term": "PMO",
+      "gloss": "Premium Member Only : cache réservée aux membres premium",
+      "policy": "keep"
+    },
+    {
+      "term": "ALR",
+      "gloss": "Additional Logging Requirement : condition supplémentaire imposée pour loguer",
+      "policy": "keep"
+    },
+    {
+      "term": "LPC",
+      "gloss": "Lamp Post Cache : cache sous la jupe d'un lampadaire",
+      "policy": "keep"
+    },
+    {
+      "term": "PAF",
+      "gloss": "Phone A Friend : appel à un ami pour obtenir un coup de pouce",
+      "policy": "keep"
+    },
+    {
+      "term": "ROT13",
+      "gloss": "chiffrement par décalage de treize lettres, utilisé pour masquer les indices",
+      "policy": "keep"
+    },
+    {
+      "term": "GPSr",
+      "gloss": "récepteur GPS de randonnée",
+      "policy": "keep"
+    },
+    {
+      "term": "Groundspeak",
+      "gloss": "la société qui édite Geocaching.com",
+      "policy": "keep"
+    },
+    {
+      "term": "muggle",
+      "aliases": ["geomuggle"],
+      "gloss": "personne qui ne pratique pas le géocaching et dont il faut se méfier près de la cache",
+      "policy": "keep"
+    },
+    {
+      "term": "cache",
+      "aliases": ["géocache", "geocache"],
+      "gloss": "la géocache elle-même : ni une cachette au sens courant, ni une mémoire cache informatique",
+      "policy": "keep"
+    },
+    {
+      "term": "log",
+      "gloss": "le compte rendu de visite publié sur la fiche de la cache : ni un rondin, ni un journal système",
+      "policy": "keep"
+    },
+    {
+      "term": "logbook",
+      "aliases": ["log book"],
+      "gloss": "le carnet papier à signer dans la boîte",
+      "policy": "keep"
+    },
+    {
+      "term": "listing",
+      "gloss": "la page de description de la cache sur Geocaching.com",
+      "policy": "keep"
+    },
+    {
+      "term": "checker",
+      "gloss": "l'outil en ligne qui valide une solution ou des coordonnées (GeoCheck, Certitude)",
+      "policy": "keep"
+    },
+    {
+      "term": "trackable",
+      "gloss": "objet suivi par un code, qui voyage de cache en cache",
+      "policy": "keep"
+    },
+    {
+      "term": "geocoin",
+      "aliases": ["géocoin"],
+      "gloss": "pièce de collection traçable",
+      "policy": "keep"
+    },
+    {
+      "term": "swag",
+      "gloss": "les petits objets d'échange laissés dans la boîte",
+      "policy": "keep"
+    },
+    {
+      "term": "spoiler",
+      "gloss": "information ou photo qui dévoile la cachette",
+      "policy": "keep"
+    },
+    {
+      "term": "reviewer",
+      "gloss": "le bénévole qui relit et publie les caches",
+      "policy": "keep"
+    },
+    {
+      "term": "EarthCache",
+      "gloss": "type de cache officiel, sans boîte, fondé sur une leçon de géologie",
+      "policy": "keep"
+    },
+    {
+      "term": "Wherigo",
+      "gloss": "type de cache officiel guidé par une cartouche jouée sur le terrain",
+      "policy": "keep"
+    },
+    {
+      "term": "Adventure Lab",
+      "aliases": ["AdventureLab", "lab cache"],
+      "gloss": "parcours officiel joué depuis l'application Adventure Lab",
+      "policy": "keep"
+    },
+    {
+      "term": "Letterbox",
+      "aliases": ["Letterbox Hybrid"],
+      "gloss": "type de cache officiel associant géocaching et letterboxing, avec un tampon à encrer",
+      "policy": "keep"
+    },
+    {
+      "term": "Mystery",
+      "aliases": ["mystery cache", "cache mystère"],
+      "gloss": "type de cache officiel dont les coordonnées publiées sont fausses et se déduisent d'une énigme",
+      "policy": "keep"
+    },
+    {
+      "term": "power trail",
+      "gloss": "longue série de caches posées à intervalles réguliers",
+      "policy": "keep"
+    },
+    {
+      "term": "event",
+      "gloss": "rencontre entre géocacheurs, qui est aussi un type de cache officiel",
+      "policy": "keep"
+    },
+    {
+      "term": "nano",
+      "gloss": "taille de contenant encore plus petite que micro",
+      "policy": "keep"
+    },
+    {
+      "term": "bison tube",
+      "gloss": "petit tube métallique à capuchon vissé, très courant comme contenant",
+      "policy": "keep"
+    },
+    {
+      "term": "PAT",
+      "aliases": ["P.A.T.", "premier à trouver"],
+      "gloss": "Premier À Trouver : le premier géocacheur à avoir trouvé la cache",
+      "policy": "map",
+      "translations": {
+        "fr": "PAT",
+        "en": "FTF",
+        "de": "FTF",
+        "es": "FTF",
+        "nl": "FTF",
+        "it": "FTF"
+      }
+    },
+    {
+      "term": "moldu",
+      "gloss": "personne qui ne pratique pas le géocaching et dont il faut se méfier près de la cache",
+      "policy": "map",
+      "translations": {
+        "fr": "moldu",
+        "en": "muggle",
+        "de": "Muggel",
+        "es": "muggle",
+        "nl": "muggle",
+        "it": "muggle"
+      }
+    },
+    {
+      "term": "container",
+      "gloss": "le contenant de la cache : une boîte, un tube, une bouteille — jamais un conteneur de transport",
+      "policy": "map",
+      "translations": {
+        "fr": "boîte",
+        "en": "container",
+        "de": "Behälter",
+        "es": "contenedor",
+        "nl": "container",
+        "it": "contenitore"
+      }
+    },
+    {
+      "term": "boîte",
+      "gloss": "le contenant de la cache",
+      "policy": "map",
+      "translations": {
+        "fr": "boîte",
+        "en": "container",
+        "de": "Behälter",
+        "es": "contenedor",
+        "nl": "container",
+        "it": "contenitore"
+      }
+    },
+    {
+      "term": "hint",
+      "gloss": "l'indice officiel de la fiche, souvent chiffré en ROT13",
+      "policy": "map",
+      "translations": {
+        "fr": "indice",
+        "en": "hint",
+        "de": "Hinweis",
+        "es": "pista",
+        "nl": "hint",
+        "it": "suggerimento"
+      }
+    },
+    {
+      "term": "indice",
+      "gloss": "l'indice officiel de la fiche, souvent chiffré en ROT13",
+      "policy": "map",
+      "translations": {
+        "fr": "indice",
+        "en": "hint",
+        "de": "Hinweis",
+        "es": "pista",
+        "nl": "hint",
+        "it": "suggerimento"
+      }
+    },
+    {
+      "term": "géocacheur",
+      "aliases": ["géocacheuse", "geocacheur"],
+      "gloss": "une personne qui pratique le géocaching",
+      "policy": "map",
+      "translations": {
+        "fr": "géocacheur",
+        "en": "geocacher",
+        "de": "Geocacher",
+        "es": "geocachero",
+        "nl": "geocacher",
+        "it": "geocacher"
+      }
+    },
+    {
+      "term": "point favori",
+      "gloss": "le point qu'un membre premium attribue à une cache qu'il a aimée",
+      "policy": "map",
+      "translations": {
+        "fr": "point favori",
+        "en": "favorite point",
+        "de": "Favoritenpunkt",
+        "es": "punto favorito",
+        "nl": "favorietpunt",
+        "it": "punto preferito"
+      }
+    }
+  ]
+}

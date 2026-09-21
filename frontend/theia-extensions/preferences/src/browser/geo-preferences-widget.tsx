@@ -7,6 +7,7 @@ import { PreferenceScope } from '@theia/core/lib/common/preferences/preference-s
 
 import { GeoPreferenceStore, GeoPreferenceSnapshot } from './geo-preference-store';
 import { GeoPreferenceDefinition, GeoPreferenceKey } from './geo-preferences-schema';
+import { GeoLexiconEditor, LexiconEntry } from './geo-lexicon-editor';
 
 export interface GeoPreferencesOpenOptions {
     category?: string;
@@ -400,6 +401,8 @@ interface PreferenceItemHandlers {
     onArrayToggle(key: string, option: string | number, checked: boolean, definition: GeoPreferenceDefinition): void;
     /** Liste complète après ajout, suppression ou déplacement : le calcul reste dans l'éditeur. */
     onStringListChange(key: string, next: string[]): void;
+    /** Entrées personnelles du lexique après modification, fond intégré exclu. */
+    onLexiconChange(key: string, next: LexiconEntry[]): void;
     onArrayJsonBlur(key: string, rawValue: string): void;
     onObjectJsonBlur(key: string, rawValue: string): void;
     onReset(key: string, definition: GeoPreferenceDefinition): void;
@@ -517,6 +520,19 @@ const PreferenceItem = React.memo(function PreferenceItem(props: PreferenceItemP
         }
 
         if (definition.type === 'array') {
+            if (definition['x-ui']?.widget === 'lexicon') {
+                // La valeur ne contient que les entrées personnelles : l'éditeur y ajoute lui-même
+                // le fond intégré, qu'il lit dans `shared/lexicons/`.
+                const entries = Array.isArray(value) ? (value as LexiconEntry[]) : [];
+                return (
+                    <GeoLexiconEditor
+                        prefKey={prefKey}
+                        entries={entries}
+                        languages={dynamicOptions ?? []}
+                        onChange={next => handlers.onLexiconChange(prefKey, next)}
+                    />
+                );
+            }
             if (definition['x-ui']?.widget === 'string-list') {
                 return (
                     <StringListEditor
@@ -686,6 +702,7 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
         onDraftKeyDown: event => this.handleDraftKeyDown(event),
         onArrayToggle: (key, option, checked, definition) => { void this.handleArrayToggle(key, option, checked, definition); },
         onStringListChange: (key, next) => { void this.store.setValue(key, next, PreferenceScope.User); },
+        onLexiconChange: (key, next) => { void this.store.setValue(key, next, PreferenceScope.User); },
         onArrayJsonBlur: (key, rawValue) => { void this.handleArrayJsonBlur(key, rawValue); },
         onObjectJsonBlur: (key, rawValue) => { void this.handleObjectJsonBlur(key, rawValue); },
         onReset: (key, definition) => { void this.handleResetPreference(key, definition); },
@@ -1161,26 +1178,52 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
         return undefined;
     }
 
-    /** Options d'un `widget: 'select-from'`, lues dans la preference designee par `optionsFrom`. */
+    /**
+     * Options d'un `widget: 'select-from'` ou `'lexicon'`, lues dans la ou les preferences
+     * designees par `optionsFrom`.
+     *
+     * Plusieurs sources sont reunies sans doublon : les langues d'equivalents du lexique viennent
+     * a la fois de la liste de l'editeur de logs et de la langue cible des listings, et rien ne
+     * garantit que la seconde figure dans la premiere. Une preference scalaire contribue sa propre
+     * valeur, une preference `array` ses entrees.
+     */
     private resolveDynamicOptions(definition: GeoPreferenceDefinition): string[] | undefined {
         const ui = definition['x-ui'];
-        if (ui?.widget !== 'select-from') {
+        if (ui?.widget !== 'select-from' && ui?.widget !== 'lexicon') {
             return undefined;
         }
-        const sourceKey = ui.optionsFrom;
-        if (!sourceKey) {
+        const sourceKeys = ui.optionsFrom === undefined
+            ? []
+            : (Array.isArray(ui.optionsFrom) ? ui.optionsFrom : [ui.optionsFrom]);
+        if (sourceKeys.length === 0) {
             return [];
         }
 
-        const sourceDefinition = this.store.definitions.find(entry => entry.key === sourceKey)?.definition;
-        const options = stringListValue(this.snapshot[sourceKey], sourceDefinition?.default);
-        const signature = JSON.stringify(options);
+        const seen = new Set<string>();
+        const options: string[] = [];
+        for (const sourceKey of sourceKeys) {
+            const sourceDefinition = this.store.definitions.find(entry => entry.key === sourceKey)?.definition;
+            const raw = this.snapshot[sourceKey] ?? sourceDefinition?.default;
+            const values = Array.isArray(raw) || Array.isArray(sourceDefinition?.default)
+                ? stringListValue(this.snapshot[sourceKey], sourceDefinition?.default)
+                : [String(raw ?? '')];
+            for (const value of values) {
+                const trimmed = value.trim();
+                const key = stringListKey(trimmed);
+                if (trimmed !== '' && !seen.has(key)) {
+                    seen.add(key);
+                    options.push(trimmed);
+                }
+            }
+        }
 
-        const cached = this.dynamicOptionsCache.get(sourceKey);
+        const cacheKey = sourceKeys.join('|');
+        const signature = JSON.stringify(options);
+        const cached = this.dynamicOptionsCache.get(cacheKey);
         if (cached?.signature === signature) {
             return cached.options;
         }
-        this.dynamicOptionsCache.set(sourceKey, { signature, options });
+        this.dynamicOptionsCache.set(cacheKey, { signature, options });
         return options;
     }
 

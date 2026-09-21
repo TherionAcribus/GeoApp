@@ -14,6 +14,13 @@
 
 import { LanguageModel, LanguageModelRegistry, LanguageModelService, UserRequest, getTextOfResponse, getJsonOfResponse, isLanguageModelParsedResponse } from '@theia/ai-core';
 import { AgentId, NoLanguageModelError, cleanAiResponse } from './ai-log-generator';
+import {
+    LexiconDeviation,
+    LexiconEntry,
+    buildLexiconTranslationBlock,
+    findLexiconDeviations,
+    findLexiconMentions,
+} from '../geocaching-lexicon';
 
 /** Comment le résultat de la traduction remplace le texte saisi. */
 export type LogTranslationMode = 'replace' | 'bilingual';
@@ -34,12 +41,24 @@ export function buildTranslationSource(text: string, addNotice: boolean, noticeT
     return `${body}\n\n${notice}`;
 }
 
-/** Construit le prompt de traduction. `patternNames` sert à nommer les tokens à ne pas toucher. */
-export function buildLogTranslationPrompt(targetLanguage: string, patternNames: Set<string>): string {
+/**
+ * Construit le prompt de traduction. `patternNames` sert à nommer les tokens à ne pas toucher ;
+ * `lexiconBlock` porte les seuls termes du lexique repérés dans le texte (voir
+ * `geocaching-lexicon.ts`), et vaut la chaîne vide quand il n'y en a aucun.
+ */
+export function buildLogTranslationPrompt(
+    targetLanguage: string,
+    patternNames: Set<string>,
+    lexiconBlock: string = ''
+): string {
     const tokens = [...patternNames].sort().map(name => `@${name}`).join(', ');
     const patternRule = tokens
         ? `- Laisse STRICTEMENT intacts les tokens commençant par @ : ${tokens}. Ne les traduis pas, ne les renomme pas, ne les supprime pas, ne change pas leur casse.`
         : '- Laisse STRICTEMENT intact tout token commençant par @ : ne le traduis pas, ne le renomme pas.';
+
+    // Le lexique est placé après les règles : elles disent comment traduire, il dit quoi ne pas
+    // traduire. Le lire en dernier laisse ses termes en mémoire courte au moment de rédiger.
+    const lexicon = lexiconBlock.trim() ? `\n\n${lexiconBlock.trim()}` : '';
 
     return `Tu es un traducteur. Traduis en ${targetLanguage} le texte de log de géocache fourni.
 
@@ -50,7 +69,7 @@ ${patternRule}
 - Conserve exactement la mise en forme Markdown (gras, italique, listes, citations, liens) et les sauts de ligne.
 - Ne traduis pas les codes GC, les coordonnées, les URLs ni les identifiants techniques.
 - Garde le ton et le registre de l'original : c'est un log personnel de géocacheur, pas un texte administratif.
-- N'ajoute aucun contenu qui n'est pas dans l'original.`;
+- N'ajoute aucun contenu qui n'est pas dans l'original.${lexicon}`;
 }
 
 /** Tokens `@xxx` présents dans un texte, restreints aux patterns connus. */
@@ -100,10 +119,12 @@ export function assembleTranslation(
         : `${head}\n\n${translated}`;
 }
 
-/** Résultat d'une traduction : le texte assemblé et les patterns perdus en route. */
+/** Résultat d'une traduction : le texte assemblé et ce que la traduction a laissé filer. */
 export interface LogTranslationResult {
     text: string;
     lostPatterns: string[];
+    /** Termes du lexique dont la forme attendue manque à la sortie. Informatif, jamais bloquant. */
+    lexiconDeviations: LexiconDeviation[];
 }
 
 /**
@@ -122,7 +143,8 @@ export async function translateLogWithAi(
     mode: LogTranslationMode,
     separator: string,
     addNotice: boolean,
-    noticeText: string
+    noticeText: string,
+    lexicon: readonly LexiconEntry[] = []
 ): Promise<LogTranslationResult | undefined> {
     const languageModel = await languageModelRegistry.selectLanguageModel({
         agent: agentId,
@@ -135,7 +157,14 @@ export async function translateLogWithAi(
     }
 
     const source = buildTranslationSource(text, addNotice, noticeText);
-    const prompt = buildLogTranslationPrompt(targetLanguage, patternNames);
+    // La détection porte sur le texte réellement soumis, mention de traduction comprise : c'est
+    // lui que le modèle va lire, et c'est sur lui que portera la vérification de sortie.
+    const mentions = findLexiconMentions(source, lexicon);
+    const prompt = buildLogTranslationPrompt(
+        targetLanguage,
+        patternNames,
+        buildLexiconTranslationBlock(mentions, targetLanguage)
+    );
 
     const request: UserRequest = {
         messages: [
@@ -168,5 +197,6 @@ export async function translateLogWithAi(
     return {
         text: assembleTranslation((text || '').trim(), translated, mode, separator),
         lostPatterns: findLostPatterns(source, translated, patternNames),
+        lexiconDeviations: findLexiconDeviations(source, translated, mentions, targetLanguage),
     };
 }

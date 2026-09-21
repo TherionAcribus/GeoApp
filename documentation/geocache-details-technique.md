@@ -171,6 +171,11 @@ La langue cible vient de la préférence `geoApp.translation.targetLanguage` (ca
 Préférences et connue d'`@Aide`. Elle n'a rien à voir avec la traduction des **logs**, qui a ses
 propres réglages dans la catégorie *Logs* (voir `docs/LOGS_SYSTEM_TECHNICAL.md` § 13).
 
+Les deux prompts (chunk de description, puis indices + notes de waypoints) reçoivent le **lexique
+géocaching** : les termes du jargon repérés dans le texte brut du morceau à traduire, avec la
+consigne qui s'applique à chacun. La détection est refaite pour chaque chunk, puisque c'est chunk
+par chunk que le prompt part. Voir `documentation/lexique-geocaching-technique.md`.
+
 ### Chat IA
 
 `GeocacheDetailsChatController` :

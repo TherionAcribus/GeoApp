@@ -28,12 +28,16 @@ export type GeoPreferenceDefinition = (typeof schemaJson.properties)[GeoPreferen
          * `select-from` : liste déroulante dont les options viennent de la valeur courante d'une
          * autre préférence, nommée par `optionsFrom` — pour les choix dont le catalogue n'est pas
          * connu à l'avance et qu'un `enum` statique ne peut donc pas décrire.
+         * `lexicon` : éditeur du lexique géocaching, une ligne par terme, dépliable en un
+         * formulaire (sens, règle, équivalents). `optionsFrom` y désigne les langues à proposer
+         * comme colonnes d'équivalents.
          */
-        widget?: 'string-list' | 'select-from';
+        widget?: 'string-list' | 'select-from' | 'lexicon';
         /**
-         * Clé de la préférence (de type `array`) qui fournit les options, avec `widget: 'select-from'`.
+         * Préférence(s) fournissant les options, avec `widget: 'select-from'` ou `'lexicon'`.
+         * Un tableau réunit plusieurs sources ; une préférence scalaire contribue sa propre valeur.
          */
-        optionsFrom?: string;
+        optionsFrom?: string | string[];
     };
     title?: string;
     enum?: string[] | number[];

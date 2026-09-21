@@ -16,6 +16,12 @@ import {
     UpdateTranslatedContentInput
 } from './geocache-details-service';
 import { htmlToRawText } from './geocache-details-utils';
+import {
+    LexiconEntry,
+    buildLexiconTranslationBlock,
+    findLexiconMentions,
+    resolveLexicon
+} from './geocaching-lexicon';
 
 export interface TranslateAllWaypointInput {
     id: number;
@@ -75,6 +81,33 @@ export class GeocacheDetailsTranslationController {
     private getTargetLanguage(): string {
         const raw = this.preferenceService.get('geoApp.translation.targetLanguage', 'francais') as string;
         return (raw || 'francais').toString().trim() || 'francais';
+    }
+
+    /** Lexique geocaching effectif, ou liste vide si l'utilisateur l'a desactive. */
+    private getLexicon(): readonly LexiconEntry[] {
+        if (this.preferenceService.get<boolean>('geoApp.ai.lexicon.enabled', true) === false) {
+            return [];
+        }
+        const entries = this.preferenceService.get('geoApp.ai.lexicon.entries', []) as LexiconEntry[];
+        return resolveLexicon(Array.isArray(entries) ? entries : []);
+    }
+
+    /**
+     * Bloc de lexique pour un texte donne, prefixe d'un saut de ligne, ou chaine vide.
+     *
+     * La detection porte sur le texte brut extrait du HTML : chercher les termes dans le balisage
+     * ferait matcher les classes, les attributs et les URLs, et un listing est assez long pour que
+     * ca fasse la difference. Elle est refaite pour chaque chunk, puisque c'est chunk par chunk
+     * que le prompt est envoye : un terme absent du morceau n'a rien a y faire.
+     */
+    private buildLexiconBlockFor(text: string): string {
+        const lexicon = this.getLexicon();
+        if (lexicon.length === 0) {
+            return '';
+        }
+        const language = this.getTargetLanguage();
+        const block = buildLexiconTranslationBlock(findLexiconMentions(text, lexicon), language);
+        return block ? `\n${block}\n` : '';
     }
 
     async translateDescription(
@@ -469,7 +502,8 @@ export class GeocacheDetailsTranslationController {
             `Tu es un traducteur. Traduis en ${language} le contenu TEXTUEL du HTML fourni, en conservant le HTML.\n`
             + '- Ne change pas les balises, attributs, liens, images, classes, ids.\n'
             + '- Ne traduis pas les coordonnees, codes GC, URLs, ni les identifiants techniques.\n'
-            + '- Ne renvoie que le HTML final, sans markdown, sans explications.';
+            + '- Ne renvoie que le HTML final, sans markdown, sans explications.'
+            + this.buildLexiconBlockFor(htmlToRawText(sourceHtml));
 
         const request: UserRequest = {
             messages: [
@@ -526,12 +560,14 @@ export class GeocacheDetailsTranslationController {
             return { hintsDecoded: '', waypoints: [] };
         }
 
+        const lexiconSource = [hintsDecoded, ...waypoints.map(waypoint => waypoint.note)].join('\n');
+
         const request: UserRequest = {
             messages: [
                 {
                     actor: 'user',
                     type: 'text',
-                    text: `${this.createHintsWaypointsPrompt()}\nINPUT_JSON:\n${JSON.stringify({
+                    text: `${this.createHintsWaypointsPrompt(lexiconSource)}\nINPUT_JSON:\n${JSON.stringify({
                         hints_decoded: hintsDecoded,
                         waypoints,
                     })}`
@@ -686,13 +722,15 @@ export class GeocacheDetailsTranslationController {
             .trim();
     }
 
-    private createHintsWaypointsPrompt(): string {
+    /** `sourceText` ne sert qu'a reperer les termes du lexique a rappeler au modele. */
+    private createHintsWaypointsPrompt(sourceText: string): string {
         const language = this.getTargetLanguage();
         return `Traduis en ${language} le contenu suivant et renvoie UNIQUEMENT un JSON valide.\n`
             + 'Contraintes :\n'
             + '- hints_decoded : traduis le texte de l indice.\n'
             + '- Ne traduis pas les coordonnees, codes GC, URLs, ni les identifiants techniques.\n'
             + '- waypoints : conserve les ids, traduis uniquement la note.\n'
-            + 'Schema JSON de sortie : {"hints_decoded": string, "waypoints": [{"id": number, "note": string}] }\n';
+            + 'Schema JSON de sortie : {"hints_decoded": string, "waypoints": [{"id": number, "note": string}] }\n'
+            + this.buildLexiconBlockFor(sourceText);
     }
 }

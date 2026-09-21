@@ -2335,6 +2335,69 @@
         "ai"
       ]
     },
+    "geoApp.ai.lexicon.enabled": {
+      "type": "boolean",
+      "default": true,
+      "title": "Lexique géocaching",
+      "description": "Rappelle à l'IA le vocabulaire du géocaching (DNF, FTF, TFTC, logbook, container…) quand elle traduit un log, rédige un log ou traduit un listing. Seuls les termes réellement présents dans le texte sont envoyés au modèle. Désactiver revient à traduire sans aucune consigne de vocabulaire.",
+      "x-ui": {
+        "section": "Lexique géocaching",
+        "label": "Utiliser le lexique",
+        "order": 10,
+        "keywords": [
+          "lexique",
+          "glossaire",
+          "vocabulaire",
+          "jargon",
+          "traduction",
+          "dnf",
+          "ftf"
+        ]
+      },
+      "x-category": "ai",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "ai",
+        "traduction"
+      ]
+    },
+    "geoApp.ai.lexicon.entries": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "object"
+      },
+      "title": "Termes personnels du lexique",
+      "description": "Vos propres termes, en plus du lexique intégré livré avec GeoApp. Un terme déjà connu du lexique intégré est remplacé par votre version, ou supprimé si vous le désactivez. « Ne pas traduire » garde le terme tel quel dans toutes les langues ; « Adapter selon la langue » applique l'équivalent que vous donnez pour la langue cible. Les règles valent pour le terme rencontré : PAT devient FTF en anglais sans que FTF redevienne PAT.",
+      "x-ui": {
+        "section": "Lexique géocaching",
+        "label": "Lexique",
+        "order": 20,
+        "widget": "lexicon",
+        "optionsFrom": [
+          "geoApp.logs.translation.languages",
+          "geoApp.translation.targetLanguage"
+        ],
+        "keywords": [
+          "lexique",
+          "glossaire",
+          "vocabulaire",
+          "jargon",
+          "terme",
+          "traduction"
+        ]
+      },
+      "x-category": "ai",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "ai",
+        "traduction"
+      ]
+    },
     "geoApp.logs.translation.languages": {
       "type": "array",
       "default": [

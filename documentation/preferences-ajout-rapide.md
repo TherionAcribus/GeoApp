@@ -136,6 +136,7 @@ Le rendu d'un `array` dépend de son schéma :
 |---|---|
 | `array` + `items.enum` | cases à cocher (une par valeur du catalogue) |
 | `array` + `x-ui.widget: "string-list"` | liste éditable : une ligne par entrée, avec suppression, réordonnancement et champ d'ajout |
+| `array` + `x-ui.widget: "lexicon"` | éditeur du lexique géocaching (contrôle spécifique, voir plus bas) |
 | `array` sans rien de tout ça | zone de texte JSON brute |
 
 Utiliser `string-list` dès que l'utilisateur doit pouvoir saisir des valeurs **libres**, non connues à l'avance :
@@ -189,6 +190,29 @@ Points à connaître :
 - éditer la liste source met le `<select>` à jour immédiatement, sans rechargement ;
 - si la valeur courante a disparu de la liste, elle est conservée en tête du menu, marquée « absent de la liste » : le simple affichage de la page ne doit jamais remplacer une valeur en silence ;
 - si la liste source est vide, le `<select>` est désactivé et un message renvoie vers elle.
+
+`optionsFrom` accepte aussi un **tableau** de clés, dont les valeurs sont réunies sans doublon
+(insensiblement à la casse et aux accents). Une préférence `array` contribue ses entrées, une
+préférence scalaire sa propre valeur :
+
+```json
+"optionsFrom": [
+  "geoApp.logs.translation.languages",
+  "geoApp.translation.targetLanguage"
+]
+```
+
+## Le contrôle `lexicon`
+
+Réservé à `geoApp.ai.lexicon.entries`. Ce n'est pas un contrôle générique : il connaît la forme
+d'une entrée de lexique et affiche, en plus de la valeur de la préférence, le fond intégré lu
+dans `shared/lexicons/geocaching-lexicon.json`. La préférence ne contient que les entrées
+personnelles — ajouts, surcharges, désactivations.
+
+Son `optionsFrom` désigne les langues proposées comme colonnes d'équivalents.
+
+Voir `documentation/lexique-geocaching-technique.md` pour le modèle de données et le
+fonctionnement de la fusion.
 
 ## Ajouter une préférence avancée
 

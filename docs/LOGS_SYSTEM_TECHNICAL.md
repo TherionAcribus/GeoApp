@@ -545,7 +545,7 @@ un appel prenant les services en paramètres), dont il réutilise `cleanAiRespon
 | Fonction | Rôle |
 |---|---|
 | `buildTranslationSource` | Texte réellement soumis au modèle (mention de traduction comprise) |
-| `buildLogTranslationPrompt` | Prompt, incluant la liste nommée des `@patterns` à préserver |
+| `buildLogTranslationPrompt` | Prompt, incluant la liste nommée des `@patterns` à préserver et le bloc de lexique (§ 13.9) |
 | `extractPatternTokens` / `findLostPatterns` | Garde-fou `@patterns` (§ 13.4) |
 | `assembleTranslation` | Assemblage final selon le mode (remplacer / bilingue) |
 | `translateLogWithAi` | Sélection du modèle, appel, nettoyage, assemblage |
@@ -651,6 +651,24 @@ sont décrits dans `documentation/preferences-ajout-rapide.md`.
 - La langue épinglée peut avoir été retirée des préférences depuis : le `<select>` l’ajoute en
   tête de liste pour ne pas la perdre silencieusement.
 
+### 13.9 Lexique géocaching
+
+Le prompt de traduction reçoit, **en dernier**, un bloc listant les termes du jargon géocaching
+repérés dans le texte : « DNF » est à garder tel quel, « PAT » devient « FTF » en anglais. Seuls
+les termes réellement présents partent dans le prompt ; sans aucun terme repéré, il n’y a pas de
+bloc du tout.
+
+Le même lexique alimente la génération IA du log (`buildLogGenerationPrompt`, détection sur les
+mots-clés) et la traduction des listings. À la sortie, `findLexiconDeviations` signale — sans
+bloquer — les termes dont la forme attendue manque à la traduction, sur le modèle de
+`findLostPatterns`.
+
+Réglages : catégorie **IA**, section « Lexique géocaching » (`geoApp.ai.lexicon.enabled` et
+`geoApp.ai.lexicon.entries`), avec un éditeur dédié dans la page Préférences.
+
+Tout le détail — modèle de données, régimes de détection, fusion du fond intégré et des entrées
+personnelles, éditeur — est dans `documentation/lexique-geocaching-technique.md`.
+
 ## Références code
 
 - Frontend
@@ -658,6 +676,7 @@ sont décrits dans `documentation/preferences-ajout-rapide.md`.
   - `theia-extensions/zones/src/browser/log-editor/log-translator.ts`
   - `theia-extensions/zones/src/browser/log-editor/batch-translation-bar.tsx`
   - `theia-extensions/zones/src/browser/geoapp-log-translator-agent.ts`
+  - `theia-extensions/zones/src/browser/geocaching-lexicon.ts`
 
 - Backend
   - `gc-backend/gc_backend/blueprints/logs.py`
