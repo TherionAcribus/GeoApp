@@ -3,9 +3,12 @@ import { CancellationToken, CancellationError, isCancelled } from '@theia/core';
 import DOMPurify from '@theia/core/shared/dompurify';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import {
-    getJsonOfResponse,
-    getTextOfResponse,
     isLanguageModelParsedResponse,
+    isLanguageModelStreamResponse,
+    isLanguageModelTextResponse,
+    isTextResponsePart,
+    isThinkingResponsePart,
+    isToolCallResponsePart,
     LanguageModelRegistry,
     LanguageModelService,
     UserRequest
@@ -516,23 +519,21 @@ export class GeocacheDetailsTranslationController {
         };
 
         const response = await this.languageModelService.sendRequest(languageModel, request);
-        let translatedHtml = '';
-        if (isLanguageModelParsedResponse(response)) {
-            // `parsed` est le resultat d'un parsing JSON. Pour une traduction HTML on attend une
-            // simple chaine : JSON.stringify l'entourerait de guillemets et echapperait les
-            // sauts de ligne, produisant un HTML corrompu. On extrait donc la chaine attendue
-            // et on retombe sur le contenu textuel brut (content) sinon.
-            translatedHtml = this.extractHtmlFromParsedResponse(response);
-        } else {
-            try {
-                translatedHtml = await getTextOfResponse(response);
-            } catch {
-                const jsonResponse = await getJsonOfResponse(response) as unknown;
-                translatedHtml = typeof jsonResponse === 'string' ? jsonResponse : String(jsonResponse);
+        const readout = await this.readResponseText(response);
+        const translatedHtml = this.sanitizeTranslatedHtml(readout.text);
+        if (!translatedHtml) {
+            // Diagnostic : « reponse vide » recouvre plusieurs causes distinctes (stream
+            // totalement vide, modele de raisonnement n'emettant que des parts `thought`,
+            // contenu supprime par la sanitization). Sans ce log l'echec est muet.
+            const rawPreview = readout.text.replace(/\s+/g, ' ').slice(0, 200);
+            console.warn(`[GeocacheDetailsTranslationController] ${kind}: reponse exploitable vide `
+                + `(parts=${readout.partCount}, thinking=${readout.sawThinking}, toolCalls=${readout.sawToolCalls}, raw="${rawPreview}")`);
+            if (readout.sawThinking && !readout.text.trim()) {
+                throw new Error('Traduction IA: le modele n a produit que du raisonnement, aucun texte '
+                    + '(reponse tronquee ou budget de tokens insuffisant ?)');
             }
         }
-
-        return this.sanitizeTranslatedHtml(translatedHtml);
+        return translatedHtml;
     }
 
     private async translateHintsAndWaypoints(
@@ -616,12 +617,18 @@ export class GeocacheDetailsTranslationController {
      * (<think>...</think>) et les fences markdown que certains modeles locaux ajoutent.
      */
     private async parseJsonResponse(response: any): Promise<any> {
-        try {
-            return await getJsonOfResponse(response);
-        } catch {
-            const raw = await getTextOfResponse(response);
-            return this.extractJson(raw);
+        if (isLanguageModelParsedResponse(response) && response.parsed && typeof response.parsed === 'object') {
+            return response.parsed;
         }
+        const readout = await this.readResponseText(response);
+        if (!readout.text.trim()) {
+            console.warn(`[GeocacheDetailsTranslationController] meta: reponse JSON vide `
+                + `(parts=${readout.partCount}, thinking=${readout.sawThinking}, toolCalls=${readout.sawToolCalls})`);
+            if (readout.sawThinking) {
+                throw new Error('Traduction IA: le modele n a produit que du raisonnement, aucun JSON');
+            }
+        }
+        return this.extractJson(readout.text);
     }
 
     private extractJson(raw: string): any {
@@ -662,6 +669,47 @@ export class GeocacheDetailsTranslationController {
             throw new Error('Aucun modele IA n est configure pour la traduction');
         }
         return languageModel;
+    }
+
+    /**
+     * Lit le contenu textuel d'une reponse LLM en instrumentant le stream. `getTextOfResponse`
+     * ignore silencieusement les parts de raisonnement (`thought`) et d'outils, ce qui rend une
+     * « reponse vide » indiagnostiquable : on remonte donc aussi ce qui a ete vu (thinking,
+     * tool calls, nombre de parts) pour distinguer un stream vide d'un raisonnement sans sortie.
+     * `partCount` vaut -1 quand la reponse n'est pas un stream (texte direct ou parsed).
+     */
+    private async readResponseText(response: any): Promise<{ text: string; sawThinking: boolean; sawToolCalls: boolean; partCount: number }> {
+        if (isLanguageModelParsedResponse(response)) {
+            return { text: this.extractHtmlFromParsedResponse(response), sawThinking: false, sawToolCalls: false, partCount: -1 };
+        }
+        if (isLanguageModelTextResponse(response)) {
+            return { text: response.text ?? '', sawThinking: false, sawToolCalls: false, partCount: -1 };
+        }
+        if (isLanguageModelStreamResponse(response)) {
+            return this.readStreamParts(response.stream);
+        }
+        if (response && typeof response === 'object' && Array.isArray(response.parts)) {
+            return this.readStreamParts(response.parts);
+        }
+        throw new Error('Traduction IA: type de reponse non supporte');
+    }
+
+    private async readStreamParts(parts: AsyncIterable<unknown> | Iterable<unknown>): Promise<{ text: string; sawThinking: boolean; sawToolCalls: boolean; partCount: number }> {
+        let text = '';
+        let sawThinking = false;
+        let sawToolCalls = false;
+        let partCount = 0;
+        for await (const part of parts) {
+            partCount++;
+            if (isTextResponsePart(part) && part.content) {
+                text += part.content;
+            } else if (isThinkingResponsePart(part)) {
+                sawThinking = true;
+            } else if (isToolCallResponsePart(part)) {
+                sawToolCalls = true;
+            }
+        }
+        return { text, sawThinking, sawToolCalls, partCount };
     }
 
     /**
