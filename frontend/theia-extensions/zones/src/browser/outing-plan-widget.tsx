@@ -285,8 +285,8 @@ export class OutingPlanWidget extends ReactWidget {
             <div className='geoapp-outing-plan-empty'>
                 <p>Aucune sortie analysée pour l'instant.</p>
                 <p>
-                    Lance « Analyser la sortie » depuis une sélection de géocaches ou depuis
-                    le log-editor : le rapport s'affichera ici en plus du chat.
+                    Lance « Analyser la sortie » depuis une sélection de géocaches :
+                    le rapport s'affichera ici en plus du chat.
                 </p>
             </div>
         );
