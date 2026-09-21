@@ -223,6 +223,12 @@ class GeocacheImporter:
         g.hints_decoded = Geocache.decode_hint_rot13(g.hints) if g.hints else None
         g.attributes = getattr(s, 'attributes', None)
         g.favorites_count = getattr(s, 'favorites_count', None)
+        # Les compteurs par type de log de la page donnent le dénominateur du
+        # pourcentage de favoris. Absents de la page : on garde la dernière
+        # valeur connue plutôt que d'effacer un pourcentage juste.
+        if getattr(s, 'finds_count', None) is not None:
+            g.finds_count = s.finds_count
+        g.update_favorites_percent()
         if getattr(s, 'logs_count', None) is not None:
             g.logs_count = s.logs_count
             # Voir Geocache.logs_total_available : le total annoncé par la page
@@ -326,6 +332,8 @@ class GeocacheImporter:
         g.attributes = getattr(s, 'attributes', None)
         g.favorites_count = getattr(s, 'favorites_count', None)
         g.logs_count = getattr(s, 'logs_count', None)
+        g.finds_count = getattr(s, 'finds_count', None)
+        g.update_favorites_percent()
         g.images = getattr(s, 'images', None)
         g.found = getattr(s, 'found', None)
         g.found_date = getattr(s, 'found_date', None)

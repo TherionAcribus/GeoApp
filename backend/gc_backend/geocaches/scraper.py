@@ -74,6 +74,10 @@ class ScrapedGeocache:
     attributes: list[dict] | None = None
     favorites_count: int | None = None
     logs_count: int | None = None
+    # Nombre de trouvailles annoncé par la page (compteurs par type de log), par
+    # opposition à `logs_count` qui additionne tous les types. C'est le
+    # dénominateur du pourcentage de favoris affiché par Geocaching.com.
+    finds_count: int | None = None
     images: list[dict] | None = None
     waypoints: list[dict] = field(default_factory=list)
     checkers: list[dict] = field(default_factory=list)
@@ -83,6 +87,52 @@ class ScrapedGeocache:
 
 
 GC_CODE_RE = re.compile(r'^GC[0-9A-Z]+$')
+
+# Identifiant de type de log porté par l'icône des compteurs (`/images/logtypes/<id>.png`).
+LOGTYPE_ID_RE = re.compile(r'/logtypes/(\d+)\.', re.I)
+
+#: Types de log qui comptent comme une trouvaille, tels que Geocaching.com les
+#: additionne pour le pourcentage de favoris : « Found it », « Attended » (events)
+#: et « Webcam Photo Taken ». Les DNF, notes et logs de maintenance en sont exclus.
+FIND_LOGTYPE_IDS = (2, 10, 11)
+
+#: Type de log « Archive » : sa présence dans les compteurs marque la cache archivée.
+ARCHIVE_LOGTYPE_ID = 5
+
+
+def parse_log_type_counts(span) -> list[tuple[int | None, str, str, int | None]]:
+    """
+    Décompose le bloc de compteurs par type de log d'une page de cache.
+
+    Le bloc (`ctl00_ContentBody_lblFindCounts`) aligne une icône par type de log
+    suivie du nombre correspondant : ``<img src=".../logtypes/2.png">165&nbsp;``.
+    Le nombre est donc à chercher dans les nœuds qui suivent l'icône, jusqu'à la
+    suivante.
+
+    Retourne un tuple ``(logtype_id, alt, title, count)`` par icône ; `logtype_id`
+    et `count` valent ``None`` quand la page ne les livre pas sous la forme attendue.
+    """
+    entries: list[tuple[int | None, str, str, int | None]] = []
+    for img in span.find_all('img'):
+        match = LOGTYPE_ID_RE.search(img.get('src') or '')
+        logtype_id = int(match.group(1)) if match else None
+        alt = (img.get('alt') or '').strip()
+        title = (img.get('title') or '').strip()
+        count: int | None = None
+        for sibling in img.next_siblings:
+            if getattr(sibling, 'name', None) == 'img':
+                break
+            text = sibling if isinstance(sibling, str) else sibling.get_text()
+            digits = ''.join(ch for ch in str(text) if ch.isdigit())
+            if digits:
+                try:
+                    count = int(digits)
+                except ValueError:  # pragma: no cover - digits est non vide
+                    count = None
+                break
+        entries.append((logtype_id, alt, title, count))
+    return entries
+
 
 # GUID Geocaching : identifiant stable d'un joueur, seul moyen d'adresser le
 # centre de messages. Le pseudo, lui, ne sert qu'à l'URL de profil publique.
@@ -568,19 +618,21 @@ class GeocachingScraper:
                         except Exception:
                             continue
 
-        # Statut (archived / disabled / active)
+        # Compteurs par type de log : ils donnent à la fois le statut archivé et
+        # le nombre de trouvailles, sans avoir à parcourir le logbook.
         # 1. Archived : présence du log "Archive" (logtype 5) dans le compteur de logs
         status = 'active'
+        finds_count: Optional[int] = None
         find_counts_span = soup.find('span', {'id': 'ctl00_ContentBody_lblFindCounts'})
         if find_counts_span:
-            for img in find_counts_span.find_all('img'):
-                src = img.get('src', '')
-                alt = (img.get('alt') or '').strip().lower()
-                title = (img.get('title') or '').strip().lower()
-                if '/logtypes/5.' in src or alt == 'archive' or title == 'archive':
+            for logtype_id, alt, title, count in parse_log_type_counts(find_counts_span):
+                if logtype_id in FIND_LOGTYPE_IDS and count is not None:
+                    finds_count = (finds_count or 0) + count
+                if (logtype_id == ARCHIVE_LOGTYPE_ID
+                        or alt.lower() == 'archive' or title.lower() == 'archive'):
                     status = 'archived'
                     logger.debug(f"[{code}] Cache is archived (archive log found)")
-                    break
+            logger.debug(f"[{code}] Finds count from log counters: {finds_count}")
         # 2. Disabled : icône SVG avec "disabled" dans le href (seulement si pas archivée)
         if status == 'active':
             cache_image_div = soup.find('div', {'id': 'uxCacheImage'})
@@ -844,6 +896,7 @@ class GeocachingScraper:
             attributes=attributes or None,
             favorites_count=favorites_count,
             logs_count=logs_count,
+            finds_count=finds_count,
             images=images or None,
             waypoints=waypoints,
             checkers=checkers,
@@ -860,7 +913,7 @@ class GeocachingScraper:
             "[scraper] %s: %d image(s) au total — listing=%d, owner=%d, spoiler=%d",
             code, len(images or []), len(listing_imgs), len(owner_imgs), len(spoiler_imgs),
         )
-        logger.info(f"Successfully scraped {code}: name='{name}', owner='{owner_text}', type='{type_text}', size='{size_text}', difficulty={difficulty}, terrain={terrain}, coords={latitude},{longitude}, favs={favorites_count}, logs={logs_count}")
+        logger.info(f"Successfully scraped {code}: name='{name}', owner='{owner_text}', type='{type_text}', size='{size_text}', difficulty={difficulty}, terrain={terrain}, coords={latitude},{longitude}, favs={favorites_count}, logs={logs_count}, finds={finds_count}")
         return scraped
 
 

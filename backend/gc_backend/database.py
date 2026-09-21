@@ -64,6 +64,10 @@ def init_db(app):
                 'favorites_count': 'INTEGER',
                 'logs_count': 'INTEGER',
                 'logs_total_available': 'INTEGER',
+                # NULL sur les lignes existantes : le pourcentage de favoris reste
+                # inconnu jusqu'au prochain scrape, plutôt que faux.
+                'finds_count': 'INTEGER',
+                'favorites_percent': 'REAL',
                 'images': 'JSON',
                 'found': 'BOOLEAN',
                 'found_date': 'DATETIME',

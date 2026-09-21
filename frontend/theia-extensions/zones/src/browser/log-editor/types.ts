@@ -77,7 +77,14 @@ export interface GeocacheListItem {
     name: string;
     owner?: string;
     favorites_count?: number;
+    /** Logs stockés en local, pas le total du site : inutilisable comme dénominateur. */
     logs_count?: number;
+    /** Total de logs annoncé par Geocaching.com, tous types confondus. */
+    logs_total_available?: number;
+    /** Trouvailles annoncées par Geocaching.com (Found + Attended + Webcam). */
+    finds_count?: number;
+    /** Pourcentage de favoris calculé côté backend sur `finds_count`. */
+    favorites_percent?: number;
     placed_at?: string | null;
     cache_type?: string;
     /** La géocache est déjà marquée comme trouvée : un second "Found it" est refusé par Geocaching.com. */

@@ -66,6 +66,15 @@ class Geocache(db.Model):
     # en local. C'est lui qui permet de savoir qu'il reste des logs à récupérer.
     # NULL = inconnu (cache jamais scrapée, ou logbook muet sur le total).
     logs_total_available = db.Column(db.Integer)
+    # Nombre de trouvailles (« Found it » + « Attended » + « Webcam ») annoncé par
+    # les compteurs de la page de la cache. Contrairement à `logs_count`, il ne
+    # dépend pas de ce qui a été rafraîchi en local : c'est le dénominateur du
+    # pourcentage de favoris. NULL = inconnu (cache jamais re-scrapée).
+    finds_count = db.Column(db.Integer)
+    # Pourcentage de favoris (0-100), dérivé de `favorites_count / finds_count` et
+    # stocké pour pouvoir trier et filtrer en SQL. Toujours écrit via
+    # `update_favorites_percent()`, jamais à la main. NULL = non calculable.
+    favorites_percent = db.Column(db.Float)
     images = db.Column(db.JSON)  # liste d'objets {url: str}
     found = db.Column(db.Boolean)
     found_date = db.Column(db.DateTime)
@@ -105,6 +114,25 @@ class Geocache(db.Model):
         lazy=True,
     )
 
+    def update_favorites_percent(self) -> float | None:
+        """
+        Recalcule `favorites_percent` depuis `favorites_count` et `finds_count`.
+
+        À appeler après toute écriture de l'un des deux. Le dénominateur est le
+        nombre de trouvailles, comme sur Geocaching.com : `logs_count` compte les
+        logs stockés en local et donnerait des pourcentages supérieurs à 100 %
+        tant que le logbook n'est pas entièrement chargé.
+
+        Retourne la valeur écrite, ``None`` quand elle n'est pas calculable.
+        """
+        favorites = self.favorites_count
+        finds = self.finds_count
+        if not isinstance(favorites, int) or not isinstance(finds, int) or finds <= 0:
+            self.favorites_percent = None
+        else:
+            self.favorites_percent = round(favorites * 100.0 / finds, 1)
+        return self.favorites_percent
+
     def to_list_item(self) -> dict:
         return {
             'id': self.id,
@@ -135,6 +163,8 @@ class Geocache(db.Model):
             'favorites_count': self.favorites_count,
             'logs_count': self.logs_count,
             'logs_total_available': self.logs_total_available,
+            'finds_count': self.finds_count,
+            'favorites_percent': self.favorites_percent,
             'found': self.found,
             'found_date': self.found_date.isoformat() if self.found_date else None,
             'solved': self.solved,
@@ -185,6 +215,8 @@ class Geocache(db.Model):
             'favorites_count': self.favorites_count,
             'logs_count': self.logs_count,
             'logs_total_available': self.logs_total_available,
+            'finds_count': self.finds_count,
+            'favorites_percent': self.favorites_percent,
             'images': self.images,
             'found': self.found,
             'found_date': self.found_date.isoformat() if self.found_date else None,
@@ -461,6 +493,12 @@ class GeocacheChecker(db.Model):
             'name': self.name,
             'url': self.url,
         }
+
+
+#: Types de log normalisés qui comptent comme une trouvaille, miroir de
+#: `scraper.FIND_LOGTYPE_IDS` côté base. Sert à recalculer `finds_count` quand
+#: le logbook est intégralement stocké en local.
+FIND_LOG_TYPES = ('Found', 'Attended', 'Webcam')
 
 
 class GeocacheLog(db.Model):

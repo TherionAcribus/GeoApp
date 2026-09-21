@@ -181,3 +181,72 @@ def test_scraper_rejects_a_malformed_guid():
     ))
 
     assert scraped.owner_guid is None
+
+
+def _find_counts_html(counters: str) -> str:
+    return f"""
+        <html>
+            <body>
+                <h1>7-POLYGLOTTE</h1>
+                <ul class="ul__cache-details unstyled">
+                    <li class="li__gccode">GCB0ABT</li>
+                </ul>
+                <span id="ctl00_ContentBody_lblFindCounts">
+                    <p class="NoBottomSpacing">{counters}</p>
+                </span>
+            </body>
+        </html>
+    """
+
+
+def test_scraper_reads_finds_count_from_log_type_counters():
+    scraped = _scrape_html(_find_counts_html(
+        '<img src="/images/logtypes/2.png" alt="Found it" title="Found it">165&nbsp;&nbsp;'
+        '<img src="/images/logtypes/3.png" alt="Didn\'t find it" title="Didn\'t find it">4&nbsp;&nbsp;'
+        '<img src="/images/logtypes/4.png" alt="Write note" title="Write note">2&nbsp;'
+    ))
+
+    assert scraped.finds_count == 165
+
+
+def test_scraper_sums_find_like_log_types():
+    """Un event compte ses « Attended », une webcam ses photos : même dénominateur."""
+    scraped = _scrape_html(_find_counts_html(
+        '<img src="/images/logtypes/10.png" alt="Attended" title="Attended">37&nbsp;&nbsp;'
+        '<img src="/images/logtypes/11.png" alt="Webcam Photo Taken" title="Webcam Photo Taken">3&nbsp;&nbsp;'
+        '<img src="/images/logtypes/9.png" alt="Will Attend" title="Will Attend">12&nbsp;'
+    ))
+
+    assert scraped.finds_count == 40
+
+
+def test_scraper_handles_thousands_separator_in_counters():
+    scraped = _scrape_html(_find_counts_html(
+        '<img src="/images/logtypes/2.png" alt="Found it" title="Found it">1,234&nbsp;'
+    ))
+
+    assert scraped.finds_count == 1234
+
+
+def test_scraper_leaves_finds_count_unknown_without_counters():
+    """Pas de compteurs sur la page : `None`, pas 0, pour ne pas figer un 0 % faux."""
+    scraped = _scrape_html(
+        """
+        <html><body>
+            <h1>7-POLYGLOTTE</h1>
+            <ul class="ul__cache-details unstyled"><li class="li__gccode">GCB0ABT</li></ul>
+        </body></html>
+        """
+    )
+
+    assert scraped.finds_count is None
+
+
+def test_scraper_still_detects_archived_cache_while_counting_finds():
+    scraped = _scrape_html(_find_counts_html(
+        '<img src="/images/logtypes/2.png" alt="Found it" title="Found it">12&nbsp;&nbsp;'
+        '<img src="/images/logtypes/5.png" alt="Archive" title="Archive">1&nbsp;'
+    ))
+
+    assert scraped.status == 'archived'
+    assert scraped.finds_count == 12

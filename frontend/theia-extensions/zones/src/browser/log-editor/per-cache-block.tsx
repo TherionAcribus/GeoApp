@@ -38,7 +38,7 @@ export interface PerCacheBlockProps {
     remainingFavoritePoints: number;
     /** Vrai tant que le stock de PF est en cours de synchronisation avec Geocaching.com. */
     favoritePointsPending?: boolean;
-    formatFavoritePercent: (favoritesCount: number | undefined, logsCount: number | undefined) => string;
+    formatFavoritePercent: (gc: GeocacheListItem) => string;
     getLogTypeLabel: (value: LogTypeValue) => string;
 
     // Images
@@ -181,7 +181,7 @@ export const PerCacheBlock: React.FC<PerCacheBlockProps> = (props) => {
                 <div className='geoapp-log-cache-block__favorites'>
                     PF: {typeof gc.favorites_count === 'number' ? gc.favorites_count : '—'}
                     {'  '}(
-                    {formatFavoritePercent(gc.favorites_count, gc.logs_count)}
+                    {formatFavoritePercent(gc)}
                     )
                 </div>
                 <div className='geoapp-log-cache-block__fields'>

@@ -99,6 +99,59 @@ forme. `_read_total_available()` accepte plusieurs graphies et renvoie `None`
 sinon ; tout le code en aval sait s'en passer — l'interface masque simplement la
 proposition « charger la suite ».
 
+## Combien de trouvailles, et le pourcentage de favoris
+
+`logs_total_available` compte **tous les types de log** : trouvailles, DNF, notes,
+maintenances. Ce n'est donc pas le dénominateur du pourcentage de favoris, que
+Geocaching.com calcule sur les seules trouvailles. Et `logs_count` l'est encore
+moins : divisé par lui, GC8QY1G affichait *200 %* (102 PF pour 51 logs stockés).
+
+D'où une troisième colonne :
+
+```py
+Geocache.finds_count        # trouvailles annoncées par GC.com, NULL = inconnu
+Geocache.favorites_percent  # favorites_count / finds_count, NULL = non calculable
+```
+
+`favorites_percent` est **dérivé mais stocké** : l'App doit pouvoir trier et
+filtrer dessus en SQL. Il ne s'écrit jamais à la main, toujours via
+`Geocache.update_favorites_percent()`, à appeler après toute écriture de
+`favorites_count` ou `finds_count`.
+
+Trois sources pour `finds_count`, par ordre de fraîcheur :
+
+1. le logbook, quand il est **intégralement stocké** en local
+   (`logs_count >= logs_total_available`) : on compte les `FIND_LOG_TYPES` en base.
+   Logbook partiel : on n'y touche pas, ça sous-estimerait le total ;
+2. les compteurs par type de log de la page de la cache, lus au scraping — c'est
+   la source de départ, disponible **sans parcourir le logbook** ;
+3. l'envoi d'un log depuis l'App, qui incrémente le compteur comme le site vient
+   de le faire.
+
+Les compteurs de la page vivent dans `span#ctl00_ContentBody_lblFindCounts`, une
+icône par type de log suivie de son nombre :
+
+```html
+<img src="/images/logtypes/2.png" alt="Found it">165&nbsp;&nbsp;<img src="/images/logtypes/3.png" ...>4
+```
+
+`scraper.parse_log_type_counts()` en tire `(logtype_id, alt, title, count)` par
+icône. Deux lectures de ce même bloc :
+
+- `FIND_LOGTYPE_IDS = (2, 10, 11)` — « Found it », « Attended » (events) et
+  « Webcam Photo Taken » — additionnés dans `finds_count` ;
+- `ARCHIVE_LOGTYPE_ID = 5`, qui marque la cache archivée (c'était déjà le seul
+  usage du bloc avant cette colonne).
+
+`FIND_LOG_TYPES = ('Found', 'Attended', 'Webcam')` dans `models.py` est le miroir
+côté base de `FIND_LOGTYPE_IDS`, après normalisation par
+`GeocacheLog.normalize_log_type()`.
+
+Côté frontend, `favoritePercent()` (`log-editor/geocache-loader.ts`) prend le
+`favorites_percent` du backend ; sur une cache jamais re-scrapée, il retombe sur
+`logs_total_available` et signale la valeur comme approximative (préfixe `~`).
+Il ne divise **jamais** par `logs_count`.
+
 ## API
 
 `POST /api/geocaches/<id>/logs/refresh`
@@ -332,8 +385,12 @@ et non annulable. C'est le front qui enchaîne, log par log.
 - **Ne jamais déclencher un scraping automatique sur une cache qui a déjà des
   logs.** C'est toute la différence entre un premier chargement et un
   rafraîchissement permanent.
-- `logs_count` (stock local après refresh) et `logs_total_available` (total
-  GC.com) répondent à deux questions différentes. Ne pas les confondre.
+- `logs_count` (stock local après refresh), `logs_total_available` (total GC.com,
+  tous types) et `finds_count` (trouvailles GC.com) répondent à trois questions
+  différentes. Ne pas les confondre — le pourcentage de favoris se divise par le
+  troisième, et par lui seul.
+- Vider les logs d'une cache remet `logs_count` à 0 mais **laisse `finds_count`
+  en place** : ce compteur décrit le site, pas le stock local.
 - `get_logs_with_friends()` n'a pas disparu : c'est un raccourci vers
   `fetch_logbook()` pour les appelants qui se moquent du total (déduction des
   trouvailles d'amis, `geocaching_friend_finds.py`).
@@ -356,6 +413,17 @@ et non annulable. C'est le front qui enchaîne, log par log.
 - `fetch_all` qui enchaîne les pages puis s'arrête sur le plafond ;
 - route de rafraîchissement : total exposé et stocké, page suivante qui n'écrase
   pas la précédente, page au-delà de la fin qui n'est pas une erreur.
+
+`backend/tests/test_geocache_favorites_percent.py` : pourcentage calculé sur les
+trouvailles et non sur les logs stockés (le cas GC8QY1G), valeur laissée inconnue
+sans `finds_count` ou sur une cache que personne n'a trouvée, effacée quand elle
+redevient incalculable, `finds_count` dérivé d'un logbook complet et laissé
+intact sur un logbook partiel, champs exposés par `/api/geocaches/batch`.
+
+`backend/tests/test_geocaching_scraper.py` : lecture des compteurs par type de
+log — trouvailles simples, somme « Attended »/« Webcam », séparateur de milliers,
+absence de compteurs qui laisse `None` plutôt que 0, détection d'archivage
+préservée.
 
 `backend/tests/test_geocache_logs_analysis.py` : analyse absente qui est un état
 normal, périmètre relu tel qu'il a été écrit, relance qui remplace au lieu
@@ -380,7 +448,12 @@ frontière de mot, demande de Markdown.
 - `backend/gc_backend/services/geocaching_logs.py`
 - `backend/gc_backend/blueprints/logs.py`
 - `backend/gc_backend/geocaches/models.py` (`Geocache.logs_total_available`,
-  `GeocacheLogsAnalysis`)
+  `Geocache.finds_count`, `Geocache.favorites_percent`,
+  `Geocache.update_favorites_percent()`, `FIND_LOG_TYPES`, `GeocacheLogsAnalysis`)
+- `backend/gc_backend/geocaches/scraper.py` (`parse_log_type_counts()`,
+  `FIND_LOGTYPE_IDS`)
+- `frontend/theia-extensions/zones/src/browser/log-editor/geocache-loader.ts`
+  (`favoritePercent()`, `formatFavoritePercent()`)
 - `backend/migrations/versions/add_geocache_logs_analysis_table.py`
 - `backend/migrations/versions/add_geocache_log_image_table.py`
 - `backend/gc_backend/geocaches/image_storage.py` (racine `log_images`, paramètre `root`)

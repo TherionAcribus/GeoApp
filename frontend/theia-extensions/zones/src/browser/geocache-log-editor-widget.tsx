@@ -1492,8 +1492,8 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         this.update();
     }
 
-    protected formatFavoritePercent(favoritesCount: number | undefined, logsCount: number | undefined): string {
-        return formatFavoritePercentPure(favoritesCount, logsCount);
+    protected formatFavoritePercent(gc: GeocacheListItem): string {
+        return formatFavoritePercentPure(gc);
     }
 
     protected toggleFavoriteForGeocacheId(geocacheId: number, nextValue: boolean): void {
@@ -2665,7 +2665,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 onFavoriteChange={value => this.toggleFavoriteForGeocacheId(gc.id, value)}
                 remainingFavoritePoints={this.getRemainingFavoritePoints()}
                 favoritePointsPending={this.isFavoritePointsStockPending()}
-                formatFavoritePercent={(fav, logs) => this.formatFavoritePercent(fav, logs)}
+                formatFavoritePercent={gc => this.formatFavoritePercent(gc)}
                 getLogTypeLabel={value => this.getLogTypeLabel(value)}
                 images={this.getImagesForGeocacheId(gc.id)}
                 isImagesDisabled={this.isLoading || this.isSubmitting || this.isGeocacheSubmittedOk(gc.id)}

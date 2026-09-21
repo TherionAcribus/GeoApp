@@ -722,6 +722,8 @@ def get_geocaches_for_zone(zone_id: int):
                 'has_notes': bool((gc.gc_personal_note or '').strip()) or bool(gc.notes),
                 'notes_count': len(gc.notes or []),
                 'logs_count': gc.logs_count or 0,
+                'finds_count': gc.finds_count,
+                'favorites_percent': gc.favorites_percent,
                 'latitude': gc.latitude,
                 'longitude': gc.longitude,
                 'coordinates_raw': gc.coordinates_raw,
@@ -1659,6 +1661,11 @@ def refresh_geocache(geocache_id: int):
         geocache.hints = getattr(s, 'hints', None)
         geocache.attributes = getattr(s, 'attributes', None)
         geocache.favorites_count = getattr(s, 'favorites_count', None)
+        # Compteurs par type de log : dénominateur du pourcentage de favoris. Une
+        # page muette sur le sujet laisse la dernière valeur connue en place.
+        if getattr(s, 'finds_count', None) is not None:
+            geocache.finds_count = s.finds_count
+        geocache.update_favorites_percent()
         geocache.logs_count = getattr(s, 'logs_count', None)
         # La page de la cache annonce le total réel : c'est la meilleure valeur
         # connue tant qu'un rafraîchissement des logs n'a pas lu `totalRows`.
@@ -1838,6 +1845,8 @@ def copy_geocache(geocache_id: int):
             attributes=source_geocache.attributes,
             favorites_count=source_geocache.favorites_count,
             logs_count=source_geocache.logs_count,
+            finds_count=source_geocache.finds_count,
+            favorites_percent=source_geocache.favorites_percent,
             images=source_geocache.images,
             found=source_geocache.found,
             found_date=source_geocache.found_date,

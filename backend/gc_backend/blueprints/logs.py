@@ -17,7 +17,7 @@ from pathlib import Path
 from flask import Blueprint, Response, jsonify, request, send_file, stream_with_context
 
 from ..database import db
-from ..geocaches.models import Geocache, GeocacheLog, GeocacheLogImage, GeocacheLogsAnalysis
+from ..geocaches.models import FIND_LOG_TYPES, Geocache, GeocacheLog, GeocacheLogImage, GeocacheLogsAnalysis
 from ..geocaches.archive_service import ArchiveService
 from ..geocaches.image_storage import (
     download_image,
@@ -442,6 +442,13 @@ def _store_submitted_log(geocache, *, log_reference_code, text, visited_date,
         db.session.add(log)
         if isinstance(geocache.logs_count, int):
             geocache.logs_count += 1
+        # Le site vient d'enregistrer la même trouvaille (et le même point
+        # favori) : on suit ses compteurs plutôt que d'attendre un re-scrape.
+        if log.log_type in FIND_LOG_TYPES and isinstance(geocache.finds_count, int):
+            geocache.finds_count += 1
+        if log.is_favorite and isinstance(geocache.favorites_count, int):
+            geocache.favorites_count += 1
+        geocache.update_favorites_percent()
         db.session.commit()
         return log
     except Exception as e:  # pragma: no cover - insertion best-effort
@@ -803,6 +810,17 @@ def _refresh_geocache_logs_core(geocache, count: int, page: int, fetch_all: bool
 
     # Mettre à jour le compteur de logs
     geocache.logs_count = GeocacheLog.query.filter_by(geocache_id=geocache_id).count()
+
+    # Logbook intégralement stocké : les « Found » locaux valent ceux du site, et
+    # ce comptage est plus frais que les compteurs lus au dernier scrape de la
+    # page. Logbook partiel : on n'y touche pas, ça sous-estimerait le total.
+    if (geocache.logs_total_available is not None
+            and geocache.logs_count >= geocache.logs_total_available):
+        geocache.finds_count = GeocacheLog.query.filter(
+            GeocacheLog.geocache_id == geocache_id,
+            GeocacheLog.log_type.in_(FIND_LOG_TYPES),
+        ).count()
+        geocache.update_favorites_percent()
 
     db.session.commit()
 

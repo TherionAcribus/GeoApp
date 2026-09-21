@@ -24,6 +24,9 @@ export function toGeocacheListItem(data: unknown): GeocacheListItem | undefined 
         owner: (raw.owner ?? '').toString() || undefined,
         favorites_count: typeof raw.favorites_count === 'number' ? raw.favorites_count : undefined,
         logs_count: typeof raw.logs_count === 'number' ? raw.logs_count : undefined,
+        logs_total_available: typeof raw.logs_total_available === 'number' ? raw.logs_total_available : undefined,
+        finds_count: typeof raw.finds_count === 'number' ? raw.finds_count : undefined,
+        favorites_percent: typeof raw.favorites_percent === 'number' ? raw.favorites_percent : undefined,
         placed_at: (raw.placed_at ?? null) as string | null,
         cache_type: (raw.type ?? '').toString(),
         already_found: raw.found === true,
@@ -153,17 +156,52 @@ export async function refreshUserStats(
     return result;
 }
 
+/** Pourcentage de favoris d'une géocache, avec son degré de certitude. */
+export interface FavoritePercent {
+    /** Valeur en pourcents, `undefined` quand aucun dénominateur n'est connu. */
+    value?: number;
+    /**
+     * Calculé sur le total de logs tous types confondus faute de compteur de
+     * trouvailles : la valeur est alors sous-estimée et s'affiche avec un `~`.
+     */
+    approximate: boolean;
+}
+
+/**
+ * Pourcentage de favoris d'une géocache.
+ *
+ * Le dénominateur est le nombre de trouvailles annoncé par Geocaching.com, jamais
+ * `logs_count` qui ne compte que les logs rafraîchis en local et produirait des
+ * valeurs supérieures à 100 %. Une cache pas encore re-scrapée n'a pas de
+ * `finds_count` : on retombe sur le total de logs du site, qui donne un ordre de
+ * grandeur sous-estimé plutôt que rien.
+ */
+export function favoritePercent(gc: {
+    favorites_count?: number;
+    favorites_percent?: number;
+    finds_count?: number;
+    logs_total_available?: number;
+}): FavoritePercent {
+    if (typeof gc.favorites_percent === 'number' && isFinite(gc.favorites_percent)) {
+        return { value: gc.favorites_percent, approximate: false };
+    }
+    if (typeof gc.favorites_count !== 'number') {
+        return { approximate: false };
+    }
+    if (typeof gc.finds_count === 'number' && gc.finds_count > 0) {
+        return { value: (gc.favorites_count / gc.finds_count) * 100, approximate: false };
+    }
+    if (typeof gc.logs_total_available === 'number' && gc.logs_total_available > 0) {
+        return { value: (gc.favorites_count / gc.logs_total_available) * 100, approximate: true };
+    }
+    return { approximate: false };
+}
+
 /** Formate un pourcentage de points favoris. */
-export function formatFavoritePercent(
-    favoritesCount: number | undefined,
-    logsCount: number | undefined
-): string {
-    if (typeof favoritesCount !== 'number' || typeof logsCount !== 'number' || logsCount <= 0) {
+export function formatFavoritePercent(gc: Parameters<typeof favoritePercent>[0]): string {
+    const { value, approximate } = favoritePercent(gc);
+    if (typeof value !== 'number' || !isFinite(value)) {
         return '—';
     }
-    const pct = (favoritesCount / logsCount) * 100;
-    if (!isFinite(pct)) {
-        return '—';
-    }
-    return `${pct.toFixed(1)}%`;
+    return `${approximate ? '~' : ''}${value.toFixed(1)}%`;
 }

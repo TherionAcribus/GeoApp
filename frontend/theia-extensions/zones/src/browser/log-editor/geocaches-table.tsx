@@ -17,6 +17,7 @@ import {
 import { GeocacheIcon } from '../geocache-icon';
 import { LogTypeIcon } from '../geocache-log-type-icons';
 import { DnfBadge } from './dnf-badge';
+import { favoritePercent, formatFavoritePercent } from './geocache-loader';
 import {
     alreadyFoundTooltip,
     getLogTypeLabel,
@@ -140,14 +141,6 @@ const GeocacheLogEditorGeocachesTableImpl: React.FC<{
     };
 
     const columns = React.useMemo<ColumnDef<GeocacheListItem>[]>(() => {
-        const getPct = (favoritesCount: number | undefined, logsCount: number | undefined): number | undefined => {
-            if (typeof favoritesCount !== 'number' || typeof logsCount !== 'number' || logsCount <= 0) {
-                return undefined;
-            }
-            const pct = (favoritesCount / logsCount) * 100;
-            return isFinite(pct) ? pct : undefined;
-        };
-
         const getPlacedTs = (iso: string | null | undefined): number | undefined => {
             if (!iso) {
                 return undefined;
@@ -372,10 +365,19 @@ const GeocacheLogEditorGeocachesTableImpl: React.FC<{
             {
                 id: 'pf_pct',
                 header: '%PF',
-                accessorFn: row => getPct(row.favorites_count, row.logs_count),
+                accessorFn: row => favoritePercent(row).value,
                 cell: ({ row }) => {
-                    const pct = getPct(row.original.favorites_count, row.original.logs_count);
-                    return <span className='geoapp-log-table__cell--muted'>{typeof pct === 'number' ? `${pct.toFixed(1)}%` : '—'}</span>;
+                    const { approximate } = favoritePercent(row.original);
+                    return (
+                        <span
+                            className='geoapp-log-table__cell--muted'
+                            title={approximate
+                                ? 'Estimation : le nombre de trouvailles est inconnu, le total de logs sert de dénominateur. Rafraîchir la cache donnera la valeur exacte.'
+                                : ''}
+                        >
+                            {formatFavoritePercent(row.original)}
+                        </span>
+                    );
                 },
             },
             {
