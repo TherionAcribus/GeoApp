@@ -24,6 +24,8 @@ export interface ZoneGeocachesViewProps {
     tableVisibleColumnIds: GeocachesTableColumnId[];
     loading: boolean;
     isImporting: boolean;
+    /** Vrai pendant l'import d'une géocache par code GC : le bouton « Importer » passe en attente. */
+    isAddingGeocache: boolean;
     showImportDialog: boolean;
     showBookmarkListDialog: boolean;
     showPocketQueryDialog: boolean;
@@ -167,6 +169,7 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => {
                             name='gc_code'
                             placeholder='Code GC (ex: GC12345)'
                             title="Entrez un code GC pour l'importer dans cette zone"
+                            disabled={props.isAddingGeocache}
                             style={{
                                 width: 180,
                                 padding: '4px 8px',
@@ -179,15 +182,23 @@ export const ZoneGeocachesView: React.FC<ZoneGeocachesViewProps> = props => {
                         <button
                             type='submit'
                             className='theia-button'
-                            title="Importer cette géocache dans la zone"
+                            disabled={props.isAddingGeocache}
+                            aria-busy={props.isAddingGeocache}
+                            title={props.isAddingGeocache ? 'Import en cours…' : 'Importer cette géocache dans la zone'}
                             style={{
                                 borderRadius: 0,
                                 margin: 0,
                                 border: 'none',
                                 borderLeft: '1px solid var(--theia-input-border)',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 6,
                             }}
                         >
-                            Importer
+                            {props.isAddingGeocache && (
+                                <span className='geoapp-gc-action-btn__spinner' aria-hidden='true' />
+                            )}
+                            {props.isAddingGeocache ? 'Import en cours…' : 'Importer'}
                         </button>
                     </div>
                 </form>

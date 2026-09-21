@@ -140,6 +140,19 @@
     justify-content: flex-end;
 }
 
+/* --------------------------------------------------------------- Pied */
+
+/* Répétition des actions d'envoi en bas du formulaire : c'est là que le
+   cheminement de l'utilisateur se termine. */
+.geoapp-log-footer {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    padding-top: 12px;
+    border-top: 1px solid var(--theia-panel-border);
+}
+
 /* --------------------------------------------------------- Ligne compteurs */
 
 .geoapp-log-counters {

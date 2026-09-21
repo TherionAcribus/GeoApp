@@ -126,6 +126,7 @@ import {
 import { LexiconEntry, resolveLexicon } from './geocaching-lexicon';
 import { PerCacheBlock } from './log-editor/per-cache-block';
 import { LogEditorHeader } from './log-editor/log-editor-header';
+import { SubmitActions } from './log-editor/submit-actions';
 import { PatternsSection } from './log-editor/patterns-section';
 import { GlobalLogEditor } from './log-editor/global-log-editor';
 import {
@@ -2764,6 +2765,9 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         const canPrev = !this.isLoadingHistory && this.logHistory.length > 0 && (this.logHistoryCursor < this.logHistory.length - 1);
         const canNext = !this.isLoadingHistory && this.logHistory.length > 0 && (this.logHistoryCursor > 0);
         const canSubmit = this.getGeocachesToSubmit().length > 0;
+        const submitTitle = this.geocaches.length > 0 && !canSubmit
+            ? 'Aucune géocache à envoyer (déjà envoyées ou en "Ne pas loguer")'
+            : 'Envoyer le(s) log(s) sur Geocaching.com via le backend';
         const pendingAlreadyFound = this.getPendingAlreadyFoundGeocaches();
         const globalPreviewKey = 'global-preview';
         const globalOverlayKey = 'global-overlay';
@@ -2795,9 +2799,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                     isSubmitting={this.isSubmitting}
                     submitProgress={this.submitProgress}
                     canSubmit={canSubmit}
-                    submitTitle={this.geocaches.length > 0 && !canSubmit
-                        ? 'Aucune géocache à envoyer (déjà envoyées ou en "Ne pas loguer")'
-                        : 'Envoyer le(s) log(s) sur Geocaching.com via le backend'}
+                    submitTitle={submitTitle}
                     stopRequested={this.stopRequested}
                     onNavigateHistory={delta => this.navigateHistory(delta)}
                     onSubmit={() => { void this.submitLogsToGeocaching(); }}
@@ -3120,6 +3122,23 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                             );
                         }}
                     />
+                )}
+
+                {/* L'envoi est l'aboutissement du formulaire : le bouton est répété
+                    en bas pour éviter de remonter tout en haut de la page. */}
+                {!this.isLoading && this.geocaches.length > 0 && (
+                    <div className='geoapp-log-footer'>
+                        <SubmitActions
+                            isLoading={this.isLoading}
+                            isSubmitting={this.isSubmitting}
+                            submitProgress={this.submitProgress}
+                            canSubmit={canSubmit}
+                            submitTitle={submitTitle}
+                            stopRequested={this.stopRequested}
+                            onSubmit={() => { void this.submitLogsToGeocaching(); }}
+                            onRequestStop={() => this.requestSubmitStop()}
+                        />
+                    </div>
                 )}
             </div>
         );

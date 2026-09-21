@@ -6,6 +6,7 @@
  */
 
 import * as React from '@theia/core/shared/react';
+import { SubmitActions } from './submit-actions';
 
 export interface LogEditorHeaderProps {
     geocacheCount: number;
@@ -58,26 +59,16 @@ export const LogEditorHeader: React.FC<LogEditorHeaderProps> = ({
             >
                 ➡️
             </button>
-            <button
-                className='theia-button primary geoapp-log-button'
-                onClick={onSubmit}
-                disabled={isLoading || isSubmitting || !canSubmit}
-                title={submitTitle}
-            >
-                {isSubmitting && submitProgress
-                    ? `⏳ Envoi ${submitProgress.current}/${submitProgress.total}…`
-                    : '✅ Envoyer sur GC'}
-            </button>
-            {isSubmitting && (
-                <button
-                    className='theia-button secondary geoapp-log-button--stop'
-                    onClick={onRequestStop}
-                    disabled={stopRequested}
-                    title="Termine la géocache en cours (photos + log) puis interrompt le lot. Les géocaches restantes sont conservées dans le brouillon."
-                >
-                    {stopRequested ? '⏹️ Arrêt demandé…' : '⏹️ Stop après la cache en cours'}
-                </button>
-            )}
+            <SubmitActions
+                isLoading={isLoading}
+                isSubmitting={isSubmitting}
+                submitProgress={submitProgress}
+                canSubmit={canSubmit}
+                submitTitle={submitTitle}
+                stopRequested={stopRequested}
+                onSubmit={onSubmit}
+                onRequestStop={onRequestStop}
+            />
             <button
                 className='theia-button secondary geoapp-log-button'
                 onClick={onCopyFieldNotes}

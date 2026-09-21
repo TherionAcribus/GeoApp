@@ -91,6 +91,8 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     protected showBookmarkListDialog = false;
     protected showPocketQueryDialog = false;
     protected isImporting = false;
+    /** Vrai pendant l'import d'une géocache par son code GC (formulaire du bandeau). */
+    protected isAddingGeocache = false;
     /** Vrai pendant la génération puis le téléchargement d'un export GPX. */
     protected exportingGpx = false;
     protected analyzingWithAi = false;
@@ -416,19 +418,27 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     protected async handleAddGeocacheSubmit(event: React.FormEvent<HTMLFormElement>): Promise<void> {
         event.preventDefault();
 
-        try {
-            const form = event.currentTarget;
-            const formData = new FormData(form);
-            const gcCode = this.extractGcCode(formData.get('gc_code') as string);
-            if (!gcCode) {
-                this.messages.warn('Code GC invalide');
-                return;
-            }
-            if (!this.zoneId) {
-                this.messages.warn('Zone active manquante');
-                return;
-            }
+        // Entrée dans le champ soumet le formulaire même si le bouton est
+        // désactivé : le garde-fou contre le double import doit vivre ici.
+        if (this.isAddingGeocache) {
+            return;
+        }
 
+        const form = event.currentTarget;
+        const formData = new FormData(form);
+        const gcCode = this.extractGcCode(formData.get('gc_code') as string);
+        if (!gcCode) {
+            this.messages.warn('Code GC invalide');
+            return;
+        }
+        if (!this.zoneId) {
+            this.messages.warn('Zone active manquante');
+            return;
+        }
+
+        this.isAddingGeocache = true;
+        this.update();
+        try {
             const imported = await this.geocachesService.addToZone<AddGeocacheResponse>(this.zoneId, gcCode);
             form.reset();
             await this.refreshZoneData();
@@ -451,6 +461,9 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         } catch (error) {
             console.error('Import geocache error', error);
             this.messages.error(getErrorMessage(error, 'Erreur lors de l import de la geocache'));
+        } finally {
+            this.isAddingGeocache = false;
+            this.update();
         }
     }
 
@@ -2310,6 +2323,7 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
                 tableVisibleColumnIds={this.tableVisibleColumnIds}
                 loading={this.loading}
                 isImporting={this.isImporting}
+                isAddingGeocache={this.isAddingGeocache}
                 exportingGpx={this.exportingGpx}
                 showImportDialog={this.showImportDialog}
                 showBookmarkListDialog={this.showBookmarkListDialog}
