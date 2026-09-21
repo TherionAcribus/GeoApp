@@ -21,7 +21,7 @@ import { GeocacheFilterBar } from './geocache-filter-bar';
 import {
     AdvancedFilterClause,
     TokenFilter,
-    STANDARD_GEOCACHE_FIELD_DEFINITIONS,
+    ZONE_GEOCACHE_FIELD_DEFINITIONS,
     parseSearchQuery,
     matchesSearchPattern,
     normalizeSearchText,
@@ -262,7 +262,13 @@ function matchesClause(geocache: Geocache, clause: TokenFilter): boolean {
     const field: string = clause.field;
     const op = clause.operator;
 
-    const rawValue = (geocache as any)[field] as any;
+    // `favorites_percent` peut être absent du payload (cache pas encore
+    // re-scrapée) alors que la colonne affiche une estimation : le filtre lit la
+    // même valeur que l'affichage, sans quoi `@pf>50` masquerait des lignes que
+    // le tableau montre à « ~59.6% ».
+    const rawValue = field === 'favorites_percent'
+        ? favoritePercent(geocache).value
+        : (geocache as any)[field] as any;
 
     if (field === 'found') {
         const actual = Boolean(rawValue);
@@ -278,7 +284,8 @@ function matchesClause(geocache: Geocache, clause: TokenFilter): boolean {
         return true;
     }
 
-    if (field === 'difficulty' || field === 'terrain' || field === 'favorites_count') {
+    if (field === 'difficulty' || field === 'terrain' || field === 'favorites_count'
+        || field === 'favorites_percent' || field === 'finds_count') {
         const actual = typeof rawValue === 'number' ? rawValue : parseFloat(String(rawValue ?? ''));
         if (!Number.isFinite(actual)) {
             return false;
@@ -1444,7 +1451,7 @@ ${origin}`}
                         advancedClauses={advancedClauses}
                         onSearchQueryChange={setGlobalFilter}
                         onAdvancedClausesChange={setAdvancedClauses}
-                        fieldDefinitions={STANDARD_GEOCACHE_FIELD_DEFINITIONS}
+                        fieldDefinitions={ZONE_GEOCACHE_FIELD_DEFINITIONS}
                         enumOptionsByField={enumOptionsByField}
                         resultCount={filteredData.length}
                     />

@@ -1466,7 +1466,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
 
     // Cache du tableau hiddenDomains : le getter de preference recree un tableau a chaque appel,
     // ce qui casserait la comparaison shallow de React.memo. On ne recalcule que si le texte change.
-    private cachedHiddenDomainsText = ' ';
+    private cachedHiddenDomainsText = '\u0000';
     private cachedHiddenDomains: string[] = [];
     private getStableHiddenDomains(): string[] {
         const text = this.preferencesController.getImagesGalleryHiddenDomainsText();

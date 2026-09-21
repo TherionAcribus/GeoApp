@@ -173,8 +173,29 @@ comme pour toute colonne retirée.
 Une cellule « Trouvailles » vide affiche `—`, jamais `0` : une cache pas encore
 re-scrapée n'a pas de compteur, et `0` la ferait passer pour jamais trouvée.
 
-Les filtres (`geocache-filter-shared.ts`) ne connaissent pas encore ces deux
-champs : `@fav` filtre le nombre de favoris, pas le pourcentage.
+### Les filtres
+
+Les deux champs sont filtrables, en token (`@pf>50`) comme dans le constructeur
+de filtres avancés. Trois tokens par champ :
+
+| Champ | Tokens | Exemple |
+|---|---|---|
+| `favorites_count` | `@fav`, `@favorites` | `@fav>20` |
+| `favorites_percent` | `@pf`, `@fav_percent` | `@pf10<>25` |
+| `finds_count` | `@finds`, `@trouvailles` | `@finds>=100` |
+
+`@fav` et `@pf` restent deux tokens distincts : l'un compte les points favoris,
+l'autre en donne la part.
+
+Ils vivent dans `ZONE_GEOCACHE_FIELD_DEFINITIONS` et non dans
+`STANDARD_GEOCACHE_FIELD_DEFINITIONS`, que partage la boîte « importer autour ».
+Les résultats de recherche Geocaching.com ne portent ni pourcentage ni compteur
+de trouvailles : proposer ces filtres là-bas donnerait un filtre qui ne trouve
+jamais rien.
+
+`matchesClause()` lit `favorites_percent` via `favoritePercent()`, pas via le
+champ brut — sinon `@pf>50` masquerait les lignes que le tableau affiche à
+« ~59.6% », faute de `favorites_percent` en base.
 
 ## API
 
@@ -459,6 +480,13 @@ d'un `FileName` qui tenterait une traversée, rafraîchissement idempotent et sa
 téléchargement, stockage rejouable, échec isolé d'une photo, garde
 anti-traversée sur `/content`, cascade et purge disque.
 
+`frontend/theia-extensions/zones/src/browser/tests/geocache-filter-fields.test.ts` :
+champs de la zone qui étendent les champs standards sans les réordonner, `@fav`
+et `@pf` qui restent distincts, alias des trouvailles, expressions numériques
+(`>`, `<>`, valeur nue) et texte refusé là où un nombre est attendu.
+`matchesClause()` n'est pas couvert : il vit dans `geocaches-table.tsx`, que
+ts-node ne peut pas charger (React, CSS).
+
 `frontend/theia-extensions/zones/src/browser/tests/favorite-percent.test.ts` :
 valeur du backend reprise telle quelle, repli sur `finds_count` puis estimation
 `~` sur `logs_total_available`, `logs_count` qui n'entre jamais dans le calcul,
@@ -485,7 +513,9 @@ frontière de mot, demande de Markdown.
 - `frontend/theia-extensions/zones/src/browser/favorite-percent.ts`
   (`favoritePercent()`, `formatFavoritePercent()`, `favoritePercentHint()`)
 - `frontend/theia-extensions/zones/src/browser/geocaches-table.tsx`
-  (colonnes `favorites_percent` et `finds_count`)
+  (colonnes `favorites_percent` et `finds_count`, `matchesClause()`)
+- `frontend/theia-extensions/zones/src/browser/geocache-filter-shared.ts`
+  (`ZONE_GEOCACHE_FIELD_DEFINITIONS`, alias `@pf` / `@finds`)
 - `backend/migrations/versions/add_geocache_logs_analysis_table.py`
 - `backend/migrations/versions/add_geocache_log_image_table.py`
 - `backend/gc_backend/geocaches/image_storage.py` (racine `log_images`, paramètre `root`)
