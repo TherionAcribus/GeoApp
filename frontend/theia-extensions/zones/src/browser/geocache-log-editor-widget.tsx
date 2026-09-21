@@ -5,10 +5,9 @@ import { MessageService } from '@theia/core';
 import { ConfirmDialog, Message, StorageService } from '@theia/core/lib/browser';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import { LanguageModelRegistry, LanguageModelService } from '@theia/ai-core';
-import { GeoAppLogWriterAgentId } from './geoapp-log-writer-agent';
+import { GeoAppLogImproverAgentId } from './geoapp-log-improver-agent';
 import { GeoAppLogTranslatorAgentId } from './geoapp-log-translator-agent';
-import { AiGenerationPanel } from './log-editor/ai-generation-panel';
-import { BatchTranslationBar } from './log-editor/batch-translation-bar';
+import { BatchAiBar } from './log-editor/batch-ai-bar';
 import { DraftBanner } from './log-editor/draft-banner';
 import { GeocacheLogEditorGeocachesTable } from './log-editor/geocaches-table';
 import { OutingPlanService } from './outing-plan-service';
@@ -79,6 +78,7 @@ import {
     todayIsoDate,
 } from './log-editor/helpers';
 import {
+    AiRewriteJob,
     GeocacheListItem,
     ImageUploadStatus,
     ImagesUploadResult,
@@ -113,8 +113,15 @@ import {
     refreshUserStats,
     toGeocacheListItem as toGeocacheListItemPure,
 } from './log-editor/geocache-loader';
-import { generateLogWithAi as generateLogWithAiPure, NoLanguageModelError } from './log-editor/ai-log-generator';
+import { NoLanguageModelError } from './log-editor/log-ai-common';
 import { LogTranslationMode, translateLogWithAi as translateLogWithAiPure } from './log-editor/log-translator';
+import {
+    DEFAULT_LOG_IMPROVEMENT_MODE,
+    LogImprovementMode,
+    getLogImprovementMode,
+    improveLogWithAi as improveLogWithAiPure,
+    isLogImprovementMode,
+} from './log-editor/log-improver';
 import { LexiconEntry, resolveLexicon } from './geocaching-lexicon';
 import { PerCacheBlock } from './log-editor/per-cache-block';
 import { LogEditorHeader } from './log-editor/log-editor-header';
@@ -200,19 +207,32 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     protected logLanguage = '';
     /** Même invariant que la date : la présence de l'entrée en stockage vaut « épinglé ». */
     protected isLogLanguagePinned = false;
-    /** Texte d'avant traduction, pour le bouton « revenir à l'original ». */
-    protected preTranslationGlobalText: string | undefined;
-    protected preTranslationPerCacheText: Record<number, string> = {};
-    /** Clé de la zone en cours de traduction ('global' ou l'id de la cache), pour ne pas lancer deux appels. */
-    protected translatingKey: 'global' | number | undefined;
-    /** Progression de « traduire tous les blocs ». */
-    protected batchTranslationProgress: { current: number; total: number } | undefined;
-    protected batchTranslationStopRequested = false;
     /**
-     * Menu de choix de la langue (moitié droite du split button). Un seul suffit : la barre du
-     * texte commun et celle du mode par cache ne sont jamais affichées en même temps.
+     * Texte d'avant le dernier passage de l'IA, pour le bouton « revenir à l'original ».
+     *
+     * Une seule mémoire pour la traduction et la correction : les deux réécrivent la même zone,
+     * et deux boutons « original » côte à côte demanderaient à l'utilisateur de se souvenir de
+     * l'ordre dans lequel il a cliqué.
+     */
+    protected preAiGlobalText: string | undefined;
+    protected preAiPerCacheText: Record<number, string> = {};
+    /** Clé de la zone en cours de réécriture ('global' ou l'id de la cache), pour ne pas lancer deux appels. */
+    protected aiBusyKey: 'global' | number | undefined;
+    /** Ce que l'appel en cours fait au texte : décide lequel des deux boutons montre le spinner. */
+    protected aiBusyAction: 'translate' | 'improve' | undefined;
+    /** Progression du lot en cours (« traduire » ou « corriger tous les blocs »). */
+    protected batchAiProgress: { current: number; total: number } | undefined;
+    protected batchAiStopRequested = false;
+    /**
+     * Menus des deux split buttons (moitié droite). Un de chaque suffit : la barre du texte
+     * commun et celle du mode par cache ne sont jamais affichées en même temps.
      */
     protected isLanguageMenuOpen = false;
+    protected isImprovementMenuOpen = false;
+
+    protected readonly improvementModeStorageKey = 'geoApp.logs.improvementMode.v1';
+    /** Ce que « Corriger » fait au texte. Mémorisé d'une session à l'autre, comme la langue épinglée. */
+    protected improvementMode: LogImprovementMode = DEFAULT_LOG_IMPROVEMENT_MODE;
 
     protected useSameTextForAll = true;
     protected globalText = '';
@@ -315,12 +335,6 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     protected openMarkdownPreviews = new Set<string>();
 
     protected historyDropdownOpen = false;
-
-    protected aiKeywords = '';
-    protected aiCustomInstructions = '';
-    protected aiExampleLogs = '';
-    protected isGeneratingAi = false;
-    protected showAiPanel = false;
 
     constructor(
         @inject(MessageService) protected readonly messages: MessageService,
@@ -780,6 +794,48 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         void this.persistPinnedLogLanguage();
     }
 
+    // --- Mode de correction : mémorisé sans épinglage, il n'a pas de « valeur du jour » ---
+
+    /**
+     * Restaure le mode choisi à la session précédente.
+     *
+     * Contrairement à la langue, le mode n'a pas de préférence par défaut à laquelle revenir :
+     * c'est une habitude de travail, pas un réglage. Une valeur inconnue (mode retiré depuis)
+     * retombe silencieusement sur le défaut.
+     */
+    protected async loadImprovementMode(): Promise<void> {
+        try {
+            const stored = await this.storageService.getData<{ mode?: string } | undefined>(this.improvementModeStorageKey, undefined);
+            if (stored && typeof stored === 'object' && isLogImprovementMode(stored.mode)) {
+                this.improvementMode = stored.mode;
+                this.update();
+            }
+        } catch (e) {
+            console.error('[GeocacheLogEditorWidget] loadImprovementMode error', e);
+        }
+    }
+
+    protected setImprovementMode(mode: LogImprovementMode): void {
+        this.improvementMode = mode;
+        this.isImprovementMenuOpen = false;
+        this.update();
+        void this.storageService.setData(this.improvementModeStorageKey, { mode })
+            .catch(e => console.error('[GeocacheLogEditorWidget] setImprovementMode error', e));
+    }
+
+    protected toggleImprovementMenu(): void {
+        this.isImprovementMenuOpen = !this.isImprovementMenuOpen;
+        this.update();
+    }
+
+    protected closeImprovementMenu(): void {
+        if (!this.isImprovementMenuOpen) {
+            return;
+        }
+        this.isImprovementMenuOpen = false;
+        this.update();
+    }
+
     protected escapeHtml(value: string): string {
         return escapeHtmlPure(value);
     }
@@ -952,6 +1008,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         try {
             await this.loadPinnedLogDate();
             await this.loadPinnedLogLanguage();
+            await this.loadImprovementMode();
             await this.loadGeocaches();
             await this.restoreDraftIfAny();
         } finally {
@@ -2162,63 +2219,6 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         }
     }
 
-    protected async generateLogWithAi(): Promise<void> {
-        if (this.isGeneratingAi) {
-            return;
-        }
-
-        const keywords = (this.aiKeywords || '').trim();
-        if (!keywords) {
-            this.messages.warn('Veuillez entrer des mots-clés ou idées pour générer le log.');
-            return;
-        }
-
-        this.isGeneratingAi = true;
-        this.update();
-
-        try {
-            const generatedText = await generateLogWithAiPure(
-                this.languageModelRegistry,
-                this.languageModelService,
-                GeoAppLogWriterAgentId,
-                this.logType,
-                keywords,
-                this.geocaches,
-                (this.aiCustomInstructions || '').trim(),
-                (this.aiExampleLogs || '').trim(),
-                this.logLanguage,
-                this.getLexicon()
-            );
-
-            if (!generatedText) {
-                this.messages.warn('L\'IA n\'a pas généré de texte.');
-                return;
-            }
-
-            if (this.useSameTextForAll) {
-                this.globalText = generatedText;
-            } else {
-                const firstGeocacheId = this.geocaches[0]?.id;
-                if (firstGeocacheId !== undefined) {
-                    this.perCacheText = { ...this.perCacheText, [firstGeocacheId]: generatedText };
-                }
-            }
-
-            this.messages.info('Log généré par IA !');
-
-        } catch (error) {
-            if (error instanceof NoLanguageModelError) {
-                this.messages.error('Aucun modèle IA n\'est configuré (vérifie la configuration IA de Theia)');
-                return;
-            }
-            console.error('[GeocacheLogEditorWidget] generateLogWithAi error', error);
-            this.messages.error(`Erreur lors de la génération IA: ${error}`);
-        } finally {
-            this.isGeneratingAi = false;
-            this.update();
-        }
-    }
-
     /**
      * Lexique géocaching effectif, ou liste vide si l'utilisateur l'a désactivé.
      *
@@ -2238,7 +2238,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
 
     /** Vrai si rien ne s’oppose à une traduction : une langue est configurée et aucun appel n’est en cours. */
     protected canTranslate(): boolean {
-        return this.logLanguage.trim() !== '' && this.translatingKey === undefined && !this.isSubmitting;
+        return this.logLanguage.trim() !== '' && this.aiBusyKey === undefined && !this.isSubmitting;
     }
 
     /** Explication affichée en infobulle quand « Traduire » est désactivé. */
@@ -2246,14 +2246,27 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         if (this.logLanguage.trim() === '') {
             return 'Aucune langue configurée : Préférences → Logs → Traduction.';
         }
-        if (this.translatingKey !== undefined) {
-            return 'Une traduction est déjà en cours.';
+        if (this.aiBusyKey !== undefined) {
+            return 'Un appel à l’IA est déjà en cours.';
+        }
+        return undefined;
+    }
+
+    /** Vrai si rien ne s’oppose à une correction. Contrairement à la traduction, aucune langue n’est requise. */
+    protected canImprove(): boolean {
+        return this.aiBusyKey === undefined && !this.isSubmitting;
+    }
+
+    /** Explication affichée en infobulle quand « Corriger » est désactivé. */
+    protected getImproveDisabledReason(): string | undefined {
+        if (this.aiBusyKey !== undefined) {
+            return 'Un appel à l’IA est déjà en cours.';
         }
         return undefined;
     }
 
     /**
-     * Cœur partagé par la traduction du texte commun et celle d’un bloc par cache.
+     * Cœur de la traduction : un appel, quel que soit le point d’entrée.
      * Retourne le texte assemblé, ou `undefined` si rien n’est exploitable.
      */
     protected async runTranslation(sourceText: string): Promise<string | undefined> {
@@ -2287,15 +2300,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             return undefined;
         }
 
-        if (result.lostPatterns.length > 0) {
-            // Un pattern traduit ne sera plus résolu : le signaler sans bloquer — le texte est
-            // sous les yeux de l’utilisateur, qui peut revenir à l’original.
-            const lead = result.lostPatterns.length > 1
-                ? 'les patterns suivants ont disparu'
-                : 'le pattern suivant a disparu';
-            const names = result.lostPatterns.map(name => `@${name}`).join(', ');
-            this.messages.warn(`Traduction appliquée, mais ${lead} : ${names}. Vérifiez le texte avant d’envoyer.`);
-        }
+        this.warnAboutLostPatterns(result.lostPatterns);
 
         if (result.lexiconDeviations.length > 0) {
             // Une consigne de lexique ignorée n'est pas une erreur de syntaxe : le texte reste
@@ -2310,108 +2315,185 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         return result.text;
     }
 
-    /** Traduit le texte commun. Mémorise l’original pour permettre le retour en arrière. */
-    protected async translateGlobalText(): Promise<void> {
-        if (!this.canTranslate()) {
+    /** Cœur de la correction. Ne dépend d’aucune langue : le mode courant suffit. */
+    protected async runImprovement(sourceText: string): Promise<string | undefined> {
+        const result = await improveLogWithAiPure(
+            this.languageModelRegistry,
+            this.languageModelService,
+            GeoAppLogImproverAgentId,
+            sourceText,
+            this.improvementMode,
+            this.getPatternsIndex().names,
+            this.getLexicon()
+        );
+
+        if (!result) {
+            this.messages.warn('L’IA n’a renvoyé aucun texte.');
+            return undefined;
+        }
+
+        this.warnAboutLostPatterns(result.lostPatterns);
+        return result.text;
+    }
+
+    /**
+     * Un pattern réécrit ne sera plus résolu : le signaler sans bloquer — le texte est sous les
+     * yeux de l’utilisateur, qui peut revenir à l’original.
+     */
+    protected warnAboutLostPatterns(lostPatterns: string[]): void {
+        if (lostPatterns.length === 0) {
+            return;
+        }
+        const lead = lostPatterns.length > 1
+            ? 'les patterns suivants ont disparu'
+            : 'le pattern suivant a disparu';
+        const names = lostPatterns.map(name => `@${name}`).join(', ');
+        this.messages.warn(`Texte appliqué, mais ${lead} : ${names}. Vérifiez le texte avant d’envoyer.`);
+    }
+
+    /** Description de la tâche « traduire », partagée par ses trois points d’entrée. */
+    protected translationJob(): AiRewriteJob {
+        return {
+            action: 'translate',
+            canRun: () => this.canTranslate(),
+            verb: 'traduire',
+            run: sourceText => this.runTranslation(sourceText),
+            successMessage: `Log traduit en ${this.logLanguage}.`,
+            lengthSubject: 'La traduction',
+            reportError: error => this.reportAiError(error, 'la traduction', 'Traduction de logs'),
+            batch: {
+                title: 'Traduire tous les blocs',
+                ok: 'Traduire',
+                confirm: count => `${count} géocache(s) seront traduites en ${this.logLanguage}, `
+                    + 'soit autant d’appels au modèle IA. Continuer ?',
+                done: count => `${count} bloc(s) traduit(s) en ${this.logLanguage}`,
+            },
+        };
+    }
+
+    /** Description de la tâche « corriger », partagée par ses trois points d’entrée. */
+    protected improvementJob(): AiRewriteJob {
+        const mode = getLogImprovementMode(this.improvementMode);
+        return {
+            action: 'improve',
+            canRun: () => this.canImprove(),
+            verb: 'corriger',
+            run: sourceText => this.runImprovement(sourceText),
+            successMessage: mode.doneMessage,
+            lengthSubject: 'Le texte corrigé',
+            reportError: error => this.reportAiError(error, 'la correction', 'Correction de logs'),
+            batch: {
+                title: mode.label,
+                ok: 'Corriger',
+                confirm: count => `${count} géocache(s) seront traitées (${mode.label.toLowerCase()}), `
+                    + 'soit autant d’appels au modèle IA. Continuer ?',
+                done: count => `${count} bloc(s) ${mode.doneParticiple}`,
+            },
+        };
+    }
+
+    /**
+     * Applique une tâche IA à une zone, texte commun ou bloc d’une géocache.
+     *
+     * Mémorise l’original pour le retour en arrière, avertit si la sortie dépasse la limite de
+     * Geocaching.com, et relâche le verrou quoi qu’il arrive.
+     */
+    protected async applyAiRewrite(target: 'global' | { geocacheId: number }, job: AiRewriteJob): Promise<void> {
+        if (!job.canRun()) {
             return;
         }
 
-        const sourceText = (this.globalText || '').trim();
+        const isGlobal = target === 'global';
+        const sourceText = (isGlobal ? this.globalText : this.perCacheText[target.geocacheId] || '').trim();
         if (!sourceText) {
-            this.messages.warn('Le texte du log est vide : rien à traduire.');
+            const subject = isGlobal ? 'Le texte du log est vide' : 'Le texte de cette géocache est vide';
+            this.messages.warn(`${subject} : rien à ${job.verb}.`);
             return;
         }
 
-        this.translatingKey = 'global';
+        this.aiBusyKey = isGlobal ? 'global' : target.geocacheId;
+        this.aiBusyAction = job.action;
         this.update();
 
         try {
-            const translated = await this.runTranslation(sourceText);
-            if (!translated) {
+            const rewritten = await job.run(sourceText);
+            if (!rewritten) {
                 return;
             }
-
-            this.preTranslationGlobalText = this.globalText;
-            this.globalText = translated;
-            this.warnIfTranslationIsTooLong('global');
-            this.messages.info(`Log traduit en ${this.logLanguage}.`);
+            this.storeAiRewrite(target, rewritten);
+            this.warnIfTooLong(target, job.lengthSubject);
+            this.messages.info(job.successMessage);
             this.scheduleDraftSave();
         } catch (error) {
-            this.reportTranslationError(error);
+            job.reportError(error);
         } finally {
-            this.translatingKey = undefined;
+            this.aiBusyKey = undefined;
+            this.aiBusyAction = undefined;
             this.update();
         }
     }
 
-    protected revertGlobalTranslation(): void {
-        if (this.preTranslationGlobalText === undefined) {
+    /** Remplace le texte d’une zone en gardant l’original sous la main pour le retour en arrière. */
+    protected storeAiRewrite(target: 'global' | { geocacheId: number }, text: string): void {
+        if (target === 'global') {
+            this.preAiGlobalText = this.globalText;
+            this.globalText = text;
             return;
         }
-        this.globalText = this.preTranslationGlobalText;
-        this.preTranslationGlobalText = undefined;
+        this.preAiPerCacheText = {
+            ...this.preAiPerCacheText,
+            [target.geocacheId]: this.perCacheText[target.geocacheId] ?? '',
+        };
+        this.perCacheText = { ...this.perCacheText, [target.geocacheId]: text };
+    }
+
+    protected translateGlobalText(): Promise<void> {
+        return this.applyAiRewrite('global', this.translationJob());
+    }
+
+    protected translatePerCacheText(geocacheId: number): Promise<void> {
+        return this.applyAiRewrite({ geocacheId }, this.translationJob());
+    }
+
+    protected improveGlobalText(): Promise<void> {
+        return this.applyAiRewrite('global', this.improvementJob());
+    }
+
+    protected improvePerCacheText(geocacheId: number): Promise<void> {
+        return this.applyAiRewrite({ geocacheId }, this.improvementJob());
+    }
+
+    protected revertGlobalAiEdit(): void {
+        if (this.preAiGlobalText === undefined) {
+            return;
+        }
+        this.globalText = this.preAiGlobalText;
+        this.preAiGlobalText = undefined;
         this.update();
         this.scheduleDraftSave();
     }
 
-    /** Traduit le texte d’une seule géocache, en mode « texte différent par cache ». */
-    protected async translatePerCacheText(geocacheId: number): Promise<void> {
-        if (!this.canTranslate()) {
-            return;
-        }
-
-        const sourceText = (this.perCacheText[geocacheId] || '').trim();
-        if (!sourceText) {
-            this.messages.warn('Le texte de cette géocache est vide : rien à traduire.');
-            return;
-        }
-
-        this.translatingKey = geocacheId;
-        this.update();
-
-        try {
-            const translated = await this.runTranslation(sourceText);
-            if (!translated) {
-                return;
-            }
-
-            this.preTranslationPerCacheText = {
-                ...this.preTranslationPerCacheText,
-                [geocacheId]: this.perCacheText[geocacheId] ?? '',
-            };
-            this.perCacheText = { ...this.perCacheText, [geocacheId]: translated };
-            this.warnIfTranslationIsTooLong({ geocacheId });
-            this.messages.info(`Log traduit en ${this.logLanguage}.`);
-            this.scheduleDraftSave();
-        } catch (error) {
-            this.reportTranslationError(error);
-        } finally {
-            this.translatingKey = undefined;
-            this.update();
-        }
-    }
-
-    protected revertPerCacheTranslation(geocacheId: number): void {
-        const original = this.preTranslationPerCacheText[geocacheId];
+    protected revertPerCacheAiEdit(geocacheId: number): void {
+        const original = this.preAiPerCacheText[geocacheId];
         if (original === undefined) {
             return;
         }
         this.perCacheText = { ...this.perCacheText, [geocacheId]: original };
-        const rest = { ...this.preTranslationPerCacheText };
+        const rest = { ...this.preAiPerCacheText };
         delete rest[geocacheId];
-        this.preTranslationPerCacheText = rest;
+        this.preAiPerCacheText = rest;
         this.update();
         this.scheduleDraftSave();
     }
 
     /**
-     * Traduit tous les blocs non vides, séquentiellement.
+     * Applique une tâche IA à tous les blocs non vides, séquentiellement.
      *
      * C’est le point de la fonctionnalité qui peut coûter cher (un appel LLM par cache) :
      * il est confirmé à l’avance et interruptible.
      */
-    protected async translateAllPerCacheTexts(): Promise<void> {
-        if (!this.canTranslate() || this.batchTranslationProgress !== undefined) {
+    protected async runBatchOverPerCacheTexts(job: AiRewriteJob): Promise<void> {
+        if (!job.canRun() || this.batchAiProgress !== undefined) {
             return;
         }
 
@@ -2426,15 +2508,14 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         });
 
         if (targets.length === 0) {
-            this.messages.warn('Aucun bloc à traduire : les zones de texte sont vides.');
+            this.messages.warn(`Aucun bloc à ${job.verb} : les zones de texte sont vides.`);
             return;
         }
 
         const confirmed = await new ConfirmDialog({
-            title: 'Traduire tous les blocs',
-            msg: `${targets.length} géocache(s) seront traduites en ${this.logLanguage}, `
-                + `soit autant d’appels au modèle IA. Continuer ?`,
-            ok: 'Traduire',
+            title: job.batch.title,
+            msg: job.batch.confirm(targets.length),
+            ok: job.batch.ok,
             cancel: 'Annuler',
         }).open();
 
@@ -2442,23 +2523,24 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             return;
         }
 
-        this.batchTranslationStopRequested = false;
-        this.batchTranslationProgress = { current: 0, total: targets.length };
+        this.batchAiStopRequested = false;
+        this.batchAiProgress = { current: 0, total: targets.length };
+        this.aiBusyAction = job.action;
         this.update();
 
-        let translatedCount = 0;
+        let rewrittenCount = 0;
         let failedCount = 0;
         let processedCount = 0;
 
         try {
             for (const gc of targets) {
-                if (this.batchTranslationStopRequested) {
+                if (this.batchAiStopRequested) {
                     break;
                 }
 
                 processedCount += 1;
-                this.batchTranslationProgress = { current: processedCount, total: targets.length };
-                this.translatingKey = gc.id;
+                this.batchAiProgress = { current: processedCount, total: targets.length };
+                this.aiBusyKey = gc.id;
                 this.update();
 
                 try {
@@ -2466,39 +2548,36 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                     if (!sourceText) {
                         continue;
                     }
-                    const translated = await this.runTranslation(sourceText);
-                    if (!translated) {
+                    const rewritten = await job.run(sourceText);
+                    if (!rewritten) {
                         failedCount += 1;
                         continue;
                     }
-                    this.preTranslationPerCacheText = {
-                        ...this.preTranslationPerCacheText,
-                        [gc.id]: this.perCacheText[gc.id] ?? '',
-                    };
-                    this.perCacheText = { ...this.perCacheText, [gc.id]: translated };
-                    translatedCount += 1;
+                    this.storeAiRewrite({ geocacheId: gc.id }, rewritten);
+                    rewrittenCount += 1;
                 } catch (error) {
                     // Une cache qui échoue ne doit pas emporter le lot — sauf l’absence de
                     // modèle, qui ferait échouer toutes les suivantes à l’identique.
                     if (error instanceof NoLanguageModelError) {
-                        this.reportTranslationError(error);
+                        job.reportError(error);
                         break;
                     }
-                    console.error('[GeocacheLogEditorWidget] translateAllPerCacheTexts error', error);
+                    console.error('[GeocacheLogEditorWidget] runBatchOverPerCacheTexts error', error);
                     failedCount += 1;
                 } finally {
-                    this.translatingKey = undefined;
+                    this.aiBusyKey = undefined;
                 }
             }
         } finally {
-            this.batchTranslationProgress = undefined;
-            this.batchTranslationStopRequested = false;
-            this.translatingKey = undefined;
+            this.batchAiProgress = undefined;
+            this.batchAiStopRequested = false;
+            this.aiBusyKey = undefined;
+            this.aiBusyAction = undefined;
             this.update();
             this.scheduleDraftSave();
         }
 
-        const parts = [`${translatedCount} bloc(s) traduit(s) en ${this.logLanguage}`];
+        const parts = [job.batch.done(rewrittenCount)];
         if (failedCount > 0) {
             parts.push(`${failedCount} en échec`);
         }
@@ -2508,31 +2587,44 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         this.messages.info(`${parts.join(', ')}.`);
     }
 
-    protected requestBatchTranslationStop(): void {
-        this.batchTranslationStopRequested = true;
+    protected translateAllPerCacheTexts(): Promise<void> {
+        return this.runBatchOverPerCacheTexts(this.translationJob());
+    }
+
+    protected improveAllPerCacheTexts(): Promise<void> {
+        return this.runBatchOverPerCacheTexts(this.improvementJob());
+    }
+
+    protected requestBatchAiStop(): void {
+        this.batchAiStopRequested = true;
         this.update();
     }
 
-    /** Avertit si la traduction a fait dépasser la limite de Geocaching.com. */
-    protected warnIfTranslationIsTooLong(target: 'global' | { geocacheId: number }): void {
+    /** Avertit si la réécriture a fait dépasser la limite de Geocaching.com. */
+    protected warnIfTooLong(target: 'global' | { geocacheId: number }, subject: string): void {
         const stats = this.getFinalLengthStats(target);
         if (stats.max > GC_LOG_MAX_LENGTH) {
             this.messages.warn(
-                `La traduction dépasse la limite de ${GC_LOG_MAX_LENGTH} caractères (${stats.max}) : `
+                `${subject} dépasse la limite de ${GC_LOG_MAX_LENGTH} caractères (${stats.max}) : `
                 + `Geocaching.com refusera l’envoi.`
             );
         }
     }
 
-    protected reportTranslationError(error: unknown): void {
+    /**
+     * Signale l’échec d’un appel IA. `what` se lit dans la phrase (« pour la traduction »),
+     * `agentLabel` est l’intitulé exact de la ligne des Réglages IA, pour que l’utilisateur
+     * sache laquelle des deux assigner.
+     */
+    protected reportAiError(error: unknown, what: string, agentLabel: string): void {
         if (error instanceof NoLanguageModelError) {
             this.messages.error(
-                'Aucun modèle IA n’est configuré pour la traduction (Réglages IA → « Traduction de logs »)'
+                `Aucun modèle IA n’est configuré pour ${what} (Réglages IA → « ${agentLabel} »)`
             );
             return;
         }
-        console.error('[GeocacheLogEditorWidget] translation error', error);
-        this.messages.error(`Erreur lors de la traduction: ${error}`);
+        console.error(`[GeocacheLogEditorWidget] ${what} error`, error);
+        this.messages.error(`Erreur lors de ${what} : ${error}`);
     }
 
     /**
@@ -2586,10 +2678,14 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 onApplyPrefix={(prefix, placeholder) => this.applyMarkdownPrefix(prefix, placeholder)}
                 onTranslate={() => { void this.translatePerCacheText(gc.id); }}
                 translateDisabledReason={this.getTranslateDisabledReason()}
-                isTranslating={this.translatingKey === gc.id}
+                isTranslating={this.aiBusyKey === gc.id && this.aiBusyAction === 'translate'}
                 logLanguage={this.logLanguage}
-                canRevertTranslation={this.preTranslationPerCacheText[gc.id] !== undefined}
-                onRevertTranslation={() => this.revertPerCacheTranslation(gc.id)}
+                onImprove={() => { void this.improvePerCacheText(gc.id); }}
+                improveDisabledReason={this.getImproveDisabledReason()}
+                isImproving={this.aiBusyKey === gc.id && this.aiBusyAction === 'improve'}
+                improvementModeLabel={getLogImprovementMode(this.improvementMode).label}
+                canRevertAiEdit={this.preAiPerCacheText[gc.id] !== undefined}
+                onRevertAiEdit={() => this.revertPerCacheAiEdit(gc.id)}
                 globalText={this.globalText}
                 globalTextExcerpt={this.getGlobalTextExcerpt()}
                 onApplyGlobalText={() => this.applyGlobalTextToGeocache(gc.id)}
@@ -2782,21 +2878,6 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                     }}
                 />
 
-                <AiGenerationPanel
-                    open={this.showAiPanel}
-                    onToggleOpen={open => { this.showAiPanel = open; }}
-                    keywords={this.aiKeywords}
-                    onKeywordsChange={value => { this.aiKeywords = value; this.update(); }}
-                    customInstructions={this.aiCustomInstructions}
-                    onCustomInstructionsChange={value => { this.aiCustomInstructions = value; this.update(); }}
-                    exampleLogs={this.aiExampleLogs}
-                    onExampleLogsChange={value => { this.aiExampleLogs = value; this.update(); }}
-                    isGenerating={this.isGeneratingAi}
-                    allSubmitted={allSubmitted}
-                    onGenerate={() => { void this.generateLogWithAi(); }}
-                    logLanguage={this.logLanguage}
-                />
-
                 {!this.isLoading && this.geocaches.length > 0 && (
                     <div className='geoapp-log-editor__table-wrapper'>
                         <GeocacheLogEditorGeocachesTable
@@ -2840,9 +2921,17 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                     onCloseLanguageMenu={() => this.closeLanguageMenu()}
                     onTranslate={() => { void this.translateGlobalText(); }}
                     translateDisabledReason={this.getTranslateDisabledReason()}
-                    isTranslating={this.translatingKey === 'global'}
-                    canRevertTranslation={this.preTranslationGlobalText !== undefined}
-                    onRevertTranslation={() => this.revertGlobalTranslation()}
+                    isTranslating={this.aiBusyKey === 'global' && this.aiBusyAction === 'translate'}
+                    improvementMode={this.improvementMode}
+                    isImprovementMenuOpen={this.isImprovementMenuOpen}
+                    onToggleImprovementMenu={() => this.toggleImprovementMenu()}
+                    onCloseImprovementMenu={() => this.closeImprovementMenu()}
+                    onSelectImprovementMode={mode => this.setImprovementMode(mode)}
+                    onImprove={() => { void this.improveGlobalText(); }}
+                    improveDisabledReason={this.getImproveDisabledReason()}
+                    isImproving={this.aiBusyKey === 'global' && this.aiBusyAction === 'improve'}
+                    canRevertAiEdit={this.preAiGlobalText !== undefined}
+                    onRevertAiEdit={() => this.revertGlobalAiEdit()}
                     logType={this.logType}
                     onLogTypeChange={value => this.setGlobalLogType(value)}
                     pendingAlreadyFoundCount={pendingAlreadyFound.length}
@@ -2935,21 +3024,29 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 )}
 
                 {!this.isLoading && this.geocaches.length > 0 && !this.useSameTextForAll && (
-                    <BatchTranslationBar
+                    <BatchAiBar
                         languages={this.getTranslationLanguages()}
                         logLanguage={this.logLanguage}
                         isLogLanguagePinned={this.isLogLanguagePinned}
-                        disabledReason={this.getTranslateDisabledReason()}
+                        translateDisabledReason={this.getTranslateDisabledReason()}
+                        improvementMode={this.improvementMode}
+                        improveDisabledReason={this.getImproveDisabledReason()}
                         disabled={this.isLoading || this.isSubmitting}
-                        progress={this.batchTranslationProgress}
-                        stopRequested={this.batchTranslationStopRequested}
+                        progress={this.batchAiProgress}
+                        runningAction={this.aiBusyAction}
+                        stopRequested={this.batchAiStopRequested}
                         isLanguageMenuOpen={this.isLanguageMenuOpen}
                         onToggleLanguageMenu={() => this.toggleLanguageMenu()}
                         onCloseLanguageMenu={() => this.closeLanguageMenu()}
                         onSelectLanguage={value => this.setLogLanguage(value)}
                         onToggleLogLanguagePin={() => this.toggleLogLanguagePin()}
                         onTranslateAll={() => { void this.translateAllPerCacheTexts(); }}
-                        onRequestStop={() => this.requestBatchTranslationStop()}
+                        isImprovementMenuOpen={this.isImprovementMenuOpen}
+                        onToggleImprovementMenu={() => this.toggleImprovementMenu()}
+                        onCloseImprovementMenu={() => this.closeImprovementMenu()}
+                        onSelectImprovementMode={mode => this.setImprovementMode(mode)}
+                        onImproveAll={() => { void this.improveAllPerCacheTexts(); }}
+                        onRequestStop={() => this.requestBatchAiStop()}
                     />
                 )}
 
@@ -2987,11 +3084,14 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                                         this.perCacheSubmitError[gc.id],
                                         this.isLoading,
                                         this.isSubmitting,
-                                        // Traduction : l'indicateur d'appel en cours et la
+                                        // Appels IA : l'indicateur d'appel en cours et la
                                         // disponibilité du retour à l'original sont par bloc.
-                                        this.translatingKey === gc.id,
+                                        // L'action compte autant que la clé : c'est elle qui
+                                        // décide lequel des deux boutons montre le spinner.
+                                        this.aiBusyKey === gc.id ? this.aiBusyAction : undefined,
                                         this.logLanguage,
-                                        this.preTranslationPerCacheText[gc.id],
+                                        this.improvementMode,
+                                        this.preAiPerCacheText[gc.id],
                                         this.customPatterns,
                                         this.userFindsCount,
                                         this.logDate,

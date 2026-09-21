@@ -7,12 +7,16 @@
  * date : épinglée, la langue est réappliquée aux logs suivants ; dé-épinglée, on revient à la
  * langue par défaut des préférences.
  *
+ * Les classes `geoapp-log-split*` sont partagées avec `improve-split-button.tsx` : les deux
+ * boutons voisinent dans la même barre d'outils et doivent être indiscernables à l'œil.
+ *
  * L'état d'ouverture est détenu par le widget (comme `historyDropdownOpen`) : un seul menu de
  * langue existe à la fois, le mode « texte identique » et le mode « par cache » n'affichant
  * jamais leur barre d'action en même temps.
  */
 
 import * as React from '@theia/core/shared/react';
+import { activateMenuItemOnKey, useDismissMenu } from './use-dismiss-menu';
 
 export const TranslateSplitButton: React.FC<{
     /** Texte de la moitié principale, hors langue (« Traduire », « Traduire tous les blocs »…). */
@@ -38,36 +42,7 @@ export const TranslateSplitButton: React.FC<{
     open, onToggleMenu, onCloseMenu, onSelectLanguage, onToggleLogLanguagePin, onTranslate,
 }) => {
     const containerRef = React.useRef<HTMLDivElement>(null);
-
-    React.useEffect(() => {
-        if (!open) {
-            return;
-        }
-        const handleClickOutside = (event: MouseEvent): void => {
-            if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-                onCloseMenu();
-            }
-        };
-        const handleKeyDown = (event: KeyboardEvent): void => {
-            if (event.key === 'Escape') {
-                onCloseMenu();
-            }
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        document.addEventListener('keydown', handleKeyDown);
-        return () => {
-            document.removeEventListener('mousedown', handleClickOutside);
-            document.removeEventListener('keydown', handleKeyDown);
-        };
-    }, [open, onCloseMenu]);
-
-    /** Active un item de menu au clavier (Enter / Espace), comme un clic. */
-    const handleMenuItemKeyDown = (event: React.KeyboardEvent, activate: () => void): void => {
-        if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            activate();
-        }
-    };
+    useDismissMenu(open, containerRef, onCloseMenu);
 
     // La langue épinglée peut avoir été retirée des préférences depuis : on l'affiche quand même
     // en tête du menu pour ne pas la perdre silencieusement.
@@ -78,10 +53,10 @@ export const TranslateSplitButton: React.FC<{
     const noLanguage = logLanguage === '';
 
     return (
-        <div ref={containerRef} className='geoapp-log-translate-split'>
-            <div className='geoapp-log-translate-split__group'>
+        <div ref={containerRef} className='geoapp-log-split'>
+            <div className='geoapp-log-split__group'>
                 <button
-                    className='geoapp-log-translate-split__main'
+                    className='geoapp-log-split__main'
                     onClick={onTranslate}
                     disabled={translateDisabled || isTranslating}
                     title={translateDisabledReason ?? `${label} en ${logLanguage} avec l'IA`}
@@ -90,7 +65,7 @@ export const TranslateSplitButton: React.FC<{
                         ? <i className='fa fa-spinner fa-spin' aria-hidden='true' />
                         : <i className='fa fa-globe' aria-hidden='true' />}
                     <span>{isTranslating ? 'Traduction…' : label}</span>
-                    <span className='geoapp-log-translate-split__badge'>
+                    <span className='geoapp-log-split__badge'>
                         {isLogLanguagePinned && (
                             <i className='fa fa-thumb-tack' aria-hidden='true' title='Langue épinglée' />
                         )}
@@ -98,7 +73,7 @@ export const TranslateSplitButton: React.FC<{
                     </span>
                 </button>
                 <button
-                    className='geoapp-log-translate-split__arrow'
+                    className='geoapp-log-split__arrow'
                     onClick={onToggleMenu}
                     aria-haspopup='menu'
                     aria-expanded={open}
@@ -110,9 +85,9 @@ export const TranslateSplitButton: React.FC<{
             </div>
 
             {open && (
-                <div role='menu' aria-label='Langue de traduction' className='geoapp-log-translate-menu'>
+                <div role='menu' aria-label='Langue de traduction' className='geoapp-log-split-menu'>
                     {options.length === 0 ? (
-                        <div className='geoapp-log-translate-menu__empty'>
+                        <div className='geoapp-log-split-menu__empty'>
                             Aucune langue configurée.
                             <br />
                             Préférences → Logs → Traduction.
@@ -126,10 +101,10 @@ export const TranslateSplitButton: React.FC<{
                                 aria-checked={isSelected}
                                 tabIndex={0}
                                 className={isSelected
-                                    ? 'geoapp-log-translate-menu__item geoapp-log-translate-menu__item--selected'
-                                    : 'geoapp-log-translate-menu__item'}
+                                    ? 'geoapp-log-split-menu__item geoapp-log-split-menu__item--selected'
+                                    : 'geoapp-log-split-menu__item'}
                                 onClick={() => onSelectLanguage(language)}
-                                onKeyDown={e => handleMenuItemKeyDown(e, () => onSelectLanguage(language))}
+                                onKeyDown={e => activateMenuItemOnKey(e, () => onSelectLanguage(language))}
                                 title={`Traduire en ${language}`}
                             >
                                 <i
@@ -141,17 +116,17 @@ export const TranslateSplitButton: React.FC<{
                         );
                     })}
 
-                    <div className='geoapp-log-translate-menu__separator' />
+                    <div className='geoapp-log-split-menu__separator' />
 
                     <div
                         role='menuitemcheckbox'
                         aria-checked={isLogLanguagePinned}
                         tabIndex={0}
                         className={isLogLanguagePinned
-                            ? 'geoapp-log-translate-menu__item geoapp-log-translate-menu__item--pinned'
-                            : 'geoapp-log-translate-menu__item'}
+                            ? 'geoapp-log-split-menu__item geoapp-log-split-menu__item--pinned'
+                            : 'geoapp-log-split-menu__item'}
                         onClick={onToggleLogLanguagePin}
-                        onKeyDown={e => handleMenuItemKeyDown(e, onToggleLogLanguagePin)}
+                        onKeyDown={e => activateMenuItemOnKey(e, onToggleLogLanguagePin)}
                         title={isLogLanguagePinned
                             ? 'Langue épinglée : elle sera réutilisée pour les prochains logs. Cliquer pour revenir à la langue par défaut.'
                             : 'Épingler la langue pour la réutiliser lors des prochains logs'}

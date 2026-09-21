@@ -114,11 +114,6 @@
     color: inherit;
 }
 
-.geoapp-log-button--generate {
-    font-size: 12px;
-    padding: 6px 16px;
-}
-
 /* ---------------------------------------------------------------- Entête */
 
 .geoapp-log-header {
@@ -266,51 +261,10 @@
     gap: 12px;
 }
 
-/* Les patterns tiennent moins au large que le panneau IA. */
+/* Les patterns posent leurs propres marges ligne par ligne : la grille les doublerait. */
 .geoapp-log-details__body--tight {
     display: block;
     padding: 10px;
-}
-
-/* ------------------------------------------------------------- Formulaire */
-
-.geoapp-log-field__label {
-    display: block;
-    margin-bottom: 4px;
-    font-size: 12px;
-    font-weight: 600;
-}
-
-.geoapp-log-field__hint {
-    margin-top: 2px;
-    font-size: 11px;
-    opacity: 0.7;
-}
-
-.geoapp-log-field__input {
-    width: 100%;
-    font-size: 12px;
-}
-
-.geoapp-log-field__input--resizable {
-    resize: vertical;
-}
-
-/* ------------------------------------------------------------ Panneau IA */
-
-.geoapp-log-ai__actions {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.geoapp-log-ai__actions .fa-spinner {
-    margin-right: 6px;
-}
-
-.geoapp-log-ai__status {
-    font-size: 12px;
-    opacity: 0.7;
 }
 
 /* -------------------------------------------------------------- Patterns */
@@ -423,23 +377,24 @@
     min-width: 0;
 }
 
-/* --- Split button « Traduire » : action a gauche, choix de la langue a droite --- */
+/* --- Split buttons « Traduire » et « Corriger » : action a gauche, choix a droite.
+       Un seul jeu de regles pour les deux : ils se suivent dans la meme barre d'outils. --- */
 
-.geoapp-log-translate-split {
+.geoapp-log-split {
     position: relative;
     display: inline-flex;
 }
 
 /* Un seul cadre et un seul arrondi pour les deux moitiés, qui partagent le fond. */
-.geoapp-log-translate-split__group {
+.geoapp-log-split__group {
     display: inline-flex;
     border: 1px solid var(--theia-button-background);
     border-radius: 4px;
     overflow: hidden;
 }
 
-.geoapp-log-translate-split__main,
-.geoapp-log-translate-split__arrow {
+.geoapp-log-split__main,
+.geoapp-log-split__arrow {
     background: var(--theia-button-background);
     color: var(--theia-button-foreground);
     border: none;
@@ -447,7 +402,7 @@
     cursor: pointer;
 }
 
-.geoapp-log-translate-split__main {
+.geoapp-log-split__main {
     display: flex;
     align-items: center;
     gap: 6px;
@@ -457,25 +412,25 @@
     border-right: 1px solid rgba(0, 0, 0, 0.18);
 }
 
-.geoapp-log-translate-split__arrow {
+.geoapp-log-split__arrow {
     display: flex;
     align-items: center;
     padding: 4px 8px;
     font-size: 11px;
 }
 
-.geoapp-log-translate-split__main:hover:not(:disabled),
-.geoapp-log-translate-split__arrow:hover {
+.geoapp-log-split__main:hover:not(:disabled),
+.geoapp-log-split__arrow:hover {
     background: var(--theia-button-hoverBackground, color-mix(in srgb, var(--theia-button-background) 85%, #fff));
 }
 
-.geoapp-log-translate-split__main:disabled {
+.geoapp-log-split__main:disabled {
     opacity: 0.5;
     cursor: default;
 }
 
 /* Langue active, lisible sans ouvrir le menu. */
-.geoapp-log-translate-split__badge {
+.geoapp-log-split__badge {
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -487,7 +442,7 @@
     padding: 1px 5px;
 }
 
-.geoapp-log-translate-menu {
+.geoapp-log-split-menu {
     position: absolute;
     top: 100%;
     left: 0;
@@ -504,7 +459,7 @@
     z-index: 100;
 }
 
-.geoapp-log-translate-menu__item {
+.geoapp-log-split-menu__item {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -513,46 +468,70 @@
     cursor: pointer;
 }
 
-.geoapp-log-translate-menu__item > i {
+.geoapp-log-split-menu__item > i {
     width: 14px;
     font-size: 11px;
     text-align: center;
 }
 
-.geoapp-log-translate-menu__item:hover {
+/* Item sur deux lignes (modes de correction) : la puce reste alignee sur le libelle. */
+.geoapp-log-split-menu__item--stacked {
+    align-items: flex-start;
+}
+
+.geoapp-log-split-menu__item--stacked > i {
+    margin-top: 2px;
+}
+
+.geoapp-log-split-menu__item-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.geoapp-log-split-menu__item-hint {
+    font-size: 11px;
+    opacity: 0.75;
+    max-width: 260px;
+}
+
+.geoapp-log-split-menu__item:hover {
     background: var(--theia-menu-selectionBackground);
 }
 
-.geoapp-log-translate-menu__item--selected {
+.geoapp-log-split-menu__item--selected {
     background: var(--theia-list-activeSelectionBackground);
     color: var(--theia-list-activeSelectionForeground);
 }
 
-.geoapp-log-translate-menu__item--pinned {
+.geoapp-log-split-menu__item--pinned {
     color: var(--theia-focusBorder);
 }
 
-.geoapp-log-translate-menu__separator {
+.geoapp-log-split-menu__separator {
     height: 1px;
     margin: 4px 0;
     background: var(--theia-menu-border);
 }
 
-.geoapp-log-translate-menu__empty {
+.geoapp-log-split-menu__empty {
     padding: 7px 12px;
     font-size: 12px;
     font-style: italic;
     opacity: 0.8;
 }
 
-.geoapp-log-batch-translation {
+.geoapp-log-batch-ai {
     display: flex;
     align-items: center;
+    /* Deux split buttons plus la progression : sur un panneau etroit, ils passent a la ligne
+       plutot que de deborder. */
+    flex-wrap: wrap;
     gap: 8px;
     margin: 6px 0;
 }
 
-.geoapp-log-batch-translation__status {
+.geoapp-log-batch-ai__status {
     font-size: 12px;
     opacity: 0.8;
 }

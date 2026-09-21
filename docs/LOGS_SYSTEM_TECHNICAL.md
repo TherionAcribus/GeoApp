@@ -532,21 +532,21 @@ Il est **distinct** de `geoapp-translate-description` : traduire un log court en
 une tâche bien plus légère que traduire un listing HTML, et mérite de pouvoir recevoir son
 propre modèle (typiquement un modèle rapide et économique).
 
-L’appel se fait entièrement côté frontend via `LanguageModelService`, comme la génération de
-logs. **Aucune route backend** n’est impliquée : `POST /api/geocaches/<id>/logs/submit` n’a pas
+L’appel se fait entièrement côté frontend via `LanguageModelService`, comme la correction
+(§ 14). **Aucune route backend** n’est impliquée : `POST /api/geocaches/<id>/logs/submit` n’a pas
 de notion de langue et n’en a pas besoin.
 
 ### 13.2 Moteur
 
-`log-editor/log-translator.ts` — même découpage que `ai-log-generator.ts` (fonctions pures +
-un appel prenant les services en paramètres), dont il réutilise `cleanAiResponse` et
-`NoLanguageModelError`.
+`log-editor/log-translator.ts` — construction du prompt et assemblage du résultat en fonctions
+pures ; la sélection du modèle, l’envoi, le nettoyage de la réponse et le garde-fou `@patterns`
+viennent de `log-editor/log-ai-common.ts`, partagé avec la correction (§ 14).
 
 | Fonction | Rôle |
 |---|---|
 | `buildTranslationSource` | Texte réellement soumis au modèle (mention de traduction comprise) |
 | `buildLogTranslationPrompt` | Prompt, incluant la liste nommée des `@patterns` à préserver et le bloc de lexique (§ 13.9) |
-| `extractPatternTokens` / `findLostPatterns` | Garde-fou `@patterns` (§ 13.4) |
+| `extractPatternTokens` / `findLostPatterns` *(dans `log-ai-common.ts`)* | Garde-fou `@patterns` (§ 13.4) |
 | `assembleTranslation` | Assemblage final selon le mode (remplacer / bilingue) |
 | `translateLogWithAi` | Sélection du modèle, appel, nettoyage, assemblage |
 
@@ -600,21 +600,22 @@ historiques écrits avant la fonctionnalité restent lisibles.
 
 | Emplacement | Élément |
 |---|---|
-| `translate-split-button.tsx` | **Split button** « Traduire » : action à gauche (avec badge de la langue active), ▾ à droite ouvrant le menu des langues + l’épinglage. Même motif que le split « Chat IA » de `geocache-details-sections.tsx` |
-| `global-log-editor.tsx` | Le split button et « ↩ Revenir à l’original » dans la toolbar du texte commun |
+| `translate-split-button.tsx` | **Split button** « Traduire » : action à gauche (avec badge de la langue active), ▾ à droite ouvrant le menu des langues + l’épinglage. Même motif que le split « Chat IA » de `geocache-details-sections.tsx`, et mêmes classes CSS `geoapp-log-split*` que le split « Corriger » (§ 14) |
+| `global-log-editor.tsx` | Les deux split buttons et « ↩ Revenir à l’original » dans la toolbar du texte commun |
 | `per-cache-block.tsx` | « 🌐 Traduire » et « ↩ Original » par bloc — bouton simple : la langue est globale, et un menu par bloc serait illisible sur 30 caches |
-| `batch-translation-bar.tsx` | Le split button en « Traduire tous les blocs » : `ConfirmDialog` annonçant le nombre d’appels, progression `n/N`, bouton Stop. Traitement **séquentiel** ; les blocs vides, ceux en `skip` et ceux déjà envoyés sont ignorés |
-| `ai-generation-panel.tsx` | Rappel de la langue : la génération IA rédige **directement** dans la langue cible (`buildLogGenerationPrompt(..., targetLanguage)`), ce qui donne un meilleur texte que générer en français puis traduire |
+| `batch-ai-bar.tsx` | Les deux split buttons en « … tous les blocs » : `ConfirmDialog` annonçant le nombre d’appels, progression `n/N`, bouton Stop — partagés par les deux actions, une seule tournant à la fois. Traitement **séquentiel** ; les blocs vides, ceux en `skip` et ceux déjà envoyés sont ignorés |
 
-Les deux split buttons partagent un unique `isLanguageMenuOpen` côté widget : la toolbar du
-texte commun et la barre du mode par cache ne sont jamais affichées en même temps. Le composant
+Les deux emplacements du split de langue partagent un unique `isLanguageMenuOpen` côté widget
+(et un unique `isImprovementMenuOpen` pour celui de la correction) : la toolbar du texte commun
+et la barre du mode par cache ne sont jamais affichées en même temps. Le composant
 gère lui-même la fermeture au clic extérieur et à `Escape`, et sélectionner une langue ou basculer
 l’épingle referme le menu. La langue n’est **plus** dans la ligne d’en-tête à côté de la date : elle est
 lisible dans le badge du split button, dans les deux modes de saisie.
 
-Les `deps` du `MemoizedFragment` des blocs par cache incluent `translatingKey === gc.id`,
-`logLanguage` et `preTranslationPerCacheText[gc.id]` : sans cela, le spinner et le bouton de
-retour à l’original n’apparaîtraient pas.
+Les `deps` du `MemoizedFragment` des blocs par cache incluent `aiBusyKey === gc.id ? aiBusyAction : undefined`,
+`logLanguage`, `improvementMode` et `preAiPerCacheText[gc.id]` : sans cela, le spinner et le
+bouton de retour à l’original n’apparaîtraient pas. L’action compte autant que la clé — c’est
+elle qui décide lequel des deux boutons tourne.
 
 ### 13.7 Préférences (catégorie Logs, section « Traduction »)
 
@@ -644,7 +645,10 @@ sont décrits dans `documentation/preferences-ajout-rapide.md`.
   (~15-20 % vers l’allemand) et le mode bilingue le double : `warnIfTranslationIsTooLong`
   avertit, le `CharCounter` prend le relais visuellement.
 - Le retour à l’original est une mémoire **d’un seul niveau**, non persistée : elle ne survit
-  pas à la fermeture de l’onglet.
+  pas à la fermeture de l’onglet. Elle est **commune** à la traduction et à la correction
+  (`preAiGlobalText` / `preAiPerCacheText`) : le bouton annule le dernier passage de l’IA, quel
+  qu’il soit. Deux mémoires distinctes obligeraient l’utilisateur à se souvenir de l’ordre de
+  ses clics.
 - Dans « Traduire tous les blocs », une cache qui échoue n’emporte pas le lot — sauf
   `NoLanguageModelError`, qui ferait échouer toutes les suivantes à l’identique et interrompt
   donc la boucle.
@@ -658,10 +662,9 @@ repérés dans le texte : « DNF » est à garder tel quel, « PAT » devient «
 les termes réellement présents partent dans le prompt ; sans aucun terme repéré, il n’y a pas de
 bloc du tout.
 
-Le même lexique alimente la génération IA du log (`buildLogGenerationPrompt`, détection sur les
-mots-clés) et la traduction des listings. À la sortie, `findLexiconDeviations` signale — sans
-bloquer — les termes dont la forme attendue manque à la traduction, sur le modèle de
-`findLostPatterns`.
+Le même lexique alimente la correction du log (§ 14.4) et la traduction des listings. À la
+sortie, `findLexiconDeviations` signale — sans bloquer — les termes dont la forme attendue
+manque à la traduction, sur le modèle de `findLostPatterns`.
 
 Réglages : catégorie **IA**, section « Lexique géocaching » (`geoApp.ai.lexicon.enabled` et
 `geoApp.ai.lexicon.entries`), avec un éditeur dédié dans la page Préférences.
@@ -669,13 +672,126 @@ Réglages : catégorie **IA**, section « Lexique géocaching » (`geoApp.ai.lex
 Tout le détail — modèle de données, régimes de détection, fusion du fond intégré et des entrées
 personnelles, éditeur — est dans `documentation/lexique-geocaching-technique.md`.
 
+## 14. Correction IA du log
+
+Remplace l’ancienne « Génération de log par IA », retirée : elle partait de mots-clés pour
+inventer un log de toutes pièces. Ce qu’elle produisait n’engageait que le modèle, jamais le
+géocacheur, et l’owner de la cache recevait un compte rendu que personne n’avait vécu — sans
+compter que le résultat était médiocre. Le remplaçant ne reçoit **que du texte déjà écrit par
+l’utilisateur** et n’a le droit d’y ajouter aucune idée.
+
+### 14.1 Agent et modèle
+
+Agent interne dédié `geoapp-log-improver` (« GeoApp Correction de Logs »), déclaré dans
+`geoapp-log-improver-agent.ts`, enregistré via `zones-frontend-module.ts` et listé dans
+`AGENT_MODEL_ROWS` de `geoapp-chat-policy-widget.tsx` sous « Correction de logs ».
+
+L’identifiant change avec le rôle : une assignation de modèle faite pour l’ancien
+`geoapp-log-writer` n’est pas reprise, l’agent repart sur `default/universal`. Il est distinct
+de `geoapp-log-translator` pour la même raison que celui-ci l’est de
+`geoapp-translate-description` : corriger quelques phrases est une tâche légère, qui mérite son
+propre modèle.
+
+### 14.2 Les deux modes
+
+Un seul bouton, deux comportements — ce sont deux besoins distincts, et les confondre ferait
+perdre à l’utilisateur le texte qu’il avait bien écrit.
+
+| Mode | Badge | Ce que le prompt autorise |
+|---|---|---|
+| `proofread` (défaut) | Fautes | Orthographe, grammaire, accords, conjugaison, ponctuation. **Ni reformulation, ni réordonnancement** : une phrase correcte doit ressortir mot pour mot. Les tournures familières, abréviations, smileys et majuscules d’emphase sont des choix, pas des fautes |
+| `rewrite` | Rédiger | Transforme une suite de notes ou de mots-clés en texte suivi, reprend **toutes** les idées présentes et seulement celles-là, corrige les fautes au passage |
+
+Les deux partagent les mêmes règles de fond : n’inventer **rien** (ni météo, ni paysage, ni
+détail de la cache), garder la langue de l’original — ce n’est pas une traduction —, écrire à la
+première personne, préserver les `@patterns` et le Markdown.
+
+Le mode est mémorisé dans le `StorageService` sous `geoApp.logs.improvementMode.v1`. Pas
+d’épinglage ici, contrairement à la langue et à la date : c’est une habitude de travail, pas un
+réglage du jour, et il n’y a aucune « valeur par défaut » à laquelle revenir. Une valeur inconnue
+(mode retiré depuis) retombe silencieusement sur `proofread`.
+
+### 14.3 Moteur
+
+`log-editor/log-improver.ts`, sur le même plan que `log-translator.ts` : prompt pur, appel
+délégué à `log-ai-common.ts`.
+
+| Fonction | Rôle |
+|---|---|
+| `LOG_IMPROVEMENT_MODES` | Les modes et leurs libellés — une seule source pour le menu, l’infobulle et le bilan de lot |
+| `buildLogImprovementPrompt` | Prompt : consigne du mode, règles communes, `@patterns` nommés, bloc de lexique |
+| `improveLogWithAi` | Appel, puis `findLostPatterns` sur la sortie |
+
+Aucune route backend, comme pour la traduction.
+
+### 14.4 Lexique géocaching
+
+Le bloc vient de `buildLexiconPreservationBlock(mentions)`, qui ne prend **aucune langue** — à
+dessein : on ne traduit pas ici, et la langue du log n’est pas connue. Un « PAT » corrigé reste
+« PAT », il ne devient « FTF » que si l’utilisateur clique sur *Traduire*.
+
+La consigne est l’inverse de celle de la traduction : ce n’est pas du vocabulaire à employer,
+c’est une liste de ce qu’il ne faut surtout **pas** corriger. Un correcteur « répare »
+spontanément TFTC ou DNF, qu’il prend pour des coquilles ; la glose accompagne chaque terme pour
+lever le doute.
+
+Pas de garde-fou de sortie `findLexiconDeviations` ici : rien n’était attendu dans une langue
+donnée, donc rien ne peut manquer. Le garde-fou `@patterns`, lui, s’applique à l’identique.
+
+### 14.5 Périmètre dans l’UI
+
+| Emplacement | Élément |
+|---|---|
+| `improve-split-button.tsx` | **Split button** « Corriger » : action à gauche (badge du mode actif), ▾ à droite ouvrant le menu des deux modes, chacun avec sa ligne d’explication. Jumeau visuel du split « Traduire », dont il partage les classes `geoapp-log-split*` |
+| `global-log-editor.tsx` | Le split button, juste après « Traduire », dans la toolbar du texte commun |
+| `per-cache-block.tsx` | « ✨ Corriger » par bloc — bouton simple : le mode est global, comme la langue |
+| `batch-ai-bar.tsx` | Le split button en « Corriger tous les blocs », même machinerie de lot que la traduction (§ 13.6) |
+| `use-dismiss-menu.ts` | Fermeture au clic extérieur et à `Escape`, partagée par les deux split buttons |
+
+### 14.6 Un seul chemin d’exécution pour les deux actions
+
+Traduire et corriger ne diffèrent que par le prompt et les libellés : verrou, mémoire
+d’avant-appel, garde-fou de longueur, traitement de lot et rendu sont communs — et l’étaient déjà
+entre le texte commun et les blocs par cache. Le widget décrit donc la tâche au lieu de la
+recopier.
+
+| Élément | Rôle |
+|---|---|
+| `AiRewriteJob` (`log-editor/types.ts`) | La description d’une tâche : action, garde, verbe, appel, messages, libellés de lot |
+| `translationJob()` / `improvementJob()` | Les deux descriptions, construites à la volée (elles capturent la langue et le mode courants) |
+| `applyAiRewrite(target, job)` | Applique une tâche à une zone — texte commun ou bloc d’une géocache |
+| `runBatchOverPerCacheTexts(job)` | Applique une tâche à tous les blocs, avec confirmation, progression et Stop |
+| `storeAiRewrite(target, text)` | Remplace le texte en gardant l’original pour « ↩ Revenir à l’original » |
+
+Six points d’entrée de l’UI (traduire / corriger × texte commun, bloc, lot) pour deux
+descriptions de tâche.
+
+`aiBusyKey` verrouille la zone en cours et `aiBusyAction` dit ce qui tourne : c’est ce second
+champ qui décide lequel des deux boutons montre son spinner. Un seul appel IA à la fois, quelle
+que soit l’action — `canTranslate()` et `canImprove()` regardent tous deux `aiBusyKey`.
+
+### 14.7 Ce qui a disparu avec la génération
+
+- Le panneau dépliable « 🤖 Génération de log par IA » et ses trois champs (mots-clés,
+  instructions personnalisées, exemples de logs).
+- L’agent `geoapp-log-writer` et `buildLogGenerationPrompt`.
+- Les classes CSS `geoapp-log-field__*`, `geoapp-log-ai__*` et `geoapp-log-button--generate`.
+
+Le champ « exemples de logs », qui servait à reproduire le style de l’utilisateur, n’a pas
+d’équivalent : le mode `rewrite` travaille sur le texte de l’utilisateur, dont il garde le ton
+par construction. Si le besoin revient, une préférence d’instructions de style s’ajouterait au
+prompt de `buildLogImprovementPrompt` sans rien changer d’autre.
+
 ## Références code
 
 - Frontend
   - `theia-blueprint/theia-extensions/zones/src/browser/geocache-log-editor-widget.tsx`
   - `theia-extensions/zones/src/browser/log-editor/log-translator.ts`
-  - `theia-extensions/zones/src/browser/log-editor/batch-translation-bar.tsx`
+  - `theia-extensions/zones/src/browser/log-editor/log-improver.ts`
+  - `theia-extensions/zones/src/browser/log-editor/log-ai-common.ts`
+  - `theia-extensions/zones/src/browser/log-editor/batch-ai-bar.tsx`
   - `theia-extensions/zones/src/browser/geoapp-log-translator-agent.ts`
+  - `theia-extensions/zones/src/browser/geoapp-log-improver-agent.ts`
   - `theia-extensions/zones/src/browser/geocaching-lexicon.ts`
 
 - Backend

@@ -15,6 +15,8 @@ import { MarkdownToolbar } from './markdown-toolbar';
 import { PatternAutocompleteMenu } from './pattern-autocomplete-menu';
 import { TextareaWithOverlay } from './textarea-overlay';
 import { TranslateSplitButton } from './translate-split-button';
+import { ImproveSplitButton } from './improve-split-button';
+import { LogImprovementMode } from './log-improver';
 import { MarkdownFormatKind } from '../log-markdown';
 
 export interface GlobalLogEditorProps {
@@ -38,8 +40,21 @@ export interface GlobalLogEditorProps {
     /** Non vide quand la traduction est impossible : sert d'infobulle sur le bouton désactivé. */
     translateDisabledReason?: string;
     isTranslating: boolean;
-    canRevertTranslation: boolean;
-    onRevertTranslation: () => void;
+
+    // Correction IA
+    improvementMode: LogImprovementMode;
+    isImprovementMenuOpen: boolean;
+    onToggleImprovementMenu: () => void;
+    onCloseImprovementMenu: () => void;
+    onSelectImprovementMode: (mode: LogImprovementMode) => void;
+    onImprove: () => void;
+    /** Non vide quand la correction est impossible : sert d'infobulle sur le bouton désactivé. */
+    improveDisabledReason?: string;
+    isImproving: boolean;
+
+    /** Retour à l'original : une seule mémoire pour la traduction comme pour la correction. */
+    canRevertAiEdit: boolean;
+    onRevertAiEdit: () => void;
 
     // Type
     logType: LogTypeValue;
@@ -112,7 +127,10 @@ export const GlobalLogEditor: React.FC<GlobalLogEditorProps> = (props) => {
         logDate, onLogDateChange, isLogDatePinned, onToggleLogDatePin,
         translationLanguages, logLanguage, onLogLanguageChange, isLogLanguagePinned, onToggleLogLanguagePin,
         isLanguageMenuOpen, onToggleLanguageMenu, onCloseLanguageMenu,
-        onTranslate, translateDisabledReason, isTranslating, canRevertTranslation, onRevertTranslation,
+        onTranslate, translateDisabledReason, isTranslating,
+        improvementMode, isImprovementMenuOpen, onToggleImprovementMenu, onCloseImprovementMenu,
+        onSelectImprovementMode, onImprove, improveDisabledReason, isImproving,
+        canRevertAiEdit, onRevertAiEdit,
         logType, onLogTypeChange, pendingAlreadyFoundCount, pendingAlreadyFoundCodes,
         useSameTextForAll, onToggleUseSameTextForAll, globalText, globalTextExcerpt, onApplyGlobalTextToAll,
         historyDropdownOpen, onToggleHistoryDropdown, logHistory, onApplyHistoryTextOnly, canUseHistory,
@@ -130,6 +148,9 @@ export const GlobalLogEditor: React.FC<GlobalLogEditorProps> = (props) => {
     // afficherait « Traduire en Allemand », ce qui ne dit pas pourquoi il ne repond pas.
     const translateReason = translateDisabledReason
         ?? (globalText.trim() === '' ? 'Le texte du log est vide : rien à traduire.' : undefined);
+
+    const improveReason = improveDisabledReason
+        ?? (globalText.trim() === '' ? 'Le texte du log est vide : rien à corriger.' : undefined);
 
     return (
         <>
@@ -256,11 +277,23 @@ export const GlobalLogEditor: React.FC<GlobalLogEditorProps> = (props) => {
                             onToggleLogLanguagePin={onToggleLogLanguagePin}
                             onTranslate={onTranslate}
                         />
-                        {canRevertTranslation && (
+                        <ImproveSplitButton
+                            label='Corriger'
+                            mode={improvementMode}
+                            improveDisabled={isToolbarDisabled || improveReason !== undefined}
+                            improveDisabledReason={improveReason}
+                            isImproving={isImproving}
+                            open={isImprovementMenuOpen}
+                            onToggleMenu={onToggleImprovementMenu}
+                            onCloseMenu={onCloseImprovementMenu}
+                            onSelectMode={onSelectImprovementMode}
+                            onImprove={onImprove}
+                        />
+                        {canRevertAiEdit && (
                             <button
                                 className='theia-button secondary geoapp-log-button--compact'
-                                onClick={onRevertTranslation}
-                                disabled={isTranslating}
+                                onClick={onRevertAiEdit}
+                                disabled={isTranslating || isImproving}
                                 title='Restaurer le texte tel qu’il était avant la traduction'
                             >
                                 ↩ Revenir à l’original

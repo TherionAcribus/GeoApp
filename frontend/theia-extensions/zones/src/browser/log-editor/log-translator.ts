@@ -1,9 +1,9 @@
 /**
  * Traduction de logs par IA.
  *
- * Même découpage que `ai-log-generator.ts` : la construction du prompt, l'assemblage du
- * résultat et le contrôle des @patterns sont des fonctions pures ; l'appel au modèle prend
- * les services en paramètres.
+ * La construction du prompt et l'assemblage du résultat sont des fonctions pures ; l'appel au
+ * modèle, le nettoyage de la réponse et le contrôle des @patterns viennent de
+ * `log-ai-common.ts`, partagé avec `log-improver.ts`.
  *
  * Deux contraintes propres au log, absentes de la traduction des listings :
  * - le texte contient des `@patterns` résolus *après* la saisie ; s'ils sont traduits, ils
@@ -12,8 +12,8 @@
  *   HTML ne sont nécessaires, un log tient sous les 4000 caractères de Geocaching.com.
  */
 
-import { LanguageModel, LanguageModelRegistry, LanguageModelService, UserRequest, getTextOfResponse, getJsonOfResponse, isLanguageModelParsedResponse } from '@theia/ai-core';
-import { AgentId, NoLanguageModelError, cleanAiResponse } from './ai-log-generator';
+import { LanguageModelRegistry, LanguageModelService } from '@theia/ai-core';
+import { AgentId, findLostPatterns, requestCleanedText } from './log-ai-common';
 import {
     LexiconDeviation,
     LexiconEntry,
@@ -72,30 +72,6 @@ ${patternRule}
 - N'ajoute aucun contenu qui n'est pas dans l'original.${lexicon}`;
 }
 
-/** Tokens `@xxx` présents dans un texte, restreints aux patterns connus. */
-export function extractPatternTokens(text: string, patternNames: Set<string>): Set<string> {
-    const found = new Set<string>();
-    for (const match of (text || '').matchAll(/@([A-Za-z0-9_]+)/g)) {
-        const name = match[1];
-        if (patternNames.has(name)) {
-            found.add(name);
-        }
-    }
-    return found;
-}
-
-/**
- * Patterns présents dans le texte source et absents de la traduction.
- *
- * Un pattern perdu ne casse pas l'envoi, mais il ne sera plus résolu : l'appelant avertit
- * l'utilisateur, qui voit le texte et peut revenir à l'original.
- */
-export function findLostPatterns(source: string, translated: string, patternNames: Set<string>): string[] {
-    const before = extractPatternTokens(source, patternNames);
-    const after = extractPatternTokens(translated, patternNames);
-    return [...before].filter(name => !after.has(name)).sort();
-}
-
 /**
  * Assemble le texte final. En mode bilingue, `original` est le texte saisi **sans** la mention
  * de traduction : celle-ci n'a de sens que sous la version traduite.
@@ -146,16 +122,6 @@ export async function translateLogWithAi(
     noticeText: string,
     lexicon: readonly LexiconEntry[] = []
 ): Promise<LogTranslationResult | undefined> {
-    const languageModel = await languageModelRegistry.selectLanguageModel({
-        agent: agentId,
-        purpose: 'chat',
-        identifier: 'default/universal'
-    });
-
-    if (!languageModel) {
-        throw new NoLanguageModelError();
-    }
-
     const source = buildTranslationSource(text, addNotice, noticeText);
     // La détection porte sur le texte réellement soumis, mention de traduction comprise : c'est
     // lui que le modèle va lire, et c'est sur lui que portera la vérification de sortie.
@@ -166,30 +132,14 @@ export async function translateLogWithAi(
         buildLexiconTranslationBlock(mentions, targetLanguage)
     );
 
-    const request: UserRequest = {
-        messages: [
-            { actor: 'user', type: 'text', text: `${prompt}\n\nTEXTE :\n${source}` },
-        ],
+    const translated = await requestCleanedText(
+        languageModelRegistry,
+        languageModelService,
         agentId,
-        requestId: `geoapp-log-translator-${Date.now()}`,
-        sessionId: `geoapp-log-translator-session-${Date.now()}`,
-    };
+        `${prompt}\n\nTEXTE :\n${source}`,
+        'geoapp-log-translator'
+    );
 
-    const response = await languageModelService.sendRequest(languageModel as LanguageModel, request);
-    let rawText = '';
-
-    if (isLanguageModelParsedResponse(response)) {
-        rawText = JSON.stringify(response.parsed);
-    } else {
-        try {
-            rawText = await getTextOfResponse(response);
-        } catch {
-            const jsonResponse = await getJsonOfResponse(response) as unknown;
-            rawText = typeof jsonResponse === 'string' ? jsonResponse : String(jsonResponse);
-        }
-    }
-
-    const translated = cleanAiResponse(rawText);
     if (!translated) {
         return undefined;
     }

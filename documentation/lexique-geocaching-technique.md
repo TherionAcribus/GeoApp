@@ -6,7 +6,7 @@ n'est ni un rondin ni un journal système ; et un « PAT » français devient «
 sans que l'inverse soit vrai.
 
 Le lexique donne ce savoir aux trois moteurs IA qui manipulent du texte de géocaching :
-la traduction d'un log, la rédaction d'un log, et la traduction d'un listing.
+la traduction d'un log, la correction d'un log, et la traduction d'un listing.
 
 ## 1. Les trois choix structurants
 
@@ -93,7 +93,7 @@ Module pur, sans dépendance Theia, testé par `src/browser/tests/geocaching-lex
 | `resolveLexicon(userEntries)` | Fusionne le fond intégré et les entrées personnelles |
 | `findLexiconMentions(text, entries)` | Entrées mentionnées dans un texte, **dans l'ordre du lexique** |
 | `buildLexiconTranslationBlock(mentions, langue)` | Bloc de prompt pour une traduction |
-| `buildLexiconWritingBlock(mentions, langue)` | Bloc de prompt pour une rédaction |
+| `buildLexiconPreservationBlock(mentions)` | Bloc de prompt pour une correction — sans langue, par construction |
 | `findLexiconDeviations(source, traduction, mentions, langue)` | Garde-fou de sortie (§ 6) |
 | `normalizeLanguageKey(nom)` | « Anglais », « English », « EN » → `en` |
 
@@ -144,14 +144,20 @@ d'entrées.
 | Moteur | Fichier | Détection portée sur | Bloc |
 |---|---|---|---|
 | Traduction d'un log | `log-editor/log-translator.ts` | Le texte soumis, mention de traduction comprise | traduction |
-| Rédaction d'un log | `log-editor/ai-log-generator.ts` | Mots-clés + instructions personnalisées | rédaction |
+| Correction d'un log | `log-editor/log-improver.ts` | Le texte saisi par l'utilisateur | préservation |
 | Traduction d'un listing | `geocache-details-translation-controller.ts` | Le texte brut de **chaque chunk**, puis indices + notes de waypoints | traduction |
 
 Trois précisions qui ne se devinent pas :
 
-- **Rédaction** : la détection ne porte pas sur les *exemples de logs* de l'utilisateur. Un
-  lexique déduit d'un corpus d'exemples imposerait à chaque log tout le jargon que l'utilisateur
-  a employé un jour ; ce qu'il faut, c'est le vocabulaire de *ce* log, donc ses mots-clés.
+- **Correction** : `buildLexiconPreservationBlock` ne prend **aucune langue**, et ce n'est pas
+  un oubli. On ne traduit pas ici, et la langue du log n'est pas connue : un « PAT » corrigé reste
+  « PAT », il ne devient « FTF » que si l'utilisateur clique sur *Traduire*. La consigne est
+  l'inverse de celle de la traduction — ce n'est pas du vocabulaire à employer, c'est une liste
+  de ce qu'il ne faut surtout **pas** corriger, un correcteur « réparant » spontanément TFTC ou
+  DNF, qu'il prend pour des coquilles. La glose part quand même : elle évite qu'un sigle soit lu
+  comme une faute de frappe.
+  Pas de garde-fou de sortie (§ 6) non plus : rien n'était attendu dans une langue donnée, donc
+  rien ne peut manquer.
 - **Listing** : la détection porte sur `htmlToRawText(chunk)` et non sur le HTML. Chercher les
   termes dans le balisage ferait matcher les classes, les attributs et les URLs — et un listing
   est assez long pour que ça compte. Elle est refaite **par chunk**, puisque c'est chunk par
@@ -237,7 +243,7 @@ morte sans que personne ne s'en aperçoive.
 - `shared/lexicons/geocaching-lexicon.json`, `shared/lexicons/language-keys.json`
 - `frontend/theia-extensions/zones/src/browser/geocaching-lexicon.ts`
 - `frontend/theia-extensions/zones/src/browser/log-editor/log-translator.ts`
-- `frontend/theia-extensions/zones/src/browser/log-editor/ai-log-generator.ts`
+- `frontend/theia-extensions/zones/src/browser/log-editor/log-improver.ts`
 - `frontend/theia-extensions/zones/src/browser/geocache-details-translation-controller.ts`
 - `frontend/theia-extensions/preferences/src/browser/geo-lexicon-editor.tsx`
 - `docs/LOGS_SYSTEM_TECHNICAL.md` § 13 (traduction IA du log)

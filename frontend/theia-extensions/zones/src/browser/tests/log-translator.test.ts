@@ -3,9 +3,8 @@ import {
     assembleTranslation,
     buildLogTranslationPrompt,
     buildTranslationSource,
-    extractPatternTokens,
-    findLostPatterns,
 } from '../log-editor/log-translator';
+import { extractPatternTokens, findLostPatterns } from '../log-editor/log-ai-common';
 import { computeHistoryApplication } from '../log-editor/log-history-store';
 import { LogHistoryEntry } from '../log-editor/types';
 

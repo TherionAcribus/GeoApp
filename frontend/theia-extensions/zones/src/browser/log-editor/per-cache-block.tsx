@@ -63,8 +63,18 @@ export interface PerCacheBlockProps {
     translateDisabledReason?: string;
     isTranslating: boolean;
     logLanguage: string;
-    canRevertTranslation: boolean;
-    onRevertTranslation: () => void;
+
+    // Correction IA
+    onImprove: () => void;
+    /** Non vide quand la correction est impossible : sert d'infobulle sur le bouton désactivé. */
+    improveDisabledReason?: string;
+    isImproving: boolean;
+    /** Libellé du mode courant (« Corriger les fautes », « Rédiger le texte »), pour l'infobulle. */
+    improvementModeLabel: string;
+
+    /** Retour à l'original : une seule mémoire pour la traduction comme pour la correction. */
+    canRevertAiEdit: boolean;
+    onRevertAiEdit: () => void;
 
     // Bouton "Texte commun"
     globalText: string;
@@ -112,7 +122,9 @@ export const PerCacheBlock: React.FC<PerCacheBlockProps> = (props) => {
         formatFavoritePercent, getLogTypeLabel,
         images, isImagesDisabled, isDragOver, onAddFiles, onRemoveImage, onDragOverChange, getPreviewUrl,
         isToolbarDisabled, activeCaretFormat, isEditorActive, onApplyFormat, onApplyPrefix,
-        onTranslate, translateDisabledReason, isTranslating, logLanguage, canRevertTranslation, onRevertTranslation,
+        onTranslate, translateDisabledReason, isTranslating, logLanguage,
+        onImprove, improveDisabledReason, isImproving, improvementModeLabel,
+        canRevertAiEdit, onRevertAiEdit,
         globalText, globalTextExcerpt, onApplyGlobalText, isApplyGlobalTextDisabled, applyGlobalTextTitle,
         text, textareaProps, textareaRef, overlayKey, patternNames, resolvePatternValue,
         onCaretChange, onScrollSync, registerTextarea, registerOverlay,
@@ -126,6 +138,9 @@ export const PerCacheBlock: React.FC<PerCacheBlockProps> = (props) => {
 
     const translateReason = translateDisabledReason
         ?? (text.trim() === '' ? 'Le texte de cette géocache est vide : rien à traduire.' : undefined);
+
+    const improveReason = improveDisabledReason
+        ?? (text.trim() === '' ? 'Le texte de cette géocache est vide : rien à corriger.' : undefined);
 
     // Même cascade que dans le tableau : envoyé, puis DNF, puis déjà trouvée.
     const stateModifier = isSubmittedOk
@@ -239,11 +254,21 @@ export const PerCacheBlock: React.FC<PerCacheBlockProps> = (props) => {
                 >
                     {isTranslating ? '⏳ Traduction…' : '🌐 Traduire'}
                 </button>
-                {canRevertTranslation && (
+                {/* Bouton simple, comme « Traduire » : le mode se choisit une fois dans la barre
+                    de lot, et un menu par bloc serait illisible sur 30 caches. */}
+                <button
+                    className='theia-button secondary geoapp-log-button--compact'
+                    onClick={onImprove}
+                    disabled={isToolbarDisabled || isImproving || improveReason !== undefined}
+                    title={improveReason ?? `${improvementModeLabel} — ce log, avec l'IA`}
+                >
+                    {isImproving ? '⏳ Correction…' : '✨ Corriger'}
+                </button>
+                {canRevertAiEdit && (
                     <button
                         className='theia-button secondary geoapp-log-button--compact'
-                        onClick={onRevertTranslation}
-                        disabled={isTranslating}
+                        onClick={onRevertAiEdit}
+                        disabled={isTranslating || isImproving}
                         title='Restaurer le texte tel qu’il était avant la traduction'
                     >
                         ↩ Original

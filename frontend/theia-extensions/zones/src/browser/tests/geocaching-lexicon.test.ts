@@ -3,7 +3,7 @@ import {
     BUILTIN_GEOCACHING_LEXICON,
     LexiconEntry,
     buildLexiconTranslationBlock,
-    buildLexiconWritingBlock,
+    buildLexiconPreservationBlock,
     findLexiconDeviations,
     findLexiconMentions,
     lexiconTermKey,
@@ -155,7 +155,7 @@ function testEmptyUserEntriesAreIgnored(): void {
 function testNothingDetectedMeansNoBlockAtAll(): void {
     // Un bloc vide coûterait des tokens et diluerait les autres consignes.
     assert.equal(buildLexiconTranslationBlock([], 'Anglais'), '');
-    assert.equal(buildLexiconWritingBlock([], 'Anglais'), '');
+    assert.equal(buildLexiconPreservationBlock([]), '');
 }
 
 function testAKeepEntryAsksToLeaveTheTermAlone(): void {
@@ -180,12 +180,15 @@ function testAMappedEntryWithoutEquivalentFallsBackOnItsGloss(): void {
     assert.match(block, /Premier À Trouver/);
 }
 
-function testTheWritingBlockAsksForTheTermInsteadOfPreservingIt(): void {
-    const block = buildLexiconWritingBlock(findLexiconMentions('PAT et DNF', SAMPLE), 'Anglais');
+function testThePreservationBlockNeverMovesATermToAnotherForm(): void {
+    // Consigne inverse de la traduction : « PAT » doit rester « PAT », et surtout pas devenir
+    // « FTF » — ce bloc sert à corriger des fautes, pas à changer de vocabulaire.
+    const block = buildLexiconPreservationBlock(findLexiconMentions('PAT et DNF', SAMPLE));
 
-    assert.match(block, /Vocabulaire géocaching à employer/);
-    assert.match(block, /« FTF » en Anglais/);
-    assert.match(block, /« DNF ».*écris-le tel quel/);
+    assert.match(block, /à ne corriger ni remplacer ni développer/);
+    assert.match(block, /« PAT »/);
+    assert.match(block, /« DNF »/);
+    assert.ok(!block.includes('FTF'));
 }
 
 // ── Garde-fou ───────────────────────────────────────────────────────────────
@@ -281,7 +284,7 @@ function run(): void {
     testAKeepEntryAsksToLeaveTheTermAlone();
     testAMappedEntryCarriesTheTargetLanguageForm();
     testAMappedEntryWithoutEquivalentFallsBackOnItsGloss();
-    testTheWritingBlockAsksForTheTermInsteadOfPreservingIt();
+    testThePreservationBlockNeverMovesATermToAnotherForm();
     testATranslatedAcronymIsReported();
     testARespectedMappingIsNotReported();
     testAMissedMappingIsReportedWithTheExpectedForm();

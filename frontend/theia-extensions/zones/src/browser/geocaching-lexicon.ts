@@ -340,28 +340,25 @@ export function buildLexiconTranslationBlock(mentions: readonly LexiconEntry[], 
 }
 
 /**
- * Bloc de lexique pour un prompt de **rédaction**. Même vocabulaire, autre consigne : il ne
- * s'agit plus de préserver un terme existant mais d'employer le bon dans la langue de sortie.
+ * Bloc de lexique pour un prompt de **correction** (`log-improver.ts`). Même vocabulaire,
+ * consigne inverse de la traduction : il ne s'agit ni de préserver un terme en changeant de
+ * langue, ni d'en employer un — seulement d'empêcher le modèle de « réparer » un jargon qu'il
+ * prend pour une coquille. Un correcteur développe spontanément TFTC et corrige DNF.
+ *
+ * Aucune langue cible ici, et ce n'est pas un oubli : on ne traduit pas, et la langue du texte
+ * n'est pas connue. Un « PAT » corrigé reste « PAT » ; il ne devient « FTF » que si
+ * l'utilisateur demande une traduction. La glose part quand même : elle évite qu'un sigle soit
+ * pris pour une faute de frappe.
  */
-export function buildLexiconWritingBlock(mentions: readonly LexiconEntry[], targetLanguage: string): string {
+export function buildLexiconPreservationBlock(mentions: readonly LexiconEntry[]): string {
     if (mentions.length === 0) {
         return '';
     }
-    const language = (targetLanguage || '').trim();
-    const languageKey = normalizeLanguageKey(language);
 
-    const lines = mentions.map(entry => {
-        const { expected } = resolveRule(entry, languageKey);
-        const head = `- « ${entry.term} »${glossSuffix(entry)}`;
-        if (entry.policy === 'keep' || !expected) {
-            return `${head} : terme du jargon géocaching, écris-le tel quel.`;
-        }
-        return language
-            ? `${head} : s'écrit « ${expected} » en ${language}.`
-            : `${head} : s'écrit « ${expected} ».`;
-    });
+    const lines = mentions.map(entry => `- « ${entry.term} »${glossSuffix(entry)}`);
 
-    return `**Vocabulaire géocaching à employer :**\n${lines.join('\n')}`;
+    return '**Termes du jargon géocaching repérés dans ce texte — volontaires, à ne corriger '
+        + `ni remplacer ni développer :**\n${lines.join('\n')}`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
