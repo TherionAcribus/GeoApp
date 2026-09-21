@@ -373,6 +373,8 @@ Points d’attention :
   - default 10
   - usage : limite le nombre d’entrées mémorisées dans l’historique.
 
+Les préférences de traduction sont décrites au § 13.
+
 ## 8. Gestion des Points Favoris (PF)
 
 ### 8.1 Récupération des PF disponibles
@@ -516,10 +518,130 @@ Lorsque l'utilisateur tape `@` dans un textarea :
 
 ---
 
+## 13. Traduction IA du log
+
+Permet d’écrire un log dans sa langue puis de le publier dans celle de la cache.
+
+### 13.1 Agent et modèle
+
+Agent interne dédié `geoapp-log-translator` (« GeoApp Traduction de Logs »), déclaré dans
+`geoapp-log-translator-agent.ts`, enregistré via `zones-frontend-module.ts` et listé dans
+`AGENT_MODEL_ROWS` de `geoapp-chat-policy-widget.tsx` sous « Traduction de logs ».
+
+Il est **distinct** de `geoapp-translate-description` : traduire un log court en Markdown est
+une tâche bien plus légère que traduire un listing HTML, et mérite de pouvoir recevoir son
+propre modèle (typiquement un modèle rapide et économique).
+
+L’appel se fait entièrement côté frontend via `LanguageModelService`, comme la génération de
+logs. **Aucune route backend** n’est impliquée : `POST /api/geocaches/<id>/logs/submit` n’a pas
+de notion de langue et n’en a pas besoin.
+
+### 13.2 Moteur
+
+`log-editor/log-translator.ts` — même découpage que `ai-log-generator.ts` (fonctions pures +
+un appel prenant les services en paramètres), dont il réutilise `cleanAiResponse` et
+`NoLanguageModelError`.
+
+| Fonction | Rôle |
+|---|---|
+| `buildTranslationSource` | Texte réellement soumis au modèle (mention de traduction comprise) |
+| `buildLogTranslationPrompt` | Prompt, incluant la liste nommée des `@patterns` à préserver |
+| `extractPatternTokens` / `findLostPatterns` | Garde-fou `@patterns` (§ 13.4) |
+| `assembleTranslation` | Assemblage final selon le mode (remplacer / bilingue) |
+| `translateLogWithAi` | Sélection du modèle, appel, nettoyage, assemblage |
+
+### 13.3 La mention « traduction automatique »
+
+Elle est ajoutée au texte **source, avant l’appel**, et non au résultat après coup. Le modèle
+la traduit donc avec le reste : elle ressort dans la langue cible sans table de correspondance
+ni second appel, et sa présence est garantie puisqu’elle faisait partie de l’entrée. Le prompt
+précise explicitement de traduire aussi cette dernière ligne.
+
+En mode bilingue, `assembleTranslation` reçoit l’original **sans** la mention : celle-ci
+n’apparaît que sous la version traduite.
+
+### 13.4 Garde-fou `@patterns`
+
+Le texte contient des `@patterns` résolus *après* la saisie (§ 9). Un modèle qui traduit
+`@cache_name` en `@nom_cache` casse le pattern **en silence** : le surlignage, le compteur de
+caractères et l’aperçu mentiraient tous les trois.
+
+Deux protections :
+
+1. le prompt liste nommément les patterns connus (`buildPatternsIndex(...).names`) et interdit
+   de les traduire, renommer, supprimer ou changer de casse ;
+2. après l’appel, `findLostPatterns` compare les tokens présents à l’entrée et à la sortie, et
+   le widget avertit en nommant ceux qui ont disparu.
+
+L’avertissement **ne bloque pas** : le texte est sous les yeux de l’utilisateur, qui peut
+revenir à l’original.
+
+### 13.5 Épinglage de la langue
+
+Transposition littérale de l’épinglage de la date : clé `geoApp.logs.pinnedLanguage.v1` dans le
+`StorageService`, **la présence de l’entrée vaut « épinglé »**, `setData(key, undefined)`
+dé-épingle. `loadPinnedLogLanguage()` est appelée en tête de `initializeSession()`, à côté de
+`loadPinnedLogDate()`.
+
+Résolution de la langue courante : langue épinglée → sinon `defaultLanguage` si elle figure
+dans la liste → sinon la première de la liste → sinon rien (liste vide : le sélecteur et le
+bouton Traduire sont désactivés, avec un renvoi vers les préférences).
+
+Comme pour la date, une langue épinglée n’est jamais écrasée par la restauration d’un brouillon
+ou d’une entrée d’historique : `computeDraftApplication` et `computeHistoryApplication`
+reçoivent `isLogLanguagePinned` et renvoient `undefined` (= ne pas toucher) dans ce cas.
+`LogDraft.logLanguage` et `LogHistoryEntry.logLanguage` sont **optionnels** : les brouillons et
+historiques écrits avant la fonctionnalité restent lisibles.
+
+### 13.6 Périmètre dans l’UI
+
+| Emplacement | Élément |
+|---|---|
+| `global-log-editor.tsx` | Sélecteur de langue + punaise (ligne d’en-tête), boutons « 🌐 Traduire » et « ↩ Revenir à l’original » (toolbar) |
+| `per-cache-block.tsx` | « 🌐 Traduire » et « ↩ Original » par bloc |
+| `batch-translation-bar.tsx` | « Traduire tous les blocs » : `ConfirmDialog` annonçant le nombre d’appels, progression `n/N`, bouton Stop. Traitement **séquentiel** ; les blocs vides, ceux en `skip` et ceux déjà envoyés sont ignorés |
+| `ai-generation-panel.tsx` | Rappel de la langue : la génération IA rédige **directement** dans la langue cible (`buildLogGenerationPrompt(..., targetLanguage)`), ce qui donne un meilleur texte que générer en français puis traduire |
+
+Les `deps` du `MemoizedFragment` des blocs par cache incluent `translatingKey === gc.id`,
+`logLanguage` et `preTranslationPerCacheText[gc.id]` : sans cela, le spinner et le bouton de
+retour à l’original n’apparaîtraient pas.
+
+### 13.7 Préférences (catégorie Logs, section « Traduction »)
+
+| Clé | Type | Défaut |
+|---|---|---|
+| `geoApp.logs.translation.languages` | array de chaînes, rendu `string-list` | `["Français","Anglais","Allemand","Espagnol"]` |
+| `geoApp.logs.translation.defaultLanguage` | string | `"Anglais"` |
+| `geoApp.logs.translation.mode` | enum `replace` / `bilingual` | `replace` |
+| `geoApp.logs.translation.addNotice` | boolean | `true` |
+| `geoApp.logs.translation.noticeText` | string | `*Traduction automatique.*` |
+| `geoApp.logs.translation.bilingualSeparator` | string (avancé) | `---` |
+
+Les langues sont des **noms en clair**, pas des codes ISO : c’est ce que le prompt consomme
+directement, et c’est ce qui rend la liste réellement libre (« Breton » fonctionne sans table
+de correspondance). Le rendu `string-list` de la page Préférences est décrit dans
+`documentation/preferences-ajout-rapide.md`.
+
+### 13.8 Points d’attention
+
+- La limite de **4000 caractères** porte sur le texte *résolu*. Une traduction gonfle le texte
+  (~15-20 % vers l’allemand) et le mode bilingue le double : `warnIfTranslationIsTooLong`
+  avertit, le `CharCounter` prend le relais visuellement.
+- Le retour à l’original est une mémoire **d’un seul niveau**, non persistée : elle ne survit
+  pas à la fermeture de l’onglet.
+- Dans « Traduire tous les blocs », une cache qui échoue n’emporte pas le lot — sauf
+  `NoLanguageModelError`, qui ferait échouer toutes les suivantes à l’identique et interrompt
+  donc la boucle.
+- La langue épinglée peut avoir été retirée des préférences depuis : le `<select>` l’ajoute en
+  tête de liste pour ne pas la perdre silencieusement.
+
 ## Références code
 
 - Frontend
   - `theia-blueprint/theia-extensions/zones/src/browser/geocache-log-editor-widget.tsx`
+  - `theia-extensions/zones/src/browser/log-editor/log-translator.ts`
+  - `theia-extensions/zones/src/browser/log-editor/batch-translation-bar.tsx`
+  - `theia-extensions/zones/src/browser/geoapp-log-translator-agent.ts`
 
 - Backend
   - `gc-backend/gc_backend/blueprints/logs.py`

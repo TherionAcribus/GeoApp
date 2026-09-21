@@ -262,6 +262,130 @@ function formatJson(value: unknown, fallback: unknown): string {
     }
 }
 
+/** Valeurs d'une préférence rendue en liste de chaînes libres (les non-chaînes sont ignorées). */
+function stringListValue(value: unknown, fallback: unknown): string[] {
+    return arrayValue(value, fallback).map(entry => String(entry));
+}
+
+/**
+ * Forme comparable d'une entrée de liste libre : deux langues qui ne diffèrent que par la casse
+ * ou les accents sont le même doublon pour l'utilisateur.
+ */
+function stringListKey(entry: string): string {
+    return entry.trim().normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
+}
+
+/**
+ * Liste de chaînes libres, éditable ligne à ligne. Servie aux `array` dont le schéma déclare
+ * `x-ui.widget: "string-list"`, là où le rendu par défaut serait une textarea JSON brute.
+ *
+ * Le champ de saisie tient son propre état : la préférence n'est écrite qu'à la validation,
+ * et `React.memo` sur `PreferenceItem` reste efficace pendant la frappe.
+ */
+const StringListEditor: React.FC<{
+    prefKey: string;
+    entries: string[];
+    onChange: (next: string[]) => void;
+}> = ({ prefKey, entries, onChange }) => {
+    const [draft, setDraft] = React.useState('');
+    const [error, setError] = React.useState<string | undefined>(undefined);
+
+    const add = (): void => {
+        const trimmed = draft.trim();
+        if (!trimmed) {
+            return;
+        }
+        const key = stringListKey(trimmed);
+        if (entries.some(entry => stringListKey(entry) === key)) {
+            setError(`« ${trimmed} » est déjà dans la liste.`);
+            return;
+        }
+        setError(undefined);
+        setDraft('');
+        onChange([...entries, trimmed]);
+    };
+
+    const remove = (index: number): void => {
+        setError(undefined);
+        onChange(entries.filter((_, position) => position !== index));
+    };
+
+    const move = (index: number, delta: number): void => {
+        const target = index + delta;
+        if (target < 0 || target >= entries.length) {
+            return;
+        }
+        const next = [...entries];
+        [next[index], next[target]] = [next[target], next[index]];
+        setError(undefined);
+        onChange(next);
+    };
+
+    return (
+        <div id={prefKey} className='geo-preference-string-list'>
+            {entries.length === 0 && (
+                <p className='geo-preference-string-list-empty'>Aucune entrée.</p>
+            )}
+            {entries.map((entry, index) => (
+                <div key={`${entry}:${index}`} className='geo-preference-string-list-row'>
+                    <span className='geo-preference-string-list-value'>{entry}</span>
+                    <button
+                        type='button'
+                        className='geo-preference-string-list-move'
+                        onClick={() => move(index, -1)}
+                        disabled={index === 0}
+                        title='Monter'
+                        aria-label={`Monter ${entry}`}
+                    >
+                        ▲
+                    </button>
+                    <button
+                        type='button'
+                        className='geo-preference-string-list-move'
+                        onClick={() => move(index, +1)}
+                        disabled={index === entries.length - 1}
+                        title='Descendre'
+                        aria-label={`Descendre ${entry}`}
+                    >
+                        ▼
+                    </button>
+                    <button
+                        type='button'
+                        className='geo-preference-string-list-remove'
+                        onClick={() => remove(index)}
+                        title='Supprimer'
+                        aria-label={`Supprimer ${entry}`}
+                    >
+                        ✕
+                    </button>
+                </div>
+            ))}
+            <div className='geo-preference-string-list-add'>
+                <input
+                    type='text'
+                    value={draft}
+                    placeholder='Ajouter une entrée…'
+                    aria-label='Nouvelle entrée'
+                    aria-invalid={error !== undefined}
+                    onChange={event => { setDraft(event.currentTarget.value); setError(undefined); }}
+                    onKeyDown={event => {
+                        if (event.key === 'Enter') {
+                            event.preventDefault();
+                            add();
+                        }
+                    }}
+                />
+                <button type='button' onClick={add} disabled={draft.trim() === ''}>
+                    Ajouter
+                </button>
+            </div>
+            {error && (
+                <p className='geo-preference-string-list-error' role='alert'>{error}</p>
+            )}
+        </div>
+    );
+};
+
 /**
  * Callbacks stables (référence constante) fournis à chaque PreferenceItem : indispensables
  * pour que React.memo puisse ignorer les items inchangés lors d'un re-render.
@@ -274,6 +398,8 @@ interface PreferenceItemHandlers {
     onCommitNumeric(key: string, definition: GeoPreferenceDefinition): void;
     onDraftKeyDown(event: React.KeyboardEvent<HTMLInputElement>): void;
     onArrayToggle(key: string, option: string | number, checked: boolean, definition: GeoPreferenceDefinition): void;
+    /** Liste complète après ajout, suppression ou déplacement : le calcul reste dans l'éditeur. */
+    onStringListChange(key: string, next: string[]): void;
     onArrayJsonBlur(key: string, rawValue: string): void;
     onObjectJsonBlur(key: string, rawValue: string): void;
     onReset(key: string, definition: GeoPreferenceDefinition): void;
@@ -389,6 +515,15 @@ const PreferenceItem = React.memo(function PreferenceItem(props: PreferenceItemP
         }
 
         if (definition.type === 'array') {
+            if (definition['x-ui']?.widget === 'string-list') {
+                return (
+                    <StringListEditor
+                        prefKey={prefKey}
+                        entries={stringListValue(value, definition.default)}
+                        onChange={next => handlers.onStringListChange(prefKey, next)}
+                    />
+                );
+            }
             const options = definition.items?.enum;
             if (Array.isArray(options)) {
                 const values = arrayValue(value, definition.default);
@@ -514,6 +649,7 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
         onCommitNumeric: (key, definition) => { void this.commitNumericDraft(key, definition); },
         onDraftKeyDown: event => this.handleDraftKeyDown(event),
         onArrayToggle: (key, option, checked, definition) => { void this.handleArrayToggle(key, option, checked, definition); },
+        onStringListChange: (key, next) => { void this.store.setValue(key, next, PreferenceScope.User); },
         onArrayJsonBlur: (key, rawValue) => { void this.handleArrayJsonBlur(key, rawValue); },
         onObjectJsonBlur: (key, rawValue) => { void this.handleObjectJsonBlur(key, rawValue); },
         onReset: (key, definition) => { void this.handleResetPreference(key, definition); },

@@ -72,7 +72,7 @@ Utiliser les deux si elle doit être cohérente des deux côtés :
 "x-targets": ["frontend", "backend"]
 ```
 
-Attention : le backend normalise actuellement surtout les types scalaires (`boolean`, `string`, `integer`, `number`). Pour synchroniser un `array` ou un `object` vers Flask, étendre d'abord `_normalize_value` dans `backend/gc_backend/utils/preferences.py`.
+Le backend normalise les types scalaires (`boolean`, `string`, `integer`, `number`) **ainsi que `array` et `object`** : `_normalize_value` dans `backend/gc_backend/utils/preferences.py` route les tableaux vers `_normalize_array_value` (coercition par `items.type`, contrôle de `items.enum`, dédoublonnage si `uniqueItems`) et laisse passer les objets tels quels. Aucune extension n'est nécessaire pour synchroniser un `array` ou un `object` vers Flask.
 
 ## Lire la préférence côté frontend
 
@@ -127,6 +127,39 @@ Toujours ajouter des libellés humains si les valeurs sont techniques.
   "x-targets": ["frontend"]
 }
 ```
+
+## Choisir le contrôle d'une liste
+
+Le rendu d'un `array` dépend de son schéma :
+
+| Schéma | Contrôle affiché |
+|---|---|
+| `array` + `items.enum` | cases à cocher (une par valeur du catalogue) |
+| `array` + `x-ui.widget: "string-list"` | liste éditable : une ligne par entrée, avec suppression, réordonnancement et champ d'ajout |
+| `array` sans rien de tout ça | zone de texte JSON brute |
+
+Utiliser `string-list` dès que l'utilisateur doit pouvoir saisir des valeurs **libres**, non connues à l'avance :
+
+```json
+"geoApp.logs.translation.languages": {
+  "type": "array",
+  "default": ["Français", "Anglais", "Allemand", "Espagnol"],
+  "items": { "type": "string" },
+  "uniqueItems": true,
+  "title": "Langues de traduction des logs",
+  "description": "Langues proposées dans le menu déroulant de l'éditeur de logs.",
+  "x-ui": {
+    "section": "Traduction",
+    "label": "Langues proposées",
+    "order": 10,
+    "widget": "string-list"
+  },
+  "x-category": "logs",
+  "x-targets": ["frontend"]
+}
+```
+
+Les doublons sont refusés à la saisie, insensiblement à la casse et aux accents. Réserver la zone JSON brute aux structures que l'utilisateur n'édite pas à la main.
 
 ## Ajouter une préférence avancée
 

@@ -2311,6 +2311,199 @@
         "images"
       ]
     },
+    "geoApp.translation.targetLanguage": {
+      "type": "string",
+      "default": "Français",
+      "title": "Langue de traduction des listings",
+      "description": "Langue cible de la traduction IA des descriptions, indices et notes de waypoints d'une géocache. Écrivez le nom de la langue en clair : c'est ce nom qui est envoyé au modèle. Sans rapport avec la traduction des logs, qui a ses propres réglages dans la catégorie Logs.",
+      "x-ui": {
+        "section": "Traduction",
+        "label": "Langue cible des listings",
+        "order": 10,
+        "keywords": [
+          "traduction",
+          "langue",
+          "listing",
+          "description"
+        ]
+      },
+      "x-category": "ai",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "ai"
+      ]
+    },
+    "geoApp.logs.translation.languages": {
+      "type": "array",
+      "default": [
+        "Français",
+        "Anglais",
+        "Allemand",
+        "Espagnol"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true,
+      "title": "Langues de traduction des logs",
+      "description": "Langues proposées dans le menu déroulant de l'éditeur de logs, dans l'ordre d'affichage. Écrivez le nom de la langue en clair (« Néerlandais », « Breton ») : c'est ce nom qui est envoyé au modèle IA.",
+      "x-ui": {
+        "section": "Traduction",
+        "label": "Langues proposées",
+        "order": 10,
+        "widget": "string-list",
+        "keywords": [
+          "logs",
+          "traduction",
+          "langue",
+          "langues"
+        ]
+      },
+      "x-category": "logs",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "logs",
+        "ai"
+      ]
+    },
+    "geoApp.logs.translation.defaultLanguage": {
+      "type": "string",
+      "default": "Anglais",
+      "title": "Langue de traduction par défaut",
+      "description": "Langue présélectionnée dans l'éditeur de logs tant qu'aucune langue n'est épinglée. Si elle ne figure pas dans la liste des langues proposées, la première de la liste est utilisée.",
+      "x-ui": {
+        "section": "Traduction",
+        "label": "Langue par défaut",
+        "order": 20,
+        "keywords": [
+          "logs",
+          "traduction",
+          "langue",
+          "defaut"
+        ]
+      },
+      "x-category": "logs",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "logs",
+        "ai"
+      ]
+    },
+    "geoApp.logs.translation.mode": {
+      "type": "string",
+      "enum": [
+        "replace",
+        "bilingual"
+      ],
+      "default": "replace",
+      "title": "Résultat de la traduction",
+      "description": "« Remplacer » substitue la traduction au texte saisi ; « Bilingue » conserve l'original et empile la traduction en dessous, séparée par un trait. Attention : le mode bilingue double la longueur du log, dont la limite reste de 4000 caractères.",
+      "x-ui": {
+        "section": "Traduction",
+        "label": "Mode de traduction",
+        "order": 30,
+        "enumLabels": {
+          "replace": "Remplacer le texte",
+          "bilingual": "Bilingue (original puis traduction)"
+        },
+        "keywords": [
+          "logs",
+          "traduction",
+          "bilingue",
+          "remplacer"
+        ]
+      },
+      "x-category": "logs",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "logs",
+        "ai"
+      ]
+    },
+    "geoApp.logs.translation.addNotice": {
+      "type": "boolean",
+      "default": true,
+      "title": "Signaler la traduction automatique",
+      "description": "Ajoute au log une mention indiquant qu'il s'agit d'une traduction automatique. La mention est traduite en même temps que le texte, elle apparaît donc dans la langue cible.",
+      "x-ui": {
+        "section": "Traduction",
+        "label": "Mention de traduction automatique",
+        "order": 40,
+        "keywords": [
+          "logs",
+          "traduction",
+          "mention",
+          "automatique"
+        ]
+      },
+      "x-category": "logs",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "logs",
+        "ai"
+      ]
+    },
+    "geoApp.logs.translation.noticeText": {
+      "type": "string",
+      "default": "*Traduction automatique.*",
+      "title": "Texte de la mention de traduction",
+      "description": "Mention ajoutée en fin de log quand « Signaler la traduction automatique » est activé. Écrite en français : elle est envoyée au modèle avec le reste du texte et ressort donc dans la langue cible. Le Markdown est conservé (ici, des astérisques pour l'italique).",
+      "x-ui": {
+        "section": "Traduction",
+        "label": "Texte de la mention",
+        "order": 50,
+        "keywords": [
+          "logs",
+          "traduction",
+          "mention",
+          "texte"
+        ]
+      },
+      "x-category": "logs",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "logs",
+        "ai"
+      ]
+    },
+    "geoApp.logs.translation.bilingualSeparator": {
+      "type": "string",
+      "default": "---",
+      "title": "Séparateur du mode bilingue",
+      "description": "Texte inséré entre la version originale et la traduction en mode bilingue.",
+      "x-ui": {
+        "section": "Traduction",
+        "label": "Séparateur bilingue",
+        "advanced": true,
+        "order": 60,
+        "keywords": [
+          "logs",
+          "traduction",
+          "bilingue",
+          "separateur"
+        ]
+      },
+      "x-category": "logs",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "logs",
+        "ai"
+      ]
+    },
     "geoApp.images.storage.defaultMode": {
       "type": "string",
       "enum": [

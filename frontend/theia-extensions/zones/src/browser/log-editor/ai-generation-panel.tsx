@@ -20,7 +20,9 @@ export const AiGenerationPanel: React.FC<{
     isGenerating: boolean;
     allSubmitted: boolean;
     onGenerate: () => void;
-}> = ({ open, onToggleOpen, keywords, onKeywordsChange, customInstructions, onCustomInstructionsChange, exampleLogs, onExampleLogsChange, isGenerating, allSubmitted, onGenerate }) => (
+    /** Langue dans laquelle le log est rédigé directement. Vide = pas de consigne de langue. */
+    logLanguage: string;
+}> = ({ open, onToggleOpen, keywords, onKeywordsChange, customInstructions, onCustomInstructionsChange, exampleLogs, onExampleLogsChange, isGenerating, allSubmitted, onGenerate, logLanguage }) => (
     <details
         className='geoapp-log-details'
         open={open}
@@ -99,9 +101,15 @@ export const AiGenerationPanel: React.FC<{
                         </>
                     )}
                 </button>
-                {isGenerating && (
+                {isGenerating ? (
                     <span className='geoapp-log-ai__status'>
                         L'IA rédige le log...
+                    </span>
+                ) : logLanguage && (
+                    // La langue du sélecteur pilote aussi la génération : sans ce rappel,
+                    // un log généré en allemand surprendrait.
+                    <span className='geoapp-log-ai__status'>
+                        Rédaction en {logLanguage}
                     </span>
                 )}
             </div>

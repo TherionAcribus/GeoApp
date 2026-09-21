@@ -113,6 +113,7 @@ const AGENT_MODEL_ROWS: GeoAppChatAgentModelRow[] = [
     { id: 'geoapp-translate-description', label: 'Traduction descriptions', kind: 'internal', purpose: 'chat' },
     { id: 'geoapp-logs-analyzer', label: 'Analyse des logs', kind: 'internal', purpose: 'chat' },
     { id: 'geoapp-log-writer', label: 'Rédaction de logs', kind: 'internal', purpose: 'chat' },
+    { id: 'geoapp-log-translator', label: 'Traduction de logs', kind: 'internal', purpose: 'chat' },
     { id: 'geoapp-ai-scorer', label: 'AI Scorer (plugins)', kind: 'internal', purpose: 'chat' },
 ];
 

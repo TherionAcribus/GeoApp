@@ -21,6 +21,12 @@ export type GeoPreferenceDefinition = (typeof schemaJson.properties)[GeoPreferen
         advanced?: boolean;
         keywords?: string[];
         enumLabels?: Record<string, string>;
+        /**
+         * Contrôle dédié à utiliser au lieu du rendu par défaut du type.
+         * `string-list` : liste de chaînes libres, éditable ligne à ligne (ajout, suppression,
+         * réordonnancement) au lieu de la textarea JSON servie aux `array` sans `items.enum`.
+         */
+        widget?: 'string-list';
     };
     title?: string;
     enum?: string[] | number[];

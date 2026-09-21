@@ -165,6 +165,12 @@ L'ordre de rendu (`GeocacheDetailsView`) :
 
 Le résultat est nettoyé (`sanitizeTranslatedHtml` retire les blocs `<think>`/`<analysis>`) puis persisté en overrides ; la variante bascule sur `modified`. Si des overrides existent déjà, une `ConfirmDialog` demande confirmation avant écrasement.
 
+La langue cible vient de la préférence `geoApp.translation.targetLanguage` (catégorie
+*Intelligence artificielle*, section *Traduction*, défaut « Français »), déclarée dans
+`shared/preferences/geo-preferences-schema.json` — elle est donc éditable dans la page
+Préférences et connue d'`@Aide`. Elle n'a rien à voir avec la traduction des **logs**, qui a ses
+propres réglages dans la catégorie *Logs* (voir `docs/LOGS_SYSTEM_TECHNICAL.md` § 13).
+
 ### Chat IA
 
 `GeocacheDetailsChatController` :

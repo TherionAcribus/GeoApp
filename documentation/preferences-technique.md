@@ -192,9 +192,9 @@ Fonctions principales :
 
 Les valeurs backend sont stockées dans `AppConfig` sous la clé complète `geoApp.*`, sérialisées en JSON.
 
-### Limite actuelle côté backend
+### Types supportés côté backend
 
-La normalisation backend gère proprement les types scalaires (`boolean`, `integer`, `number`, `string`) avec enum et bornes. Si une future préférence `array` ou `object` doit être synchronisée avec `backend`, il faut d'abord étendre `_normalize_value` pour préserver le JSON natif.
+La normalisation backend gère les types scalaires (`boolean`, `integer`, `number`, `string`) avec enum et bornes, **ainsi que `array` et `object`** : `_normalize_value` route les tableaux vers `_normalize_array_value` (coercition par `items.type`, contrôle de `items.enum`, dédoublonnage si `uniqueItems`) et laisse passer les objets tels quels, sans validation de `properties`. Une préférence `array`/`object` peut donc déclarer `x-targets: ["frontend", "backend"]` sans travail préalable — c'est déjà le cas de `geoApp.alphabets.favoriteIds`. Couverture : `backend/tests/test_preferences_api.py`.
 
 ## Outils `@Aide`
 
@@ -329,7 +329,7 @@ pytest backend/tests/test_preferences_api.py
 
 - Le schéma partagé est la source de vérité. Ne créer une préférence hardcodée nulle part ailleurs.
 - Ajouter `title` et `x-ui` est obligatoire pour préserver la lisibilité de l'UI et de `@Aide`.
-- Pour une préférence backend, choisir un type actuellement supporté par `_normalize_value`, ou étendre ce normalizer.
+- Pour une préférence backend, vérifier que son type est géré par `_normalize_value` (scalaires, `array`, `object`).
 - Pour une enum technique, ajouter `x-ui.enumLabels`.
 - Pour un nouveau domaine, penser aux guides par usage dans `GeoPreferencesWidget` et `doc-action-tools.ts`.
 - Pour un comportement visible utilisateur, documenter aussi le module fonctionnel concerné.

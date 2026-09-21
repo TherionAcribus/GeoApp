@@ -47,6 +47,7 @@ import {
     GeoAppOutingAnalyzerAgentContribution,
 } from './geoapp-outing-analyzer-agent';
 import { GeoAppLogWriterAgentContribution } from './geoapp-log-writer-agent';
+import { GeoAppLogTranslatorAgentContribution } from './geoapp-log-translator-agent';
 import { GeoAppChatBridge } from './geoapp-chat-bridge';
 import { GeoAppAiToolCatalog } from './geoapp-chat-tool-catalog';
 import { GeoAppChatPolicyService } from './geoapp-chat-policy-service';
@@ -312,6 +313,9 @@ export default new ContainerModule(bind => {
 
     bind(GeoAppLogWriterAgentContribution).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(GeoAppLogWriterAgentContribution);
+
+    bind(GeoAppLogTranslatorAgentContribution).toSelf().inSingletonScope();
+    bind(FrontendApplicationContribution).toService(GeoAppLogTranslatorAgentContribution);
 
     bind(GeoAppChatBridge).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(GeoAppChatBridge);

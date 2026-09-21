@@ -18,7 +18,8 @@ export function buildLogGenerationPrompt(
     keywords: string,
     geocaches: GeocacheListItem[],
     customInstructions: string,
-    exampleLogs: string
+    exampleLogs: string,
+    targetLanguage?: string
 ): string {
     const logTypeLabel = logType === 'found' ? 'trouvaille (Found it)'
         : logType === 'dnf' ? 'non trouvée (Did Not Find)'
@@ -48,6 +49,13 @@ ${geocacheContext}`;
 - Tu peux utiliser du Markdown simple (gras, italique) si approprié.
 - Le log doit faire entre 2 et 6 phrases.
 - NE PAS inclure de signature ou de "TFTC" sauf si demandé dans les instructions.`;
+
+    const language = (targetLanguage || '').trim();
+    if (language) {
+        // Rédiger directement dans la langue cible donne un meilleur texte que rédiger en
+        // français puis traduire, pour le même coût.
+        prompt += `\n- Rédige le log en ${language}.`;
+    }
 
     return prompt;
 }
@@ -79,7 +87,8 @@ export async function generateLogWithAi(
     keywords: string,
     geocaches: GeocacheListItem[],
     customInstructions: string,
-    exampleLogs: string
+    exampleLogs: string,
+    targetLanguage?: string
 ): Promise<string | undefined> {
     const languageModel = await languageModelRegistry.selectLanguageModel({
         agent: agentId,
@@ -91,7 +100,7 @@ export async function generateLogWithAi(
         throw new NoLanguageModelError();
     }
 
-    const prompt = buildLogGenerationPrompt(logType, keywords, geocaches, customInstructions, exampleLogs);
+    const prompt = buildLogGenerationPrompt(logType, keywords, geocaches, customInstructions, exampleLogs, targetLanguage);
 
     const request: UserRequest = {
         messages: [

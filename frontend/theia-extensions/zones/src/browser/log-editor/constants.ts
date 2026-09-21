@@ -32,3 +32,10 @@ export const DNF_TOOLTIP = "Didn't find it — cache non trouvée";
 
 /** Délai avant l'ouverture du menu d'autocomplétion @pattern (cf. refreshPatternAutocomplete). */
 export const PATTERN_AUTOCOMPLETE_DELAY_MS = 120;
+
+/**
+ * Mention de traduction automatique par défaut, en Markdown.
+ * Elle est ajoutée au texte **source** avant l'appel au modèle : elle ressort donc dans la
+ * langue cible, sans table de correspondance ni second appel.
+ */
+export const DEFAULT_TRANSLATION_NOTICE = '*Traduction automatique.*';

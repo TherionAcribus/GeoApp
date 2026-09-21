@@ -197,12 +197,6 @@ export const geoAppPreferenceSchema: PreferenceSchema = {
             ['default', 'enabled', 'disabled'],
             'Overrides par skill (cle = nom de skill). Valeurs : default, enabled, disabled.'),
 
-        // --- Traduction IA ---
-        'geoApp.translation.targetLanguage': {
-            type: 'string',
-            default: 'francais',
-            description: 'Langue cible de la traduction IA des geocaches (ex: francais, anglais, espagnol, allemand).',
-        },
     },
 };
 

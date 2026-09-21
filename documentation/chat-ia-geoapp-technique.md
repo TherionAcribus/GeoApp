@@ -128,6 +128,7 @@ Ces agents ne participent pas au Chat IA : ils permettent uniquement d'assigner 
 | GeoApp Traduction | `geoapp-translate-description` | `geoapp-translate-description-agent.ts` | Traduction HTML des descriptions de géocaches. |
 | GeoApp Logs Analyzer | `geoapp-logs-analyzer` | `geoapp-logs-analyzer-agent.ts` | Analyse des logs de géocaches. |
 | GeoApp Log Writer | `geoapp-log-writer` | `geoapp-log-writer-agent.ts` | Rédaction de logs de géocaches. |
+| GeoApp Log Translator | `geoapp-log-translator` | `geoapp-log-translator-agent.ts` | Traduction du texte d'un log de géocache (Markdown + `@patterns` préservés). |
 | GeoApp AI Scorer | `geoapp-ai-scorer` | `geoapp-ai-scorer-agent.ts` | Scoring IA des résultats de plugins. |
 
 ### AI Scorer - Architecture

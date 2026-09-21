@@ -195,12 +195,14 @@ export function buildHistoryEntry(
     perCacheText: Record<number, string>,
     logType: LogTypeValue,
     perCacheLogType: Record<number, LogTypeValue>,
-    perCacheFavorite: Record<number, boolean>
+    perCacheFavorite: Record<number, boolean>,
+    logLanguage = ''
 ): LogHistoryEntry {
     return {
         id: generateId(),
         createdAt: new Date().toISOString(),
         logDate,
+        logLanguage: logLanguage || undefined,
         useSameTextForAll,
         globalText,
         perCacheText: { ...perCacheText },
@@ -221,12 +223,14 @@ export function buildDraftFromState(
     perCacheLogType: Record<number, LogTypeValue>,
     perCacheFavorite: Record<number, boolean>,
     perCacheSubmitStatus: Record<number, SubmissionStatus>,
-    perCacheSubmitReference: Record<number, string | undefined>
+    perCacheSubmitReference: Record<number, string | undefined>,
+    logLanguage = ''
 ): LogDraft {
     return {
         savedAt: new Date().toISOString(),
         geocacheIds: geocaches.map(gc => gc.id),
         logDate,
+        logLanguage: logLanguage || undefined,
         logType,
         useSameTextForAll,
         globalText,
@@ -268,6 +272,8 @@ export function hasDraftWorthSaving(
 /** État résultant de l'application d'un brouillon. */
 export interface DraftApplicationResult {
     logDate: string;
+    /** Nouvelle langue, ou `undefined` si la langue est épinglée (ne pas changer). */
+    logLanguage?: string;
     logType: LogTypeValue;
     useSameTextForAll: boolean;
     globalText: string;
@@ -289,9 +295,14 @@ export function computeDraftApplication(
     currentPerCacheLogType: Record<number, LogTypeValue>,
     currentPerCacheFavorite: Record<number, boolean>,
     isLogDatePinned: boolean,
-    isValidIsoDate: (value: unknown) => value is string
+    isValidIsoDate: (value: unknown) => value is string,
+    isLogLanguagePinned = false
 ): DraftApplicationResult {
     const logDate = !isLogDatePinned && isValidIsoDate(draft.logDate) ? draft.logDate : currentLogDate;
+    // Même règle que la date : une langue épinglée n'est jamais écrasée par une restauration.
+    const logLanguage = !isLogLanguagePinned && typeof draft.logLanguage === 'string' && draft.logLanguage.trim() !== ''
+        ? draft.logLanguage
+        : undefined;
     const logType = isLogTypeValue(draft.logType) ? draft.logType : currentLogType;
     const useSameTextForAll = draft.useSameTextForAll === true;
     const globalText = typeof draft.globalText === 'string' ? draft.globalText : '';
@@ -321,6 +332,7 @@ export function computeDraftApplication(
 
     return {
         logDate,
+        logLanguage,
         logType,
         useSameTextForAll,
         globalText,
@@ -337,6 +349,8 @@ export function computeDraftApplication(
 export interface HistoryApplicationResult {
     /** Nouvelle date de log, ou `undefined` si la date est épinglée (ne pas changer). */
     logDate?: string;
+    /** Nouvelle langue, ou `undefined` si la langue est épinglée (ne pas changer). */
+    logLanguage?: string;
     logType: LogTypeValue;
     useSameTextForAll: boolean;
     globalText: string;
@@ -349,7 +363,8 @@ export interface HistoryApplicationResult {
 export function computeHistoryApplication(
     entry: LogHistoryEntry,
     currentLogType: LogTypeValue,
-    isLogDatePinned: boolean
+    isLogDatePinned: boolean,
+    isLogLanguagePinned = false
 ): HistoryApplicationResult {
     const safeLogType = isLogTypeValue(entry.logType) ? entry.logType : currentLogType;
 
@@ -367,6 +382,9 @@ export function computeHistoryApplication(
 
     return {
         logDate: !isLogDatePinned ? entry.logDate : undefined,
+        logLanguage: !isLogLanguagePinned && typeof entry.logLanguage === 'string' && entry.logLanguage.trim() !== ''
+            ? entry.logLanguage
+            : undefined,
         logType: safeLogType,
         useSameTextForAll: entry.useSameTextForAll ?? false,
         globalText: entry.globalText ?? '',

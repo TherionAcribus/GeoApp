@@ -57,6 +57,15 @@ export interface PerCacheBlockProps {
     onApplyFormat: (kind: MarkdownFormatKind, placeholder: string) => void;
     onApplyPrefix: (prefix: string, placeholder: string) => void;
 
+    // Traduction IA
+    onTranslate: () => void;
+    /** Non vide quand la traduction est impossible : sert d'infobulle sur le bouton désactivé. */
+    translateDisabledReason?: string;
+    isTranslating: boolean;
+    logLanguage: string;
+    canRevertTranslation: boolean;
+    onRevertTranslation: () => void;
+
     // Bouton "Texte commun"
     globalText: string;
     globalTextExcerpt: string;
@@ -103,6 +112,7 @@ export const PerCacheBlock: React.FC<PerCacheBlockProps> = (props) => {
         formatFavoritePercent, getLogTypeLabel,
         images, isImagesDisabled, isDragOver, onAddFiles, onRemoveImage, onDragOverChange, getPreviewUrl,
         isToolbarDisabled, activeCaretFormat, isEditorActive, onApplyFormat, onApplyPrefix,
+        onTranslate, translateDisabledReason, isTranslating, logLanguage, canRevertTranslation, onRevertTranslation,
         globalText, globalTextExcerpt, onApplyGlobalText, isApplyGlobalTextDisabled, applyGlobalTextTitle,
         text, textareaProps, textareaRef, overlayKey, patternNames, resolvePatternValue,
         onCaretChange, onScrollSync, registerTextarea, registerOverlay,
@@ -218,6 +228,24 @@ export const PerCacheBlock: React.FC<PerCacheBlockProps> = (props) => {
                     onApplyFormat={onApplyFormat}
                     onApplyPrefix={onApplyPrefix}
                 />
+                <button
+                    className='theia-button secondary geoapp-log-button--compact'
+                    onClick={onTranslate}
+                    disabled={isToolbarDisabled || isTranslating || translateDisabledReason !== undefined || text.trim() === ''}
+                    title={translateDisabledReason ?? `Traduire ce log en ${logLanguage} avec l'IA`}
+                >
+                    {isTranslating ? '⏳ Traduction…' : '🌐 Traduire'}
+                </button>
+                {canRevertTranslation && (
+                    <button
+                        className='theia-button secondary geoapp-log-button--compact'
+                        onClick={onRevertTranslation}
+                        disabled={isTranslating}
+                        title='Restaurer le texte tel qu’il était avant la traduction'
+                    >
+                        ↩ Original
+                    </button>
+                )}
                 {globalText.trim() !== '' && (
                     <button
                         className='theia-button secondary geoapp-log-button--compact geoapp-log-cache-block__apply-global'

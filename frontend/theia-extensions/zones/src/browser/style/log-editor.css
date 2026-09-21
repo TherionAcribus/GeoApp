@@ -400,7 +400,7 @@
 
 .geoapp-log-global__row {
     display: grid;
-    grid-template-columns: 190px 220px 1fr;
+    grid-template-columns: 190px 220px 200px 1fr;
     gap: 12px;
     align-items: end;
 }
@@ -419,6 +419,29 @@
 }
 
 .geoapp-log-global__date-input {
+    flex: 1;
+    min-width: 0;
+}
+
+.geoapp-log-batch-translation {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 6px 0;
+}
+
+.geoapp-log-batch-translation__status {
+    font-size: 12px;
+    opacity: 0.8;
+}
+
+.geoapp-log-global__language {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.geoapp-log-global__language-select {
     flex: 1;
     min-width: 0;
 }

@@ -56,6 +56,8 @@ export interface LogHistoryEntry {
     id: string;
     createdAt: string;
     logDate: string;
+    /** Langue de traduction au moment de l'envoi. Absent des entrées écrites avant la fonctionnalité. */
+    logLanguage?: string;
     useSameTextForAll: boolean;
     globalText: string;
     perCacheText: Record<number, string>;
@@ -76,6 +78,8 @@ export interface LogDraft {
     /** Ordre d'affichage/d'envoi au moment de la sauvegarde (il pilote `@cache_count`). */
     geocacheIds: number[];
     logDate: string;
+    /** Langue de traduction au moment de la sauvegarde. Absent des brouillons antérieurs. */
+    logLanguage?: string;
     logType: LogTypeValue;
     useSameTextForAll: boolean;
     globalText: string;
