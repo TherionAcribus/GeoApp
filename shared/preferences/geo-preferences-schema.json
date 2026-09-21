@@ -2255,6 +2255,40 @@
         "frontend"
       ]
     },
+    "geoApp.logs.panelSyncMode": {
+      "type": "string",
+      "enum": [
+        "on-demand",
+        "follow-active"
+      ],
+      "default": "on-demand",
+      "title": "Géocache suivie par le panneau Logs",
+      "description": "Quelle géocache le panneau Logs affiche. « Sur demande » : le panneau ne change de géocache que sur un clic sur « Logs » dans la fiche ; changer d'onglet de géocache laisse les logs en place, et un bandeau propose de passer à la géocache affichée. « Suivre l'onglet actif » : le panneau bascule tout seul sur la géocache de l'onglet au premier plan, et un bandeau permet de revenir aux logs d'une autre géocache ouverte.",
+      "x-ui": {
+        "section": "Chargement",
+        "label": "Géocache suivie par le panneau",
+        "order": 10,
+        "enumLabels": {
+          "on-demand": "Sur demande (clic sur « Logs » dans la fiche)",
+          "follow-active": "Suivre l'onglet de géocache actif"
+        },
+        "keywords": [
+          "logs",
+          "panneau",
+          "suivi",
+          "onglet",
+          "automatique"
+        ]
+      },
+      "x-category": "logs",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "logs",
+        "ui"
+      ]
+    },
     "geoApp.logs.autoFetchTrigger": {
       "type": "string",
       "enum": [

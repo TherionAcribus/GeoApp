@@ -7,6 +7,7 @@
 import * as React from 'react';
 import { injectable, inject, postConstruct } from '@theia/core/shared/inversify';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
+import { StatefulWidget } from '@theia/core/lib/browser';
 import { MessageService } from '@theia/core';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import { LanguageModelRegistry, LanguageModelService, UserRequest, getTextOfResponse, getJsonOfResponse, isLanguageModelParsedResponse } from '@theia/ai-core';
@@ -22,6 +23,15 @@ import {
     LogsRefreshOptions
 } from './geocache-logs-fetch-service';
 import { GeocacheLogDto, LOGS_ANALYSIS_MAX_LOGS, LogsApiResponse } from './geocache-logs-types';
+import { GeocacheDetailsTracker } from './geocache-details-tracker';
+import {
+    describeGeocacheTab,
+    GeocacheTabRef,
+    LOGS_PANEL_SYNC_MODE_PREF,
+    LogsPanelSyncMode,
+    normalizeLogsPanelSyncMode
+} from './geocache-logs-scope';
+import { LogsScopeBanner } from './geocache-logs-scope-banner';
 import { GeocacheLogImagesService, hasPendingImages } from './geocache-log-images-service';
 import { LogImages } from './geocache-log-images';
 import {
@@ -241,13 +251,17 @@ interface LogsListProps {
     onDownloadImages: (log: GeocacheLogDto) => void;
     /** Identifiants des logs dont les photos sont en cours de téléchargement. */
     downloadingImageLogIds: ReadonlySet<number>;
+    /** Récupération sur Geocaching.com, proposée quand rien n'est stocké. */
+    onRefresh: () => void;
+    isRefreshing: boolean;
 }
 
 /**
  * Composant pour afficher la liste des logs
  */
 const LogsList: React.FC<LogsListProps> = ({
-    logs, isLoading, onLoadMore, hasMore, resolveUrl, onDownloadImages, downloadingImageLogIds
+    logs, isLoading, onLoadMore, hasMore, resolveUrl, onDownloadImages, downloadingImageLogIds,
+    onRefresh, isRefreshing
 }) => {
     // Cartes dépliées : hors de `LogItem`, dont le montage dépend du défilement.
     const [expandedLogIds, setExpandedLogIds] = React.useState<ReadonlySet<number>>(new Set());
@@ -257,7 +271,30 @@ const LogsList: React.FC<LogsListProps> = ({
     }
 
     if (logs.length === 0) {
-        return <EmptyState icon='fa-comments' title='Aucun log disponible' />;
+        // « Aucun log » tout court laissait croire à une géocache jamais loguée.
+        // Le plus souvent, rien n'a encore été récupéré depuis Geocaching.com :
+        // c'est ce qu'il faut dire, avec le bouton qui le fait.
+        return (
+            <EmptyState
+                icon='fa-comments'
+                title='Aucun log stocké pour cette géocache'
+                description={
+                    'Les logs sont lus dans la base locale de GeoApp. '
+                    + '« Rafraîchir » va les chercher sur Geocaching.com — '
+                    + "à moins que la géocache n'en ait réellement aucun."
+                }
+                action={
+                    <button
+                        className='geoapp-logs-panel__button'
+                        onClick={onRefresh}
+                        disabled={isRefreshing}
+                    >
+                        <i className={`fa ${isRefreshing ? 'fa-spinner fa-spin' : 'fa-sync-alt'}`} />
+                        {isRefreshing ? 'Rafraîchissement...' : 'Récupérer les logs'}
+                    </button>
+                }
+            />
+        );
     }
 
     return (
@@ -368,7 +405,7 @@ const RemoteLogsBanner: React.FC<RemoteLogsBannerProps> = ({
  * Widget Theia pour afficher les logs d'une géocache
  */
 @injectable()
-export class GeocacheLogsWidget extends ReactWidget {
+export class GeocacheLogsWidget extends ReactWidget implements StatefulWidget {
     static readonly ID = 'geocache.logs.widget';
 
     protected backendBaseUrl = 'http://localhost:8000';
@@ -413,10 +450,20 @@ export class GeocacheLogsWidget extends ReactWidget {
     protected summaryEntries: LogSummaryEntry[] = [];
     protected summaryTotalCount = 0;
     protected isSummaryLoading = false;
+    /**
+     * En mode « suivre l'onglet actif », vrai quand l'utilisateur a demandé une
+     * autre géocache depuis le bandeau.
+     *
+     * Sans ce drapeau, le suivi reprendrait la main au premier changement
+     * d'onglet et le choix explicite ne tiendrait pas une seconde — le bandeau
+     * offre donc un « Reprendre le suivi » plutôt qu'un choix qui s'annule seul.
+     */
+    protected followSuspended = false;
 
     constructor(
         @inject(MessageService) protected readonly messages: MessageService,
         @inject(PreferenceService) protected readonly preferenceService: PreferenceService,
+        @inject(GeocacheDetailsTracker) protected readonly detailsTracker: GeocacheDetailsTracker,
         @inject(GeocacheLogsFetchService) protected readonly logsFetchService: GeocacheLogsFetchService,
         @inject(GeocacheLogsAnalysisService) protected readonly analysisService: GeocacheLogsAnalysisService,
         @inject(GeocacheLogImagesService) protected readonly logImagesService: GeocacheLogImagesService,
@@ -436,11 +483,106 @@ export class GeocacheLogsWidget extends ReactWidget {
     initialize(): void {
         // Écouter les événements de sélection de géocache
         this.addGlobalEventListeners();
+
+        this.toDispose.push(this.detailsTracker.onDidChangeActive(() => this.handleActiveGeocacheChanged()));
+        this.toDispose.push(this.preferenceService.onPreferenceChanged(event => {
+            if (event.preferenceName !== LOGS_PANEL_SYNC_MODE_PREF) {
+                return;
+            }
+            // Changer de mode remet le suivi à zéro : la suspension décrivait
+            // l'ancien réglage.
+            this.followSuspended = false;
+            this.syncWithActiveTab();
+            this.update();
+        }));
     }
 
     protected onAfterAttach(msg: any): void {
         super.onAfterAttach(msg);
+        // `onBeforeDetach` les retire : sans cette reprise, fermer puis rouvrir
+        // le panneau le coupait définitivement des événements globaux — un log
+        // envoyé n'y apparaissait plus. Réenregistrer la même fonction sur le
+        // même type est sans effet, l'appel du `postConstruct` reste donc valide.
+        this.addGlobalEventListeners();
+        this.syncWithActiveTab();
     }
+
+    /**
+     * Le panneau latéral peut être replié sans être détaché : le rouvrir doit
+     * le remettre en phase avec l'onglet actif, sinon il affiche les logs de la
+     * géocache qui était au premier plan au moment du repli.
+     */
+    protected onAfterShow(msg: any): void {
+        super.onAfterShow(msg);
+        this.syncWithActiveTab();
+    }
+
+    /** Mode de suivi courant, tel que la préférence le décrit. */
+    protected getSyncMode(): LogsPanelSyncMode {
+        return normalizeLogsPanelSyncMode(this.preferenceService.get<string>(LOGS_PANEL_SYNC_MODE_PREF));
+    }
+
+    /**
+     * Aligne le panneau sur l'onglet au premier plan, si le réglage le demande.
+     *
+     * Ne fait rien quand le panneau est fermé : charger les logs d'une géocache
+     * que personne ne regarde ne sert à rien et peut coûter un aller-retour vers
+     * Geocaching.com (premier chargement automatique).
+     */
+    protected syncWithActiveTab(): void {
+        if (!this.isAttached || !this.isVisible) {
+            return;
+        }
+        if (this.getSyncMode() !== 'follow-active' || this.followSuspended) {
+            return;
+        }
+        const active = this.detailsTracker.getActive();
+        if (!active || active.geocacheId === this.geocacheId) {
+            return;
+        }
+        this.setGeocache(active);
+    }
+
+    /**
+     * L'onglet au premier plan a changé — ou a changé de géocache.
+     *
+     * En mode « sur demande », rien ne bouge : on se contente de redessiner, le
+     * bandeau ayant désormais quelque chose à dire (les logs affichés ne sont
+     * plus ceux de la géocache consultée).
+     */
+    protected handleActiveGeocacheChanged(): void {
+        const before = this.geocacheId;
+        this.syncWithActiveTab();
+        if (this.geocacheId === before && this.isAttached) {
+            this.update();
+        }
+    }
+
+    /**
+     * Géocache choisie dans le bandeau.
+     *
+     * En mode suivi, choisir une autre géocache que celle du premier plan
+     * suspend le suivi : sans ça, le choix serait défait au prochain changement
+     * d'onglet.
+     */
+    protected showGeocacheFromBanner = (ref: GeocacheTabRef): void => {
+        const active = this.detailsTracker.getActive();
+        this.setGeocache(ref, {
+            suspendFollow: this.getSyncMode() === 'follow-active'
+                && ref.geocacheId !== active?.geocacheId
+        });
+    };
+
+    /** Reprend le suivi de l'onglet actif après un choix manuel. */
+    protected resumeFollow = (): void => {
+        this.followSuspended = false;
+        const active = this.detailsTracker.getActive();
+        if (active && active.geocacheId !== this.geocacheId) {
+            this.setGeocache(active);
+        } else {
+            this.update();
+        }
+    };
 
     protected onBeforeDetach(msg: any): void {
         this.removeGlobalEventListeners();
@@ -485,7 +627,11 @@ export class GeocacheLogsWidget extends ReactWidget {
     /**
      * Définit la géocache dont on veut afficher les logs
      */
-    setGeocache(params: { geocacheId: number; gcCode?: string; name?: string }): void {
+    setGeocache(
+        params: { geocacheId: number; gcCode?: string; name?: string },
+        options: { suspendFollow?: boolean } = {}
+    ): void {
+        this.followSuspended = options.suspendFollow === true;
         this.geocacheId = params.geocacheId;
         this.geocacheCode = params.gcCode;
         this.geocacheName = params.name;
@@ -507,6 +653,39 @@ export class GeocacheLogsWidget extends ReactWidget {
         this.title.label = params.gcCode ? `Logs - ${params.gcCode}` : 'Logs';
 
         void this.loadInitial();
+    }
+
+    /**
+     * Le panneau retrouve sa géocache au redémarrage.
+     *
+     * Sans ça, rouvrir GeoApp laissait un panneau vide alors que l'utilisateur
+     * l'avait délibérément laissé ouvert sur une géocache — et, en mode « sur
+     * demande », rien ne venait le remplir.
+     */
+    storeState(): object | undefined {
+        if (!this.geocacheId) {
+            return undefined;
+        }
+        return {
+            geocacheId: this.geocacheId,
+            gcCode: this.geocacheCode,
+            name: this.geocacheName
+        };
+    }
+
+    restoreState(oldState: object): void {
+        const state = oldState as Partial<{ geocacheId: number; gcCode: string; name: string }> | undefined;
+        if (!state || typeof state.geocacheId !== 'number') {
+            return;
+        }
+        this.setGeocache({ geocacheId: state.geocacheId, gcCode: state.gcCode, name: state.name });
+    }
+
+    /** Identité de la géocache affichée, telle que le bandeau la présente. */
+    protected getCurrentRef(): GeocacheTabRef | undefined {
+        return this.geocacheId
+            ? { geocacheId: this.geocacheId, gcCode: this.geocacheCode, name: this.geocacheName }
+            : undefined;
     }
 
     /**
@@ -1075,6 +1254,26 @@ export class GeocacheLogsWidget extends ReactWidget {
         // l'analyse porte sur les logs stockés (plafonnés), pas sur les 25 que
         // la liste montre au départ.
         const analyzableCount = Math.min(this.storedLogsCount, LOGS_ANALYSIS_MAX_LOGS);
+        const following = this.getSyncMode() === 'follow-active';
+        const activeTab = this.detailsTracker.getActive();
+        const openTabs = this.detailsTracker.getOpenTabs();
+
+        // Un panneau vide doit dire pourquoi il l'est, et ce qui le remplirait —
+        // ce qui dépend du réglage : dans un cas c'est un clic dans la fiche,
+        // dans l'autre il suffit d'ouvrir une géocache.
+        const emptyDescription = following
+            ? (activeTab
+                ? `Chargement des logs de ${describeGeocacheTab(activeTab)}…`
+                : 'Le panneau suit l\'onglet de géocache au premier plan : ouvrez une géocache '
+                    + 'pour voir ses logs.')
+            : (activeTab
+                ? `Cliquez sur « Logs » dans la fiche de ${describeGeocacheTab(activeTab)}, `
+                    + 'ou utilisez le bandeau ci-dessus. Le panneau garde ensuite ces logs '
+                    + "même si vous changez d'onglet."
+                : 'Ouvrez une géocache, puis cliquez sur « Logs » dans sa fiche. Le panneau '
+                    + "garde ensuite ces logs même si vous changez d'onglet — réglable dans "
+                    + 'les préférences, section Logs › Chargement.');
+
         const analyzeTitle = this.storedLogsCount === 0
             ? 'Aucun log stocké à analyser'
             : `Analyser les ${analyzableCount} log${analyzableCount > 1 ? 's' : ''} `
@@ -1156,10 +1355,26 @@ export class GeocacheLogsWidget extends ReactWidget {
                     )}
                 </div>
 
+                {/* Quelle géocache ce panneau affiche, et comment en changer */}
+                <LogsScopeBanner
+                    current={this.getCurrentRef()}
+                    active={activeTab}
+                    openTabs={openTabs}
+                    following={following}
+                    followSuspended={this.followSuspended}
+                    onShow={this.showGeocacheFromBanner}
+                    onResumeFollow={this.resumeFollow}
+                />
+
                 {/* Message si pas de géocache sélectionnée */}
                 {!this.geocacheId ? (
                     <div className='geoapp-logs-panel__empty'>
-                        <EmptyState fullHeight icon='fa-comments' title='Sélectionnez une géocache pour voir ses logs' />
+                        <EmptyState
+                            fullHeight
+                            icon='fa-comments'
+                            title='Aucune géocache affichée'
+                            description={emptyDescription}
+                        />
                     </div>
                 ) : (
                     <>
@@ -1202,6 +1417,8 @@ export class GeocacheLogsWidget extends ReactWidget {
                                 resolveUrl={this.resolveUrl}
                                 onDownloadImages={this.downloadLogImages}
                                 downloadingImageLogIds={this.downloadingImageLogIds}
+                                onRefresh={() => void this.refreshLogs()}
+                                isRefreshing={this.isRefreshing}
                             />
                         </div>
                     </>

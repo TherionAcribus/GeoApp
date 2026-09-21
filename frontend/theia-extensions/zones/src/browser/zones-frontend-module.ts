@@ -9,6 +9,7 @@ import { ZonesCommandContribution } from './zones-command-contribution';
 import { ZoneGeocachesWidget } from './zone-geocaches-widget';
 import { GeocacheDetailsWidget } from './geocache-details-widget';
 import { GeocacheLogsWidget } from './geocache-logs-widget';
+import { GeocacheDetailsTracker } from './geocache-details-tracker';
 import { GeocacheLogsFetchService } from './geocache-logs-fetch-service';
 import { GeocacheLogsAnalysisService } from './geocache-logs-analysis-service';
 import { GeocacheLogImagesService } from './geocache-log-images-service';
@@ -114,6 +115,7 @@ export default new ContainerModule(bind => {
     bind(OutingPlanService).toSelf().inSingletonScope();
     bind(OutingPlanCaptureService).toSelf().inSingletonScope();
     bind(GeocacheDetailsService).toSelf().inSingletonScope();
+    bind(GeocacheDetailsTracker).toSelf().inSingletonScope();
     bind(GeocacheLogsFetchService).toSelf().inSingletonScope();
     bind(GeocacheLogsAnalysisService).toSelf().inSingletonScope();
     bind(GeocacheLogImagesService).toSelf().inSingletonScope();

@@ -700,3 +700,84 @@
     display: flex;
     flex: 1;
 }
+
+/* ------------------------------------------- Portée du panneau (géocache) */
+
+/*
+ * Bandeau qui dit quelle géocache le panneau affiche. Volontairement plus
+ * discret que le bandeau « il reste des logs » : celui-ci est permanent dès
+ * qu'une seconde géocache est ouverte, l'autre appelle une décision.
+ */
+.geoapp-logs-scope-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 8px 12px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 6px;
+    background: var(--theia-editor-background);
+    flex-shrink: 0;
+}
+
+/* Les logs affichés ne sont pas ceux de la géocache consultée : ça se voit. */
+.geoapp-logs-scope-banner--mismatch {
+    border-left: 4px solid var(--theia-editorWarning-foreground, var(--theia-focusBorder));
+}
+
+.geoapp-logs-scope-banner__text {
+    font-size: 12px;
+    opacity: 0.9;
+}
+
+.geoapp-logs-scope-banner__text > .fa {
+    margin-right: 8px;
+    opacity: 0.8;
+}
+
+.geoapp-logs-scope-banner__actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.geoapp-logs-scope-banner__button {
+    padding: 4px 10px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    background: var(--theia-button-secondaryBackground, var(--theia-editor-background));
+    color: var(--theia-button-secondaryForeground, var(--theia-foreground));
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.geoapp-logs-scope-banner__button--primary {
+    border-color: transparent;
+    background: var(--theia-button-background);
+    color: var(--theia-button-foreground);
+}
+
+.geoapp-logs-scope-banner__button > .fa {
+    margin-right: 6px;
+}
+
+.geoapp-logs-scope-banner__picker {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    opacity: 0.9;
+}
+
+.geoapp-logs-scope-banner__picker select {
+    max-width: 180px;
+    padding: 3px 6px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 4px;
+    background: var(--theia-editor-background);
+    color: var(--theia-foreground);
+    font-size: 12px;
+}

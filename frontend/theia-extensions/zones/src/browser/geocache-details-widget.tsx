@@ -24,6 +24,11 @@ import {
     GeocacheDetailsContentController
 } from './geocache-details-content-controller';
 import { GeocacheDetailsNavigationController } from './geocache-details-navigation-controller';
+import {
+    GEOCACHE_DETAILS_TAB_CHANGED_EVENT,
+    GeocacheDetailsTabChangedDetail
+} from './geocache-details-tracker';
+import { GeocacheTabRef } from './geocache-logs-scope';
 import { GeocacheDetailsNotesController } from './geocache-details-notes-controller';
 import {
     CheckerLinkOpenMode,
@@ -92,6 +97,8 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
     static readonly ID = 'geocache.details.widget';
 
     protected geocacheId?: number;
+    /** Nom connu à l'ouverture, en attendant que la fiche soit chargée. */
+    protected pendingName?: string;
     protected data?: GeocacheDto;
     protected isLoading = false;
     protected notesCount: number | undefined;
@@ -673,8 +680,43 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
         };
     }
 
+    /**
+     * Identité de la géocache de cet onglet, pour les panneaux qui la suivent
+     * (panneau Logs). Le code et le nom ne sont connus qu'une fois la fiche
+     * chargée : d'ici là, seul l'identifiant est sûr — et le nom passé à
+     * l'ouverture, quand l'appelant le connaissait déjà.
+     */
+    getGeocacheRef(): GeocacheTabRef | undefined {
+        if (!this.geocacheId) {
+            return undefined;
+        }
+        const loaded = this.data?.id === this.geocacheId ? this.data : undefined;
+        return {
+            geocacheId: this.geocacheId,
+            gcCode: loaded?.gc_code,
+            name: loaded?.name ?? this.pendingName
+        };
+    }
+
+    /**
+     * Signale le changement de géocache de cet onglet.
+     *
+     * Le shell ne dit rien quand un onglet change de contenu sans changer de
+     * place — ce que fait précisément le remplacement intelligent.
+     */
+    protected notifyTabChanged(): void {
+        if (typeof window === 'undefined' || !this.id) {
+            return;
+        }
+        window.dispatchEvent(new CustomEvent<GeocacheDetailsTabChangedDetail>(
+            GEOCACHE_DETAILS_TAB_CHANGED_EVENT,
+            { detail: { widgetId: this.id } }
+        ));
+    }
+
     setGeocache(context: { geocacheId: number; name?: string }): void {
         this.geocacheId = context.geocacheId;
+        this.pendingName = context.name;
         // Un onglet déjà affiché est considéré comme consulté d'emblée ; un
         // onglet pas encore attaché le devient via `onActivateRequest`.
         this.consultedSinceSetGeocache = this.isVisible;
@@ -692,6 +734,7 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
             this.title.label = `Géocache - ${this.geocacheId}`;
         }
         this.setupMinOpenTimeTimer();
+        this.notifyTabChanged();
         this.update();
         this.load();
     }
@@ -840,6 +883,9 @@ export class GeocacheDetailsWidget extends ReactWidget implements StatefulWidget
                 this.descriptionVariantGeocacheId = geocacheId;
             }
             this.title.label = `Géocache - ${this.data?.name ?? this.data?.gc_code ?? geocacheId}`;
+            // Le code GC et le nom n'étaient pas connus au `setGeocache` : les
+            // panneaux qui suivent cet onglet peuvent enfin les afficher.
+            this.notifyTabChanged();
 
             // Données principales prêtes : on masque l'overlay et on rend une seule fois.
             // Les chargements secondaires partent ensuite en parallèle ; leurs préfixes

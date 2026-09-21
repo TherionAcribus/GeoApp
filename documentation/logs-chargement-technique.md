@@ -53,6 +53,89 @@ La case en bas à droite est un filet de sécurité volontaire : en mode
 (depuis le tableau des géocaches), ou après une tâche de fond en échec. Ouvrir le
 panneau Logs, c'est de toute façon demander à voir les logs.
 
+## Quelle géocache le panneau Logs affiche
+
+Le panneau Logs est un panneau latéral : il survit aux onglets, et rien ne le
+rattache à celui du premier plan. Il ne changeait donc de géocache que sur un
+clic sur « Logs » dans la fiche — et, au redémarrage, il rouvrait vide, sans rien
+dire de ce qui le remplirait.
+
+Trois corrections tiennent ensemble.
+
+### La préférence
+
+| Clé | Valeurs | Défaut |
+|---|---|---|
+| `geoApp.logs.panelSyncMode` | `on-demand`, `follow-active` | `on-demand` |
+
+- **`on-demand`** — le panneau ne change de géocache que sur demande explicite.
+  Changer d'onglet de géocache laisse les logs en place ; le bandeau de portée
+  annonce le décalage et propose de rattraper.
+- **`follow-active`** — le panneau bascule tout seul sur la géocache de l'onglet
+  au premier plan. Le bandeau reste le chemin vers les logs d'une autre géocache
+  ouverte.
+
+Le défaut conserve le comportement historique : un panneau qui se mettrait à
+suivre les onglets sans prévenir ferait disparaître des logs qu'on venait de
+charger.
+
+### Le bandeau de portée
+
+`resolveLogsScope()` (`geocache-logs-scope.ts`, sans React ni Theia) décide seul
+de ce que le bandeau montre :
+
+| Situation | Ce que dit le bandeau |
+|---|---|
+| logs ≠ géocache au premier plan | le décalage, et « Afficher les logs de GCxxx » |
+| mode suivi, une autre géocache choisie | « suivi suspendu », et « Reprendre le suivi » |
+| d'autres géocaches ouvertes | un menu vers leurs logs |
+| rien de tout ça | **rien** — le composant ne rend pas de bandeau |
+
+Le dernier cas est le plus important : le panneau est permanent, et un bandeau
+qui ne dit rien mangerait de la hauteur à chaque log affiché.
+
+Choisir une géocache autre que celle du premier plan **suspend** le suivi
+(`followSuspended`). Sans ce drapeau, le choix serait défait au prochain
+changement d'onglet : l'utilisateur cliquerait sur une géocache pour la voir
+disparaître aussitôt.
+
+### Le suivi de l'onglet actif
+
+`GeocacheDetailsTracker` répond aux deux questions dont le panneau a besoin :
+quel onglet est au premier plan, et lesquels sont ouverts. Il ne connaît pas
+`GeocacheDetailsWidget` — il reconnaît un onglet à sa méthode `getGeocacheRef()`,
+ce qui évite un cycle d'imports entre la fiche et les panneaux qui la suivent.
+
+Deux sources, parce qu'aucune ne suffit seule :
+
+- `ApplicationShell.onDidChangeCurrentWidget`, pour le changement d'onglet. Un
+  panneau latéral qui prend le focus n'y change rien : seul un onglet de fiche
+  remplace l'onglet retenu ;
+- l'événement `geoapp-geocache-details-tab-changed`, émis par la fiche, pour le
+  changement **de géocache sans changement d'onglet**. C'est exactement ce que
+  fait le remplacement intelligent (`geoApp.ui.tabs.categories.geocache`), et le
+  shell n'en dit rien.
+
+La synchronisation ne part jamais sur un panneau fermé ou replié : ouvrir les
+logs d'une géocache que personne ne regarde peut coûter un aller-retour vers
+Geocaching.com (premier chargement automatique). `onAfterAttach` et `onAfterShow`
+rattrapent donc le retard à la réouverture.
+
+### Le panneau vide
+
+Trois états vides, trois messages — là où il n'y avait qu'un « Aucun log
+disponible » qui laissait croire à une géocache jamais loguée :
+
+| État | Ce qui est affiché |
+|---|---|
+| aucune géocache | ce qui remplirait le panneau, selon le mode réglé |
+| géocache sans log stocké | que les logs se lisent en local, et un bouton « Récupérer les logs » |
+| géocache au premier plan différente | le bandeau de portée |
+
+Le panneau est aussi devenu un `StatefulWidget` : il retrouve sa géocache au
+redémarrage. C'est ce qui manquait le plus en mode `on-demand`, où rien ne vient
+remplir un panneau vide.
+
 ## Pagination du logbook
 
 L'API interne `seek/geocache.logbook` pagine par `idx` (**numéro de page**
@@ -225,7 +308,10 @@ panneau sache qu'il reste des logs **sans avoir à rescraper d'abord**.
 | Fichier | Rôle |
 |---|---|
 | `geocache-logs-fetch-service.ts` | Lecture des préférences, règle de déclenchement, mémoire de session, file d'attente, appels à `/logs/refresh`. Partagé par les deux déclencheurs. |
-| `geocache-logs-widget.tsx` | Panneau Logs : chargement initial, bandeau « il en reste », rafraîchissement manuel, déclenchement de l'analyse IA. |
+| `geocache-logs-widget.tsx` | Panneau Logs : chargement initial, bandeau « il en reste », rafraîchissement manuel, déclenchement de l'analyse IA, suivi de l'onglet actif et persistance de la géocache affichée. |
+| `geocache-details-tracker.ts` | Quel onglet de fiche est au premier plan, et lesquels sont ouverts. Reconnaît un onglet à `getGeocacheRef()`, sans dépendre de la fiche. |
+| `geocache-logs-scope.ts` | Décision du bandeau de portée et lecture du mode de suivi. Fonctions pures, sans React ni Theia. |
+| `geocache-logs-scope-banner.tsx` | Rendu du bandeau : décalage annoncé, reprise du suivi, menu des autres géocaches ouvertes. |
 | `geocache-log-images-service.ts` | Préférence de téléchargement, file d'attente sérialisée, mémoire des logs déjà tentés, appels à `/images/store`. |
 | `geocache-log-images.tsx` | Vignettes, bandeau « N photos jointes » avec bouton, visionneuse modale (flèches, Échap). |
 | `geocache-details-widget.tsx` | `autoFetchLogsInBackground()`, branché sur `loadLogsSummary()`. |
@@ -496,6 +582,13 @@ bien 0 %.
 `frontend/theia-extensions/zones/src/browser/tests/geocache-log-images.test.ts` :
 quelles photos restent à télécharger, y compris sur un log partiellement stocké.
 
+`frontend/theia-extensions/zones/src/browser/tests/geocache-logs-scope.test.ts` :
+bandeau muet quand il n'a rien à dire, décalage détecté (panneau vide compris),
+onglet fermé qui ne donne rien à rattraper, « Reprendre le suivi » réservé au
+mode suivi suspendu, géocache affichée jamais proposée comme destination (deux
+onglets sur la même cache compris), libellé qui retombe du code GC sur le nom
+puis sur l'identifiant, mode de suivi inconnu qui retombe sur `on-demand`.
+
 `frontend/theia-extensions/zones/src/browser/tests/geocache-logs-analysis-prompt.test.ts` :
 périmètre annoncé au modèle et avertissement d'échantillon partiel (absent quand
 l'analyse voit tout), hint présent ou dit absent, coupe d'un log long sur une
@@ -521,6 +614,10 @@ frontière de mot, demande de Markdown.
 - `backend/gc_backend/geocaches/image_storage.py` (racine `log_images`, paramètre `root`)
 - `frontend/theia-extensions/zones/src/browser/geocache-logs-fetch-service.ts`
 - `frontend/theia-extensions/zones/src/browser/geocache-logs-widget.tsx`
+- `frontend/theia-extensions/zones/src/browser/geocache-details-tracker.ts`
+- `frontend/theia-extensions/zones/src/browser/geocache-logs-scope.ts` (`resolveLogsScope()`,
+  `normalizeLogsPanelSyncMode()`)
+- `frontend/theia-extensions/zones/src/browser/geocache-logs-scope-banner.tsx`
 - `frontend/theia-extensions/zones/src/browser/geocache-logs-analysis-service.ts`
 - `frontend/theia-extensions/zones/src/browser/geocache-logs-analysis-prompt.ts`
 - `frontend/theia-extensions/zones/src/browser/geocache-logs-analysis-view.tsx`
