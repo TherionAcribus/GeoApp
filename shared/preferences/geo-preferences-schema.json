@@ -2325,6 +2325,32 @@
         "network"
       ]
     },
+    "geoApp.logs.closeEditorAfterSubmit": {
+      "type": "boolean",
+      "default": false,
+      "title": "Fermer l'onglet après l'envoi des logs",
+      "description": "Ferme automatiquement l'onglet d'édition de logs quand tout le lot est publié sur Geocaching.com. Une notification récapitule alors les logs publiés, la date de visite et les géocaches laissées de côté. L'onglet reste ouvert dès qu'un envoi échoue ou qu'il reste des géocaches à envoyer : c'est le seul endroit où ce travail existe encore.",
+      "x-ui": {
+        "section": "Envoi",
+        "label": "Fermer l'onglet après l'envoi",
+        "order": 50,
+        "keywords": [
+          "logs",
+          "envoi",
+          "fermer",
+          "onglet",
+          "publication"
+        ]
+      },
+      "x-category": "logs",
+      "x-targets": [
+        "frontend"
+      ],
+      "x-tags": [
+        "logs",
+        "ui"
+      ]
+    },
     "geoApp.logs.downloadImages": {
       "type": "boolean",
       "default": true,

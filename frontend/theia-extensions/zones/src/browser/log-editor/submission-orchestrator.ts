@@ -6,6 +6,7 @@
  * boucle reste dans le widget car elle mute trop d'état.
  */
 
+import { formatIsoDateFr } from './helpers';
 import { GeocacheListItem, LogTypeValue } from './types';
 import { GC_LOG_MAX_LENGTH } from './constants';
 
@@ -128,4 +129,68 @@ export function buildSubmitSummaryMessage(
 /** Construit le message d'interruption de lot. */
 export function buildStopMessage(remaining: number): string {
     return `Envoi interrompu : ${remaining} géocache(s) non envoyée(s), conservée(s) dans le brouillon.`;
+}
+
+/** Préférence : fermer l'onglet d'édition de logs quand tout le lot est publié. */
+export const CLOSE_EDITOR_AFTER_SUBMIT_PREF = 'geoApp.logs.closeEditorAfterSubmit';
+
+/** Nombre de codes GC nommés dans le récapitulatif de fermeture avant de passer à « +N ». */
+const CLOSE_SUMMARY_MAX_CODES = 6;
+
+/** État de fin de lot dont dépend la fermeture de l'onglet. */
+export interface CloseAfterSubmitDecision {
+    /** Valeur de la préférence `geoApp.logs.closeEditorAfterSubmit`. */
+    enabled: boolean;
+    /** Logs publiés pendant ce lot. */
+    ok: number;
+    /** Logs en échec pendant ce lot. */
+    failed: number;
+    /** Géocaches encore à envoyer après le lot (arrêt demandé, lot incomplet…). */
+    remainingToSubmit: number;
+}
+
+/**
+ * Faut-il fermer l'onglet après l'envoi ?
+ *
+ * Seulement quand il ne reste rien à faire dedans : au moins un log publié, aucun
+ * échec, plus aucune géocache en attente. Un échec ou un reste de lot ne vit que
+ * dans cet onglet (statuts par ligne, messages d'erreur) — le fermer perdrait la
+ * seule trace de ce qui n'est pas parti.
+ */
+export function shouldCloseEditorAfterSubmit(decision: CloseAfterSubmitDecision): boolean {
+    return decision.enabled
+        && decision.ok > 0
+        && decision.failed === 0
+        && decision.remainingToSubmit === 0;
+}
+
+/** Récapitulatif d'un lot publié, à afficher quand l'onglet se ferme. */
+export interface CloseAfterSubmitSummary {
+    /** Logs publiés. */
+    ok: number;
+    /** Date de visite du lot (`YYYY-MM-DD`). */
+    logDate: string;
+    /** Codes GC des géocaches effectivement publiées. */
+    gcCodes: string[];
+    /** Géocaches restées en « Ne pas loguer » ou déjà loguées sur Geocaching.com. */
+    notLoggedCount: number;
+}
+
+/**
+ * Message de la notification qui remplace l'onglet fermé.
+ *
+ * L'écran disparaît : le récapitulatif nomme donc les géocaches publiées et la
+ * date de visite, seuls éléments qu'on ne peut plus aller relire.
+ */
+export function buildCloseAfterSubmitMessage(summary: CloseAfterSubmitSummary): string {
+    const codes = summary.gcCodes.slice(0, CLOSE_SUMMARY_MAX_CODES).join(', ');
+    const more = summary.gcCodes.length > CLOSE_SUMMARY_MAX_CODES
+        ? `, +${summary.gcCodes.length - CLOSE_SUMMARY_MAX_CODES}`
+        : '';
+    const codesPart = codes ? ` : ${codes}${more}` : '';
+    const count = summary.ok === 1 ? '1 log publié' : `${summary.ok} logs publiés`;
+    const notLoggedPart = summary.notLoggedCount > 0
+        ? ` ${summary.notLoggedCount} géocache(s) non loguée(s).`
+        : '';
+    return `${count} sur Geocaching.com le ${formatIsoDateFr(summary.logDate)}${codesPart}.${notLoggedPart} Onglet de logs fermé.`;
 }

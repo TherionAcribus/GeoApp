@@ -50,11 +50,14 @@ import {
     resetImageForUpload,
 } from './log-editor/image-manager';
 import {
+    CLOSE_EDITOR_AFTER_SUBMIT_PREF,
+    buildCloseAfterSubmitMessage,
     buildLogSubmissionPayload,
     buildMissingTextWarning,
     buildStopMessage,
     buildSubmitSummaryMessage,
     buildTooLongTextWarning,
+    shouldCloseEditorAfterSubmit,
     validateSubmissionTexts,
 } from './log-editor/submission-orchestrator';
 import { SubmitProgress } from './log-editor/submit-progress';
@@ -2018,6 +2021,10 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         let processed = 0;
         /** "Envoyer sans les photos" appliqué au reste du lot : on ne redemande plus. */
         let sendWithoutImagesForBatch = false;
+        /** Codes GC réellement publiés : récapitulatif de la notification si l'onglet se ferme. */
+        const submittedCodes: string[] = [];
+        /** Fermeture de l'onglet décidée en fin de lot, exécutée après la remise à zéro de l'état. */
+        let closeAfterSubmit = false;
 
         try {
             for (const gc of this.geocaches) {
@@ -2074,6 +2081,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 const result = await submitOneLog(this.backendBaseUrl, gc.id, payload);
                 if (result.ok) {
                     ok += 1;
+                    submittedCodes.push(gc.gc_code);
                     this.perCacheSubmitStatus = { ...this.perCacheSubmitStatus, [gc.id]: 'ok' };
                     this.perCacheSubmitReference = { ...this.perCacheSubmitReference, [gc.id]: result.logReferenceCode };
                     this.perCacheSubmitError = { ...this.perCacheSubmitError, [gc.id]: undefined };
@@ -2145,11 +2153,26 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                 await this.persistDraft();
             }
             const notLogged = this.geocaches.filter(gc => this.isGeocacheSkipped(gc.id)).length;
-            const summary = buildSubmitSummaryMessage(ok, failed, notLogged);
-            if (summary.isError) {
-                this.messages.warn(summary.text);
+            closeAfterSubmit = shouldCloseEditorAfterSubmit({
+                enabled: this.preferenceService.get<boolean>(CLOSE_EDITOR_AFTER_SUBMIT_PREF, false) === true,
+                ok,
+                failed,
+                remainingToSubmit: this.getGeocachesToSubmit().length,
+            });
+            if (closeAfterSubmit) {
+                // La page s'en va : cette notification est tout ce qui reste du lot,
+                // elle ne s'efface donc pas d'elle-même (`timeout: 0`).
+                this.messages.info(
+                    buildCloseAfterSubmitMessage({ ok, logDate: this.logDate, gcCodes: submittedCodes, notLoggedCount: notLogged }),
+                    { timeout: 0 }
+                );
             } else {
-                this.messages.info(summary.text);
+                const summary = buildSubmitSummaryMessage(ok, failed, notLogged);
+                if (summary.isError) {
+                    this.messages.warn(summary.text);
+                } else {
+                    this.messages.info(summary.text);
+                }
             }
 
             const remaining = toSubmit.length - processed;
@@ -2161,6 +2184,12 @@ export class GeocacheLogEditorWidget extends ReactWidget {
             this.stopRequested = false;
             this.submitProgress = undefined;
             this.update();
+        }
+
+        // Après le `finally` : l'onglet se ferme sur un état d'envoi propre, brouillon
+        // déjà supprimé, et `onCloseRequest` n'a plus rien à écrire.
+        if (closeAfterSubmit) {
+            this.close();
         }
     }
 
