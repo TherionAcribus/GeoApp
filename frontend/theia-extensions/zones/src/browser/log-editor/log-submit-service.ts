@@ -37,20 +37,95 @@ export interface SubmitLogResult {
     error?: string;
 }
 
-/** Upload une seule image vers le backend. */
-export async function uploadOneLogImage(
+/** Dimension maximale (px) du grand côté d'une photo envoyée : au-delà, on réduit côté client. */
+const IMAGE_MAX_DIMENSION_PX = 1600;
+
+/** Qualité JPEG de ré-encodage des photos réduites. */
+const IMAGE_JPEG_QUALITY = 0.85;
+
+/** En dessous de cette taille, ré-encoder ne vaut pas le coût de décodage : on envoie tel quel. */
+const IMAGE_COMPRESS_MIN_BYTES = 1 * 1024 * 1024;
+
+/** Marge sous la limite backend (10 Mio) : au-delà on ré-encode même un JPEG déjà aux bonnes dimensions. */
+const IMAGE_MAX_SAFE_BYTES = 9 * 1024 * 1024;
+
+/** Délai avant timeout d'un upload de photo (ms) : payload binaire, plus long qu'un envoi de log. */
+const IMAGE_UPLOAD_TIMEOUT_MS = 60_000;
+
+/** Délai avant un retry réseau (ms) : assez court pour ne pas bloquer l'utilisateur, assez long pour laisser le réseau revenir. */
+const SUBMIT_RETRY_DELAY_MS = 1_500;
+
+/**
+ * Réduit une photo avant envoi : borne le grand côté à IMAGE_MAX_DIMENSION_PX et
+ * ré-encode en JPEG. Les photos de smartphone dépassent régulièrement la limite
+ * backend de 10 Mio (413) et plombent l'upload sur réseau lent.
+ *
+ * En cas d'échec de décodage, ou si le résultat n'est pas plus petit que l'original,
+ * on renvoie le fichier d'origine : la compression ne doit jamais bloquer l'envoi.
+ */
+async function compressImageForUpload(file: File): Promise<File> {
+    if (file.size <= IMAGE_COMPRESS_MIN_BYTES) {
+        return file;
+    }
+    try {
+        const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+        try {
+            const scale = Math.min(1, IMAGE_MAX_DIMENSION_PX / Math.max(bitmap.width, bitmap.height));
+            if (scale >= 1 && file.type === 'image/jpeg' && file.size <= IMAGE_MAX_SAFE_BYTES) {
+                return file;
+            }
+            const width = Math.max(1, Math.round(bitmap.width * scale));
+            const height = Math.max(1, Math.round(bitmap.height * scale));
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+                return file;
+            }
+            // JPEG n'a pas de canal alpha : fond blanc pour les PNG/WebP transparents.
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, width, height);
+            ctx.drawImage(bitmap, 0, 0, width, height);
+            const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/jpeg', IMAGE_JPEG_QUALITY));
+            if (!blob || blob.size >= file.size) {
+                return file;
+            }
+            const name = `${file.name.replace(/\.[^.]+$/, '')}.jpg`;
+            return new File([blob], name, { type: 'image/jpeg', lastModified: file.lastModified });
+        } finally {
+            bitmap.close();
+        }
+    } catch (e) {
+        console.warn('[log-submit-service] compression image impossible, envoi du fichier original', e);
+        return file;
+    }
+}
+
+/**
+ * Tente un upload de photo avec timeout.
+ *
+ * Même convention que `submitOneLogWithTimeout` : `{ retriable: true }` quand le backend
+ * n'a pas répondu (réseau coupé ou timeout). Le retry peut créer une photo orpheline
+ * côté Geocaching.com si le premier envoi avait en fait abouti — sans conséquence,
+ * seul le GUID retourné est rattaché au log.
+ */
+async function uploadOneLogImageWithTimeout(
     backendBaseUrl: BackendBaseUrl,
     geocacheId: number,
-    img: SelectedLogImage
-): Promise<SelectedLogImage> {
+    file: File
+): Promise<{ retriable: true } | { retriable: false; result: Pick<SelectedLogImage, 'status' | 'imageGuid' | 'error'> }> {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), IMAGE_UPLOAD_TIMEOUT_MS);
     try {
         const form = new FormData();
-        form.append('image_file', img.file, img.file.name);
+        form.append('image_file', file, file.name);
 
         const res = await fetch(`${backendBaseUrl}/api/geocaches/${geocacheId}/logs/images/upload`, {
             method: 'POST',
             credentials: 'include',
             body: form,
+            signal: controller.signal,
         });
 
         let body: any = undefined;
@@ -62,26 +137,57 @@ export async function uploadOneLogImage(
 
         if (!res.ok) {
             const detail = body?.error ? `: ${body.error}` : '';
-            return { ...img, status: 'failed', error: `HTTP ${res.status}${detail}` };
+            return { retriable: false, result: { status: 'failed', error: `HTTP ${res.status}${detail}` } };
         }
 
         const guid = typeof body?.image_guid === 'string' ? body.image_guid : undefined;
         if (!guid) {
-            return { ...img, status: 'failed', error: 'Missing image_guid' };
+            return { retriable: false, result: { status: 'failed', error: 'Missing image_guid' } };
         }
 
-        return { ...img, status: 'ok', imageGuid: guid, error: undefined };
+        return { retriable: false, result: { status: 'ok', imageGuid: guid, error: undefined } };
     } catch (e) {
+        // TypeError = échec de connexion (réseau coupé, DNS, etc.)
+        // AbortError = timeout
+        const isAbort = e instanceof DOMException && e.name === 'AbortError';
+        const isNetwork = e instanceof TypeError;
+        if (isAbort || isNetwork) {
+            console.warn('[log-submit-service] upload image réseau/timéout, retry possible', e);
+            return { retriable: true };
+        }
         console.error('[log-submit-service] uploadOneLogImage error', e);
-        return { ...img, status: 'failed', error: 'Erreur réseau/backend' };
+        return { retriable: false, result: { status: 'failed', error: 'Erreur réseau/backend' } };
+    } finally {
+        window.clearTimeout(timer);
     }
+}
+
+/** Upload une seule image vers le backend : compression côté client, timeout et un retry réseau. */
+export async function uploadOneLogImage(
+    backendBaseUrl: BackendBaseUrl,
+    geocacheId: number,
+    img: SelectedLogImage
+): Promise<SelectedLogImage> {
+    const file = await compressImageForUpload(img.file);
+
+    const first = await uploadOneLogImageWithTimeout(backendBaseUrl, geocacheId, file);
+    if (first.retriable === false) {
+        return { ...img, ...first.result };
+    }
+
+    // Retry unique après un court délai, comme pour l'envoi de log.
+    await new Promise(resolve => window.setTimeout(resolve, SUBMIT_RETRY_DELAY_MS));
+    const retry = await uploadOneLogImageWithTimeout(backendBaseUrl, geocacheId, file);
+    if (retry.retriable === false) {
+        return { ...img, ...retry.result };
+    }
+
+    // Deux échecs réseau consécutifs : on abandonne.
+    return { ...img, status: 'failed', error: 'Erreur réseau (2 tentatives échouées)' };
 }
 
 /** Délai avant timeout d'un envoi de log (ms). GC peut mettre 10-15s avec des photos. */
 const SUBMIT_TIMEOUT_MS = 30_000;
-
-/** Délai avant un retry réseau (ms) : assez court pour ne pas bloquer l'utilisateur, assez long pour laisser le réseau revenir. */
-const SUBMIT_RETRY_DELAY_MS = 1_500;
 
 /**
  * Tente un envoi de log avec timeout.
