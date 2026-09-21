@@ -260,6 +260,7 @@ def test_logs_endpoint_exposes_and_filters_friend_logs(app):
     payload = client.get(f'/api/geocaches/{app.geocache_id}/logs').get_json()
     assert payload['total_count'] == 2
     assert payload['friends_count'] == 1
+    assert payload['friends_distinct_count'] == 1
     assert {log['author']: log['is_friend_log'] for log in payload['logs']} == {
         'inconnu': False, 'mon_ami': True
     }
@@ -267,7 +268,25 @@ def test_logs_endpoint_exposes_and_filters_friend_logs(app):
     filtered = client.get(f'/api/geocaches/{app.geocache_id}/logs?friends_only=true').get_json()
     assert filtered['total_count'] == 1
     assert filtered['friends_count'] == 1        # compteur indépendant du filtre courant
+    assert filtered['friends_distinct_count'] == 1
     assert [log['author'] for log in filtered['logs']] == ['mon_ami']
+
+
+def test_friends_distinct_count_ignores_a_friend_logging_twice(app):
+    """
+    Le bouton « Amis » de l'UI annonce des amis, pas des logs : un ami qui
+    poste un Found puis une note ne doit pas y compter double, sans quoi il
+    contredit le bandeau « vos amis ont trouvé » de la fiche.
+    """
+    db.session.add(GeocacheLog(
+        geocache_id=app.geocache_id, external_id='4', author='mon_ami',
+        text='d', date=datetime(2026, 7, 4), log_type='Note', is_friend_log=True
+    ))
+    db.session.commit()
+
+    payload = app.test_client().get(f'/api/geocaches/{app.geocache_id}/logs').get_json()
+    assert payload['friends_count'] == 2          # deux logs…
+    assert payload['friends_distinct_count'] == 1  # …d'un seul ami
 
 
 def test_logs_endpoint_exposes_and_filters_own_logs(app):

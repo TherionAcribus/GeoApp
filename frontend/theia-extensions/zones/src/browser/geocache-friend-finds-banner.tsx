@@ -1,5 +1,9 @@
 import * as React from 'react';
 import type { FriendFinder } from './friends-types';
+import {
+    GEOCACHE_FRIEND_FINDS_UPDATED_EVENT,
+    GeocacheFriendFindsUpdatedDetail
+} from './geocache-logs-types';
 
 /**
  * Bandeau « ces amis ont trouvé cette cache ».
@@ -26,11 +30,37 @@ export const GeocacheFriendFindsBanner: React.FC<GeocacheFriendFindsBannerProps>
 }) => {
     const [friends, setFriends] = React.useState<FriendFinder[]>([]);
     const [loaded, setLoaded] = React.useState(false);
+    /**
+     * Incrémenté à chaque récupération de logs de cette cache : le
+     * rafraîchissement des logs découvre des trouvailles d'amis, et sans cette
+     * relecture le bandeau resterait sur le chiffre lu à l'ouverture de la fiche.
+     */
+    const [reloadToken, setReloadToken] = React.useState(0);
+    /** Cache dont le contenu affiché provient, pour distinguer relecture et changement de cache. */
+    const shownForRef = React.useRef<number | undefined>(undefined);
+
+    React.useEffect(() => {
+        const onFriendFindsUpdated = (event: Event): void => {
+            const detail = (event as CustomEvent<GeocacheFriendFindsUpdatedDetail>).detail;
+            if (detail?.geocacheId === geocacheId) {
+                setReloadToken(token => token + 1);
+            }
+        };
+
+        window.addEventListener(GEOCACHE_FRIEND_FINDS_UPDATED_EVENT, onFriendFindsUpdated);
+        return () => window.removeEventListener(GEOCACHE_FRIEND_FINDS_UPDATED_EVENT, onFriendFindsUpdated);
+    }, [geocacheId]);
 
     React.useEffect(() => {
         let cancelled = false;
-        setFriends([]);
-        setLoaded(false);
+        // On ne vide qu'en changeant de géocache : sur une simple relecture
+        // (après un rafraîchissement des logs), le bandeau déjà affiché reste
+        // en place jusqu'à la réponse, sinon il clignoterait.
+        if (shownForRef.current !== geocacheId) {
+            shownForRef.current = geocacheId;
+            setFriends([]);
+            setLoaded(false);
+        }
 
         fetch(`${apiBaseUrl}/api/friends/finds/geocache/${geocacheId}`)
             .then(response => {
@@ -52,7 +82,7 @@ export const GeocacheFriendFindsBanner: React.FC<GeocacheFriendFindsBannerProps>
             });
 
         return () => { cancelled = true; };
-    }, [geocacheId, apiBaseUrl]);
+    }, [geocacheId, apiBaseUrl, reloadToken]);
 
     if (!loaded || friends.length === 0) {
         return null;

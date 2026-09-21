@@ -14,6 +14,10 @@
 import { inject, injectable } from '@theia/core/shared/inversify';
 import { PreferenceService } from '@theia/core/lib/common/preferences/preference-service';
 import { BackendApiClient } from './backend-api-client';
+import {
+    GEOCACHE_FRIEND_FINDS_UPDATED_EVENT,
+    GeocacheFriendFindsUpdatedDetail
+} from './geocache-logs-types';
 
 export const LOGS_AUTO_FETCH_TRIGGER_PREF = 'geoApp.logs.autoFetchTrigger';
 export const LOGS_INITIAL_FETCH_COUNT_PREF = 'geoApp.logs.initialFetchCount';
@@ -141,11 +145,18 @@ export class GeocacheLogsFetchService {
             params.set('all', 'true');
         }
 
-        return this.apiClient.requestJson<LogsRefreshResult>(
+        const result = await this.apiClient.requestJson<LogsRefreshResult>(
             `/api/geocaches/${geocacheId}/logs/refresh?${params.toString()}`,
             this.apiClient.createJsonInit('POST'),
             'Impossible de récupérer les logs depuis Geocaching.com'
         );
+
+        window.dispatchEvent(new CustomEvent<GeocacheFriendFindsUpdatedDetail>(
+            GEOCACHE_FRIEND_FINDS_UPDATED_EVENT,
+            { detail: { geocacheId } }
+        ));
+
+        return result;
     }
 
     /**

@@ -85,9 +85,27 @@ export interface LogsApiResponse {
     total_count: number;
     /** Nombre de logs sur Geocaching.com, `null` tant qu'on ne l'a pas appris. */
     total_available?: number | null;
+    /** Nombre de **logs** d'amis (un ami qui logge deux fois en vaut deux). */
     friends_count?: number;
+    /** Nombre d'**amis distincts** ayant loggé, comparable au bandeau de la fiche. */
+    friends_distinct_count?: number;
     own_count?: number;
     offset: number;
     limit: number;
     logs: GeocacheLogDto[];
+}
+
+/**
+ * Émis après chaque récupération de logs réussie, quelle qu'en soit l'origine.
+ *
+ * Récupérer les logs d'une cache y découvre des trouvailles d'amis, que le
+ * backend range dans `friend_find` (`source='cache_logs'`). Sans ce signal, le
+ * bandeau « vos amis ont trouvé » de la fiche garderait le chiffre qu'il avait
+ * lu à son montage, et afficherait un ami là où le panneau Logs en annonce
+ * trois.
+ */
+export const GEOCACHE_FRIEND_FINDS_UPDATED_EVENT = 'geoapp-geocache-friend-finds-updated';
+
+export interface GeocacheFriendFindsUpdatedDetail {
+    geocacheId: number;
 }

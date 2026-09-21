@@ -388,7 +388,16 @@ export class GeocacheLogsWidget extends ReactWidget {
     protected storedLogsCount = 0;
     /** Logs que la cache possède sur Geocaching.com, `undefined` si inconnu. */
     protected totalAvailable?: number;
+    /** Nombre de logs d'amis : ce que le filtre « Amis » affichera. */
     protected friendsCount = 0;
+    /**
+     * Nombre d'amis distincts derrière ces logs.
+     *
+     * C'est lui qui est affiché sur le bouton, pour parler le même langage que
+     * le bandeau « vos amis ont trouvé » de la fiche : un ami qui poste un
+     * Found puis une note ne doit pas y compter double.
+     */
+    protected friendsFindersCount = 0;
     protected friendsOnly = false;
     protected ownCount = 0;
     protected ownOnly = false;
@@ -486,6 +495,7 @@ export class GeocacheLogsWidget extends ReactWidget {
         this.storedLogsCount = 0;
         this.totalAvailable = undefined;
         this.friendsCount = 0;
+        this.friendsFindersCount = 0;
         this.friendsOnly = false;
         this.ownCount = 0;
         this.ownOnly = false;
@@ -599,6 +609,7 @@ export class GeocacheLogsWidget extends ReactWidget {
             }
             this.totalAvailable = data.total_available ?? undefined;
             this.friendsCount = data.friends_count ?? 0;
+            this.friendsFindersCount = data.friends_distinct_count ?? this.friendsCount;
             this.ownCount = data.own_count ?? 0;
             this.geocacheCode = data.gc_code;
 
@@ -1117,10 +1128,11 @@ export class GeocacheLogsWidget extends ReactWidget {
                                 aria-pressed={this.friendsOnly}
                                 title={this.friendsCount === 0
                                     ? "Aucun log d'ami détecté sur cette géocache (rafraîchissez les logs pour vérifier)"
-                                    : "N'afficher que les logs de vos amis Geocaching.com"}
+                                    : `N'afficher que les logs de vos amis Geocaching.com `
+                                        + `(${this.friendsFindersCount} ami(s), ${this.friendsCount} log(s))`}
                             >
                                 <i className='fa fa-user-friends' />
-                                {`Amis${this.friendsCount > 0 ? ` (${this.friendsCount})` : ''}`}
+                                {`Amis${this.friendsFindersCount > 0 ? ` (${this.friendsFindersCount})` : ''}`}
                             </button>
                             <button
                                 className='geoapp-logs-panel__button'

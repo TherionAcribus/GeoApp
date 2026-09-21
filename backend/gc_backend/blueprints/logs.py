@@ -151,6 +151,16 @@ def get_geocache_logs(geocache_id: int):
             geocache_id=geocache_id, is_friend_log=True
         ).count()
 
+        # Nombre d'amis *distincts*, qui n'est pas le précédent : un ami qui
+        # poste un Found puis une note compte deux logs. C'est ce compteur-ci
+        # qui est comparable au bandeau « vos amis ont trouvé » de la fiche,
+        # lequel parle d'amis et non de logs.
+        friends_distinct_count = db.session.query(GeocacheLog.author).filter(
+            GeocacheLog.geocache_id == geocache_id,
+            GeocacheLog.is_friend_log.is_(True),
+            GeocacheLog.author.isnot(None),
+        ).distinct().count()
+
         # Même logique pour « Mes logs » : compteur indépendant des filtres.
         own_count = GeocacheLog.query.filter_by(
             geocache_id=geocache_id, is_own_log=True
@@ -174,6 +184,7 @@ def get_geocache_logs(geocache_id: int):
             # charger la suite dans le panneau Logs.
             'total_available': geocache.logs_total_available,
             'friends_count': friends_count,
+            'friends_distinct_count': friends_distinct_count,
             'own_count': own_count,
             'offset': offset,
             'limit': limit,
