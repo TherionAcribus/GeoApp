@@ -417,6 +417,8 @@ interface PreferenceItemProps {
     modified: boolean;
     highlighted: boolean;
     advanced: boolean;
+    /** Options resolues pour un `widget: 'select-from'` ; `undefined` pour tous les autres rendus. */
+    dynamicOptions: string[] | undefined;
     handlers: PreferenceItemHandlers;
 }
 
@@ -425,7 +427,7 @@ interface PreferenceItemProps {
  * (valeur, brouillon, erreur JSON, surlignage…), pas à chaque frappe dans un autre champ.
  */
 const PreferenceItem = React.memo(function PreferenceItem(props: PreferenceItemProps): React.ReactElement {
-    const { prefKey, definition, value, draft, hasJsonError, frozenJson, modified, highlighted, advanced, handlers } = props;
+    const { prefKey, definition, value, draft, hasJsonError, frozenJson, modified, highlighted, advanced, dynamicOptions, handlers } = props;
     const description = definition['x-ui']?.shortDescription ?? definition.description;
     const label = definition['x-ui']?.label ?? definition.title ?? preferenceLabel(prefKey);
     const targets = definition['x-targets'] ?? ['frontend'];
@@ -549,6 +551,34 @@ const PreferenceItem = React.memo(function PreferenceItem(props: PreferenceItemP
             return renderJson('object');
         }
 
+        if (definition['x-ui']?.widget === 'select-from') {
+            const options = dynamicOptions ?? [];
+            const current = String(value ?? definition.default ?? '');
+            // La valeur courante peut avoir disparu de la liste source : la garder en tête evite
+            // que le simple affichage de la page ne la remplace en silence.
+            const isOrphan = current !== '' && !options.includes(current);
+            return (
+                <div className='geo-preference-select-from'>
+                    <select
+                        id={prefKey}
+                        value={current}
+                        disabled={options.length === 0 && !isOrphan}
+                        onChange={event => handlers.onSelect(prefKey, event.currentTarget.value, definition)}
+                    >
+                        {isOrphan && <option value={current}>{`${current} (absent de la liste)`}</option>}
+                        {options.map(option => (
+                            <option key={option} value={option}>{option}</option>
+                        ))}
+                    </select>
+                    {options.length === 0 && (
+                        <p className='geo-preference-select-from-empty'>
+                            La liste source est vide : ajoutez d'abord une entrée ci-dessus.
+                        </p>
+                    )}
+                </div>
+            );
+        }
+
         const textValue = draft !== undefined ? draft : String(value ?? definition.default ?? '');
         return (
             <input
@@ -633,6 +663,12 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
     private readonly haystackCache = new Map<string, string>();
     /** Cache mémoïsé des compteurs de guides, clé = signature filtres + version. */
     private guideCountsCache?: { signature: string; counts: Map<string, number> };
+    /**
+     * Options de `widget: 'select-from'`, par cle source. Recalculees seulement quand la valeur
+     * de la preference source change : un tableau neuf a chaque rendu casserait le `React.memo`
+     * de l'item.
+     */
+    private readonly dynamicOptionsCache = new Map<string, { signature: string; options: string[] }>();
     /** Brouillons des champs texte/nombre en cours d'édition (commit au blur). */
     private readonly textDrafts = new Map<string, string>();
     /** Clés dont le dernier JSON saisi était invalide (feedback inline). */
@@ -1125,6 +1161,29 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
         return undefined;
     }
 
+    /** Options d'un `widget: 'select-from'`, lues dans la preference designee par `optionsFrom`. */
+    private resolveDynamicOptions(definition: GeoPreferenceDefinition): string[] | undefined {
+        const ui = definition['x-ui'];
+        if (ui?.widget !== 'select-from') {
+            return undefined;
+        }
+        const sourceKey = ui.optionsFrom;
+        if (!sourceKey) {
+            return [];
+        }
+
+        const sourceDefinition = this.store.definitions.find(entry => entry.key === sourceKey)?.definition;
+        const options = stringListValue(this.snapshot[sourceKey], sourceDefinition?.default);
+        const signature = JSON.stringify(options);
+
+        const cached = this.dynamicOptionsCache.get(sourceKey);
+        if (cached?.signature === signature) {
+            return cached.options;
+        }
+        this.dynamicOptionsCache.set(sourceKey, { signature, options });
+        return options;
+    }
+
     private renderPreference(key: GeoPreferenceKey, definition: GeoPreferenceDefinition): React.ReactNode {
         return (
             <PreferenceItem
@@ -1132,6 +1191,7 @@ export class GeoPreferencesWidget extends ReactWidget implements StatefulWidget 
                 prefKey={key}
                 definition={definition}
                 value={this.snapshot[key]}
+                dynamicOptions={this.resolveDynamicOptions(definition)}
                 draft={this.textDrafts.get(key)}
                 hasJsonError={this.jsonErrors.has(key)}
                 frozenJson={this.jsonEditingSnapshot.get(key)}

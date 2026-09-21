@@ -25,8 +25,15 @@ export type GeoPreferenceDefinition = (typeof schemaJson.properties)[GeoPreferen
          * Contrôle dédié à utiliser au lieu du rendu par défaut du type.
          * `string-list` : liste de chaînes libres, éditable ligne à ligne (ajout, suppression,
          * réordonnancement) au lieu de la textarea JSON servie aux `array` sans `items.enum`.
+         * `select-from` : liste déroulante dont les options viennent de la valeur courante d'une
+         * autre préférence, nommée par `optionsFrom` — pour les choix dont le catalogue n'est pas
+         * connu à l'avance et qu'un `enum` statique ne peut donc pas décrire.
          */
-        widget?: 'string-list';
+        widget?: 'string-list' | 'select-from';
+        /**
+         * Clé de la préférence (de type `array`) qui fournit les options, avec `widget: 'select-from'`.
+         */
+        optionsFrom?: string;
     };
     title?: string;
     enum?: string[] | number[];

@@ -2379,6 +2379,8 @@
         "section": "Traduction",
         "label": "Langue par défaut",
         "order": 20,
+        "widget": "select-from",
+        "optionsFrom": "geoApp.logs.translation.languages",
         "keywords": [
           "logs",
           "traduction",

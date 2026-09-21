@@ -161,6 +161,35 @@ Utiliser `string-list` dès que l'utilisateur doit pouvoir saisir des valeurs **
 
 Les doublons sont refusés à la saisie, insensiblement à la casse et aux accents. Réserver la zone JSON brute aux structures que l'utilisateur n'édite pas à la main.
 
+## Choisir dans une liste définie par l'utilisateur
+
+Un `enum` statique ne peut décrire qu'un catalogue connu à l'écriture du schéma. Quand les options viennent d'une **autre préférence** — typiquement une liste `string-list` que l'utilisateur a remplie — utiliser `widget: "select-from"` et désigner la source avec `optionsFrom` :
+
+```json
+"geoApp.logs.translation.defaultLanguage": {
+  "type": "string",
+  "default": "Anglais",
+  "title": "Langue de traduction par défaut",
+  "description": "Langue présélectionnée dans l'éditeur de logs tant qu'aucune langue n'est épinglée.",
+  "x-ui": {
+    "section": "Traduction",
+    "label": "Langue par défaut",
+    "order": 20,
+    "widget": "select-from",
+    "optionsFrom": "geoApp.logs.translation.languages"
+  },
+  "x-category": "logs",
+  "x-targets": ["frontend"]
+}
+```
+
+Points à connaître :
+
+- la source doit être une préférence de type `array` de chaînes ; ranger le `select-from` **après** elle (`order` plus grand) pour que l'utilisateur voie d'abord la liste qu'il alimente ;
+- éditer la liste source met le `<select>` à jour immédiatement, sans rechargement ;
+- si la valeur courante a disparu de la liste, elle est conservée en tête du menu, marquée « absent de la liste » : le simple affichage de la page ne doit jamais remplacer une valeur en silence ;
+- si la liste source est vide, le `<select>` est désactivé et un message renvoie vers elle.
+
 ## Ajouter une préférence avancée
 
 Marquer comme avancé si l'utilisateur moyen ne devrait pas la modifier souvent.

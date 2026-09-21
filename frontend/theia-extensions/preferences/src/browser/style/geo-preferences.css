@@ -362,6 +362,20 @@
     white-space: nowrap;
 }
 
+.geo-preference-select-from {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: min(260px, 100%);
+}
+
+.geo-preference-select-from-empty {
+    margin: 0;
+    font-size: 12px;
+    font-style: italic;
+    color: var(--theia-ui-font-color2);
+}
+
 .geo-preference-string-list {
     min-width: min(420px, 100%);
     max-width: 100%;

@@ -621,7 +621,7 @@ retour à l’original n’apparaîtraient pas.
 | Clé | Type | Défaut |
 |---|---|---|
 | `geoApp.logs.translation.languages` | array de chaînes, rendu `string-list` | `["Français","Anglais","Allemand","Espagnol"]` |
-| `geoApp.logs.translation.defaultLanguage` | string | `"Anglais"` |
+| `geoApp.logs.translation.defaultLanguage` | string, rendu `select-from` sur `languages` | `"Anglais"` |
 | `geoApp.logs.translation.mode` | enum `replace` / `bilingual` | `replace` |
 | `geoApp.logs.translation.addNotice` | boolean | `true` |
 | `geoApp.logs.translation.noticeText` | string | `*Traduction automatique.*` |
@@ -629,8 +629,14 @@ retour à l’original n’apparaîtraient pas.
 
 Les langues sont des **noms en clair**, pas des codes ISO : c’est ce que le prompt consomme
 directement, et c’est ce qui rend la liste réellement libre (« Breton » fonctionne sans table
-de correspondance). Le rendu `string-list` de la page Préférences est décrit dans
-`documentation/preferences-ajout-rapide.md`.
+de correspondance).
+
+La page Préférences rend `languages` en liste éditable (`widget: "string-list"`) et
+`defaultLanguage` en liste déroulante alimentée par elle (`widget: "select-from"` +
+`optionsFrom`) : la langue par défaut se choisit donc parmi les langues configurées, jamais
+au clavier. Une valeur retirée de la liste est conservée et marquée « absent de la liste »,
+et `getDefaultTranslationLanguage()` retombe alors sur la première entrée. Les deux contrôles
+sont décrits dans `documentation/preferences-ajout-rapide.md`.
 
 ### 13.8 Points d’attention
 
