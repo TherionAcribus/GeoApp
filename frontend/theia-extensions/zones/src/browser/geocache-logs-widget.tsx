@@ -390,6 +390,8 @@ export class GeocacheLogsWidget extends ReactWidget {
     protected totalAvailable?: number;
     protected friendsCount = 0;
     protected friendsOnly = false;
+    protected ownCount = 0;
+    protected ownOnly = false;
     protected isLoading = false;
     protected isRefreshing = false;
     protected isAnalyzing = false;
@@ -485,6 +487,8 @@ export class GeocacheLogsWidget extends ReactWidget {
         this.totalAvailable = undefined;
         this.friendsCount = 0;
         this.friendsOnly = false;
+        this.ownCount = 0;
+        this.ownOnly = false;
         this.analysis = undefined;
         this.summaryEntries = [];
         this.summaryTotalCount = 0;
@@ -570,8 +574,9 @@ export class GeocacheLogsWidget extends ReactWidget {
 
         try {
             const friendsParam = this.friendsOnly ? '&friends_only=true' : '';
+            const ownParam = this.ownOnly ? '&own_only=true' : '';
             const url = `${this.backendBaseUrl}/api/geocaches/${this.geocacheId}/logs`
-                + `?limit=${this.limit}&offset=${this.offset}${friendsParam}`;
+                + `?limit=${this.limit}&offset=${this.offset}${friendsParam}${ownParam}`;
             const response = await fetch(url);
 
             if (!response.ok) {
@@ -587,13 +592,14 @@ export class GeocacheLogsWidget extends ReactWidget {
             }
 
             this.totalCount = data.total_count;
-            // Sous le filtre « Amis », `total_count` ne compte que les amis : on
-            // garde alors le dernier total complet connu.
-            if (!this.friendsOnly) {
+            // Sous les filtres « Amis » et « Mes logs », `total_count` ne compte
+            // que le sous-ensemble filtré : on garde le dernier total complet.
+            if (!this.friendsOnly && !this.ownOnly) {
                 this.storedLogsCount = data.total_count;
             }
             this.totalAvailable = data.total_available ?? undefined;
             this.friendsCount = data.friends_count ?? 0;
+            this.ownCount = data.own_count ?? 0;
             this.geocacheCode = data.gc_code;
 
             void this.autoDownloadImages();
@@ -610,9 +616,27 @@ export class GeocacheLogsWidget extends ReactWidget {
     /**
      * Bascule entre « tous les logs » et « seulement ceux de mes amis ».
      * Le filtre est appliqué côté serveur pour rester cohérent avec la pagination.
+     * Les deux filtres s'excluent : mon log n'est pas un log d'ami.
      */
     protected toggleFriendsOnly = (): void => {
         this.friendsOnly = !this.friendsOnly;
+        if (this.friendsOnly) {
+            this.ownOnly = false;
+        }
+        this.offset = 0;
+        this.logs = [];
+        this.loadLogs();
+    };
+
+    /**
+     * Bascule entre « tous les logs » et « seulement les miens » — le recours
+     * pour retrouver son log dans une géocache très loggée.
+     */
+    protected toggleOwnOnly = (): void => {
+        this.ownOnly = !this.ownOnly;
+        if (this.ownOnly) {
+            this.friendsOnly = false;
+        }
         this.offset = 0;
         this.logs = [];
         this.loadLogs();
@@ -1031,8 +1055,8 @@ export class GeocacheLogsWidget extends ReactWidget {
     protected render(): React.ReactNode {
         const hasMore = this.logs.length < this.totalCount;
         // Ne se propose que quand on sait qu'il reste des logs à récupérer, et
-        // seulement sur la liste complète : le filtre « Amis » compte autre chose.
-        const remoteRemaining = !this.friendsOnly && this.totalAvailable !== undefined
+        // seulement sur la liste complète : les filtres comptent autre chose.
+        const remoteRemaining = !this.friendsOnly && !this.ownOnly && this.totalAvailable !== undefined
             ? this.totalAvailable - this.totalCount
             : 0;
 
@@ -1066,7 +1090,7 @@ export class GeocacheLogsWidget extends ReactWidget {
                         {this.totalCount > 0 && (
                             <div className='geoapp-logs-panel__count'>
                                 {this.totalCount} log{this.totalCount > 1 ? 's' : ''}
-                                {this.friendsOnly ? ' de vos amis' : ' au total'}
+                                {this.friendsOnly ? ' de vos amis' : this.ownOnly ? ' à vous' : ' au total'}
                             </div>
                         )}
                     </div>
@@ -1074,6 +1098,18 @@ export class GeocacheLogsWidget extends ReactWidget {
                     {/* Boutons d'action */}
                     {this.geocacheId && (
                         <div className='geoapp-logs-panel__actions'>
+                            <button
+                                className='geoapp-logs-panel__button geoapp-logs-panel__button--toggle'
+                                onClick={() => this.toggleOwnOnly()}
+                                disabled={this.isLoading || (this.ownCount === 0 && !this.ownOnly)}
+                                aria-pressed={this.ownOnly}
+                                title={this.ownCount === 0
+                                    ? 'Aucun log à vous détecté sur cette géocache (rafraîchissez les logs pour vérifier)'
+                                    : "N'afficher que vos propres logs"}
+                            >
+                                <i className='fa fa-user-check' />
+                                {`Mes logs${this.ownCount > 0 ? ` (${this.ownCount})` : ''}`}
+                            </button>
                             <button
                                 className='geoapp-logs-panel__button geoapp-logs-panel__button--toggle'
                                 onClick={() => this.toggleFriendsOnly()}

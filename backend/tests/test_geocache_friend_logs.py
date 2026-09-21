@@ -270,6 +270,25 @@ def test_logs_endpoint_exposes_and_filters_friend_logs(app):
     assert [log['author'] for log in filtered['logs']] == ['mon_ami']
 
 
+def test_logs_endpoint_exposes_and_filters_own_logs(app):
+    client = app.test_client()
+
+    db.session.add(GeocacheLog(
+        geocache_id=app.geocache_id, external_id='3', author='moi',
+        text='c', date=datetime(2026, 7, 3), log_type='Found', is_own_log=True
+    ))
+    db.session.commit()
+
+    payload = client.get(f'/api/geocaches/{app.geocache_id}/logs').get_json()
+    assert payload['total_count'] == 3
+    assert payload['own_count'] == 1
+
+    filtered = client.get(f'/api/geocaches/{app.geocache_id}/logs?own_only=true').get_json()
+    assert filtered['total_count'] == 1
+    assert filtered['own_count'] == 1          # compteur indépendant du filtre courant
+    assert [log['author'] for log in filtered['logs']] == ['moi']
+
+
 def test_refresh_route_preserves_friend_flags_when_friend_check_fails(app, monkeypatch):
     """
     Reproduit le bug corrigé : si l'appel sf=true échoue alors que les logs

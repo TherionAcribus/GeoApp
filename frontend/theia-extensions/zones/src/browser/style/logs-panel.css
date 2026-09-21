@@ -250,11 +250,14 @@
 }
 
 /*
- * Log écrit avec le compte connecté : un voile d'accent à peine perceptible,
- * sans toucher au liseré de type — le badge « vous » porte l'identification.
+ * Log écrit avec le compte connecté : fond et contour teintés d'accent pour le
+ * détacher de la masse des autres logs. Le liseré gauche garde la couleur du
+ * type de log — une donnée, pas un choix de design.
  */
 .geoapp-log-card--own {
-    background: color-mix(in srgb, var(--theia-focusBorder) 5%, var(--theia-editor-background));
+    border-color: color-mix(in srgb, var(--theia-focusBorder) 55%, var(--theia-panel-border));
+    border-left-color: var(--geoapp-log-color, var(--theia-panel-border));
+    background: color-mix(in srgb, var(--theia-focusBorder) 8%, var(--theia-editor-background));
 }
 
 .geoapp-log-card__header {

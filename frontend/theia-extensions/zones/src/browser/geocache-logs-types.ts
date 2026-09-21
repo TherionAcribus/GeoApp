@@ -86,6 +86,7 @@ export interface LogsApiResponse {
     /** Nombre de logs sur Geocaching.com, `null` tant qu'on ne l'a pas appris. */
     total_available?: number | null;
     friends_count?: number;
+    own_count?: number;
     offset: number;
     limit: number;
     logs: GeocacheLogDto[];

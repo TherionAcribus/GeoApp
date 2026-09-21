@@ -111,6 +111,7 @@ def get_geocache_logs(geocache_id: int):
         - offset: Offset pour la pagination (défaut: 0)
         - type: Filtrer par type de log (ex: Found, Note, Did Not Find)
         - friends_only: 'true' pour ne garder que les logs de mes amis
+        - own_only: 'true' pour ne garder que mes propres logs
 
     Returns:
         JSON avec la liste des logs et métadonnées de pagination
@@ -126,6 +127,7 @@ def get_geocache_logs(geocache_id: int):
         log_type_filter = request.args.get('type', None)
         
         friends_only = request.args.get('friends_only', 'false').lower() in ('true', '1', 'yes')
+        own_only = request.args.get('own_only', 'false').lower() in ('true', '1', 'yes')
 
         # Construire la requête
         query = GeocacheLog.query.filter_by(geocache_id=geocache_id)
@@ -137,6 +139,9 @@ def get_geocache_logs(geocache_id: int):
         if friends_only:
             query = query.filter(GeocacheLog.is_friend_log.is_(True))
 
+        if own_only:
+            query = query.filter(GeocacheLog.is_own_log.is_(True))
+
         # Compter le total avant pagination
         total_count = query.count()
 
@@ -144,6 +149,11 @@ def get_geocache_logs(geocache_id: int):
         # permet à l'UI d'afficher/activer le filtre « Amis » à bon escient.
         friends_count = GeocacheLog.query.filter_by(
             geocache_id=geocache_id, is_friend_log=True
+        ).count()
+
+        # Même logique pour « Mes logs » : compteur indépendant des filtres.
+        own_count = GeocacheLog.query.filter_by(
+            geocache_id=geocache_id, is_own_log=True
         ).count()
         
         # Appliquer tri et pagination
@@ -164,6 +174,7 @@ def get_geocache_logs(geocache_id: int):
             # charger la suite dans le panneau Logs.
             'total_available': geocache.logs_total_available,
             'friends_count': friends_count,
+            'own_count': own_count,
             'offset': offset,
             'limit': limit,
             'logs': [log.to_dict() for log in logs]
