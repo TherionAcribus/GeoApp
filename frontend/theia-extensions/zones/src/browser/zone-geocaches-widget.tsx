@@ -143,13 +143,15 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
     // `friendScans` et `accountFriends`, en les restreignant au périmètre.
 
     protected interactionTimerId: number | undefined;
+    /** Timer du debounce de `reloadRows` déclenché par `onDidChangeGeocache`. */
+    private reloadRowsDebounceTimer: number | undefined;
     private lastAccessTimestamp: number = Date.now();
     private readonly tableVisibleColumnsPreferenceKey = 'geoApp.geocaches.table.visibleColumns';
     private readonly preferenceChangeDisposable: { dispose: () => void };
     /** Vrai pendant que CE widget émet requestZonesRefresh, pour ignorer son propre événement. */
     private selfTriggeringZonesRefresh = false;
 
-    protected readonly handleGeocacheLogSubmitted = (event: CustomEvent<{ geocacheId: number; found?: boolean }>): void => {
+    protected readonly handleGeocacheLogSubmitted = (event: CustomEvent<{ geocacheId: number; found?: boolean; logDate?: string }>): void => {
         const detail = event?.detail;
         const geocacheId = detail?.geocacheId;
         const found = detail?.found;
@@ -164,10 +166,10 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
             return;
         }
         const current = this.rows[idx];
-        if (current?.found === true) {
+        if (current?.found === true && current?.found_date === detail?.logDate) {
             return;
         }
-        const next = { ...current, found: true };
+        const next = { ...current, found: true, found_date: detail?.logDate ?? current.found_date };
         this.rows = [...this.rows.slice(0, idx), next, ...this.rows.slice(idx + 1)];
         this.update();
     };
@@ -249,12 +251,14 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         );
 
         // Réactivité aux édits faits depuis la page de détails (waypoint, coords
-        // corrigées, statut de résolution…) : ne recharger que si la cache
-        // concernée est présente dans ce tableau.
+        // corrigées, statut de résolution…) ou à un log envoyé depuis l'éditeur :
+        // ne recharger que si la cache concernée est présente dans ce tableau.
+        // Le debounce fusionne les événements d'un envoi en lot (un log par cache)
+        // en un seul rechargement des lignes.
         this.toDispose.push(
             this.widgetEventsService.onDidChangeGeocache(event => {
                 if (this.rows.some(row => row.id === event.geocacheId)) {
-                    void this.reloadRows();
+                    this.scheduleReloadRows();
                 }
             })
         );
@@ -300,6 +304,10 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
 
     dispose(): void {
         this.preferenceChangeDisposable.dispose();
+        if (this.reloadRowsDebounceTimer !== undefined) {
+            window.clearTimeout(this.reloadRowsDebounceTimer);
+            this.reloadRowsDebounceTimer = undefined;
+        }
         super.dispose();
     }
 
@@ -1236,6 +1244,24 @@ export class ZoneGeocachesWidget extends ReactWidget implements StatefulWidget {
         } catch (e) {
             console.error('[ZoneGeocachesWidget] reloadRows error', e);
         }
+    }
+
+    /**
+     * Debounce de `reloadRows` pour les événements `onDidChangeGeocache` : un envoi
+     * de logs en lot émet un événement par géocache, on ne recharge qu'une fois
+     * la rafale terminée.
+     */
+    private scheduleReloadRows(): void {
+        if (typeof window === 'undefined') {
+            return;
+        }
+        if (this.reloadRowsDebounceTimer !== undefined) {
+            window.clearTimeout(this.reloadRowsDebounceTimer);
+        }
+        this.reloadRowsDebounceTimer = window.setTimeout(() => {
+            this.reloadRowsDebounceTimer = undefined;
+            void this.reloadRows();
+        }, 300);
     }
 
     /**

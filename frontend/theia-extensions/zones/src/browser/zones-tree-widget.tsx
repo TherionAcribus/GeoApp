@@ -170,6 +170,8 @@ export class ZonesTreeWidget extends ReactWidget {
     /** Timer de désambiguïsation simple-clic (déplier) vs double-clic (ouvrir) sur une zone. */
     private zoneClickTimer: number | undefined;
     private static readonly ZONE_CLICK_DELAY_MS = 250;
+    /** Timer du debounce de `refreshExpandedZones` déclenché par `onDidChangeGeocache`. */
+    private refreshExpandedZonesDebounceTimer: number | undefined;
     /** Caches de tri: évitent de re-trier à chaque rendu / frappe clavier tant que les données et le tri ne changent pas. */
     private sortedZonesCache?: { source: ZoneDto[]; key: ZoneSortKey; direction: ZoneSortDirection; result: ZoneDto[] };
     private readonly sortedGeocachesCache = new WeakMap<GeocacheDto[], { key: GeocacheSortKey; direction: ZoneSortDirection; result: GeocacheDto[] }>();
@@ -252,8 +254,10 @@ export class ZonesTreeWidget extends ReactWidget {
             }
             void this.refreshExpandedZones();
         }));
+        // Debounce : un envoi de logs en lot émet un événement par géocache,
+        // on ne recharge les zones dépliées qu'une fois la rafale terminée.
         this.toDispose.push(this.widgetEventsService.onDidChangeGeocache(() => {
-            void this.refreshExpandedZones();
+            this.scheduleRefreshExpandedZones();
         }));
     }
 
@@ -363,6 +367,10 @@ export class ZonesTreeWidget extends ReactWidget {
         if (this.zoneClickTimer !== undefined) {
             window.clearTimeout(this.zoneClickTimer);
             this.zoneClickTimer = undefined;
+        }
+        if (this.refreshExpandedZonesDebounceTimer !== undefined) {
+            window.clearTimeout(this.refreshExpandedZonesDebounceTimer);
+            this.refreshExpandedZonesDebounceTimer = undefined;
         }
         super.onBeforeDetach(msg);
     }
@@ -1117,6 +1125,21 @@ export class ZonesTreeWidget extends ReactWidget {
         await Promise.all(
             Array.from(this.expandedZones).map(id => this.loadGeocachesForZone(id, { force: true }))
         );
+    }
+
+    /**
+     * Debounce de `refreshExpandedZones` pour les événements `onDidChangeGeocache` :
+     * les actions en lot (envoi de plusieurs logs…) émettent un événement par
+     * géocache, un seul rechargement suffit une fois la rafale terminée.
+     */
+    private scheduleRefreshExpandedZones(): void {
+        if (this.refreshExpandedZonesDebounceTimer !== undefined) {
+            window.clearTimeout(this.refreshExpandedZonesDebounceTimer);
+        }
+        this.refreshExpandedZonesDebounceTimer = window.setTimeout(() => {
+            this.refreshExpandedZonesDebounceTimer = undefined;
+            void this.refreshExpandedZones();
+        }, 300);
     }
 
     protected renderSortControls(): React.ReactNode {

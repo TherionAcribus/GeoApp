@@ -8,8 +8,9 @@ export interface GeocacheChangedEvent {
         | 'waypoint-deleted'
         | 'corrected-coordinates-updated'
         | 'solved-status-updated'
-        | 'note-created';
-    source: 'map' | 'details' | 'zones' | 'chat';
+        | 'note-created'
+        | 'log-submitted';
+    source: 'map' | 'details' | 'zones' | 'chat' | 'log-editor';
 }
 
 export interface OpenZoneRequest {

@@ -12,6 +12,7 @@ import { DraftBanner } from './log-editor/draft-banner';
 import { GeocacheLogEditorGeocachesTable } from './log-editor/geocaches-table';
 import { OutingPlanService } from './outing-plan-service';
 import { OutingPlanCacheFlags } from './outing-plan-types';
+import { GeoAppWidgetEventsService } from './geoapp-widget-events-service';
 import {
     buildFieldNotes as buildFieldNotesPure,
     buildSubmissionSummaryNode as buildSubmissionSummaryNodePure,
@@ -343,6 +344,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         @inject(StorageService) protected readonly storageService: StorageService,
         @inject(PreferenceService) protected readonly preferenceService: PreferenceService,
         @inject(OutingPlanService) protected readonly outingPlanService: OutingPlanService,
+        @inject(GeoAppWidgetEventsService) protected readonly widgetEventsService: GeoAppWidgetEventsService,
     ) {
         super();
         this.title.label = 'Logs';
@@ -2089,6 +2091,14 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                             }
                         }));
                     }
+                    // Le backend a déjà persisté found/found_date/logs_count : on signale
+                    // le changement pour que la fiche détails, la table de la zone, la
+                    // carte et l'arbre se rafraîchissent sans attendre une réouverture.
+                    this.widgetEventsService.notifyGeocacheChanged({
+                        geocacheId: gc.id,
+                        reason: 'log-submitted',
+                        source: 'log-editor',
+                    });
                 } else if (result.alreadyLogged) {
                     this.perCacheSubmitStatus = { ...this.perCacheSubmitStatus, [gc.id]: 'skipped' };
                     // Le backend confirme qu'un log du même type existe déjà sur GC.
