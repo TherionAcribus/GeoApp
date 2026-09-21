@@ -16,6 +16,7 @@ import type { FriendZoneScanEntry } from './friends-types';
 import type { FriendFilter } from './friend-outing-state';
 import { friendOfFilter } from './friend-outing-state';
 import { friendColor } from './friend-colors';
+import { favoritePercent, favoritePercentHint, formatFavoritePercent } from './favorite-percent';
 import { GeocacheFilterBar } from './geocache-filter-bar';
 import {
     AdvancedFilterClause,
@@ -61,7 +62,14 @@ export interface Geocache {
     found_date?: string | null;
     has_notes?: boolean;
     notes_count?: number;
+    /** Logs stockés en local, pas le total du site : inutilisable comme dénominateur. */
     logs_count?: number;
+    /** Total de logs annoncé par Geocaching.com, tous types confondus. */
+    logs_total_available?: number;
+    /** Trouvailles annoncées par Geocaching.com (Found + Attended + Webcam). */
+    finds_count?: number;
+    /** Pourcentage de favoris calculé côté backend sur `finds_count`. */
+    favorites_percent?: number;
     latitude?: number;
     longitude?: number;
     is_corrected?: boolean;
@@ -171,8 +179,9 @@ export type GeocachesTableColumnId =
     | 'is_corrected'
     | 'waypoints_count'
     | 'favorites_count'
+    | 'favorites_percent'
     | 'owner'
-    | 'logs_count'
+    | 'finds_count'
     // `friends_found` n'apparaît pas dans GEOCACHES_TABLE_COLUMN_DEFINITIONS : la
     // colonne « 👥 » est pilotée par le mode sortie, pas par le menu Colonnes. Elle
     // garde son identifiant parce qu'elle reste une colonne du tableau — et parce
@@ -218,8 +227,12 @@ const GEOCACHES_TABLE_COLUMN_DEFINITIONS: GeocachesTableColumnDefinition[] = [
     { id: 'is_corrected', label: 'Corrigée', description: 'Indique si les coordonnées sont corrigées.' },
     { id: 'waypoints_count', label: 'Waypoints', description: 'Nombre de waypoints associes.' },
     { id: 'favorites_count', label: 'Favoris', description: 'Nombre de points favoris.' },
+    { id: 'favorites_percent', label: '%PF', description: 'Part des trouvailles qui ont donné un point favori.' },
     { id: 'owner', label: 'Propriétaire', description: 'Propriétaire de la cache.' },
-    { id: 'logs_count', label: 'Logs', description: 'Nombre de logs connus.' },
+    // Remplace l'ancienne colonne `logs_count`, qui annonçait « Logs » mais ne
+    // comptait que les logs chargés dans GeoApp. Les préférences enregistrées qui
+    // la contiennent encore sont ignorées — l'identifiant n'existe plus.
+    { id: 'finds_count', label: 'Trouvailles', description: 'Nombre de Found it annoncé par Geocaching.com.' },
     { id: 'outing_flags', label: 'Sortie', description: "Signaux de la dernière analyse IA de sortie (matériel, santé, bloquant)." },
     { id: 'status', label: 'Statut', description: 'Statut de la cache sur Geocaching.com (active, désactivée, archivée).' },
     { id: 'need_maintenance', label: 'Maintenance', description: 'Indique si le propriétaire a demandé une attention particulière (Need Maintenance).' },
@@ -881,16 +894,37 @@ export const GeocachesTable: React.FC<GeocachesTableProps> = ({
                 size: 50,
             },
             {
+                id: 'favorites_percent',
+                accessorFn: row => favoritePercent(row).value,
+                header: '%PF',
+                cell: ({ row }) => {
+                    const hint = favoritePercentHint(row.original);
+                    return (
+                        <span title={hint || 'Part des trouvailles qui ont donné un point favori'}>
+                            {formatFavoritePercent(row.original)}
+                        </span>
+                    );
+                },
+                size: 70,
+            },
+            {
                 accessorKey: 'owner',
                 header: 'Propriétaire',
                 cell: info => <span className="geoapp-gc-cell-owner">{info.getValue() as string || '-'}</span>,
                 size: 150,
             },
             {
-                accessorKey: 'logs_count',
-                header: 'Logs',
-                cell: info => <span>{(info.getValue() as number | undefined) ?? 0}</span>,
-                size: 70,
+                accessorKey: 'finds_count',
+                header: 'Trouvailles',
+                cell: info => {
+                    const finds = info.getValue() as number | undefined;
+                    // NULL ≠ 0 : une cache pas encore re-scrapée n'a pas de compteur,
+                    // et afficher « 0 » la ferait passer pour jamais trouvée.
+                    return typeof finds === 'number'
+                        ? <span title="Found it annoncés par Geocaching.com">{finds}</span>
+                        : <span style={{ opacity: 0.35 }} title="Inconnu : rafraîchir la cache renseignera le compteur">—</span>;
+                },
+                size: 90,
             },
             {
                 id: 'friends_found',

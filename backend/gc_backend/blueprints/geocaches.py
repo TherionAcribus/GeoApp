@@ -722,6 +722,7 @@ def get_geocaches_for_zone(zone_id: int):
                 'has_notes': bool((gc.gc_personal_note or '').strip()) or bool(gc.notes),
                 'notes_count': len(gc.notes or []),
                 'logs_count': gc.logs_count or 0,
+                'logs_total_available': gc.logs_total_available,
                 'finds_count': gc.finds_count,
                 'favorites_percent': gc.favorites_percent,
                 'latitude': gc.latitude,

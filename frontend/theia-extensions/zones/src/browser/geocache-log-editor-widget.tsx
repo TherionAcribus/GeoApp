@@ -107,10 +107,10 @@ import {
     pruneDrafts as pruneDraftsPure,
     readDrafts as readDraftsPure,
 } from './log-editor/log-history-store';
+import { formatFavoritePercent as formatFavoritePercentPure } from './favorite-percent';
 import {
     fetchGeocachesBatch,
     fetchUserStats,
-    formatFavoritePercent as formatFavoritePercentPure,
     refreshUserStats,
     toGeocacheListItem as toGeocacheListItemPure,
 } from './log-editor/geocache-loader';

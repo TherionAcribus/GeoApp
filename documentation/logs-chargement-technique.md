@@ -147,10 +147,34 @@ icône. Deux lectures de ce même bloc :
 côté base de `FIND_LOGTYPE_IDS`, après normalisation par
 `GeocacheLog.normalize_log_type()`.
 
-Côté frontend, `favoritePercent()` (`log-editor/geocache-loader.ts`) prend le
+Côté frontend, `favoritePercent()` (`browser/favorite-percent.ts`) prend le
 `favorites_percent` du backend ; sur une cache jamais re-scrapée, il retombe sur
-`logs_total_available` et signale la valeur comme approximative (préfixe `~`).
-Il ne divise **jamais** par `logs_count`.
+`logs_total_available` et signale la valeur comme approximative (préfixe `~`,
+infobulle via `favoritePercentHint()`). Il ne divise **jamais** par `logs_count`.
+
+Le module est à la racine de `browser/` et non dans `log-editor/` parce que les
+deux tableaux l'utilisent : celui d'une zone et celui de l'éditeur de logs. Ils
+en avaient auparavant chacun leur copie — et le même bug.
+
+### Les colonnes du tableau d'une zone
+
+| Colonne | Champ | Par défaut |
+|---|---|---|
+| `favorites_count` « ❤️ » | points favoris | visible |
+| `favorites_percent` « %PF » | `favoritePercent()` | **masquée** |
+| `finds_count` « Trouvailles » | trouvailles GC.com | **masquée** |
+
+`finds_count` remplace l'ancienne colonne `logs_count`, intitulée « Logs » mais
+qui ne comptait que les logs chargés dans GeoApp. L'identifiant `logs_count` a
+disparu de `GeocachesTableColumnId` : les préférences enregistrées qui le
+contiennent encore sont ignorées par `normalizeGeocachesTableVisibleColumnIds()`,
+comme pour toute colonne retirée.
+
+Une cellule « Trouvailles » vide affiche `—`, jamais `0` : une cache pas encore
+re-scrapée n'a pas de compteur, et `0` la ferait passer pour jamais trouvée.
+
+Les filtres (`geocache-filter-shared.ts`) ne connaissent pas encore ces deux
+champs : `@fav` filtre le nombre de favoris, pas le pourcentage.
 
 ## API
 
@@ -435,6 +459,12 @@ d'un `FileName` qui tenterait une traversée, rafraîchissement idempotent et sa
 téléchargement, stockage rejouable, échec isolé d'une photo, garde
 anti-traversée sur `/content`, cascade et purge disque.
 
+`frontend/theia-extensions/zones/src/browser/tests/favorite-percent.test.ts` :
+valeur du backend reprise telle quelle, repli sur `finds_count` puis estimation
+`~` sur `logs_total_available`, `logs_count` qui n'entre jamais dans le calcul,
+zéro trouvaille qui ne vaut pas 0 % là où zéro favori sur 40 trouvailles vaut
+bien 0 %.
+
 `frontend/theia-extensions/zones/src/browser/tests/geocache-log-images.test.ts` :
 quelles photos restent à télécharger, y compris sur un log partiellement stocké.
 
@@ -452,8 +482,10 @@ frontière de mot, demande de Markdown.
   `Geocache.update_favorites_percent()`, `FIND_LOG_TYPES`, `GeocacheLogsAnalysis`)
 - `backend/gc_backend/geocaches/scraper.py` (`parse_log_type_counts()`,
   `FIND_LOGTYPE_IDS`)
-- `frontend/theia-extensions/zones/src/browser/log-editor/geocache-loader.ts`
-  (`favoritePercent()`, `formatFavoritePercent()`)
+- `frontend/theia-extensions/zones/src/browser/favorite-percent.ts`
+  (`favoritePercent()`, `formatFavoritePercent()`, `favoritePercentHint()`)
+- `frontend/theia-extensions/zones/src/browser/geocaches-table.tsx`
+  (colonnes `favorites_percent` et `finds_count`)
 - `backend/migrations/versions/add_geocache_logs_analysis_table.py`
 - `backend/migrations/versions/add_geocache_log_image_table.py`
 - `backend/gc_backend/geocaches/image_storage.py` (racine `log_images`, paramètre `root`)

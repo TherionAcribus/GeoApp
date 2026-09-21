@@ -17,7 +17,6 @@ import {
 import { GeocacheIcon } from '../geocache-icon';
 import { LogTypeIcon } from '../geocache-log-type-icons';
 import { DnfBadge } from './dnf-badge';
-import { favoritePercent, formatFavoritePercent } from './geocache-loader';
 import {
     alreadyFoundTooltip,
     getLogTypeLabel,
@@ -28,6 +27,7 @@ import {
 } from './helpers';
 import { SubmitBadge } from './submit-badge';
 import { GeocacheListItem, LogTypeValue, SubmissionStatus } from './types';
+import { favoritePercent, favoritePercentHint, formatFavoritePercent } from '../favorite-percent';
 import { OutingPlanCacheFlags, badgesForFlags, formatOutingMinutes } from '../outing-plan-types';
 // Les badges de sortie sont habillés par la feuille du panneau « Sortie ».
 import '../../../src/browser/style/outing-plan.css';
@@ -366,19 +366,11 @@ const GeocacheLogEditorGeocachesTableImpl: React.FC<{
                 id: 'pf_pct',
                 header: '%PF',
                 accessorFn: row => favoritePercent(row).value,
-                cell: ({ row }) => {
-                    const { approximate } = favoritePercent(row.original);
-                    return (
-                        <span
-                            className='geoapp-log-table__cell--muted'
-                            title={approximate
-                                ? 'Estimation : le nombre de trouvailles est inconnu, le total de logs sert de dénominateur. Rafraîchir la cache donnera la valeur exacte.'
-                                : ''}
-                        >
-                            {formatFavoritePercent(row.original)}
-                        </span>
-                    );
-                },
+                cell: ({ row }) => (
+                    <span className='geoapp-log-table__cell--muted' title={favoritePercentHint(row.original)}>
+                        {formatFavoritePercent(row.original)}
+                    </span>
+                ),
             },
             {
                 id: 'fav',
