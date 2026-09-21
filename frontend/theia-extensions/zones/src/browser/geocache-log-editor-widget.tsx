@@ -207,6 +207,11 @@ export class GeocacheLogEditorWidget extends ReactWidget {
     /** Progression de « traduire tous les blocs ». */
     protected batchTranslationProgress: { current: number; total: number } | undefined;
     protected batchTranslationStopRequested = false;
+    /**
+     * Menu de choix de la langue (moitié droite du split button). Un seul suffit : la barre du
+     * texte commun et celle du mode par cache ne sont jamais affichées en même temps.
+     */
+    protected isLanguageMenuOpen = false;
 
     protected useSameTextForAll = true;
     protected globalText = '';
@@ -747,10 +752,24 @@ export class GeocacheLogEditorWidget extends ReactWidget {
 
     protected setLogLanguage(value: string): void {
         this.logLanguage = value;
+        this.isLanguageMenuOpen = false;
         this.update();
         if (this.isLogLanguagePinned) {
             void this.persistPinnedLogLanguage();
         }
+    }
+
+    protected toggleLanguageMenu(): void {
+        this.isLanguageMenuOpen = !this.isLanguageMenuOpen;
+        this.update();
+    }
+
+    protected closeLanguageMenu(): void {
+        if (!this.isLanguageMenuOpen) {
+            return;
+        }
+        this.isLanguageMenuOpen = false;
+        this.update();
     }
 
     protected toggleLogLanguagePin(): void {
@@ -758,6 +777,7 @@ export class GeocacheLogEditorWidget extends ReactWidget {
         if (!this.isLogLanguagePinned) {
             this.logLanguage = this.getDefaultTranslationLanguage();
         }
+        this.isLanguageMenuOpen = false;
         this.update();
         void this.persistPinnedLogLanguage();
     }
@@ -2820,6 +2840,9 @@ export class GeocacheLogEditorWidget extends ReactWidget {
                     onLogLanguageChange={value => this.setLogLanguage(value)}
                     isLogLanguagePinned={this.isLogLanguagePinned}
                     onToggleLogLanguagePin={() => this.toggleLogLanguagePin()}
+                    isLanguageMenuOpen={this.isLanguageMenuOpen}
+                    onToggleLanguageMenu={() => this.toggleLanguageMenu()}
+                    onCloseLanguageMenu={() => this.closeLanguageMenu()}
                     onTranslate={() => { void this.translateGlobalText(); }}
                     translateDisabledReason={this.getTranslateDisabledReason()}
                     isTranslating={this.translatingKey === 'global'}
@@ -2918,11 +2941,18 @@ export class GeocacheLogEditorWidget extends ReactWidget {
 
                 {!this.isLoading && this.geocaches.length > 0 && !this.useSameTextForAll && (
                     <BatchTranslationBar
+                        languages={this.getTranslationLanguages()}
                         logLanguage={this.logLanguage}
+                        isLogLanguagePinned={this.isLogLanguagePinned}
                         disabledReason={this.getTranslateDisabledReason()}
                         disabled={this.isLoading || this.isSubmitting}
                         progress={this.batchTranslationProgress}
                         stopRequested={this.batchTranslationStopRequested}
+                        isLanguageMenuOpen={this.isLanguageMenuOpen}
+                        onToggleLanguageMenu={() => this.toggleLanguageMenu()}
+                        onCloseLanguageMenu={() => this.closeLanguageMenu()}
+                        onSelectLanguage={value => this.setLogLanguage(value)}
+                        onToggleLogLanguagePin={() => this.toggleLogLanguagePin()}
                         onTranslateAll={() => { void this.translateAllPerCacheTexts(); }}
                         onRequestStop={() => this.requestBatchTranslationStop()}
                     />

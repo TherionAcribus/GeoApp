@@ -124,6 +124,9 @@ export const PerCacheBlock: React.FC<PerCacheBlockProps> = (props) => {
 
     const noPointsLeft = !isFavorite && remainingFavoritePoints <= 0;
 
+    const translateReason = translateDisabledReason
+        ?? (text.trim() === '' ? 'Le texte de cette géocache est vide : rien à traduire.' : undefined);
+
     // Même cascade que dans le tableau : envoyé, puis DNF, puis déjà trouvée.
     const stateModifier = isSubmittedOk
         ? ' geoapp-log-cache-block--logged'
@@ -231,8 +234,8 @@ export const PerCacheBlock: React.FC<PerCacheBlockProps> = (props) => {
                 <button
                     className='theia-button secondary geoapp-log-button--compact'
                     onClick={onTranslate}
-                    disabled={isToolbarDisabled || isTranslating || translateDisabledReason !== undefined || text.trim() === ''}
-                    title={translateDisabledReason ?? `Traduire ce log en ${logLanguage} avec l'IA`}
+                    disabled={isToolbarDisabled || isTranslating || translateReason !== undefined}
+                    title={translateReason ?? `Traduire ce log en ${logLanguage} avec l'IA`}
                 >
                     {isTranslating ? '⏳ Traduction…' : '🌐 Traduire'}
                 </button>

@@ -400,7 +400,7 @@
 
 .geoapp-log-global__row {
     display: grid;
-    grid-template-columns: 190px 220px 200px 1fr;
+    grid-template-columns: 190px 220px 1fr;
     gap: 12px;
     align-items: end;
 }
@@ -423,6 +423,128 @@
     min-width: 0;
 }
 
+/* --- Split button « Traduire » : action a gauche, choix de la langue a droite --- */
+
+.geoapp-log-translate-split {
+    position: relative;
+    display: inline-flex;
+}
+
+/* Un seul cadre et un seul arrondi pour les deux moitiés, qui partagent le fond. */
+.geoapp-log-translate-split__group {
+    display: inline-flex;
+    border: 1px solid var(--theia-button-background);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.geoapp-log-translate-split__main,
+.geoapp-log-translate-split__arrow {
+    background: var(--theia-button-background);
+    color: var(--theia-button-foreground);
+    border: none;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.geoapp-log-translate-split__main {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    white-space: nowrap;
+    /* Fine séparation interne entre l'action principale et le sélecteur de langue. */
+    border-right: 1px solid rgba(0, 0, 0, 0.18);
+}
+
+.geoapp-log-translate-split__arrow {
+    display: flex;
+    align-items: center;
+    padding: 4px 8px;
+    font-size: 11px;
+}
+
+.geoapp-log-translate-split__main:hover:not(:disabled),
+.geoapp-log-translate-split__arrow:hover {
+    background: var(--theia-button-hoverBackground, color-mix(in srgb, var(--theia-button-background) 85%, #fff));
+}
+
+.geoapp-log-translate-split__main:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+/* Langue active, lisible sans ouvrir le menu. */
+.geoapp-log-translate-split__badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    background: rgba(0, 0, 0, 0.18);
+    border-radius: 3px;
+    padding: 1px 5px;
+}
+
+.geoapp-log-translate-menu {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    margin-top: 4px;
+    min-width: 200px;
+    display: flex;
+    flex-direction: column;
+    padding: 4px 0;
+    background: var(--theia-menu-background);
+    color: var(--theia-menu-foreground);
+    border: 1px solid var(--theia-menu-border);
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    z-index: 100;
+}
+
+.geoapp-log-translate-menu__item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.geoapp-log-translate-menu__item > i {
+    width: 14px;
+    font-size: 11px;
+    text-align: center;
+}
+
+.geoapp-log-translate-menu__item:hover {
+    background: var(--theia-menu-selectionBackground);
+}
+
+.geoapp-log-translate-menu__item--selected {
+    background: var(--theia-list-activeSelectionBackground);
+    color: var(--theia-list-activeSelectionForeground);
+}
+
+.geoapp-log-translate-menu__item--pinned {
+    color: var(--theia-focusBorder);
+}
+
+.geoapp-log-translate-menu__separator {
+    height: 1px;
+    margin: 4px 0;
+    background: var(--theia-menu-border);
+}
+
+.geoapp-log-translate-menu__empty {
+    padding: 7px 12px;
+    font-size: 12px;
+    font-style: italic;
+    opacity: 0.8;
+}
+
 .geoapp-log-batch-translation {
     display: flex;
     align-items: center;
@@ -433,17 +555,6 @@
 .geoapp-log-batch-translation__status {
     font-size: 12px;
     opacity: 0.8;
-}
-
-.geoapp-log-global__language {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-}
-
-.geoapp-log-global__language-select {
-    flex: 1;
-    min-width: 0;
 }
 
 .geoapp-log-global__pin {

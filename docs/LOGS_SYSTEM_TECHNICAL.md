@@ -584,8 +584,11 @@ dé-épingle. `loadPinnedLogLanguage()` est appelée en tête de `initializeSess
 `loadPinnedLogDate()`.
 
 Résolution de la langue courante : langue épinglée → sinon `defaultLanguage` si elle figure
-dans la liste → sinon la première de la liste → sinon rien (liste vide : le sélecteur et le
-bouton Traduire sont désactivés, avec un renvoi vers les préférences).
+dans la liste → sinon la première de la liste → sinon rien. Liste vide : le menu affiche
+un renvoi vers les préférences et l’action principale est désactivée.
+
+L’épinglage se pilote depuis le menu du split button (§ 13.6), et son état est reflété par une
+punaise dans le badge de langue — visible sans ouvrir le menu.
 
 Comme pour la date, une langue épinglée n’est jamais écrasée par la restauration d’un brouillon
 ou d’une entrée d’historique : `computeDraftApplication` et `computeHistoryApplication`
@@ -597,10 +600,17 @@ historiques écrits avant la fonctionnalité restent lisibles.
 
 | Emplacement | Élément |
 |---|---|
-| `global-log-editor.tsx` | Sélecteur de langue + punaise (ligne d’en-tête), boutons « 🌐 Traduire » et « ↩ Revenir à l’original » (toolbar) |
-| `per-cache-block.tsx` | « 🌐 Traduire » et « ↩ Original » par bloc |
-| `batch-translation-bar.tsx` | « Traduire tous les blocs » : `ConfirmDialog` annonçant le nombre d’appels, progression `n/N`, bouton Stop. Traitement **séquentiel** ; les blocs vides, ceux en `skip` et ceux déjà envoyés sont ignorés |
+| `translate-split-button.tsx` | **Split button** « Traduire » : action à gauche (avec badge de la langue active), ▾ à droite ouvrant le menu des langues + l’épinglage. Même motif que le split « Chat IA » de `geocache-details-sections.tsx` |
+| `global-log-editor.tsx` | Le split button et « ↩ Revenir à l’original » dans la toolbar du texte commun |
+| `per-cache-block.tsx` | « 🌐 Traduire » et « ↩ Original » par bloc — bouton simple : la langue est globale, et un menu par bloc serait illisible sur 30 caches |
+| `batch-translation-bar.tsx` | Le split button en « Traduire tous les blocs » : `ConfirmDialog` annonçant le nombre d’appels, progression `n/N`, bouton Stop. Traitement **séquentiel** ; les blocs vides, ceux en `skip` et ceux déjà envoyés sont ignorés |
 | `ai-generation-panel.tsx` | Rappel de la langue : la génération IA rédige **directement** dans la langue cible (`buildLogGenerationPrompt(..., targetLanguage)`), ce qui donne un meilleur texte que générer en français puis traduire |
+
+Les deux split buttons partagent un unique `isLanguageMenuOpen` côté widget : la toolbar du
+texte commun et la barre du mode par cache ne sont jamais affichées en même temps. Le composant
+gère lui-même la fermeture au clic extérieur et à `Escape`, et sélectionner une langue ou basculer
+l’épingle referme le menu. La langue n’est **plus** dans la ligne d’en-tête à côté de la date : elle est
+lisible dans le badge du split button, dans les deux modes de saisie.
 
 Les `deps` du `MemoizedFragment` des blocs par cache incluent `translatingKey === gc.id`,
 `logLanguage` et `preTranslationPerCacheText[gc.id]` : sans cela, le spinner et le bouton de

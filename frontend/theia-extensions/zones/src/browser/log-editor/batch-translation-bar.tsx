@@ -3,33 +3,54 @@
  *
  * Composant pur : tout l'état et les callbacks viennent du widget. C'est le seul point de la
  * traduction qui déclenche un appel LLM par géocache, d'où la progression et le bouton Stop.
+ * Elle porte aussi le choix de la langue pour ce mode de saisie, la barre d'outils du texte
+ * commun (qui porte l'autre split button) n'étant pas rendue ici.
  */
 
 import * as React from '@theia/core/shared/react';
+import { TranslateSplitButton } from './translate-split-button';
 
 export const BatchTranslationBar: React.FC<{
+    languages: string[];
     logLanguage: string;
+    isLogLanguagePinned: boolean;
     /** Non vide quand la traduction est impossible : sert d'infobulle sur le bouton désactivé. */
     disabledReason?: string;
     disabled: boolean;
     progress?: { current: number; total: number };
     stopRequested: boolean;
+    isLanguageMenuOpen: boolean;
+    onToggleLanguageMenu: () => void;
+    onCloseLanguageMenu: () => void;
+    onSelectLanguage: (language: string) => void;
+    onToggleLogLanguagePin: () => void;
     onTranslateAll: () => void;
     onRequestStop: () => void;
-}> = ({ logLanguage, disabledReason, disabled, progress, stopRequested, onTranslateAll, onRequestStop }) => (
+}> = ({
+    languages, logLanguage, isLogLanguagePinned, disabledReason, disabled, progress, stopRequested,
+    isLanguageMenuOpen, onToggleLanguageMenu, onCloseLanguageMenu, onSelectLanguage,
+    onToggleLogLanguagePin, onTranslateAll, onRequestStop,
+}) => (
     <div className='geoapp-log-batch-translation'>
-        <button
-            className='theia-button secondary geoapp-log-button--medium'
-            onClick={onTranslateAll}
-            disabled={disabled || progress !== undefined || disabledReason !== undefined}
-            title={disabledReason ?? `Traduire le texte de chaque géocache en ${logLanguage} avec l'IA (un appel par géocache)`}
-        >
-            🌐 Traduire tous les blocs
-        </button>
+        <TranslateSplitButton
+            label='Traduire tous les blocs'
+            languages={languages}
+            logLanguage={logLanguage}
+            isLogLanguagePinned={isLogLanguagePinned}
+            translateDisabled={disabled || progress !== undefined || disabledReason !== undefined}
+            translateDisabledReason={disabledReason}
+            isTranslating={progress !== undefined}
+            open={isLanguageMenuOpen}
+            onToggleMenu={onToggleLanguageMenu}
+            onCloseMenu={onCloseLanguageMenu}
+            onSelectLanguage={onSelectLanguage}
+            onToggleLogLanguagePin={onToggleLogLanguagePin}
+            onTranslate={onTranslateAll}
+        />
         {progress && (
             <>
                 <span className='geoapp-log-batch-translation__status' role='status' aria-live='polite'>
-                    Traduction {progress.current}/{progress.total}…
+                    {progress.current}/{progress.total}
                 </span>
                 <button
                     className='theia-button secondary geoapp-log-button--compact'

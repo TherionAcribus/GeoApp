@@ -14,6 +14,7 @@ import { MarkdownPreview } from './markdown-preview';
 import { MarkdownToolbar } from './markdown-toolbar';
 import { PatternAutocompleteMenu } from './pattern-autocomplete-menu';
 import { TextareaWithOverlay } from './textarea-overlay';
+import { TranslateSplitButton } from './translate-split-button';
 import { MarkdownFormatKind } from '../log-markdown';
 
 export interface GlobalLogEditorProps {
@@ -30,6 +31,9 @@ export interface GlobalLogEditorProps {
     onLogLanguageChange: (value: string) => void;
     isLogLanguagePinned: boolean;
     onToggleLogLanguagePin: () => void;
+    isLanguageMenuOpen: boolean;
+    onToggleLanguageMenu: () => void;
+    onCloseLanguageMenu: () => void;
     onTranslate: () => void;
     /** Non vide quand la traduction est impossible : sert d'infobulle sur le bouton désactivé. */
     translateDisabledReason?: string;
@@ -107,6 +111,7 @@ export const GlobalLogEditor: React.FC<GlobalLogEditorProps> = (props) => {
     const {
         logDate, onLogDateChange, isLogDatePinned, onToggleLogDatePin,
         translationLanguages, logLanguage, onLogLanguageChange, isLogLanguagePinned, onToggleLogLanguagePin,
+        isLanguageMenuOpen, onToggleLanguageMenu, onCloseLanguageMenu,
         onTranslate, translateDisabledReason, isTranslating, canRevertTranslation, onRevertTranslation,
         logType, onLogTypeChange, pendingAlreadyFoundCount, pendingAlreadyFoundCodes,
         useSameTextForAll, onToggleUseSameTextForAll, globalText, globalTextExcerpt, onApplyGlobalTextToAll,
@@ -120,6 +125,11 @@ export const GlobalLogEditor: React.FC<GlobalLogEditorProps> = (props) => {
         images, isImagesDisabled, isDragOver, onAddFiles, onRemoveImage, onDragOverChange, getPreviewUrl,
         resolvedText, previewKeyPrefix, isPreviewOpen, onPreviewToggle,
     } = props;
+
+    // Une seule raison pilote a la fois l'etat desactive et l'infobulle : sinon un bouton grise
+    // afficherait « Traduire en Allemand », ce qui ne dit pas pourquoi il ne repond pas.
+    const translateReason = translateDisabledReason
+        ?? (globalText.trim() === '' ? 'Le texte du log est vide : rien à traduire.' : undefined);
 
     return (
         <>
@@ -163,40 +173,6 @@ export const GlobalLogEditor: React.FC<GlobalLogEditorProps> = (props) => {
                             {pendingAlreadyFoundCount} déjà trouvée(s) → "Ne pas loguer"
                         </div>
                     )}
-                </div>
-                <div>
-                    <label className='geoapp-log-global__label'>Langue</label>
-                    <div className='geoapp-log-global__language'>
-                        <select
-                            className='theia-select geoapp-log-global__language-select'
-                            value={logLanguage}
-                            onChange={e => onLogLanguageChange(e.target.value)}
-                            disabled={translationLanguages.length === 0}
-                            title={translationLanguages.length === 0
-                                ? 'Aucune langue configurée : Préférences → Logs → Traduction.'
-                                : 'Langue cible de la traduction IA'}
-                        >
-                            {/* La langue épinglée peut avoir été retirée des préférences depuis :
-                                on l'ajoute en tête pour ne pas la perdre silencieusement. */}
-                            {logLanguage !== '' && !translationLanguages.includes(logLanguage) && (
-                                <option value={logLanguage}>{logLanguage}</option>
-                            )}
-                            {translationLanguages.map(language => (
-                                <option key={language} value={language}>{language}</option>
-                            ))}
-                        </select>
-                        <button
-                            className='theia-button secondary geoapp-log-global__pin'
-                            onClick={onToggleLogLanguagePin}
-                            disabled={translationLanguages.length === 0 && logLanguage === ''}
-                            title={isLogLanguagePinned
-                                ? 'Langue épinglée : elle sera réutilisée pour les prochains logs. Cliquer pour revenir à la langue par défaut.'
-                                : 'Épingler la langue pour la réutiliser lors des prochains logs'}
-                            aria-pressed={isLogLanguagePinned}
-                        >
-                            <i className={isLogLanguagePinned ? 'fa fa-thumb-tack' : 'fa fa-thumb-tack fa-rotate-90'} />
-                        </button>
-                    </div>
                 </div>
                 <div className='geoapp-log-global__same-text'>
                     <input
@@ -265,14 +241,21 @@ export const GlobalLogEditor: React.FC<GlobalLogEditorProps> = (props) => {
                             onApplyFormat={onApplyFormat}
                             onApplyPrefix={onApplyPrefix}
                         />
-                        <button
-                            className='theia-button secondary geoapp-log-button--medium'
-                            onClick={onTranslate}
-                            disabled={isToolbarDisabled || isTranslating || translateDisabledReason !== undefined || globalText.trim() === ''}
-                            title={translateDisabledReason ?? `Traduire le log en ${logLanguage} avec l'IA`}
-                        >
-                            {isTranslating ? '⏳ Traduction…' : `🌐 Traduire en ${logLanguage || '…'}`}
-                        </button>
+                        <TranslateSplitButton
+                            label='Traduire'
+                            languages={translationLanguages}
+                            logLanguage={logLanguage}
+                            isLogLanguagePinned={isLogLanguagePinned}
+                            translateDisabled={isToolbarDisabled || translateReason !== undefined}
+                            translateDisabledReason={translateReason}
+                            isTranslating={isTranslating}
+                            open={isLanguageMenuOpen}
+                            onToggleMenu={onToggleLanguageMenu}
+                            onCloseMenu={onCloseLanguageMenu}
+                            onSelectLanguage={onLogLanguageChange}
+                            onToggleLogLanguagePin={onToggleLogLanguagePin}
+                            onTranslate={onTranslate}
+                        />
                         {canRevertTranslation && (
                             <button
                                 className='theia-button secondary geoapp-log-button--compact'
